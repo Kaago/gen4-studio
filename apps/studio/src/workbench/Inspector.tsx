@@ -36,7 +36,7 @@ const box: CSSProperties = { padding: 16, fontFamily: "system-ui, sans-serif", f
 export function Inspector({ model, headerEditor }: { model: InspectorModel; headerEditor: HeaderEditorContext }) {
   switch (model.kind) {
     case "header":
-      return <HeaderEditor id={model.id} context={headerEditor} />;
+      return <HeaderEditor key={model.id} id={model.id} context={headerEditor} />;
     case "none":
       return <div style={box}>Nichts ausgewählt. Mit der Maus über ein Tile fahren oder einen Marker anklicken.</div>;
     case "event":

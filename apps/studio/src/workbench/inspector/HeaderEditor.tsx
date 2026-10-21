@@ -3,8 +3,9 @@ import type { CSSProperties } from "react";
 import { getHeader, headerFamily, setHeader } from "../../api";
 import type { HeaderSummary, MapHeader, MemberCounts } from "../../api";
 import { headerLabel } from "../headers";
-import { clampField, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
+import { clampField, fieldValue, headerFieldSpecs, pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
+import { HeaderSession } from "./headerCommit";
 
 /** What the header editor needs from App besides the header id. */
 export interface HeaderEditorContext {
@@ -32,13 +33,33 @@ function Field({ spec, value, max, onCommit }: FieldProps) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
 
+  const latest = useRef({ draft, value, max, spec, onCommit });
+  latest.current = { draft, value, max, spec, onCommit };
+
+  const pending = () => {
+    const { draft, spec, max } = latest.current;
+    return clampField(spec, draft.trim() === "" ? Number.NaN : Number(draft), max);
+  };
+
   const commit = () => {
-    const parsed = draft.trim() === "" ? Number.NaN : Number(draft);
-    const next = clampField(spec, parsed, max);
+    const next = pending();
     // Show what will be stored (clamped), also when nothing changes.
     setDraft(String(next));
     if (next !== value) onCommit(spec, next);
   };
+
+  // The inspector can swap the form for tile info while a field is still being typed in (hover
+  // does not blur it): write what was typed instead of losing it. The session belongs to this
+  // header, so this cannot reach another one.
+  useEffect(
+    () => () => {
+      if (spec.kind === "bool") return;
+      const next = pending();
+      const { value, spec: s, onCommit } = latest.current;
+      if (next !== value) onCommit(s, next);
+    },
+    [],
+  );
 
   const hint = spec.kind === "pick" && max !== undefined ? ` (0 bis ${max})` : "";
   return (
@@ -67,58 +88,43 @@ function Field({ spec, value, max, onCommit }: FieldProps) {
   );
 }
 
-/** Editable form of one map header; every committed field is one undoable change. */
+/**
+ * Editable form of one map header; every committed field is one undoable change. Render it with
+ * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
+ */
 export function HeaderEditor({ id, context }: { id: number; context: HeaderEditorContext }) {
   const { headers, counts, revision, onChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
-  const shownId = useRef<number | null>(null);
-  const current = useRef<MapHeader | null>(null);
-  // Commits run one after the other so a quick second edit builds on the first one's result.
-  const queue = useRef<Promise<void>>(Promise.resolve());
   const callbacks = useRef({ onChanged, onError });
   callbacks.current = { onChanged, onError };
+  const session = useRef<HeaderSession | null>(null);
 
+  // One session per mount. Disposing only cuts it off from this editor's state: a commit that
+  // is already queued (also an uncommitted field flushed on unmount) still writes its own header.
   useEffect(() => {
-    let cancelled = false;
-    // Keep showing the old values while an undo/redo refetch is under way; another header starts empty.
-    if (shownId.current !== id) {
-      current.current = null;
-      setHeaderState(null);
-      shownId.current = id;
-    }
-    getHeader(id)
-      .then((h) => {
-        if (cancelled) return;
-        current.current = h;
-        setHeaderState(h);
-      })
-      .catch((e) => {
-        if (!cancelled) callbacks.current.onError(e);
-      });
-    return () => {
-      cancelled = true;
-    };
+    const s = new HeaderSession(
+      id,
+      { getHeader, setHeader },
+      {
+        onState: setHeaderState,
+        onRefused: () => setRefused((n) => n + 1),
+        onChanged: () => callbacks.current.onChanged(),
+        onError: (e) => callbacks.current.onError(e),
+      },
+    );
+    session.current = s;
+    return () => s.dispose();
+  }, [id]);
+
+  // Load, and reload after undo/redo (queued behind pending commits). Keeps showing the old
+  // values meanwhile.
+  useEffect(() => {
+    void session.current?.load();
   }, [id, revision]);
 
-  const commit = (spec: FieldSpec, value: number) => {
-    queue.current = queue.current.then(async () => {
-      const base = current.current;
-      if (!base || fieldValue(base, spec.key) === value) return;
-      try {
-        const next = withField(base, spec.key, value);
-        await setHeader(id, next, spec.label);
-        current.current = next;
-        setHeaderState(next);
-        await callbacks.current.onChanged();
-      } catch (e) {
-        // The edit was refused: show the stored value again.
-        setRefused((n) => n + 1);
-        callbacks.current.onError(e);
-      }
-    });
-  };
+  const commit = (spec: FieldSpec, value: number) => void session.current?.commit(spec.key, spec.label, value);
 
   const summary = headers.find((h) => h.id === id);
   const title = `Header ${String(id).padStart(4, "0")}${summary ? ` · ${headerLabel(summary)}` : ""}`;
