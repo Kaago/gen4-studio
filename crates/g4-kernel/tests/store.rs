@@ -580,46 +580,84 @@ fn event_edit_undo_redo_and_dirty_follow_the_bytes() {
     assert_eq!(st.event(1).unwrap().warp_events.len(), 1);
 }
 
-#[test]
-fn event_file_that_does_not_round_trip_is_refused() {
-    let (s, mut st) = store();
+/// A readable event file that the codec cannot write back byte-identically is shown but
+/// locked: no edit, never dirty, `save` leaves its bytes alone.
+fn assert_event_locked(s: &common::Synthetic, st: &mut Store, bytes: &[u8], reason: &str) {
     let path = s.dir.path().join("unpacked/eventFiles/0000");
-    // Trailing byte after the four counters: uxie would drop it on write.
-    let mut bytes = vec![0u8; 16];
-    bytes.push(0x5A);
-    st.event(1).unwrap(); // unpacks the family
-    std::fs::write(&path, &bytes).unwrap();
-    let err = st.event(0).unwrap_err();
+    assert!(st.event(0).is_ok(), "the file is returned for display");
+    let err = st.edit_event(0, "x", |_| Ok(())).unwrap_err();
     assert!(
-        matches!(&err, KernelError::Uxie(m) if m.contains("does not round-trip")),
+        matches!(&err, KernelError::Uxie(m)
+            if m.contains("event file 0000 cannot be written back byte-identically")
+                && m.contains("editing is disabled")
+                && m.contains(reason)),
         "{err}"
     );
-    assert!(
-        st.edit_event(0, "x", |_| Ok(())).is_err(),
-        "an event file that cannot be reproduced is not editable"
-    );
+    assert!(st.undo().is_none(), "a refused edit leaves no changeset");
+    assert!(!st.is_dirty(event_id(0)));
     assert!(st.dirty().is_empty());
+    assert!(st.save().unwrap().written.is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
 #[test]
-fn event_file_with_platinum_warp_height_on_disk_is_refused() {
+fn event_file_with_trailing_bytes_is_shown_but_locked() {
+    let (s, mut st) = store();
+    st.event(1).unwrap(); // unpacks the family
+    let path = s.dir.path().join("unpacked/eventFiles/0000");
+    // Trailing byte after the four counters: uxie would drop it on write.
+    let mut bytes = vec![0u8; 16];
+    bytes.push(0x5A);
+    std::fs::write(&path, &bytes).unwrap();
+    assert!(st.event(0).unwrap().warp_events.is_empty());
+    assert_event_locked(&s, &mut st, &bytes, "17 bytes read, 16 would be written");
+}
+
+#[test]
+fn event_file_with_platinum_warp_height_on_disk_is_shown_but_locked() {
     let (s, mut st) = store();
     st.event(1).unwrap(); // unpacks the family
     // bg count 0, object count 0, warp count 1, one warp with height 1, coord count 0.
     let mut warp = [0u8; 12];
-    warp[8] = 1;
+    warp[0] = 8; // x
+    warp[8] = 1; // height
     let mut file = vec![0u8; 8];
     file.extend_from_slice(&1u32.to_le_bytes());
     file.extend_from_slice(&warp);
     file.extend_from_slice(&0u32.to_le_bytes());
     let path = s.dir.path().join("unpacked/eventFiles/0000");
     std::fs::write(&path, &file).unwrap();
-    assert!(matches!(
-        st.event(0).unwrap_err(),
-        KernelError::Uxie(m) if m.contains("warp height must be 0")
-    ));
-    assert_eq!(std::fs::read(&path).unwrap(), file);
+    let warps = &st.event(0).unwrap().warp_events;
+    assert_eq!((warps.len(), warps[0].x, warps[0].height), (1, 8, 1));
+    assert_event_locked(&s, &mut st, &file, "warp height must be 0");
+}
+
+#[test]
+fn locked_event_does_not_block_saving_other_assets_and_reload_unlocks_it() {
+    let (s, mut st) = store();
+    st.event(1).unwrap();
+    let path = s.dir.path().join("unpacked/eventFiles/0000");
+    let mut bytes = vec![0u8; 16];
+    bytes.push(0x5A);
+    std::fs::write(&path, &bytes).unwrap();
+    st.event(0).unwrap();
+    st.edit_event(1, "warp", |e| {
+        e.warp_events.push(WarpEvent {
+            x: 1,
+            z: 1,
+            dest_header_id: 1,
+            dest_warp_id: 0,
+            height: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.save().unwrap().written, vec![event_id(1)]);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    // Another tool fixes the file; reloading makes it editable.
+    std::fs::write(&path, vec![0u8; 16]).unwrap();
+    st.reload_from_disk(event_id(0)).unwrap();
+    st.edit_event(0, "ok", |_| Ok(())).unwrap();
 }
 
 #[test]

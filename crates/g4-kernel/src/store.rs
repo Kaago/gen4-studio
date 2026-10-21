@@ -59,23 +59,9 @@ impl Loaded {
             AssetKind::Map => Ok(Loaded::Map(MapFile::read(bytes, family)?)),
             AssetKind::Matrix => Ok(Loaded::Matrix(Matrix::read(bytes)?)),
             AssetKind::AreaData => Ok(Loaded::AreaData(AreaData::read(bytes, family)?)),
-            AssetKind::Event => {
-                let event = EventFile::from_binary(&mut Cursor::new(bytes))
-                    .map_err(|e| KernelError::Uxie(e.to_string()))?;
-                let loaded = Loaded::Event(event);
-                // uxie ignores trailing bytes and rejects some values on write. A file that
-                // would not be written back unchanged must never reach `save`.
-                let again = loaded.to_bytes(family)?;
-                if again != bytes {
-                    return Err(KernelError::Uxie(format!(
-                        "event file does not round-trip ({} bytes read, {} would be written); \
-                         refusing to edit it",
-                        bytes.len(),
-                        again.len()
-                    )));
-                }
-                Ok(loaded)
-            }
+            AssetKind::Event => EventFile::from_binary(&mut Cursor::new(bytes))
+                .map(Loaded::Event)
+                .map_err(|e| KernelError::Uxie(e.to_string())),
             AssetKind::TextArchive
             | AssetKind::MapTexture
             | AssetKind::BuildingTexture
@@ -99,10 +85,29 @@ impl Loaded {
     }
 }
 
+/// Why `value`, parsed from `bytes`, would not be written back unchanged; `None` if it
+/// would. uxie ignores trailing bytes on read and rejects some values (a Platinum or DP
+/// warp height other than 0) only on write, so an event file edited by another tool can
+/// be readable but not reproducible.
+fn unwritable_reason(value: &Loaded, bytes: &[u8], family: Family) -> Option<String> {
+    match value.to_bytes(family) {
+        Ok(again) if again == bytes => None,
+        Ok(again) => Some(format!(
+            "{} bytes read, {} would be written",
+            bytes.len(),
+            again.len()
+        )),
+        Err(e) => Some(e.to_string()),
+    }
+}
+
 struct Asset {
     /// Bytes of the member as last read from or written to disk.
     saved_bytes: Vec<u8>,
     current: Loaded,
+    /// Set when the loaded file cannot be written back byte-identically. Such an asset
+    /// is readable only: edits are refused, it is never dirty and `save` never writes it.
+    locked: Option<String>,
 }
 
 struct Changeset {
@@ -166,12 +171,15 @@ impl Store {
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
-            let current = Loaded::from_bytes(id.kind, &bytes, self.project.family)?;
+            let family = self.project.family;
+            let current = Loaded::from_bytes(id.kind, &bytes, family)?;
+            let locked = unwritable_reason(&current, &bytes, family);
             self.assets.insert(
                 id,
                 Asset {
                     saved_bytes: bytes,
                     current,
+                    locked,
                 },
             );
         }
@@ -215,7 +223,8 @@ impl Store {
     }
 
     /// Returns the event file `index`, loading it from disk on first use. A file that the
-    /// codec would not write back byte for byte is refused here, so it can never be saved.
+    /// codec would not write back byte for byte is still returned for display, but it is
+    /// locked: `edit_event` refuses it, it is never dirty and `save` never writes it.
     pub fn event(&mut self, index: u16) -> Result<&EventFile, KernelError> {
         let id = AssetId {
             kind: AssetKind::Event,
@@ -239,6 +248,11 @@ impl Store {
     ) -> Result<ChangeId, KernelError> {
         let family = self.project.family;
         let asset = self.load(id)?;
+        if let Some(reason) = &asset.locked {
+            return Err(KernelError::Uxie(format!(
+                "{id} cannot be written back byte-identically ({reason}); editing is disabled"
+            )));
+        }
         let before = asset.current.to_bytes(family)?;
         let mut edited = asset.current.clone();
         edit(&mut edited)?;
@@ -348,12 +362,15 @@ impl Store {
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
         let bytes = self.read_member(id)?;
-        let current = Loaded::from_bytes(id.kind, &bytes, self.project.family)?;
+        let family = self.project.family;
+        let current = Loaded::from_bytes(id.kind, &bytes, family)?;
+        let locked = unwritable_reason(&current, &bytes, family);
         self.assets.insert(
             id,
             Asset {
                 saved_bytes: bytes,
                 current,
+                locked,
             },
         );
         self.undo.retain(|c| c.asset != id);
@@ -414,9 +431,13 @@ impl Store {
     }
 
     /// True if the serialized current value differs from the bytes last saved or loaded,
-    /// or cannot be serialized. Assets that were never loaded are clean.
+    /// or cannot be serialized. Assets that were never loaded, and locked (read-only) ones,
+    /// are clean.
     pub fn is_dirty(&self, id: AssetId) -> bool {
         self.assets.get(&id).is_some_and(|a| {
+            if a.locked.is_some() {
+                return false;
+            }
             match a.current.to_bytes(self.project.family) {
                 Ok(bytes) => bytes != a.saved_bytes,
                 // Not serializable: report dirty so `save` surfaces the error.
