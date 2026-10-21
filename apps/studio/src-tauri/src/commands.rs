@@ -189,16 +189,13 @@ pub fn set_permission_impl(
         .project
         .ensure_unpacked(AssetKind::Map)
         .map_err(|e| e.to_string())?;
-    let mut result = Ok(());
     session
         .store
         .edit_map(index, "paint", |map| {
-            result = map
-                .set_cell(usize::from(x), usize::from(y), Cell { kind, collision })
-                .map_err(|e| e.to_string());
+            map.set_cell(usize::from(x), usize::from(y), Cell { kind, collision })
         })
         .map_err(|e| e.to_string())?;
-    result
+    Ok(())
 }
 
 pub fn undo_impl(state: &AppState) -> Result<bool, String> {

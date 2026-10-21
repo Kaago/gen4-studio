@@ -57,7 +57,7 @@ impl AssetKind {
     }
 
     /// Index into `ALL`.
-    fn slot(self) -> usize {
+    pub(crate) fn slot(self) -> usize {
         match self {
             AssetKind::Map => 0,
             AssetKind::Matrix => 1,

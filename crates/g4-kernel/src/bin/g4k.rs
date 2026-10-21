@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use g4_formats::map::Cell;
 use g4_kernel::build::{build, extract_rom};
 use g4_kernel::error::KernelError;
-use g4_kernel::project::{AssetKind, Project};
+use g4_kernel::project::Project;
 use g4_kernel::store::Store;
 
 #[derive(Parser)]
@@ -153,19 +153,8 @@ fn dump(path: &PathBuf, index: u16) -> Result<(), KernelError> {
 
 fn set_perm(path: &PathBuf, index: u16, x: usize, y: usize, cell: Cell) -> Result<(), KernelError> {
     let project = Project::open(path)?;
-    project.ensure_unpacked(AssetKind::Map)?;
     let mut store = Store::new(Arc::new(project));
-    // Range-check first so an invalid cell never creates a (no-op) change.
-    store.map(index)?.cell(x, y)?;
-    let mut failure = None;
-    store.edit_map(index, "set permission", |m| {
-        if let Err(e) = m.set_cell(x, y, cell) {
-            failure = Some(e);
-        }
-    })?;
-    if let Some(e) = failure {
-        return Err(e.into());
-    }
+    store.edit_map(index, "set permission", |m| m.set_cell(x, y, cell))?;
     let report = store.save()?;
     println!("saved {} file(s)", report.written.len());
     Ok(())

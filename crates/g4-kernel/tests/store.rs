@@ -3,10 +3,13 @@ mod common;
 
 use std::sync::Arc;
 
-use g4_formats::map::Cell;
+use g4_formats::area_data::AreaData;
+use g4_formats::error::FormatError;
+use g4_formats::game::Family;
+use g4_formats::map::{Cell, MapFile};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::store::{AssetId, Store};
+use g4_kernel::store::{AssetId, Store, WarpEvent};
 
 fn store() -> (common::Synthetic, Store) {
     let s = common::synthetic_project();
@@ -40,7 +43,6 @@ fn edit_marks_dirty_and_undo_clears_it() {
                 collision: 0x80,
             },
         )
-        .unwrap()
     })
     .unwrap();
     assert!(st.is_dirty(id));
@@ -63,7 +65,6 @@ fn save_writes_only_dirty_members() {
                 collision: 0,
             },
         )
-        .unwrap()
     })
     .unwrap();
     let before0 = std::fs::read(s.dir.path().join("unpacked/maps/0000")).unwrap();
@@ -109,7 +110,6 @@ fn edit_cell(st: &mut Store, index: u16) {
                 collision: 0,
             },
         )
-        .unwrap()
     })
     .unwrap();
 }
@@ -152,7 +152,6 @@ fn save_refuses_when_disk_changed_since_load() {
                 collision: 0,
             },
         )
-        .unwrap()
     })
     .unwrap();
     let path = s.dir.path().join("unpacked/maps/0000");
@@ -177,10 +176,8 @@ fn stale_member_blocks_the_whole_save() {
         kind: 3,
         collision: 0,
     };
-    st.edit_map(0, "a", |m| m.set_cell(0, 0, cell).unwrap())
-        .unwrap();
-    st.edit_map(1, "b", |m| m.set_cell(0, 0, cell).unwrap())
-        .unwrap();
+    st.edit_map(0, "a", |m| m.set_cell(0, 0, cell)).unwrap();
+    st.edit_map(1, "b", |m| m.set_cell(0, 0, cell)).unwrap();
     let stale = s.dir.path().join("unpacked/maps/0001");
     let mut foreign = std::fs::read(&stale).unwrap();
     foreign[17] ^= 0xFF;
@@ -202,7 +199,11 @@ fn stale_member_blocks_the_whole_save() {
 #[test]
 fn matrix_edit_round_trips_through_save() {
     let (s, mut st) = store();
-    st.edit_matrix(0, "assign", |m| m.maps[1] = 2).unwrap();
+    st.edit_matrix(0, "assign", |m| {
+        m.maps[1] = 2;
+        Ok(())
+    })
+    .unwrap();
     st.save().unwrap();
     let bytes = std::fs::read(s.dir.path().join("unpacked/matrices/0000")).unwrap();
     assert_eq!(
@@ -217,7 +218,10 @@ fn invalid_edit_is_rolled_back() {
     let id = map_id(1);
     let before = st.map(1).unwrap().clone();
     let err = st
-        .edit_map(1, "break", |m| m.permissions.truncate(10))
+        .edit_map(1, "break", |m| {
+            m.permissions.truncate(10);
+            Ok(())
+        })
         .unwrap_err();
     assert!(matches!(err, KernelError::Format(_)));
     assert!(!st.is_dirty(id));
@@ -231,6 +235,7 @@ fn invalid_matrix_edit_is_rolled_back() {
     let before = st.matrix(0).unwrap().clone();
     let err = st.edit_matrix(0, "break", |m| {
         m.maps.pop();
+        Ok(())
     });
     assert!(matches!(err, Err(KernelError::Format(_))));
     assert_eq!(*st.matrix(0).unwrap(), before);
@@ -241,9 +246,9 @@ fn invalid_matrix_edit_is_rolled_back() {
 #[test]
 fn edit_that_changes_nothing_records_no_changeset() {
     let (_s, mut st) = store();
-    st.edit_map(1, "noop", |_| {}).unwrap();
+    st.edit_map(1, "noop", |_| Ok(())).unwrap();
     let same = st.map(1).unwrap().cell(2, 2).unwrap();
-    st.edit_map(1, "same cell", |m| m.set_cell(2, 2, same).unwrap())
+    st.edit_map(1, "same cell", |m| m.set_cell(2, 2, same))
         .unwrap();
     assert!(!st.is_dirty(map_id(1)));
     assert!(st.undo().is_none());
@@ -260,11 +265,9 @@ fn new_edit_after_undo_clears_redo() {
         kind: 2,
         collision: 0,
     };
-    st.edit_map(1, "a", |m| m.set_cell(0, 0, a).unwrap())
-        .unwrap();
+    st.edit_map(1, "a", |m| m.set_cell(0, 0, a)).unwrap();
     assert!(st.undo().is_some());
-    st.edit_map(1, "b", |m| m.set_cell(0, 0, b).unwrap())
-        .unwrap();
+    st.edit_map(1, "b", |m| m.set_cell(0, 0, b)).unwrap();
     assert!(st.redo().is_none());
     assert_eq!(st.map(1).unwrap().cell(0, 0).unwrap(), b);
 }
@@ -282,10 +285,14 @@ fn undo_and_redo_walk_the_history_in_order() {
                     collision: 0,
                 },
             )
-            .unwrap()
         })
         .unwrap();
-    let c2 = st.edit_matrix(0, "two", |m| m.maps[1] = 2).unwrap();
+    let c2 = st
+        .edit_matrix(0, "two", |m| {
+            m.maps[1] = 2;
+            Ok(())
+        })
+        .unwrap();
     assert_ne!(c1, c2);
     assert_eq!(st.undo(), Some(c2));
     assert_eq!(st.undo(), Some(c1));
@@ -317,7 +324,6 @@ fn undo_after_save_makes_the_asset_dirty_again() {
                 collision: 0,
             },
         )
-        .unwrap()
     })
     .unwrap();
     st.save().unwrap();
@@ -348,8 +354,7 @@ fn vanilla_edit_save_round_trip_on_copy() {
     };
 
     let mut st = Store::new(Arc::new(project));
-    st.edit_map(0, "flip", |m| m.set_cell(3, 5, new).unwrap())
-        .unwrap();
+    st.edit_map(0, "flip", |m| m.set_cell(3, 5, new)).unwrap();
     assert_eq!(st.save().unwrap().written, vec![map_id(0)]);
 
     let project = Project::open(&root).unwrap();
@@ -361,4 +366,496 @@ fn vanilla_edit_save_round_trip_on_copy() {
     assert_eq!(saved.len(), original.len());
     let differing = saved.iter().zip(&original).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 1, "exactly the edited cell byte changes");
+}
+
+/// Reads every event file of the vanilla project (read-only, from the packed NARC) and
+/// asserts that the codec reproduces its bytes. The store relies on this to be allowed to
+/// write event files at all.
+#[test]
+fn vanilla_event_files_round_trip_byte_identically() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let project = Project::open(&root).unwrap();
+    let family = match project.family {
+        g4_formats::game::Family::Dp => uxie::GameFamily::DP,
+        g4_formats::game::Family::Pt => uxie::GameFamily::Platinum,
+        g4_formats::game::Family::Hgss => uxie::GameFamily::HGSS,
+    };
+    let packed = root.join(project.archives.packed(AssetKind::Event).unwrap());
+    let narc = g4_formats::narc::Narc::read(&std::fs::read(packed).unwrap()).unwrap();
+    assert!(!narc.members.is_empty());
+    eprintln!("checked {} event files", narc.members.len());
+    let mut bad = Vec::new();
+    for (i, member) in narc.members.iter().enumerate() {
+        let parsed = uxie::event_file::EventFile::from_binary(&mut std::io::Cursor::new(member));
+        let reproduced = parsed.and_then(|e| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            e.to_binary_for(&mut out, family)?;
+            Ok(out.into_inner())
+        });
+        match reproduced {
+            Ok(bytes) if bytes == *member => {}
+            Ok(bytes) => bad.push(format!(
+                "{i:04}: {} bytes in, {} out",
+                member.len(),
+                bytes.len()
+            )),
+            Err(e) => bad.push(format!("{i:04}: {e}")),
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} of {} event files do not round-trip: {bad:#?}",
+        bad.len(),
+        narc.members.len()
+    );
+}
+
+fn area_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::AreaData,
+        index,
+    }
+}
+
+fn event_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Event,
+        index,
+    }
+}
+
+#[test]
+fn store_unpacks_on_first_access() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert!(!s.dir.path().join("unpacked/eventFiles").exists());
+    assert_eq!(st.event(0).unwrap().warp_events.len(), 0);
+    assert!(s.dir.path().join("unpacked/eventFiles/0000").exists());
+    // Only the family that was touched is unpacked.
+    assert!(!s.dir.path().join("unpacked/maps").exists());
+    assert!(!s.dir.path().join("unpacked/areaData").exists());
+    st.area_data(1).unwrap();
+    assert!(s.dir.path().join("unpacked/areaData/0001").exists());
+}
+
+#[test]
+fn read_only_kinds_are_not_unpacked_by_the_store() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    // No accessor exists for read-only kinds; the reload path shows the refusal.
+    let id = AssetId {
+        kind: AssetKind::TextArchive,
+        index: 0,
+    };
+    assert!(matches!(
+        st.reload_from_disk(id).unwrap_err(),
+        KernelError::NotEditable(AssetKind::TextArchive)
+    ));
+    assert!(!s.dir.path().join("unpacked/textArchives").exists());
+}
+
+#[test]
+fn failing_edit_closure_is_rolled_back() {
+    let (_s, mut st) = store();
+    let err = st
+        .edit_map(1, "x", |m| m.set_cell(99, 0, Cell::default()))
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        KernelError::Format(FormatError::OutOfRange { .. })
+    ));
+    assert!(!st.is_dirty(map_id(1)));
+    assert!(st.undo().is_none());
+}
+
+#[test]
+fn closure_error_keeps_changes_made_before_it_out_of_the_store() {
+    let (_s, mut st) = store();
+    let before = st.map(1).unwrap().clone();
+    let err = st
+        .edit_map(1, "half", |m| {
+            m.set_cell(
+                0,
+                0,
+                Cell {
+                    kind: 9,
+                    collision: 9,
+                },
+            )?;
+            m.set_cell(99, 0, Cell::default())
+        })
+        .unwrap_err();
+    assert!(matches!(err, KernelError::Format(_)));
+    assert_eq!(*st.map(1).unwrap(), before);
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn failing_event_closure_is_rolled_back() {
+    let (_s, mut st) = store();
+    let err = st
+        .edit_event(0, "x", |e| {
+            e.warp_events.push(WarpEvent {
+                x: 1,
+                z: 1,
+                dest_header_id: 1,
+                dest_warp_id: 0,
+                height: 0,
+            });
+            Err(FormatError::OutOfRange {
+                what: "warp",
+                value: 1,
+                max: 0,
+            })
+        })
+        .unwrap_err();
+    assert!(matches!(err, KernelError::Format(_)));
+    assert!(st.event(0).unwrap().warp_events.is_empty());
+    assert!(st.undo().is_none());
+}
+
+#[test]
+fn event_edit_round_trips_and_validates_warp_height() {
+    let (s, mut st) = store(); // synthetic project is Platinum
+    st.edit_event(0, "warp", |e| {
+        e.warp_events.push(WarpEvent {
+            x: 8,
+            z: 4,
+            dest_header_id: 414,
+            dest_warp_id: 0,
+            height: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.dirty(), vec![event_id(0)]);
+    st.save().unwrap();
+    let bytes = std::fs::read(s.dir.path().join("unpacked/eventFiles/0000")).unwrap();
+    assert_eq!(bytes.len(), 16 + 12);
+    assert_eq!(&bytes[8..12], &1u32.to_le_bytes()); // warp count after bg and object counts
+    assert_eq!(&bytes[12..14], &8u16.to_le_bytes()); // warp x
+    assert_eq!(&bytes[16..18], &414u16.to_le_bytes()); // destination header
+    assert_eq!(&bytes[24..28], &0u32.to_le_bytes()); // coord count
+    // The other event file is untouched.
+    assert_eq!(
+        std::fs::read(s.dir.path().join("unpacked/eventFiles/0001")).unwrap(),
+        vec![0; 16]
+    );
+
+    let err = st
+        .edit_event(0, "bad", |e| {
+            e.warp_events[0].height = 1;
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(&err, KernelError::Uxie(m) if m.contains("warp height must be 0")));
+    assert_eq!(st.event(0).unwrap().warp_events[0].height, 0);
+    assert!(!st.is_dirty(event_id(0)));
+    // The rejected edit left no changeset: the only undo step is the first edit.
+    assert!(st.undo().is_some());
+    assert!(st.undo().is_none());
+}
+
+#[test]
+fn event_edit_undo_redo_and_dirty_follow_the_bytes() {
+    let (_s, mut st) = store();
+    st.edit_event(1, "warp", |e| {
+        e.warp_events.push(WarpEvent {
+            x: 1,
+            z: 2,
+            dest_header_id: 3,
+            dest_warp_id: 4,
+            height: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    assert!(st.is_dirty(event_id(1)));
+    assert!(st.undo().is_some());
+    assert!(!st.is_dirty(event_id(1)));
+    assert!(st.event(1).unwrap().warp_events.is_empty());
+    assert!(st.redo().is_some());
+    assert_eq!(st.event(1).unwrap().warp_events.len(), 1);
+}
+
+#[test]
+fn event_file_that_does_not_round_trip_is_refused() {
+    let (s, mut st) = store();
+    let path = s.dir.path().join("unpacked/eventFiles/0000");
+    // Trailing byte after the four counters: uxie would drop it on write.
+    let mut bytes = vec![0u8; 16];
+    bytes.push(0x5A);
+    st.event(1).unwrap(); // unpacks the family
+    std::fs::write(&path, &bytes).unwrap();
+    let err = st.event(0).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Uxie(m) if m.contains("does not round-trip")),
+        "{err}"
+    );
+    assert!(
+        st.edit_event(0, "x", |_| Ok(())).is_err(),
+        "an event file that cannot be reproduced is not editable"
+    );
+    assert!(st.dirty().is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn event_file_with_platinum_warp_height_on_disk_is_refused() {
+    let (s, mut st) = store();
+    st.event(1).unwrap(); // unpacks the family
+    // bg count 0, object count 0, warp count 1, one warp with height 1, coord count 0.
+    let mut warp = [0u8; 12];
+    warp[8] = 1;
+    let mut file = vec![0u8; 8];
+    file.extend_from_slice(&1u32.to_le_bytes());
+    file.extend_from_slice(&warp);
+    file.extend_from_slice(&0u32.to_le_bytes());
+    let path = s.dir.path().join("unpacked/eventFiles/0000");
+    std::fs::write(&path, &file).unwrap();
+    assert!(matches!(
+        st.event(0).unwrap_err(),
+        KernelError::Uxie(m) if m.contains("warp height must be 0")
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), file);
+}
+
+#[test]
+fn area_data_edit_round_trips() {
+    let (s, mut st) = store();
+    st.edit_area_data(1, "tileset", |a| {
+        if let AreaData::Dppt { map_tileset, .. } = a {
+            *map_tileset = 7;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.area_data(1).unwrap().map_tileset(), 7);
+    st.save().unwrap();
+    let bytes = std::fs::read(s.dir.path().join("unpacked/areaData/0001")).unwrap();
+    assert_eq!(bytes[2..4], 7u16.to_le_bytes());
+    // The other fields keep their bytes.
+    assert_eq!(bytes[0..2], 1u16.to_le_bytes());
+    assert_eq!(bytes.len(), 8);
+    assert_eq!(
+        std::fs::read(s.dir.path().join("unpacked/areaData/0000")).unwrap(),
+        vec![0; 8]
+    );
+}
+
+#[test]
+fn stale_recovery_reload_and_accept() {
+    let (s, mut st) = store();
+    let id = map_id(0);
+    let original = st.map(0).unwrap().cell(1, 1).unwrap();
+    st.edit_map(0, "mine", |m| {
+        m.set_cell(
+            1,
+            1,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    let path = s.dir.path().join("unpacked/maps/0000");
+    // Cell (5, 6): x + 32 * y; the permission block starts after the 16-byte header.
+    let mut theirs = std::fs::read(&path).unwrap();
+    assert_eq!(theirs[16 + 2 * (6 * 32 + 5) + 1], 0);
+    theirs[16 + 2 * (6 * 32 + 5) + 1] = 0x80;
+    std::fs::write(&path, &theirs).unwrap();
+    assert!(matches!(st.save().unwrap_err(), KernelError::Stale(i) if i == id));
+    st.reload_from_disk(id).unwrap();
+    assert!(!st.is_dirty(id));
+    assert_eq!(st.map(0).unwrap().cell(5, 6).unwrap().collision, 0x80); // theirs
+    assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap(), original); // mine gone
+    assert!(st.undo().is_none());
+    assert!(st.redo().is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), theirs);
+
+    // Second round: keep mine.
+    st.edit_map(0, "mine2", |m| {
+        m.set_cell(
+            2,
+            2,
+            Cell {
+                kind: 2,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    let mut t2 = theirs.clone();
+    assert_eq!(t2[16 + 2 * (8 * 32 + 6) + 1], 0);
+    t2[16 + 2 * (8 * 32 + 6) + 1] = 0x80;
+    std::fs::write(&path, &t2).unwrap();
+    assert!(st.save().is_err());
+    st.accept_disk_as_base(id).unwrap();
+    assert!(st.is_dirty(id));
+    st.save().unwrap();
+    let on_disk = MapFile::read(&std::fs::read(&path).unwrap(), Family::Pt).unwrap();
+    assert_eq!(on_disk.cell(2, 2).unwrap().kind, 2);
+    assert!(st.dirty().is_empty());
+    // Undo still reaches the state before my edit and is dirty against the new disk.
+    assert!(st.undo().is_some());
+    assert!(st.is_dirty(id));
+}
+
+#[test]
+fn reload_discards_only_the_changesets_of_that_asset() {
+    let (_s, mut st) = store();
+    st.edit_map(0, "map", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    let matrix_change = st
+        .edit_matrix(0, "matrix", |m| {
+            m.maps[1] = 2;
+            Ok(())
+        })
+        .unwrap();
+    st.edit_map(0, "map again", |m| {
+        m.set_cell(
+            0,
+            1,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    assert!(st.undo().is_some()); // leaves one undone map changeset on the redo stack
+    st.reload_from_disk(map_id(0)).unwrap();
+    assert!(st.redo().is_none());
+    assert_eq!(st.undo(), Some(matrix_change));
+    assert!(st.undo().is_none());
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn reload_of_a_deleted_member_fails_without_touching_the_store() {
+    let (s, mut st) = store();
+    st.edit_map(0, "mine", |m| {
+        m.set_cell(
+            1,
+            1,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    std::fs::remove_file(s.dir.path().join("unpacked/maps/0000")).unwrap();
+    assert!(st.reload_from_disk(map_id(0)).is_err());
+    assert!(st.accept_disk_as_base(map_id(0)).is_err());
+    assert!(st.is_dirty(map_id(0)));
+    assert!(st.undo().is_some());
+}
+
+#[test]
+fn reload_of_garbage_on_disk_keeps_my_changes() {
+    let (s, mut st) = store();
+    st.edit_map(0, "mine", |m| {
+        m.set_cell(
+            1,
+            1,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    std::fs::write(s.dir.path().join("unpacked/maps/0000"), b"garbage").unwrap();
+    assert!(st.reload_from_disk(map_id(0)).is_err());
+    assert!(st.is_dirty(map_id(0)));
+    assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap().kind, 1);
+    assert!(st.undo().is_some());
+}
+
+#[test]
+fn vanilla_event_edit_save_round_trip_on_copy() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Project::open(&root).unwrap();
+    let hgss = project.family == Family::Hgss;
+    let path = project.member_path(AssetKind::Event, 3);
+    let mut st = Store::new(Arc::new(project));
+    let before = st.event(3).unwrap().clone();
+    let original = std::fs::read(&path).unwrap();
+    let height = if hgss { 5 } else { 0 };
+    st.edit_event(3, "warp", |e| {
+        e.warp_events.push(WarpEvent {
+            x: 1,
+            z: 2,
+            dest_header_id: 3,
+            dest_warp_id: 0,
+            height,
+        });
+        Ok(())
+    })
+    .unwrap();
+    if !hgss {
+        let err = st
+            .edit_event(3, "bad", |e| {
+                e.warp_events.last_mut().unwrap().height = 1;
+                Ok(())
+            })
+            .unwrap_err();
+        assert!(matches!(err, KernelError::Uxie(_)));
+    }
+    assert_eq!(st.save().unwrap().written, vec![event_id(3)]);
+
+    let mut fresh = Store::new(Arc::new(Project::open(&root).unwrap()));
+    let after = fresh.event(3).unwrap();
+    assert_eq!(after.warp_events.len(), before.warp_events.len() + 1);
+    assert_eq!(after.warp_events.last().unwrap().height, height);
+    assert_eq!(after.bg_events, before.bg_events);
+    assert_eq!(after.object_events, before.object_events);
+    assert_eq!(after.coord_events, before.coord_events);
+    assert!(fresh.dirty().is_empty());
+    assert_eq!(
+        std::fs::read(&path).unwrap().len(),
+        original.len() + 12,
+        "one 12-byte warp added"
+    );
+}
+
+#[test]
+fn vanilla_area_data_edit_save_round_trip_on_copy() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Project::open(&root).unwrap();
+    let packed = root.join(project.archives.packed(AssetKind::AreaData).unwrap());
+    let narc = g4_formats::narc::Narc::read(&std::fs::read(packed).unwrap()).unwrap();
+    let original = narc.members[1].clone();
+    let path = project.member_path(AssetKind::AreaData, 1);
+    let mut st = Store::new(Arc::new(project));
+    let new = st.area_data(1).unwrap().map_tileset() ^ 1;
+    st.edit_area_data(1, "tileset", |a| {
+        let (AreaData::Dppt { map_tileset, .. } | AreaData::Hgss { map_tileset, .. }) = a;
+        *map_tileset = new;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.save().unwrap().written, vec![area_id(1)]);
+    let saved = std::fs::read(&path).unwrap();
+    assert_eq!(saved.len(), original.len());
+    assert_eq!(saved[2..4], new.to_le_bytes());
+    let differing = saved.iter().zip(&original).filter(|(a, b)| a != b).count();
+    assert_eq!(differing, 1, "only the tileset changes (low bit flipped)");
 }
