@@ -147,6 +147,53 @@ fn ensure_unpacked_does_not_overwrite_existing_dir() {
 }
 
 #[test]
+fn concurrent_ensure_unpacked_yields_a_complete_folder_and_no_temp_leftovers() {
+    const THREADS: usize = 8;
+    for _ in 0..20 {
+        let s = common::synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let barrier = std::sync::Barrier::new(THREADS);
+        let counts: Vec<usize> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..THREADS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        p.ensure_unpacked(AssetKind::Map).unwrap()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(counts, vec![3; THREADS]);
+        for i in 0..3 {
+            assert!(p.member_path(AssetKind::Map, i).is_file(), "member {i}");
+        }
+        let leftovers: Vec<_> = std::fs::read_dir(s.dir.path().join("unpacked"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n != "maps")
+            .collect();
+        assert!(leftovers.is_empty(), "temp leftovers: {leftovers:?}");
+    }
+}
+
+#[test]
+fn ensure_unpacked_removes_its_temp_folder_on_failure() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    // A file where the unpacked folder must go makes the final rename fail.
+    std::fs::create_dir_all(s.dir.path().join("unpacked")).unwrap();
+    std::fs::write(s.dir.path().join("unpacked/maps"), b"in the way").unwrap();
+    assert!(p.ensure_unpacked(AssetKind::Map).is_err());
+    let leftovers: Vec<_> = std::fs::read_dir(s.dir.path().join("unpacked"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n != "maps")
+        .collect();
+    assert!(leftovers.is_empty(), "temp leftovers: {leftovers:?}");
+}
+
+#[test]
 fn unpacked_members_equal_narc_members() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();

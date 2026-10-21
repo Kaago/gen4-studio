@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use g4_formats::area_data::AreaData;
 use g4_formats::game::{Family, Language};
@@ -319,19 +320,40 @@ impl Project {
         let narc = self.read_packed(kind)?;
         let parent = self.root.join("unpacked");
         std::fs::create_dir_all(&parent).map_err(io_at(&parent))?;
-        // Write into a sibling folder and rename, so an interrupted unpack never
-        // leaves a partial folder that would later be mistaken for a complete one.
-        let tmp = parent.join(format!(".{}.unpacking", self.archives.unpacked_name(kind)));
-        if tmp.exists() {
-            std::fs::remove_dir_all(&tmp).map_err(io_at(&tmp))?;
+        // Write into a uniquely named sibling folder and rename, so an interrupted unpack
+        // never leaves a partial folder that would later be mistaken for a complete one, and
+        // overlapping callers never share a temp folder.
+        static UNPACK_SEQ: AtomicU64 = AtomicU64::new(0);
+        let tmp = parent.join(format!(
+            ".{}.unpacking.{}.{}",
+            self.archives.unpacked_name(kind),
+            std::process::id(),
+            UNPACK_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let result = Self::write_members(&tmp, &narc)
+            .and_then(|()| std::fs::rename(&tmp, &dir).map_err(io_at(&dir)));
+        match result {
+            Ok(()) => Ok(narc.members.len()),
+            Err(e) => {
+                // Best effort: the temp folder is ours alone, a leftover is harmless but untidy.
+                let _ = std::fs::remove_dir_all(&tmp);
+                // A concurrent caller won the race: its complete folder is the result.
+                if dir.is_dir() {
+                    Self::count_unpacked(&dir)
+                } else {
+                    Err(e)
+                }
+            }
         }
-        std::fs::create_dir(&tmp).map_err(io_at(&tmp))?;
+    }
+
+    fn write_members(tmp: &Path, narc: &Narc) -> Result<(), KernelError> {
+        std::fs::create_dir(tmp).map_err(io_at(tmp))?;
         for (i, member) in narc.members.iter().enumerate() {
             let path = tmp.join(format!("{i:04}"));
             std::fs::write(&path, member).map_err(io_at(&path))?;
         }
-        std::fs::rename(&tmp, &dir).map_err(io_at(&dir))?;
-        Ok(narc.members.len())
+        Ok(())
     }
 
     /// Member count of the archive of `kind`, without unpacking anything.
