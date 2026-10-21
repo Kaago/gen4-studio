@@ -126,6 +126,21 @@ export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
 export const getMapModelGlb = (index: number, areaDataId: number) =>
   invoke<ArrayBuffer>("get_map_model_glb", { index, areaDataId });
 
+/** Why a map's model is untextured because of its tileset (see `mapModelTextureStatus`). */
+export interface TextureIssue {
+  /** Tileset index; null when the area data itself could not be read. */
+  tileset: number | null;
+  /** First line of the backend's (English) error. */
+  reason: string;
+}
+
+/**
+ * Whether the model of a map is shown untextured because its tileset or area data is unusable.
+ * Ask after `getMapModelGlb`: it reads the backend's failure marker and never runs apicula.
+ */
+export const mapModelTextureStatus = (index: number, areaDataId: number) =>
+  invoke<TextureIssue | null>("map_model_texture_status", { index, areaDataId });
+
 export type AssetKind =
   | "Map"
   | "Matrix"
@@ -166,7 +181,7 @@ export interface SaveReport {
 export interface BuildReport {
   /** Dirty assets that were saved before building. */
   saved: number;
-  /** Asset kinds that were packed (maps, matrices, areaData) with their member counts. */
+  /** Asset kinds that were packed (every kind the project has an archive for, by unpacked folder name) with their member counts. */
   packed: [string, number][];
   rom: string;
 }

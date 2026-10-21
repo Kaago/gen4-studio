@@ -1,3 +1,5 @@
+import type { TextureIssue } from "../api";
+
 /** How many map models are fetched and parsed at the same time (each one may run apicula). */
 export const MODEL_CONCURRENCY = 4;
 
@@ -27,4 +29,21 @@ export async function limitConcurrency<T>(
   };
   await Promise.all(Array.from({ length: Math.min(Math.max(cap, 1), tasks.length) }, worker));
   return results;
+}
+
+/**
+ * One status note for all texture problems met while loading a matrix, one entry per distinct
+ * tileset (every map of an area shares the same one); null when there were none.
+ */
+export function textureNote(issues: readonly TextureIssue[]): string | null {
+  const parts = new Map<string, string>();
+  for (const { tileset } of issues) {
+    const key = tileset === null ? "area" : String(tileset);
+    if (parts.has(key)) continue;
+    parts.set(
+      key,
+      tileset === null ? "Area-Data nicht lesbar" : `Tileset ${String(tileset).padStart(4, "0")} nicht konvertierbar`,
+    );
+  }
+  return parts.size === 0 ? null : `${[...parts.values()].join(", ")} – Karten untexturiert`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_CONCURRENCY, limitConcurrency } from "./load";
+import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 
 describe("limitConcurrency", () => {
   it("never exceeds the cap and reports progress", async () => {
@@ -61,5 +61,26 @@ describe("limitConcurrency", () => {
 
   it("uses a model concurrency of 4", () => {
     expect(MODEL_CONCURRENCY).toBe(4);
+  });
+});
+
+describe("textureNote", () => {
+  it("is null without issues", () => {
+    expect(textureNote([])).toBeNull();
+  });
+
+  it("names the tileset once however many maps share it", () => {
+    const issue = { tileset: 12, reason: "bad tileset" };
+    expect(textureNote([issue, issue, issue])).toBe("Tileset 0012 nicht konvertierbar – Karten untexturiert");
+  });
+
+  it("lists distinct tilesets and unreadable area data", () => {
+    expect(
+      textureNote([
+        { tileset: 3, reason: "a" },
+        { tileset: null, reason: "b" },
+        { tileset: 12, reason: "c" },
+      ]),
+    ).toBe("Tileset 0003 nicht konvertierbar, Area-Data nicht lesbar, Tileset 0012 nicht konvertierbar – Karten untexturiert");
   });
 });

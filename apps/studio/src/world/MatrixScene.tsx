@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { errorText, getEvents, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
+import { errorText, getEvents, getMap, getMapModelGlb, mapModelTextureStatus, setPermission, tileBehaviors } from "../api";
+import type { TextureIssue } from "../api";
 import type { Message } from "../Toolbar";
 import { headerLabel } from "../workbench/headers";
 import type { EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
@@ -12,7 +13,7 @@ import { permissionColor } from "./colors";
 import { MARKER_COLORS, markerPosition } from "./events";
 import type { EventData, EventKind } from "./events";
 import { describeTile } from "./hover";
-import { MODEL_CONCURRENCY, limitConcurrency } from "./load";
+import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 
@@ -584,9 +585,15 @@ function MatrixScene({
       // Models: a task that has not started when the load is superseded never starts; a started
       // one finishes, but its scene is disposed instead of added.
       const modelIds = [...loaded.keys()];
+      const textureIssues: TextureIssue[] = [];
       const tasks = modelIds.map((id) => async () => {
         if (cancelled || handle.current !== h) return;
         const model = await getMapModelGlb(id, area).then(parseGlb);
+        // The backend falls back to an untextured model when the tileset is unusable; ask why.
+        // A failing status call only costs the note.
+        await mapModelTextureStatus(id, area)
+          .then((issue) => issue && textureIssues.push(issue))
+          .catch(() => undefined);
         if (cancelled || handle.current !== h) {
           disposeTree(model);
           return;
@@ -610,7 +617,9 @@ function MatrixScene({
         mapErrors.length ? `${mapErrors.length} Karte(n) nicht geladen: ${mapErrors[0]}` : null,
         modelErrors.length ? `${modelErrors.length} Modell(e) nicht geladen: ${modelErrors[0]}` : null,
       ].filter((p): p is string => p !== null);
-      report(problems.length ? { kind: "error", text: problems.join(" · ") } : null);
+      const note = textureNote(textureIssues);
+      if (problems.length) report({ kind: "error", text: [...problems, note].filter((p) => p !== null).join(" · ") });
+      else report(note ? { kind: "info", text: note } : null);
     })().catch((e) => report({ kind: "error", text: errorText(e) }));
 
     return () => {
