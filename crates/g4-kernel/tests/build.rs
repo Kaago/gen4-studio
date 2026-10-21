@@ -73,6 +73,46 @@ fn build_repacks_unpacked_dirs_into_packed_paths() {
 }
 
 #[test]
+fn build_packs_every_unpacked_kind() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let unpacked = [AssetKind::Map, AssetKind::Event, AssetKind::MapTexture];
+    for k in unpacked {
+        p.ensure_unpacked(k).unwrap();
+    }
+    let edited = vec![0u8; 16];
+    let mut edited_event = edited.clone();
+    edited_event[0] = 1;
+    std::fs::write(p.member_path(AssetKind::Event, 1), &edited_event).unwrap();
+    let text_before = std::fs::read(
+        s.dir
+            .path()
+            .join(p.archives.packed(AssetKind::TextArchive).unwrap()),
+    )
+    .unwrap();
+    // ds-rom fails on the synthetic project; only packing is checked here.
+    let err = build(&p, &s.dir.path().join("o.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)));
+    for k in unpacked {
+        let packed = s.dir.path().join(p.archives.packed(k).unwrap());
+        let narc = g4_formats::narc::Narc::read(&std::fs::read(packed).unwrap()).unwrap();
+        assert_eq!(narc.members.len(), p.member_count(k).unwrap(), "{k:?}");
+        if k == AssetKind::Event {
+            assert_eq!(narc.members[1], edited_event);
+        }
+    }
+    // A kind that was never unpacked is not touched and not unpacked by build.
+    assert!(!p.unpacked_dir(AssetKind::TextArchive).exists());
+    let text_after = std::fs::read(
+        s.dir
+            .path()
+            .join(p.archives.packed(AssetKind::TextArchive).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(text_before, text_after);
+}
+
+#[test]
 fn build_leaves_unchanged_packed_files_untouched() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
@@ -84,7 +124,7 @@ fn build_leaves_unchanged_packed_files_untouched() {
     )
     .unwrap();
     let out = s.dir.path().join("out.nds");
-    let packed = |kind| s.dir.path().join(p.archives.packed(kind));
+    let packed = |kind| s.dir.path().join(p.archives.packed(kind).unwrap());
     let snapshot = || {
         [AssetKind::Map, AssetKind::Matrix].map(|k| {
             let path = packed(k);
@@ -232,6 +272,13 @@ fn vanilla_build(report_label: &str) {
     eprintln!("{report_label}: ROM {size} bytes in {:?}", t.elapsed());
     assert!(report.rom.exists());
     assert!(size > 16 * 1024 * 1024);
+    // Every unpacked kind of this family is packed, in `AssetKind::ALL` order.
+    let expected: Vec<AssetKind> = AssetKind::ALL
+        .into_iter()
+        .filter(|k| p.has_archive(*k) && p.unpacked_dir(*k).is_dir())
+        .collect();
+    let packed: Vec<AssetKind> = report.packed.iter().map(|(k, _)| *k).collect();
+    assert_eq!(packed, expected);
 }
 
 #[test]

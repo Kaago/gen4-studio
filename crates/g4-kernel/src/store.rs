@@ -36,7 +36,14 @@ impl Loaded {
         match kind {
             AssetKind::Map => Ok(Loaded::Map(MapFile::read(bytes, family)?)),
             AssetKind::Matrix => Ok(Loaded::Matrix(Matrix::read(bytes)?)),
-            AssetKind::AreaData => Err(KernelError::NotEditable(kind)),
+            // Task 4 adds editing for events and area data.
+            AssetKind::AreaData
+            | AssetKind::Event
+            | AssetKind::TextArchive
+            | AssetKind::MapTexture
+            | AssetKind::BuildingTexture
+            | AssetKind::BuildingModel
+            | AssetKind::InteriorBuildingModel => Err(KernelError::NotEditable(kind)),
         }
     }
 
@@ -76,6 +83,12 @@ fn rank(kind: AssetKind) -> u8 {
         AssetKind::Map => 0,
         AssetKind::Matrix => 1,
         AssetKind::AreaData => 2,
+        AssetKind::Event => 3,
+        AssetKind::TextArchive => 4,
+        AssetKind::MapTexture => 5,
+        AssetKind::BuildingTexture => 6,
+        AssetKind::BuildingModel => 7,
+        AssetKind::InteriorBuildingModel => 8,
     }
 }
 

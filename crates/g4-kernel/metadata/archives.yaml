@@ -1,12 +1,28 @@
 dp:
-  maps:      { packed: "files/fielddata/land_data/land_data_release.narc", packed_jp: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
-  matrices:  { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
-  area_data: { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+  maps:                    { packed: "files/fielddata/land_data/land_data_release.narc", packed_jp: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
+  matrices:                { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
+  area_data:               { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+  events:                  { packed: "files/fielddata/eventdata/zone_event_release.narc", packed_jp: "files/fielddata/eventdata/zone_event.narc", unpacked: "eventFiles" }
+  text_archives:           { packed: "files/msgdata/msg.narc", unpacked: "textArchives" }
+  map_textures:            { packed: "files/fielddata/areadata/area_map_tex/map_tex_set.narc", unpacked: "mapTextures" }
+  building_textures:       { packed: "files/fielddata/areadata/area_build_model/areabm_texset.narc", unpacked: "buildingTextures" }
+  building_models:         { packed: "files/fielddata/build_model/build_model.narc", unpacked: "exteriorBuildingModels" }
 pt:
-  maps:      { packed: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
-  matrices:  { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
-  area_data: { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+  maps:                    { packed: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
+  matrices:                { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
+  area_data:               { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+  events:                  { packed: "files/fielddata/eventdata/zone_event.narc", unpacked: "eventFiles" }
+  text_archives:           { packed: "files/msgdata/pl_msg.narc", unpacked: "textArchives" }
+  map_textures:            { packed: "files/fielddata/areadata/area_map_tex/map_tex_set.narc", unpacked: "mapTextures" }
+  building_textures:       { packed: "files/fielddata/areadata/area_build_model/areabm_texset.narc", unpacked: "buildingTextures" }
+  building_models:         { packed: "files/fielddata/build_model/build_model.narc", unpacked: "exteriorBuildingModels" }
 hgss:
-  maps:      { packed: "files/a/0/6/5", unpacked: "maps" }
-  matrices:  { packed: "files/a/0/4/1", unpacked: "matrices" }
-  area_data: { packed: "files/a/0/4/2", unpacked: "areaData" }
+  maps:                    { packed: "files/a/0/6/5", unpacked: "maps" }
+  matrices:                { packed: "files/a/0/4/1", unpacked: "matrices" }
+  area_data:               { packed: "files/a/0/4/2", unpacked: "areaData" }
+  events:                  { packed: "files/a/0/3/2", unpacked: "eventFiles" }
+  text_archives:           { packed: "files/a/0/2/7", unpacked: "textArchives" }
+  map_textures:            { packed: "files/a/0/4/4", unpacked: "mapTextures" }
+  building_textures:       { packed: "files/a/0/7/0", unpacked: "buildingTextures" }
+  building_models:         { packed: "files/a/0/4/0", unpacked: "exteriorBuildingModels" }
+  interior_building_models: { packed: "files/a/1/4/8", unpacked: "interiorBuildingModels" }

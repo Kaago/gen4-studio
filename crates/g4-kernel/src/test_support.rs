@@ -14,7 +14,8 @@ pub struct Synthetic {
 }
 
 /// ds-rom layout for Platinum US with 3 maps, 1 matrix (2x1, maps 0 and 1) and 2 area data
-/// entries, all packed, plus `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02").
+/// entries, plus the event, text, texture and building model archives, all packed, plus
+/// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02").
 pub fn synthetic_project() -> Synthetic {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -44,6 +45,32 @@ pub fn synthetic_project() -> Synthetic {
         root,
         "files/fielddata/areadata/area_data.narc",
         &[vec![0; 8], vec![1, 0, 2, 0, 0, 0, 0, 0]],
+    );
+
+    // World-editor archives: two empty event files (four zero counters each), one text
+    // archive member and one member per texture/model archive.
+    write_narc(
+        root,
+        "files/fielddata/eventdata/zone_event.narc",
+        &[vec![0; 16], vec![0; 16]],
+    );
+    write_narc(root, "files/msgdata/pl_msg.narc", &[vec![0xAA; 8]]);
+    let btx = [b"BTX0".as_slice(), &[0; 4]].concat();
+    let bmd = [b"BMD0".as_slice(), &[0; 4]].concat();
+    write_narc(
+        root,
+        "files/fielddata/areadata/area_map_tex/map_tex_set.narc",
+        std::slice::from_ref(&btx),
+    );
+    write_narc(
+        root,
+        "files/fielddata/areadata/area_build_model/areabm_texset.narc",
+        std::slice::from_ref(&btx),
+    );
+    write_narc(
+        root,
+        "files/fielddata/build_model/build_model.narc",
+        std::slice::from_ref(&bmd),
     );
 
     // mapname.bin: two 16-byte NUL-padded records.

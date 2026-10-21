@@ -18,7 +18,7 @@ fn open_reads_identity_from_header_yaml() {
     assert_eq!(p.language, Language::English);
     assert_eq!(
         p.archives.packed(AssetKind::Map),
-        Path::new("files/fielddata/land_data/land_data.narc")
+        Some(Path::new("files/fielddata/land_data/land_data.narc"))
     );
     assert_eq!(p.archives.unpacked_name(AssetKind::AreaData), "areaData");
 }
@@ -82,7 +82,7 @@ fn dp_archives_pick_release_or_japanese_narc() {
         assert_eq!(p.family, Family::Dp);
         assert_eq!(
             p.archives.packed(AssetKind::Map),
-            Path::new(expected),
+            Some(Path::new(expected)),
             "{code}"
         );
     }
@@ -110,7 +110,11 @@ fn archive_map_per_family() {
         .unwrap();
         let p = Project::open(s.dir.path()).unwrap();
         for (kind, want) in KINDS.iter().zip(packed) {
-            assert_eq!(p.archives.packed(*kind), Path::new(want), "{code} {kind:?}");
+            assert_eq!(
+                p.archives.packed(*kind),
+                Some(Path::new(want)),
+                "{code} {kind:?}"
+            );
         }
     }
 }
@@ -149,7 +153,7 @@ fn unpacked_members_equal_narc_members() {
     for kind in KINDS {
         let n = p.ensure_unpacked(kind).unwrap();
         let narc = g4_formats::narc::Narc::read(
-            &std::fs::read(s.dir.path().join(p.archives.packed(kind))).unwrap(),
+            &std::fs::read(s.dir.path().join(p.archives.packed(kind).unwrap())).unwrap(),
         )
         .unwrap();
         assert_eq!(n, narc.members.len());
@@ -226,7 +230,7 @@ fn vanilla_archive_paths_exist() {
     };
     let p = Project::open(&root).unwrap();
     for kind in KINDS {
-        let path = root.join(p.archives.packed(kind));
+        let path = root.join(p.archives.packed(kind).unwrap());
         assert!(path.is_file(), "{kind:?}: {} missing", path.display());
     }
 }
@@ -310,4 +314,129 @@ fn vanilla_unpack_into_copy_matches_existing_unpacked_dirs() {
             );
         }
     }
+}
+
+#[test]
+fn archive_map_knows_every_world_kind() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap(); // CPUE
+    assert_eq!(
+        p.archives.packed(AssetKind::Event),
+        Some(Path::new("files/fielddata/eventdata/zone_event.narc"))
+    );
+    assert_eq!(p.archives.unpacked_name(AssetKind::Event), "eventFiles");
+    assert_eq!(
+        p.archives.packed(AssetKind::TextArchive),
+        Some(Path::new("files/msgdata/pl_msg.narc"))
+    );
+    assert!(!p.has_archive(AssetKind::InteriorBuildingModel));
+    assert!(matches!(
+        p.ensure_unpacked(AssetKind::InteriorBuildingModel)
+            .unwrap_err(),
+        KernelError::InvalidProject(_)
+    ));
+    assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
+    assert_eq!(p.archives.kinds().count(), 8);
+}
+
+#[test]
+fn archive_map_resolves_world_kinds_per_family_and_language() {
+    let s = common::synthetic_project();
+    let packed = |code: &str, kind: AssetKind| {
+        std::fs::write(
+            s.dir.path().join("header.yaml"),
+            format!("gamecode: {code}\n"),
+        )
+        .unwrap();
+        Project::open(s.dir.path())
+            .unwrap()
+            .archives
+            .packed(kind)
+            .map(Path::to_path_buf)
+    };
+    let some = |p: &str| Some(Path::new(p).to_path_buf());
+    // DP: `_release` suffix for events as for maps, Japanese keeps the plain name.
+    assert_eq!(
+        packed("ADAE", AssetKind::Event),
+        some("files/fielddata/eventdata/zone_event_release.narc")
+    );
+    assert_eq!(
+        packed("ADAJ", AssetKind::Event),
+        some("files/fielddata/eventdata/zone_event.narc")
+    );
+    assert_eq!(
+        packed("ADAE", AssetKind::TextArchive),
+        some("files/msgdata/msg.narc")
+    );
+    // HGSS: numbered archives, interior building models exist only here.
+    assert_eq!(packed("IPKD", AssetKind::Event), some("files/a/0/3/2"));
+    assert_eq!(
+        packed("IPKD", AssetKind::TextArchive),
+        some("files/a/0/2/7")
+    );
+    assert_eq!(
+        packed("IPKE", AssetKind::InteriorBuildingModel),
+        some("files/a/1/4/8")
+    );
+    assert_eq!(packed("CPUD", AssetKind::InteriorBuildingModel), None);
+    assert_eq!(packed("ADAE", AssetKind::InteriorBuildingModel), None);
+    // Every kind has the DSPRE folder name from the constraints.
+    let p = Project::open(s.dir.path()).unwrap();
+    let names: Vec<_> = AssetKind::ALL
+        .iter()
+        .map(|k| p.archives.unpacked_name(*k))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "maps",
+            "matrices",
+            "areaData",
+            "eventFiles",
+            "textArchives",
+            "mapTextures",
+            "buildingTextures",
+            "exteriorBuildingModels",
+            "interiorBuildingModels"
+        ]
+    );
+}
+
+#[test]
+fn asset_kind_labels() {
+    let labels: Vec<_> = AssetKind::ALL.iter().map(|k| k.label()).collect();
+    assert_eq!(
+        labels,
+        [
+            "map",
+            "matrix",
+            "area data",
+            "event file",
+            "text archive",
+            "map texture",
+            "building texture",
+            "building model",
+            "interior building model"
+        ]
+    );
+}
+
+#[test]
+fn vanilla_every_archive_path_exists() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    for kind in p.archives.kinds() {
+        let packed = root.join(p.archives.packed(kind).unwrap());
+        assert!(packed.exists(), "{kind:?}: {}", packed.display());
+        assert!(
+            p.unpacked_dir(kind).is_dir(),
+            "{kind:?} not unpacked by DSPRE layout"
+        );
+    }
+    assert_eq!(
+        p.has_archive(AssetKind::InteriorBuildingModel),
+        p.family == Family::Hgss
+    );
 }

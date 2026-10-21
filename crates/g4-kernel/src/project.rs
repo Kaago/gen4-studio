@@ -19,23 +19,55 @@ pub enum AssetKind {
     Map,
     Matrix,
     AreaData,
+    Event,
+    TextArchive,
+    MapTexture,
+    BuildingTexture,
+    BuildingModel,
+    InteriorBuildingModel,
 }
 
 impl AssetKind {
+    /// Every kind, in the order archives are unpacked, packed and listed.
+    pub const ALL: [AssetKind; 9] = [
+        AssetKind::Map,
+        AssetKind::Matrix,
+        AssetKind::AreaData,
+        AssetKind::Event,
+        AssetKind::TextArchive,
+        AssetKind::MapTexture,
+        AssetKind::BuildingTexture,
+        AssetKind::BuildingModel,
+        AssetKind::InteriorBuildingModel,
+    ];
+
     /// Human-readable name used in error messages.
     pub fn label(self) -> &'static str {
         match self {
             AssetKind::Map => "map",
             AssetKind::Matrix => "matrix",
             AssetKind::AreaData => "area data",
+            AssetKind::Event => "event file",
+            AssetKind::TextArchive => "text archive",
+            AssetKind::MapTexture => "map texture",
+            AssetKind::BuildingTexture => "building texture",
+            AssetKind::BuildingModel => "building model",
+            AssetKind::InteriorBuildingModel => "interior building model",
         }
     }
 
+    /// Index into `ALL`.
     fn slot(self) -> usize {
         match self {
             AssetKind::Map => 0,
             AssetKind::Matrix => 1,
             AssetKind::AreaData => 2,
+            AssetKind::Event => 3,
+            AssetKind::TextArchive => 4,
+            AssetKind::MapTexture => 5,
+            AssetKind::BuildingTexture => 6,
+            AssetKind::BuildingModel => 7,
+            AssetKind::InteriorBuildingModel => 8,
         }
     }
 }
@@ -70,14 +102,25 @@ struct FamilyArchives {
     maps: ArchiveEntry,
     matrices: ArchiveEntry,
     area_data: ArchiveEntry,
+    events: ArchiveEntry,
+    text_archives: ArchiveEntry,
+    map_textures: ArchiveEntry,
+    building_textures: ArchiveEntry,
+    building_models: ArchiveEntry,
+    /// Only HGSS has interior building models.
+    interior_building_models: Option<ArchiveEntry>,
 }
+
+/// DSPRE folder name of the interior building models. It is also reported for families
+/// without that archive, so that `unpacked_name` is total.
+const INTERIOR_UNPACKED_NAME: &str = "interiorBuildingModels";
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
 /// resolved for one game family and language.
 #[derive(Debug, Clone)]
 pub struct ArchiveMap {
-    packed: [PathBuf; 3],
-    unpacked: [String; 3],
+    /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family.
+    entries: [Option<(PathBuf, String)>; 9],
 }
 
 impl ArchiveMap {
@@ -93,32 +136,50 @@ impl ArchiveMap {
             KernelError::InvalidProject(format!("archives.yaml: no entry for {key}"))
         })?;
         let japanese = language == Language::Japanese;
-        let packed_of = |e: &ArchiveEntry| match (&e.packed_jp, japanese) {
-            (Some(jp), true) => PathBuf::from(jp),
-            _ => PathBuf::from(&e.packed),
+        let resolve = |e: ArchiveEntry| {
+            let packed = match (e.packed_jp, japanese) {
+                (Some(jp), true) => jp,
+                _ => e.packed,
+            };
+            (PathBuf::from(packed), e.unpacked)
         };
         Ok(ArchiveMap {
-            packed: [
-                packed_of(&archives.maps),
-                packed_of(&archives.matrices),
-                packed_of(&archives.area_data),
-            ],
-            unpacked: [
-                archives.maps.unpacked,
-                archives.matrices.unpacked,
-                archives.area_data.unpacked,
+            entries: [
+                Some(resolve(archives.maps)),
+                Some(resolve(archives.matrices)),
+                Some(resolve(archives.area_data)),
+                Some(resolve(archives.events)),
+                Some(resolve(archives.text_archives)),
+                Some(resolve(archives.map_textures)),
+                Some(resolve(archives.building_textures)),
+                Some(resolve(archives.building_models)),
+                archives.interior_building_models.map(resolve),
             ],
         })
     }
 
-    /// Packed archive path, relative to the project root.
-    pub fn packed(&self, kind: AssetKind) -> &Path {
-        &self.packed[kind.slot()]
+    /// Packed archive path, relative to the project root. `None`: this archive does not
+    /// exist in the project's family (interior building models outside HGSS).
+    pub fn packed(&self, kind: AssetKind) -> Option<&Path> {
+        self.entries[kind.slot()]
+            .as_ref()
+            .map(|(packed, _)| packed.as_path())
     }
 
-    /// Folder name below `unpacked/`: `maps`, `matrices` or `areaData`.
+    /// Folder name below `unpacked/`, for example `maps` or `eventFiles`.
     pub fn unpacked_name(&self, kind: AssetKind) -> &str {
-        &self.unpacked[kind.slot()]
+        match &self.entries[kind.slot()] {
+            Some((_, name)) => name,
+            // Only the interior building models can be missing (checked by a unit test).
+            None => INTERIOR_UNPACKED_NAME,
+        }
+    }
+
+    /// All kinds that have an archive in this family, in `AssetKind::ALL` order.
+    pub fn kinds(&self) -> impl Iterator<Item = AssetKind> + '_ {
+        AssetKind::ALL
+            .into_iter()
+            .filter(|kind| self.entries[kind.slot()].is_some())
     }
 }
 
@@ -185,8 +246,23 @@ impl Project {
         self.unpacked_dir(kind).join(format!("{index:04}"))
     }
 
+    /// Whether the archive of `kind` exists in this project's game family.
+    pub fn has_archive(&self, kind: AssetKind) -> bool {
+        self.archives.packed(kind).is_some()
+    }
+
+    /// Packed path of `kind`, or `InvalidProject` when the family has no such archive.
+    fn require_packed(&self, kind: AssetKind) -> Result<&Path, KernelError> {
+        self.archives.packed(kind).ok_or_else(|| {
+            KernelError::InvalidProject(format!(
+                "game {} has no {kind} archive (family {:?})",
+                self.game_code, self.family
+            ))
+        })
+    }
+
     fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
-        let path = self.root.join(self.archives.packed(kind));
+        let path = self.root.join(self.require_packed(kind)?);
         let bytes = std::fs::read(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)
     }
@@ -209,6 +285,7 @@ impl Project {
     /// Unpacks the archive of `kind` if its unpacked folder is missing and returns the
     /// member count. An existing folder is never touched.
     pub fn ensure_unpacked(&self, kind: AssetKind) -> Result<usize, KernelError> {
+        self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
         if dir.is_dir() {
             return Self::count_unpacked(&dir);
@@ -233,6 +310,7 @@ impl Project {
 
     /// Member count of the archive of `kind`, without unpacking anything.
     pub fn member_count(&self, kind: AssetKind) -> Result<usize, KernelError> {
+        self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
         if dir.is_dir() {
             Self::count_unpacked(&dir)
@@ -301,7 +379,18 @@ mod tests {
             (Family::Pt, Language::German),
             (Family::Hgss, Language::English),
         ] {
-            ArchiveMap::for_game(family, language).unwrap();
+            let map = ArchiveMap::for_game(family, language).unwrap();
+            // Only HGSS has interior building models; every other kind exists everywhere.
+            let expected = if family == Family::Hgss { 9 } else { 8 };
+            assert_eq!(map.kinds().count(), expected, "{family:?}");
+            for kind in AssetKind::ALL {
+                let exists = map.packed(kind).is_some();
+                assert_eq!(
+                    exists,
+                    kind != AssetKind::InteriorBuildingModel || family == Family::Hgss
+                );
+                assert!(!map.unpacked_name(kind).is_empty());
+            }
         }
         let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML).unwrap();
         assert_eq!(tables["CPUE"], 0xE601C);

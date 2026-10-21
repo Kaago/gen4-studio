@@ -9,9 +9,6 @@ use g4_formats::narc::Narc;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 
-/// Order in which archives are packed and written.
-const KINDS: [AssetKind; 3] = [AssetKind::Map, AssetKind::Matrix, AssetKind::AreaData];
-
 /// What `build` did: the asset kinds whose unpacked folder was packed (with their member
 /// count; archives whose bytes did not change are counted but not rewritten) and the ROM.
 #[derive(Debug)]
@@ -124,7 +121,8 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
     reject_hidden_files(&project.root.join("files"))?;
     let mut packed = Vec::new();
     let mut pending = Vec::new();
-    for kind in KINDS {
+    // `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family.
+    for kind in project.archives.kinds() {
         let dir = project.unpacked_dir(kind);
         if !dir.is_dir() {
             continue;
@@ -135,11 +133,11 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
     }
     let tmp_dir = project.root.join(".g4").join("tmp");
     for (kind, bytes) in &pending {
-        write_if_changed(
-            &project.root.join(project.archives.packed(*kind)),
-            bytes,
-            &tmp_dir,
-        )?;
+        let packed_path = project
+            .archives
+            .packed(*kind)
+            .ok_or_else(|| KernelError::Build(format!("{kind} has no archive in this project")))?;
+        write_if_changed(&project.root.join(packed_path), bytes, &tmp_dir)?;
     }
 
     // Same options as the reference `dsrom build` (no ARM7 BIOS, compression as configured).
