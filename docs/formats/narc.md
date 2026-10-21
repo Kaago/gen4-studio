@@ -55,8 +55,12 @@ liefert einen Fehler (bestehende `FormatError`-Varianten) für alles, was
   GMIF-Ende ungleich `total_size` (`BadSize`).
 - `end` jenseits der GMIF-Nutzdaten ergibt `Truncated`, `start > end`
   `OutOfRange`.
+- Nicht-kanonisches Layout: Der erste `start` muss 0 sein und jeder weitere
+  `start` muss dem auf 4 aufgerundeten `end` des Vorgängers entsprechen
+  (`BadSize`, `expected` ist der kanonische Start). Überlappende, lückenhafte
+  oder nicht ausgerichtete Member werden also abgelehnt. Ebenso Nutzdaten
+  hinter dem aufgerundeten Ende des letzten Members (`BadSize`).
+- Padding-Bytes ungleich `0xFF` (`BadSignature { expected: 0xFF, found }`,
+  hier tragen die u16-Felder das erwartete und das gefundene Byte).
 
-Nicht geprüft wird der Inhalt des Paddings (es wird beim Lesen ignoriert und
-beim Schreiben als `0xFF` erzeugt) sowie die Ausrichtung und Reihenfolge der
-`start`-Werte; ein Archiv mit überlappenden oder nicht dicht gepackten
-Membern wird gelesen, aber nicht byte-identisch geschrieben.
+Damit gilt für jedes erfolgreich gelesene Archiv `write(read(bytes)) == bytes`.

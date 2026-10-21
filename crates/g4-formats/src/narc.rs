@@ -179,10 +179,18 @@ impl Narc {
         }
 
         let mut members = Vec::with_capacity(n);
+        // Canonical layout: contiguous, 4-aligned starts, 0xFF padding.
+        let mut expected_start = 0usize;
         let (entries, _) = table.as_chunks::<8>();
         for entry in entries {
             let start = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]) as usize;
             let end = u32::from_le_bytes([entry[4], entry[5], entry[6], entry[7]]) as usize;
+            if start != expected_start {
+                return Err(FormatError::BadSize {
+                    expected: expected_start,
+                    found: start,
+                });
+            }
             if start > end {
                 return Err(FormatError::OutOfRange {
                     what: "member start",
@@ -196,7 +204,26 @@ impl Narc {
                     have: payload.len(),
                 });
             }
+            let padded_end = align4(end);
+            let padding = payload.get(end..padded_end).ok_or(FormatError::Truncated {
+                needed: padded_end,
+                have: payload.len(),
+            })?;
+            if let Some(&b) = padding.iter().find(|&&b| b != PADDING) {
+                return Err(FormatError::BadSignature {
+                    expected: PADDING as u16,
+                    found: b as u16,
+                });
+            }
             members.push(payload[start..end].to_vec());
+            expected_start = padded_end;
+        }
+        // Payload bytes after the last member would be dropped by `write`.
+        if payload.len() != expected_start {
+            return Err(FormatError::BadSize {
+                expected: expected_start,
+                found: payload.len(),
+            });
         }
         Ok(Narc { members })
     }
@@ -359,6 +386,36 @@ mod tests {
             FormatError::BadSize {
                 expected: 16,
                 found: 32
+            }
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_non_canonical_start_offset() {
+        let mut bytes = sample();
+        // Second BTAF entry (at 36): canonical start is 4, patch to 5 (end 6).
+        bytes[36..40].copy_from_slice(&5u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&6u32.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSize {
+                expected: 4,
+                found: 5
+            }
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_non_ff_padding() {
+        let mut bytes = sample();
+        // GMIF payload starts at 68; member 0 is [1, 2, 3] + one padding byte.
+        assert_eq!(bytes[71], 0xFF);
+        bytes[71] = 0x00;
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSignature {
+                expected: 0xFF,
+                found: 0x00
             }
         ));
     }
