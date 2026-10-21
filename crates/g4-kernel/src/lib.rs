@@ -6,3 +6,4 @@ pub mod run;
 pub mod store;
 #[cfg(feature = "test-support")]
 pub mod test_support;
+pub mod tiles;

@@ -42,6 +42,13 @@ export interface MapDto {
   buildings: BuildingDto[];
 }
 
+/** A named tile behaviour (decomp enum) for a permission kind byte; `class` drives the overlay colour. */
+export interface TileBehavior {
+  value: number;
+  name: string;
+  class: string;
+}
+
 /** Display text of any error thrown by a command (structured, string or Error). */
 export function errorText(e: unknown): string {
   return isCmdError(e) ? e.message : String(e);
@@ -50,6 +57,7 @@ export function errorText(e: unknown): string {
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
 export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
+export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
 /**
  * Raw GLB bytes of the map's terrain model, textured with the tileset of `areaDataId`

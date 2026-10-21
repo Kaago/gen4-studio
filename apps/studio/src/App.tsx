@@ -68,6 +68,9 @@ export default function App() {
     }
   }, []);
 
+  // Stable so the memoised scene is not re-rendered by every hover-driven inspector update.
+  const onEdited = useCallback(() => void refreshDirty(), [refreshDirty]);
+
   /** Reloads the shown matrix (a new object makes the scene refetch all its maps) and the dirty count. */
   const refreshAfterStale = useCallback(
     async (matrixIndex: number | null) => {
@@ -286,7 +289,7 @@ export default function App() {
     onShowPermissions: setShowPermissions,
     paintEnabled: !busy,
     reloadToken,
-    onEdited: () => void refreshDirty(),
+    onEdited,
     onError: fail,
     inspector,
     setInspector,

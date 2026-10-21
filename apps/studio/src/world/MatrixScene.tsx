@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { errorText, getMap, getMapModelGlb, setPermission } from "../api";
-import type { MapDto, MatrixDto } from "../api";
+import { errorText, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
+import type { MapDto, MatrixDto, TileBehavior } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { permissionColor } from "./colors";
+import { describeTile } from "./hover";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 
@@ -35,11 +36,15 @@ interface SceneHandle {
   tiles: THREE.InstancedMesh | null;
   /** Map id to the first overlay instance of each matrix cell showing that map. */
   bases: Map<number, number[]>;
+  /** Tile behaviour names by kind byte (empty until loaded). */
+  names: Map<number, TileBehavior>;
+  /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
+  refreshHover: (() => void) | null;
 }
 
 const colorCache = new Map<string, THREE.Color>();
-function overlayColor(kind: number, collision: number): THREE.Color {
-  const hex = permissionColor(kind, collision);
+function overlayColor(kind: number, collision: number, names: Map<number, TileBehavior>): THREE.Color {
+  const hex = permissionColor(kind, collision, names.get(kind)?.class ?? null);
   let color = colorCache.get(hex);
   if (!color) colorCache.set(hex, (color = new THREE.Color(hex)));
   return color;
@@ -66,6 +71,18 @@ function parseGlb(buffer: ArrayBuffer): Promise<THREE.Object3D> {
   });
 }
 
+let namesCache: Promise<Map<number, TileBehavior>> | null = null;
+/** The behaviour table is static, so it is fetched once; a failed fetch is retried on the next load. */
+function loadNames(): Promise<Map<number, TileBehavior>> {
+  namesCache ??= tileBehaviors()
+    .then((list) => new Map(list.map((b) => [b.value, b] as const)))
+    .catch((e) => {
+      namesCache = null;
+      throw e;
+    });
+  return namesCache;
+}
+
 async function loadMap(index: number, areaDataId: number): Promise<Loaded> {
   const map = await getMap(index);
   const model = await getMapModelGlb(index, areaDataId).then(parseGlb);
@@ -73,7 +90,7 @@ async function loadMap(index: number, areaDataId: number): Promise<Loaded> {
 }
 
 /** Builds the overlay and building objects once all maps are known. */
-function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>) {
+function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
   const content = new THREE.Group();
   const cells: { col: number; row: number; data: Loaded }[] = [];
   matrix.maps.forEach((id, i) => {
@@ -124,7 +141,7 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>) {
       const [kind, collision] = data.map.permissions[i] ?? [0, 0];
       m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, OVERLAY_Y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
       tiles.setMatrixAt(n, m4);
-      tiles.setColorAt(n, overlayColor(kind, collision));
+      tiles.setColorAt(n, overlayColor(kind, collision, names));
       n++;
     }
   }
@@ -158,7 +175,7 @@ function recolourMap(h: SceneHandle, mapId: number) {
   if (!data || !bases || !h.tiles) return;
   for (const base of bases) {
     data.map.permissions.forEach(([kind, collision], i) => {
-      h.tiles?.setColorAt(base + i, overlayColor(kind, collision));
+      h.tiles?.setColorAt(base + i, overlayColor(kind, collision, h.names));
     });
   }
   if (h.tiles.instanceColor) h.tiles.instanceColor.needsUpdate = true;
@@ -180,7 +197,7 @@ interface Props {
   onInspect: (model: InspectorModel) => void;
 }
 
-export default function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError, onInspect }: Props) {
+function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError, onInspect }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
@@ -236,6 +253,8 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
       loaded: new Map(),
       tiles: null,
       bases: new Map(),
+      names: new Map(),
+      refreshHover: null,
     };
     handle.current = h;
 
@@ -244,6 +263,71 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
     const canvas = renderer.domElement;
     const raycaster = new THREE.Raycaster();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -OVERLAY_Y);
+    /** The tile under a pointer position, or null outside every loaded map cell. */
+    const pickTile = (clientX: number, clientY: number) => {
+      if (!h.matrix) return null;
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      if (!hit) return null;
+      const m = h.matrix;
+      const at = matrixCellAt(hit, m.width, m.height);
+      if (!at) return null;
+      const mapId = m.maps[at.row * m.width + at.col];
+      const tile = mapId === null || mapId === undefined ? null : pickCell(hit, cellOrigin(at.col, at.row));
+      if (mapId === null || mapId === undefined || !tile) return null;
+      const data = h.loaded.get(mapId);
+      if (!data) return null;
+      return { mapId, data, col: at.col, row: at.row, x: tile.x, y: tile.y };
+    };
+
+    // Hover: the latest pointer position is resolved at most once per animation frame.
+    let pointer: { x: number; y: number } | null = null;
+    let frame = 0;
+    let shown = "";
+    const showHover = () => {
+      frame = 0;
+      const picked = pointer ? pickTile(pointer.x, pointer.y) : null;
+      if (!picked) {
+        if (shown !== "") callbacks.current.onInspect({ kind: "none" });
+        shown = "";
+        return;
+      }
+      const cell = picked.data.map.permissions[picked.y * MAP_SIZE + picked.x] ?? [0, 0];
+      // The collision byte is part of the key so a painted tile refreshes while the pointer rests on it.
+      const key = `${picked.mapId}:${picked.col}:${picked.row}:${picked.x}:${picked.y}:${cell[0]}:${cell[1]}`;
+      if (key === shown) return;
+      shown = key;
+      callbacks.current.onInspect({
+        kind: "tile",
+        map: picked.mapId,
+        x: picked.x,
+        y: picked.y,
+        absX: picked.col * MAP_SIZE + picked.x,
+        absZ: picked.row * MAP_SIZE + picked.y,
+        info: describeTile(cell, h.names),
+      });
+    };
+    const scheduleHover = () => {
+      if (frame === 0) frame = requestAnimationFrame(showHover);
+    };
+    const onMove = (e: PointerEvent) => {
+      pointer = { x: e.clientX, y: e.clientY };
+      scheduleHover();
+    };
+    const onLeave = () => {
+      pointer = null;
+      scheduleHover();
+    };
+    h.refreshHover = () => {
+      shown = "";
+      scheduleHover();
+    };
+
     let down: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => {
       down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
@@ -253,32 +337,20 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
       down = null;
       if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
       const cb = callbacks.current;
-      if (!cb.paintEnabled || !h.overlay?.visible || !h.matrix) return;
-      const rect = canvas.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      raycaster.setFromCamera(ndc, camera);
-      const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
-      if (!hit) return;
-      const m = h.matrix;
-      const at = matrixCellAt(hit, m.width, m.height);
-      if (!at) return;
-      const mapId = m.maps[at.row * m.width + at.col];
-      const tile = mapId === null || mapId === undefined ? null : pickCell(hit, cellOrigin(at.col, at.row));
-      if (mapId === null || mapId === undefined || !tile) return;
-      const data = h.loaded.get(mapId);
-      if (!data) return;
-      const i = tile.y * MAP_SIZE + tile.x;
+      if (!cb.paintEnabled || !h.overlay?.visible) return;
+      const picked = pickTile(e.clientX, e.clientY);
+      if (!picked) return;
+      const { mapId, data, x, y } = picked;
+      const i = y * MAP_SIZE + x;
       const kind = data.map.permissions[i]?.[0] ?? 0;
       const collision = e.shiftKey ? 0x00 : BLOCKED;
-      setPermission(mapId, tile.x, tile.y, kind, collision).then(
+      setPermission(mapId, x, y, kind, collision).then(
         () => {
           data.map.permissions[i] = [kind, collision];
           // The matrix may have been swapped while the command was in flight.
           if (h.loaded.get(mapId) === data) recolourMap(h, mapId);
           h.render();
+          h.refreshHover?.();
           callbacks.current.onEdited();
         },
         (err) => callbacks.current.onError(errorText(err)),
@@ -286,10 +358,16 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
     };
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerleave", onLeave);
 
     return () => {
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerleave", onLeave);
+      cancelAnimationFrame(frame);
+      callbacks.current.onInspect({ kind: "none" });
       const current = handle.current;
       handle.current = null;
       observer.disconnect();
@@ -313,6 +391,11 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
       const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
       const loaded = new Map<number, Loaded>();
       const errors: string[] = [];
+      // Without names the overlay is uncoloured by class and the hover shows raw values only.
+      const names = await loadNames().catch((e) => {
+        errors.push(`Kachelnamen: ${errorText(e)}`);
+        return new Map<number, TileBehavior>();
+      });
       await Promise.all(
         ids.map(async (id) => {
           try {
@@ -332,7 +415,7 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
         for (const l of loaded.values()) if (l.model) disposeTree(l.model);
         return;
       }
-      const { content, overlay, tiles, bases } = buildContent(matrix, loaded);
+      const { content, overlay, tiles, bases } = buildContent(matrix, loaded, names);
       // The clones in `content` share geometry and materials with the loaded models, so
       // disposing `content` later releases everything.
       h.scene.remove(h.content);
@@ -343,6 +426,7 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
       h.loaded = loaded;
       h.tiles = tiles;
       h.bases = bases;
+      h.names = names;
       overlay.visible = showRef.current;
       h.scene.add(content);
 
@@ -353,6 +437,7 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
       h.camera.position.set(w / 2, span * 0.9, d / 2 + span * 0.7);
       h.controls.update();
       h.render();
+      h.refreshHover?.();
       setStatus(errors.length ? `${errors.length} Modell(e) nicht geladen: ${errors[0]}` : null);
     })().catch((e) => {
       if (!cancelled) setStatus(errorText(e));
@@ -379,6 +464,7 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
         recolourMap(h, ids[i]);
       });
       h.render();
+      h.refreshHover?.();
     })().catch((e) => {
       if (!cancelled) callbacks.current.onError(errorText(e));
     });
@@ -407,3 +493,6 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
     </div>
   );
 }
+
+// Hover moves only the inspector state in App; the scene itself must not re-render for it.
+export default memo(MatrixScene);

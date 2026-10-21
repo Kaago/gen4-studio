@@ -11,6 +11,7 @@ use g4_kernel::export::{glb_cache_get, glb_cached};
 use g4_kernel::project::{AssetId, AssetKind, HeaderSummary, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{SaveReport, Store};
+use g4_kernel::tiles::TileBehavior;
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -136,6 +137,10 @@ pub fn list_headers_impl(state: &AppState) -> Result<Vec<HeaderSummary>, CmdErro
         .project
         .headers()
         .map_err(CmdError::from)
+}
+
+pub fn tile_behaviors_impl() -> Result<Vec<TileBehavior>, CmdError> {
+    g4_kernel::tiles::tile_behaviors().map_err(CmdError::from)
 }
 
 pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdError> {
@@ -323,6 +328,11 @@ pub fn list_headers(state: State<AppState>) -> Result<Vec<HeaderSummary>, CmdErr
 }
 
 #[tauri::command]
+pub fn tile_behaviors() -> Result<Vec<TileBehavior>, CmdError> {
+    tile_behaviors_impl()
+}
+
+#[tauri::command]
 pub fn get_matrix(state: State<AppState>, index: u16) -> Result<MatrixDto, CmdError> {
     get_matrix_impl(&state, index)
 }
@@ -415,6 +425,15 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use g4_kernel::export::glb_cache_key;
+
+    #[test]
+    fn tile_behaviors_command_lists_the_embedded_table() {
+        let list = tile_behaviors_impl().unwrap();
+        assert!(
+            list.iter()
+                .any(|b| b.name == "WARP_STAIRS_EAST" && b.value == 0x5E)
+        );
+    }
 
     #[test]
     fn map_dto_has_1024_permission_pairs_and_signed_building_coords() {
