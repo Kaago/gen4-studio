@@ -199,6 +199,15 @@ pub struct HeaderSummary {
     pub event_file_id: u16,
 }
 
+/// The header list plus the reason why location names are missing, if they are.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HeaderListing {
+    pub headers: Vec<HeaderSummary>,
+    /// Why every `location_name` is empty: the text archive could not be read. Names are
+    /// cosmetic, so this never fails the listing.
+    pub names_error: Option<String>,
+}
+
 /// Index of the header's name in the location text bank (`u16` in DP, `u8` otherwise).
 fn location_name_index(header: &uxie::MapHeader) -> usize {
     match header {
@@ -391,10 +400,10 @@ impl Project {
             .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
     }
 
-    /// Lists all map headers from the header table in `arm9/arm9.bin`, with the
-    /// internal names from `files/fielddata/maptable/mapname.bin` and the location names
-    /// from the text archive.
-    pub fn headers(&self) -> Result<Vec<HeaderSummary>, KernelError> {
+    /// Reads the header table in `arm9/arm9.bin` and the internal names from
+    /// `files/fielddata/maptable/mapname.bin`, with the index of each header's location
+    /// name in the text bank. `location_name` stays empty.
+    fn read_header_table(&self) -> Result<Vec<(HeaderSummary, usize)>, KernelError> {
         let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
             .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
         let offset = *tables
@@ -416,7 +425,6 @@ impl Project {
             self.uxie_family(),
         )
         .map_err(|e| KernelError::Uxie(format!("{e}")))?;
-        let locations = self.location_names()?;
 
         Ok(parsed
             .iter()
@@ -424,20 +432,50 @@ impl Project {
             .enumerate()
             .map(|(i, (header, record))| {
                 let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
-                HeaderSummary {
+                let summary = HeaderSummary {
                     // `count <= 65536` is checked above, so `i` fits in u16.
                     id: i as u16,
                     internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
-                    location_name: locations
-                        .get(location_name_index(header))
-                        .cloned()
-                        .unwrap_or_default(),
+                    location_name: String::new(),
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),
-                }
+                };
+                (summary, location_name_index(header))
             })
             .collect())
+    }
+
+    /// Number of map headers. Reads the header table only, never the text archive.
+    pub fn header_count(&self) -> Result<usize, KernelError> {
+        Ok(self.read_header_table()?.len())
+    }
+
+    /// Lists all map headers with their location names. A failure of the header table is
+    /// an error; names that cannot be read leave every `location_name` empty and are
+    /// reported in `names_error`.
+    pub fn header_listing(&self) -> Result<HeaderListing, KernelError> {
+        let table = self.read_header_table()?;
+        let (locations, names_error) = match self.location_names() {
+            Ok(names) => (names, None),
+            Err(e) => (Vec::new(), Some(e.to_string())),
+        };
+        let headers = table
+            .into_iter()
+            .map(|(mut header, index)| {
+                header.location_name = locations.get(index).cloned().unwrap_or_default();
+                header
+            })
+            .collect();
+        Ok(HeaderListing {
+            headers,
+            names_error,
+        })
+    }
+
+    /// Like [`Project::header_listing`], without the names error.
+    pub fn headers(&self) -> Result<Vec<HeaderSummary>, KernelError> {
+        self.header_listing().map(|l| l.headers)
     }
 }
 

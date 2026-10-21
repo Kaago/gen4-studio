@@ -8,7 +8,7 @@ use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 use g4_kernel::build::build;
 use g4_kernel::error::KernelError;
 use g4_kernel::export::{glb_cache_get, glb_cached};
-use g4_kernel::project::{AssetId, AssetKind, HeaderSummary, Project};
+use g4_kernel::project::{AssetId, AssetKind, HeaderListing, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{EventFile, SaveReport, Store};
 use g4_kernel::tiles::TileBehavior;
@@ -247,7 +247,8 @@ fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
 
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
-    let header_count = project.headers().map_err(CmdError::from)?.len();
+    // Only the header table: location names are cosmetic and must not gate opening.
+    let header_count = project.header_count().map_err(CmdError::from)?;
     let info = ProjectInfo {
         root: project.root.display().to_string(),
         game_code: project.game_code.clone(),
@@ -261,12 +262,13 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     Ok(info)
 }
 
-pub fn list_headers_impl(state: &AppState) -> Result<Vec<HeaderSummary>, CmdError> {
-    let mut guard = lock(state)?;
-    session(&mut guard)?
-        .project
-        .headers()
-        .map_err(CmdError::from)
+pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
+    // Decoding the text archive (and unpacking it on first use) happens without the lock.
+    let project = {
+        let mut guard = lock(state)?;
+        Arc::clone(&session(&mut guard)?.project)
+    };
+    project.header_listing().map_err(CmdError::from)
 }
 
 pub fn tile_behaviors_impl() -> Result<Vec<TileBehavior>, CmdError> {
@@ -461,7 +463,7 @@ pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo,
 }
 
 #[tauri::command]
-pub fn list_headers(state: State<AppState>) -> Result<Vec<HeaderSummary>, CmdError> {
+pub fn list_headers(state: State<AppState>) -> Result<HeaderListing, CmdError> {
     list_headers_impl(&state)
 }
 
@@ -609,7 +611,7 @@ mod tests {
         let info = open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         assert_eq!(info.game_code, "CPUE");
         assert_eq!(info.header_count, 2);
-        let headers = list_headers_impl(&state).unwrap();
+        let headers = list_headers_impl(&state).unwrap().headers;
         assert_eq!(headers.len(), 2);
         assert_eq!(headers[0].internal_name, "T01");
         let map = get_map_impl(&state, 0).unwrap();
@@ -865,6 +867,29 @@ mod tests {
     /// Gated end-to-end check on a copy of a vanilla project (`G4_TEST_PROJECT`): paint a
     /// permission on a map of header 0's matrix, build, and re-open the copy.
     #[test]
+    fn open_and_list_survive_a_broken_text_archive() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        std::fs::write(
+            fixture.dir.path().join("files/msgdata/pl_msg.narc"),
+            g4_formats::narc::Narc {
+                members: vec![vec![0xAA; 8]],
+            }
+            .write(),
+        )
+        .unwrap();
+        let state = AppState::default();
+        let info = open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(info.header_count, 2);
+        // Opening never touches the text archive.
+        assert!(!fixture.dir.path().join("unpacked/textArchives").exists());
+        let listing = list_headers_impl(&state).unwrap();
+        assert_eq!(listing.headers.len(), 2);
+        assert!(listing.headers.iter().all(|h| h.location_name.is_empty()));
+        assert!(listing.names_error.is_some_and(|e| e.contains("433")));
+        assert!(get_map_impl(&state, 0).is_ok());
+    }
+
+    #[test]
     fn vanilla_paint_save_build_on_copy() {
         let Some((tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
             return;
@@ -872,7 +897,7 @@ mod tests {
         let root = root.to_str().unwrap();
         let state = AppState::default();
         open_project_impl(&state, root).unwrap();
-        let headers = list_headers_impl(&state).unwrap();
+        let headers = list_headers_impl(&state).unwrap().headers;
         let matrix = get_matrix_impl(&state, headers[0].matrix_id).unwrap();
         let map_id = matrix
             .maps
@@ -916,7 +941,7 @@ mod tests {
     fn headers_carry_their_event_file_id() {
         let (_fixture, state) = open_synthetic();
         // The synthetic arm9 is zero-filled, so every header points at event file 0.
-        let headers = list_headers_impl(&state).unwrap();
+        let headers = list_headers_impl(&state).unwrap().headers;
         assert!(headers.iter().all(|h| h.event_file_id == 0));
     }
 
@@ -1023,7 +1048,7 @@ mod tests {
             eprintln!("skipped: not Platinum DE");
             return;
         }
-        let headers = list_headers_impl(&state).unwrap();
+        let headers = list_headers_impl(&state).unwrap().headers;
         let ev = get_events_impl(&state, headers[415].event_file_id).unwrap();
         assert_eq!(ev.warps.len(), 1);
         assert_eq!(

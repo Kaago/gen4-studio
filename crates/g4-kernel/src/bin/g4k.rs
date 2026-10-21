@@ -126,7 +126,11 @@ fn info(path: &PathBuf) -> Result<(), KernelError> {
 
 fn headers(path: &PathBuf) -> Result<(), KernelError> {
     let project = Project::open(path)?;
-    for h in project.headers()? {
+    let listing = project.header_listing()?;
+    if let Some(e) = &listing.names_error {
+        eprintln!("error: location names unreadable: {e}");
+    }
+    for h in listing.headers {
         println!(
             "{:04}  {}  {}  M{}",
             h.id, h.location_name, h.internal_name, h.matrix_id

@@ -118,12 +118,13 @@ export default function App() {
       const path = await open({ directory: true });
       if (typeof path !== "string") return;
       const opened = await openProject(path);
-      setHeaders(await listHeaders());
+      const listing = await listHeaders();
+      setHeaders(listing.headers);
       setInfo(opened);
       setSelected(null);
       setMatrix(null);
       setLastRom(null);
-      setMessage(null);
+      setMessage(listing.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
       await refreshDirty();
     } catch (e) {
       fail(e);

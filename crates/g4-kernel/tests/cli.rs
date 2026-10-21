@@ -40,6 +40,26 @@ fn headers_lists_id_location_name_internal_name_and_matrix() {
 }
 
 #[test]
+fn headers_reports_unreadable_names_on_stderr_and_still_lists() {
+    let s = common::synthetic_project();
+    std::fs::write(
+        s.dir.path().join("files/msgdata/pl_msg.narc"),
+        g4_formats::narc::Narc {
+            members: vec![vec![0xAA; 8]],
+        }
+        .write(),
+    )
+    .unwrap();
+    g4k()
+        .args(["headers"])
+        .arg(s.dir.path())
+        .assert()
+        .success()
+        .stdout(contains("0000    T01  M0"))
+        .stderr(contains("location names unreadable"));
+}
+
+#[test]
 fn set_perm_then_dump_shows_change() {
     let s = common::synthetic_project();
     let root = s.dir.path();

@@ -251,6 +251,68 @@ fn location_names_with_undecodable_text_bank_is_a_uxie_error() {
 }
 
 #[test]
+fn header_listing_has_no_names_error_when_names_are_readable() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let listing = p.header_listing().unwrap();
+    assert_eq!(listing.names_error, None);
+    assert_eq!(listing.headers[0].location_name, "Twinleaf Town");
+    assert_eq!(p.header_count().unwrap(), 2);
+}
+
+#[test]
+fn headers_survive_a_missing_text_bank_member_with_empty_names() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let narc = g4_formats::narc::Narc {
+        members: vec![vec![0xAA; 8]],
+    };
+    std::fs::write(s.dir.path().join("files/msgdata/pl_msg.narc"), narc.write()).unwrap();
+    let listing = p.header_listing().unwrap();
+    assert_eq!(listing.headers.len(), 2);
+    assert!(listing.headers.iter().all(|h| h.location_name.is_empty()));
+    assert_eq!(listing.headers[0].internal_name, "T01");
+    assert!(
+        listing
+            .names_error
+            .as_deref()
+            .is_some_and(|e| e.contains("433")),
+        "{:?}",
+        listing.names_error
+    );
+    assert_eq!(p.headers().unwrap().len(), 2);
+    // The header count never reads the text archive.
+    assert_eq!(p.header_count().unwrap(), 2);
+}
+
+#[test]
+fn headers_survive_a_corrupt_text_bank_with_empty_names() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    std::fs::write(p.member_path(AssetKind::TextArchive, 433), [1u8, 0]).unwrap();
+    let listing = p.header_listing().unwrap();
+    assert_eq!(listing.headers.len(), 2);
+    assert!(listing.headers.iter().all(|h| h.location_name.is_empty()));
+    assert!(listing.names_error.is_some());
+    assert!(
+        p.headers()
+            .unwrap()
+            .iter()
+            .all(|h| h.location_name.is_empty())
+    );
+}
+
+#[test]
+fn header_table_failure_is_still_an_error() {
+    let s = common::synthetic_project();
+    std::fs::write(s.dir.path().join("arm9/arm9.bin"), vec![0u8; 16]).unwrap();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert!(p.header_listing().is_err());
+    assert!(p.header_count().is_err());
+}
+
+#[test]
 fn headers_with_unlisted_gamecode_is_unknown_game() {
     let s = common::synthetic_project();
     std::fs::write(s.dir.path().join("header.yaml"), "gamecode: CPUK\n").unwrap();

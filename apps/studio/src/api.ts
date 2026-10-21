@@ -18,6 +18,12 @@ export interface HeaderSummary {
   event_file_id: number;
 }
 
+export interface HeaderListing {
+  headers: HeaderSummary[];
+  /** Set when the text archive could not be read: every location_name is then empty. */
+  names_error: string | null;
+}
+
 export interface MatrixDto {
   index: number;
   name: string;
@@ -108,7 +114,7 @@ export function errorText(e: unknown): string {
 }
 
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
-export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
+export const listHeaders = () => invoke<HeaderListing>("list_headers");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
