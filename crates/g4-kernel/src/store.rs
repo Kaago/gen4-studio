@@ -14,10 +14,13 @@ use g4_formats::map::MapFile;
 use g4_formats::matrix::Matrix;
 
 use crate::error::{KernelError, io_at};
-use crate::project::{AssetKind, Project};
+use crate::project::{AssetKind, Location, Project};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
+pub use uxie::map_header::{MapHeader, MapHeaderDP, MapHeaderHGSS, MapHeaderPt};
+
+use uxie::map_header::{MAP_HEADER_SIZE, read_map_header_from_bytes, write_map_header_to_bytes};
 
 /// Identifies one recorded changeset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +46,8 @@ enum Loaded {
     Matrix(Matrix),
     AreaData(AreaData),
     Event(EventFile),
+    /// Every map header of the game, in table order.
+    HeaderTable(Vec<MapHeader>),
 }
 
 impl Loaded {
@@ -50,7 +55,11 @@ impl Loaded {
     fn is_editable(kind: AssetKind) -> bool {
         matches!(
             kind,
-            AssetKind::Map | AssetKind::Matrix | AssetKind::AreaData | AssetKind::Event
+            AssetKind::Map
+                | AssetKind::Matrix
+                | AssetKind::AreaData
+                | AssetKind::Event
+                | AssetKind::HeaderTable
         )
     }
 
@@ -62,6 +71,22 @@ impl Loaded {
             AssetKind::Event => EventFile::from_binary(&mut Cursor::new(bytes))
                 .map(Loaded::Event)
                 .map_err(|e| KernelError::Uxie(e.to_string())),
+            AssetKind::HeaderTable => {
+                if !bytes.len().is_multiple_of(MAP_HEADER_SIZE) {
+                    return Err(KernelError::Uxie(format!(
+                        "header table is {} bytes, not a multiple of {MAP_HEADER_SIZE}",
+                        bytes.len()
+                    )));
+                }
+                bytes
+                    .as_chunks::<MAP_HEADER_SIZE>()
+                    .0
+                    .iter()
+                    .map(|chunk| read_map_header_from_bytes(chunk, uxie_family(family)))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Loaded::HeaderTable)
+                    .map_err(|e| KernelError::Uxie(e.to_string()))
+            }
             AssetKind::TextArchive
             | AssetKind::MapTexture
             | AssetKind::BuildingTexture
@@ -80,6 +105,9 @@ impl Loaded {
                 e.to_binary_for(&mut out, uxie_family(family))
                     .map_err(|e| KernelError::Uxie(e.to_string()))?;
                 Ok(out.into_inner())
+            }
+            Loaded::HeaderTable(headers) => {
+                Ok(headers.iter().flat_map(write_map_header_to_bytes).collect())
             }
         }
     }
@@ -102,8 +130,10 @@ fn unwritable_reason(value: &Loaded, bytes: &[u8], family: Family) -> Option<Str
 }
 
 struct Asset {
-    /// Bytes of the member as last read from or written to disk.
-    saved_bytes: Vec<u8>,
+    /// Bytes of the asset (a whole member, or the header table slice) as last read from or
+    /// written to disk. `None`: the member file was deleted and the user chose to keep
+    /// their version, so the next save recreates it and any file there counts as stale.
+    saved_bytes: Option<Vec<u8>>,
     current: Loaded,
     /// Set when the loaded file cannot be written back byte-identically. Such an asset
     /// is readable only: edits are refused, it is never dirty and `save` never writes it.
@@ -128,6 +158,12 @@ pub struct Store {
     /// Kinds whose archive this store has made sure is unpacked.
     unpacked: HashSet<AssetKind>,
 }
+
+/// The one asset of kind `HeaderTable`.
+const HEADER_TABLE: AssetId = AssetId {
+    kind: AssetKind::HeaderTable,
+    index: 0,
+};
 
 fn mismatch(id: AssetId) -> KernelError {
     KernelError::InvalidProject(format!("{id} is not of the requested kind"))
@@ -158,14 +194,31 @@ impl Store {
         Ok(())
     }
 
-    /// Bytes of the member on disk. Read-only kinds are refused before anything is unpacked.
-    fn read_member(&mut self, id: AssetId) -> Result<Vec<u8>, KernelError> {
+    /// Where `id` lives on disk, with its bytes there: `None` when the member file does not
+    /// exist (or `arm9.bin` is missing or too short for the header table slice). Read-only
+    /// kinds are refused before anything is unpacked.
+    fn read_disk(&mut self, id: AssetId) -> Result<(Location, Option<Vec<u8>>), KernelError> {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
         self.ensure_unpacked(id.kind)?;
-        let path = self.project.member_path(id.kind, id.index);
-        std::fs::read(&path).map_err(io_at(&path))
+        let location = self.project.asset_location(id.kind, id.index)?;
+        let bytes = read_location(&location)?;
+        Ok((location, bytes))
+    }
+
+    /// Bytes of the asset on disk; an error when they are not there.
+    fn read_member(&mut self, id: AssetId) -> Result<Vec<u8>, KernelError> {
+        match self.read_disk(id)? {
+            (_, Some(bytes)) => Ok(bytes),
+            (Location::Member(path), None) => {
+                Err(io_at(&path)(std::io::ErrorKind::NotFound.into()))
+            }
+            (Location::Slice { path, .. }, None) => Err(KernelError::InvalidProject(format!(
+                "{} is missing or too short for the header table",
+                path.display()
+            ))),
+        }
     }
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
@@ -177,7 +230,7 @@ impl Store {
             self.assets.insert(
                 id,
                 Asset {
-                    saved_bytes: bytes,
+                    saved_bytes: Some(bytes),
                     current,
                     locked,
                 },
@@ -232,6 +285,16 @@ impl Store {
         };
         match &self.load(id)?.current {
             Loaded::Event(e) => Ok(e),
+            _ => Err(mismatch(id)),
+        }
+    }
+
+    /// Returns every map header, loading the table from `arm9.bin` on first use. A table
+    /// the codec would not write back byte for byte is returned for display but locked.
+    pub fn header_table(&mut self) -> Result<&[MapHeader], KernelError> {
+        let id = HEADER_TABLE;
+        match &self.load(id)?.current {
+            Loaded::HeaderTable(h) => Ok(h),
             _ => Err(mismatch(id)),
         }
     }
@@ -358,6 +421,42 @@ impl Store {
         })
     }
 
+    /// Edits map header `id`. The table cannot grow: a header id past its end is
+    /// [`FormatError::OutOfRange`] (as [`KernelError::Format`]), as is any error from `edit`.
+    /// An edit that switches the header to another game family, or sets a value that does
+    /// not fit its bit field in the game's header layout, is rejected as
+    /// [`KernelError::Uxie`] and rolled back.
+    pub fn edit_header(
+        &mut self,
+        id: u16,
+        label: &str,
+        edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
+    ) -> Result<ChangeId, KernelError> {
+        let family = uxie_family(self.project.family);
+        let game_code = self.project.game_code.clone();
+        self.apply_edit(HEADER_TABLE, label, |loaded| match loaded {
+            Loaded::HeaderTable(headers) => {
+                let count = headers.len();
+                let header = headers
+                    .get_mut(usize::from(id))
+                    .ok_or(FormatError::OutOfRange {
+                        what: "header",
+                        value: usize::from(id),
+                        max: count.saturating_sub(1),
+                    })?;
+                edit(header)?;
+                let bytes = write_map_header_to_bytes(header);
+                match read_map_header_from_bytes(&bytes, family) {
+                    Ok(stored) if stored == *header => Ok(()),
+                    _ => Err(KernelError::Uxie(format!(
+                        "header {id} does not fit the {game_code} header layout"
+                    ))),
+                }
+            }
+            _ => Err(mismatch(HEADER_TABLE)),
+        })
+    }
+
     /// Drops the store's own changes to `id` and loads the member from disk again. The
     /// asset's changesets leave both the undo and the redo stack; those of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
@@ -369,7 +468,7 @@ impl Store {
         self.assets.insert(
             id,
             Asset {
-                saved_bytes: bytes,
+                saved_bytes: Some(bytes),
                 current,
                 locked,
             },
@@ -379,16 +478,29 @@ impl Store {
         Ok(())
     }
 
-    /// Takes the member's current bytes on disk as the base this store compares against,
+    /// Takes the asset's current bytes on disk as the base this store compares against,
     /// keeping its own changes. The next `save` then overwrites the file with them. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
+    /// A member file that was deleted is not an error: "absent" becomes the base, so the
+    /// next `save` recreates the file with the store's version. The header table cannot be
+    /// recreated this way (it lives inside `arm9.bin`), so a missing or too short `arm9.bin`
+    /// is an error.
     pub fn accept_disk_as_base(&mut self, id: AssetId) -> Result<(), KernelError> {
         if !self.assets.contains_key(&id) {
             return Ok(());
         }
-        let bytes = self.read_member(id)?;
+        let base = match self.read_disk(id)? {
+            (_, Some(bytes)) => Some(bytes),
+            (Location::Member(_), None) => None,
+            (Location::Slice { path, .. }, None) => {
+                return Err(KernelError::InvalidProject(format!(
+                    "{} is missing or too short for the header table",
+                    path.display()
+                )));
+            }
+        };
         if let Some(asset) = self.assets.get_mut(&id) {
-            asset.saved_bytes = bytes;
+            asset.saved_bytes = base;
         }
         Ok(())
     }
@@ -446,7 +558,7 @@ impl Store {
                 return false;
             }
             match a.current.to_bytes(self.project.family) {
-                Ok(bytes) => bytes != a.saved_bytes,
+                Ok(bytes) => a.saved_bytes.as_deref() != Some(bytes.as_slice()),
                 // Not serializable: report dirty so `save` surfaces the error.
                 Err(_) => true,
             }
@@ -465,37 +577,98 @@ impl Store {
         ids
     }
 
-    /// Writes every dirty asset. First checks that each file still holds the bytes this
-    /// store last saw; if any does not, returns [`KernelError::Stale`] and writes nothing.
+    /// Writes every dirty asset. First checks that each file (for the header table: its
+    /// slice of `arm9.bin`) still holds the bytes this store last saw; if any does not,
+    /// returns [`KernelError::Stale`] and writes nothing. A header table save re-reads
+    /// `arm9.bin` right before writing and replaces only the table's bytes in it, so changes
+    /// made to the rest of the file meanwhile are kept.
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
         let mut pending = Vec::new();
         for id in self.dirty() {
-            let path = self.project.member_path(id.kind, id.index);
-            let on_disk = match std::fs::read(&path) {
-                Ok(b) => b,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Err(KernelError::Stale(id));
-                }
-                Err(e) => return Err(io_at(&path)(e)),
-            };
+            let location = self.project.asset_location(id.kind, id.index)?;
+            let on_disk = read_location(&location)?;
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(id));
                 }
-                pending.push((id, path, asset.current.to_bytes(family)?));
+                pending.push((id, location, asset.current.to_bytes(family)?));
             }
         }
         let mut report = SaveReport::default();
-        for (id, path, bytes) in pending {
-            write_atomic(&self.project.root, &path, &bytes)?;
+        for (id, location, bytes) in pending {
+            match &location {
+                Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
+                Location::Slice { .. } => {
+                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
+                    write_slice(&self.project.root, id, &location, base, &bytes)?;
+                }
+            }
             if let Some(asset) = self.assets.get_mut(&id) {
-                asset.saved_bytes = bytes;
+                asset.saved_bytes = Some(bytes);
             }
             report.written.push(id);
         }
         Ok(report)
     }
+}
+
+/// The bytes at `location`. `None`: the file does not exist, or (for a slice) it is too
+/// short to contain it.
+fn read_location(location: &Location) -> Result<Option<Vec<u8>>, KernelError> {
+    let (path, slice) = match location {
+        Location::Member(path) => (path, None),
+        Location::Slice { path, offset, len } => (path, Some((*offset, *len))),
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_at(path)(e)),
+    };
+    Ok(match slice {
+        None => Some(bytes),
+        Some((offset, len)) => slice_range(offset, len, bytes.len()).map(|r| bytes[r].to_vec()),
+    })
+}
+
+/// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.
+fn slice_range(offset: u64, len: usize, file_len: usize) -> Option<std::ops::Range<usize>> {
+    let start = usize::try_from(offset).ok()?;
+    let end = start.checked_add(len)?;
+    (end <= file_len).then_some(start..end)
+}
+
+/// Replaces the slice at `location` with `new` and writes the whole file atomically. The file
+/// is read again here and the slice compared with `base` (the bytes the store last saw), so
+/// the rest of the file is whatever is on disk now, never a cached copy.
+fn write_slice(
+    project_root: &Path,
+    id: AssetId,
+    location: &Location,
+    base: Option<&[u8]>,
+    new: &[u8],
+) -> Result<(), KernelError> {
+    let Location::Slice { path, offset, len } = location else {
+        return Err(mismatch(id));
+    };
+    if new.len() != *len {
+        return Err(KernelError::InvalidProject(format!(
+            "{id} is {} bytes, its slice of {} is {len}",
+            new.len(),
+            path.display()
+        )));
+    }
+    let mut file = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(KernelError::Stale(id)),
+        Err(e) => return Err(io_at(path)(e)),
+    };
+    let range = slice_range(*offset, *len, file.len()).ok_or(KernelError::Stale(id))?;
+    if base != Some(&file[range.clone()]) {
+        return Err(KernelError::Stale(id));
+    }
+    file[range].copy_from_slice(new);
+    write_atomic(project_root, path, &file)
 }
 
 /// Writes via a temp file under `<project root>/.g4/tmp/` (same filesystem, so the rename is
@@ -545,6 +718,28 @@ mod tests {
                 Err(KernelError::NotEditable(k)) if k == kind
             ));
         }
+    }
+
+    /// Every 24-byte pattern is a header of every family and serializes back to the same
+    /// bytes, so a header table is never locked for being non-reproducible.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn every_header_layout_round_trips_arbitrary_bytes() {
+        // xorshift: deterministic, covers all bit fields.
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let bytes: Vec<u8> = (0..MAP_HEADER_SIZE * 500)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                (x >> 24) as u8
+            })
+            .collect();
+        for family in [Family::Dp, Family::Pt, Family::Hgss] {
+            let loaded = Loaded::from_bytes(AssetKind::HeaderTable, &bytes, family).unwrap();
+            assert_eq!(loaded.to_bytes(family).unwrap(), bytes, "{family:?}");
+        }
+        assert!(Loaded::from_bytes(AssetKind::HeaderTable, &bytes[1..], Family::Pt).is_err());
     }
 
     /// A value that cannot be serialized (cannot arise through `edit_event`, which rolls

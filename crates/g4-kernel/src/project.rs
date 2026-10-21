@@ -18,6 +18,9 @@ const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
 /// Size in bytes of one `mapname.bin` record (NUL-padded internal map name).
 const MAPNAME_RECORD: usize = 16;
 
+/// Size in bytes of one map header in `arm9.bin`.
+const MAP_HEADER_SIZE: usize = uxie::map_header::MAP_HEADER_SIZE;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AssetKind {
     Map,
@@ -29,11 +32,15 @@ pub enum AssetKind {
     BuildingTexture,
     BuildingModel,
     InteriorBuildingModel,
+    /// The map header table, a fixed slice of `arm9/arm9.bin`. Store-only: it has no
+    /// archive, so it is never unpacked, packed or built.
+    HeaderTable,
 }
 
 impl AssetKind {
-    /// Every kind, in the order archives are unpacked, packed and listed.
-    pub const ALL: [AssetKind; 9] = [
+    /// Every kind, in the order archives are unpacked, packed and listed; the store-only
+    /// kinds come last.
+    pub const ALL: [AssetKind; 10] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -43,6 +50,7 @@ impl AssetKind {
         AssetKind::BuildingTexture,
         AssetKind::BuildingModel,
         AssetKind::InteriorBuildingModel,
+        AssetKind::HeaderTable,
     ];
 
     /// Human-readable name used in error messages.
@@ -57,6 +65,7 @@ impl AssetKind {
             AssetKind::BuildingTexture => "building texture",
             AssetKind::BuildingModel => "building model",
             AssetKind::InteriorBuildingModel => "interior building model",
+            AssetKind::HeaderTable => "header table",
         }
     }
 
@@ -72,6 +81,7 @@ impl AssetKind {
             AssetKind::BuildingTexture => 6,
             AssetKind::BuildingModel => 7,
             AssetKind::InteriorBuildingModel => 8,
+            AssetKind::HeaderTable => 9,
         }
     }
 }
@@ -119,12 +129,26 @@ struct FamilyArchives {
 /// without that archive, so that `unpacked_name` is total.
 const INTERIOR_UNPACKED_NAME: &str = "interiorBuildingModels";
 
+/// Where the bytes of one asset live on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Location {
+    /// A whole file: an unpacked archive member.
+    Member(PathBuf),
+    /// `len` bytes at `offset` inside a larger file (the header table in `arm9.bin`).
+    Slice {
+        path: PathBuf,
+        offset: u64,
+        len: usize,
+    },
+}
+
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
 /// resolved for one game family and language.
 #[derive(Debug, Clone)]
 pub struct ArchiveMap {
-    /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family.
-    entries: [Option<(PathBuf, String)>; 9],
+    /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
+    /// the kind is store-only, like the header table).
+    entries: [Option<(PathBuf, String)>; 10],
 }
 
 impl ArchiveMap {
@@ -158,6 +182,7 @@ impl ArchiveMap {
                 Some(resolve(archives.building_textures)),
                 Some(resolve(archives.building_models)),
                 archives.interior_building_models.map(resolve),
+                None,
             ],
         })
     }
@@ -170,16 +195,18 @@ impl ArchiveMap {
             .map(|(packed, _)| packed.as_path())
     }
 
-    /// Folder name below `unpacked/`, for example `maps` or `eventFiles`.
+    /// Folder name below `unpacked/`, for example `maps` or `eventFiles`. Meaningless for
+    /// the store-only header table, which has no folder.
     pub fn unpacked_name(&self, kind: AssetKind) -> &str {
         match &self.entries[kind.slot()] {
             Some((_, name)) => name,
-            // Only the interior building models can be missing (checked by a unit test).
+            // Only the interior building models (and the store-only kinds) can be missing.
             None => INTERIOR_UNPACKED_NAME,
         }
     }
 
-    /// All kinds that have an archive in this family, in `AssetKind::ALL` order.
+    /// All kinds that have an archive in this family, in `AssetKind::ALL` order. Store-only
+    /// kinds (the header table) are never listed, so nothing packs or builds them.
     pub fn kinds(&self) -> impl Iterator<Item = AssetKind> + '_ {
         AssetKind::ALL
             .into_iter()
@@ -273,6 +300,63 @@ impl Project {
         self.unpacked_dir(kind).join(format!("{index:04}"))
     }
 
+    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files; the
+    /// header table is the slice of `arm9/arm9.bin` holding every header (its only asset has
+    /// index 0). Fails with `InvalidProject` for another index or when `arm9.bin` is too
+    /// short for the table, and with `UnknownGame` when the game has no known table offset.
+    pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+        if kind != AssetKind::HeaderTable {
+            return Ok(Location::Member(self.member_path(kind, index)));
+        }
+        if index != 0 {
+            return Err(KernelError::InvalidProject(format!(
+                "the header table has one asset, index {index} is out of range"
+            )));
+        }
+        let (offset, count) = self.header_table_extent()?;
+        Ok(Location::Slice {
+            path: self.arm9_path(),
+            offset,
+            len: count * MAP_HEADER_SIZE,
+        })
+    }
+
+    fn arm9_path(&self) -> PathBuf {
+        self.root.join("arm9/arm9.bin")
+    }
+
+    /// Offset of the header table in `arm9.bin` and the number of headers (one per
+    /// `mapname.bin` record), checked against the size of `arm9.bin`.
+    fn header_table_extent(&self) -> Result<(u64, usize), KernelError> {
+        let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
+            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
+        let offset = *tables
+            .get(&self.game_code)
+            .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))?;
+        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
+        let names_len = std::fs::metadata(&names_path)
+            .map_err(io_at(&names_path))?
+            .len();
+        let count = usize::try_from(names_len)
+            .map_err(|_| KernelError::Uxie(format!("mapname.bin too large: {names_len} bytes")))?
+            / MAPNAME_RECORD;
+        if count > usize::from(u16::MAX) + 1 {
+            return Err(KernelError::Uxie(format!("too many map headers: {count}")));
+        }
+        let arm9_path = self.arm9_path();
+        let arm9_len = std::fs::metadata(&arm9_path)
+            .map_err(io_at(&arm9_path))?
+            .len();
+        let end = offset + (count * MAP_HEADER_SIZE) as u64;
+        if arm9_len < end {
+            return Err(KernelError::InvalidProject(format!(
+                "{} has {arm9_len} bytes, the header table needs {end}",
+                arm9_path.display()
+            )));
+        }
+        Ok((offset, count))
+    }
+
     /// Whether the archive of `kind` exists in this project's game family.
     pub fn has_archive(&self, kind: AssetKind) -> bool {
         self.archives.packed(kind).is_some()
@@ -312,6 +396,10 @@ impl Project {
     /// Unpacks the archive of `kind` if its unpacked folder is missing and returns the
     /// member count. An existing folder is never touched.
     pub fn ensure_unpacked(&self, kind: AssetKind) -> Result<usize, KernelError> {
+        if kind == AssetKind::HeaderTable {
+            // Store-only: nothing to unpack, the table is one asset.
+            return Ok(1);
+        }
         self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
         if dir.is_dir() {
@@ -358,6 +446,9 @@ impl Project {
 
     /// Member count of the archive of `kind`, without unpacking anything.
     pub fn member_count(&self, kind: AssetKind) -> Result<usize, KernelError> {
+        if kind == AssetKind::HeaderTable {
+            return Ok(1);
+        }
         self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
         if dir.is_dir() {
@@ -440,19 +531,10 @@ impl Project {
     /// `files/fielddata/maptable/mapname.bin`, with the index of each header's location
     /// name in the text bank. `location_name` stays empty.
     fn read_header_table(&self) -> Result<Vec<(HeaderSummary, usize)>, KernelError> {
-        let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
-            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
-        let offset = *tables
-            .get(&self.game_code)
-            .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))?;
-
+        let (offset, count) = self.header_table_extent()?;
         let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
         let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
-        let count = names.len() / MAPNAME_RECORD;
-        if count > usize::from(u16::MAX) + 1 {
-            return Err(KernelError::Uxie(format!("too many map headers: {count}")));
-        }
-        let arm9_path = self.root.join("arm9/arm9.bin");
+        let arm9_path = self.arm9_path();
         let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
         let parsed = uxie::map_header::read_map_headers_from_arm9(
             &mut Cursor::new(arm9),
@@ -482,9 +564,10 @@ impl Project {
             .collect())
     }
 
-    /// Number of map headers. Reads the header table only, never the text archive.
+    /// Number of map headers: the `mapname.bin` record count, provided `arm9.bin` is large
+    /// enough to hold that many. Parses no header and never reads the text archive.
     pub fn header_count(&self) -> Result<usize, KernelError> {
-        Ok(self.read_header_table()?.len())
+        self.header_table_extent().map(|(_, count)| count)
     }
 
     /// Lists all map headers with their location names. A failure of the header table is
@@ -528,14 +611,19 @@ mod tests {
             (Family::Hgss, Language::English),
         ] {
             let map = ArchiveMap::for_game(family, language).unwrap();
-            // Only HGSS has interior building models; every other kind exists everywhere.
+            // Only HGSS has interior building models; every other archive kind exists
+            // everywhere. The header table is store-only and never has an archive.
             let expected = if family == Family::Hgss { 9 } else { 8 };
             assert_eq!(map.kinds().count(), expected, "{family:?}");
             for kind in AssetKind::ALL {
                 let exists = map.packed(kind).is_some();
                 assert_eq!(
                     exists,
-                    kind != AssetKind::InteriorBuildingModel || family == Family::Hgss
+                    match kind {
+                        AssetKind::HeaderTable => false,
+                        AssetKind::InteriorBuildingModel => family == Family::Hgss,
+                        _ => true,
+                    }
                 );
                 assert!(!map.unpacked_name(kind).is_empty());
             }

@@ -533,10 +533,12 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
     );
     assert_eq!(packed("CPUD", AssetKind::InteriorBuildingModel), None);
     assert_eq!(packed("ADAE", AssetKind::InteriorBuildingModel), None);
-    // Every kind has the DSPRE folder name from the constraints.
+    // Every archive kind has the DSPRE folder name from the constraints (the header table is
+    // store-only and has no folder).
     let p = Project::open(s.dir.path()).unwrap();
     let names: Vec<_> = AssetKind::ALL
         .iter()
+        .filter(|k| **k != AssetKind::HeaderTable)
         .map(|k| p.archives.unpacked_name(*k))
         .collect();
     assert_eq!(
@@ -569,7 +571,8 @@ fn asset_kind_labels() {
             "map texture",
             "building texture",
             "building model",
-            "interior building model"
+            "interior building model",
+            "header table"
         ]
     );
 }

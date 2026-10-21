@@ -809,9 +809,61 @@ fn reload_of_a_deleted_member_fails_without_touching_the_store() {
     .unwrap();
     std::fs::remove_file(s.dir.path().join("unpacked/maps/0000")).unwrap();
     assert!(st.reload_from_disk(map_id(0)).is_err());
-    assert!(st.accept_disk_as_base(map_id(0)).is_err());
     assert!(st.is_dirty(map_id(0)));
     assert!(st.undo().is_some());
+}
+
+#[test]
+fn accept_disk_as_base_of_a_deleted_member_recreates_it_on_save() {
+    let (s, mut st) = store();
+    let id = map_id(0);
+    let path = s.dir.path().join("unpacked/maps/0000");
+    st.edit_map(0, "mine", |m| {
+        m.set_cell(
+            1,
+            1,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    std::fs::remove_file(&path).unwrap();
+    // A deleted file is stale for a plain save ...
+    assert!(matches!(st.save().unwrap_err(), KernelError::Stale(i) if i == id));
+    // ... but "keep mine" accepts that the file is gone instead of failing.
+    st.accept_disk_as_base(id).unwrap();
+    assert!(st.is_dirty(id));
+    assert!(!path.exists());
+    assert_eq!(st.save().unwrap().written, vec![id]);
+    let recreated = MapFile::read(&std::fs::read(&path).unwrap(), Family::Pt).unwrap();
+    assert_eq!(recreated.cell(1, 1).unwrap().kind, 1);
+    assert!(st.dirty().is_empty());
+    assert_eq!(&recreated, st.map(0).unwrap());
+    // The edit is still undoable and then dirty against the recreated file.
+    assert!(st.undo().is_some());
+    assert!(st.is_dirty(id));
+}
+
+#[test]
+fn accept_disk_as_base_of_a_deleted_member_makes_a_clean_asset_dirty_and_guards_reappearance() {
+    let (s, mut st) = store();
+    let id = map_id(1);
+    let path = s.dir.path().join("unpacked/maps/0001");
+    let original = std::fs::read(&path).unwrap();
+    st.map(1).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    st.accept_disk_as_base(id).unwrap();
+    // The store's version is what the user keeps, so the file is to be recreated.
+    assert!(st.is_dirty(id));
+    // A file that reappears meanwhile is not silently overwritten.
+    std::fs::write(&path, b"somebody else").unwrap();
+    assert!(matches!(st.save().unwrap_err(), KernelError::Stale(i) if i == id));
+    std::fs::remove_file(&path).unwrap();
+    st.save().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert!(st.dirty().is_empty());
 }
 
 #[test]
