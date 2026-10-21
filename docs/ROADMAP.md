@@ -31,6 +31,16 @@ Risiken: uxie-Header-Offsets für HGSS; NARC-Padding; Gebäudekoordinaten-Konven
 
 ## Phase 2: Welt-Editor v1
 
+Eingangskriterien aus dem Abschluss-Review von Phase 1:
+- Stale-Fall auflösbar machen: einzelne Assets verwerfen oder neu laden, Meldung in Klartext statt `AssetId { … }`.
+- App-Bundle lauffähig machen: `libnitroarc_ffi.dylib` und apicula mit ausliefern; `pnpm tauri build` auf einem sauberen Rechner prüfen.
+- Cmd+Q-Rückfrage prüfen; falls sie fehlt, Exit-Guard auf Rust-Seite (`RunEvent::ExitRequested`).
+- Kernel aufräumen: `Store` entpackt bei Bedarf selbst, Edit-Closures dürfen fehlschlagen, Fehler tragen Pfad und Asset, eigener Fehlertyp für Projekt-Metadaten statt `Build`.
+- `MapFile::validate` lehnt `buildings_tail` ab 48 Bytes ab, bevor Gebäude editierbar werden.
+- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula mit Timeout und in `spawn_blocking`.
+- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt.
+
+
 Lieferumfang:
 - Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump).
 - Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen.
