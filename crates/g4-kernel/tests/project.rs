@@ -57,7 +57,11 @@ fn open_with_unknown_gamecode_is_unknown_game() {
 fn open_with_malformed_header_yaml_is_an_error() {
     let s = common::synthetic_project();
     std::fs::write(s.dir.path().join("header.yaml"), "maker_code: \"01\"\n").unwrap();
-    assert!(Project::open(s.dir.path()).is_err());
+    let err = Project::open(s.dir.path()).unwrap_err();
+    assert!(
+        matches!(err, KernelError::InvalidProject(ref m) if m.contains("header.yaml")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -166,7 +170,7 @@ fn member_count_reads_the_narc_without_unpacking() {
 }
 
 #[test]
-fn ensure_unpacked_missing_narc_is_io_error() {
+fn ensure_unpacked_missing_narc_is_io_at_error() {
     let s = common::synthetic_project();
     std::fs::remove_file(
         s.dir
@@ -175,10 +179,11 @@ fn ensure_unpacked_missing_narc_is_io_error() {
     )
     .unwrap();
     let p = Project::open(s.dir.path()).unwrap();
-    assert!(matches!(
-        p.ensure_unpacked(AssetKind::Map).unwrap_err(),
-        KernelError::Io(_)
-    ));
+    let err = p.ensure_unpacked(AssetKind::Map).unwrap_err();
+    assert!(
+        matches!(err, KernelError::IoAt { ref path, .. } if path.ends_with("land_data.narc")),
+        "{err}"
+    );
 }
 
 #[test]

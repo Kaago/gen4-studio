@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 
 static WORK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -18,22 +18,22 @@ fn tool_error(reason: impl Into<String>) -> KernelError {
 /// Creates a fresh, empty working directory below `out_dir` (apicula insists on creating its
 /// own output directory, so each call needs a name that does not exist yet).
 fn fresh_work_dir(out_dir: &Path) -> Result<PathBuf, KernelError> {
-    std::fs::create_dir_all(out_dir)?;
+    std::fs::create_dir_all(out_dir).map_err(io_at(out_dir))?;
     loop {
         let n = WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = out_dir.join(format!("apicula-{}-{n}", std::process::id()));
         match std::fs::create_dir(&dir) {
             Ok(()) => return Ok(dir),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(io_at(&dir)(e)),
         }
     }
 }
 
 /// Collects every `.glb` below `dir` (apicula writes `<outdir>/<model name>.glb`).
 fn collect_glbs(dir: &Path, found: &mut Vec<PathBuf>) -> Result<(), KernelError> {
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
+    for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
+        let path = entry.map_err(io_at(dir))?.path();
         if path.is_dir() {
             collect_glbs(&path, found)?;
         } else if path
@@ -59,7 +59,7 @@ pub fn nsbmd_to_glb(apicula: &Path, nsbmd: &[u8], out_dir: &Path) -> Result<Path
     }
     let work = fresh_work_dir(out_dir)?;
     let input = work.join("input.nsbmd");
-    std::fs::write(&input, nsbmd)?;
+    std::fs::write(&input, nsbmd).map_err(io_at(&input))?;
     let converted = work.join("converted");
 
     let output = Command::new(apicula)

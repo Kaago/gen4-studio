@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use ds_rom::rom::{Rom, RomLoadOptions, RomSaveError, raw};
 use g4_formats::narc::Narc;
 
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 
 /// Order in which archives are packed and written.
@@ -29,8 +29,8 @@ fn build_err(e: impl std::fmt::Display) -> KernelError {
 /// digits is an error.
 pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
     let mut found: Vec<(u32, PathBuf)> = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
+        let entry = entry.map_err(io_at(dir))?;
         let name = entry.file_name();
         // Finder and friends drop `.DS_Store` and similar into folders they open.
         if name.to_str().is_some_and(|s| s.starts_with('.')) {
@@ -47,7 +47,7 @@ pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
                 name
             )));
         };
-        if !entry.file_type()?.is_file() {
+        if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
             return Err(KernelError::Build(format!(
                 "{}: member {number:04} is not a file",
                 dir.display()
@@ -64,7 +64,7 @@ pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
                 dir.display()
             )));
         }
-        members.push(std::fs::read(path)?);
+        members.push(std::fs::read(path).map_err(io_at(path))?);
     }
     Ok(Narc { members })
 }
@@ -76,13 +76,13 @@ fn write_if_changed(path: &Path, bytes: &[u8], tmp_dir: &Path) -> Result<(), Ker
     if std::fs::read(path).is_ok_and(|existing| existing == bytes) {
         return Ok(());
     }
-    std::fs::create_dir_all(tmp_dir)?;
+    std::fs::create_dir_all(tmp_dir).map_err(io_at(tmp_dir))?;
     let file_name = path
         .file_name()
         .ok_or_else(|| KernelError::Build(format!("{}: not a file path", path.display())))?;
     let tmp = tmp_dir.join(file_name);
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)?;
+    std::fs::write(&tmp, bytes).map_err(io_at(&tmp))?;
+    std::fs::rename(&tmp, path).map_err(io_at(path))?;
     Ok(())
 }
 
@@ -92,10 +92,10 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(io_at(dir)(e)),
     };
     for entry in entries {
-        let entry = entry?;
+        let entry = entry.map_err(io_at(dir))?;
         if entry
             .file_name()
             .to_str()
@@ -106,7 +106,7 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
                 entry.path().display()
             )));
         }
-        if entry.file_type()?.is_dir() {
+        if entry.file_type().map_err(io_at(&entry.path()))?.is_dir() {
             reject_hidden_files(&entry.path())?;
         }
     }
@@ -119,7 +119,7 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
 /// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
     if let Some(parent) = out_rom.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
     reject_hidden_files(&project.root.join("files"))?;
     let mut packed = Vec::new();
@@ -163,7 +163,11 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
 /// opens it. `dest` must not exist or be an empty directory.
 pub fn extract_rom(nds: &Path, dest: &Path) -> Result<Project, KernelError> {
     if dest.exists() {
-        let empty_dir = dest.is_dir() && std::fs::read_dir(dest)?.next().is_none();
+        let empty_dir = dest.is_dir()
+            && std::fs::read_dir(dest)
+                .map_err(io_at(dest))?
+                .next()
+                .is_none();
         if !empty_dir {
             return Err(KernelError::Build(format!(
                 "destination {} exists and is not empty",

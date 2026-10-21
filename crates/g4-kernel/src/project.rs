@@ -6,7 +6,7 @@ use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
 
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
 const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
@@ -22,6 +22,15 @@ pub enum AssetKind {
 }
 
 impl AssetKind {
+    /// Human-readable name used in error messages.
+    pub fn label(self) -> &'static str {
+        match self {
+            AssetKind::Map => "map",
+            AssetKind::Matrix => "matrix",
+            AssetKind::AreaData => "area data",
+        }
+    }
+
     fn slot(self) -> usize {
         match self {
             AssetKind::Map => 0,
@@ -35,6 +44,18 @@ impl AssetKind {
 pub struct AssetId {
     pub kind: AssetKind,
     pub index: u16,
+}
+
+impl std::fmt::Display for AssetKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+impl std::fmt::Display for AssetId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {:04}", self.kind, self.index)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,15 +83,15 @@ pub struct ArchiveMap {
 impl ArchiveMap {
     fn for_game(family: Family, language: Language) -> Result<ArchiveMap, KernelError> {
         let mut all: HashMap<String, FamilyArchives> = serde_yaml::from_str(ARCHIVES_YAML)
-            .map_err(|e| KernelError::Build(format!("archives.yaml: {e}")))?;
+            .map_err(|e| KernelError::InvalidProject(format!("archives.yaml: {e}")))?;
         let key = match family {
             Family::Dp => "dp",
             Family::Pt => "pt",
             Family::Hgss => "hgss",
         };
-        let archives = all
-            .remove(key)
-            .ok_or_else(|| KernelError::Build(format!("archives.yaml: no entry for {key}")))?;
+        let archives = all.remove(key).ok_or_else(|| {
+            KernelError::InvalidProject(format!("archives.yaml: no entry for {key}"))
+        })?;
         let japanese = language == Language::Japanese;
         let packed_of = |e: &ArchiveEntry| match (&e.packed_jp, japanese) {
             (Some(jp), true) => PathBuf::from(jp),
@@ -133,10 +154,10 @@ impl Project {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Err(KernelError::NotAProject(root));
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(io_at(&header_path)(e)),
         };
         let header: HeaderYaml = serde_yaml::from_str(&text)
-            .map_err(|e| KernelError::Build(format!("{}: {e}", header_path.display())))?;
+            .map_err(|e| KernelError::InvalidProject(format!("{}: {e}", header_path.display())))?;
         let game_code = header.gamecode;
         let family = Family::from_game_code(&game_code)
             .ok_or_else(|| KernelError::UnknownGame(game_code.clone()))?;
@@ -165,19 +186,20 @@ impl Project {
     }
 
     fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
-        let bytes = std::fs::read(self.root.join(self.archives.packed(kind)))?;
+        let path = self.root.join(self.archives.packed(kind));
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)
     }
 
     fn count_unpacked(dir: &Path) -> Result<usize, KernelError> {
         let mut n = 0;
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
+        for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
+            let entry = entry.map_err(io_at(dir))?;
             let name = entry.file_name();
             let is_member = name
                 .to_str()
                 .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()));
-            if is_member && entry.file_type()?.is_file() {
+            if is_member && entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
                 n += 1;
             }
         }
@@ -193,18 +215,19 @@ impl Project {
         }
         let narc = self.read_packed(kind)?;
         let parent = self.root.join("unpacked");
-        std::fs::create_dir_all(&parent)?;
+        std::fs::create_dir_all(&parent).map_err(io_at(&parent))?;
         // Write into a sibling folder and rename, so an interrupted unpack never
         // leaves a partial folder that would later be mistaken for a complete one.
         let tmp = parent.join(format!(".{}.unpacking", self.archives.unpacked_name(kind)));
         if tmp.exists() {
-            std::fs::remove_dir_all(&tmp)?;
+            std::fs::remove_dir_all(&tmp).map_err(io_at(&tmp))?;
         }
-        std::fs::create_dir(&tmp)?;
+        std::fs::create_dir(&tmp).map_err(io_at(&tmp))?;
         for (i, member) in narc.members.iter().enumerate() {
-            std::fs::write(tmp.join(format!("{i:04}")), member)?;
+            let path = tmp.join(format!("{i:04}"));
+            std::fs::write(&path, member).map_err(io_at(&path))?;
         }
-        std::fs::rename(&tmp, &dir)?;
+        std::fs::rename(&tmp, &dir).map_err(io_at(&dir))?;
         Ok(narc.members.len())
     }
 
@@ -222,17 +245,19 @@ impl Project {
     /// internal names from `files/fielddata/maptable/mapname.bin`.
     pub fn headers(&self) -> Result<Vec<HeaderSummary>, KernelError> {
         let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
-            .map_err(|e| KernelError::Build(format!("header_tables.yaml: {e}")))?;
+            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
         let offset = *tables
             .get(&self.game_code)
             .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))?;
 
-        let names = std::fs::read(self.root.join("files/fielddata/maptable/mapname.bin"))?;
+        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
+        let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
         let count = names.len() / MAPNAME_RECORD;
         if count > usize::from(u16::MAX) + 1 {
             return Err(KernelError::Uxie(format!("too many map headers: {count}")));
         }
-        let arm9 = std::fs::read(self.root.join("arm9/arm9.bin"))?;
+        let arm9_path = self.root.join("arm9/arm9.bin");
+        let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
         let family = match self.family {
             Family::Dp => uxie::GameFamily::DP,
             Family::Pt => uxie::GameFamily::Platinum,

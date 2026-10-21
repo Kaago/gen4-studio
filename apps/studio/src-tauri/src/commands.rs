@@ -630,7 +630,7 @@ mod tests {
         bytes[last] ^= 0xFF;
         std::fs::write(&member, &bytes).unwrap();
         let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
-        assert!(err.contains("stale"), "{err}");
+        assert!(err.contains("changed on disk"), "{err}");
         assert!(!out.exists());
     }
 

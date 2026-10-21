@@ -10,7 +10,7 @@ use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::Matrix;
 
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 
 pub use crate::project::AssetId;
@@ -36,9 +36,7 @@ impl Loaded {
         match kind {
             AssetKind::Map => Ok(Loaded::Map(MapFile::read(bytes, family)?)),
             AssetKind::Matrix => Ok(Loaded::Matrix(Matrix::read(bytes)?)),
-            AssetKind::AreaData => Err(KernelError::Build(
-                "area data is not editable through the store yet".into(),
-            )),
+            AssetKind::AreaData => Err(KernelError::NotEditable(kind)),
         }
     }
 
@@ -82,7 +80,7 @@ fn rank(kind: AssetKind) -> u8 {
 }
 
 fn mismatch(id: AssetId) -> KernelError {
-    KernelError::Build(format!("asset {id:?} is not of the requested kind"))
+    KernelError::InvalidProject(format!("{id} is not of the requested kind"))
 }
 
 impl Store {
@@ -102,7 +100,8 @@ impl Store {
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
-            let bytes = std::fs::read(self.project.member_path(id.kind, id.index))?;
+            let path = self.project.member_path(id.kind, id.index);
+            let bytes = std::fs::read(&path).map_err(io_at(&path))?;
             let current = Loaded::from_bytes(id.kind, &bytes, self.project.family)?;
             self.assets.insert(
                 id,
@@ -285,7 +284,7 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Err(KernelError::Stale(id));
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(io_at(&path)(e)),
             };
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
@@ -313,7 +312,7 @@ impl Store {
 fn write_atomic(project_root: &Path, path: &Path, bytes: &[u8]) -> Result<(), KernelError> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let tmp_dir = project_root.join(".g4").join("tmp");
-    std::fs::create_dir_all(&tmp_dir)?;
+    std::fs::create_dir_all(&tmp_dir).map_err(io_at(&tmp_dir))?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -323,10 +322,13 @@ fn write_atomic(project_root: &Path, path: &Path, bytes: &[u8]) -> Result<(), Ke
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
-    if let Err(e) = result {
+    if let Err(e) = std::fs::write(&tmp, bytes).map_err(io_at(&tmp)) {
         let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path).map_err(io_at(path)) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
     Ok(())
 }
