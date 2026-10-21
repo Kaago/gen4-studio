@@ -31,6 +31,8 @@ Risiken: uxie-Header-Offsets für HGSS; NARC-Padding; Gebäudekoordinaten-Konven
 
 ## Phase 2: Welt-Editor v1
 
+Detailpläne: [Phase 2a: Fundament, Bundle und Orientierung](superpowers/plans/2026-10-21-phase-2a-foundation-and-orientation.md) (Eingangskriterien, Workbench, Hover, Event-Marker, Texturen, Ortsnamen, große Matrizen, App-Bundle) und [Phase 2b: Welt-Editoren](superpowers/plans/2026-10-21-phase-2b-editors.md) (Header, Matrix, Area-Data, Gebäude, Events, Undo je Asset, Querverlinkung).
+
 Eingangskriterien aus dem Abschluss-Review von Phase 1:
 - Stale-Fall auflösbar machen: einzelne Assets verwerfen oder neu laden, Meldung in Klartext statt `AssetId { … }`.
 - App-Bundle lauffähig machen: `libnitroarc_ffi.dylib` und apicula mit ausliefern; `pnpm tauri build` auf einem sauberen Rechner prüfen.
