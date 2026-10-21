@@ -278,7 +278,6 @@ pub fn tile_behaviors_impl() -> Result<Vec<TileBehavior>, CmdError> {
 pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.project.ensure_unpacked(AssetKind::Matrix)?;
     let matrix = session.store.matrix(index).map_err(CmdError::from)?;
     Ok(MatrixDto::from_matrix(index, matrix))
 }
@@ -286,7 +285,6 @@ pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdErr
 pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.project.ensure_unpacked(AssetKind::Map)?;
     let map = session.store.map(index).map_err(CmdError::from)?;
     Ok(MapDto::from_map(index, map))
 }
@@ -294,13 +292,12 @@ pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
 pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.project.ensure_unpacked(AssetKind::Event)?;
     let file = session.store.event(event_file_id).map_err(CmdError::from)?;
     EventsDto::from_file(event_file_id, file)
 }
 
-/// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds
-/// (`maps`, `matrices`, `areaData`) with their member counts, and the ROM path.
+/// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds (by
+/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, and the ROM path.
 #[derive(Debug, Serialize)]
 pub struct BuildDto {
     pub saved: usize,
@@ -324,7 +321,6 @@ pub fn set_permission_impl(
     }
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.project.ensure_unpacked(AssetKind::Map)?;
     session.store.edit_map(index, "paint", |map| {
         map.set_cell(usize::from(x), usize::from(y), Cell { kind, collision })
     })?;
@@ -356,7 +352,6 @@ pub fn save_impl(state: &AppState) -> Result<SaveReport, CmdError> {
 pub fn reload_asset_impl(state: &AppState, kind: AssetKind, index: u16) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.project.ensure_unpacked(kind)?;
     session.store.reload_from_disk(AssetId { kind, index })?;
     Ok(())
 }
@@ -997,6 +992,31 @@ mod tests {
         let state = AppState::default();
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         (fixture, state)
+    }
+
+    #[test]
+    fn commands_unpack_on_first_access_without_help_from_the_wrapper() {
+        // None of these call ensure_unpacked themselves; the store unpacks what it loads.
+        let (fixture, state) = open_synthetic();
+        assert!(!fixture.dir.path().join("unpacked").exists());
+        reload_asset_impl(&state, AssetKind::Event, 0).unwrap();
+        assert!(
+            fixture
+                .dir
+                .path()
+                .join("unpacked/eventFiles/0000")
+                .is_file()
+        );
+        get_matrix_impl(&state, 0).unwrap();
+        get_map_impl(&state, 0).unwrap();
+        get_events_impl(&state, 1).unwrap();
+        set_permission_impl(&state, 2, 0, 0, 1, 0).unwrap();
+        for dir in ["matrices", "maps", "eventFiles"] {
+            assert!(
+                fixture.dir.path().join("unpacked").join(dir).is_dir(),
+                "{dir}"
+            );
+        }
     }
 
     #[test]
