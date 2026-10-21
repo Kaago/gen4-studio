@@ -1,0 +1,3 @@
+# uxie 0.9.7 builds nitroarc, whose static strchrnul clashes with macOS SDK >= 15.4; this hides the SDK declaration.
+[env]
+CFLAGS = "-D_POSIX_C_SOURCE=200809L"
