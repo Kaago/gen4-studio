@@ -39,12 +39,24 @@ HeartGold US). Eine Abweichung von der Annahme (`0x00`) gab es nicht.
 
 ## Grenzen des Codecs
 
-- Es wird nur die namenlose BTNF-Variante geschrieben. `read` überspringt den
-  BTNF-Inhalt, ein Archiv mit echten Dateinamen würde beim Schreiben seine
-  Namen verlieren. Die Vanilla-Archive von Pt und HGSS sind namenlos.
-- `read` ignoriert das Padding; nur `start..end` zählt. Ein `end` jenseits der
-  GMIF-Nutzdaten ergibt `FormatError::Truncated`, ein `start > end`
-  `FormatError::OutOfRange`.
-- Archive, die nicht aus der kanonischen Reihenfolge (BTAF, BTNF, GMIF) oder
-  mit überlappenden Membern aufgebaut sind, werden gelesen, aber nicht
-  byte-identisch geschrieben.
+Der Codec erhält unbekannte Bytes verbatim oder lehnt die Eingabe ab. `read`
+liefert einen Fehler (bestehende `FormatError`-Varianten) für alles, was
+`write` nicht byte-identisch reproduzieren würde:
+
+- BTNF ist nicht exakt der kanonische namenlose Block (`BTNF`, `0x10`, `0x4`,
+  `0x00010000`): `BadSize` bei abweichender Blockgröße, `BadMagic` bei
+  abweichendem Inhalt. Archive mit echten Dateinamen werden also abgelehnt und
+  verlieren ihre Namen nicht stillschweigend. Die Vanilla-Archive von Pt und
+  HGSS sind namenlos.
+- Version ungleich `0x0100` (`BadSignature`), Blockanzahl ungleich 3 oder
+  Header-Größe ungleich `0x10` (`BadSize`), BTAF mit falscher Größe oder
+  Reserved-Feld ungleich 0.
+- Bytes hinter dem GMIF-Block, also `bytes.len() != total_size` oder ein
+  GMIF-Ende ungleich `total_size` (`BadSize`).
+- `end` jenseits der GMIF-Nutzdaten ergibt `Truncated`, `start > end`
+  `OutOfRange`.
+
+Nicht geprüft wird der Inhalt des Paddings (es wird beim Lesen ignoriert und
+beim Schreiben als `0xFF` erzeugt) sowie die Ausrichtung und Reihenfolge der
+`start`-Werte; ein Archiv mit überlappenden oder nicht dicht gepackten
+Membern wird gelesen, aber nicht byte-identisch geschrieben.

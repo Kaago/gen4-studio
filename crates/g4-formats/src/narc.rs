@@ -14,6 +14,8 @@ const BYTE_ORDER: u16 = 0xFFFE;
 const VERSION: u16 = 0x0100;
 const HEADER_SIZE: usize = 0x10;
 const BLOCK_COUNT: u16 = 3;
+/// Body of the canonical nameless BTNF block: `u32 4`, `u32 0x00010000`.
+const BTNF_NAMELESS_BODY: [u8; 8] = [0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00];
 /// Byte used to pad every member (including the last) to a multiple of 4.
 const PADDING: u8 = 0xFF;
 
@@ -97,11 +99,25 @@ impl Narc {
                 found: bom,
             });
         }
+        let version = u16_at(bytes, 6)?;
+        if version != VERSION {
+            return Err(FormatError::BadSignature {
+                expected: VERSION,
+                found: version,
+            });
+        }
         let total = u32_at(bytes, 8)? as usize;
         if bytes.len() < total {
             return Err(FormatError::Truncated {
                 needed: total,
                 have: bytes.len(),
+            });
+        }
+        // Trailing bytes would be dropped by `write`.
+        if bytes.len() > total {
+            return Err(FormatError::BadSize {
+                expected: total,
+                found: bytes.len(),
             });
         }
         let header_size = u16_at(bytes, 12)? as usize;
@@ -112,15 +128,55 @@ impl Narc {
             });
         }
 
+        let block_count = u16_at(bytes, 14)?;
+        if block_count != BLOCK_COUNT {
+            return Err(FormatError::BadSize {
+                expected: BLOCK_COUNT as usize,
+                found: block_count as usize,
+            });
+        }
+
         let (btaf, next) = block(bytes, header_size, BTAF_MAGIC, "BTAF")?;
         let n = u16_at(btaf, 0)? as usize;
         let table = btaf.get(4..4 + 8 * n).ok_or(FormatError::Truncated {
             needed: 4 + 8 * n,
             have: btaf.len(),
         })?;
+        if btaf.len() != 4 + 8 * n {
+            return Err(FormatError::BadSize {
+                expected: 4 + 8 * n,
+                found: btaf.len(),
+            });
+        }
+        let reserved = u16_at(btaf, 2)?;
+        if reserved != 0 {
+            return Err(FormatError::BadSignature {
+                expected: 0,
+                found: reserved,
+            });
+        }
 
-        let (_btnf, next) = block(bytes, next, BTNF_MAGIC, "BTNF")?;
-        let (payload, _) = block(bytes, next, GMIF_MAGIC, "GMIF")?;
+        // `write` only emits the nameless BTNF; anything else would lose data.
+        let (btnf, next) = block(bytes, next, BTNF_MAGIC, "BTNF")?;
+        if btnf != BTNF_NAMELESS_BODY {
+            return Err(if btnf.len() != BTNF_NAMELESS_BODY.len() {
+                FormatError::BadSize {
+                    expected: BTNF_NAMELESS_BODY.len() + 8,
+                    found: btnf.len() + 8,
+                }
+            } else {
+                FormatError::BadMagic {
+                    expected: "BTNF (nameless)",
+                }
+            });
+        }
+        let (payload, gmif_end) = block(bytes, next, GMIF_MAGIC, "GMIF")?;
+        if gmif_end != total {
+            return Err(FormatError::BadSize {
+                expected: total,
+                found: gmif_end,
+            });
+        }
 
         let mut members = Vec::with_capacity(n);
         let (entries, _) = table.as_chunks::<8>();
@@ -221,6 +277,90 @@ mod tests {
         let gmif = bytes.windows(4).position(|w| w == b"GMIF").unwrap();
         let payload = &bytes[gmif + 8..];
         assert_eq!(payload, &[1, 2, 3, 0xFF, 4, 0xFF, 0xFF, 0xFF]);
+    }
+
+    fn sample() -> Vec<u8> {
+        Narc {
+            members: vec![vec![1, 2, 3], vec![4]],
+        }
+        .write()
+    }
+
+    // Offsets in `sample()`: BTAF at 16 (n = 2, 28 bytes), BTNF at 44.
+    const BTNF_OFF: usize = 44;
+
+    #[test]
+    fn narc_rejects_named_btnf() {
+        let mut bytes = sample();
+        // Name table with a real directory entry: size 0x10 but different body.
+        bytes[BTNF_OFF + 8..BTNF_OFF + 12].copy_from_slice(&8u32.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadMagic { .. }
+        ));
+        // Larger BTNF block (names present): insert 4 bytes and fix up sizes.
+        let mut bytes = sample();
+        bytes.splice(BTNF_OFF + 16..BTNF_OFF + 16, [0u8; 4]);
+        bytes[BTNF_OFF + 4..BTNF_OFF + 8].copy_from_slice(&20u32.to_le_bytes());
+        let total = bytes.len() as u32;
+        bytes[8..12].copy_from_slice(&total.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSize {
+                expected: 16,
+                found: 20
+            }
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_trailing_bytes() {
+        let mut bytes = sample();
+        let len = bytes.len();
+        bytes.extend_from_slice(&[0xAA; 4]);
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSize { expected, found } if expected == len && found == len + 4
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_non_canonical_version() {
+        let mut bytes = sample();
+        bytes[6..8].copy_from_slice(&0x0101u16.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSignature {
+                expected: 0x0100,
+                found: 0x0101
+            }
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_non_canonical_block_count() {
+        let mut bytes = sample();
+        bytes[14..16].copy_from_slice(&4u16.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSize {
+                expected: 3,
+                found: 4
+            }
+        ));
+    }
+
+    #[test]
+    fn narc_rejects_non_canonical_header_size() {
+        let mut bytes = sample();
+        bytes[12..14].copy_from_slice(&0x20u16.to_le_bytes());
+        assert!(matches!(
+            Narc::read(&bytes).unwrap_err(),
+            FormatError::BadSize {
+                expected: 16,
+                found: 32
+            }
+        ));
     }
 
     #[test]
