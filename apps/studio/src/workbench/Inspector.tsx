@@ -3,6 +3,8 @@ import type { BgDto, CoordDto, ObjectDto, WarpDto } from "../api";
 import { eventDetails, eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 import type { TileInfo } from "../world/hover";
+import { AreaEditor } from "./inspector/AreaEditor";
+import type { AreaEditorContext } from "./inspector/AreaEditor";
 import { HeaderEditor } from "./inspector/HeaderEditor";
 import type { HeaderEditorContext } from "./inspector/HeaderEditor";
 import { MatrixCellEditor } from "./inspector/MatrixCellEditor";
@@ -13,6 +15,8 @@ export type InspectorModel =
   | { kind: "none" }
   /** The selected header, shown as an editable form. */
   | { kind: "header"; id: number }
+  /** An area data record, shown as an editable form (opened from the header editor). */
+  | { kind: "area"; id: number }
   /** A cell of a matrix selected in the matrix panel, shown as an editable form. */
   | { kind: "matrixCell"; matrix: number; x: number; y: number }
   | {
@@ -37,10 +41,22 @@ export type InspectorModel =
 
 const box: CSSProperties = { padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 14, color: "#4b5563" };
 
-export function Inspector({ model, headerEditor, matrixEditor }: { model: InspectorModel; headerEditor: HeaderEditorContext; matrixEditor: MatrixCellContext }) {
+export function Inspector({
+  model,
+  headerEditor,
+  matrixEditor,
+  areaEditor,
+}: {
+  model: InspectorModel;
+  headerEditor: HeaderEditorContext;
+  matrixEditor: MatrixCellContext;
+  areaEditor: AreaEditorContext;
+}) {
   switch (model.kind) {
     case "header":
       return <HeaderEditor key={model.id} id={model.id} context={headerEditor} />;
+    case "area":
+      return <AreaEditor key={model.id} id={model.id} context={areaEditor} />;
     case "matrixCell":
       return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} />;
     case "none":

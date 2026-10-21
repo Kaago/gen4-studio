@@ -18,7 +18,10 @@ export interface WorkbenchData {
   selected: number | null;
   onSelect: (h: HeaderSummary) => void;
   matrix: MatrixDto | null;
+  /** Area data the scene's models are textured with (follows the shown header, set together with `matrix`). */
   areaDataId: number;
+  /** Incremented when the textures of the shown area data changed: the scene reloads its models. */
+  modelsToken: number;
   showPermissions: boolean;
   onShowPermissions: (show: boolean) => void;
   /** Event file of the selected header (null: none selected). */
@@ -40,6 +43,10 @@ export interface WorkbenchData {
   headerRevision: number;
   /** A header field was written: refresh list, scene and dirty count. */
   onHeaderChanged: () => void | Promise<void>;
+  /** Changes whenever area data may have changed behind the area editor (undo, redo, reload). */
+  areaRevision: number;
+  /** An area data field was written: refresh the dirty count and, if the shown models' tileset changed, the scene. */
+  onAreaChanged: () => void | Promise<void>;
   /** Changes whenever matrix data may have changed behind the matrix panel and the cell editor (edit, undo, redo, reload). */
   matrixRevision: number;
   /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
@@ -81,6 +88,7 @@ function WorldPanel() {
           <MatrixScene
             matrix={d.matrix}
             areaDataId={d.areaDataId}
+            modelsToken={d.modelsToken}
             showPermissions={d.showPermissions}
             eventFileId={d.eventFileId}
             showEvents={d.showEvents}
@@ -133,7 +141,15 @@ function InspectorPanel() {
   return (
     <Inspector
       model={d.inspector}
-      headerEditor={{ headers: d.headers, counts: d.memberCounts, revision: d.headerRevision, onChanged: d.onHeaderChanged, onError: d.onError }}
+      headerEditor={{
+        headers: d.headers,
+        counts: d.memberCounts,
+        revision: d.headerRevision,
+        onChanged: d.onHeaderChanged,
+        onOpenArea: (id) => d.onPin({ kind: "area", id }),
+        onError: d.onError,
+      }}
+      areaEditor={{ counts: d.memberCounts, revision: d.areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
       matrixEditor={{
         headerCount: d.headers.length,
         counts: d.memberCounts,

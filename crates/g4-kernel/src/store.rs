@@ -275,6 +275,17 @@ impl Store {
         }
     }
 
+    /// Index of the map texture set that `AreaData[area_data_id]` selects, as the store holds
+    /// it (unsaved edits included). `Ok(None)` when the area data index lies outside its archive.
+    pub fn map_tileset_index(&mut self, area_data_id: u8) -> Result<Option<u16>, KernelError> {
+        self.ensure_unpacked(AssetKind::AreaData)?;
+        let count = self.project.member_count(AssetKind::AreaData)?;
+        if usize::from(area_data_id) >= count {
+            return Ok(None);
+        }
+        Ok(Some(self.area_data(u16::from(area_data_id))?.map_tileset()))
+    }
+
     /// Returns the event file `index`, loading it from disk on first use. A file that the
     /// codec would not write back byte for byte is still returned for display, but it is
     /// locked: `edit_event` refuses it, it is never dirty and `save` never writes it.

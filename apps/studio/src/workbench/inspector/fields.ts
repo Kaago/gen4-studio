@@ -2,14 +2,16 @@ import { headerFamily } from "../../api";
 import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
 
 /** What an id field points at; pickers get their upper limit from the archive's member count. */
-export type PickKind = "matrix" | "areaData" | "eventFile" | "textArchive" | "script" | "header";
+export type PickKind = "matrix" | "areaData" | "eventFile" | "textArchive" | "script" | "header" | "mapTexture" | "buildingTexture";
 
 export interface FieldSpec {
   /** Property name in the serialized header (uxie struct). */
   key: string;
   label: string;
-  kind: "u8" | "u16" | "bool" | "pick";
+  kind: "u8" | "u16" | "bool" | "pick" | "select";
   pick?: PickKind;
+  /** Choices of a `select` field (a stored value without a choice is still shown). */
+  options?: { value: number; label: string }[];
 }
 
 const u8 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u8" });
@@ -105,6 +107,7 @@ function typeMax(spec: FieldSpec): number {
     case "bool":
       return 1;
     case "u8":
+    case "select":
       return 0xff;
     case "u16":
       return 0xffff;
@@ -129,6 +132,8 @@ const PICK_ASSET: Partial<Record<PickKind, AssetKind>> = {
   areaData: "AreaData",
   eventFile: "Event",
   textArchive: "TextArchive",
+  mapTexture: "MapTexture",
+  buildingTexture: "BuildingTexture",
 };
 
 /** Highest valid index of a picker (member count − 1); undefined when the target has no known count. */

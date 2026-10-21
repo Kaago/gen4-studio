@@ -54,7 +54,8 @@ fn issue(tileset: Option<u16>, reason: &str) -> TextureIssue {
     }
 }
 
-/// What the model conversion needs, read under one short lock acquisition.
+/// What the model conversion needs, read under one short lock acquisition. The tileset follows
+/// the store's area data, so an unsaved edit re-textures the model.
 struct ModelInputs {
     cache_dir: PathBuf,
     nsbmd: Vec<u8>,
@@ -80,7 +81,7 @@ fn model_inputs(state: &AppState, index: u16, area_data_id: u8) -> Result<ModelI
         tileset_id: None,
         problem: None,
     };
-    match project.map_tileset_index(area_data_id) {
+    match session.store.map_tileset_index(area_data_id) {
         Ok(Some(id)) => {
             inputs.tileset_id = Some(id);
             match project.map_tileset_member(id) {
@@ -229,6 +230,14 @@ mod tests {
         assert_eq!(err.message, "no project open");
     }
 
+    /// The terrain model of synthetic map 0.
+    fn synthetic_model() -> Vec<u8> {
+        let bytes = g4_kernel::test_support::synthetic_map_bytes(0);
+        MapFile::read(&bytes, g4_formats::game::Family::Pt)
+            .unwrap()
+            .model
+    }
+
     #[test]
     fn model_glb_cache_is_keyed_by_model_and_tileset_content() {
         let fixture = g4_kernel::test_support::synthetic_project();
@@ -257,6 +266,39 @@ mod tests {
         );
         assert_eq!(
             get_map_model_glb_with(&state, 0, 200, None).unwrap(),
+            b"glTFplain"
+        );
+    }
+
+    #[test]
+    fn an_unsaved_area_data_edit_changes_the_models_tileset() {
+        let (fixture, state) = open_synthetic();
+        let models = fixture.dir.path().join(".g4/models");
+        std::fs::create_dir_all(&models).unwrap();
+        let model = synthetic_model();
+        let textured = glb_cache_key(&model, Some(b"BTX0\0\0\0\0"));
+        let plain = glb_cache_key(&model, None);
+        std::fs::write(models.join(format!("{textured}.glb")), b"glTFtextured").unwrap();
+        std::fs::write(models.join(format!("{plain}.glb")), b"glTFplain").unwrap();
+        // Area data 1 selects a tileset the archive does not have: untextured.
+        assert_eq!(
+            get_map_model_glb_with(&state, 0, 1, None).unwrap(),
+            b"glTFplain"
+        );
+        let mut a = get_area_data_impl(&state, 1).unwrap();
+        if let AreaDataDto::Dppt { map_tileset, .. } = &mut a {
+            *map_tileset = 0;
+        }
+        set_area_data_impl(&state, 1, a, "map tileset").unwrap();
+        // Nothing was saved, yet the model now follows the edited record ...
+        assert_eq!(
+            get_map_model_glb_with(&state, 0, 1, None).unwrap(),
+            b"glTFtextured"
+        );
+        // ... and undo takes it back.
+        assert!(undo_impl(&state).unwrap());
+        assert_eq!(
+            get_map_model_glb_with(&state, 0, 1, None).unwrap(),
             b"glTFplain"
         );
     }

@@ -48,6 +48,10 @@ interface SceneHandle {
   render: () => void;
   /** Matrix and loaded maps behind the current content (null until a matrix is loaded). */
   matrix: MatrixDto | null;
+  /** The terrain model instances in `content` (one per matrix cell showing a map), for reloading them alone. */
+  models: THREE.Object3D[];
+  /** What the last full load could not read (names, maps), kept for the summary after a models-only reload. */
+  loadProblems: { names: string | null; maps: string[] };
   loaded: Map<number, Loaded>;
   tiles: THREE.InstancedMesh | null;
   /** Map id to the first overlay instance of each matrix cell showing that map. */
@@ -119,10 +123,20 @@ function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model: THREE
     instance.scale.setScalar(MODEL_SCALE);
     instance.position.set(origin.x + MAP_SIZE / 2, 0, origin.z + MAP_SIZE / 2);
     h.content.add(instance);
+    h.models.push(instance);
     used = true;
   });
   // The clones in `content` are disposed with it; a model without a cell would leak.
   if (!used) disposeTree(model);
+}
+
+/** Takes every terrain model out of the scene (the overlay, buildings and markers stay). */
+function removeModels(h: SceneHandle) {
+  for (const instance of h.models) {
+    h.content.remove(instance);
+    disposeTree(instance);
+  }
+  h.models = [];
 }
 
 /** Builds the overlay and building objects once all maps are known; models are added later. */
@@ -259,8 +273,14 @@ function recolourMap(h: SceneHandle, mapId: number) {
 
 interface Props {
   matrix: MatrixDto;
-  /** Area data of the selected header; selects the map texture set for every map of the matrix. */
+  /**
+   * Area data of the shown header; selects the map texture set for every map of the matrix. It
+   * belongs to `matrix` (App changes both in one update when another header is shown). Changed
+   * alone, or with a changed `modelsToken`, only the models reload, not the maps and markers.
+   */
   areaDataId: number;
+  /** Increment to reload the models alone (the shown area data's tilesets were edited). */
+  modelsToken: number;
   showPermissions: boolean;
   /** Event file of the selected header; its events are shown as markers (null: none). */
   eventFileId: number | null;
@@ -283,6 +303,7 @@ interface Props {
 function MatrixScene({
   matrix,
   areaDataId,
+  modelsToken,
   showPermissions,
   eventFileId,
   showEvents,
@@ -297,10 +318,6 @@ function MatrixScene({
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
-  // Read when a matrix loads, not a reload trigger of its own: the header choice and its
-  // matrix arrive in separate state updates.
-  const areaRef = useRef(areaDataId);
-  areaRef.current = areaDataId;
   const showEventsRef = useRef(showEvents);
   // Like the area data, the event file belongs to the header and is read when a matrix loads.
   const eventFileRef = useRef(eventFileId);
@@ -352,6 +369,8 @@ function MatrixScene({
       overlay: null,
       render,
       matrix: null,
+      models: [],
+      loadProblems: { names: null, maps: [] },
       loaded: new Map(),
       tiles: null,
       bases: new Map(),
@@ -511,27 +530,25 @@ function MatrixScene({
     };
   }, []);
 
-  // (Re)load the matrix content: maps first (overlay and markers appear as soon as they are
-  // there), then the models, a few at a time, each hung into the scene as it arrives.
+  // (Re)load the scene. A new matrix loads the maps first (overlay and markers appear as soon as
+  // they are there), then the models, a few at a time, each hung into the scene as it arrives.
+  // The same matrix with another area data (or `modelsToken`) reloads only the models. Every run
+  // supersedes the one before it: that one's pending work is dropped when it comes back.
   useEffect(() => {
     const h = handle.current;
     if (!h) return;
     let cancelled = false;
-    const area = areaRef.current;
+    const area = areaDataId;
+    // The scene shows this matrix's maps already when only the models are to be replaced.
+    const modelsOnly = h.matrix === matrix;
     /** Status updates of a superseded load are dropped. */
     const report = (message: Message | null) => {
       if (!cancelled) callbacks.current.onStatus(message);
     };
-    report({ kind: "info", text: "Lade Karten ..." });
-    setEventStatus(null);
-    // Fetched next to the maps; a failure only costs the markers, never the scene.
-    const eventsPending = fetchEvents(eventFileRef.current);
-    // Without names the overlay is uncoloured by class and the hover shows raw values only.
-    let namesError: string | null = null;
-    const namesPending = loadNames().catch((e) => {
-      namesError = `Kachelnamen nicht geladen: ${errorText(e)}`;
-      return new Map<number, TileBehavior>();
-    });
+    if (!modelsOnly) {
+      report({ kind: "info", text: "Lade Karten ..." });
+      setEventStatus(null);
+    }
     // Frames bursts of arriving models into at most one render per animation frame.
     let renderQueued = false;
     const queueRender = () => {
@@ -544,47 +561,61 @@ function MatrixScene({
     };
 
     (async () => {
-      const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
-      const loaded = new Map<number, Loaded>();
-      const mapErrors: string[] = [];
-      const mapsPending = Promise.all(
-        ids.map(async (id) => {
-          try {
-            loaded.set(id, { map: await getMap(id) });
-          } catch (e) {
-            mapErrors.push(`Karte ${id}: ${errorText(e)}`);
-          }
-        }),
-      );
-      const [names, fetchedEvents] = await Promise.all([namesPending, eventsPending, mapsPending]);
-      if (cancelled || handle.current !== h) return;
-      const { content, overlay, tiles, bases } = buildContent(matrix, loaded, names);
-      h.scene.remove(h.content);
-      disposeTree(h.content);
-      h.content = content;
-      h.overlay = overlay;
-      h.matrix = matrix;
-      h.loaded = loaded;
-      h.tiles = tiles;
-      h.bases = bases;
-      h.names = names;
-      overlay.visible = showRef.current;
-      h.scene.add(content);
-      setMarkers(h, fetchedEvents.events, showEventsRef.current);
-      setEventStatus(fetchedEvents.error);
+      if (modelsOnly) {
+        removeModels(h);
+        h.render();
+      } else {
+        // Fetched next to the maps; a failure only costs the markers, never the scene.
+        const eventsPending = fetchEvents(eventFileRef.current);
+        // Without names the overlay is uncoloured by class and the hover shows raw values only.
+        const problems: SceneHandle["loadProblems"] = { names: null, maps: [] };
+        const namesPending = loadNames().catch((e) => {
+          problems.names = `Kachelnamen nicht geladen: ${errorText(e)}`;
+          return new Map<number, TileBehavior>();
+        });
+        const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
+        const loaded = new Map<number, Loaded>();
+        const mapsPending = Promise.all(
+          ids.map(async (id) => {
+            try {
+              loaded.set(id, { map: await getMap(id) });
+            } catch (e) {
+              problems.maps.push(`Karte ${id}: ${errorText(e)}`);
+            }
+          }),
+        );
+        const [names, fetchedEvents] = await Promise.all([namesPending, eventsPending, mapsPending]);
+        if (cancelled || handle.current !== h) return;
+        const { content, overlay, tiles, bases } = buildContent(matrix, loaded, names);
+        h.scene.remove(h.content);
+        disposeTree(h.content);
+        h.content = content;
+        h.models = [];
+        h.loadProblems = problems;
+        h.overlay = overlay;
+        h.matrix = matrix;
+        h.loaded = loaded;
+        h.tiles = tiles;
+        h.bases = bases;
+        h.names = names;
+        overlay.visible = showRef.current;
+        h.scene.add(content);
+        setMarkers(h, fetchedEvents.events, showEventsRef.current);
+        setEventStatus(fetchedEvents.error);
 
-      const w = matrix.width * MAP_SIZE;
-      const d = matrix.height * MAP_SIZE;
-      const span = Math.max(w, d);
-      h.controls.target.set(w / 2, 0, d / 2);
-      h.camera.position.set(w / 2, span * 0.9, d / 2 + span * 0.7);
-      h.controls.update();
-      h.render();
-      h.refreshHover?.();
+        const w = matrix.width * MAP_SIZE;
+        const d = matrix.height * MAP_SIZE;
+        const span = Math.max(w, d);
+        h.controls.target.set(w / 2, 0, d / 2);
+        h.camera.position.set(w / 2, span * 0.9, d / 2 + span * 0.7);
+        h.controls.update();
+        h.render();
+        h.refreshHover?.();
+      }
 
       // Models: a task that has not started when the load is superseded never starts; a started
       // one finishes, but its scene is disposed instead of added.
-      const modelIds = [...loaded.keys()];
+      const modelIds = [...h.loaded.keys()];
       const textureIssues: TextureIssue[] = [];
       const tasks = modelIds.map((id) => async () => {
         if (cancelled || handle.current !== h) return;
@@ -612,6 +643,7 @@ function MatrixScene({
       progress(0, modelIds.length);
       const results = await limitConcurrency(tasks, MODEL_CONCURRENCY, progress);
       const modelErrors = results.flatMap((r, i) => (r.status === "rejected" ? [`Map ${modelIds[i]}: ${errorText(r.reason)}`] : []));
+      const { names: namesError, maps: mapErrors } = h.loadProblems;
       const problems = [
         namesError,
         mapErrors.length ? `${mapErrors.length} Karte(n) nicht geladen: ${mapErrors[0]}` : null,
@@ -625,7 +657,7 @@ function MatrixScene({
     return () => {
       cancelled = true;
     };
-  }, [matrix]);
+  }, [matrix, areaDataId, modelsToken]);
 
   // Undo/redo changed maps behind the scene's back: refetch every shown map and recolour.
   useEffect(() => {

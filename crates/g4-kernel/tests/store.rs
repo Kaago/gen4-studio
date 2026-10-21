@@ -674,6 +674,26 @@ fn locked_event_does_not_block_saving_other_assets_and_reload_unlocks_it() {
 }
 
 #[test]
+fn map_tileset_index_follows_unsaved_edits_and_tolerates_a_missing_area() {
+    let (_s, mut st) = store();
+    assert_eq!(
+        st.map_tileset_index(1).unwrap(),
+        Some(st.area_data(1).unwrap().map_tileset())
+    );
+    assert_eq!(st.map_tileset_index(200).unwrap(), None);
+    st.edit_area_data(0, "tileset", |a| {
+        if let AreaData::Dppt { map_tileset, .. } = a {
+            *map_tileset = 9;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.map_tileset_index(0).unwrap(), Some(9));
+    assert!(st.undo().is_some());
+    assert_eq!(st.map_tileset_index(0).unwrap(), Some(0));
+}
+
+#[test]
 fn area_data_edit_round_trips() {
     let (s, mut st) = store();
     st.edit_area_data(1, "tileset", |a| {

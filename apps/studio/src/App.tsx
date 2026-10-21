@@ -8,6 +8,7 @@ import {
   buildRom,
   dirty,
   errorText,
+  getAreaData,
   getMatrix,
   isCmdError,
   listHeaders,
@@ -26,6 +27,7 @@ import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
 import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
+import { tilesetKey } from "./workbench/inspector/areaFields";
 import { sameLayout } from "./workbench/matrix";
 
 const EMULATOR_KEY = "g4.emulatorPath";
@@ -46,9 +48,12 @@ function storeEmulator(path: string) {
   }
 }
 
-/** What a header's scene depends on: the matrix and, read when a matrix loads, area data and event file. */
+/**
+ * What a header's scene is rebuilt from: the matrix and, read when a matrix loads, the event file.
+ * The area data is not part of it: it only textures the models, which reload on their own.
+ */
 function sceneKey(h: HeaderSummary): string {
-  return `${h.matrix_id}:${h.area_data_id}:${h.event_file_id}`;
+  return `${h.matrix_id}:${h.event_file_id}`;
 }
 
 export default function App() {
@@ -72,6 +77,12 @@ export default function App() {
   const [counts, setCounts] = useState<MemberCounts>({});
   const [headerRevision, setHeaderRevision] = useState(0);
   const [matrixRevision, setMatrixRevision] = useState(0);
+  const [areaRevision, setAreaRevision] = useState(0);
+  // The area data of the shown scene. It changes together with `matrix` (another header) or alone
+  // (the header now uses another area data); alone, the scene reloads only its models.
+  const [sceneArea, setSceneArea] = useState(0);
+  // Incremented when the tilesets of the shown area data changed: the scene reloads its models.
+  const [modelsToken, setModelsToken] = useState(0);
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -93,9 +104,35 @@ export default function App() {
   const selectSeq = useRef(0);
   const selectedRef = useRef<number | null>(null);
   selectedRef.current = selected;
-  // The matrix, area data and event file the shown scene was loaded for.
+  // The matrix and event file the shown scene was loaded for (see `sceneKey`).
   const sceneKeyRef = useRef<string | null>(null);
   const listSeq = useRef(0);
+  // The area data the scene should show (ahead of `sceneArea` while a matrix is being fetched).
+  const sceneAreaRef = useRef(0);
+  // Scene matrices being fetched; `sceneArea` is only changed alone while none is, so it never pairs with the old matrix.
+  const sceneLoads = useRef(0);
+  // The tilesets of the area data the scene's models were requested with.
+  const tilesetRef = useRef<{ area: number; key: string } | null>(null);
+
+  /**
+   * Compares the shown area data's tilesets with the ones last seen and, with `reload`, reloads the
+   * scene's models when they differ (an edit, undo, redo or reload of the area data). Without
+   * `reload` it only records them (the scene was just loaded for them).
+   */
+  const noteSceneTileset = useCallback(async (reload: boolean) => {
+    const area = sceneAreaRef.current;
+    try {
+      const key = tilesetKey(await getAreaData(area));
+      // Another header was selected meanwhile; its own note follows.
+      if (area !== sceneAreaRef.current) return;
+      const known = tilesetRef.current;
+      tilesetRef.current = { area, key };
+      if (reload && (!known || (known.area === area && known.key !== key))) setModelsToken((t) => t + 1);
+    } catch {
+      // Unreadable area data: the models show their texture note; there is nothing to compare.
+      tilesetRef.current = null;
+    }
+  }, []);
 
   /**
    * Reads the header list again (it is backed by the store, so it shows unsaved edits) and
@@ -108,11 +145,25 @@ export default function App() {
       if (seq !== listSeq.current) return;
       setHeaders(listing.headers);
       const header = listing.headers.find((h) => h.id === selectedRef.current);
-      if (!header || sceneKey(header) === sceneKeyRef.current) return;
+      if (!header) return;
+      sceneAreaRef.current = header.area_data_id;
+      if (sceneKey(header) === sceneKeyRef.current) {
+        // Only the area data changed: the scene keeps its maps and reloads its models.
+        if (sceneLoads.current === 0) setSceneArea(header.area_data_id);
+        return;
+      }
       sceneKeyRef.current = sceneKey(header);
       const sceneSeq = ++selectSeq.current;
-      const next = await getMatrix(header.matrix_id);
-      if (sceneSeq === selectSeq.current) setMatrix(next);
+      sceneLoads.current++;
+      try {
+        const next = await getMatrix(header.matrix_id);
+        if (sceneSeq === selectSeq.current) {
+          setMatrix(next);
+          setSceneArea(sceneAreaRef.current);
+        }
+      } finally {
+        sceneLoads.current--;
+      }
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
     }
@@ -125,13 +176,15 @@ export default function App() {
         if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
         setHeaderRevision((r) => r + 1);
         setMatrixRevision((r) => r + 1);
+        setAreaRevision((r) => r + 1);
         await syncHeaders();
+        await noteSceneTileset(true);
       } finally {
         // The dirty count must follow the reload/accept even when refetching the matrix fails.
         await refreshDirty();
       }
     },
-    [refreshDirty, syncHeaders],
+    [refreshDirty, syncHeaders, noteSceneTileset],
   );
 
   const onHeaderChanged = useCallback(async () => {
@@ -211,6 +264,15 @@ export default function App() {
     [refreshSceneMatrix, refreshDirty],
   );
 
+  const onAreaChanged = useCallback(async () => {
+    await Promise.all([noteSceneTileset(true), refreshDirty()]);
+  }, [noteSceneTileset, refreshDirty]);
+
+  // The scene was loaded for this area data and matrix: remember its tilesets (no reload).
+  useEffect(() => {
+    if (matrix) void noteSceneTileset(false);
+  }, [matrix, sceneArea, noteSceneTileset]);
+
   // New members change the upper bounds of the header editor's map and matrix fields.
   const onCountsChanged = useCallback(async () => {
     try {
@@ -246,6 +308,9 @@ export default function App() {
       selectSeq.current++;
       listSeq.current++;
       sceneKeyRef.current = null;
+      sceneAreaRef.current = 0;
+      tilesetRef.current = null;
+      setSceneArea(0);
       setHeaders(listing?.headers ?? []);
       setCounts(loadedCounts);
       setInfo(opened);
@@ -268,13 +333,19 @@ export default function App() {
     setSelected(h.id);
     setPinned({ kind: "header", id: h.id });
     sceneKeyRef.current = sceneKey(h);
+    sceneAreaRef.current = h.area_data_id;
+    sceneLoads.current++;
     try {
       const next = await getMatrix(h.matrix_id);
       if (seq !== selectSeq.current) return;
+      // Together, so the scene sees a new matrix with its area data and loads everything once.
       setMatrix(next);
+      setSceneArea(sceneAreaRef.current);
       setMessage(null);
     } catch (e) {
       if (seq === selectSeq.current) fail(e);
+    } finally {
+      sceneLoads.current--;
     }
   }
 
@@ -287,8 +358,11 @@ export default function App() {
         setHeaderRevision((r) => r + 1);
         // An undone matrix edit changes the matrix panel and the scene's matrix.
         setMatrixRevision((r) => r + 1);
+        // An undone area data edit changes the area editor and possibly the models' textures.
+        setAreaRevision((r) => r + 1);
         await refreshSceneMatrix();
         await syncHeaders();
+        await noteSceneTileset(true);
       }
     } catch (e) {
       fail(e);
@@ -431,7 +505,8 @@ export default function App() {
     selected,
     onSelect: (h) => void onSelect(h),
     matrix,
-    areaDataId: headers.find((h) => h.id === selected)?.area_data_id ?? 0,
+    areaDataId: sceneArea,
+    modelsToken,
     showPermissions,
     onShowPermissions: setShowPermissions,
     eventFileId: headers.find((h) => h.id === selected)?.event_file_id ?? null,
@@ -447,6 +522,8 @@ export default function App() {
     memberCounts: counts,
     headerRevision,
     onHeaderChanged,
+    areaRevision,
+    onAreaChanged,
     matrixRevision,
     onMatrixEdited,
     onCountsChanged,

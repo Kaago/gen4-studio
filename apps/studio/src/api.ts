@@ -215,6 +215,27 @@ export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id })
  * names the change in the undo history (the edited field).
  */
 export const setHeader = (id: number, header: MapHeader, label?: string) => invoke<void>("set_header", { id, header, label });
+/**
+ * One area data record (tileset references and light), tagged by the layout of the project's
+ * game family; field names follow the codec. `Dppt` covers Diamond, Pearl and Platinum.
+ */
+export type AreaDataDto =
+  | { family: "Dppt"; buildings_tileset: number; map_tileset: number; unknown: number; light_type: number }
+  | {
+      family: "Hgss";
+      buildings_tileset: number;
+      map_tileset: number;
+      dynamic_texture_type: number;
+      area_type: number;
+      light_type: number;
+    };
+/** Area data `id` including unsaved edits. */
+export const getAreaData = (id: number) => invoke<AreaDataDto>("get_area_data", { id });
+/**
+ * Replaces area data `id` as a whole; the record must use the project's family layout (else the
+ * call is refused and nothing changes). `label` names the change in the undo history.
+ */
+export const setAreaData = (id: number, area: AreaDataDto, label?: string) => invoke<void>("set_area_data", { id, area, label });
 export const memberCounts = () => invoke<MemberCounts>("member_counts");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 /**

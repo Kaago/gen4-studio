@@ -1,14 +1,21 @@
 import type { MapHeader } from "../../api";
 import { fieldValue, withField } from "./fields";
 
-export interface CommitBackend {
-  getHeader: (id: number) => Promise<MapHeader>;
-  setHeader: (id: number, header: MapHeader, label: string) => Promise<void>;
+/** Reads and writes one kind of record by id (a map header, an area data record, ...). */
+export interface RecordBackend<T> {
+  get: (id: number) => Promise<T>;
+  set: (id: number, record: T, label: string) => Promise<void>;
 }
 
-export interface CommitHooks {
-  /** The header the editor should show now (editor state; never called after `dispose`). */
-  onState: (header: MapHeader) => void;
+/** How a record's number fields are read and changed. */
+export interface RecordFields<T> {
+  value: (record: T, key: string) => number;
+  with: (record: T, key: string, value: number) => T;
+}
+
+export interface RecordHooks<T> {
+  /** The record the editor should show now (editor state; never called after `dispose`). */
+  onState: (record: T) => void;
   /** An edit was refused (editor state; never called after `dispose`). */
   onRefused: () => void;
   /** A field was written; the app refreshes its list, scene and dirty count. Also after `dispose`. */
@@ -17,46 +24,47 @@ export interface CommitHooks {
 }
 
 /**
- * Loads and edits ONE header. A session is bound to its `id` for life: every read and write goes
- * to that header, with a base that only this session's own loads and writes have produced, so
- * one header's values can never be written into another. Loads and commits run one after the
+ * Loads and edits ONE record. A session is bound to its `id` for life: every read and write goes
+ * to that record, with a base that only this session's own loads and writes have produced, so
+ * one record's values can never be written into another. Loads and commits run one after the
  * other, so a later edit builds on the result of the earlier one (and on an undo's reload).
  *
- * After `dispose` (the editor moved to another header or was replaced) commits already made
+ * After `dispose` (the editor moved to another record or was replaced) commits already made
  * still reach the backend, but nothing touches the editor's state any more.
  */
-export class HeaderSession {
-  private base: MapHeader | null = null;
+export class EditSession<T> {
+  private base: T | null = null;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
 
   constructor(
     readonly id: number,
-    private readonly backend: CommitBackend,
-    private readonly hooks: CommitHooks,
+    private readonly backend: RecordBackend<T>,
+    private readonly fields: RecordFields<T>,
+    private readonly hooks: RecordHooks<T>,
   ) {}
 
-  /** (Re)reads the header; queued behind pending commits so it sees their result. */
+  /** (Re)reads the record; queued behind pending commits so it sees their result. */
   load(): Promise<void> {
     return this.enqueue(async () => {
       try {
-        const header = await this.backend.getHeader(this.id);
-        this.base = header;
-        if (!this.disposed) this.hooks.onState(header);
+        const record = await this.backend.get(this.id);
+        this.base = record;
+        if (!this.disposed) this.hooks.onState(record);
       } catch (e) {
         this.hooks.onError(e);
       }
     });
   }
 
-  /** Sets one field (one undoable change). A value the header already has records nothing. */
+  /** Sets one field (one undoable change). A value the record already has records nothing. */
   commit(key: string, label: string, value: number): Promise<void> {
     return this.enqueue(async () => {
       const base = this.base;
-      if (!base || fieldValue(base, key) === value) return;
-      const next = withField(base, key, value);
+      if (!base || this.fields.value(base, key) === value) return;
+      const next = this.fields.with(base, key, value);
       try {
-        await this.backend.setHeader(this.id, next, label);
+        await this.backend.set(this.id, next, label);
       } catch (e) {
         if (!this.disposed) this.hooks.onRefused();
         this.hooks.onError(e);
@@ -80,5 +88,19 @@ export class HeaderSession {
     const run = this.queue.then(job);
     this.queue = run;
     return run;
+  }
+}
+
+export interface CommitBackend {
+  getHeader: (id: number) => Promise<MapHeader>;
+  setHeader: (id: number, header: MapHeader, label: string) => Promise<void>;
+}
+
+export type CommitHooks = RecordHooks<MapHeader>;
+
+/** An `EditSession` over map headers. */
+export class HeaderSession extends EditSession<MapHeader> {
+  constructor(id: number, backend: CommitBackend, hooks: CommitHooks) {
+    super(id, { get: backend.getHeader, set: backend.setHeader }, { value: fieldValue, with: withField }, hooks);
   }
 }
