@@ -421,7 +421,8 @@ fn find_apicula() -> Option<PathBuf> {
 
 /// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`),
 /// cached by content hash under `<project>/.g4/models/`. `apicula` is only needed on a cache
-/// miss. A map whose area data or tileset does not exist is converted without textures.
+/// miss. A map whose area data or tileset does not exist, or whose textured conversion fails,
+/// is converted without textures.
 pub fn get_map_model_glb_with(
     state: &AppState,
     index: u16,
@@ -446,7 +447,13 @@ pub fn get_map_model_glb_with(
         name: "apicula",
         reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)".into(),
     })?;
-    Ok(glb_cached(&cache_dir, apicula, &nsbmd, tileset.as_deref())?)
+    match glb_cached(&cache_dir, apicula, &nsbmd, tileset.as_deref()) {
+        Ok(bytes) => Ok(bytes),
+        // A tileset apicula cannot convert must not cost the model: retry once without it, so
+        // the map shows up untextured instead of not at all.
+        Err(_) if tileset.is_some() => Ok(glb_cached(&cache_dir, apicula, &nsbmd, None)?),
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub fn get_map_model_glb_impl(
@@ -702,6 +709,41 @@ mod tests {
         assert_eq!(std::fs::read_dir(&models).unwrap().count(), 2);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn model_glb_falls_back_to_untextured_when_the_textured_conversion_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let tool = fixture.dir.path().join("fake-apicula");
+        // argv: convert -f=glb <nsbmd> [<nsbtx>] -o <dir>; a fourth argument other than -o is
+        // the tileset, which this tool rejects (a "bad tileset").
+        std::fs::write(
+            &tool,
+            "#!/bin/sh\n[ \"$4\" = \"-o\" ] || { echo 'bad tileset' >&2; exit 2; }\n\
+             while [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
+             mkdir -p \"$out\"; printf 'glTFplain' > \"$out/m.glb\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Area data 0 selects the synthetic tileset: the textured run fails, the retry
+        // without the tileset yields an untextured model instead of an error.
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFplain");
+        // The untextured result is cached under the plain key.
+        let models = fixture.dir.path().join(".g4/models");
+        let names: Vec<_> = std::fs::read_dir(&models)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+        // A model that fails without a tileset too is still an error.
+        std::fs::write(&tool, "#!/bin/sh\necho boom >&2; exit 3\n").unwrap();
+        let err = get_map_model_glb_with(&state, 0, 0, Some(&tool)).unwrap_err();
+        assert!(err.message.contains("boom"), "{}", err.message);
+    }
+
     fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState) {
         let fixture = g4_kernel::test_support::synthetic_project();
         let state = AppState::default();
@@ -887,6 +929,73 @@ mod tests {
         assert!(listing.headers.iter().all(|h| h.location_name.is_empty()));
         assert!(listing.names_error.is_some_and(|e| e.contains("433")));
         assert!(get_map_impl(&state, 0).is_ok());
+    }
+
+    /// Timing of the backend part of loading a large matrix, as the frontend drives it: one
+    /// `get_map_model_glb` per distinct map, four at a time. Gated (`G4_TEST_PROJECT`, a
+    /// vanilla copy is used) and `#[ignore]`d; run with
+    /// `G4_APICULA=... cargo test -p studio --release -- --ignored --nocapture bench_matrix_models`.
+    /// `G4_BENCH_HEADER` picks the header (default 3: Platinum C01 with its 900-cell matrix).
+    #[test]
+    #[ignore = "timing run, minutes on a cold cache"]
+    fn bench_matrix_models() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Instant;
+        let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+            return;
+        };
+        let state = AppState::default();
+        open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        let header: usize = std::env::var("G4_BENCH_HEADER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3);
+        let h = list_headers_impl(&state).unwrap().headers[header].clone();
+        let matrix = get_matrix_impl(&state, h.matrix_id).unwrap();
+        let mut ids: Vec<u16> = matrix.maps.iter().flatten().copied().collect();
+        let cells = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        let apicula = find_apicula();
+        let t = Instant::now();
+        for id in &ids {
+            get_map_impl(&state, *id).unwrap();
+        }
+        eprintln!("get_map x{}: {:?}", ids.len(), t.elapsed());
+        for pass in ["cold", "warm"] {
+            let next = AtomicUsize::new(0);
+            let failed = AtomicUsize::new(0);
+            let bytes = AtomicUsize::new(0);
+            let t = Instant::now();
+            std::thread::scope(|scope| {
+                for _ in 0..4 {
+                    scope.spawn(|| {
+                        loop {
+                            let i = next.fetch_add(1, Ordering::SeqCst);
+                            let Some(id) = ids.get(i) else { break };
+                            match get_map_model_glb_with(
+                                &state,
+                                *id,
+                                h.area_data_id,
+                                apicula.as_deref(),
+                            ) {
+                                Ok(glb) => bytes.fetch_add(glb.len(), Ordering::SeqCst),
+                                Err(_) => failed.fetch_add(1, Ordering::SeqCst),
+                            };
+                        }
+                    });
+                }
+            });
+            eprintln!(
+                "{pass}: {} models ({cells} cells, header {} {}) in {:?}, {} failed, {} MB",
+                ids.len(),
+                h.id,
+                h.internal_name,
+                t.elapsed(),
+                failed.load(Ordering::SeqCst),
+                bytes.load(Ordering::SeqCst) / 1_000_000
+            );
+        }
     }
 
     #[test]

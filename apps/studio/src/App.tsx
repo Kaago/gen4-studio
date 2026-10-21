@@ -81,6 +81,20 @@ export default function App() {
     [refreshDirty],
   );
 
+  // The scene's progress line ("Modelle 37/900") lives in the message bar, but must not wipe
+  // an unrelated message: progress only replaces nothing or its own earlier line, and clearing
+  // only removes its own line. A failure summary (kind "error") always shows.
+  const loadMessage = useRef<Message | null>(null);
+  const onLoadStatus = useCallback((next: Message | null) => {
+    const previous = loadMessage.current;
+    loadMessage.current = next;
+    setMessage((shown) => {
+      const own = shown === null || shown === previous;
+      if (next === null) return own ? null : shown;
+      return own || next.kind === "error" ? next : shown;
+    });
+  }, []);
+
   const matrixIndexRef = useRef<number | null>(null);
   matrixIndexRef.current = matrix?.index ?? null;
 
@@ -119,6 +133,7 @@ export default function App() {
       if (typeof path !== "string") return;
       const opened = await openProject(path);
       const listing = await listHeaders();
+      selectSeq.current++;
       setHeaders(listing.headers);
       setInfo(opened);
       setSelected(null);
@@ -131,13 +146,20 @@ export default function App() {
     }
   }
 
+  // The latest header selection (or project switch) wins: a slow getMatrix of an earlier one is
+  // dropped, so the matrix never pairs with another header's event file and area data.
+  const selectSeq = useRef(0);
+
   async function onSelect(h: HeaderSummary) {
+    const seq = ++selectSeq.current;
     setSelected(h.id);
     try {
-      setMatrix(await getMatrix(h.matrix_id));
+      const next = await getMatrix(h.matrix_id);
+      if (seq !== selectSeq.current) return;
+      setMatrix(next);
       setMessage(null);
     } catch (e) {
-      fail(e);
+      if (seq === selectSeq.current) fail(e);
     }
   }
 
@@ -296,6 +318,7 @@ export default function App() {
     reloadToken,
     onEdited,
     onError: fail,
+    onLoadStatus,
     inspector,
     setInspector,
     message,

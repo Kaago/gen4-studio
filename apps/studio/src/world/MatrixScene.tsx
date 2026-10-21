@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { errorText, getEvents, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
+import type { Message } from "../Toolbar";
 import { headerLabel } from "../workbench/headers";
 import type { EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -11,6 +12,7 @@ import { permissionColor } from "./colors";
 import { MARKER_COLORS, markerPosition } from "./events";
 import type { EventData, EventKind } from "./events";
 import { describeTile } from "./hover";
+import { MODEL_CONCURRENCY, limitConcurrency } from "./load";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 
@@ -20,7 +22,6 @@ const MODEL_SCALE = 1 / MODEL_UNITS_PER_TILE;
 
 interface Loaded {
   map: MapDto;
-  model: THREE.Object3D | null;
 }
 
 /** Height of the overlay plane; clicks are intersected with the same plane. */
@@ -98,25 +99,13 @@ function loadNames(): Promise<Map<number, TileBehavior>> {
   return namesCache;
 }
 
-async function loadMap(index: number, areaDataId: number): Promise<Loaded> {
-  const map = await getMap(index);
-  const model = await getMapModelGlb(index, areaDataId).then(parseGlb);
-  return { map, model };
-}
-
-/** Builds the overlay and building objects once all maps are known. */
-function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
-  const content = new THREE.Group();
-  const cells: { col: number; row: number; data: Loaded }[] = [];
+/** Hands the model of map `mapId` to every matrix cell showing that map (clones share geometry and materials). */
+function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model: THREE.Object3D) {
+  let used = false;
   matrix.maps.forEach((id, i) => {
-    const data = id === null ? undefined : loaded.get(id);
-    if (data) cells.push({ col: i % matrix.width, row: Math.floor(i / matrix.width), data });
-  });
-
-  for (const { col, row, data } of cells) {
-    if (!data.model) continue;
-    const origin = cellOrigin(col, row);
-    const instance = cloneSkinned(data.model);
+    if (id !== mapId) return;
+    const origin = cellOrigin(i % matrix.width, Math.floor(i / matrix.width));
+    const instance = cloneSkinned(model);
     instance.traverse((obj) => {
       const mesh = obj as THREE.SkinnedMesh;
       if (mesh.isSkinnedMesh) mesh.frustumCulled = false;
@@ -128,8 +117,21 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map
     // The model is centred on the map centre.
     instance.scale.setScalar(MODEL_SCALE);
     instance.position.set(origin.x + MAP_SIZE / 2, 0, origin.z + MAP_SIZE / 2);
-    content.add(instance);
-  }
+    h.content.add(instance);
+    used = true;
+  });
+  // The clones in `content` are disposed with it; a model without a cell would leak.
+  if (!used) disposeTree(model);
+}
+
+/** Builds the overlay and building objects once all maps are known; models are added later. */
+function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
+  const content = new THREE.Group();
+  const cells: { col: number; row: number; data: Loaded }[] = [];
+  matrix.maps.forEach((id, i) => {
+    const data = id === null ? undefined : loaded.get(id);
+    if (data) cells.push({ col: i % matrix.width, row: Math.floor(i / matrix.width), data });
+  });
 
   const overlay = new THREE.Group();
   const perCell = MAP_SIZE * MAP_SIZE;
@@ -273,6 +275,8 @@ interface Props {
   onError: (message: string) => void;
   /** Reports what the inspector should show (filled in by tile hover and event markers). */
   onInspect: (model: InspectorModel) => void;
+  /** Load progress and the summary of what failed to load (null: nothing to show, clears the progress). */
+  onStatus: (message: Message | null) => void;
 }
 
 function MatrixScene({
@@ -287,6 +291,7 @@ function MatrixScene({
   onEdited,
   onError,
   onInspect,
+  onStatus,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
@@ -301,10 +306,9 @@ function MatrixScene({
   eventFileRef.current = eventFileId;
   const headersRef = useRef(headers);
   headersRef.current = headers;
-  const [status, setStatus] = useState<string | null>(null);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
-  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect });
-  callbacks.current = { paintEnabled, onEdited, onError, onInspect };
+  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect, onStatus });
+  callbacks.current = { paintEnabled, onEdited, onError, onInspect, onStatus };
 
   // Renderer, camera and controls live as long as the component.
   useEffect(() => {
@@ -493,6 +497,7 @@ function MatrixScene({
       canvas.removeEventListener("pointerleave", onLeave);
       cancelAnimationFrame(frame);
       callbacks.current.onInspect({ kind: "none" });
+      callbacks.current.onStatus(null);
       const current = handle.current;
       handle.current = null;
       if (current?.markers) disposeTree(current.markers.group);
@@ -505,49 +510,54 @@ function MatrixScene({
     };
   }, []);
 
-  // (Re)load the matrix content.
+  // (Re)load the matrix content: maps first (overlay and markers appear as soon as they are
+  // there), then the models, a few at a time, each hung into the scene as it arrives.
   useEffect(() => {
     const h = handle.current;
     if (!h) return;
     let cancelled = false;
     const area = areaRef.current;
-    setStatus("Lade Modelle ...");
+    /** Status updates of a superseded load are dropped. */
+    const report = (message: Message | null) => {
+      if (!cancelled) callbacks.current.onStatus(message);
+    };
+    report({ kind: "info", text: "Lade Karten ..." });
     setEventStatus(null);
     // Fetched next to the maps; a failure only costs the markers, never the scene.
     const eventsPending = fetchEvents(eventFileRef.current);
+    // Without names the overlay is uncoloured by class and the hover shows raw values only.
+    let namesError: string | null = null;
+    const namesPending = loadNames().catch((e) => {
+      namesError = `Kachelnamen nicht geladen: ${errorText(e)}`;
+      return new Map<number, TileBehavior>();
+    });
+    // Frames bursts of arriving models into at most one render per animation frame.
+    let renderQueued = false;
+    const queueRender = () => {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        if (handle.current === h) h.render();
+      });
+    };
 
     (async () => {
       const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
       const loaded = new Map<number, Loaded>();
-      const errors: string[] = [];
-      // Without names the overlay is uncoloured by class and the hover shows raw values only.
-      const names = await loadNames().catch((e) => {
-        errors.push(`Kachelnamen: ${errorText(e)}`);
-        return new Map<number, TileBehavior>();
-      });
-      await Promise.all(
+      const mapErrors: string[] = [];
+      const mapsPending = Promise.all(
         ids.map(async (id) => {
           try {
-            loaded.set(id, await loadMap(id, area));
+            loaded.set(id, { map: await getMap(id) });
           } catch (e) {
-            errors.push(`Map ${id}: ${errorText(e)}`);
-            // Keep the map's permissions and buildings even when only the model failed.
-            try {
-              loaded.set(id, { map: await getMap(id), model: null });
-            } catch {
-              /* reported above */
-            }
+            mapErrors.push(`Karte ${id}: ${errorText(e)}`);
           }
         }),
       );
-      const fetchedEvents = await eventsPending;
-      if (cancelled || handle.current !== h) {
-        for (const l of loaded.values()) if (l.model) disposeTree(l.model);
-        return;
-      }
+      const [names, fetchedEvents] = await Promise.all([namesPending, eventsPending, mapsPending]);
+      if (cancelled || handle.current !== h) return;
       const { content, overlay, tiles, bases } = buildContent(matrix, loaded, names);
-      // The clones in `content` share geometry and materials with the loaded models, so
-      // disposing `content` later releases everything.
       h.scene.remove(h.content);
       disposeTree(h.content);
       h.content = content;
@@ -570,10 +580,38 @@ function MatrixScene({
       h.controls.update();
       h.render();
       h.refreshHover?.();
-      setStatus(errors.length ? `${errors.length} Modell(e) nicht geladen: ${errors[0]}` : null);
-    })().catch((e) => {
-      if (!cancelled) setStatus(errorText(e));
-    });
+
+      // Models: a task that has not started when the load is superseded never starts; a started
+      // one finishes, but its scene is disposed instead of added.
+      const modelIds = [...loaded.keys()];
+      const tasks = modelIds.map((id) => async () => {
+        if (cancelled || handle.current !== h) return;
+        const model = await getMapModelGlb(id, area).then(parseGlb);
+        if (cancelled || handle.current !== h) {
+          disposeTree(model);
+          return;
+        }
+        addModel(h, matrix, id, model);
+        queueRender();
+      });
+      let lastReport = 0;
+      const progress = (done: number, total: number) => {
+        // The status bar re-renders the whole workbench: at most ten updates per second.
+        const now = performance.now();
+        if (done < total && now - lastReport < 100) return;
+        lastReport = now;
+        report({ kind: "info", text: `Modelle ${done}/${total}` });
+      };
+      progress(0, modelIds.length);
+      const results = await limitConcurrency(tasks, MODEL_CONCURRENCY, progress);
+      const modelErrors = results.flatMap((r, i) => (r.status === "rejected" ? [`Map ${modelIds[i]}: ${errorText(r.reason)}`] : []));
+      const problems = [
+        namesError,
+        mapErrors.length ? `${mapErrors.length} Karte(n) nicht geladen: ${mapErrors[0]}` : null,
+        modelErrors.length ? `${modelErrors.length} Modell(e) nicht geladen: ${modelErrors[0]}` : null,
+      ].filter((p): p is string => p !== null);
+      report(problems.length ? { kind: "error", text: problems.join(" · ") } : null);
+    })().catch((e) => report({ kind: "error", text: errorText(e) }));
 
     return () => {
       cancelled = true;
@@ -585,10 +623,12 @@ function MatrixScene({
     const h = handle.current;
     if (reloadToken === 0 || !h?.matrix) return;
     let cancelled = false;
+    // Results are only applied to the matrix they were requested for.
+    const matrixAtStart = h.matrix;
     (async () => {
       const ids = [...h.loaded.keys()];
       const [fresh, fetchedEvents] = await Promise.all([Promise.all(ids.map((id) => getMap(id))), fetchEvents(eventFileRef.current)]);
-      if (cancelled || handle.current !== h) return;
+      if (cancelled || handle.current !== h || h.matrix !== matrixAtStart) return;
       setMarkers(h, fetchedEvents.events, showEventsRef.current);
       setEventStatus(fetchedEvents.error);
       fresh.forEach((map, i) => {
@@ -630,9 +670,9 @@ function MatrixScene({
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={host} style={{ position: "absolute", inset: 0 }} />
-      {(status || eventStatus) && (
+      {eventStatus && (
         <div style={{ position: "absolute", left: 8, bottom: 8, color: "#e5e7eb", font: "12px system-ui", maxWidth: "70%" }}>
-          {[status, eventStatus].filter(Boolean).join(" · ")}
+          {eventStatus}
         </div>
       )}
     </div>

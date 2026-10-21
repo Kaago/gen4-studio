@@ -28,6 +28,8 @@ export interface WorkbenchData {
   reloadToken: number;
   onEdited: () => void;
   onError: (e: unknown) => void;
+  /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
+  onLoadStatus: (message: Message | null) => void;
   inspector: InspectorModel;
   setInspector: (model: InspectorModel) => void;
   message: Message | null;
@@ -72,6 +74,7 @@ function WorldPanel() {
             onEdited={d.onEdited}
             onError={d.onError}
             onInspect={d.setInspector}
+            onStatus={d.onLoadStatus}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
             <label style={toggleStyle}>
