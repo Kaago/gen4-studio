@@ -18,7 +18,8 @@ import {
   save,
   undo,
 } from "./api";
-import type { AssetId, HeaderSummary, MatrixDto, ProjectInfo } from "./api";
+import type { AssetId, HeaderListing, HeaderSummary, MatrixDto, ProjectInfo } from "./api";
+import { staleText } from "./assets";
 import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
@@ -75,8 +76,12 @@ export default function App() {
   /** Reloads the shown matrix (a new object makes the scene refetch all its maps) and the dirty count. */
   const refreshAfterStale = useCallback(
     async (matrixIndex: number | null) => {
-      if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
-      await refreshDirty();
+      try {
+        if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
+      } finally {
+        // The dirty count must follow the reload/accept even when refetching the matrix fails.
+        await refreshDirty();
+      }
     },
     [refreshDirty],
   );
@@ -113,7 +118,7 @@ export default function App() {
         };
         setMessage({
           kind: "error",
-          text: `${asset.kind} ${String(asset.index).padStart(4, "0")} wurde außerhalb geändert.`,
+          text: staleText(asset),
           actions: [
             { label: "Neu laden (eigene Änderung verwerfen)", run: () => void resolve(reloadAsset, "Von Platte neu geladen.")() },
             { label: "Meine Version behalten", run: () => void resolve(acceptDisk, "Eigene Version behalten, bitte erneut speichern.")() },
@@ -132,14 +137,24 @@ export default function App() {
       const path = await open({ directory: true });
       if (typeof path !== "string") return;
       const opened = await openProject(path);
-      const listing = await listHeaders();
+      // The backend now has the new project. Fetch its listing first, then swap the whole UI
+      // state at once; if the listing fails the UI shows the new, empty project instead of
+      // keeping the old project's headers and matrix.
+      let listing: HeaderListing | null = null;
+      let listError: unknown = null;
+      try {
+        listing = await listHeaders();
+      } catch (e) {
+        listError = e;
+      }
       selectSeq.current++;
-      setHeaders(listing.headers);
+      setHeaders(listing?.headers ?? []);
       setInfo(opened);
       setSelected(null);
       setMatrix(null);
       setLastRom(null);
-      setMessage(listing.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
+      if (listError !== null) fail(listError);
+      else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
       await refreshDirty();
     } catch (e) {
       fail(e);
