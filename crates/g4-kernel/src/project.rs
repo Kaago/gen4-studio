@@ -527,41 +527,18 @@ impl Project {
             .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
     }
 
-    /// Reads the header table in `arm9/arm9.bin` and the internal names from
-    /// `files/fielddata/maptable/mapname.bin`, with the index of each header's location
-    /// name in the text bank. `location_name` stays empty.
-    fn read_header_table(&self) -> Result<Vec<(HeaderSummary, usize)>, KernelError> {
+    /// Reads the header table in `arm9/arm9.bin` as it is on disk.
+    fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
         let (offset, count) = self.header_table_extent()?;
-        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
-        let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
         let arm9_path = self.arm9_path();
         let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
-        let parsed = uxie::map_header::read_map_headers_from_arm9(
+        uxie::map_header::read_map_headers_from_arm9(
             &mut Cursor::new(arm9),
             offset,
             count,
             self.uxie_family(),
         )
-        .map_err(|e| KernelError::Uxie(format!("{e}")))?;
-
-        Ok(parsed
-            .iter()
-            .zip(names.as_chunks::<MAPNAME_RECORD>().0)
-            .enumerate()
-            .map(|(i, (header, record))| {
-                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
-                let summary = HeaderSummary {
-                    // `count <= 65536` is checked above, so `i` fits in u16.
-                    id: i as u16,
-                    internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
-                    location_name: String::new(),
-                    matrix_id: header.matrix_id(),
-                    area_data_id: header.area_data_id(),
-                    event_file_id: header.event_file_id(),
-                };
-                (summary, location_name_index(header))
-            })
-            .collect())
+        .map_err(|e| KernelError::Uxie(format!("{e}")))
     }
 
     /// Number of map headers: the `mapname.bin` record count, provided `arm9.bin` is large
@@ -574,16 +551,42 @@ impl Project {
     /// an error; names that cannot be read leave every `location_name` empty and are
     /// reported in `names_error`.
     pub fn header_listing(&self) -> Result<HeaderListing, KernelError> {
-        let table = self.read_header_table()?;
+        self.header_listing_for(&self.read_headers()?)
+    }
+
+    /// Lists `headers` (for example the store's edited table, which may differ from the
+    /// one on disk) with the internal names from `files/fielddata/maptable/mapname.bin` and
+    /// the location names their `location_name` indexes select. An index outside the text
+    /// bank gives an empty name; so does every header when the names cannot be read
+    /// (reported in `names_error`).
+    pub fn header_listing_for(
+        &self,
+        headers: &[uxie::MapHeader],
+    ) -> Result<HeaderListing, KernelError> {
+        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
+        let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
         let (locations, names_error) = match self.location_names() {
             Ok(names) => (names, None),
             Err(e) => (Vec::new(), Some(e.to_string())),
         };
-        let headers = table
-            .into_iter()
-            .map(|(mut header, index)| {
-                header.location_name = locations.get(index).cloned().unwrap_or_default();
-                header
+        let headers = headers
+            .iter()
+            .zip(names.as_chunks::<MAPNAME_RECORD>().0)
+            .enumerate()
+            .map(|(i, (header, record))| {
+                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+                HeaderSummary {
+                    // The table holds at most 65536 headers (checked when it is read), so `i` fits in u16.
+                    id: i as u16,
+                    internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
+                    location_name: locations
+                        .get(location_name_index(header))
+                        .cloned()
+                        .unwrap_or_default(),
+                    matrix_id: header.matrix_id(),
+                    area_data_id: header.area_data_id(),
+                    event_file_id: header.event_file_id(),
+                }
             })
             .collect();
         Ok(HeaderListing {

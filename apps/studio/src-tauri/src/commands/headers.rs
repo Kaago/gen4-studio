@@ -12,32 +12,24 @@ use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::AppState;
 
-/// The header list. Names (internal and location) come from the project files; the
-/// store-backed fields (`matrix_id`, `area_data_id`, `event_file_id`) come from the store's
-/// header table, so edits show up before saving.
+/// The header list of the store's table, so edits show up before saving. Names (internal
+/// and location, `names_error`) come from the project files and the location text bank; the
+/// location text follows the edited `location_name` index.
 pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
-    // One short lock: the project and the edited table of the same session. Decoding the
-    // text archive (and unpacking it on first use) happens without the lock.
-    let (project, edited) = {
+    // One short lock: the project and a copy of the edited table of the same session.
+    // Decoding the text archive (and unpacking it on first use) happens without the lock.
+    let (project, table) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let project = Arc::clone(&session.project);
-        let table = session.store.header_table().map_err(CmdError::from)?;
-        let edited: Vec<(u16, u8, u16)> = table
-            .iter()
-            .map(|h| (h.matrix_id(), h.area_data_id(), h.event_file_id()))
-            .collect();
-        (project, edited)
+        let table = session
+            .store
+            .header_table()
+            .map_err(CmdError::from)?
+            .to_vec();
+        (project, table)
     };
-    let mut listing = project.header_listing().map_err(CmdError::from)?;
-    for (summary, (matrix_id, area_data_id, event_file_id)) in
-        listing.headers.iter_mut().zip(edited)
-    {
-        summary.matrix_id = matrix_id;
-        summary.area_data_id = area_data_id;
-        summary.event_file_id = event_file_id;
-    }
-    Ok(listing)
+    project.header_listing_for(&table).map_err(CmdError::from)
 }
 
 /// Map header `id` as the store holds it, edits included.
@@ -149,6 +141,41 @@ mod tests {
             list_headers_impl(&state).unwrap().headers[1].area_data_id,
             5
         );
+    }
+
+    #[test]
+    fn the_listed_location_name_follows_the_edited_index() {
+        let (_s, state) = open_synthetic();
+        let names = |state: &AppState| -> Vec<String> {
+            list_headers_impl(state)
+                .unwrap()
+                .headers
+                .into_iter()
+                .map(|h| h.location_name)
+                .collect()
+        };
+        // Header 0 names "Twinleaf Town"; header 1 points past the end of the bank.
+        assert_eq!(names(&state), ["Twinleaf Town", ""]);
+        let set_location = |id: u16, index: u8| {
+            let mut h = get_header_impl(&state, id).unwrap();
+            if let MapHeader::Pt(p) = &mut h {
+                p.location_name = index;
+            }
+            set_header_impl(&state, id, h).unwrap();
+        };
+        set_location(0, 2);
+        set_location(1, 1);
+        // Not saved yet, still visible.
+        assert_eq!(names(&state), ["Sandgem Town", "Twinleaf Town"]);
+        assert_eq!(dirty_impl(&state).unwrap(), vec![header_table_id()]);
+        // An index outside the bank gives an empty name again.
+        set_location(0, 200);
+        assert_eq!(names(&state), ["", "Twinleaf Town"]);
+        assert!(undo_impl(&state).unwrap());
+        assert_eq!(names(&state), ["Sandgem Town", "Twinleaf Town"]);
+        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap());
+        assert_eq!(names(&state), ["Twinleaf Town", ""]);
     }
 
     #[test]
