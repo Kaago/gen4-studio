@@ -1,5 +1,7 @@
 # Phase 1: GUI-Gate prüfen
 
+Stand 2026-10-21: Gate bestanden. Malen, Speichern, Bauen und Starten funktionieren. Die Kollision wirkt im Spiel (Platin DE, Spielerzimmer, Header 0415 T01R0202, Karte 187). Offen sind nur die Rückfrage beim Schließen und Cmd+Q.
+
 Automatisch geprüft sind Codecs, Store, Build und der Ablauf Malen → Speichern → Bauen auf Kopien der drei Test-ROMs (Platin DE, HeartGold DE, HeartGold US). Offen ist nur der Teil mit Fenster und Emulator. Er wird von Hand geprüft.
 
 ## Vorbereitung
