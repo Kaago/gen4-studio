@@ -32,6 +32,9 @@ pub enum KernelError {
     Build(String),
     #[error("{0} changed on disk since it was loaded")]
     Stale(AssetId),
+    /// The asset can be shown but not written back byte for byte, so editing is refused.
+    #[error("{asset} is read-only: {reason}")]
+    ReadOnly { asset: AssetId, reason: String },
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.
@@ -62,6 +65,14 @@ mod tests {
         );
         let e = io_at(Path::new("/p/unpacked/maps/0005"))(std::io::Error::other("boom"));
         assert_eq!(e.to_string(), "/p/unpacked/maps/0005: boom");
+        assert_eq!(
+            KernelError::ReadOnly {
+                asset: id,
+                reason: "17 bytes read, 16 would be written".into()
+            }
+            .to_string(),
+            "map 0005 is read-only: 17 bytes read, 16 would be written"
+        );
         assert_eq!(
             KernelError::NotEditable(AssetKind::AreaData).to_string(),
             "area data cannot be edited"

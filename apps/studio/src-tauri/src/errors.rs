@@ -5,8 +5,8 @@ use g4_kernel::error::KernelError;
 use g4_kernel::project::AssetId;
 use serde::Serialize;
 
-/// Error returned to the frontend. `code` is `"stale"`, `"tool_missing"` or `"error"`;
-/// `asset` is set for `"stale"` and serializes as `null` otherwise.
+/// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"` or
+/// `"error"`; `asset` is set for `"stale"` and `"read_only"` and serializes as `null` otherwise.
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
     pub code: &'static str,
@@ -18,6 +18,7 @@ impl From<KernelError> for CmdError {
     fn from(e: KernelError) -> Self {
         let (code, asset) = match &e {
             KernelError::Stale(id) => ("stale", Some(*id)),
+            KernelError::ReadOnly { asset, .. } => ("read_only", Some(*asset)),
             KernelError::ToolMissing { .. } => ("tool_missing", None),
             _ => ("error", None),
         };
@@ -72,6 +73,17 @@ mod tests {
         assert_eq!(missing.code, "tool_missing");
         assert!(missing.asset.is_none());
         assert!(missing.message.contains("apicula"));
+
+        let locked = CmdError::from(KernelError::ReadOnly {
+            asset: id,
+            reason: "17 bytes read, 16 would be written".into(),
+        });
+        assert_eq!(locked.code, "read_only");
+        assert_eq!(locked.asset, Some(id));
+        assert_eq!(
+            locked.message,
+            "map 0000 is read-only: 17 bytes read, 16 would be written"
+        );
 
         let other = CmdError::from(KernelError::NotEditable(AssetKind::Map));
         assert_eq!(other.code, "error");

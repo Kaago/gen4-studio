@@ -249,9 +249,10 @@ impl Store {
         let family = self.project.family;
         let asset = self.load(id)?;
         if let Some(reason) = &asset.locked {
-            return Err(KernelError::Uxie(format!(
-                "{id} cannot be written back byte-identically ({reason}); editing is disabled"
-            )));
+            return Err(KernelError::ReadOnly {
+                asset: id,
+                reason: reason.clone(),
+            });
         }
         let before = asset.current.to_bytes(family)?;
         let mut edited = asset.current.clone();
@@ -428,6 +429,12 @@ impl Store {
         let id = change.id;
         self.undo.push(change);
         Some(id)
+    }
+
+    /// Why the loaded asset `id` is read-only (the codec would not write it back byte for
+    /// byte), or `None` when it is editable or has not been loaded.
+    pub fn locked(&self, id: AssetId) -> Option<&str> {
+        self.assets.get(&id).and_then(|a| a.locked.as_deref())
     }
 
     /// True if the serialized current value differs from the bytes last saved or loaded,

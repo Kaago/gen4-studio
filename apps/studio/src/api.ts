@@ -142,9 +142,9 @@ export interface AssetId {
   index: number;
 }
 
-/** Structured error of a backend command. `asset` is set when `code` is "stale". */
+/** Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only". */
 export interface CmdError {
-  code: "stale" | "tool_missing" | "error";
+  code: "stale" | "read_only" | "tool_missing" | "error";
   message: string;
   asset: AssetId | null;
 }
@@ -153,7 +153,7 @@ export function isCmdError(e: unknown): e is CmdError {
   if (typeof e !== "object" || e === null) return false;
   const o = e as Record<string, unknown>;
   return (
-    (o.code === "stale" || o.code === "tool_missing" || o.code === "error") &&
+    (o.code === "stale" || o.code === "read_only" || o.code === "tool_missing" || o.code === "error") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object")
   );

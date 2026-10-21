@@ -587,12 +587,16 @@ fn assert_event_locked(s: &common::Synthetic, st: &mut Store, bytes: &[u8], reas
     assert!(st.event(0).is_ok(), "the file is returned for display");
     let err = st.edit_event(0, "x", |_| Ok(())).unwrap_err();
     assert!(
-        matches!(&err, KernelError::Uxie(m)
-            if m.contains("event file 0000 cannot be written back byte-identically")
-                && m.contains("editing is disabled")
-                && m.contains(reason)),
+        matches!(&err, KernelError::ReadOnly { asset, reason: r }
+            if *asset == event_id(0) && r.contains(reason)),
         "{err}"
     );
+    assert!(
+        err.to_string()
+            .starts_with("event file 0000 is read-only: "),
+        "{err}"
+    );
+    assert!(st.locked(event_id(0)).is_some_and(|r| r.contains(reason)));
     assert!(st.undo().is_none(), "a refused edit leaves no changeset");
     assert!(!st.is_dirty(event_id(0)));
     assert!(st.dirty().is_empty());
@@ -640,7 +644,14 @@ fn locked_event_does_not_block_saving_other_assets_and_reload_unlocks_it() {
     let mut bytes = vec![0u8; 16];
     bytes.push(0x5A);
     std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(st.locked(event_id(0)), None, "not loaded yet");
     st.event(0).unwrap();
+    assert!(st.locked(event_id(0)).is_some());
+    assert_eq!(
+        st.locked(event_id(1)),
+        None,
+        "an editable asset is not locked"
+    );
     st.edit_event(1, "warp", |e| {
         e.warp_events.push(WarpEvent {
             x: 1,
@@ -657,6 +668,7 @@ fn locked_event_does_not_block_saving_other_assets_and_reload_unlocks_it() {
     // Another tool fixes the file; reloading makes it editable.
     std::fs::write(&path, vec![0u8; 16]).unwrap();
     st.reload_from_disk(event_id(0)).unwrap();
+    assert_eq!(st.locked(event_id(0)), None);
     st.edit_event(0, "ok", |_| Ok(())).unwrap();
 }
 
