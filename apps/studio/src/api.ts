@@ -117,7 +117,14 @@ export interface MatrixDto {
   height: number;
   /** Row-major map ids; null marks an empty cell. */
   maps: (number | null)[];
+  /** Row-major header ids; null (or absent) when the matrix has no header section. */
+  headers?: number[] | null;
+  /** Row-major altitudes; null (or absent) when the matrix has no altitude section. */
+  altitudes?: number[] | null;
 }
+
+/** Map id the backend stores for, and accepts as, an empty matrix cell. */
+export const MATRIX_EMPTY = 0xffff;
 
 /** Positions in tiles from the map centre (y is vertical); scale 1.0 = unscaled. */
 export interface BuildingDto {
@@ -210,6 +217,21 @@ export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id })
 export const setHeader = (id: number, header: MapHeader, label?: string) => invoke<void>("set_header", { id, header, label });
 export const memberCounts = () => invoke<MemberCounts>("member_counts");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
+/**
+ * Changes the given fields of one matrix cell; null leaves a field as it is. `map` MATRIX_EMPTY
+ * empties the cell; `header` and `altitude` need the matrix to have that section.
+ */
+export const setMatrixCell = (index: number, x: number, y: number, map: number | null, header: number | null, altitude: number | null) =>
+  invoke<void>("set_matrix_cell", { index, x, y, map, header, altitude });
+/** Gives the matrix exactly the asked-for sections (added ones are filled with 0). */
+export const setMatrixSections = (index: number, headers: boolean, altitudes: boolean) =>
+  invoke<void>("set_matrix_sections", { index, headers, altitudes });
+export const resizeMatrix = (index: number, width: number, height: number) => invoke<void>("resize_matrix", { index, width, height });
+export const renameMatrix = (index: number, name: string) => invoke<void>("rename_matrix", { index, name });
+/** Appends a 1 x 1 matrix and resolves to its index. Written at once; not undoable. */
+export const createMatrix = (name: string) => invoke<number>("create_matrix", { name });
+/** Appends a copy of a map and resolves to its index. Written at once; not undoable. */
+export const duplicateMap = (source: number) => invoke<number>("duplicate_map", { source });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });

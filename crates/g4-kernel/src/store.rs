@@ -11,7 +11,7 @@ use g4_formats::area_data::AreaData;
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
-use g4_formats::matrix::Matrix;
+use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Location, Project};
@@ -455,6 +455,84 @@ impl Store {
             }
             _ => Err(mismatch(HEADER_TABLE)),
         })
+    }
+
+    /// Member count of the archive of `kind`: the members of the project, which includes every
+    /// member [`Store::create_matrix`] and [`Store::duplicate_map`] added, as those are written
+    /// to the unpacked folder at once.
+    pub fn member_count(&self, kind: AssetKind) -> Result<usize, KernelError> {
+        self.project.member_count(kind)
+    }
+
+    /// Writes `bytes` as a new member at the end of the archive of `kind` and returns its
+    /// index. The archive is unpacked first; the file appears atomically and an existing file
+    /// is never overwritten. The new member is not part of the undo history.
+    fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
+        self.ensure_unpacked(kind)?;
+        let count = self.member_count(kind)?;
+        // Map ids are stored in matrices, where 0xFFFF marks an empty cell.
+        let limit = usize::from(MATRIX_EMPTY);
+        let index = u16::try_from(count)
+            .ok()
+            .filter(|_| count < limit)
+            .ok_or_else(|| {
+                KernelError::InvalidProject(format!("{kind} archive is full ({count} members)"))
+            })?;
+        let path = self.project.member_path(kind, index);
+        if path.exists() {
+            return Err(KernelError::InvalidProject(format!(
+                "{} already exists, refusing to overwrite it",
+                path.display()
+            )));
+        }
+        write_atomic(&self.project.root, &path, bytes)?;
+        Ok(index)
+    }
+
+    /// Appends a new 1 x 1 matrix named `name` (one empty cell, no header or altitude section)
+    /// as the last member of the matrix archive, writes it at once and loads it. Returns its
+    /// index. Not undoable.
+    pub fn create_matrix(&mut self, name: &str) -> Result<u16, KernelError> {
+        let matrix = Matrix {
+            name: name.to_owned(),
+            width: 1,
+            height: 1,
+            headers: None,
+            altitudes: None,
+            maps: vec![MATRIX_EMPTY],
+        };
+        matrix.validate()?;
+        let bytes = matrix.write();
+        let index = self.append_member(AssetKind::Matrix, &bytes)?;
+        self.assets.insert(
+            AssetId {
+                kind: AssetKind::Matrix,
+                index,
+            },
+            Asset {
+                saved_bytes: Some(bytes),
+                current: Loaded::Matrix(matrix),
+                locked: None,
+            },
+        );
+        Ok(index)
+    }
+
+    /// Appends a copy of map `source` as the last member of the map archive, writes it at
+    /// once and returns its index. The copy holds the map as the editor shows it, unsaved
+    /// edits included (a read-only map is copied as it is on disk); the source itself is not
+    /// changed. Not undoable.
+    pub fn duplicate_map(&mut self, source: u16) -> Result<u16, KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Map,
+            index: source,
+        };
+        let family = self.project.family;
+        let bytes = match self.assets.get(&id) {
+            Some(a) if a.locked.is_none() => a.current.to_bytes(family)?,
+            _ => self.read_member(id)?,
+        };
+        self.append_member(AssetKind::Map, &bytes)
     }
 
     /// Drops the store's own changes to `id` and loads the member from disk again. The

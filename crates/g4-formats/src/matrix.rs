@@ -177,9 +177,83 @@ impl Matrix {
     }
 }
 
+/// A copy of `m` with the grid resized to `width` x `height`. Cells that exist in both keep
+/// their coordinates and values; new cells are [`MATRIX_EMPTY`] (maps) or 0 (headers,
+/// altitudes). A section the matrix lacks stays absent.
+pub fn resize_matrix(m: &Matrix, width: u8, height: u8) -> Matrix {
+    let (old_w, old_h) = (usize::from(m.width), usize::from(m.height));
+    let (new_w, new_h) = (usize::from(width), usize::from(height));
+    // Value at the old position of each new cell, `fill` where the cell is new (or the old
+    // grid is shorter than it claims, which `validate` rules out for matrices read from disk).
+    fn remap<T: Copy>(
+        old: &[T],
+        fill: T,
+        old_dim: (usize, usize),
+        new_dim: (usize, usize),
+    ) -> Vec<T> {
+        let ((old_w, old_h), (new_w, new_h)) = (old_dim, new_dim);
+        (0..new_h)
+            .flat_map(|y| (0..new_w).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                if x < old_w && y < old_h {
+                    old.get(y * old_w + x).copied().unwrap_or(fill)
+                } else {
+                    fill
+                }
+            })
+            .collect()
+    }
+    let (old_dim, new_dim) = ((old_w, old_h), (new_w, new_h));
+    Matrix {
+        name: m.name.clone(),
+        width,
+        height,
+        headers: m.headers.as_deref().map(|h| remap(h, 0, old_dim, new_dim)),
+        altitudes: m
+            .altitudes
+            .as_deref()
+            .map(|a| remap(a, 0, old_dim, new_dim)),
+        maps: remap(&m.maps, MATRIX_EMPTY, old_dim, new_dim),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resize_matrix_keeps_overlap_and_fills_empty() {
+        let m = Matrix {
+            name: "m".into(),
+            width: 2,
+            height: 2,
+            headers: Some(vec![1, 2, 3, 4]),
+            altitudes: None,
+            maps: vec![10, 11, 12, 13],
+        };
+        let r = resize_matrix(&m, 3, 1);
+        assert_eq!(r.maps, vec![10, 11, MATRIX_EMPTY]);
+        assert_eq!(r.headers, Some(vec![1, 2, 0]));
+        assert_eq!(r.altitudes, None);
+        r.validate().unwrap();
+        // Growing keeps the old cells at their coordinates (the row stride changes).
+        let g = resize_matrix(&m, 3, 3);
+        assert_eq!(
+            g.maps,
+            vec![
+                10,
+                11,
+                MATRIX_EMPTY,
+                12,
+                13,
+                MATRIX_EMPTY,
+                MATRIX_EMPTY,
+                MATRIX_EMPTY,
+                MATRIX_EMPTY
+            ]
+        );
+        g.validate().unwrap();
+    }
 
     #[test]
     fn matrix_round_trips_all_sections() {

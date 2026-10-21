@@ -7,6 +7,7 @@ import type { Message } from "../Toolbar";
 import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
 import { Inspector } from "./Inspector";
+import { MatrixPanel } from "./MatrixPanel";
 import type { InspectorModel } from "./Inspector";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
 
@@ -39,6 +40,14 @@ export interface WorkbenchData {
   headerRevision: number;
   /** A header field was written: refresh list, scene and dirty count. */
   onHeaderChanged: () => void | Promise<void>;
+  /** Changes whenever matrix data may have changed behind the matrix panel and the cell editor (edit, undo, redo, reload). */
+  matrixRevision: number;
+  /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
+  onMatrixEdited: (index: number) => void | Promise<void>;
+  /** A map or matrix member was appended: refresh the member counts. */
+  onCountsChanged: () => void | Promise<void>;
+  /** Pins `model` in the inspector (until another header or cell is chosen). */
+  onPin: (model: InspectorModel) => void;
   message: Message | null;
   onDismissMessage: () => void;
 }
@@ -100,12 +109,39 @@ function WorldPanel() {
   );
 }
 
+function MatrixTab() {
+  const d = useWorkbench();
+  const selection = d.inspector.kind === "matrixCell" ? d.inspector : null;
+  return (
+    <MatrixPanel
+      context={{
+        info: d.info,
+        sceneMatrix: d.matrix?.index ?? null,
+        revision: d.matrixRevision,
+        selection: selection && { matrix: selection.matrix, x: selection.x, y: selection.y },
+        onSelectCell: (matrix, x, y) => d.onPin({ kind: "matrixCell", matrix, x, y }),
+        onEdited: d.onMatrixEdited,
+        onCountsChanged: d.onCountsChanged,
+        onError: d.onError,
+      }}
+    />
+  );
+}
+
 function InspectorPanel() {
   const d = useWorkbench();
   return (
     <Inspector
       model={d.inspector}
       headerEditor={{ headers: d.headers, counts: d.memberCounts, revision: d.headerRevision, onChanged: d.onHeaderChanged, onError: d.onError }}
+      matrixEditor={{
+        headerCount: d.headers.length,
+        counts: d.memberCounts,
+        revision: d.matrixRevision,
+        onEdited: d.onMatrixEdited,
+        onCountsChanged: d.onCountsChanged,
+        onError: d.onError,
+      }}
     />
   );
 }
@@ -123,6 +159,7 @@ function StatusPanel() {
 const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   headers: HeadersPanel,
   world: WorldPanel,
+  matrix: MatrixTab,
   inspector: InspectorPanel,
   status: StatusPanel,
 };
@@ -146,6 +183,8 @@ function applyDefaultLayout(api: DockviewApi) {
       initialHeight: p.position.direction === "below" ? p.size : undefined,
     });
   }
+  // The matrix tab was added last into the world's group and took focus; the scene is what opens.
+  api.getPanel("world")?.api.setActive();
 }
 
 /**

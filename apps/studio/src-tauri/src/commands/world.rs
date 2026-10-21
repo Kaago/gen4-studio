@@ -19,6 +19,10 @@ pub struct MatrixDto {
     pub height: u8,
     /// Row-major map ids; `None` marks an empty cell.
     pub maps: Vec<Option<u16>>,
+    /// Row-major header ids; `None` when the matrix has no header section.
+    pub headers: Option<Vec<u16>>,
+    /// Row-major altitudes; `None` when the matrix has no altitude section.
+    pub altitudes: Option<Vec<u8>>,
 }
 
 impl MatrixDto {
@@ -33,6 +37,8 @@ impl MatrixDto {
                 .iter()
                 .map(|&m| (m != MATRIX_EMPTY).then_some(m))
                 .collect(),
+            headers: matrix.headers.clone(),
+            altitudes: matrix.altitudes.clone(),
         }
     }
 }

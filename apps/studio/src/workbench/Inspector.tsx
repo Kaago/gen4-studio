@@ -5,12 +5,16 @@ import { tileSummary } from "../world/hover";
 import type { TileInfo } from "../world/hover";
 import { HeaderEditor } from "./inspector/HeaderEditor";
 import type { HeaderEditorContext } from "./inspector/HeaderEditor";
+import { MatrixCellEditor } from "./inspector/MatrixCellEditor";
+import type { MatrixCellContext } from "./inspector/MatrixCellEditor";
 
 /** What the inspector shows. */
 export type InspectorModel =
   | { kind: "none" }
   /** The selected header, shown as an editable form. */
   | { kind: "header"; id: number }
+  /** A cell of a matrix selected in the matrix panel, shown as an editable form. */
+  | { kind: "matrixCell"; matrix: number; x: number; y: number }
   | {
       kind: "event";
       eventKind: "warp" | "object" | "coord" | "bg";
@@ -33,10 +37,12 @@ export type InspectorModel =
 
 const box: CSSProperties = { padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 14, color: "#4b5563" };
 
-export function Inspector({ model, headerEditor }: { model: InspectorModel; headerEditor: HeaderEditorContext }) {
+export function Inspector({ model, headerEditor, matrixEditor }: { model: InspectorModel; headerEditor: HeaderEditorContext; matrixEditor: MatrixCellContext }) {
   switch (model.kind) {
     case "header":
       return <HeaderEditor key={model.id} id={model.id} context={headerEditor} />;
+    case "matrixCell":
+      return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} />;
     case "none":
       return <div style={box}>Nichts ausgewählt. Mit der Maus über ein Tile fahren oder einen Marker anklicken.</div>;
     case "event":

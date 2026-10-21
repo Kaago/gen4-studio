@@ -1,6 +1,6 @@
-export const LAYOUT_KEY = "g4.layout.v1";
+export const LAYOUT_KEY = "g4.layout.v2";
 
-export type PanelId = "headers" | "world" | "inspector" | "status";
+export type PanelId = "headers" | "world" | "matrix" | "inspector" | "status";
 
 export interface PanelSpec {
   id: PanelId;
@@ -10,9 +10,13 @@ export interface PanelSpec {
   size?: number;
 }
 
-/** Order matters: `world` is the anchor the other panels are placed around. */
+/**
+ * Order matters: `world` is the anchor the other panels are placed around; `matrix` is a tab
+ * of the world's group. The key is versioned: a layout stored by an older panel set is not read.
+ */
 export const DEFAULT_PANELS: readonly PanelSpec[] = [
   { id: "world", title: "Welt", position: { direction: "within" } },
+  { id: "matrix", title: "Matrix", position: { direction: "within", referencePanel: "world" } },
   { id: "headers", title: "Header", position: { direction: "left", referencePanel: "world" }, size: 280 },
   { id: "inspector", title: "Inspector", position: { direction: "right", referencePanel: "world" }, size: 320 },
   { id: "status", title: "Status", position: { direction: "below", referencePanel: "world" }, size: 40 },

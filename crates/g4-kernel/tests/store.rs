@@ -7,6 +7,7 @@ use g4_formats::area_data::AreaData;
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
 use g4_formats::map::{Cell, MapFile};
+use g4_formats::matrix::MATRIX_EMPTY;
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, Store, WarpEvent};
@@ -960,4 +961,90 @@ fn vanilla_area_data_edit_save_round_trip_on_copy() {
     assert_eq!(saved[2..4], new.to_le_bytes());
     let differing = saved.iter().zip(&original).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 1, "only the tileset changes (low bit flipped)");
+}
+
+#[test]
+fn create_matrix_and_duplicate_map_append_members() {
+    let (s, mut st) = store();
+    let n = st.member_count(AssetKind::Matrix).unwrap();
+    let idx = st.create_matrix("neu").unwrap();
+    assert_eq!(idx as usize, n);
+    assert!(
+        s.dir
+            .path()
+            .join(format!("unpacked/matrices/{idx:04}"))
+            .exists()
+    );
+    assert_eq!(st.matrix(idx).unwrap().maps, vec![MATRIX_EMPTY]);
+    assert_eq!(st.member_count(AssetKind::Matrix).unwrap(), n + 1);
+    let m2 = st.duplicate_map(1).unwrap();
+    assert_eq!(
+        std::fs::read(s.dir.path().join(format!("unpacked/maps/{m2:04}"))).unwrap(),
+        std::fs::read(s.dir.path().join("unpacked/maps/0001")).unwrap()
+    );
+    st.edit_matrix(idx, "assign", |m| {
+        m.maps[0] = m2;
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    assert_eq!(
+        g4_kernel::build::pack_dir(&s.dir.path().join("unpacked/matrices"))
+            .unwrap()
+            .members
+            .len(),
+        n + 1
+    );
+}
+
+#[test]
+fn create_and_duplicate_unpack_the_archive_first_and_never_overwrite() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert!(!s.dir.path().join("unpacked").exists());
+    let idx = st.create_matrix("a").unwrap();
+    assert_eq!(idx, 1);
+    let second = st.create_matrix("b").unwrap();
+    assert_eq!(second, 2);
+    let dup = st.duplicate_map(0).unwrap();
+    assert_eq!(dup, 3);
+    // A bad source or an over-long name creates nothing.
+    assert!(st.duplicate_map(99).is_err());
+    assert!(st.create_matrix(&"x".repeat(256)).is_err());
+    assert_eq!(st.member_count(AssetKind::Map).unwrap(), 4);
+    assert_eq!(st.member_count(AssetKind::Matrix).unwrap(), 3);
+    // A gap-free folder is required: a stray file at the next index is never overwritten.
+    let stray = s.dir.path().join("unpacked/maps/0005");
+    std::fs::write(&stray, b"keep").unwrap();
+    // count is now 5 (0000-0003 plus 0005), so index 5 is taken.
+    assert!(st.duplicate_map(0).is_err());
+    assert_eq!(std::fs::read(&stray).unwrap(), b"keep");
+    // New members are not undoable and leave nothing dirty.
+    assert!(st.undo().is_none());
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn duplicate_map_copies_unsaved_edits_of_the_source() {
+    let (s, mut st) = store();
+    st.edit_map(1, "block", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 7,
+                collision: 0x80,
+            },
+        )
+    })
+    .unwrap();
+    let dup = st.duplicate_map(1).unwrap();
+    let copy = g4_formats::map::MapFile::read(
+        &std::fs::read(s.dir.path().join(format!("unpacked/maps/{dup:04}"))).unwrap(),
+        Family::Pt,
+    )
+    .unwrap();
+    assert_eq!(copy.cell(0, 0).unwrap().kind, 7);
+    // The source on disk is untouched until saved.
+    assert!(st.is_dirty(map_id(1)));
 }

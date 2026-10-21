@@ -26,6 +26,7 @@ import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
 import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
+import { sameLayout } from "./workbench/matrix";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -70,6 +71,7 @@ export default function App() {
   const onInspect = useCallback((model: InspectorModel) => setHover(model.kind === "none" ? null : model), []);
   const [counts, setCounts] = useState<MemberCounts>({});
   const [headerRevision, setHeaderRevision] = useState(0);
+  const [matrixRevision, setMatrixRevision] = useState(0);
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -122,6 +124,7 @@ export default function App() {
       try {
         if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
         setHeaderRevision((r) => r + 1);
+        setMatrixRevision((r) => r + 1);
         await syncHeaders();
       } finally {
         // The dirty count must follow the reload/accept even when refetching the matrix fails.
@@ -151,6 +154,21 @@ export default function App() {
 
   const matrixIndexRef = useRef<number | null>(null);
   matrixIndexRef.current = matrix?.index ?? null;
+  const matrixRef = useRef<MatrixDto | null>(null);
+  matrixRef.current = matrix;
+
+  /**
+   * Reads the scene's matrix again and replaces it when it now places other maps (a new object
+   * makes the scene refetch all its maps, so name, header and altitude edits leave it alone).
+   * A newer selection or scene load that began meanwhile wins.
+   */
+  const refreshSceneMatrix = useCallback(async (index?: number) => {
+    const shown = matrixRef.current;
+    if (!shown || (index !== undefined && index !== shown.index)) return;
+    const seq = selectSeq.current;
+    const next = await getMatrix(shown.index);
+    if (seq === selectSeq.current && !sameLayout(shown, next)) setMatrix(next);
+  }, []);
 
   const fail = useCallback(
     (e: unknown) => {
@@ -179,6 +197,28 @@ export default function App() {
     },
     [refreshAfterStale],
   );
+
+  const onMatrixEdited = useCallback(
+    async (index: number) => {
+      setMatrixRevision((r) => r + 1);
+      try {
+        await refreshSceneMatrix(index);
+      } catch (e) {
+        setMessage({ kind: "error", text: errorText(e) });
+      }
+      await refreshDirty();
+    },
+    [refreshSceneMatrix, refreshDirty],
+  );
+
+  // New members change the upper bounds of the header editor's map and matrix fields.
+  const onCountsChanged = useCallback(async () => {
+    try {
+      setCounts(await memberCounts());
+    } catch (e) {
+      setMessage({ kind: "error", text: errorText(e) });
+    }
+  }, []);
 
   async function onOpen() {
     try {
@@ -245,6 +285,9 @@ export default function App() {
         setReloadToken((t) => t + 1);
         // An undone header edit changes the list, the header editor and possibly the scene.
         setHeaderRevision((r) => r + 1);
+        // An undone matrix edit changes the matrix panel and the scene's matrix.
+        setMatrixRevision((r) => r + 1);
+        await refreshSceneMatrix();
         await syncHeaders();
       }
     } catch (e) {
@@ -404,6 +447,10 @@ export default function App() {
     memberCounts: counts,
     headerRevision,
     onHeaderChanged,
+    matrixRevision,
+    onMatrixEdited,
+    onCountsChanged,
+    onPin: setPinned,
     message,
     onDismissMessage: () => setMessage(null),
   };
