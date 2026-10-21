@@ -8,7 +8,7 @@ import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
 import { Inspector } from "./Inspector";
 import type { InspectorModel } from "./Inspector";
-import { DEFAULT_PANELS, hasAllPanels, loadLayout, saveLayout } from "./layout";
+import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
 
 /** Everything the panels show. App owns the state; panels read it through this context. */
 export interface WorkbenchData {
@@ -123,12 +123,17 @@ function applyDefaultLayout(api: DockviewApi) {
   }
 }
 
-/** The status panel is a fixed-height strip: no tab header, and a minimum height below dockview's 100 px default. */
+/**
+ * The status panel is a strip without tab header, with a minimum height below dockview's 100 px default.
+ * Its group is locked so no other panel can be dropped onto it (the hidden header would leave no way
+ * to drag it out again); `isSaneLayout` guarantees the status panel is alone in its group.
+ */
 function fitStatusStrip(api: DockviewApi) {
   const status = api.getPanel("status");
   const size = DEFAULT_PANELS.find((p) => p.id === "status")?.size;
-  if (!status || size === undefined) return;
+  if (!status || size === undefined || status.group.panels.length !== 1) return;
   status.group.header.hidden = true;
+  status.group.locked = true;
   status.group.api.setConstraints({ minimumHeight: size });
   // Groups restored from JSON were clamped to the 100 px default, so the strip is always reset to its height.
   status.group.api.setSize({ height: size });
@@ -137,7 +142,7 @@ function fitStatusStrip(api: DockviewApi) {
 /** Restores the stored layout when it is complete, otherwise builds the default one. */
 function initLayout(api: DockviewApi) {
   const saved = loadLayout();
-  if (saved && hasAllPanels(saved)) {
+  if (saved && isSaneLayout(saved)) {
     try {
       api.fromJSON(saved as SerializedDockview);
       return;
@@ -156,7 +161,7 @@ export default function Workbench({ data }: { data: WorkbenchData }) {
     event.api.onDidLayoutChange(() => {
       const json = event.api.toJSON();
       // Intermediate states (clear, half-built default) must not overwrite the user's layout.
-      if (hasAllPanels(json)) saveLayout(json);
+      if (isSaneLayout(json)) saveLayout(json);
     });
   }
 

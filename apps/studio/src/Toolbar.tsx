@@ -68,13 +68,20 @@ export function StatusBar({ message, onDismiss }: { message: Message | null; onD
         background: error ? "#b91c1c" : "#e5e7eb",
       }}
     >
-      <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{message.text}</span>
+      <span
+        title={message.text}
+        style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {message.text}
+      </span>
       {message.actions?.map((a) => (
-        <button key={a.label} onClick={a.run}>
+        <button key={a.label} onClick={a.run} style={{ flexShrink: 0 }}>
           {a.label}
         </button>
       ))}
-      <button onClick={onDismiss}>Schließen</button>
+      <button onClick={onDismiss} style={{ flexShrink: 0 }}>
+        Schließen
+      </button>
     </div>
   );
 }
