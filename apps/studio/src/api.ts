@@ -48,3 +48,33 @@ export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { in
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
 /** Raw GLB bytes of the map's terrain model (converted by apicula, cached by the backend). */
 export const getMapModelGlb = (index: number) => invoke<ArrayBuffer>("get_map_model_glb", { index });
+
+export interface AssetId {
+  kind: "Map" | "Matrix" | "AreaData";
+  index: number;
+}
+
+export interface SaveReport {
+  written: AssetId[];
+}
+
+export interface BuildReport {
+  /** Dirty assets that were saved before building. */
+  saved: number;
+  /** Asset kinds that were packed (maps, matrices, areaData) with their member counts. */
+  packed: [string, number][];
+  rom: string;
+}
+
+export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
+  invoke<void>("set_permission", { index, x, y, kind, collision });
+/** Resolves to false when there was nothing to undo. */
+export const undo = () => invoke<boolean>("undo");
+/** Resolves to false when there was nothing to redo. */
+export const redo = () => invoke<boolean>("redo");
+export const dirty = () => invoke<AssetId[]>("dirty");
+export const save = () => invoke<SaveReport>("save");
+/** Saves dirty assets, then builds the ROM at `out`. */
+export const buildRom = (out: string) => invoke<BuildReport>("build_rom", { out });
+/** Starts the emulator on the ROM and resolves to its PID without waiting. */
+export const runRom = (emulator: string, rom: string) => invoke<number>("run_rom", { emulator, rom });

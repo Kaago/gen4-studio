@@ -3,10 +3,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { getMap, getMapModelGlb } from "../api";
+import { getMap, getMapModelGlb, setPermission } from "../api";
 import type { MapDto, MatrixDto } from "../api";
 import { permissionColor } from "./colors";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
+import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 
 /** apicula GLB units per tile: a 32-tile map model spans 512 units (measured on vanilla Pt/HGSS maps). */
 const MODEL_UNITS_PER_TILE = 16;
@@ -17,6 +18,9 @@ interface Loaded {
   model: THREE.Object3D | null;
 }
 
+/** Height of the overlay plane; clicks are intersected with the same plane. */
+const OVERLAY_Y = 0.05;
+
 interface SceneHandle {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -24,6 +28,20 @@ interface SceneHandle {
   content: THREE.Group;
   overlay: THREE.Object3D | null;
   render: () => void;
+  /** Matrix and loaded maps behind the current content (null until a matrix is loaded). */
+  matrix: MatrixDto | null;
+  loaded: Map<number, Loaded>;
+  tiles: THREE.InstancedMesh | null;
+  /** Map id to the first overlay instance of each matrix cell showing that map. */
+  bases: Map<number, number[]>;
+}
+
+const colorCache = new Map<string, THREE.Color>();
+function overlayColor(kind: number, collision: number): THREE.Color {
+  const hex = permissionColor(kind, collision);
+  let color = colorCache.get(hex);
+  if (!color) colorCache.set(hex, (color = new THREE.Color(hex)));
+  return color;
 }
 
 function disposeTree(root: THREE.Object3D) {
@@ -93,19 +111,19 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>) {
   const tiles = new THREE.InstancedMesh(plane, planeMaterial, cells.length * perCell);
   tiles.renderOrder = 10;
   tiles.frustumCulled = false;
-  const colors = new Map<string, THREE.Color>();
   const m4 = new THREE.Matrix4();
+  const bases = new Map<number, number[]>();
   let n = 0;
   for (const { col, row, data } of cells) {
     const origin = cellOrigin(col, row);
+    const list = bases.get(data.map.index) ?? [];
+    list.push(n);
+    bases.set(data.map.index, list);
     for (let i = 0; i < perCell; i++) {
       const [kind, collision] = data.map.permissions[i] ?? [0, 0];
-      const hex = permissionColor(kind, collision);
-      let color = colors.get(hex);
-      if (!color) colors.set(hex, (color = new THREE.Color(hex)));
-      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, 0.05, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
+      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, OVERLAY_Y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
       tiles.setMatrixAt(n, m4);
-      tiles.setColorAt(n, color);
+      tiles.setColorAt(n, overlayColor(kind, collision));
       n++;
     }
   }
@@ -129,14 +147,41 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>) {
     boxMesh.setMatrixAt(i, m4);
   });
   content.add(boxMesh);
-  return { content, overlay };
+  return { content, overlay, tiles, bases };
 }
 
-export default function MatrixScene({ matrix, showPermissions }: { matrix: MatrixDto; showPermissions: boolean }) {
+/** Recolours every overlay instance of `mapId` from the map's current permissions. */
+function recolourMap(h: SceneHandle, mapId: number) {
+  const data = h.loaded.get(mapId);
+  const bases = h.bases.get(mapId);
+  if (!data || !bases || !h.tiles) return;
+  for (const base of bases) {
+    data.map.permissions.forEach(([kind, collision], i) => {
+      h.tiles?.setColorAt(base + i, overlayColor(kind, collision));
+    });
+  }
+  if (h.tiles.instanceColor) h.tiles.instanceColor.needsUpdate = true;
+}
+
+interface Props {
+  matrix: MatrixDto;
+  showPermissions: boolean;
+  /** Painting is ignored while false (e.g. during a build). */
+  paintEnabled: boolean;
+  /** Increment to reload all maps of the matrix from the backend and recolour (after undo/redo). */
+  reloadToken: number;
+  /** Called after a tile was changed in the backend. */
+  onEdited: () => void;
+  onError: (message: string) => void;
+}
+
+export default function MatrixScene({ matrix, showPermissions, paintEnabled, reloadToken, onEdited, onError }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
   const [status, setStatus] = useState<string | null>(null);
+  const callbacks = useRef({ paintEnabled, onEdited, onError });
+  callbacks.current = { paintEnabled, onEdited, onError };
 
   // Renderer, camera and controls live as long as the component.
   useEffect(() => {
@@ -171,9 +216,71 @@ export default function MatrixScene({ matrix, showPermissions }: { matrix: Matri
     observer.observe(el);
     controls.addEventListener("change", render);
     resize();
-    handle.current = { scene, camera, controls, content, overlay: null, render };
+    const h: SceneHandle = {
+      scene,
+      camera,
+      controls,
+      content,
+      overlay: null,
+      render,
+      matrix: null,
+      loaded: new Map(),
+      tiles: null,
+      bases: new Map(),
+    };
+    handle.current = h;
+
+    // Painting: a click (pointer barely moved) sets collision on the tile under the cursor;
+    // dragging still orbits.
+    const canvas = renderer.domElement;
+    const raycaster = new THREE.Raycaster();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -OVERLAY_Y);
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
+    };
+    const onUp = (e: PointerEvent) => {
+      const start = down;
+      down = null;
+      if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
+      const cb = callbacks.current;
+      if (!cb.paintEnabled || !h.overlay?.visible || !h.matrix) return;
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      if (!hit) return;
+      const m = h.matrix;
+      const at = matrixCellAt(hit, m.width, m.height);
+      if (!at) return;
+      const mapId = m.maps[at.row * m.width + at.col];
+      const tile = mapId === null || mapId === undefined ? null : pickCell(hit, cellOrigin(at.col, at.row));
+      if (mapId === null || mapId === undefined || !tile) return;
+      const data = h.loaded.get(mapId);
+      if (!data) return;
+      const i = tile.y * MAP_SIZE + tile.x;
+      const kind = data.map.permissions[i]?.[0] ?? 0;
+      const collision = e.shiftKey ? 0x00 : BLOCKED;
+      setPermission(mapId, tile.x, tile.y, kind, collision).then(
+        () => {
+          data.map.permissions[i] = [kind, collision];
+          // The matrix may have been swapped while the command was in flight.
+          if (h.loaded.get(mapId) === data) recolourMap(h, mapId);
+          h.render();
+          callbacks.current.onEdited();
+        },
+        (err) => callbacks.current.onError(String(err)),
+      );
+    };
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointerup", onUp);
 
     return () => {
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointerup", onUp);
       const current = handle.current;
       handle.current = null;
       observer.disconnect();
@@ -215,13 +322,17 @@ export default function MatrixScene({ matrix, showPermissions }: { matrix: Matri
         for (const l of loaded.values()) if (l.model) disposeTree(l.model);
         return;
       }
-      const { content, overlay } = buildContent(matrix, loaded);
+      const { content, overlay, tiles, bases } = buildContent(matrix, loaded);
       // The clones in `content` share geometry and materials with the loaded models, so
       // disposing `content` later releases everything.
       h.scene.remove(h.content);
       disposeTree(h.content);
       h.content = content;
       h.overlay = overlay;
+      h.matrix = matrix;
+      h.loaded = loaded;
+      h.tiles = tiles;
+      h.bases = bases;
       overlay.visible = showRef.current;
       h.scene.add(content);
 
@@ -241,6 +352,30 @@ export default function MatrixScene({ matrix, showPermissions }: { matrix: Matri
       cancelled = true;
     };
   }, [matrix]);
+
+  // Undo/redo changed maps behind the scene's back: refetch every shown map and recolour.
+  useEffect(() => {
+    const h = handle.current;
+    if (reloadToken === 0 || !h?.matrix) return;
+    let cancelled = false;
+    (async () => {
+      const ids = [...h.loaded.keys()];
+      const fresh = await Promise.all(ids.map((id) => getMap(id)));
+      if (cancelled || handle.current !== h) return;
+      fresh.forEach((map, i) => {
+        const data = h.loaded.get(ids[i]);
+        if (!data) return;
+        data.map = map;
+        recolourMap(h, ids[i]);
+      });
+      h.render();
+    })().catch((e) => {
+      if (!cancelled) callbacks.current.onError(String(e));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
   useEffect(() => {
     showRef.current = showPermissions;

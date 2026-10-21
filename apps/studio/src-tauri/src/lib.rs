@@ -1,7 +1,10 @@
 mod commands;
 mod state;
 
-use commands::{get_map, get_map_model_glb, get_matrix, list_headers, open_project};
+use commands::{
+    build_rom, dirty, get_map, get_map_model_glb, get_matrix, list_headers, open_project, redo,
+    run_rom, save, set_permission, undo,
+};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,7 +17,14 @@ pub fn run() {
             list_headers,
             get_matrix,
             get_map,
-            get_map_model_glb
+            get_map_model_glb,
+            set_permission,
+            undo,
+            redo,
+            dirty,
+            save,
+            build_rom,
+            run_rom
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
