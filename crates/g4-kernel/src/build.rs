@@ -24,13 +24,18 @@ fn build_err(e: impl std::fmt::Display) -> KernelError {
     KernelError::Build(format!("{e}"))
 }
 
-/// Reads all files `NNNN` in `dir`, numerically sorted. A gap in the numbering or a name
-/// that is not exactly four ASCII digits is an error.
+/// Reads all files `NNNN` in `dir`, numerically sorted. Hidden entries (names starting with
+/// `.`) are ignored. A gap in the numbering or a visible name that is not exactly four ASCII
+/// digits is an error.
 pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
     let mut found: Vec<(u32, PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name();
+        // Finder and friends drop `.DS_Store` and similar into folders they open.
+        if name.to_str().is_some_and(|s| s.starts_with('.')) {
+            continue;
+        }
         let number = name
             .to_str()
             .filter(|s| s.len() == 4 && s.bytes().all(|b| b.is_ascii_digit()))
@@ -65,23 +70,58 @@ pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
 }
 
 /// Writes `bytes` to `path` unless it already holds exactly these bytes. The write goes
-/// through a sibling temp file and a rename so an interrupted write cannot truncate the NARC.
-fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), KernelError> {
+/// through a temp file in `tmp_dir` (on the project's filesystem, outside `files/`, which
+/// ds-rom packs into the ROM) and a rename, so an interrupted write cannot truncate the NARC.
+fn write_if_changed(path: &Path, bytes: &[u8], tmp_dir: &Path) -> Result<(), KernelError> {
     if std::fs::read(path).is_ok_and(|existing| existing == bytes) {
         return Ok(());
     }
-    let mut tmp_name = path.as_os_str().to_owned();
-    tmp_name.push(".g4tmp");
-    let tmp = PathBuf::from(tmp_name);
+    std::fs::create_dir_all(tmp_dir)?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| KernelError::Build(format!("{}: not a file path", path.display())))?;
+    let tmp = tmp_dir.join(file_name);
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
+/// ds-rom packs everything below `files/` into the ROM without a hidden-file filter, so a
+/// stray `.DS_Store` or leftover temp file would end up in the ROM. Nothing is deleted.
+fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|s| s.starts_with('.'))
+        {
+            return Err(KernelError::Build(format!(
+                "hidden entry {} would be packed into the ROM; remove it and build again",
+                entry.path().display()
+            )));
+        }
+        if entry.file_type()?.is_dir() {
+            reject_hidden_files(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// Packs every asset kind whose unpacked folder exists into its packed path, then builds
 /// the ROM with ds-rom into `out_rom`. All folders are packed in memory before the first
-/// file is written, so a pack error leaves the project untouched.
+/// file is written, so a pack error leaves the project untouched. Hidden entries below
+/// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
+    if let Some(parent) = out_rom.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    reject_hidden_files(&project.root.join("files"))?;
     let mut packed = Vec::new();
     let mut pending = Vec::new();
     for kind in KINDS {
@@ -93,8 +133,13 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
         packed.push((kind, narc.members.len()));
         pending.push((kind, narc.write()));
     }
+    let tmp_dir = project.root.join(".g4").join("tmp");
     for (kind, bytes) in &pending {
-        write_if_changed(&project.root.join(project.archives.packed(*kind)), bytes)?;
+        write_if_changed(
+            &project.root.join(project.archives.packed(*kind)),
+            bytes,
+            &tmp_dir,
+        )?;
     }
 
     // Same options as the reference `dsrom build` (no ARM7 BIOS, compression as configured).

@@ -35,7 +35,7 @@ fn pack_dir_with_gap_is_error() {
 
 #[test]
 fn pack_dir_rejects_names_that_are_not_four_digits() {
-    for bad in ["abc", "12", "00000", ".DS_Store"] {
+    for bad in ["abc", "12", "00000"] {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("0000"), b"a").unwrap();
         std::fs::write(d.path().join(bad), b"x").unwrap();
@@ -45,6 +45,16 @@ fn pack_dir_rejects_names_that_are_not_four_digits() {
             "{bad}: {err}"
         );
     }
+}
+
+#[test]
+fn pack_dir_ignores_hidden_files() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("0000"), b"a").unwrap();
+    std::fs::write(d.path().join(".DS_Store"), b"junk").unwrap();
+    std::fs::write(d.path().join(".hidden"), b"junk").unwrap();
+    let narc = pack_dir(d.path()).unwrap();
+    assert_eq!(narc.members, vec![b"a".to_vec()]);
 }
 
 #[test]
@@ -95,6 +105,77 @@ fn build_leaves_unchanged_packed_files_untouched() {
     build(&p, &out).unwrap_err();
     let second = snapshot();
     assert_eq!(first, second, "contents and mtimes must not change");
+}
+
+fn find_with_suffix(dir: &Path, suffix: &str, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            find_with_suffix(&path, suffix, out);
+        } else if path.to_string_lossy().ends_with(suffix) {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn build_temp_files_stay_out_of_files_dir() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 0),
+        common::synthetic_map_bytes(0x33),
+    )
+    .unwrap();
+    build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    // The edited archive was written (via a temp file) ...
+    let narc =
+        g4_formats::narc::Narc::read(&std::fs::read(s.dir.path().join(MAP_NARC)).unwrap()).unwrap();
+    assert_eq!(narc.members[0], common::synthetic_map_bytes(0x33));
+    // ... but nothing temp-like remains below files/, and the rename left .g4/tmp empty.
+    let mut leftovers = Vec::new();
+    find_with_suffix(&s.dir.path().join("files"), "g4tmp", &mut leftovers);
+    find_with_suffix(&s.dir.path().join("files"), ".tmp", &mut leftovers);
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    assert_eq!(
+        std::fs::read_dir(s.dir.path().join(".g4/tmp"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn hidden_file_below_files_is_error_before_anything_is_written() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 0),
+        common::synthetic_map_bytes(0x44),
+    )
+    .unwrap();
+    let hidden = s.dir.path().join("files/fielddata/land_data/.DS_Store");
+    std::fs::write(&hidden, b"junk").unwrap();
+    let before = std::fs::read(s.dir.path().join(MAP_NARC)).unwrap();
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(
+        matches!(err, KernelError::Build(ref m) if m.contains(".DS_Store") && m.contains("hidden")),
+        "{err}"
+    );
+    assert!(hidden.exists(), "nothing is deleted");
+    assert_eq!(std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(), before);
+}
+
+#[test]
+fn build_creates_missing_parent_of_out_rom() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let out = s.dir.path().join("a/b/out.nds");
+    // Fails at ds-rom by design on the synthetic project, but the directory is created first.
+    build(&p, &out).unwrap_err();
+    assert!(s.dir.path().join("a/b").is_dir());
 }
 
 #[test]
