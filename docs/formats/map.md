@@ -76,3 +76,12 @@ gated Vanilla-Tests bestätigen das für alle Maps von Platin DE (666),
 HeartGold DE (676) und HeartGold US (676), sowohl für die entpackten Dateien
 als auch für die Members des Land-Data-NARC. Bei HGSS wird ein fehlender BGS-Block
 (`bgs: None`) als `BLANK_BGS` geschrieben; bei DP/Pt wird `bgs` ignoriert.
+
+## Validierung vor dem Schreiben
+
+`MapFile::write` bleibt infallibel. Aufrufer müssen vorher
+`MapFile::validate` aufrufen: `permissions` muss 1024 Zellen haben
+(`BadSize { expected: 2048, found }`, in Bytes), und ein vorhandener `bgs`
+muss ein vollständiger Block sein: mindestens 4 Bytes (`Truncated`),
+Signatur `0x1234` (`BadSignature`) und Längenfeld gleich `bgs.len() - 4`
+(`BadSize`). `bgs` wird unabhängig von der Familie geprüft.

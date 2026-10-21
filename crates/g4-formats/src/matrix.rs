@@ -101,11 +101,42 @@ impl Matrix {
         })
     }
 
+    /// Checks the invariants [`Matrix::write`] relies on: the name is at
+    /// most 255 bytes long and `maps`, `headers` and `altitudes` (when
+    /// present) each have `width * height` entries.
+    ///
+    /// Sizes in the error are in bytes, like the file layout.
+    pub fn validate(&self) -> Result<(), FormatError> {
+        if self.name.len() > u8::MAX as usize {
+            return Err(FormatError::OutOfRange {
+                what: "matrix name length",
+                value: self.name.len(),
+                max: u8::MAX as usize,
+            });
+        }
+        let cells = self.width as usize * self.height as usize;
+        let check = |found: usize, expected: usize| {
+            if found == expected {
+                Ok(())
+            } else {
+                Err(FormatError::BadSize { expected, found })
+            }
+        };
+        if let Some(h) = &self.headers {
+            check(h.len() * 2, cells * 2)?;
+        }
+        if let Some(a) = &self.altitudes {
+            check(a.len(), cells)?;
+        }
+        check(self.maps.len() * 2, cells * 2)
+    }
+
     /// Serialises the matrix.
     ///
-    /// The name must be at most 255 bytes and `headers`, `altitudes` and
-    /// `maps` must each have `width * height` entries; otherwise the output
-    /// is not a valid matrix file.
+    /// Callers must call [`Matrix::validate`] first and only write a matrix
+    /// that passes. `write` stays infallible, so an invalid matrix (name over
+    /// 255 bytes, a grid that is not `width * height` long) produces a file
+    /// that [`Matrix::read`] rejects or misreads; only debug builds assert.
     pub fn write(&self) -> Vec<u8> {
         debug_assert!(self.name.len() <= u8::MAX as usize);
         let cells = self.width as usize * self.height as usize;
@@ -182,6 +213,123 @@ mod tests {
         let bytes = m.write();
         assert_eq!(bytes[4], 6);
         assert_eq!(Matrix::read(&bytes).unwrap().name, "Höhle");
+    }
+
+    fn sample() -> Matrix {
+        Matrix {
+            name: "Route".into(),
+            width: 2,
+            height: 2,
+            headers: Some(vec![1, 2, 3, 4]),
+            altitudes: Some(vec![0, 1, 2, 3]),
+            maps: vec![5, MATRIX_EMPTY, 6, 7],
+        }
+    }
+
+    #[test]
+    fn matrix_round_trips_headers_only() {
+        let m = Matrix {
+            altitudes: None,
+            ..sample()
+        };
+        let bytes = m.write();
+        assert_eq!(&bytes[0..5], &[2, 2, 1, 0, 5]);
+        assert_eq!(bytes.len(), 5 + 5 + 8 + 8);
+        assert_eq!(Matrix::read(&bytes).unwrap(), m);
+    }
+
+    #[test]
+    fn matrix_round_trips_altitudes_only() {
+        let m = Matrix {
+            headers: None,
+            ..sample()
+        };
+        let bytes = m.write();
+        assert_eq!(&bytes[0..5], &[2, 2, 0, 1, 5]);
+        assert_eq!(bytes.len(), 5 + 5 + 4 + 8);
+        assert_eq!(Matrix::read(&bytes).unwrap(), m);
+    }
+
+    #[test]
+    fn map_at_checks_both_axes() {
+        let m = sample();
+        assert_eq!(m.map_at(0, 0), Some(5));
+        assert_eq!(m.map_at(1, 0), None);
+        assert_eq!(m.map_at(0, 1), Some(6));
+        assert_eq!(m.map_at(1, 1), Some(7));
+        // x >= width must not wrap into the next row.
+        assert_eq!(m.map_at(2, 0), None);
+        assert_eq!(m.map_at(2, 1), None);
+        assert_eq!(m.map_at(0, 2), None);
+    }
+
+    #[test]
+    fn validate_accepts_valid_matrices() {
+        assert!(sample().validate().is_ok());
+        let name_255 = Matrix {
+            name: "a".repeat(255),
+            ..sample()
+        };
+        assert!(name_255.validate().is_ok());
+        let bare = Matrix {
+            headers: None,
+            altitudes: None,
+            ..sample()
+        };
+        assert!(bare.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_long_name() {
+        let m = Matrix {
+            name: "a".repeat(256),
+            ..sample()
+        };
+        assert!(matches!(
+            m.validate().unwrap_err(),
+            FormatError::OutOfRange {
+                value: 256,
+                max: 255,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_wrong_grid_lengths() {
+        let maps = Matrix {
+            maps: vec![1, 2, 3],
+            ..sample()
+        };
+        assert!(matches!(
+            maps.validate().unwrap_err(),
+            FormatError::BadSize {
+                expected: 8,
+                found: 6
+            }
+        ));
+        let headers = Matrix {
+            headers: Some(vec![1; 5]),
+            ..sample()
+        };
+        assert!(matches!(
+            headers.validate().unwrap_err(),
+            FormatError::BadSize {
+                expected: 8,
+                found: 10
+            }
+        ));
+        let altitudes = Matrix {
+            altitudes: Some(vec![0; 3]),
+            ..sample()
+        };
+        assert!(matches!(
+            altitudes.validate().unwrap_err(),
+            FormatError::BadSize {
+                expected: 4,
+                found: 3
+            }
+        ));
     }
 
     #[test]

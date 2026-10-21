@@ -199,7 +199,49 @@ impl MapFile {
         })
     }
 
+    /// Checks the invariants [`MapFile::write`] relies on: `permissions` has
+    /// 1024 cells and, when `bgs` is `Some`, it is a complete block (at least
+    /// 4 bytes, signature `0x1234`, length field equal to the bytes that
+    /// follow). `bgs` is checked regardless of family; `write` ignores it
+    /// for non-HGSS families.
+    pub fn validate(&self) -> Result<(), FormatError> {
+        if self.permissions.len() != MAP_SIZE * MAP_SIZE {
+            return Err(FormatError::BadSize {
+                expected: PERMISSIONS_LEN,
+                found: self.permissions.len() * 2,
+            });
+        }
+        if let Some(bgs) = &self.bgs {
+            if bgs.len() < 4 {
+                return Err(FormatError::Truncated {
+                    needed: 4,
+                    have: bgs.len(),
+                });
+            }
+            let found = u16::from_le_bytes([bgs[0], bgs[1]]);
+            if found != BGS_SIGNATURE {
+                return Err(FormatError::BadSignature {
+                    expected: BGS_SIGNATURE,
+                    found,
+                });
+            }
+            let declared = 4 + u16::from_le_bytes([bgs[2], bgs[3]]) as usize;
+            if declared != bgs.len() {
+                return Err(FormatError::BadSize {
+                    expected: declared,
+                    found: bgs.len(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Serializes the map. Section lengths are derived from the fields.
+    ///
+    /// Callers must call [`MapFile::validate`] first and only write a map
+    /// that passes. `write` stays infallible, so an invalid map (wrong
+    /// permissions length, malformed `bgs`) produces a file that
+    /// [`MapFile::read`] rejects.
     ///
     /// For HGSS a missing `bgs` is written as [`BLANK_BGS`]; for other
     /// families `bgs` is ignored because the format has no such block.
@@ -303,6 +345,69 @@ mod tests {
         v.extend_from_slice(b"BMD0\x01\x02");
         v.extend_from_slice(&[0xCA, 0xFE, 0x01]);
         v
+    }
+
+    fn valid_map(bgs: Option<Vec<u8>>) -> MapFile {
+        MapFile {
+            bgs,
+            permissions: vec![Cell::default(); 1024],
+            buildings: Vec::new(),
+            buildings_tail: Vec::new(),
+            model: Vec::new(),
+            bdhc: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn validate_accepts_valid_maps() {
+        assert!(valid_map(None).validate().is_ok());
+        assert!(valid_map(Some(BLANK_BGS.to_vec())).validate().is_ok());
+        assert!(
+            valid_map(Some(vec![0x34, 0x12, 0x02, 0x00, 9, 9]))
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_wrong_permissions_length() {
+        let mut m = valid_map(None);
+        m.permissions.pop();
+        assert!(matches!(
+            m.validate().unwrap_err(),
+            FormatError::BadSize {
+                expected: 2048,
+                found: 2046
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_malformed_bgs() {
+        assert!(matches!(
+            valid_map(Some(vec![0x34, 0x12, 0x00]))
+                .validate()
+                .unwrap_err(),
+            FormatError::Truncated { needed: 4, have: 3 }
+        ));
+        assert!(matches!(
+            valid_map(Some(vec![0x35, 0x12, 0x00, 0x00]))
+                .validate()
+                .unwrap_err(),
+            FormatError::BadSignature {
+                expected: 0x1234,
+                found: 0x1235
+            }
+        ));
+        assert!(matches!(
+            valid_map(Some(vec![0x34, 0x12, 0x03, 0x00, 1, 2]))
+                .validate()
+                .unwrap_err(),
+            FormatError::BadSize {
+                expected: 7,
+                found: 6
+            }
+        ));
     }
 
     #[test]

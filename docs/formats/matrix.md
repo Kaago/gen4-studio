@@ -1,7 +1,9 @@
 # Map-Matrix
 
-Quelle: DSPRE `GameMatrix.cs` (Kopfkommentar). Implementierung:
-`crates/g4-formats/src/matrix.rs`. Jedes Member von `map_matrix.narc` (Pt, DP)
+Quelle: Das Layout folgt dem Plan bzw. dem Kopfkommentar von DSPRE
+`GameMatrix.cs`; die Implementierung wurde gegen alle drei Vanilla-Projekte
+(Platin DE, HeartGold DE und US) byte-identisch verifiziert.
+Implementierung: `crates/g4-formats/src/matrix.rs`. Jedes Member von `map_matrix.narc` (Pt, DP)
 bzw. `a/0/4/1` (HGSS) ist eine solche Datei. Alle Werte Little Endian.
 
 Eine Matrix ist ein Raster aus Karten-IDs (und optional Header-IDs und
@@ -34,8 +36,12 @@ reproduzieren würde:
 - Name kein gültiges UTF-8: `InvalidUtf8` (es wird nie verlustbehaftet
   konvertiert)
 
-`write` setzt voraus, dass der Name höchstens 255 Bytes lang ist und
-`headers`, `altitudes` und `maps` jeweils `width * height` Einträge haben.
+`write` bleibt infallibel und setzt voraus, dass der Name höchstens 255 Bytes
+lang ist und `headers`, `altitudes` und `maps` jeweils `width * height`
+Einträge haben. Aufrufer müssen vorher `Matrix::validate` aufrufen:
+`OutOfRange` bei zu langem Namen, `BadSize` (in Bytes) bei falscher
+Rasterlänge. Ohne `validate` entsteht bei Release-Builds eine Datei, die
+`read` ablehnt oder falsch deutet.
 
 ## Beobachtungen an den Vanilla-Daten
 

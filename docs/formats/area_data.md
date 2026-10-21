@@ -1,6 +1,9 @@
 # AreaData
 
-Quelle: DSPRE `AreaData.cs`. Implementierung:
+Quelle: Das Layout folgt dem Plan bzw. DSPRE `AreaData.cs` in der dort
+dokumentierten Form; die Implementierung wurde gegen alle drei
+Vanilla-Projekte (Platin DE, HeartGold DE und US) byte-identisch verifiziert.
+Implementierung:
 `crates/g4-formats/src/area_data.rs`. Jedes Member von `area_data.narc` (Pt,
 DP) bzw. `a/0/4/2` (HGSS) ist ein Eintrag von genau 8 Bytes. Alle Werte
 Little Endian. AreaData verweist auf die Tilesets (Gebäude- und
