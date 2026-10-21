@@ -1,9 +1,10 @@
 mod commands;
+mod errors;
 mod state;
 
 use commands::{
-    build_rom, dirty, get_map, get_map_model_glb, get_matrix, list_headers, open_project, redo,
-    run_rom, save, set_permission, undo,
+    accept_disk, build_rom, dirty, get_map, get_map_model_glb, get_matrix, list_headers,
+    open_project, redo, reload_asset, run_rom, save, set_permission, undo,
 };
 use state::AppState;
 
@@ -24,7 +25,9 @@ pub fn run() {
             dirty,
             save,
             build_rom,
-            run_rom
+            run_rom,
+            reload_asset,
+            accept_disk
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

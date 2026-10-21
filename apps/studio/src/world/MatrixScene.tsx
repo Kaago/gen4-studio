@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { getMap, getMapModelGlb, setPermission } from "../api";
+import { errorText, getMap, getMapModelGlb, setPermission } from "../api";
 import type { MapDto, MatrixDto } from "../api";
 import { permissionColor } from "./colors";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
@@ -272,7 +272,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
           h.render();
           callbacks.current.onEdited();
         },
-        (err) => callbacks.current.onError(String(err)),
+        (err) => callbacks.current.onError(errorText(err)),
       );
     };
     canvas.addEventListener("pointerdown", onDown);
@@ -308,7 +308,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
           try {
             loaded.set(id, await loadMap(id));
           } catch (e) {
-            errors.push(`Map ${id}: ${String(e)}`);
+            errors.push(`Map ${id}: ${errorText(e)}`);
             // Keep the map's permissions and buildings even when only the model failed.
             try {
               loaded.set(id, { map: await getMap(id), model: null });
@@ -345,7 +345,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
       h.render();
       setStatus(errors.length ? `${errors.length} Modell(e) nicht geladen: ${errors[0]}` : null);
     })().catch((e) => {
-      if (!cancelled) setStatus(String(e));
+      if (!cancelled) setStatus(errorText(e));
     });
 
     return () => {
@@ -370,7 +370,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
       });
       h.render();
     })().catch((e) => {
-      if (!cancelled) callbacks.current.onError(String(e));
+      if (!cancelled) callbacks.current.onError(errorText(e));
     });
     return () => {
       cancelled = true;

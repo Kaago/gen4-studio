@@ -42,6 +42,11 @@ export interface MapDto {
   buildings: BuildingDto[];
 }
 
+/** Display text of any error thrown by a command (structured, string or Error). */
+export function errorText(e: unknown): string {
+  return isCmdError(e) ? e.message : String(e);
+}
+
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
 export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
@@ -49,9 +54,37 @@ export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
 /** Raw GLB bytes of the map's terrain model (converted by apicula, cached by the backend). */
 export const getMapModelGlb = (index: number) => invoke<ArrayBuffer>("get_map_model_glb", { index });
 
+export type AssetKind =
+  | "Map"
+  | "Matrix"
+  | "AreaData"
+  | "Event"
+  | "TextArchive"
+  | "MapTexture"
+  | "BuildingTexture"
+  | "BuildingModel"
+  | "InteriorBuildingModel";
+
 export interface AssetId {
-  kind: "Map" | "Matrix" | "AreaData";
+  kind: AssetKind;
   index: number;
+}
+
+/** Structured error of a backend command. `asset` is set when `code` is "stale". */
+export interface CmdError {
+  code: "stale" | "tool_missing" | "error";
+  message: string;
+  asset: AssetId | null;
+}
+
+export function isCmdError(e: unknown): e is CmdError {
+  if (typeof e !== "object" || e === null) return false;
+  const o = e as Record<string, unknown>;
+  return (
+    (o.code === "stale" || o.code === "tool_missing" || o.code === "error") &&
+    typeof o.message === "string" &&
+    (o.asset === null || typeof o.asset === "object")
+  );
 }
 
 export interface SaveReport {
@@ -78,3 +111,7 @@ export const save = () => invoke<SaveReport>("save");
 export const buildRom = (out: string) => invoke<BuildReport>("build_rom", { out });
 /** Starts the emulator on the ROM and resolves to its PID without waiting. */
 export const runRom = (emulator: string, rom: string) => invoke<number>("run_rom", { emulator, rom });
+/** Drops the own changes of an asset and loads it from disk again. */
+export const reloadAsset = (asset: AssetId) => invoke<void>("reload_asset", { kind: asset.kind, index: asset.index });
+/** Keeps the own version of an asset and takes the file on disk as the new baseline. */
+export const acceptDisk = (asset: AssetId) => invoke<void>("accept_disk", { kind: asset.kind, index: asset.index });

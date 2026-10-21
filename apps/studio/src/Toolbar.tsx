@@ -1,6 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 
-export type Message = { kind: "info" | "error"; text: string };
+export interface MessageAction {
+  label: string;
+  run: () => void;
+}
+
+export type Message = { kind: "info" | "error"; text: string; actions?: MessageAction[] };
 
 const bar: CSSProperties = {
   display: "flex",
@@ -64,6 +69,11 @@ export function StatusBar({ message, onDismiss }: { message: Message | null; onD
       }}
     >
       <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{message.text}</span>
+      {message.actions?.map((a) => (
+        <button key={a.label} onClick={a.run}>
+          {a.label}
+        </button>
+      ))}
       <button onClick={onDismiss}>Schließen</button>
     </div>
   );

@@ -15,6 +15,7 @@ use g4_kernel::store::{SaveReport, Store};
 use serde::Serialize;
 use tauri::{Manager, State};
 
+use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
 #[derive(Serialize)]
@@ -103,20 +104,20 @@ impl MapDto {
     }
 }
 
-fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, String> {
+fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
     state
         .0
         .lock()
-        .map_err(|_| "internal state is poisoned".to_string())
+        .map_err(|_| "internal state is poisoned".into())
 }
 
-fn session(guard: &mut Option<Session>) -> Result<&mut Session, String> {
-    guard.as_mut().ok_or_else(|| "no project open".to_string())
+fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
+    guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
-pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, String> {
-    let project = Project::open(path).map_err(|e| e.to_string())?;
-    let header_count = project.headers().map_err(|e| e.to_string())?.len();
+pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
+    let project = Project::open(path).map_err(CmdError::from)?;
+    let header_count = project.headers().map_err(CmdError::from)?.len();
     let info = ProjectInfo {
         root: project.root.display().to_string(),
         game_code: project.game_code.clone(),
@@ -130,33 +131,27 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, St
     Ok(info)
 }
 
-pub fn list_headers_impl(state: &AppState) -> Result<Vec<HeaderSummary>, String> {
+pub fn list_headers_impl(state: &AppState) -> Result<Vec<HeaderSummary>, CmdError> {
     let mut guard = lock(state)?;
     session(&mut guard)?
         .project
         .headers()
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
-pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, String> {
+pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session
-        .project
-        .ensure_unpacked(AssetKind::Matrix)
-        .map_err(|e| e.to_string())?;
-    let matrix = session.store.matrix(index).map_err(|e| e.to_string())?;
+    session.project.ensure_unpacked(AssetKind::Matrix)?;
+    let matrix = session.store.matrix(index).map_err(CmdError::from)?;
     Ok(MatrixDto::from_matrix(index, matrix))
 }
 
-pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, String> {
+pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session
-        .project
-        .ensure_unpacked(AssetKind::Map)
-        .map_err(|e| e.to_string())?;
-    let map = session.store.map(index).map_err(|e| e.to_string())?;
+    session.project.ensure_unpacked(AssetKind::Map)?;
+    let map = session.store.map(index).map_err(CmdError::from)?;
     Ok(MapDto::from_map(index, map))
 }
 
@@ -179,64 +174,72 @@ pub fn set_permission_impl(
     y: u8,
     kind: u8,
     collision: u8,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     if x >= MAP_TILES || y >= MAP_TILES {
-        return Err(format!("cell ({x}, {y}) is outside the 32 x 32 map"));
+        return Err(format!("cell ({x}, {y}) is outside the 32 x 32 map").into());
     }
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session
-        .project
-        .ensure_unpacked(AssetKind::Map)
-        .map_err(|e| e.to_string())?;
-    session
-        .store
-        .edit_map(index, "paint", |map| {
-            map.set_cell(usize::from(x), usize::from(y), Cell { kind, collision })
-        })
-        .map_err(|e| e.to_string())?;
+    session.project.ensure_unpacked(AssetKind::Map)?;
+    session.store.edit_map(index, "paint", |map| {
+        map.set_cell(usize::from(x), usize::from(y), Cell { kind, collision })
+    })?;
     Ok(())
 }
 
-pub fn undo_impl(state: &AppState) -> Result<bool, String> {
+pub fn undo_impl(state: &AppState) -> Result<bool, CmdError> {
     let mut guard = lock(state)?;
     Ok(session(&mut guard)?.store.undo().is_some())
 }
 
-pub fn redo_impl(state: &AppState) -> Result<bool, String> {
+pub fn redo_impl(state: &AppState) -> Result<bool, CmdError> {
     let mut guard = lock(state)?;
     Ok(session(&mut guard)?.store.redo().is_some())
 }
 
-pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, String> {
+pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
     Ok(session(&mut guard)?.store.dirty())
 }
 
-pub fn save_impl(state: &AppState) -> Result<SaveReport, String> {
+pub fn save_impl(state: &AppState) -> Result<SaveReport, CmdError> {
     let mut guard = lock(state)?;
-    session(&mut guard)?.store.save().map_err(|e| e.to_string())
+    session(&mut guard)?.store.save().map_err(CmdError::from)
+}
+
+/// Drops the own changes (and their undo/redo entries) of one asset and reloads it from its
+/// file on disk.
+pub fn reload_asset_impl(state: &AppState, kind: AssetKind, index: u16) -> Result<(), CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    session.project.ensure_unpacked(kind)?;
+    session.store.reload_from_disk(AssetId { kind, index })?;
+    Ok(())
+}
+
+/// Keeps the in-memory version of one asset and takes the file on disk as the new baseline,
+/// so the next save no longer reports it as stale.
+pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result<(), CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    session.store.accept_disk_as_base(AssetId { kind, index })?;
+    Ok(())
 }
 
 /// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. The
 /// state lock is held only for the save, not for the ds-rom build.
-pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, String> {
+pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError> {
     let (project, saved) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let saved = if session.store.dirty().is_empty() {
             0
         } else {
-            session
-                .store
-                .save()
-                .map_err(|e| e.to_string())?
-                .written
-                .len()
+            session.store.save()?.written.len()
         };
         (Arc::clone(&session.project), saved)
     };
-    let report = build(&project, Path::new(out)).map_err(|e| e.to_string())?;
+    let report = build(&project, Path::new(out)).map_err(CmdError::from)?;
     Ok(BuildDto {
         saved,
         packed: report
@@ -248,8 +251,8 @@ pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, String> {
     })
 }
 
-pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, String> {
-    launch_emulator(Path::new(emulator), Path::new(rom)).map_err(|e| e.to_string())
+pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
+    launch_emulator(Path::new(emulator), Path::new(rom)).map_err(CmdError::from)
 }
 
 /// Finds the apicula executable: `G4_APICULA`, then `apicula` next to the running binary, then
@@ -288,7 +291,7 @@ pub fn get_map_model_glb_with(
     state: &AppState,
     index: u16,
     apicula: Option<&Path>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, CmdError> {
     // Project, cache path and model bytes come from ONE lock acquisition, so a project switch
     // in between can never write another project's model into this project's cache.
     // `nsbmd` (with the apicula path) is `None` on a fresh cache hit.
@@ -296,39 +299,28 @@ pub fn get_map_model_glb_with(
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let project = Arc::clone(&session.project);
-        project
-            .ensure_unpacked(AssetKind::Map)
-            .map_err(|e| e.to_string())?;
+        project.ensure_unpacked(AssetKind::Map)?;
         let models = project.root.join(".g4").join("models");
         let cache = models.join(format!("{index:04}.glb"));
         if is_fresh(&cache, &project.member_path(AssetKind::Map, index)) {
             (models, cache, None)
         } else {
-            let apicula = apicula.ok_or_else(|| {
-                KernelError::ToolMissing {
-                    name: "apicula",
-                    reason:
-                        "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
-                            .into(),
-                }
-                .to_string()
+            let apicula = apicula.ok_or_else(|| KernelError::ToolMissing {
+                name: "apicula",
+                reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
+                    .into(),
             })?;
-            let nsbmd = session
-                .store
-                .map(index)
-                .map_err(|e| e.to_string())?
-                .model
-                .clone();
+            let nsbmd = session.store.map(index)?.model.clone();
             (models, cache, Some((nsbmd, apicula)))
         }
     };
     let Some((nsbmd, apicula)) = nsbmd else {
-        return std::fs::read(&cache).map_err(|e| e.to_string());
+        return std::fs::read(&cache).map_err(|e| e.to_string().into());
     };
     let unique = MODEL_WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
     let work = models.join(format!(".work-{index:04}-{unique}"));
-    let result = (|| -> Result<Vec<u8>, String> {
-        let glb = nsbmd_to_glb(apicula, &nsbmd, &work).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<Vec<u8>, CmdError> {
+        let glb = nsbmd_to_glb(apicula, &nsbmd, &work)?;
         let bytes = std::fs::read(&glb).map_err(|e| e.to_string())?;
         // Publish atomically so a concurrent reader never sees a half-written cache file.
         let tmp = work.join("cache.glb");
@@ -340,27 +332,27 @@ pub fn get_map_model_glb_with(
     result
 }
 
-pub fn get_map_model_glb_impl(state: &AppState, index: u16) -> Result<Vec<u8>, String> {
+pub fn get_map_model_glb_impl(state: &AppState, index: u16) -> Result<Vec<u8>, CmdError> {
     get_map_model_glb_with(state, index, find_apicula().as_deref())
 }
 
 #[tauri::command]
-pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, String> {
+pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, CmdError> {
     open_project_impl(&state, &path)
 }
 
 #[tauri::command]
-pub fn list_headers(state: State<AppState>) -> Result<Vec<HeaderSummary>, String> {
+pub fn list_headers(state: State<AppState>) -> Result<Vec<HeaderSummary>, CmdError> {
     list_headers_impl(&state)
 }
 
 #[tauri::command]
-pub fn get_matrix(state: State<AppState>, index: u16) -> Result<MatrixDto, String> {
+pub fn get_matrix(state: State<AppState>, index: u16) -> Result<MatrixDto, CmdError> {
     get_matrix_impl(&state, index)
 }
 
 #[tauri::command]
-pub fn get_map(state: State<AppState>, index: u16) -> Result<MapDto, String> {
+pub fn get_map(state: State<AppState>, index: u16) -> Result<MapDto, CmdError> {
     get_map_impl(&state, index)
 }
 
@@ -370,7 +362,7 @@ pub fn get_map(state: State<AppState>, index: u16) -> Result<MapDto, String> {
 pub fn get_map_model_glb(
     state: State<AppState>,
     index: u16,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<tauri::ipc::Response, CmdError> {
     get_map_model_glb_impl(&state, index).map(tauri::ipc::Response::new)
 }
 
@@ -382,41 +374,51 @@ pub fn set_permission(
     y: u8,
     kind: u8,
     collision: u8,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     set_permission_impl(&state, index, x, y, kind, collision)
 }
 
 #[tauri::command]
-pub fn undo(state: State<AppState>) -> Result<bool, String> {
+pub fn undo(state: State<AppState>) -> Result<bool, CmdError> {
     undo_impl(&state)
 }
 
 #[tauri::command]
-pub fn redo(state: State<AppState>) -> Result<bool, String> {
+pub fn redo(state: State<AppState>) -> Result<bool, CmdError> {
     redo_impl(&state)
 }
 
 #[tauri::command]
-pub fn dirty(state: State<AppState>) -> Result<Vec<AssetId>, String> {
+pub fn dirty(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
     dirty_impl(&state)
 }
 
 #[tauri::command]
-pub fn save(state: State<AppState>) -> Result<SaveReport, String> {
+pub fn save(state: State<AppState>) -> Result<SaveReport, CmdError> {
     save_impl(&state)
+}
+
+#[tauri::command]
+pub fn reload_asset(state: State<AppState>, kind: AssetKind, index: u16) -> Result<(), CmdError> {
+    reload_asset_impl(&state, kind, index)
+}
+
+#[tauri::command]
+pub fn accept_disk(state: State<AppState>, kind: AssetKind, index: u16) -> Result<(), CmdError> {
+    accept_disk_impl(&state, kind, index)
 }
 
 /// The ds-rom build takes seconds, so it runs on a blocking worker, off the main thread and
 /// without holding the state lock.
 #[tauri::command]
-pub async fn build_rom(app: tauri::AppHandle, out: String) -> Result<BuildDto, String> {
+pub async fn build_rom(app: tauri::AppHandle, out: String) -> Result<BuildDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || build_rom_impl(&app.state::<AppState>(), &out))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 #[tauri::command]
-pub fn run_rom(emulator: String, rom: String) -> Result<u32, String> {
+pub fn run_rom(emulator: String, rom: String) -> Result<u32, CmdError> {
     run_rom_impl(&emulator, &rom)
 }
 
@@ -473,12 +475,12 @@ mod tests {
         let state = AppState::default();
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         let err = get_map_model_glb_with(&state, 0, None).unwrap_err();
-        assert!(err.contains("apicula"), "{err}");
+        assert!(err.message.contains("apicula"), "{}", err.message);
         let err =
             get_map_model_glb_with(&state, 0, Some(Path::new("/nonexistent/apicula"))).unwrap_err();
-        assert!(err.contains("apicula"), "{err}");
+        assert!(err.message.contains("apicula"), "{}", err.message);
         let err = get_map_model_glb_impl(&AppState::default(), 0).unwrap_err();
-        assert_eq!(err, "no project open");
+        assert_eq!(err.message, "no project open");
     }
 
     #[test]
@@ -554,7 +556,9 @@ mod tests {
         // An unknown map is an error, not a panic.
         assert!(set_permission_impl(&state, 99, 0, 0, 0, 0x80).is_err());
         assert_eq!(
-            set_permission_impl(&AppState::default(), 0, 0, 0, 0, 0).unwrap_err(),
+            set_permission_impl(&AppState::default(), 0, 0, 0, 0, 0)
+                .unwrap_err()
+                .message,
             "no project open"
         );
     }
@@ -627,14 +631,73 @@ mod tests {
         bytes[last] ^= 0xFF;
         std::fs::write(&member, &bytes).unwrap();
         let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
-        assert!(err.contains("changed on disk"), "{err}");
+        assert!(err.message.contains("changed on disk"), "{}", err.message);
         assert!(!out.exists());
+    }
+
+    fn corrupt_map_member_on_disk(fixture: &g4_kernel::test_support::Synthetic) {
+        let path = fixture.dir.path().join("unpacked/maps/0000");
+        let mut b = std::fs::read(&path).unwrap();
+        b[20] ^= 0xFF;
+        std::fs::write(&path, &b).unwrap();
+    }
+
+    #[test]
+    fn save_stale_returns_structured_error() {
+        let (s, state) = open_synthetic();
+        set_permission_impl(&state, 0, 1, 1, 0, 0x80).unwrap();
+        corrupt_map_member_on_disk(&s);
+        let err = save_impl(&state).unwrap_err();
+        assert_eq!(err.code, "stale");
+        assert_eq!(
+            err.asset,
+            Some(AssetId {
+                kind: AssetKind::Map,
+                index: 0
+            })
+        );
+        assert!(
+            err.message.starts_with("map 0000 changed on disk"),
+            "{}",
+            err.message
+        );
+        reload_asset_impl(&state, AssetKind::Map, 0).unwrap();
+        assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn accept_disk_keeps_own_change_and_lets_save_proceed() {
+        let (s, state) = open_synthetic();
+        set_permission_impl(&state, 0, 1, 1, 2, 0x80).unwrap();
+        corrupt_map_member_on_disk(&s);
+        assert_eq!(save_impl(&state).unwrap_err().code, "stale");
+        accept_disk_impl(&state, AssetKind::Map, 0).unwrap();
+        // Own edit is still pending and now saves over the accepted disk state.
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        assert_eq!(save_impl(&state).unwrap().written.len(), 1);
+        assert!(dirty_impl(&state).unwrap().is_empty());
+        let bytes = std::fs::read(s.dir.path().join("unpacked/maps/0000")).unwrap();
+        let map = MapFile::read(&bytes, g4_formats::game::Family::Pt).unwrap();
+        assert_eq!(map.permissions[32 + 1].kind, 2);
+    }
+
+    #[test]
+    fn missing_project_and_missing_tool_have_their_own_codes() {
+        let err = dirty_impl(&AppState::default()).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("error", "no project open")
+        );
+        let (_s, state) = open_synthetic();
+        let err = get_map_model_glb_with(&state, 0, None).unwrap_err();
+        assert_eq!(err.code, "tool_missing");
+        assert!(reload_asset_impl(&AppState::default(), AssetKind::Map, 0).is_err());
     }
 
     #[test]
     fn run_rom_reports_a_missing_emulator() {
         let err = run_rom_impl("/nonexistent/melonDS", "/tmp/x.nds").unwrap_err();
-        assert!(err.contains("emulator"), "{err}");
+        assert!(err.message.contains("emulator"), "{}", err.message);
     }
 
     /// Gated end-to-end check on a copy of a vanilla project (`G4_TEST_PROJECT`): paint a

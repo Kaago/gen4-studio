@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { buildRom, dirty, getMatrix, listHeaders, openProject, redo, runRom, save, undo } from "./api";
-import type { HeaderSummary, MatrixDto, ProjectInfo } from "./api";
+import {
+  acceptDisk,
+  buildRom,
+  dirty,
+  errorText,
+  getMatrix,
+  isCmdError,
+  listHeaders,
+  openProject,
+  redo,
+  reloadAsset,
+  runRom,
+  save,
+  undo,
+} from "./api";
+import type { AssetId, HeaderSummary, MatrixDto, ProjectInfo } from "./api";
 import { StatusBar, Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
 import MatrixScene from "./world/MatrixScene";
@@ -41,14 +55,53 @@ export default function App() {
   const dirtyRef = useRef(0);
   dirtyRef.current = dirtyCount;
 
-  const fail = useCallback((e: unknown) => setMessage({ kind: "error", text: String(e) }), []);
   const refreshDirty = useCallback(async () => {
     try {
       setDirtyCount((await dirty()).length);
     } catch (e) {
-      fail(e);
+      setMessage({ kind: "error", text: errorText(e) });
     }
-  }, [fail]);
+  }, []);
+
+  /** Reloads the shown matrix (a new object makes the scene refetch all its maps) and the dirty count. */
+  const refreshAfterStale = useCallback(
+    async (matrixIndex: number | null) => {
+      if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
+      await refreshDirty();
+    },
+    [refreshDirty],
+  );
+
+  const matrixIndexRef = useRef<number | null>(null);
+  matrixIndexRef.current = matrix?.index ?? null;
+
+  const fail = useCallback(
+    (e: unknown) => {
+      if (isCmdError(e) && e.code === "stale" && e.asset) {
+        const asset: AssetId = e.asset;
+        const resolve = (action: (a: AssetId) => Promise<void>, done: string) => async () => {
+          try {
+            await action(asset);
+            await refreshAfterStale(matrixIndexRef.current);
+            setMessage({ kind: "info", text: done });
+          } catch (err) {
+            setMessage({ kind: "error", text: errorText(err) });
+          }
+        };
+        setMessage({
+          kind: "error",
+          text: `${asset.kind} ${String(asset.index).padStart(4, "0")} wurde außerhalb geändert.`,
+          actions: [
+            { label: "Neu laden (eigene Änderung verwerfen)", run: () => void resolve(reloadAsset, "Von Platte neu geladen.")() },
+            { label: "Meine Version behalten", run: () => void resolve(acceptDisk, "Eigene Version behalten, bitte erneut speichern.")() },
+          ],
+        });
+        return;
+      }
+      setMessage({ kind: "error", text: errorText(e) });
+    },
+    [refreshAfterStale],
+  );
 
   async function onOpen() {
     try {
