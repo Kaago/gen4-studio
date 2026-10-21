@@ -416,7 +416,12 @@ fn find_apicula() -> Option<PathBuf> {
             "/../../../tools/apicula/bin/apicula"
         ))));
     }
-    candidates.into_iter().flatten().find(|p| p.is_file())
+    // An empty file is the build-time placeholder for the bundled sidecar (see build.rs), not apicula.
+    candidates.into_iter().flatten().find(|p| {
+        p.metadata()
+            .map(|m| m.is_file() && m.len() > 0)
+            .unwrap_or(false)
+    })
 }
 
 /// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`),

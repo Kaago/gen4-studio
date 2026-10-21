@@ -19,6 +19,9 @@ Gebaut und getestet mit Commit `3d4e91e14045392a49c89e86dab8cb936225588c` (`apic
 2. Eine Datei `apicula` neben dem Studio-Binary.
 3. Nur in Debug-Builds: `tools/apicula/bin/apicula` im Repository.
 
+Im App-Bundle liegt apicula als Sidecar in `Contents/MacOS/` (Eintrag 2), siehe `docs/release.md`. Eine leere
+`apicula`-Datei (Platzhalter aus `build.rs`) zählt nicht als Fund.
+
 Fehlt apicula, meldet die App `tool apicula unavailable: ...`; Permissions und Gebäude-Boxen werden trotzdem angezeigt.
 
 ```sh
