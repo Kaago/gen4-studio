@@ -203,8 +203,12 @@ export const openProject = (path: string) => invoke<ProjectInfo>("open_project",
 export const listHeaders = () => invoke<HeaderListing>("list_headers");
 /** Map header `id` including unsaved edits. */
 export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id });
-/** Replaces header `id` as a whole (same family, values within their bit fields). */
-export const setHeader = (id: number, header: MapHeader) => invoke<void>("set_header", { id, header });
+/**
+ * Replaces header `id` as a whole (same family, values within their bit fields). `label`
+ * names the change in the undo history (the edited field).
+ */
+export const setHeader = (id: number, header: MapHeader, label?: string) => invoke<void>("set_header", { id, header, label });
+export const memberCounts = () => invoke<MemberCounts>("member_counts");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
@@ -242,6 +246,9 @@ export type AssetKind =
   | "BuildingModel"
   | "InteriorBuildingModel"
   | "HeaderTable";
+
+/** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
+export type MemberCounts = Partial<Record<AssetKind, number>>;
 
 export interface AssetId {
   kind: AssetKind;

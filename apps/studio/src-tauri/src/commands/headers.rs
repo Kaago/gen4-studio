@@ -49,12 +49,17 @@ pub fn get_header_impl(state: &AppState, id: u16) -> Result<MapHeader, CmdError>
     })
 }
 
-/// Replaces header `id` as a whole. The table cannot grow and a header keeps its game
-/// family; an identical header records no change.
-pub fn set_header_impl(state: &AppState, id: u16, header: MapHeader) -> Result<(), CmdError> {
+/// Replaces header `id` as a whole; `label` names the change in the undo history. The table
+/// cannot grow and a header keeps its game family; an identical header records no change.
+pub fn set_header_impl(
+    state: &AppState,
+    id: u16,
+    header: MapHeader,
+    label: &str,
+) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.store.edit_header(id, "edit header", |slot| {
+    session.store.edit_header(id, label, |slot| {
         *slot = header;
         Ok(())
     })?;
@@ -72,8 +77,18 @@ pub fn get_header(state: State<AppState>, id: u16) -> Result<MapHeader, CmdError
 }
 
 #[tauri::command]
-pub fn set_header(state: State<AppState>, id: u16, header: MapHeader) -> Result<(), CmdError> {
-    set_header_impl(&state, id, header)
+pub fn set_header(
+    state: State<AppState>,
+    id: u16,
+    header: MapHeader,
+    label: Option<String>,
+) -> Result<(), CmdError> {
+    set_header_impl(
+        &state,
+        id,
+        header,
+        label.as_deref().unwrap_or("edit header"),
+    )
 }
 
 #[cfg(test)]
@@ -108,7 +123,7 @@ mod tests {
             p.matrix_id = 1;
             p.weather_id = 3;
         }
-        set_header_impl(&state, 0, h.clone()).unwrap();
+        set_header_impl(&state, 0, h.clone(), "edit header").unwrap();
         let listing = list_headers_impl(&state).unwrap();
         assert_eq!(listing.headers[0].matrix_id, 1);
         // The names still come from the project files.
@@ -126,7 +141,7 @@ mod tests {
             p.area_data_id = 5;
             p.event_file_id = 1;
         }
-        set_header_impl(&state, 1, h).unwrap();
+        set_header_impl(&state, 1, h, "edit header").unwrap();
         let after = list_headers_impl(&state).unwrap().headers[1].clone();
         assert_eq!((after.area_data_id, after.event_file_id), (5, 1));
         assert!(undo_impl(&state).unwrap());
@@ -161,7 +176,7 @@ mod tests {
             if let MapHeader::Pt(p) = &mut h {
                 p.location_name = index;
             }
-            set_header_impl(&state, id, h).unwrap();
+            set_header_impl(&state, id, h, "edit header").unwrap();
         };
         set_location(0, 2);
         set_location(1, 1);
@@ -182,7 +197,7 @@ mod tests {
     fn an_identical_header_records_no_change() {
         let (_s, state) = open_synthetic();
         let h = get_header_impl(&state, 0).unwrap();
-        set_header_impl(&state, 0, h).unwrap();
+        set_header_impl(&state, 0, h, "edit header").unwrap();
         assert!(dirty_impl(&state).unwrap().is_empty());
         assert!(!undo_impl(&state).unwrap());
     }
@@ -191,14 +206,14 @@ mod tests {
     fn set_header_rejects_a_family_switch_and_unfitting_values() {
         let (_s, state) = open_synthetic();
         let other = MapHeader::HGSS(MapHeaderHGSS::default());
-        let err = set_header_impl(&state, 0, other).unwrap_err();
+        let err = set_header_impl(&state, 0, other, "edit header").unwrap_err();
         assert_eq!(err.code, "error");
         let mut h = get_header_impl(&state, 0).unwrap();
         if let MapHeader::Pt(p) = &mut h {
             // The Platinum layout packs the flags into 4 bits.
             p.flags = 0xFF;
         }
-        assert!(set_header_impl(&state, 0, h).is_err());
+        assert!(set_header_impl(&state, 0, h, "edit header").is_err());
         assert!(dirty_impl(&state).unwrap().is_empty());
     }
 
@@ -208,7 +223,7 @@ mod tests {
         let err = get_header_impl(&state, 2).unwrap_err();
         assert!(err.message.contains("out of range"), "{}", err.message);
         let h = get_header_impl(&state, 0).unwrap();
-        assert!(set_header_impl(&state, 2, h.clone()).is_err());
+        assert!(set_header_impl(&state, 2, h.clone(), "edit header").is_err());
         assert!(dirty_impl(&state).unwrap().is_empty());
         let closed = AppState::default();
         assert_eq!(
@@ -216,7 +231,9 @@ mod tests {
             "no project open"
         );
         assert_eq!(
-            set_header_impl(&closed, 0, h).unwrap_err().message,
+            set_header_impl(&closed, 0, h, "edit header")
+                .unwrap_err()
+                .message,
             "no project open"
         );
     }
@@ -229,7 +246,7 @@ mod tests {
             p.matrix_id = 1;
             p.weather_id = 3;
         }
-        set_header_impl(&state, 0, h.clone()).unwrap();
+        set_header_impl(&state, 0, h.clone(), "edit header").unwrap();
         let report = save_impl(&state).unwrap();
         assert_eq!(report.written, vec![header_table_id()]);
         assert!(dirty_impl(&state).unwrap().is_empty());

@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import {
   getHeader,
   headerFamily,
+  memberCounts,
   headerFields,
   isCmdError,
   setHeader,
@@ -95,5 +96,14 @@ describe("header commands", () => {
     invoke.mockResolvedValue(undefined);
     await setHeader(7, { Pt: pt });
     expect(invoke).toHaveBeenCalledWith("set_header", { id: 7, header: { Pt: pt } });
+  });
+
+  it("names the undo entry after the edited field and asks for member counts", async () => {
+    invoke.mockResolvedValue(undefined);
+    await setHeader(7, { Pt: pt }, "Matrix");
+    expect(invoke).toHaveBeenCalledWith("set_header", { id: 7, header: { Pt: pt }, label: "Matrix" });
+    invoke.mockResolvedValue({ Matrix: 4, HeaderTable: 1 });
+    expect(await memberCounts()).toEqual({ Matrix: 4, HeaderTable: 1 });
+    expect(invoke).toHaveBeenLastCalledWith("member_counts");
   });
 });

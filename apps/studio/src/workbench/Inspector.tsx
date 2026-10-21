@@ -3,10 +3,14 @@ import type { BgDto, CoordDto, ObjectDto, WarpDto } from "../api";
 import { eventDetails, eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 import type { TileInfo } from "../world/hover";
+import { HeaderEditor } from "./inspector/HeaderEditor";
+import type { HeaderEditorContext } from "./inspector/HeaderEditor";
 
 /** What the inspector shows. */
 export type InspectorModel =
   | { kind: "none" }
+  /** The selected header, shown as an editable form. */
+  | { kind: "header"; id: number }
   | {
       kind: "event";
       eventKind: "warp" | "object" | "coord" | "bg";
@@ -29,8 +33,10 @@ export type InspectorModel =
 
 const box: CSSProperties = { padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 14, color: "#4b5563" };
 
-export function Inspector({ model }: { model: InspectorModel }) {
+export function Inspector({ model, headerEditor }: { model: InspectorModel; headerEditor: HeaderEditorContext }) {
   switch (model.kind) {
+    case "header":
+      return <HeaderEditor id={model.id} context={headerEditor} />;
     case "none":
       return <div style={box}>Nichts ausgewählt. Mit der Maus über ein Tile fahren oder einen Marker anklicken.</div>;
     case "event":

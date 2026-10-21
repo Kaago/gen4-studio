@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import type { HeaderSummary, MatrixDto, ProjectInfo } from "../api";
+import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import MatrixScene from "../world/MatrixScene";
@@ -30,8 +30,15 @@ export interface WorkbenchData {
   onError: (e: unknown) => void;
   /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
   onLoadStatus: (message: Message | null) => void;
+  /** What the inspector shows: the scene's hover while the pointer is over a cell, else the selected header. */
   inspector: InspectorModel;
-  setInspector: (model: InspectorModel) => void;
+  /** The scene reports what is under the pointer (`none` when it left every cell and marker). */
+  onInspect: (model: InspectorModel) => void;
+  memberCounts: MemberCounts;
+  /** Bumped when the header table changed behind the header editor's back (undo, redo, reload). */
+  headerRevision: number;
+  /** A header field was written: refresh list, scene and dirty count. */
+  onHeaderChanged: () => void | Promise<void>;
   message: Message | null;
   onDismissMessage: () => void;
 }
@@ -73,7 +80,7 @@ function WorldPanel() {
             reloadToken={d.reloadToken}
             onEdited={d.onEdited}
             onError={d.onError}
-            onInspect={d.setInspector}
+            onInspect={d.onInspect}
             onStatus={d.onLoadStatus}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
@@ -94,7 +101,13 @@ function WorldPanel() {
 }
 
 function InspectorPanel() {
-  return <Inspector model={useWorkbench().inspector} />;
+  const d = useWorkbench();
+  return (
+    <Inspector
+      model={d.inspector}
+      headerEditor={{ headers: d.headers, counts: d.memberCounts, revision: d.headerRevision, onChanged: d.onHeaderChanged, onError: d.onError }}
+    />
+  );
 }
 
 function StatusPanel() {

@@ -1,5 +1,6 @@
 //! Opening, saving, undo, build and run.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -47,6 +48,21 @@ pub struct BuildDto {
     pub saved: usize,
     pub packed: Vec<(String, usize)>,
     pub rom: String,
+}
+
+/// Member count of every asset kind the project has an archive for (the header table counts
+/// as one asset). Kinds the game lacks are left out. Counting reads archive headers, so it
+/// runs without the state lock.
+pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>, CmdError> {
+    let project = {
+        let mut guard = lock(state)?;
+        Arc::clone(&session(&mut guard)?.project)
+    };
+    // `member_count` fails exactly for kinds without an archive in this family.
+    Ok(AssetKind::ALL
+        .into_iter()
+        .filter_map(|kind| Some((kind, project.member_count(kind).ok()?)))
+        .collect())
 }
 
 pub fn undo_impl(state: &AppState) -> Result<bool, CmdError> {
@@ -119,6 +135,11 @@ pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
 #[tauri::command]
 pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, CmdError> {
     open_project_impl(&state, &path)
+}
+
+#[tauri::command]
+pub fn member_counts(state: State<AppState>) -> Result<HashMap<AssetKind, usize>, CmdError> {
+    member_counts_impl(&state)
 }
 
 #[tauri::command]
@@ -198,6 +219,22 @@ mod tests {
         let matrix = get_matrix_impl(&state, 0).unwrap();
         assert_eq!((matrix.width, matrix.height), (2, 1));
         assert_eq!(matrix.maps, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn member_counts_cover_every_archive_and_the_header_table() {
+        let (_fixture, state) = open_synthetic();
+        let counts = member_counts_impl(&state).unwrap();
+        assert_eq!(counts[&AssetKind::Map], 3);
+        assert_eq!(counts[&AssetKind::Matrix], 1);
+        assert_eq!(counts[&AssetKind::AreaData], 2);
+        assert_eq!(counts[&AssetKind::Event], 2);
+        assert_eq!(counts[&AssetKind::TextArchive], 434);
+        assert_eq!(counts[&AssetKind::HeaderTable], 1);
+        // Serialized for the frontend as an object keyed by the kind name.
+        let json = serde_json::to_value(&counts).unwrap();
+        assert_eq!(json["AreaData"], 2);
+        assert!(member_counts_impl(&AppState::default()).is_err());
     }
 
     #[test]

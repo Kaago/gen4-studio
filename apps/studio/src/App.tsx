@@ -11,6 +11,7 @@ import {
   getMatrix,
   isCmdError,
   listHeaders,
+  memberCounts,
   openProject,
   redo,
   reloadAsset,
@@ -18,7 +19,7 @@ import {
   save,
   undo,
 } from "./api";
-import type { AssetId, HeaderListing, HeaderSummary, MatrixDto, ProjectInfo } from "./api";
+import type { AssetId, HeaderListing, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "./api";
 import { staleText } from "./assets";
 import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
@@ -44,6 +45,11 @@ function storeEmulator(path: string) {
   }
 }
 
+/** What a header's scene depends on: the matrix and, read when a matrix loads, area data and event file. */
+function sceneKey(h: HeaderSummary): string {
+  return `${h.matrix_id}:${h.area_data_id}:${h.event_file_id}`;
+}
+
 export default function App() {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
@@ -56,7 +62,14 @@ export default function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
-  const [inspector, setInspector] = useState<InspectorModel>({ kind: "none" });
+  // The selected header is pinned in the inspector; the scene's hover overrides it only while the
+  // pointer is over a cell or marker.
+  const [pinned, setPinned] = useState<InspectorModel>({ kind: "none" });
+  const [hover, setHover] = useState<InspectorModel | null>(null);
+  const inspector = hover ?? pinned;
+  const onInspect = useCallback((model: InspectorModel) => setHover(model.kind === "none" ? null : model), []);
+  const [counts, setCounts] = useState<MemberCounts>({});
+  const [headerRevision, setHeaderRevision] = useState(0);
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -73,18 +86,54 @@ export default function App() {
   // Stable so the memoised scene is not re-rendered by every hover-driven inspector update.
   const onEdited = useCallback(() => void refreshDirty(), [refreshDirty]);
 
-  /** Reloads the shown matrix (a new object makes the scene refetch all its maps) and the dirty count. */
+  // The latest header selection (or project switch) wins: a slow getMatrix of an earlier one is
+  // dropped, so the matrix never pairs with another header's event file and area data.
+  const selectSeq = useRef(0);
+  const selectedRef = useRef<number | null>(null);
+  selectedRef.current = selected;
+  // The matrix, area data and event file the shown scene was loaded for.
+  const sceneKeyRef = useRef<string | null>(null);
+  const listSeq = useRef(0);
+
+  /**
+   * Reads the header list again (it is backed by the store, so it shows unsaved edits) and
+   * reloads the scene when the selected header now points at another matrix, area data or event file.
+   */
+  const syncHeaders = useCallback(async () => {
+    const seq = ++listSeq.current;
+    try {
+      const listing = await listHeaders();
+      if (seq !== listSeq.current) return;
+      setHeaders(listing.headers);
+      const header = listing.headers.find((h) => h.id === selectedRef.current);
+      if (!header || sceneKey(header) === sceneKeyRef.current) return;
+      sceneKeyRef.current = sceneKey(header);
+      const sceneSeq = ++selectSeq.current;
+      const next = await getMatrix(header.matrix_id);
+      if (sceneSeq === selectSeq.current) setMatrix(next);
+    } catch (e) {
+      setMessage({ kind: "error", text: errorText(e) });
+    }
+  }, []);
+
+  /** Reloads the shown matrix (a new object makes the scene refetch all its maps), the headers and the dirty count. */
   const refreshAfterStale = useCallback(
     async (matrixIndex: number | null) => {
       try {
         if (matrixIndex !== null) setMatrix(await getMatrix(matrixIndex));
+        setHeaderRevision((r) => r + 1);
+        await syncHeaders();
       } finally {
         // The dirty count must follow the reload/accept even when refetching the matrix fails.
         await refreshDirty();
       }
     },
-    [refreshDirty],
+    [refreshDirty, syncHeaders],
   );
+
+  const onHeaderChanged = useCallback(async () => {
+    await Promise.all([syncHeaders(), refreshDirty()]);
+  }, [syncHeaders, refreshDirty]);
 
   // The scene's progress line ("Modelle 37/900") lives in the message bar, but must not wipe
   // an unrelated message: progress only replaces nothing or its own earlier line, and clearing
@@ -147,13 +196,26 @@ export default function App() {
       } catch (e) {
         listError = e;
       }
+      let loadedCounts: MemberCounts = {};
+      let countsError: unknown = null;
+      try {
+        loadedCounts = await memberCounts();
+      } catch (e) {
+        countsError = e;
+      }
       selectSeq.current++;
+      listSeq.current++;
+      sceneKeyRef.current = null;
       setHeaders(listing?.headers ?? []);
+      setCounts(loadedCounts);
       setInfo(opened);
       setSelected(null);
+      setPinned({ kind: "none" });
+      setHover(null);
       setMatrix(null);
       setLastRom(null);
       if (listError !== null) fail(listError);
+      else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
       await refreshDirty();
     } catch (e) {
@@ -161,13 +223,11 @@ export default function App() {
     }
   }
 
-  // The latest header selection (or project switch) wins: a slow getMatrix of an earlier one is
-  // dropped, so the matrix never pairs with another header's event file and area data.
-  const selectSeq = useRef(0);
-
   async function onSelect(h: HeaderSummary) {
     const seq = ++selectSeq.current;
     setSelected(h.id);
+    setPinned({ kind: "header", id: h.id });
+    sceneKeyRef.current = sceneKey(h);
     try {
       const next = await getMatrix(h.matrix_id);
       if (seq !== selectSeq.current) return;
@@ -181,7 +241,12 @@ export default function App() {
   async function step(action: typeof undo) {
     if (!info || busy) return;
     try {
-      if (await action()) setReloadToken((t) => t + 1);
+      if (await action()) {
+        setReloadToken((t) => t + 1);
+        // An undone header edit changes the list, the header editor and possibly the scene.
+        setHeaderRevision((r) => r + 1);
+        await syncHeaders();
+      }
     } catch (e) {
       fail(e);
     }
@@ -335,7 +400,10 @@ export default function App() {
     onError: fail,
     onLoadStatus,
     inspector,
-    setInspector,
+    onInspect,
+    memberCounts: counts,
+    headerRevision,
+    onHeaderChanged,
     message,
     onDismissMessage: () => setMessage(null),
   };
