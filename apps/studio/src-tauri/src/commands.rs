@@ -292,36 +292,41 @@ pub fn get_map_model_glb_with(
     index: u16,
     apicula: Option<&Path>,
 ) -> Result<Vec<u8>, String> {
-    let project = {
+    // Project, cache path and model bytes come from ONE lock acquisition, so a project switch
+    // in between can never write another project's model into this project's cache.
+    // `nsbmd` (with the apicula path) is `None` on a fresh cache hit.
+    let (models, cache, nsbmd) = {
         let mut guard = lock(state)?;
-        let project = Arc::clone(&session(&mut guard)?.project);
+        let session = session(&mut guard)?;
+        let project = Arc::clone(&session.project);
         project
             .ensure_unpacked(AssetKind::Map)
             .map_err(|e| e.to_string())?;
-        project
-    };
-    let models = project.root.join(".g4").join("models");
-    let cache = models.join(format!("{index:04}.glb"));
-    if is_fresh(&cache, &project.member_path(AssetKind::Map, index)) {
-        return std::fs::read(&cache).map_err(|e| e.to_string());
-    }
-
-    let apicula = apicula.ok_or_else(|| {
-        KernelError::ToolMissing {
-            name: "apicula",
-            reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
-                .into(),
+        let models = project.root.join(".g4").join("models");
+        let cache = models.join(format!("{index:04}.glb"));
+        if is_fresh(&cache, &project.member_path(AssetKind::Map, index)) {
+            (models, cache, None)
+        } else {
+            let apicula = apicula.ok_or_else(|| {
+                KernelError::ToolMissing {
+                    name: "apicula",
+                    reason:
+                        "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
+                            .into(),
+                }
+                .to_string()
+            })?;
+            let nsbmd = session
+                .store
+                .map(index)
+                .map_err(|e| e.to_string())?
+                .model
+                .clone();
+            (models, cache, Some((nsbmd, apicula)))
         }
-        .to_string()
-    })?;
-    let nsbmd = {
-        let mut guard = lock(state)?;
-        session(&mut guard)?
-            .store
-            .map(index)
-            .map_err(|e| e.to_string())?
-            .model
-            .clone()
+    };
+    let Some((nsbmd, apicula)) = nsbmd else {
+        return std::fs::read(&cache).map_err(|e| e.to_string());
     };
     let unique = MODEL_WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
     let work = models.join(format!(".work-{index:04}-{unique}"));
