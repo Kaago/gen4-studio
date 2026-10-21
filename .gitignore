@@ -1,0 +1,6 @@
+target/
+node_modules/
+dist/
+*.nds
+tools/
+.DS_Store
