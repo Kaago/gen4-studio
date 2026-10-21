@@ -32,5 +32,8 @@ und `G4_APICULA` gesetzt sind. Das Projekt wird dabei nur gelesen; es wird in ei
 
 ### Cache
 
-Konvertierte Modelle liegen unter `<Projekt>/.g4/models/<index>.glb` und werden neu erzeugt, sobald
-`unpacked/maps/<index>` neuer ist.
+Konvertierte Modelle liegen unter `<Projekt>/.g4/models/<hash>.glb`. Der Schlüssel ist der xxh3-64-Hash über
+das NSBMD der Karte, gefolgt vom NSBTX-Texturset (`AreaData[area_data_id].map_tileset`), als 16 Hex-Zeichen.
+Ändert sich das Modell oder das Tileset, entsteht ein neuer Eintrag; alte Einträge bleiben liegen und dürfen
+jederzeit gelöscht werden (`.g4/` ist reiner Cache). Gibt es den Area-Data- oder Tileset-Eintrag nicht,
+wird das Modell ohne Texturen konvertiert.

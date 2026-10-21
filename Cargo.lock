@@ -1343,6 +1343,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "uxie",
+ "xxhash-rust",
 ]
 
 [[package]]

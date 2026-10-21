@@ -1,14 +1,13 @@
 //! Tauri commands. Each command is a thin wrapper over a testable `*_impl` function.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, MutexGuard};
 
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 use g4_kernel::build::build;
 use g4_kernel::error::KernelError;
-use g4_kernel::export::nsbmd_to_glb;
+use g4_kernel::export::{glb_cache_get, glb_cached};
 use g4_kernel::project::{AssetId, AssetKind, HeaderSummary, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{SaveReport, Store};
@@ -275,65 +274,42 @@ fn find_apicula() -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|p| p.is_file())
 }
 
-static MODEL_WORK_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-fn is_fresh(cache: &Path, source: &Path) -> bool {
-    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    match (modified(cache), modified(source)) {
-        (Some(c), Some(s)) => c >= s,
-        _ => false,
-    }
-}
-
-/// GLB bytes of the map's terrain model, cached under `<project>/.g4/models/<index:04>.glb`.
-/// `apicula` is only needed on a cache miss.
+/// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`),
+/// cached by content hash under `<project>/.g4/models/`. `apicula` is only needed on a cache
+/// miss. A map whose area data or tileset does not exist is converted without textures.
 pub fn get_map_model_glb_with(
     state: &AppState,
     index: u16,
+    area_data_id: u8,
     apicula: Option<&Path>,
 ) -> Result<Vec<u8>, CmdError> {
-    // Project, cache path and model bytes come from ONE lock acquisition, so a project switch
-    // in between can never write another project's model into this project's cache.
-    // `nsbmd` (with the apicula path) is `None` on a fresh cache hit.
-    let (models, cache, nsbmd) = {
+    // Cache directory, model and tileset come from ONE short lock acquisition, so a project
+    // switch in between can never mix two projects; apicula runs outside the lock.
+    let (cache_dir, nsbmd, tileset) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let project = Arc::clone(&session.project);
         project.ensure_unpacked(AssetKind::Map)?;
-        let models = project.root.join(".g4").join("models");
-        let cache = models.join(format!("{index:04}.glb"));
-        if is_fresh(&cache, &project.member_path(AssetKind::Map, index)) {
-            (models, cache, None)
-        } else {
-            let apicula = apicula.ok_or_else(|| KernelError::ToolMissing {
-                name: "apicula",
-                reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
-                    .into(),
-            })?;
-            let nsbmd = session.store.map(index)?.model.clone();
-            (models, cache, Some((nsbmd, apicula)))
-        }
+        let nsbmd = session.store.map(index)?.model.clone();
+        let tileset = project.map_tileset_bytes(area_data_id)?;
+        (project.root.join(".g4").join("models"), nsbmd, tileset)
     };
-    let Some((nsbmd, apicula)) = nsbmd else {
-        return std::fs::read(&cache).map_err(|e| e.to_string().into());
-    };
-    let unique = MODEL_WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let work = models.join(format!(".work-{index:04}-{unique}"));
-    let result = (|| -> Result<Vec<u8>, CmdError> {
-        let glb = nsbmd_to_glb(apicula, &nsbmd, &work)?;
-        let bytes = std::fs::read(&glb).map_err(|e| e.to_string())?;
-        // Publish atomically so a concurrent reader never sees a half-written cache file.
-        let tmp = work.join("cache.glb");
-        std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &cache).map_err(|e| e.to_string())?;
-        Ok(bytes)
-    })();
-    let _ = std::fs::remove_dir_all(&work);
-    result
+    if let Some(bytes) = glb_cache_get(&cache_dir, &nsbmd, tileset.as_deref())? {
+        return Ok(bytes);
+    }
+    let apicula = apicula.ok_or_else(|| KernelError::ToolMissing {
+        name: "apicula",
+        reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)".into(),
+    })?;
+    Ok(glb_cached(&cache_dir, apicula, &nsbmd, tileset.as_deref())?)
 }
 
-pub fn get_map_model_glb_impl(state: &AppState, index: u16) -> Result<Vec<u8>, CmdError> {
-    get_map_model_glb_with(state, index, find_apicula().as_deref())
+pub fn get_map_model_glb_impl(
+    state: &AppState,
+    index: u16,
+    area_data_id: u8,
+) -> Result<Vec<u8>, CmdError> {
+    get_map_model_glb_with(state, index, area_data_id, find_apicula().as_deref())
 }
 
 #[tauri::command]
@@ -362,8 +338,9 @@ pub fn get_map(state: State<AppState>, index: u16) -> Result<MapDto, CmdError> {
 pub fn get_map_model_glb(
     state: State<AppState>,
     index: u16,
+    area_data_id: u8,
 ) -> Result<tauri::ipc::Response, CmdError> {
-    get_map_model_glb_impl(&state, index).map(tauri::ipc::Response::new)
+    get_map_model_glb_impl(&state, index, area_data_id).map(tauri::ipc::Response::new)
 }
 
 #[tauri::command]
@@ -437,6 +414,7 @@ pub fn run_rom(emulator: String, rom: String) -> Result<u32, CmdError> {
 mod tests {
     use super::*;
     use crate::state::AppState;
+    use g4_kernel::export::glb_cache_key;
 
     #[test]
     fn map_dto_has_1024_permission_pairs_and_signed_building_coords() {
@@ -484,39 +462,45 @@ mod tests {
         let fixture = g4_kernel::test_support::synthetic_project();
         let state = AppState::default();
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
-        let err = get_map_model_glb_with(&state, 0, None).unwrap_err();
+        let err = get_map_model_glb_with(&state, 0, 0, None).unwrap_err();
         assert!(err.message.contains("apicula"), "{}", err.message);
-        let err =
-            get_map_model_glb_with(&state, 0, Some(Path::new("/nonexistent/apicula"))).unwrap_err();
+        let err = get_map_model_glb_with(&state, 0, 0, Some(Path::new("/nonexistent/apicula")))
+            .unwrap_err();
         assert!(err.message.contains("apicula"), "{}", err.message);
-        let err = get_map_model_glb_impl(&AppState::default(), 0).unwrap_err();
+        let err = get_map_model_glb_impl(&AppState::default(), 0, 0).unwrap_err();
         assert_eq!(err.message, "no project open");
     }
 
     #[test]
-    fn model_glb_is_cached_and_refreshed_when_the_map_changes() {
+    fn model_glb_cache_is_keyed_by_model_and_tileset_content() {
         let fixture = g4_kernel::test_support::synthetic_project();
         let state = AppState::default();
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
-        let cache = fixture.dir.path().join(".g4/models/0000.glb");
-        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
-        // The synthetic map unpacks lazily; unpack first so the cache can be newer than it.
-        get_map_impl(&state, 0).unwrap();
-        std::fs::write(&cache, b"glTFcached").unwrap();
-        // Cache newer than the unpacked map: served without needing apicula.
+        let models = fixture.dir.path().join(".g4/models");
+        std::fs::create_dir_all(&models).unwrap();
+        let model = g4_kernel::test_support::synthetic_map_bytes(0);
+        let model = MapFile::read(&model, g4_formats::game::Family::Pt)
+            .unwrap()
+            .model;
+        // Synthetic area data 0 selects the only tileset, area data 1 a missing one.
+        let tileset = b"BTX0\0\0\0\0";
+        let textured = glb_cache_key(&model, Some(tileset));
+        let plain = glb_cache_key(&model, None);
+        std::fs::write(models.join(format!("{textured}.glb")), b"glTFtextured").unwrap();
+        std::fs::write(models.join(format!("{plain}.glb")), b"glTFplain").unwrap();
+        // Hits are served without apicula.
         assert_eq!(
-            get_map_model_glb_with(&state, 0, None).unwrap(),
-            b"glTFcached"
+            get_map_model_glb_with(&state, 0, 0, None).unwrap(),
+            b"glTFtextured"
         );
-        // Map newer than the cache: the cache is stale, so apicula is required again.
-        let member = fixture.dir.path().join("unpacked/maps/0000");
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&member)
-            .unwrap();
-        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
-            .unwrap();
-        assert!(get_map_model_glb_with(&state, 0, None).is_err());
+        assert_eq!(
+            get_map_model_glb_with(&state, 0, 1, None).unwrap(),
+            b"glTFplain"
+        );
+        assert_eq!(
+            get_map_model_glb_with(&state, 0, 200, None).unwrap(),
+            b"glTFplain"
+        );
     }
 
     #[cfg(unix)]
@@ -529,23 +513,29 @@ mod tests {
         let tool = fixture.dir.path().join("fake-apicula");
         std::fs::write(
             &tool,
-            "#!/bin/sh\nmkdir -p \"$5\"; printf 'glTFfake' > \"$5/m.glb\"\n",
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
+             mkdir -p \"$out\"; printf 'glTFfake' > \"$out/m.glb\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let glb = get_map_model_glb_with(&state, 1, Some(&tool)).unwrap();
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
         assert_eq!(glb, b"glTFfake");
         let models = fixture.dir.path().join(".g4/models");
         let names: Vec<_> = std::fs::read_dir(&models)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names, ["0001.glb"]);
+        assert_eq!(names.len(), 1);
+        assert!(names[0].ends_with(".glb"), "{names:?}");
         // Second call is a cache hit and does not need the tool.
         assert_eq!(
-            get_map_model_glb_with(&state, 1, None).unwrap(),
+            get_map_model_glb_with(&state, 1, 0, None).unwrap(),
             b"glTFfake"
         );
+        // A map with a missing area data entry still converts, just without textures.
+        let glb = get_map_model_glb_with(&state, 1, 200, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFfake");
+        assert_eq!(std::fs::read_dir(&models).unwrap().count(), 2);
     }
 
     fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState) {
@@ -699,7 +689,7 @@ mod tests {
             ("error", "no project open")
         );
         let (_s, state) = open_synthetic();
-        let err = get_map_model_glb_with(&state, 0, None).unwrap_err();
+        let err = get_map_model_glb_with(&state, 0, 0, None).unwrap_err();
         assert_eq!(err.code, "tool_missing");
         assert!(reload_asset_impl(&AppState::default(), AssetKind::Map, 0).is_err());
     }

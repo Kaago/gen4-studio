@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use g4_formats::area_data::AreaData;
 use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
@@ -317,6 +318,26 @@ impl Project {
         } else {
             Ok(self.read_packed(kind)?.members.len())
         }
+    }
+
+    /// Bytes of the map texture set (NSBTX) that `AreaData[area_data_id]` selects with its
+    /// `map_tileset`, from the unpacked archives on disk. `Ok(None)` when the area data index
+    /// or the tileset index lies outside its archive: the map then simply has no textures.
+    pub fn map_tileset_bytes(&self, area_data_id: u8) -> Result<Option<Vec<u8>>, KernelError> {
+        let area_count = self.ensure_unpacked(AssetKind::AreaData)?;
+        if usize::from(area_data_id) >= area_count {
+            return Ok(None);
+        }
+        let area_path = self.member_path(AssetKind::AreaData, u16::from(area_data_id));
+        let area_bytes = std::fs::read(&area_path).map_err(io_at(&area_path))?;
+        let area = AreaData::read(&area_bytes, self.family)?;
+        let tileset = area.map_tileset();
+        let tileset_count = self.ensure_unpacked(AssetKind::MapTexture)?;
+        if usize::from(tileset) >= tileset_count {
+            return Ok(None);
+        }
+        let path = self.member_path(AssetKind::MapTexture, tileset);
+        std::fs::read(&path).map(Some).map_err(io_at(&path))
     }
 
     /// Lists all map headers from the header table in `arm9/arm9.bin`, with the

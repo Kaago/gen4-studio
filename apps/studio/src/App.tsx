@@ -317,6 +317,7 @@ export default function App() {
             <>
               <MatrixScene
                 matrix={matrix}
+                areaDataId={headers.find((h) => h.id === selected)?.area_data_id ?? 0}
                 showPermissions={showPermissions}
                 paintEnabled={!busy}
                 reloadToken={reloadToken}

@@ -65,9 +65,9 @@ function parseGlb(buffer: ArrayBuffer): Promise<THREE.Object3D> {
   });
 }
 
-async function loadMap(index: number): Promise<Loaded> {
+async function loadMap(index: number, areaDataId: number): Promise<Loaded> {
   const map = await getMap(index);
-  const model = await getMapModelGlb(index).then(parseGlb);
+  const model = await getMapModelGlb(index, areaDataId).then(parseGlb);
   return { map, model };
 }
 
@@ -165,6 +165,8 @@ function recolourMap(h: SceneHandle, mapId: number) {
 
 interface Props {
   matrix: MatrixDto;
+  /** Area data of the selected header; selects the map texture set for every map of the matrix. */
+  areaDataId: number;
   showPermissions: boolean;
   /** Painting is ignored while false (e.g. during a build). */
   paintEnabled: boolean;
@@ -175,10 +177,14 @@ interface Props {
   onError: (message: string) => void;
 }
 
-export default function MatrixScene({ matrix, showPermissions, paintEnabled, reloadToken, onEdited, onError }: Props) {
+export default function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
+  // Read when a matrix loads, not a reload trigger of its own: the header choice and its
+  // matrix arrive in separate state updates.
+  const areaRef = useRef(areaDataId);
+  areaRef.current = areaDataId;
   const [status, setStatus] = useState<string | null>(null);
   const callbacks = useRef({ paintEnabled, onEdited, onError });
   callbacks.current = { paintEnabled, onEdited, onError };
@@ -297,6 +303,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
     const h = handle.current;
     if (!h) return;
     let cancelled = false;
+    const area = areaRef.current;
     setStatus("Lade Modelle ...");
 
     (async () => {
@@ -306,7 +313,7 @@ export default function MatrixScene({ matrix, showPermissions, paintEnabled, rel
       await Promise.all(
         ids.map(async (id) => {
           try {
-            loaded.set(id, await loadMap(id));
+            loaded.set(id, await loadMap(id, area));
           } catch (e) {
             errors.push(`Map ${id}: ${errorText(e)}`);
             // Keep the map's permissions and buildings even when only the model failed.

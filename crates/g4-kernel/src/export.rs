@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use xxhash_rust::xxh3::Xxh3;
+
 use crate::error::{KernelError, io_at};
 
 static WORK_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -46,14 +48,19 @@ fn collect_glbs(dir: &Path, found: &mut Vec<PathBuf>) -> Result<(), KernelError>
     Ok(())
 }
 
-/// Writes `nsbmd` to a temp file and runs `apicula convert -f=glb <file> -o <dir>` into a fresh
-/// subdirectory of `out_dir`. Returns the path of the single `.glb` it produced; the subdirectory
+/// Writes `nsbmd` (and `nsbtx`, when given) to temp files and runs
+/// `apicula convert -f=glb <nsbmd> [<nsbtx>] -o <dir>` into a fresh subdirectory of `out_dir`. Returns the path of the single `.glb` it produced; the subdirectory
 /// stays below `out_dir`, so removing `out_dir` cleans up.
 ///
 /// apicula names its output after the model inside the NSBMD (not the input file), refuses an
 /// existing output directory and exits 0 even when it could not parse the input, hence the
 /// explicit check for exactly one produced file.
-pub fn nsbmd_to_glb(apicula: &Path, nsbmd: &[u8], out_dir: &Path) -> Result<PathBuf, KernelError> {
+pub fn nsbmd_to_glb(
+    apicula: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+    out_dir: &Path,
+) -> Result<PathBuf, KernelError> {
     if !apicula.exists() {
         return Err(tool_error(format!("not found: {}", apicula.display())));
     }
@@ -62,10 +69,14 @@ pub fn nsbmd_to_glb(apicula: &Path, nsbmd: &[u8], out_dir: &Path) -> Result<Path
     std::fs::write(&input, nsbmd).map_err(io_at(&input))?;
     let converted = work.join("converted");
 
-    let output = Command::new(apicula)
-        .arg("convert")
-        .arg("-f=glb")
-        .arg(&input)
+    let mut command = Command::new(apicula);
+    command.arg("convert").arg("-f=glb").arg(&input);
+    if let Some(nsbtx) = nsbtx {
+        let textures = work.join("input.nsbtx");
+        std::fs::write(&textures, nsbtx).map_err(io_at(&textures))?;
+        command.arg(&textures);
+    }
+    let output = command
         .arg("-o")
         .arg(&converted)
         .output()
@@ -93,4 +104,69 @@ pub fn nsbmd_to_glb(apicula: &Path, nsbmd: &[u8], out_dir: &Path) -> Result<Path
             stderr.trim()
         ))),
     }
+}
+
+/// Cache key of a converted model: xxh3_64 over `nsbmd` followed by `nsbtx` (nothing when
+/// `None`) as 16 lower-case hex digits. The cached file is `<cache_dir>/<key>.glb`.
+pub fn glb_cache_key(nsbmd: &[u8], nsbtx: Option<&[u8]>) -> String {
+    let mut hasher = Xxh3::new();
+    hasher.update(nsbmd);
+    if let Some(nsbtx) = nsbtx {
+        hasher.update(nsbtx);
+    }
+    format!("{:016x}", hasher.digest())
+}
+
+/// Converts into a fresh work directory below `cache_dir` and publishes the result under
+/// `target` (temp file in the same directory, then rename), so a concurrent reader never sees
+/// a half-written cache file.
+fn convert_into_cache(
+    cache_dir: &Path,
+    apicula: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+    target: &Path,
+) -> Result<Vec<u8>, KernelError> {
+    let work = fresh_work_dir(cache_dir)?;
+    let result = (|| {
+        let glb = nsbmd_to_glb(apicula, nsbmd, nsbtx, &work)?;
+        let bytes = std::fs::read(&glb).map_err(io_at(&glb))?;
+        let tmp = work.join("cache.glb");
+        std::fs::write(&tmp, &bytes).map_err(io_at(&tmp))?;
+        std::fs::rename(&tmp, target).map_err(io_at(target))?;
+        Ok(bytes)
+    })();
+    // Best effort: a leftover work directory is harmless but must not hide the real result.
+    let _ = std::fs::remove_dir_all(&work);
+    result
+}
+
+/// The cached GLB for this model and tileset, if conversion already happened.
+pub fn glb_cache_get(
+    cache_dir: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let target = cache_dir.join(format!("{}.glb", glb_cache_key(nsbmd, nsbtx)));
+    match std::fs::read(&target) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(&target)(e)),
+    }
+}
+
+/// GLB bytes of a model from the content-hash cache in `cache_dir`, or converted with apicula
+/// (NSBMD plus the optional NSBTX texture set in one call) and stored there. apicula is only
+/// needed on a cache miss.
+pub fn glb_cached(
+    cache_dir: &Path,
+    apicula: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+) -> Result<Vec<u8>, KernelError> {
+    if let Some(bytes) = glb_cache_get(cache_dir, nsbmd, nsbtx)? {
+        return Ok(bytes);
+    }
+    let target = cache_dir.join(format!("{}.glb", glb_cache_key(nsbmd, nsbtx)));
+    convert_into_cache(cache_dir, apicula, nsbmd, nsbtx, &target)
 }
