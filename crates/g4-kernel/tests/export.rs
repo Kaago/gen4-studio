@@ -31,7 +31,8 @@ mod fake_tool {
     }
 
     // apicula's argv: convert -f=glb <input> -o <dir>; the script creates <dir>/<name>/<name>.glb.
-    const PRODUCE: &str = r#"out="$5"; mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#;
+    const PRODUCE: &str =
+        r#"out="$5"; mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#;
 
     #[test]
     fn returns_the_single_glb_the_tool_produced() {

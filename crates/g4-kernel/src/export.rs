@@ -36,7 +36,10 @@ fn collect_glbs(dir: &Path, found: &mut Vec<PathBuf>) -> Result<(), KernelError>
         let path = entry?.path();
         if path.is_dir() {
             collect_glbs(&path, found)?;
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb")) {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("glb"))
+        {
             found.push(path);
         }
     }
