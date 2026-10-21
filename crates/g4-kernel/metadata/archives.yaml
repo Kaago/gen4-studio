@@ -1,0 +1,12 @@
+dp:
+  maps:      { packed: "files/fielddata/land_data/land_data_release.narc", packed_jp: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
+  matrices:  { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
+  area_data: { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+pt:
+  maps:      { packed: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
+  matrices:  { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
+  area_data: { packed: "files/fielddata/areadata/area_data.narc", unpacked: "areaData" }
+hgss:
+  maps:      { packed: "files/a/0/6/5", unpacked: "maps" }
+  matrices:  { packed: "files/a/0/4/1", unpacked: "matrices" }
+  area_data: { packed: "files/a/0/4/2", unpacked: "areaData" }
