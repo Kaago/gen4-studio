@@ -106,7 +106,7 @@ impl MapDto {
 
 fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
     state
-        .0
+        .session
         .lock()
         .map_err(|_| "internal state is poisoned".into())
 }
@@ -415,6 +415,16 @@ pub async fn build_rom(app: tauri::AppHandle, out: String) -> Result<BuildDto, C
     tauri::async_runtime::spawn_blocking(move || build_rom_impl(&app.state::<AppState>(), &out))
         .await
         .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+/// Quits after the user confirmed discarding unsaved edits: the flag lets the exit request
+/// raised by `exit` through the exit guard.
+#[tauri::command]
+pub fn force_quit(app: tauri::AppHandle) {
+    app.state::<AppState>()
+        .force_quit
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    app.exit(0);
 }
 
 #[tauri::command]

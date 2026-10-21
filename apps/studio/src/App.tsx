@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -207,6 +209,37 @@ export default function App() {
           e.preventDefault();
         }
       })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        /* not running inside a Tauri window */
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Cmd+Q does not close the window first: the backend holds the exit back and asks here.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    let asking = false;
+    listen("confirm-quit", async () => {
+      if (asking) return;
+      asking = true;
+      try {
+        if (await ask("Ungespeicherte Änderungen verwerfen und beenden?", { kind: "warning" })) {
+          await invoke("force_quit");
+        }
+      } catch (e) {
+        setMessage({ kind: "error", text: errorText(e) });
+      } finally {
+        asking = false;
+      }
+    })
       .then((fn) => {
         if (disposed) fn();
         else unlisten = fn;
