@@ -49,6 +49,7 @@ export default function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
   const [showPermissions, setShowPermissions] = useState(true);
+  const [showEvents, setShowEvents] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
@@ -287,6 +288,9 @@ export default function App() {
     areaDataId: headers.find((h) => h.id === selected)?.area_data_id ?? 0,
     showPermissions,
     onShowPermissions: setShowPermissions,
+    eventFileId: headers.find((h) => h.id === selected)?.event_file_id ?? null,
+    showEvents,
+    onShowEvents: setShowEvents,
     paintEnabled: !busy,
     reloadToken,
     onEdited,

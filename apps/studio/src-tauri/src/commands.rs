@@ -10,7 +10,7 @@ use g4_kernel::error::KernelError;
 use g4_kernel::export::{glb_cache_get, glb_cached};
 use g4_kernel::project::{AssetId, AssetKind, HeaderSummary, Project};
 use g4_kernel::run::launch_emulator;
-use g4_kernel::store::{SaveReport, Store};
+use g4_kernel::store::{EventFile, SaveReport, Store};
 use g4_kernel::tiles::TileBehavior;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -104,6 +104,136 @@ impl MapDto {
     }
 }
 
+#[derive(Serialize)]
+pub struct BgDto {
+    pub index: u16,
+    pub script: u16,
+    pub event_type: u16,
+    pub x: i32,
+    pub z: i32,
+    pub y: i32,
+}
+
+#[derive(Serialize)]
+pub struct ObjectDto {
+    pub index: u16,
+    pub local_id: u16,
+    pub graphics_id: u16,
+    pub movement_type: u16,
+    pub script: u16,
+    pub x: u16,
+    pub z: u16,
+    pub y: i32,
+}
+
+#[derive(Serialize)]
+pub struct WarpDto {
+    pub index: u16,
+    pub x: u16,
+    pub z: u16,
+    pub dest_header_id: u16,
+    pub dest_warp_id: u16,
+    pub height: u32,
+}
+
+#[derive(Serialize)]
+pub struct CoordDto {
+    pub index: u16,
+    pub script: u16,
+    pub x: i16,
+    pub z: i16,
+    pub width: u16,
+    pub length: u16,
+}
+
+/// The events of one event file. Coordinates are absolute tiles over the whole matrix
+/// (matrix cell = `x / 32`, tile inside the map = `x % 32`), as the game data stores them.
+#[derive(Serialize)]
+pub struct EventsDto {
+    pub event_file_id: u16,
+    pub bg: Vec<BgDto>,
+    pub objects: Vec<ObjectDto>,
+    pub warps: Vec<WarpDto>,
+    pub coords: Vec<CoordDto>,
+}
+
+/// Position of an event inside its list as the `u16` the DTOs carry. `get_events_impl`
+/// rejects files with more than `u16::MAX` events per class first, so this never saturates.
+fn event_index(i: usize) -> u16 {
+    u16::try_from(i).unwrap_or(u16::MAX)
+}
+
+impl EventsDto {
+    pub fn from_file(event_file_id: u16, file: &EventFile) -> Result<EventsDto, CmdError> {
+        let counts = [
+            file.bg_events.len(),
+            file.object_events.len(),
+            file.warp_events.len(),
+            file.coord_events.len(),
+        ];
+        if counts.iter().any(|&n| n > usize::from(u16::MAX)) {
+            return Err(format!("event file {event_file_id:04} has too many events").into());
+        }
+        Ok(EventsDto {
+            event_file_id,
+            bg: file
+                .bg_events
+                .iter()
+                .enumerate()
+                .map(|(i, e)| BgDto {
+                    index: event_index(i),
+                    script: e.script,
+                    event_type: e.event_type,
+                    x: e.x,
+                    z: e.z,
+                    y: e.y,
+                })
+                .collect(),
+            objects: file
+                .object_events
+                .iter()
+                .enumerate()
+                .map(|(i, e)| ObjectDto {
+                    index: event_index(i),
+                    local_id: e.local_id,
+                    graphics_id: e.graphics_id,
+                    movement_type: e.movement_type,
+                    script: e.script,
+                    x: e.x,
+                    z: e.z,
+                    y: e.y,
+                })
+                .collect(),
+            warps: file
+                .warp_events
+                .iter()
+                .enumerate()
+                .map(|(i, e)| WarpDto {
+                    index: event_index(i),
+                    x: e.x,
+                    z: e.z,
+                    dest_header_id: e.dest_header_id,
+                    dest_warp_id: e.dest_warp_id,
+                    height: e.height,
+                })
+                .collect(),
+            coords: file
+                .coord_events
+                .iter()
+                .enumerate()
+                .map(|(i, e)| CoordDto {
+                    index: event_index(i),
+                    script: e.script,
+                    x: e.x,
+                    z: e.z,
+                    width: e.width,
+                    length: e.length,
+                })
+                .collect(),
+        })
+    }
+}
+
 fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
     state
         .session
@@ -157,6 +287,14 @@ pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
     session.project.ensure_unpacked(AssetKind::Map)?;
     let map = session.store.map(index).map_err(CmdError::from)?;
     Ok(MapDto::from_map(index, map))
+}
+
+pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    session.project.ensure_unpacked(AssetKind::Event)?;
+    let file = session.store.event(event_file_id).map_err(CmdError::from)?;
+    EventsDto::from_file(event_file_id, file)
 }
 
 /// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds
@@ -335,6 +473,11 @@ pub fn tile_behaviors() -> Result<Vec<TileBehavior>, CmdError> {
 #[tauri::command]
 pub fn get_matrix(state: State<AppState>, index: u16) -> Result<MatrixDto, CmdError> {
     get_matrix_impl(&state, index)
+}
+
+#[tauri::command]
+pub fn get_events(state: State<AppState>, event_file_id: u16) -> Result<EventsDto, CmdError> {
+    get_events_impl(&state, event_file_id)
 }
 
 #[tauri::command]
@@ -766,5 +909,128 @@ mod tests {
         let state = AppState::default();
         assert!(list_headers_impl(&state).is_err());
         assert!(get_map_impl(&state, 0).is_err());
+        assert!(get_events_impl(&state, 0).is_err());
+    }
+
+    #[test]
+    fn headers_carry_their_event_file_id() {
+        let (_fixture, state) = open_synthetic();
+        // The synthetic arm9 is zero-filled, so every header points at event file 0.
+        let headers = list_headers_impl(&state).unwrap();
+        assert!(headers.iter().all(|h| h.event_file_id == 0));
+    }
+
+    #[test]
+    fn events_dto_maps_every_event_class_with_its_index() {
+        use g4_kernel::store::{BgEvent, CoordEvent, ObjectEvent, WarpEvent};
+        let (_fixture, state) = open_synthetic();
+        let empty = get_events_impl(&state, 0).unwrap();
+        assert_eq!(empty.event_file_id, 0);
+        assert!(empty.bg.is_empty() && empty.objects.is_empty());
+        assert!(empty.warps.is_empty() && empty.coords.is_empty());
+
+        lock(&state)
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .store
+            .edit_event(0, "test", |e| {
+                e.warp_events.push(WarpEvent {
+                    x: 8,
+                    z: 4,
+                    dest_header_id: 414,
+                    dest_warp_id: 2,
+                    height: 0,
+                });
+                e.warp_events.push(WarpEvent {
+                    x: 40,
+                    z: 5,
+                    dest_header_id: 1,
+                    dest_warp_id: 0,
+                    height: 0,
+                });
+                e.object_events.push(ObjectEvent {
+                    local_id: 7,
+                    graphics_id: 9,
+                    movement_type: 3,
+                    trainer_type: 0,
+                    hidden_flag: 0,
+                    script: 2001,
+                    dir: 0,
+                    data: [0; 3],
+                    movement_range_x: 0,
+                    movement_range_z: 0,
+                    x: 12,
+                    z: 13,
+                    y: -1,
+                });
+                e.coord_events.push(CoordEvent {
+                    script: 9000,
+                    x: 3,
+                    z: -2,
+                    width: 2,
+                    length: 1,
+                    y: 0,
+                    value: 0,
+                    var: 0,
+                });
+                e.bg_events.push(BgEvent {
+                    script: 100,
+                    event_type: 1,
+                    x: 20,
+                    z: 21,
+                    y: 0,
+                    player_facing_dir: 0,
+                });
+                Ok(())
+            })
+            .unwrap();
+
+        let ev = get_events_impl(&state, 0).unwrap();
+        assert_eq!(ev.warps.len(), 2);
+        assert_eq!(
+            (ev.warps[1].index, ev.warps[1].x, ev.warps[1].dest_header_id),
+            (1, 40, 1)
+        );
+        assert_eq!(ev.warps[0].dest_warp_id, 2);
+        let o = &ev.objects[0];
+        assert_eq!(
+            (o.index, o.local_id, o.graphics_id, o.script),
+            (0, 7, 9, 2001)
+        );
+        assert_eq!((o.movement_type, o.x, o.z, o.y), (3, 12, 13, -1));
+        let c = &ev.coords[0];
+        assert_eq!((c.script, c.x, c.z, c.width, c.length), (9000, 3, -2, 2, 1));
+        let b = &ev.bg[0];
+        assert_eq!((b.script, b.event_type, b.x, b.z, b.y), (100, 1, 20, 21, 0));
+    }
+
+    #[test]
+    fn events_of_an_unknown_file_are_an_error() {
+        let (_fixture, state) = open_synthetic();
+        assert!(get_events_impl(&state, 99).is_err());
+    }
+
+    /// Gated: Platinum DE header 415 is the player's bedroom; its stairs warp leads to header 414.
+    #[test]
+    fn vanilla_platinum_player_bedroom_has_the_stairs_warp() {
+        let Some(root) = g4_kernel::test_support::vanilla_project() else {
+            return;
+        };
+        let state = AppState::default();
+        let info = open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        if info.game_code != "CPUD" {
+            eprintln!("skipped: not Platinum DE");
+            return;
+        }
+        let headers = list_headers_impl(&state).unwrap();
+        let ev = get_events_impl(&state, headers[415].event_file_id).unwrap();
+        assert_eq!(ev.warps.len(), 1);
+        assert_eq!(
+            (ev.warps[0].x, ev.warps[0].z, ev.warps[0].dest_header_id),
+            (8, 4, 414)
+        );
+        assert_eq!(ev.objects.len(), 1);
+        assert_eq!(ev.coords.len(), 4);
     }
 }

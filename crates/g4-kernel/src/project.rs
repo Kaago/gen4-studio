@@ -190,6 +190,8 @@ pub struct HeaderSummary {
     pub internal_name: String,
     pub matrix_id: u16,
     pub area_data_id: u8,
+    /// Member of the event archive with this header's warps, NPCs, triggers and signs.
+    pub event_file_id: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -382,6 +384,7 @@ impl Project {
                     internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
+                    event_file_id: header.event_file_id(),
                 }
             })
             .collect())

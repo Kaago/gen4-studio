@@ -13,6 +13,7 @@ export interface HeaderSummary {
   internal_name: string;
   matrix_id: number;
   area_data_id: number;
+  event_file_id: number;
 }
 
 export interface MatrixDto {
@@ -42,6 +43,56 @@ export interface MapDto {
   buildings: BuildingDto[];
 }
 
+/**
+ * Events of one event file. Coordinates are absolute tiles over the whole matrix
+ * (matrix cell = x / 32, tile inside the map = x % 32).
+ */
+export interface BgDto {
+  index: number;
+  script: number;
+  event_type: number;
+  x: number;
+  z: number;
+  y: number;
+}
+
+export interface ObjectDto {
+  index: number;
+  local_id: number;
+  graphics_id: number;
+  movement_type: number;
+  script: number;
+  x: number;
+  z: number;
+  y: number;
+}
+
+export interface WarpDto {
+  index: number;
+  x: number;
+  z: number;
+  dest_header_id: number;
+  dest_warp_id: number;
+  height: number;
+}
+
+export interface CoordDto {
+  index: number;
+  script: number;
+  x: number;
+  z: number;
+  width: number;
+  length: number;
+}
+
+export interface EventsDto {
+  event_file_id: number;
+  bg: BgDto[];
+  objects: ObjectDto[];
+  warps: WarpDto[];
+  coords: CoordDto[];
+}
+
 /** A named tile behaviour (decomp enum) for a permission kind byte; `class` drives the overlay colour. */
 export interface TileBehavior {
   value: number;
@@ -58,6 +109,7 @@ export const openProject = (path: string) => invoke<ProjectInfo>("open_project",
 export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
+export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
 /**
  * Raw GLB bytes of the map's terrain model, textured with the tileset of `areaDataId`

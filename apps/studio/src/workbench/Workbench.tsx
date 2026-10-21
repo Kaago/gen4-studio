@@ -20,6 +20,10 @@ export interface WorkbenchData {
   areaDataId: number;
   showPermissions: boolean;
   onShowPermissions: (show: boolean) => void;
+  /** Event file of the selected header (null: none selected). */
+  eventFileId: number | null;
+  showEvents: boolean;
+  onShowEvents: (show: boolean) => void;
   paintEnabled: boolean;
   reloadToken: number;
   onEdited: () => void;
@@ -38,6 +42,13 @@ function useWorkbench(): WorkbenchData {
   return data;
 }
 
+const toggleStyle: React.CSSProperties = {
+  color: "#e5e7eb",
+  background: "rgba(0,0,0,0.5)",
+  padding: "4px 8px",
+  borderRadius: 4,
+};
+
 function HeadersPanel() {
   const d = useWorkbench();
   return <HeaderList info={d.info} headers={d.headers} selected={d.selected} onSelect={d.onSelect} />;
@@ -53,26 +64,24 @@ function WorldPanel() {
             matrix={d.matrix}
             areaDataId={d.areaDataId}
             showPermissions={d.showPermissions}
+            eventFileId={d.eventFileId}
+            showEvents={d.showEvents}
+            headers={d.headers}
             paintEnabled={d.paintEnabled}
             reloadToken={d.reloadToken}
             onEdited={d.onEdited}
             onError={d.onError}
             onInspect={d.setInspector}
           />
-          <label
-            style={{
-              position: "absolute",
-              top: 8,
-              left: 8,
-              color: "#e5e7eb",
-              background: "rgba(0,0,0,0.5)",
-              padding: "4px 8px",
-              borderRadius: 4,
-            }}
-          >
-            <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions
-            anzeigen
-          </label>
+          <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
+            <label style={toggleStyle}>
+              <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions
+              anzeigen
+            </label>
+            <label style={toggleStyle}>
+              <input type="checkbox" checked={d.showEvents} onChange={(e) => d.onShowEvents(e.target.checked)} /> Events anzeigen
+            </label>
+          </div>
         </>
       ) : (
         <p style={{ padding: 16 }}>Header wählen, um die Matrix anzuzeigen. Klick setzt Kollision, Shift+Klick löscht sie.</p>

@@ -3,10 +3,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { errorText, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
-import type { MapDto, MatrixDto, TileBehavior } from "../api";
+import { errorText, getEvents, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
+import type { EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { permissionColor } from "./colors";
+import { MARKER_COLORS, markerPosition } from "./events";
+import type { EventData, EventKind } from "./events";
 import { describeTile } from "./hover";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
@@ -23,6 +25,17 @@ interface Loaded {
 /** Height of the overlay plane; clicks are intersected with the same plane. */
 const OVERLAY_Y = 0.05;
 
+/** Centre height of the flat event markers; the tall warp beacon stands on the ground. */
+const MARKER_Y = 0.3;
+const BEACON_HEIGHT = 1.2;
+
+/** The event markers of the shown header: one instanced mesh per class, plus a tall one for warps. */
+interface MarkerSet {
+  group: THREE.Group;
+  /** Event class and data per instance, for every mesh in `group`. */
+  entries: Map<THREE.InstancedMesh, { kind: EventKind; data: EventData[] }>;
+}
+
 interface SceneHandle {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -38,6 +51,7 @@ interface SceneHandle {
   bases: Map<number, number[]>;
   /** Tile behaviour names by kind byte (empty until loaded). */
   names: Map<number, TileBehavior>;
+  markers: MarkerSet | null;
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null;
 }
@@ -168,6 +182,64 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map
   return { content, overlay, tiles, bases };
 }
 
+/** Builds the marker meshes of `events`; events outside the matrix get no marker. */
+function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
+  const group = new THREE.Group();
+  const entries: MarkerSet["entries"] = new Map();
+  const classes: { kind: EventKind; list: EventData[] }[] = [
+    { kind: "warp", list: events.warps },
+    { kind: "object", list: events.objects },
+    { kind: "coord", list: events.coords },
+    { kind: "bg", list: events.bg },
+  ];
+  const m4 = new THREE.Matrix4();
+  for (const { kind, list } of classes) {
+    const placed = list.flatMap((data) => {
+      const at = markerPosition(data.x, data.z, matrix);
+      return at ? [{ data, at }] : [];
+    });
+    if (placed.length === 0) continue;
+    const geometries = [new THREE.BoxGeometry(0.8, 0.4, 0.8)];
+    if (kind === "warp") geometries.push(new THREE.BoxGeometry(0.8, BEACON_HEIGHT, 0.8));
+    const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
+    geometries.forEach((geometry, g) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, placed.length);
+      mesh.renderOrder = 11;
+      mesh.frustumCulled = false;
+      placed.forEach(({ at }, i) => {
+        m4.setPosition(at.wx, g === 0 ? MARKER_Y : BEACON_HEIGHT / 2, at.wz);
+        mesh.setMatrixAt(i, m4);
+      });
+      group.add(mesh);
+      entries.set(mesh, { kind, data: placed.map((p) => p.data) });
+    });
+  }
+  return { group, entries };
+}
+
+/** Replaces the scene's markers (`events` null: show none). */
+function setMarkers(h: SceneHandle, events: EventsDto | null, visible: boolean) {
+  if (h.markers) {
+    h.scene.remove(h.markers.group);
+    disposeTree(h.markers.group);
+    h.markers = null;
+  }
+  if (!h.matrix || !events) return;
+  h.markers = buildMarkers(h.matrix, events);
+  h.markers.group.visible = visible;
+  h.scene.add(h.markers.group);
+}
+
+/** Fetches the events of a header's event file; never rejects, a failure comes back as text. */
+async function fetchEvents(eventFileId: number | null): Promise<{ events: EventsDto | null; error: string | null }> {
+  if (eventFileId === null) return { events: null, error: null };
+  try {
+    return { events: await getEvents(eventFileId), error: null };
+  } catch (e) {
+    return { events: null, error: `Events nicht geladen: ${errorText(e)}` };
+  }
+}
+
 /** Recolours every overlay instance of `mapId` from the map's current permissions. */
 function recolourMap(h: SceneHandle, mapId: number) {
   const data = h.loaded.get(mapId);
@@ -186,6 +258,11 @@ interface Props {
   /** Area data of the selected header; selects the map texture set for every map of the matrix. */
   areaDataId: number;
   showPermissions: boolean;
+  /** Event file of the selected header; its events are shown as markers (null: none). */
+  eventFileId: number | null;
+  showEvents: boolean;
+  /** Header list, for the internal names of warp destinations. */
+  headers: HeaderSummary[];
   /** Painting is ignored while false (e.g. during a build). */
   paintEnabled: boolean;
   /** Increment to reload all maps of the matrix from the backend and recolour (after undo/redo). */
@@ -197,7 +274,19 @@ interface Props {
   onInspect: (model: InspectorModel) => void;
 }
 
-function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError, onInspect }: Props) {
+function MatrixScene({
+  matrix,
+  areaDataId,
+  showPermissions,
+  eventFileId,
+  showEvents,
+  headers,
+  paintEnabled,
+  reloadToken,
+  onEdited,
+  onError,
+  onInspect,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
@@ -205,7 +294,14 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
   // matrix arrive in separate state updates.
   const areaRef = useRef(areaDataId);
   areaRef.current = areaDataId;
+  const showEventsRef = useRef(showEvents);
+  // Like the area data, the event file belongs to the header and is read when a matrix loads.
+  const eventFileRef = useRef(eventFileId);
+  eventFileRef.current = eventFileId;
+  const headersRef = useRef(headers);
+  headersRef.current = headers;
   const [status, setStatus] = useState<string | null>(null);
+  const [eventStatus, setEventStatus] = useState<string | null>(null);
   const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect });
   callbacks.current = { paintEnabled, onEdited, onError, onInspect };
 
@@ -254,6 +350,7 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
       tiles: null,
       bases: new Map(),
       names: new Map(),
+      markers: null,
       refreshHover: null,
     };
     handle.current = h;
@@ -263,15 +360,30 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
     const canvas = renderer.domElement;
     const raycaster = new THREE.Raycaster();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -OVERLAY_Y);
-    /** The tile under a pointer position, or null outside every loaded map cell. */
-    const pickTile = (clientX: number, clientY: number) => {
-      if (!h.matrix) return null;
+    /** Aims the shared raycaster along the view ray through a pointer position. */
+    const aim = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const ndc = new THREE.Vector2(
         ((clientX - rect.left) / rect.width) * 2 - 1,
         -((clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, camera);
+    };
+    /** The nearest event marker under a pointer position, or null (also while markers are hidden). */
+    const pickMarker = (clientX: number, clientY: number) => {
+      const set = h.markers;
+      if (!set?.group.visible) return null;
+      aim(clientX, clientY);
+      const hit = raycaster.intersectObjects([...set.entries.keys()], false)[0];
+      if (!hit || !(hit.object instanceof THREE.InstancedMesh) || hit.instanceId === undefined) return null;
+      const entry = set.entries.get(hit.object);
+      const data = entry?.data[hit.instanceId];
+      return entry && data ? { kind: entry.kind, data } : null;
+    };
+    /** The tile under a pointer position, or null outside every loaded map cell. */
+    const pickTile = (clientX: number, clientY: number) => {
+      if (!h.matrix) return null;
+      aim(clientX, clientY);
       const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
       if (!hit) return null;
       const m = h.matrix;
@@ -291,6 +403,17 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
     let shown = "";
     const showHover = () => {
       frame = 0;
+      // A marker under the pointer wins over the tile below it.
+      const marker = pointer ? pickMarker(pointer.x, pointer.y) : null;
+      if (marker) {
+        const key = `event:${marker.kind}:${marker.data.index}`;
+        if (key === shown) return;
+        shown = key;
+        const destId = marker.kind === "warp" ? (marker.data as WarpDto).dest_header_id : null;
+        const destName = destId === null ? undefined : headersRef.current.find((x) => x.id === destId)?.internal_name;
+        callbacks.current.onInspect({ kind: "event", eventKind: marker.kind, index: marker.data.index, data: marker.data, destName });
+        return;
+      }
       const picked = pointer ? pickTile(pointer.x, pointer.y) : null;
       if (!picked) {
         if (shown !== "") callbacks.current.onInspect({ kind: "none" });
@@ -370,6 +493,7 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
       callbacks.current.onInspect({ kind: "none" });
       const current = handle.current;
       handle.current = null;
+      if (current?.markers) disposeTree(current.markers.group);
       observer.disconnect();
       controls.removeEventListener("change", render);
       controls.dispose();
@@ -386,6 +510,9 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
     let cancelled = false;
     const area = areaRef.current;
     setStatus("Lade Modelle ...");
+    setEventStatus(null);
+    // Fetched next to the maps; a failure only costs the markers, never the scene.
+    const eventsPending = fetchEvents(eventFileRef.current);
 
     (async () => {
       const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
@@ -411,6 +538,7 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
           }
         }),
       );
+      const fetchedEvents = await eventsPending;
       if (cancelled || handle.current !== h) {
         for (const l of loaded.values()) if (l.model) disposeTree(l.model);
         return;
@@ -429,6 +557,8 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
       h.names = names;
       overlay.visible = showRef.current;
       h.scene.add(content);
+      setMarkers(h, fetchedEvents.events, showEventsRef.current);
+      setEventStatus(fetchedEvents.error);
 
       const w = matrix.width * MAP_SIZE;
       const d = matrix.height * MAP_SIZE;
@@ -455,8 +585,10 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
     let cancelled = false;
     (async () => {
       const ids = [...h.loaded.keys()];
-      const fresh = await Promise.all(ids.map((id) => getMap(id)));
+      const [fresh, fetchedEvents] = await Promise.all([Promise.all(ids.map((id) => getMap(id))), fetchEvents(eventFileRef.current)]);
       if (cancelled || handle.current !== h) return;
+      setMarkers(h, fetchedEvents.events, showEventsRef.current);
+      setEventStatus(fetchedEvents.error);
       fresh.forEach((map, i) => {
         const data = h.loaded.get(ids[i]);
         if (!data) return;
@@ -482,12 +614,23 @@ function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reload
     }
   }, [showPermissions]);
 
+  useEffect(() => {
+    showEventsRef.current = showEvents;
+    const h = handle.current;
+    if (h?.markers) {
+      h.markers.group.visible = showEvents;
+      h.render();
+      // Hidden markers must stop being hovered, shown ones start to be.
+      h.refreshHover?.();
+    }
+  }, [showEvents]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={host} style={{ position: "absolute", inset: 0 }} />
-      {status && (
+      {(status || eventStatus) && (
         <div style={{ position: "absolute", left: 8, bottom: 8, color: "#e5e7eb", font: "12px system-ui", maxWidth: "70%" }}>
-          {status}
+          {[status, eventStatus].filter(Boolean).join(" · ")}
         </div>
       )}
     </div>
