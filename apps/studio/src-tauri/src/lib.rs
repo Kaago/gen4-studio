@@ -4,8 +4,8 @@ mod state;
 
 use commands::{
     accept_disk, build_rom, dirty, force_quit, get_events, get_map, get_map_model_glb, get_matrix,
-    list_headers, open_project, redo, reload_asset, run_rom, save, set_permission, tile_behaviors,
-    undo,
+    list_headers, map_model_texture_status, open_project, redo, reload_asset, run_rom, save,
+    set_permission, tile_behaviors, undo,
 };
 use state::{AppState, exit_is_blocked};
 use std::sync::atomic::Ordering;
@@ -23,6 +23,7 @@ pub fn run() {
             get_map,
             get_events,
             get_map_model_glb,
+            map_model_texture_status,
             tile_behaviors,
             set_permission,
             undo,

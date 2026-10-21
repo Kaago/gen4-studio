@@ -7,7 +7,7 @@ use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 use g4_kernel::build::build;
 use g4_kernel::error::KernelError;
-use g4_kernel::export::{glb_cache_get, glb_cached};
+use g4_kernel::export::{glb_cache_get, glb_cached, glb_fail_get, glb_fail_record};
 use g4_kernel::project::{AssetId, AssetKind, HeaderListing, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{EventFile, SaveReport, Store};
@@ -424,41 +424,142 @@ fn find_apicula() -> Option<PathBuf> {
     })
 }
 
+/// Why a map's model has no textures although it should have: the area data or tileset it
+/// depends on cannot be used. `tileset` is the tileset index when it is known.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TextureIssue {
+    pub tileset: Option<u16>,
+    /// First line of the (English) kernel error, for display next to the German note.
+    pub reason: String,
+}
+
+fn issue(tileset: Option<u16>, reason: &str) -> TextureIssue {
+    let line = reason.lines().next().unwrap_or_default();
+    TextureIssue {
+        tileset,
+        reason: line.chars().take(200).collect(),
+    }
+}
+
+/// What the model conversion needs, read under one short lock acquisition.
+struct ModelInputs {
+    cache_dir: PathBuf,
+    nsbmd: Vec<u8>,
+    tileset: Option<Vec<u8>>,
+    tileset_id: Option<u16>,
+    /// Set when the area data or the tileset could not be read: `tileset` is then `None`.
+    problem: Option<TextureIssue>,
+}
+
+/// Cache directory, model and tileset come from ONE short lock acquisition, so a project
+/// switch in between can never mix two projects. A tileset that cannot be resolved (unreadable
+/// area data, unreadable or corrupt texture archive) is not an error: the map is converted
+/// without textures and the problem is reported in `problem`.
+fn model_inputs(state: &AppState, index: u16, area_data_id: u8) -> Result<ModelInputs, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    let project = Arc::clone(&session.project);
+    let nsbmd = session.store.map(index)?.model.clone();
+    let mut inputs = ModelInputs {
+        cache_dir: project.root.join(".g4").join("models"),
+        nsbmd,
+        tileset: None,
+        tileset_id: None,
+        problem: None,
+    };
+    match project.map_tileset_index(area_data_id) {
+        Ok(Some(id)) => {
+            inputs.tileset_id = Some(id);
+            match project.map_tileset_member(id) {
+                Ok(bytes) => inputs.tileset = bytes,
+                Err(e) => inputs.problem = Some(issue(Some(id), &e.to_string())),
+            }
+        }
+        Ok(None) => {}
+        Err(e) => inputs.problem = Some(issue(None, &e.to_string())),
+    }
+    Ok(inputs)
+}
+
+/// The apicula to run, or a `ToolMissing` error naming the fix. Checked before any
+/// conversion so a missing tool is never mistaken for a tileset that cannot be converted.
+fn require_apicula(apicula: Option<&Path>) -> Result<&Path, KernelError> {
+    let missing = |reason: String| KernelError::ToolMissing {
+        name: "apicula",
+        reason,
+    };
+    let apicula = apicula.ok_or_else(|| {
+        missing("set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)".into())
+    })?;
+    if !apicula.exists() {
+        return Err(missing(format!("not found: {}", apicula.display())));
+    }
+    Ok(apicula)
+}
+
 /// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`),
 /// cached by content hash under `<project>/.g4/models/`. `apicula` is only needed on a cache
-/// miss. A map whose area data or tileset does not exist, or whose textured conversion fails,
-/// is converted without textures.
+/// miss. A map whose area data or tileset does not exist or cannot be read, or whose textured
+/// conversion fails, is converted without textures; a failed textured conversion is recorded
+/// next to the cache (`<key>.fail`) so later loads skip it. The reason is available through
+/// [`map_model_texture_status_impl`].
 pub fn get_map_model_glb_with(
     state: &AppState,
     index: u16,
     area_data_id: u8,
     apicula: Option<&Path>,
 ) -> Result<Vec<u8>, CmdError> {
-    // Cache directory, model and tileset come from ONE short lock acquisition, so a project
-    // switch in between can never mix two projects; apicula runs outside the lock.
-    let (cache_dir, nsbmd, tileset) = {
-        let mut guard = lock(state)?;
-        let session = session(&mut guard)?;
-        let project = Arc::clone(&session.project);
-        project.ensure_unpacked(AssetKind::Map)?;
-        let nsbmd = session.store.map(index)?.model.clone();
-        let tileset = project.map_tileset_bytes(area_data_id)?;
-        (project.root.join(".g4").join("models"), nsbmd, tileset)
+    let ModelInputs {
+        cache_dir,
+        nsbmd,
+        tileset,
+        ..
+    } = model_inputs(state, index, area_data_id)?;
+    let mut textured_failure = None;
+    if let Some(tileset) = tileset.as_deref() {
+        if let Some(bytes) = glb_cache_get(&cache_dir, &nsbmd, Some(tileset))? {
+            return Ok(bytes);
+        }
+        if glb_fail_get(&cache_dir, &nsbmd, Some(tileset))?.is_none() {
+            let apicula = require_apicula(apicula)?;
+            match glb_cached(&cache_dir, apicula, &nsbmd, Some(tileset)) {
+                Ok(bytes) => return Ok(bytes),
+                Err(e) => textured_failure = Some(e.to_string()),
+            }
+        }
+    }
+    let plain = match glb_cache_get(&cache_dir, &nsbmd, None)? {
+        Some(bytes) => bytes,
+        None => glb_cached(&cache_dir, require_apicula(apicula)?, &nsbmd, None)?,
     };
-    if let Some(bytes) = glb_cache_get(&cache_dir, &nsbmd, tileset.as_deref())? {
-        return Ok(bytes);
+    // Recorded only now: if the untextured conversion fails too, the tileset is not to blame.
+    if let (Some(reason), Some(tileset)) = (textured_failure, tileset.as_deref()) {
+        // Best effort: without a marker the next load simply tries the tileset again.
+        let _ = glb_fail_record(&cache_dir, &nsbmd, Some(tileset), &reason);
     }
-    let apicula = apicula.ok_or_else(|| KernelError::ToolMissing {
-        name: "apicula",
-        reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)".into(),
-    })?;
-    match glb_cached(&cache_dir, apicula, &nsbmd, tileset.as_deref()) {
-        Ok(bytes) => Ok(bytes),
-        // A tileset apicula cannot convert must not cost the model: retry once without it, so
-        // the map shows up untextured instead of not at all.
-        Err(_) if tileset.is_some() => Ok(glb_cached(&cache_dir, apicula, &nsbmd, None)?),
-        Err(e) => Err(e.into()),
+    Ok(plain)
+}
+
+/// Whether the model of map `index` is shown without textures because of its tileset: the area
+/// data or tileset cannot be read, or an earlier conversion with this tileset failed (see
+/// [`get_map_model_glb_with`]). `None` when nothing is wrong. Call it after the model was
+/// requested; it never runs apicula.
+pub fn map_model_texture_status_impl(
+    state: &AppState,
+    index: u16,
+    area_data_id: u8,
+) -> Result<Option<TextureIssue>, CmdError> {
+    let inputs = model_inputs(state, index, area_data_id)?;
+    if inputs.problem.is_some() {
+        return Ok(inputs.problem);
     }
+    let Some(tileset) = inputs.tileset.as_deref() else {
+        return Ok(None);
+    };
+    Ok(
+        glb_fail_get(&inputs.cache_dir, &inputs.nsbmd, Some(tileset))?
+            .map(|reason| issue(inputs.tileset_id, &reason)),
+    )
 }
 
 pub fn get_map_model_glb_impl(
@@ -508,6 +609,17 @@ pub fn get_map_model_glb(
     area_data_id: u8,
 ) -> Result<tauri::ipc::Response, CmdError> {
     get_map_model_glb_impl(&state, index, area_data_id).map(tauri::ipc::Response::new)
+}
+
+/// Why a map's model is untextured because of its tileset, if it is (see
+/// [`map_model_texture_status_impl`]). Cheap: reads a few small files, never runs apicula.
+#[tauri::command]
+pub fn map_model_texture_status(
+    state: State<AppState>,
+    index: u16,
+    area_data_id: u8,
+) -> Result<Option<TextureIssue>, CmdError> {
+    map_model_texture_status_impl(&state, index, area_data_id)
 }
 
 #[tauri::command]
@@ -742,11 +854,142 @@ mod tests {
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names.len(), 1, "{names:?}");
+        assert_eq!(
+            names.iter().filter(|n| n.ends_with(".glb")).count(),
+            1,
+            "{names:?}"
+        );
         // A model that fails without a tileset too is still an error.
         std::fs::write(&tool, "#!/bin/sh\necho boom >&2; exit 3\n").unwrap();
         let err = get_map_model_glb_with(&state, 0, 0, Some(&tool)).unwrap_err();
         assert!(err.message.contains("boom"), "{}", err.message);
+    }
+
+    #[cfg(unix)]
+    fn counting_tool(dir: &Path, glb: &str, fail_with_tileset: bool) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let tool = dir.join("fake-apicula");
+        let calls = dir.join("apicula-calls");
+        // argv: convert -f=glb <nsbmd> [<nsbtx>] -o <dir>. Logs "plain" or "textured" per run.
+        let fail = if fail_with_tileset {
+            "[ \"$4\" = \"-o\" ] || { echo 'bad tileset' >&2; exit 2; }\n"
+        } else {
+            ""
+        };
+        std::fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\nif [ \"$4\" = \"-o\" ]; then echo plain >> '{calls}'; \
+                 else echo textured >> '{calls}'; fi\n{fail}\
+                 while [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
+                 mkdir -p \"$out\"; printf '{glb}' > \"$out/m.glb\"\n",
+                calls = calls.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (tool, calls)
+    }
+
+    #[cfg(unix)]
+    fn recorded_calls(calls: &Path) -> Vec<String> {
+        std::fs::read_to_string(calls)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failing_tileset_is_remembered_and_not_retried() {
+        let (fixture, state) = open_synthetic();
+        let (tool, calls) = counting_tool(fixture.dir.path(), "glTFplain", true);
+        let models = fixture.dir.path().join(".g4/models");
+        assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
+
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFplain");
+        assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
+        let fails: Vec<_> = std::fs::read_dir(&models)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".fail"))
+            .collect();
+        assert_eq!(fails.len(), 1, "one marker");
+        let issue = map_model_texture_status_impl(&state, 1, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(issue.tileset, Some(0));
+        assert!(issue.reason.contains("bad tileset"), "{}", issue.reason);
+
+        // Even with the untextured result gone, the tileset is not tried again.
+        for e in std::fs::read_dir(&models).unwrap() {
+            let path = e.unwrap().path();
+            if path.extension().is_some_and(|x| x == "glb") {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFplain");
+        assert_eq!(recorded_calls(&calls), ["textured", "plain", "plain"]);
+        // A map without a tileset problem reports none.
+        assert_eq!(map_model_texture_status_impl(&state, 1, 200).unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failure_that_is_not_the_tilesets_leaves_no_marker() {
+        let (fixture, state) = open_synthetic();
+        let (tool, _calls) = counting_tool(fixture.dir.path(), "x", true);
+        std::fs::write(&tool, "#!/bin/sh\necho boom >&2; exit 3\n").unwrap();
+        assert!(get_map_model_glb_with(&state, 1, 0, Some(&tool)).is_err());
+        let models = fixture.dir.path().join(".g4/models");
+        let fails = std::fs::read_dir(&models)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|x| x == "fail")
+            })
+            .count();
+        assert_eq!(fails, 0);
+        assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_area_data_or_tileset_member_still_converts_untextured() {
+        let (fixture, state) = open_synthetic();
+        let (tool, calls) = counting_tool(fixture.dir.path(), "glTFplain", false);
+        let project = Project::open(fixture.dir.path()).unwrap();
+        project.ensure_unpacked(AssetKind::AreaData).unwrap();
+        project.ensure_unpacked(AssetKind::MapTexture).unwrap();
+
+        // A truncated area data member.
+        std::fs::write(project.member_path(AssetKind::AreaData, 0), [1, 2, 3]).unwrap();
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFplain");
+        assert_eq!(recorded_calls(&calls), ["plain"]);
+        let issue = map_model_texture_status_impl(&state, 1, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(issue.tileset, None);
+        assert!(!issue.reason.is_empty());
+
+        // A tileset member that cannot be read.
+        use std::os::unix::fs::PermissionsExt;
+        let member = project.member_path(AssetKind::MapTexture, 0);
+        std::fs::set_permissions(&member, std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::write(project.member_path(AssetKind::AreaData, 0), [0u8; 8]).unwrap();
+        let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFplain");
+        let issue = map_model_texture_status_impl(&state, 1, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(issue.tileset, Some(0));
     }
 
     fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState) {

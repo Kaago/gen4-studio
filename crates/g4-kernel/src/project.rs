@@ -367,10 +367,9 @@ impl Project {
         }
     }
 
-    /// Bytes of the map texture set (NSBTX) that `AreaData[area_data_id]` selects with its
-    /// `map_tileset`, from the unpacked archives on disk. `Ok(None)` when the area data index
-    /// or the tileset index lies outside its archive: the map then simply has no textures.
-    pub fn map_tileset_bytes(&self, area_data_id: u8) -> Result<Option<Vec<u8>>, KernelError> {
+    /// Index of the map texture set that `AreaData[area_data_id]` selects with its
+    /// `map_tileset`. `Ok(None)` when the area data index lies outside its archive.
+    pub fn map_tileset_index(&self, area_data_id: u8) -> Result<Option<u16>, KernelError> {
         let area_count = self.ensure_unpacked(AssetKind::AreaData)?;
         if usize::from(area_data_id) >= area_count {
             return Ok(None);
@@ -378,13 +377,28 @@ impl Project {
         let area_path = self.member_path(AssetKind::AreaData, u16::from(area_data_id));
         let area_bytes = std::fs::read(&area_path).map_err(io_at(&area_path))?;
         let area = AreaData::read(&area_bytes, self.family)?;
-        let tileset = area.map_tileset();
+        Ok(Some(area.map_tileset()))
+    }
+
+    /// Bytes of map texture set `tileset` (NSBTX) from the unpacked archive on disk, or
+    /// `Ok(None)` when the index lies outside the archive.
+    pub fn map_tileset_member(&self, tileset: u16) -> Result<Option<Vec<u8>>, KernelError> {
         let tileset_count = self.ensure_unpacked(AssetKind::MapTexture)?;
         if usize::from(tileset) >= tileset_count {
             return Ok(None);
         }
         let path = self.member_path(AssetKind::MapTexture, tileset);
         std::fs::read(&path).map(Some).map_err(io_at(&path))
+    }
+
+    /// Bytes of the map texture set that `AreaData[area_data_id]` selects, from the unpacked
+    /// archives on disk. `Ok(None)` when the area data index or the tileset index lies outside
+    /// its archive: the map then simply has no textures.
+    pub fn map_tileset_bytes(&self, area_data_id: u8) -> Result<Option<Vec<u8>>, KernelError> {
+        match self.map_tileset_index(area_data_id)? {
+            Some(tileset) => self.map_tileset_member(tileset),
+            None => Ok(None),
+        }
     }
 
     fn uxie_family(&self) -> uxie::GameFamily {

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use g4_kernel::error::KernelError;
-use g4_kernel::export::{glb_cache_key, glb_cached, nsbmd_to_glb};
+use g4_kernel::export::{glb_cache_key, glb_cached, glb_fail_get, glb_fail_record, nsbmd_to_glb};
 
 #[test]
 fn missing_apicula_is_tool_missing() {
@@ -25,6 +25,29 @@ fn cache_key_depends_on_model_and_tileset() {
         glb_cache_key(b"BMD0", Some(b"BTX0"))
     );
     assert_eq!(glb_cache_key(b"BMD0", None), glb_cache_key(b"BMD0", None));
+}
+
+#[test]
+fn fail_marker_round_trips_per_model_and_tileset_and_leaves_no_temp_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("models");
+    assert_eq!(glb_fail_get(&cache, b"BMD0", Some(b"BTX0")).unwrap(), None);
+    glb_fail_record(&cache, b"BMD0", Some(b"BTX0"), "bad tileset").unwrap();
+    assert_eq!(
+        glb_fail_get(&cache, b"BMD0", Some(b"BTX0"))
+            .unwrap()
+            .as_deref(),
+        Some("bad tileset")
+    );
+    // Other tileset bytes, or none at all, are unaffected.
+    assert_eq!(glb_fail_get(&cache, b"BMD0", Some(b"BTX1")).unwrap(), None);
+    assert_eq!(glb_fail_get(&cache, b"BMD0", None).unwrap(), None);
+    let names: Vec<_> = std::fs::read_dir(&cache)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert!(names[0].ends_with(".fail"));
 }
 
 #[cfg(unix)]

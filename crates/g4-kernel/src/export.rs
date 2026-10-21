@@ -170,3 +170,44 @@ pub fn glb_cached(
     let target = cache_dir.join(format!("{}.glb", glb_cache_key(nsbmd, nsbtx)));
     convert_into_cache(cache_dir, apicula, nsbmd, nsbtx, &target)
 }
+
+/// Marker file of a textured conversion that failed: `<cache_dir>/<key>.fail`, holding the
+/// failure reason. Callers that find it skip the textured attempt instead of running apicula
+/// again on every load. The key is a content hash, so changed model or tileset bytes are
+/// tried afresh; deleting the cache directory clears all markers.
+fn glb_fail_path(cache_dir: &Path, nsbmd: &[u8], nsbtx: Option<&[u8]>) -> PathBuf {
+    cache_dir.join(format!("{}.fail", glb_cache_key(nsbmd, nsbtx)))
+}
+
+/// The recorded failure reason for this model and tileset, if a conversion failed before.
+pub fn glb_fail_get(
+    cache_dir: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+) -> Result<Option<String>, KernelError> {
+    let path = glb_fail_path(cache_dir, nsbmd, nsbtx);
+    match std::fs::read_to_string(&path) {
+        Ok(reason) => Ok(Some(reason)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(&path)(e)),
+    }
+}
+
+/// Records that converting this model with this tileset failed (temp file in the same
+/// directory, then rename, so a concurrent reader never sees a half-written marker).
+pub fn glb_fail_record(
+    cache_dir: &Path,
+    nsbmd: &[u8],
+    nsbtx: Option<&[u8]>,
+    reason: &str,
+) -> Result<(), KernelError> {
+    std::fs::create_dir_all(cache_dir).map_err(io_at(cache_dir))?;
+    let target = glb_fail_path(cache_dir, nsbmd, nsbtx);
+    let n = WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = cache_dir.join(format!(".fail-{}-{n}.tmp", std::process::id()));
+    std::fs::write(&tmp, reason).map_err(io_at(&tmp))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        io_at(&target)(e)
+    })
+}
