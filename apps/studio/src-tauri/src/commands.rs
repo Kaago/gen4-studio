@@ -1,9 +1,13 @@
 //! Tauri commands. Each command is a thin wrapper over a testable `*_impl` function.
 
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, MutexGuard};
 
 use g4_formats::map::MapFile;
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
+use g4_kernel::error::KernelError;
+use g4_kernel::export::nsbmd_to_glb;
 use g4_kernel::project::{AssetKind, HeaderSummary, Project};
 use g4_kernel::store::Store;
 use serde::Serialize;
@@ -154,6 +158,93 @@ pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, String> {
     Ok(MapDto::from_map(index, map))
 }
 
+/// Finds the apicula executable: `G4_APICULA`, then `apicula` next to the running binary, then
+/// (debug builds only) the repository's `tools/apicula/bin/apicula`. A set `G4_APICULA` always
+/// wins, even when it points nowhere, so a typo is reported instead of silently ignored.
+fn find_apicula() -> Option<PathBuf> {
+    if let Some(env) = std::env::var_os("G4_APICULA").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(env));
+    }
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("apicula")));
+    let mut candidates = vec![beside_exe];
+    if cfg!(debug_assertions) {
+        candidates.push(Some(PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../tools/apicula/bin/apicula"
+        ))));
+    }
+    candidates.into_iter().flatten().find(|p| p.is_file())
+}
+
+static MODEL_WORK_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+fn is_fresh(cache: &Path, source: &Path) -> bool {
+    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (modified(cache), modified(source)) {
+        (Some(c), Some(s)) => c >= s,
+        _ => false,
+    }
+}
+
+/// GLB bytes of the map's terrain model, cached under `<project>/.g4/models/<index:04>.glb`.
+/// `apicula` is only needed on a cache miss.
+pub fn get_map_model_glb_with(
+    state: &AppState,
+    index: u16,
+    apicula: Option<&Path>,
+) -> Result<Vec<u8>, String> {
+    let project = {
+        let mut guard = lock(state)?;
+        let project = Arc::clone(&session(&mut guard)?.project);
+        project
+            .ensure_unpacked(AssetKind::Map)
+            .map_err(|e| e.to_string())?;
+        project
+    };
+    let models = project.root.join(".g4").join("models");
+    let cache = models.join(format!("{index:04}.glb"));
+    if is_fresh(&cache, &project.member_path(AssetKind::Map, index)) {
+        return std::fs::read(&cache).map_err(|e| e.to_string());
+    }
+
+    let apicula = apicula.ok_or_else(|| {
+        KernelError::ToolMissing {
+            name: "apicula",
+            reason: "set G4_APICULA or place apicula next to the app (see docs/dev-setup.md)"
+                .into(),
+        }
+        .to_string()
+    })?;
+    let nsbmd = {
+        let mut guard = lock(state)?;
+        session(&mut guard)?
+            .store
+            .map(index)
+            .map_err(|e| e.to_string())?
+            .model
+            .clone()
+    };
+    let unique = MODEL_WORK_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let work = models.join(format!(".work-{index:04}-{unique}"));
+    let result = (|| -> Result<Vec<u8>, String> {
+        let glb = nsbmd_to_glb(apicula, &nsbmd, &work).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&glb).map_err(|e| e.to_string())?;
+        // Publish atomically so a concurrent reader never sees a half-written cache file.
+        let tmp = work.join("cache.glb");
+        std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &cache).map_err(|e| e.to_string())?;
+        Ok(bytes)
+    })();
+    let _ = std::fs::remove_dir_all(&work);
+    result
+}
+
+pub fn get_map_model_glb_impl(state: &AppState, index: u16) -> Result<Vec<u8>, String> {
+    get_map_model_glb_with(state, index, find_apicula().as_deref())
+}
+
 #[tauri::command]
 pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, String> {
     open_project_impl(&state, &path)
@@ -172,6 +263,16 @@ pub fn get_matrix(state: State<AppState>, index: u16) -> Result<MatrixDto, Strin
 #[tauri::command]
 pub fn get_map(state: State<AppState>, index: u16) -> Result<MapDto, String> {
     get_map_impl(&state, index)
+}
+
+/// Raw GLB bytes over IPC (no file paths, no asset protocol). `async` keeps the apicula run
+/// off the main thread.
+#[tauri::command(async)]
+pub fn get_map_model_glb(
+    state: State<AppState>,
+    index: u16,
+) -> Result<tauri::ipc::Response, String> {
+    get_map_model_glb_impl(&state, index).map(tauri::ipc::Response::new)
 }
 
 #[cfg(test)]
@@ -219,6 +320,66 @@ mod tests {
         let matrix = get_matrix_impl(&state, 0).unwrap();
         assert_eq!((matrix.width, matrix.height), (2, 1));
         assert_eq!(matrix.maps, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn model_glb_without_apicula_names_the_tool() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let err = get_map_model_glb_with(&state, 0, None).unwrap_err();
+        assert!(err.contains("apicula"), "{err}");
+        let err = get_map_model_glb_with(&state, 0, Some(Path::new("/nonexistent/apicula")))
+            .unwrap_err();
+        assert!(err.contains("apicula"), "{err}");
+        let err = get_map_model_glb_impl(&AppState::default(), 0).unwrap_err();
+        assert_eq!(err, "no project open");
+    }
+
+    #[test]
+    fn model_glb_is_cached_and_refreshed_when_the_map_changes() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let cache = fixture.dir.path().join(".g4/models/0000.glb");
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        // The synthetic map unpacks lazily; unpack first so the cache can be newer than it.
+        get_map_impl(&state, 0).unwrap();
+        std::fs::write(&cache, b"glTFcached").unwrap();
+        // Cache newer than the unpacked map: served without needing apicula.
+        assert_eq!(get_map_model_glb_with(&state, 0, None).unwrap(), b"glTFcached");
+        // Map newer than the cache: the cache is stale, so apicula is required again.
+        let member = fixture.dir.path().join("unpacked/maps/0000");
+        let file = std::fs::OpenOptions::new().write(true).open(&member).unwrap();
+        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+            .unwrap();
+        assert!(get_map_model_glb_with(&state, 0, None).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn model_glb_is_converted_once_and_leaves_no_work_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let tool = fixture.dir.path().join("fake-apicula");
+        std::fs::write(
+            &tool,
+            "#!/bin/sh\nmkdir -p \"$5\"; printf 'glTFfake' > \"$5/m.glb\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let glb = get_map_model_glb_with(&state, 1, Some(&tool)).unwrap();
+        assert_eq!(glb, b"glTFfake");
+        let models = fixture.dir.path().join(".g4/models");
+        let names: Vec<_> = std::fs::read_dir(&models)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, ["0001.glb"]);
+        // Second call is a cache hit and does not need the tool.
+        assert_eq!(get_map_model_glb_with(&state, 1, None).unwrap(), b"glTFfake");
     }
 
     #[test]

@@ -46,3 +46,5 @@ export const openProject = (path: string) => invoke<ProjectInfo>("open_project",
 export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
+/** Raw GLB bytes of the map's terrain model (converted by apicula, cached by the backend). */
+export const getMapModelGlb = (index: number) => invoke<ArrayBuffer>("get_map_model_glb", { index });
