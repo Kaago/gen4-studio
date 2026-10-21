@@ -1,3 +1,4 @@
+pub mod build;
 pub mod error;
 pub mod project;
 pub mod store;
