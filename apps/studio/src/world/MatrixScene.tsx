@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { errorText, getMap, getMapModelGlb, setPermission } from "../api";
 import type { MapDto, MatrixDto } from "../api";
+import type { InspectorModel } from "../workbench/Inspector";
 import { permissionColor } from "./colors";
 import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
@@ -175,9 +176,11 @@ interface Props {
   /** Called after a tile was changed in the backend. */
   onEdited: () => void;
   onError: (message: string) => void;
+  /** Reports what the inspector should show (filled in by tile hover and event markers). */
+  onInspect: (model: InspectorModel) => void;
 }
 
-export default function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError }: Props) {
+export default function MatrixScene({ matrix, areaDataId, showPermissions, paintEnabled, reloadToken, onEdited, onError, onInspect }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
   const showRef = useRef(showPermissions);
@@ -186,8 +189,8 @@ export default function MatrixScene({ matrix, areaDataId, showPermissions, paint
   const areaRef = useRef(areaDataId);
   areaRef.current = areaDataId;
   const [status, setStatus] = useState<string | null>(null);
-  const callbacks = useRef({ paintEnabled, onEdited, onError });
-  callbacks.current = { paintEnabled, onEdited, onError };
+  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect });
+  callbacks.current = { paintEnabled, onEdited, onError, onInspect };
 
   // Renderer, camera and controls live as long as the component.
   useEffect(() => {

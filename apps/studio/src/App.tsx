@@ -19,9 +19,11 @@ import {
   undo,
 } from "./api";
 import type { AssetId, HeaderSummary, MatrixDto, ProjectInfo } from "./api";
-import { StatusBar, Toolbar } from "./Toolbar";
+import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
-import MatrixScene from "./world/MatrixScene";
+import Workbench from "./workbench/Workbench";
+import type { WorkbenchData } from "./workbench/Workbench";
+import type { InspectorModel } from "./workbench/Inspector";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -52,6 +54,7 @@ export default function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
+  const [inspector, setInspector] = useState<InspectorModel>({ kind: "none" });
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -272,6 +275,25 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const workbench: WorkbenchData = {
+    info,
+    headers,
+    selected,
+    onSelect: (h) => void onSelect(h),
+    matrix,
+    areaDataId: headers.find((h) => h.id === selected)?.area_data_id ?? 0,
+    showPermissions,
+    onShowPermissions: setShowPermissions,
+    paintEnabled: !busy,
+    reloadToken,
+    onEdited: () => void refreshDirty(),
+    onError: fail,
+    inspector,
+    setInspector,
+    message,
+    onDismissMessage: () => setMessage(null),
+  };
+
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", height: "100vh" }}>
       <Toolbar
@@ -287,68 +309,7 @@ export default function App() {
         onRun={() => void onRun()}
         onPickEmulator={() => void onPickEmulator()}
       />
-      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "280px 1fr" }}>
-        <aside style={{ padding: 16, overflowY: "auto", borderRight: "1px solid #ccc" }}>
-          {info && (
-            <p>
-              {info.game_code} ({info.family}, {info.language}), {info.header_count} Header
-            </p>
-          )}
-          <ul style={{ fontFamily: "ui-monospace, monospace", listStyle: "none", padding: 0 }}>
-            {headers.map((h) => (
-              <li key={h.id}>
-                <button
-                  onClick={() => void onSelect(h)}
-                  style={{
-                    all: "unset",
-                    cursor: "pointer",
-                    width: "100%",
-                    fontWeight: h.id === selected ? 700 : 400,
-                  }}
-                >
-                  {String(h.id).padStart(4, "0")} {h.internal_name} matrix {h.matrix_id}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-        <section style={{ position: "relative", minWidth: 0 }}>
-          {matrix ? (
-            <>
-              <MatrixScene
-                matrix={matrix}
-                areaDataId={headers.find((h) => h.id === selected)?.area_data_id ?? 0}
-                showPermissions={showPermissions}
-                paintEnabled={!busy}
-                reloadToken={reloadToken}
-                onEdited={() => void refreshDirty()}
-                onError={fail}
-              />
-              <label
-                style={{
-                  position: "absolute",
-                  top: 8,
-                  left: 8,
-                  color: "#e5e7eb",
-                  background: "rgba(0,0,0,0.5)",
-                  padding: "4px 8px",
-                  borderRadius: 4,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={showPermissions}
-                  onChange={(e) => setShowPermissions(e.target.checked)}
-                />{" "}
-                Permissions anzeigen
-              </label>
-            </>
-          ) : (
-            <p style={{ padding: 16 }}>Header wählen, um die Matrix anzuzeigen. Klick setzt Kollision, Shift+Klick löscht sie.</p>
-          )}
-        </section>
-      </div>
-      <StatusBar message={message} onDismiss={() => setMessage(null)} />
+      <Workbench data={workbench} />
     </main>
   );
 }
