@@ -14,6 +14,7 @@ describe("asset labels", () => {
       BuildingTexture: "Gebäude-Textur",
       BuildingModel: "Gebäudemodell",
       InteriorBuildingModel: "Innen-Gebäudemodell",
+      HeaderTable: "Header-Tabelle",
     };
     for (const [kind, label] of Object.entries(expected)) expect(kindLabel(kind as AssetKind)).toBe(label);
   });

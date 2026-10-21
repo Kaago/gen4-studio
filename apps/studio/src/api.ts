@@ -24,6 +24,92 @@ export interface HeaderListing {
   names_error: string | null;
 }
 
+/** Map header fields of Diamond/Pearl (uxie `MapHeaderDP`, snake_case as serialized). */
+export interface MapHeaderDP {
+  area_data_id: number;
+  unknown1: number;
+  matrix_id: number;
+  script_file_id: number;
+  level_script_id: number;
+  text_archive_id: number;
+  music_day_id: number;
+  music_night_id: number;
+  wild_pokemon: number;
+  event_file_id: number;
+  location_name: number;
+  weather_id: number;
+  camera_angle_id: number;
+  location_specifier: number;
+  battle_background: number;
+  flags: number;
+}
+
+/** Map header fields of Platinum (uxie `MapHeaderPt`). */
+export interface MapHeaderPt {
+  area_data_id: number;
+  unknown1: number;
+  matrix_id: number;
+  script_file_id: number;
+  level_script_id: number;
+  text_archive_id: number;
+  music_day_id: number;
+  music_night_id: number;
+  wild_pokemon: number;
+  event_file_id: number;
+  location_name: number;
+  area_icon: number;
+  weather_id: number;
+  camera_angle_id: number;
+  location_specifier: number;
+  battle_background: number;
+  flags: number;
+}
+
+/** Map header fields of HeartGold/SoulSilver (uxie `MapHeaderHGSS`). */
+export interface MapHeaderHGSS {
+  wild_pokemon: number;
+  area_data_id: number;
+  unknown0: number;
+  worldmap_x: number;
+  worldmap_y: number;
+  matrix_id: number;
+  script_file_id: number;
+  level_script_id: number;
+  text_archive_id: number;
+  music_day_id: number;
+  music_night_id: number;
+  event_file_id: number;
+  location_name: number;
+  area_icon: number;
+  unknown1: number;
+  kanto_flag: boolean;
+  weather_id: number;
+  location_type: number;
+  camera_angle_id: number;
+  follow_mode: number;
+  battle_background: number;
+  flags: number;
+}
+
+/** One map header exactly as the backend serializes it: externally tagged by game family. */
+export type MapHeader = { DP: MapHeaderDP } | { Pt: MapHeaderPt } | { HGSS: MapHeaderHGSS };
+
+export type HeaderFamily = "DP" | "Pt" | "HGSS";
+
+/** The game family a header belongs to (the tag of its serialized form). */
+export function headerFamily(h: MapHeader): HeaderFamily {
+  if ("DP" in h) return "DP";
+  if ("Pt" in h) return "Pt";
+  return "HGSS";
+}
+
+/** The fields of a header, whatever its family. */
+export function headerFields(h: MapHeader): MapHeaderDP | MapHeaderPt | MapHeaderHGSS {
+  if ("DP" in h) return h.DP;
+  if ("Pt" in h) return h.Pt;
+  return h.HGSS;
+}
+
 export interface MatrixDto {
   index: number;
   name: string;
@@ -115,6 +201,10 @@ export function errorText(e: unknown): string {
 
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
 export const listHeaders = () => invoke<HeaderListing>("list_headers");
+/** Map header `id` including unsaved edits. */
+export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id });
+/** Replaces header `id` as a whole (same family, values within their bit fields). */
+export const setHeader = (id: number, header: MapHeader) => invoke<void>("set_header", { id, header });
 export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
@@ -150,7 +240,8 @@ export type AssetKind =
   | "MapTexture"
   | "BuildingTexture"
   | "BuildingModel"
-  | "InteriorBuildingModel";
+  | "InteriorBuildingModel"
+  | "HeaderTable";
 
 export interface AssetId {
   kind: AssetKind;

@@ -10,6 +10,7 @@ const KIND_LABELS: Record<AssetKind, string> = {
   BuildingTexture: "Gebäude-Textur",
   BuildingModel: "Gebäudemodell",
   InteriorBuildingModel: "Innen-Gebäudemodell",
+  HeaderTable: "Header-Tabelle",
 };
 
 /** German display name of an asset kind. */
