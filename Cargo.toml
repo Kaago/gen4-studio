@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/g4-formats", "crates/g4-kernel"]
+members = ["crates/g4-formats", "crates/g4-kernel", "apps/studio/src-tauri"]
 
 [workspace.package]
 edition = "2024"

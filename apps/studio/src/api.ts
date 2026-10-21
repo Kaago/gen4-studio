@@ -1,0 +1,48 @@
+import { invoke } from "@tauri-apps/api/core";
+
+export interface ProjectInfo {
+  root: string;
+  game_code: string;
+  family: string;
+  language: string;
+  header_count: number;
+}
+
+export interface HeaderSummary {
+  id: number;
+  internal_name: string;
+  matrix_id: number;
+  area_data_id: number;
+}
+
+export interface MatrixDto {
+  index: number;
+  name: string;
+  width: number;
+  height: number;
+  /** Row-major map ids; null marks an empty cell. */
+  maps: (number | null)[];
+}
+
+/** Positions in tiles from the map centre (y is vertical); scale 1.0 = unscaled. */
+export interface BuildingDto {
+  model_id: number;
+  x: number;
+  y: number;
+  z: number;
+  sx: number;
+  sy: number;
+  sz: number;
+}
+
+export interface MapDto {
+  index: number;
+  /** [kind, collision] per cell, row-major (32 x 32). */
+  permissions: [number, number][];
+  buildings: BuildingDto[];
+}
+
+export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
+export const listHeaders = () => invoke<HeaderSummary[]>("list_headers");
+export const getMatrix = (index: number) => invoke<MatrixDto>("get_matrix", { index });
+export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
