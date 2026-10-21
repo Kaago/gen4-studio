@@ -54,7 +54,15 @@ pub fn synthetic_project() -> Synthetic {
         "files/fielddata/eventdata/zone_event.narc",
         &[vec![0; 16], vec![0; 16]],
     );
-    write_narc(root, "files/msgdata/pl_msg.narc", &[vec![0xAA; 8]]);
+    // Member 433 is the Platinum location bank (see `uxie::text_bank::game_strings`); the
+    // members before it are placeholders.
+    let mut text_members = vec![vec![0xAA; 8]; 433];
+    text_members.push(text_archive_bytes(&[
+        "Nowhere",
+        "Twinleaf Town",
+        "Sandgem Town",
+    ]));
+    write_narc(root, "files/msgdata/pl_msg.narc", &text_members);
     let btx = [b"BTX0".as_slice(), &[0; 4]].concat();
     let bmd = [b"BMD0".as_slice(), &[0; 4]].concat();
     write_narc(
@@ -87,12 +95,32 @@ pub fn synthetic_project() -> Synthetic {
     let mut arm9 = vec![0u8; PT_HEADER_TABLE_CPUE + 2 * HEADER_SIZE + 64];
     arm9[PT_HEADER_TABLE_CPUE] = 0; // header 0: area_data_id 0
     arm9[PT_HEADER_TABLE_CPUE + 2..PT_HEADER_TABLE_CPUE + 4].copy_from_slice(&0u16.to_le_bytes());
+    // Platinum header byte 18 = location_name: header 0 names "Twinleaf Town", header 1
+    // points past the end of the bank.
+    arm9[PT_HEADER_TABLE_CPUE + 18] = 1;
+    arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 18] = 200;
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE] = 1; // header 1: area_data_id 1
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 2..PT_HEADER_TABLE_CPUE + HEADER_SIZE + 4]
         .copy_from_slice(&0u16.to_le_bytes());
     write_file(root, "arm9/arm9.bin", &arm9);
 
     Synthetic { dir }
+}
+
+/// A binary text archive (chatot format, key 0) with the given messages, encoded by uxie.
+pub fn text_archive_bytes(messages: &[&str]) -> Vec<u8> {
+    let tmp = tempfile::tempdir().unwrap();
+    let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
+    std::fs::create_dir(&src).unwrap();
+    let messages: Vec<_> = messages
+        .iter()
+        .enumerate()
+        .map(|(i, m)| serde_json::json!({ "id": format!("msg_{i:05}"), "en_US": m }))
+        .collect();
+    let json = serde_json::json!({ "key": 0, "messages": messages });
+    std::fs::write(src.join("bank.json"), json.to_string()).unwrap();
+    uxie::text_bank::encode_text_archives(&src, &dst).unwrap();
+    std::fs::read(dst.join("bank")).unwrap()
 }
 
 /// A minimal valid Platinum map file; `seed` fills the 6-byte model block.

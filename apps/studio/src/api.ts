@@ -11,6 +11,8 @@ export interface ProjectInfo {
 export interface HeaderSummary {
   id: number;
   internal_name: string;
+  /** In-game location name; empty when the header has none. */
+  location_name: string;
   matrix_id: number;
   area_data_id: number;
   event_file_id: number;

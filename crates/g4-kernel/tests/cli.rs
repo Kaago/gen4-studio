@@ -22,6 +22,24 @@ fn info_prints_identity() {
 }
 
 #[test]
+fn headers_lists_id_location_name_internal_name_and_matrix() {
+    let s = common::synthetic_project();
+    let out = g4k()
+        .args(["headers"])
+        .arg(s.dir.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    let fields: Vec<_> = lines[0].split("  ").collect();
+    assert_eq!(fields, ["0000", "Twinleaf Town", "T01", "M0"], "{text}");
+}
+
+#[test]
 fn set_perm_then_dump_shows_change() {
     let s = common::synthetic_project();
     let root = s.dir.path();

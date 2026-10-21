@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { errorText, getEvents, getMap, getMapModelGlb, setPermission, tileBehaviors } from "../api";
+import { headerLabel } from "../workbench/headers";
 import type { EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { permissionColor } from "./colors";
@@ -410,7 +411,8 @@ function MatrixScene({
         if (key === shown) return;
         shown = key;
         const destId = marker.kind === "warp" ? (marker.data as WarpDto).dest_header_id : null;
-        const destName = destId === null ? undefined : headersRef.current.find((x) => x.id === destId)?.internal_name;
+        const destHeader = destId === null ? undefined : headersRef.current.find((x) => x.id === destId);
+        const destName = destHeader && headerLabel(destHeader);
         callbacks.current.onInspect({ kind: "event", eventKind: marker.kind, index: marker.data.index, data: marker.data, destName });
         return;
       }

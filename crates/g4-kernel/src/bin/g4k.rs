@@ -22,6 +22,8 @@ struct Cli {
 enum Command {
     /// Print game code, family, language and header count of a project.
     Info { project: PathBuf },
+    /// List the map headers: id, location name, internal name and matrix.
+    Headers { project: PathBuf },
     /// Extract a .nds ROM into a new ds-rom project folder.
     Extract { rom: PathBuf, dest: PathBuf },
     /// Map inspection and editing.
@@ -70,6 +72,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(), KernelError> {
     match cli.command {
         Command::Info { project } => info(&project),
+        Command::Headers { project } => headers(&project),
         Command::Extract { rom, dest } => {
             let p = extract_rom(&rom, &dest)?;
             println!("extracted {} to {}", p.game_code, p.root.display());
@@ -118,6 +121,17 @@ fn info(path: &PathBuf) -> Result<(), KernelError> {
         "game_code={} family={:?} language={:?} headers={headers}",
         project.game_code, project.family, project.language
     );
+    Ok(())
+}
+
+fn headers(path: &PathBuf) -> Result<(), KernelError> {
+    let project = Project::open(path)?;
+    for h in project.headers()? {
+        println!(
+            "{:04}  {}  {}  M{}",
+            h.id, h.location_name, h.internal_name, h.matrix_id
+        );
+    }
     Ok(())
 }
 

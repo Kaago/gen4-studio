@@ -207,6 +207,50 @@ fn headers_on_synthetic_project() {
 }
 
 #[test]
+fn headers_carry_location_names_on_synthetic_project() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert_eq!(
+        p.location_names().unwrap(),
+        ["Nowhere", "Twinleaf Town", "Sandgem Town"]
+    );
+    let h = p.headers().unwrap();
+    assert_eq!(h[0].location_name, "Twinleaf Town");
+    // Header 1 points past the end of the text bank: no name, not an error.
+    assert_eq!(h[1].location_name, "");
+    // Reading the names unpacks the text archive on demand.
+    assert!(p.unpacked_dir(AssetKind::TextArchive).is_dir());
+}
+
+#[test]
+fn location_names_with_missing_text_bank_member_is_an_error() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    // Platinum English reads member 433; shrink the archive below that.
+    let narc = g4_formats::narc::Narc {
+        members: vec![vec![0xAA; 8]],
+    };
+    std::fs::write(s.dir.path().join("files/msgdata/pl_msg.narc"), narc.write()).unwrap();
+    let err = p.location_names().unwrap_err();
+    assert!(
+        matches!(err, KernelError::InvalidProject(ref m) if m.contains("433")),
+        "{err}"
+    );
+}
+
+#[test]
+fn location_names_with_undecodable_text_bank_is_a_uxie_error() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    std::fs::write(p.member_path(AssetKind::TextArchive, 433), [1u8, 0]).unwrap();
+    assert!(matches!(
+        p.location_names().unwrap_err(),
+        KernelError::Uxie(_)
+    ));
+}
+
+#[test]
 fn headers_with_unlisted_gamecode_is_unknown_game() {
     let s = common::synthetic_project();
     std::fs::write(s.dir.path().join("header.yaml"), "gamecode: CPUK\n").unwrap();
@@ -438,5 +482,42 @@ fn vanilla_every_archive_path_exists() {
     assert_eq!(
         p.has_archive(AssetKind::InteriorBuildingModel),
         p.family == Family::Hgss
+    );
+}
+
+#[test]
+fn vanilla_headers_carry_location_names() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let names = p.location_names().unwrap();
+    assert!(names.len() > 100);
+    let headers = p.headers().unwrap();
+    // Internal name and expected in-game name of the first town of each game.
+    // HeartGold calls New Bark Town "T20" (pret/pokeheartgold MAP_NEW_BARK = MAP_T20).
+    let (internal, expected) = match p.game_code.as_str() {
+        "IPKE" => ("T20", "new bark town"),
+        "IPKD" => ("T20", "neuborkia"),
+        "CPUD" => ("T01", "zweiblattdorf"),
+        _ => return,
+    };
+    let h = headers
+        .iter()
+        .find(|h| h.internal_name == internal)
+        .unwrap();
+    assert_eq!(h.location_name.to_lowercase(), expected);
+    let events = p.member_count(AssetKind::Event).unwrap() as u16;
+    assert!(
+        headers
+            .iter()
+            .all(|h| h.event_file_id < events || h.event_file_id == u16::MAX)
+    );
+    assert!(
+        headers
+            .iter()
+            .filter(|h| !h.location_name.is_empty())
+            .count()
+            > 100
     );
 }

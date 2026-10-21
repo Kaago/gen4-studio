@@ -12,7 +12,7 @@ export type InspectorModel =
       eventKind: "warp" | "object" | "coord" | "bg";
       index: number;
       data: WarpDto | ObjectDto | CoordDto | BgDto;
-      /** Warps: internal name of the destination header. */
+      /** Warps: location name (or internal name) of the destination header. */
       destName?: string;
     }
   | {

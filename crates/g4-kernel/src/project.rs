@@ -6,6 +6,8 @@ use g4_formats::area_data::AreaData;
 use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
+use uxie::text_bank::game_strings::TextBankIds;
+use uxie::text_bank::read_text_archive_bin;
 
 use crate::error::{KernelError, io_at};
 
@@ -188,10 +190,22 @@ impl ArchiveMap {
 pub struct HeaderSummary {
     pub id: u16,
     pub internal_name: String,
+    /// In-game location name from the text archive (empty when the header's name index
+    /// lies outside the archive).
+    pub location_name: String,
     pub matrix_id: u16,
     pub area_data_id: u8,
     /// Member of the event archive with this header's warps, NPCs, triggers and signs.
     pub event_file_id: u16,
+}
+
+/// Index of the header's name in the location text bank (`u16` in DP, `u8` otherwise).
+fn location_name_index(header: &uxie::MapHeader) -> usize {
+    match header {
+        uxie::MapHeader::DP(h) => usize::from(h.location_name),
+        uxie::MapHeader::Pt(h) => usize::from(h.location_name),
+        uxie::MapHeader::HGSS(h) => usize::from(h.location_name),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -342,8 +356,44 @@ impl Project {
         std::fs::read(&path).map(Some).map_err(io_at(&path))
     }
 
+    fn uxie_family(&self) -> uxie::GameFamily {
+        match self.family {
+            Family::Dp => uxie::GameFamily::DP,
+            Family::Pt => uxie::GameFamily::Platinum,
+            Family::Hgss => uxie::GameFamily::HGSS,
+        }
+    }
+
+    fn uxie_language(&self) -> uxie::GameLanguage {
+        match self.language {
+            Language::English => uxie::GameLanguage::English,
+            Language::French => uxie::GameLanguage::French,
+            Language::German => uxie::GameLanguage::German,
+            Language::Italian => uxie::GameLanguage::Italian,
+            Language::Spanish => uxie::GameLanguage::Spanish,
+            Language::Japanese => uxie::GameLanguage::Japanese,
+            Language::Korean => uxie::GameLanguage::Korean,
+        }
+    }
+
+    /// In-game location names, indexed by the `location_name` of a map header. They come
+    /// from the location text bank of the text archive, which is unpacked on demand.
+    pub fn location_names(&self) -> Result<Vec<String>, KernelError> {
+        let bank = TextBankIds::for_game(self.uxie_family(), self.uxie_language()).locations;
+        let count = self.ensure_unpacked(AssetKind::TextArchive)?;
+        if usize::from(bank) >= count {
+            return Err(KernelError::InvalidProject(format!(
+                "text archive has {count} members, location names are in member {bank}"
+            )));
+        }
+        let path = self.member_path(AssetKind::TextArchive, bank);
+        read_text_archive_bin(&path)
+            .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
+    }
+
     /// Lists all map headers from the header table in `arm9/arm9.bin`, with the
-    /// internal names from `files/fielddata/maptable/mapname.bin`.
+    /// internal names from `files/fielddata/maptable/mapname.bin` and the location names
+    /// from the text archive.
     pub fn headers(&self) -> Result<Vec<HeaderSummary>, KernelError> {
         let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
             .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
@@ -359,18 +409,14 @@ impl Project {
         }
         let arm9_path = self.root.join("arm9/arm9.bin");
         let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
-        let family = match self.family {
-            Family::Dp => uxie::GameFamily::DP,
-            Family::Pt => uxie::GameFamily::Platinum,
-            Family::Hgss => uxie::GameFamily::HGSS,
-        };
         let parsed = uxie::map_header::read_map_headers_from_arm9(
             &mut Cursor::new(arm9),
             offset,
             count,
-            family,
+            self.uxie_family(),
         )
         .map_err(|e| KernelError::Uxie(format!("{e}")))?;
+        let locations = self.location_names()?;
 
         Ok(parsed
             .iter()
@@ -382,6 +428,10 @@ impl Project {
                     // `count <= 65536` is checked above, so `i` fits in u16.
                     id: i as u16,
                     internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
+                    location_name: locations
+                        .get(location_name_index(header))
+                        .cloned()
+                        .unwrap_or_default(),
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),
