@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use g4_formats::area_data::AreaData;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
+use g4_formats::matrix::Matrix;
 use g4_formats::narc::Narc;
 
 pub fn vanilla() -> Option<PathBuf> {
@@ -136,4 +138,58 @@ fn vanilla_maps_narc_members_round_trip_as_maps() {
         assert_map_round_trips(&format!("{} member {i}", path.display()), member, family);
     }
     eprintln!("{} narc members round-tripped", narc.members.len());
+}
+
+/// Returns every file of `root/unpacked/<dir>` (read-only), sorted by name.
+fn unpacked_files(root: &Path, dir: &str) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(root.join("unpacked").join(dir))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn assert_identical(what: &str, written: &[u8], bytes: &[u8]) {
+    if written != bytes {
+        let at = written.iter().zip(bytes).position(|(a, b)| a != b);
+        panic!(
+            "{what}: not byte-identical: len {} vs {}, first diff at {:?}, written {:?} vs original {:?}",
+            written.len(),
+            bytes.len(),
+            at,
+            at.map(|i| written[i]),
+            at.map(|i| bytes[i]),
+        );
+    }
+}
+
+#[test]
+fn vanilla_matrices_round_trip_byte_identical() {
+    let Some(root) = vanilla() else { return };
+    let files = unpacked_files(&root, "matrices");
+    assert!(!files.is_empty());
+    for path in &files {
+        let what = path.display().to_string();
+        let bytes = std::fs::read(path).unwrap();
+        let matrix = Matrix::read(&bytes).unwrap_or_else(|e| panic!("{what}: read failed: {e}"));
+        assert_identical(&what, &matrix.write(), &bytes);
+    }
+    eprintln!("{} unpacked matrices round-tripped", files.len());
+}
+
+#[test]
+fn vanilla_area_data_round_trip_byte_identical() {
+    let Some(root) = vanilla() else { return };
+    let family = family_of(&root);
+    let files = unpacked_files(&root, "areaData");
+    assert!(!files.is_empty());
+    for path in &files {
+        let what = path.display().to_string();
+        let bytes = std::fs::read(path).unwrap();
+        let area =
+            AreaData::read(&bytes, family).unwrap_or_else(|e| panic!("{what}: read failed: {e}"));
+        assert_identical(&what, &area.write(), &bytes);
+    }
+    eprintln!("{} unpacked area data files round-tripped", files.len());
 }

@@ -15,4 +15,6 @@ pub enum FormatError {
         value: usize,
         max: usize,
     },
+    #[error("{what} is not valid UTF-8")]
+    InvalidUtf8 { what: &'static str },
 }
