@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buildRom, dirty, getMatrix, listHeaders, openProject, redo, runRom, save, undo } from "./api";
 import type { HeaderSummary, MatrixDto, ProjectInfo } from "./api";
@@ -35,6 +36,10 @@ export default function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
+
+  // The close guard is registered once, so it reads the dirty count through a ref.
+  const dirtyRef = useRef(0);
+  dirtyRef.current = dirtyCount;
 
   const fail = useCallback((e: unknown) => setMessage({ kind: "error", text: String(e) }), []);
   const refreshDirty = useCallback(async () => {
@@ -138,6 +143,29 @@ export default function App() {
       fail(e);
     }
   }
+
+  // Closing the window (button, Cmd+Q) asks before discarding unsaved edits.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    getCurrentWindow()
+      .onCloseRequested(async (e) => {
+        if (dirtyRef.current > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) {
+          e.preventDefault();
+        }
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        /* not running inside a Tauri window */
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Shortcuts always call the handlers of the latest render.
   const latest = useRef({ onSave, step });
