@@ -85,3 +85,6 @@ als auch für die Members des Land-Data-NARC. Bei HGSS wird ein fehlender BGS-Bl
 muss ein vollständiger Block sein: mindestens 4 Bytes (`Truncated`),
 Signatur `0x1234` (`BadSignature`) und Längenfeld gleich `bgs.len() - 4`
 (`BadSize`). `bgs` wird unabhängig von der Familie geprüft.
+`buildings_tail` muss kürzer als ein Gebäude sein (höchstens 47 Bytes,
+`BadSize { expected: 47, found }`), sonst würde `read` die Bytes als Gebäude
+lesen.

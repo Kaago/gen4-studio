@@ -24,6 +24,17 @@ Alle Raster sind zeilenweise gespeichert, Index `y * width + x`.
 `0xFFFF` (`MATRIX_EMPTY`) markiert eine leere Zelle; `Matrix::map_at` liefert
 dafür und für Koordinaten außerhalb des Rasters `None`.
 
+## Orientierung
+
+Byte 0 ist die Breite (Länge einer Zeile), Byte 1 die Höhe (Anzahl der
+Zeilen). Die frühere Vermutung in der Roadmap (Byte 0 = Höhe, laut
+pokeplatinum) trifft nicht zu. Beleg: Das Decomp-JSON
+`res/field/matrices/map_matrix_240.json` (Platin) hat Byte 0 = 4 und Byte 1 = 5
+und beschreibt 5 Zeilen zu je 4 Karten; unsere Implementierung liest genau so
+(`width = 4`, `height = 5`). Festgenagelt wird das durch den gated Test
+`vanilla_platinum_matrix_240_is_four_wide_five_high` in
+`crates/g4-formats/tests/vanilla.rs` (Matrix 240 in Platin DE).
+
 ## Strenge beim Lesen
 
 `Matrix::read` lehnt alles ab, was `write` nicht byte-identisch

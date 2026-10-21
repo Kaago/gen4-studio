@@ -41,7 +41,7 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 - `MapFile::validate` lehnt `buildings_tail` ab 48 Bytes ab, bevor Gebäude editierbar werden.
 - Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula mit Timeout und in `spawn_blocking`.
 - Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt.
-- Matrix-Dimensionen prüfen: Laut pokeplatinum ist Byte 0 die Höhe und Byte 1 die Breite (DSPRE benennt es umgekehrt). Mit einer nicht quadratischen Matrix testen, bevor die 3D-Ansicht Karten anordnet.
+- Matrix-Orientierung bestätigt (Byte 0 = Breite), Test in g4-formats.
 - Orientierung im Welt-Editor: Kachelkoordinaten und Kacheltyp beim Überfahren anzeigen, Warps und Events markieren, Map-Texturen laden. Ohne diese Hilfen ließ sich im GUI-Test die Treppe nicht finden.
 - Header-Liste lesbar machen: Anzeigenamen statt interner Kürzel (T01R0102 ist das Haus des Rivalen, T01R0202 das des Spielers), keine Zeilenumbrüche.
 - Große Matrizen (Matrix 0, 30 × 30) laden: Modelle nur im sichtbaren Bereich konvertieren, Ladezeit messen.

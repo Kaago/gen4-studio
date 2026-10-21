@@ -204,11 +204,21 @@ impl MapFile {
     /// 4 bytes, signature `0x1234`, length field equal to the bytes that
     /// follow). `bgs` is checked regardless of family; `write` ignores it
     /// for non-HGSS families.
+    /// `buildings_tail` must be shorter than one building record (48 bytes),
+    /// otherwise `read` would parse it as a building.
     pub fn validate(&self) -> Result<(), FormatError> {
         if self.permissions.len() != MAP_SIZE * MAP_SIZE {
             return Err(FormatError::BadSize {
                 expected: PERMISSIONS_LEN,
                 found: self.permissions.len() * 2,
+            });
+        }
+        // A tail of a whole building or more would be re-read as a building
+        // record, so `read` would not reproduce it.
+        if self.buildings_tail.len() >= BUILDING_LEN {
+            return Err(FormatError::BadSize {
+                expected: BUILDING_LEN - 1,
+                found: self.buildings_tail.len(),
             });
         }
         if let Some(bgs) = &self.bgs {
@@ -380,6 +390,21 @@ mod tests {
                 found: 2046
             }
         ));
+    }
+
+    #[test]
+    fn validate_rejects_buildings_tail_of_a_whole_building() {
+        let mut map = MapFile::read(&synthetic(Family::Pt, None), Family::Pt).unwrap();
+        map.buildings_tail = vec![0; 48];
+        assert!(matches!(
+            map.validate().unwrap_err(),
+            FormatError::BadSize {
+                expected: 47,
+                found: 48
+            }
+        ));
+        map.buildings_tail = vec![0x0D, 0x0A];
+        map.validate().unwrap();
     }
 
     #[test]

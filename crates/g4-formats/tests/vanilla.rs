@@ -165,6 +165,22 @@ fn assert_identical(what: &str, written: &[u8], bytes: &[u8]) {
 }
 
 #[test]
+fn vanilla_platinum_matrix_240_is_four_wide_five_high() {
+    let Some(root) = vanilla() else { return };
+    if family_of(&root) != Family::Pt {
+        eprintln!("skipped: not Platinum");
+        return;
+    }
+    let m = Matrix::read(&std::fs::read(root.join("unpacked/matrices/0240")).unwrap()).unwrap();
+    assert_eq!((m.width, m.height), (4, 5));
+    assert_eq!(m.map_at(0, 0), Some(176));
+    assert_eq!(m.map_at(1, 1), Some(570));
+    assert_eq!(m.map_at(2, 1), Some(571));
+    assert_eq!(m.map_at(1, 3), Some(574));
+    assert_eq!(m.map_at(4, 0), None);
+}
+
+#[test]
 fn vanilla_matrices_round_trip_byte_identical() {
     let Some(root) = vanilla() else { return };
     let files = unpacked_files(&root, "matrices");
