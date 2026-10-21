@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
@@ -295,7 +296,7 @@ impl Store {
         }
         let mut report = SaveReport::default();
         for (id, path, bytes) in pending {
-            write_atomic(&path, &bytes)?;
+            write_atomic(&self.project.root, &path, &bytes)?;
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.saved_bytes = bytes;
             }
@@ -305,16 +306,25 @@ impl Store {
     }
 }
 
-/// Writes via a sibling temp file and rename, so a crash never leaves a torn member.
-/// The temp name starts with a dot and is not purely digits, so member counting ignores it.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), KernelError> {
+/// Writes via a temp file under `<project root>/.g4/tmp/` (same filesystem, so the rename is
+/// atomic) and rename, so a crash never leaves a torn member. The temp file must never live
+/// in the member folder: DSPRE's `Narc.FromFolder` packs every file there, so a leftover
+/// would become a member and shift all following indices. Removed on every error path.
+fn write_atomic(project_root: &Path, path: &Path, bytes: &[u8]) -> Result<(), KernelError> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let tmp_dir = project_root.join(".g4").join("tmp");
+    std::fs::create_dir_all(&tmp_dir)?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.saving"));
-    std::fs::write(&tmp, bytes)?;
-    if let Err(e) = std::fs::rename(&tmp, path) {
+    let tmp = tmp_dir.join(format!(
+        "{name}.{}.{}.saving",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
         return Err(e.into());
     }

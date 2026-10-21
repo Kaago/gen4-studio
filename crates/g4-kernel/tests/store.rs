@@ -91,6 +91,55 @@ fn save_writes_only_dirty_members() {
     assert!(st.dirty().is_empty());
 }
 
+fn dot_entries(dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with('.'))
+        .collect()
+}
+
+fn edit_cell(st: &mut Store, index: u16) {
+    st.edit_map(index, "x", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 9,
+                collision: 0,
+            },
+        )
+        .unwrap()
+    })
+    .unwrap();
+}
+
+#[test]
+fn save_leaves_no_temp_file_and_no_dot_file_in_the_member_folder() {
+    let (s, mut st) = store();
+    edit_cell(&mut st, 2);
+    st.save().unwrap();
+    assert!(dot_entries(&s.dir.path().join("unpacked/maps")).is_empty());
+    let tmp = s.dir.path().join(".g4/tmp");
+    assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+}
+
+#[test]
+fn failed_save_leaves_nothing_behind_in_the_member_folder() {
+    let (s, mut st) = store();
+    edit_cell(&mut st, 2);
+    let before = std::fs::read(s.dir.path().join("unpacked/maps/0002")).unwrap();
+    // `.g4/tmp` is a file, so no temp file can be created there.
+    std::fs::create_dir_all(s.dir.path().join(".g4")).unwrap();
+    std::fs::write(s.dir.path().join(".g4/tmp"), b"not a directory").unwrap();
+    assert!(st.save().is_err());
+    assert!(dot_entries(&s.dir.path().join("unpacked/maps")).is_empty());
+    assert_eq!(
+        std::fs::read(s.dir.path().join("unpacked/maps/0002")).unwrap(),
+        before
+    );
+}
+
 #[test]
 fn save_refuses_when_disk_changed_since_load() {
     let (s, mut st) = store();
