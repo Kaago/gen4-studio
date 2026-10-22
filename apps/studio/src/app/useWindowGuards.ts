@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { MutableRefObject } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../platform/transport";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
