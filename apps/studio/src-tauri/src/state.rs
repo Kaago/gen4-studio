@@ -25,6 +25,25 @@ pub fn exit_is_blocked(dirty: usize, force: bool) -> bool {
     dirty > 0 && !force
 }
 
+/// What a quit request (our Quit menu item or an exit request) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuitAction {
+    /// Quit now.
+    Exit,
+    /// Ask the frontend first ("confirm-quit").
+    Confirm,
+}
+
+/// Asks only while a window can show the prompt and unsaved edits exist, unless the user
+/// already chose to discard them (`force`).
+pub fn quit_action(window_open: bool, dirty: usize, force: bool) -> QuitAction {
+    if window_open && exit_is_blocked(dirty, force) {
+        QuitAction::Confirm
+    } else {
+        QuitAction::Exit
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -34,5 +53,13 @@ mod tests {
         assert!(exit_is_blocked(1, false));
         assert!(!exit_is_blocked(0, false));
         assert!(!exit_is_blocked(3, true));
+    }
+
+    #[test]
+    fn quit_asks_only_with_an_open_window_dirty_assets_and_no_force() {
+        assert_eq!(quit_action(true, 1, false), QuitAction::Confirm);
+        assert_eq!(quit_action(true, 0, false), QuitAction::Exit);
+        assert_eq!(quit_action(true, 3, true), QuitAction::Exit);
+        assert_eq!(quit_action(false, 2, false), QuitAction::Exit);
     }
 }

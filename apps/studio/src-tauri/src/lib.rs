@@ -1,5 +1,6 @@
 mod commands;
 mod errors;
+mod menu;
 mod state;
 
 use commands::{
@@ -10,7 +11,7 @@ use commands::{
     set_header, set_matrix_cell, set_matrix_sections, set_permission, tile_behaviors, undo,
     update_building, update_event,
 };
-use state::{AppState, exit_is_blocked};
+use state::{AppState, QuitAction, quit_action};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, RunEvent};
 
@@ -19,6 +20,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .menu(menu::app_menu)
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == menu::QUIT_ID {
+                request_quit(app);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             open_project,
             list_headers,
@@ -70,14 +77,22 @@ pub fn run() {
         });
 }
 
-/// Cmd+Q (and any other exit request while a window is open) with unsaved edits asks the
-/// frontend first. Never blocks when the exit follows `force_quit`, when no window is left
-/// (the close guard already asked, and nothing could show the prompt), when no project is
-/// open, or when the state lock is poisoned.
-fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
-    if app.webview_windows().is_empty() {
-        return false;
+/// Our Quit menu item (Cmd+Q): asks first when edits are unsaved, otherwise quits. Quitting
+/// goes through `app.exit`, so the exit request below sees it again (and lets it pass).
+fn request_quit(app: &tauri::AppHandle) {
+    if exit_request_needs_confirmation(app) {
+        // A failed emit only means the prompt cannot be shown; the app stays open.
+        let _ = app.emit("confirm-quit", ());
+    } else {
+        app.exit(0);
     }
+}
+
+/// Any exit request while a window is open with unsaved edits asks the frontend first. Never
+/// blocks when the exit follows `force_quit`, when no window is left (the close guard already
+/// asked, and nothing could show the prompt), when no project is open, or when the state lock
+/// is poisoned.
+fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
     let state = app.state::<AppState>();
     let dirty = match state.session.lock() {
         Ok(guard) => guard
@@ -85,5 +100,6 @@ fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
             .map_or(0, |session| session.store.dirty().len()),
         Err(_) => 0,
     };
-    exit_is_blocked(dirty, state.force_quit.load(Ordering::SeqCst))
+    let window_open = !app.webview_windows().is_empty();
+    quit_action(window_open, dirty, state.force_quit.load(Ordering::SeqCst)) == QuitAction::Confirm
 }
