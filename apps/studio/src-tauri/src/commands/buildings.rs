@@ -442,14 +442,15 @@ mod tests {
                 "#!/bin/sh\nif [ \"$4\" = \"-o\" ]; then echo plain >> '{c}'; else echo textured >> '{c}'; \
                  echo 'bad tileset' >&2; exit 2; fi\n\
                  while [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
-                 mkdir -p \"$out\"; printf 'glTFplain' > \"$out/m.glb\"\n",
-                c = calls.display()
+                 mkdir -p \"$out\"; printf '{glb}' > \"$out/m.glb\"\n",
+                c = calls.display(),
+                glb = crate::commands::FAKE_GLB_PRINTF
             ),
         )
         .unwrap();
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
         let glb = get_building_glb_with(&state, 0, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         let models = fixture.dir.path().join(".g4/models");
         let reason = glb_fail_get(&models, BMD, Some(BTX)).unwrap();
         assert!(reason.is_some_and(|r| r.contains("bad tileset")));
@@ -493,13 +494,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(&glb[0..4], b"glTF");
+        // Every image must be embedded: a bufferView inside the BIN chunk, no external uri.
         let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let json: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
-        let images = json["images"].as_array().map_or(0, |a| a.len());
+        let bin_at = 20 + json_len;
+        let bin_len = u32::from_le_bytes(glb[bin_at..bin_at + 4].try_into().unwrap()) as usize;
+        assert_eq!(&glb[bin_at + 4..bin_at + 8], b"BIN\0");
+        let images = json["images"].as_array().cloned().unwrap_or_default();
         assert!(
-            images > 0,
+            !images.is_empty(),
             "building model {} has no images",
             building.model_id
         );
+        for (i, image) in images.iter().enumerate() {
+            assert!(image.get("uri").is_none(), "image {i} still has a uri");
+            let view = &json["bufferViews"][image["bufferView"].as_u64().unwrap() as usize];
+            let start = view["byteOffset"].as_u64().unwrap() as usize;
+            let len = view["byteLength"].as_u64().unwrap() as usize;
+            assert!(len > 0 && start + len <= bin_len, "image {i} outside BIN");
+        }
     }
 }

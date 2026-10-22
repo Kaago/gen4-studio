@@ -34,6 +34,25 @@ fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
+/// printf argument of a minimal valid GLB (JSON chunk only, no images) for fake apicula scripts:
+/// the real conversion step parses what the tool wrote, so a fake must write a real GLB.
+#[cfg(test)]
+const FAKE_GLB_PRINTF: &str =
+    r#"glTF\002\000\000\000\060\000\000\000\034\000\000\000JSON{"asset":{"version":"2.0"}} "#;
+
+/// The bytes [`FAKE_GLB_PRINTF`] prints.
+#[cfg(test)]
+fn fake_glb() -> Vec<u8> {
+    let json = br#"{"asset":{"version":"2.0"}} "#;
+    let mut glb = b"glTF".to_vec();
+    glb.extend(2u32.to_le_bytes());
+    glb.extend((20 + json.len() as u32).to_le_bytes());
+    glb.extend((json.len() as u32).to_le_bytes());
+    glb.extend(b"JSON");
+    glb.extend(json);
+    glb
+}
+
 /// A synthetic project opened in a fresh state (shared by the tests of all command modules).
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

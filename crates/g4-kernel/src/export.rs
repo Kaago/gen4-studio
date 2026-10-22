@@ -8,6 +8,11 @@ use xxhash_rust::xxh3::Xxh3;
 
 use crate::error::{KernelError, io_at};
 
+/// Format version of the cached GLBs, hashed into every cache key. Bump it when the cached
+/// bytes change meaning: v2 embeds the textures (v1 left them as `uri` references the viewer
+/// cannot resolve), and old entries and `.fail` markers are never looked at again.
+const CACHE_SALT: &[u8] = b"g4glb-v2\0";
+
 static WORK_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 fn tool_error(reason: impl Into<String>) -> KernelError {
@@ -106,10 +111,12 @@ pub fn nsbmd_to_glb(
     }
 }
 
-/// Cache key of a converted model: xxh3_64 over `nsbmd` followed by `nsbtx` (nothing when
-/// `None`) as 16 lower-case hex digits. The cached file is `<cache_dir>/<key>.glb`.
+/// Cache key of a converted model: xxh3_64 over [`CACHE_SALT`], `nsbmd` and then `nsbtx`
+/// (nothing when `None`) as 16 lower-case hex digits. The cached file is
+/// `<cache_dir>/<key>.glb`.
 pub fn glb_cache_key(nsbmd: &[u8], nsbtx: Option<&[u8]>) -> String {
     let mut hasher = Xxh3::new();
+    hasher.update(CACHE_SALT);
     hasher.update(nsbmd);
     if let Some(nsbtx) = nsbtx {
         hasher.update(nsbtx);
@@ -130,7 +137,10 @@ fn convert_into_cache(
     let work = fresh_work_dir(cache_dir)?;
     let result = (|| {
         let glb = nsbmd_to_glb(apicula, nsbmd, nsbtx, &work)?;
-        let bytes = std::fs::read(&glb).map_err(io_at(&glb))?;
+        let raw = std::fs::read(&glb).map_err(io_at(&glb))?;
+        // apicula writes the textures as PNG files next to the .glb.
+        let dir = glb.parent().unwrap_or(&work);
+        let bytes = embed_images(&raw, |name| std::fs::read(dir.join(name)).ok())?;
         let tmp = work.join("cache.glb");
         std::fs::write(&tmp, &bytes).map_err(io_at(&tmp))?;
         std::fs::rename(&tmp, target).map_err(io_at(target))?;
@@ -210,4 +220,198 @@ pub fn glb_fail_record(
         let _ = std::fs::remove_file(&tmp);
         io_at(&target)(e)
     })
+}
+
+const GLB_MAGIC: &[u8; 4] = b"glTF";
+const CHUNK_JSON: u32 = 0x4E4F_534A;
+const CHUNK_BIN: u32 = 0x004E_4942;
+
+fn glb_error(reason: impl std::fmt::Display) -> KernelError {
+    KernelError::Build(format!("invalid glb: {reason}"))
+}
+
+fn pad4(bytes: &mut Vec<u8>, fill: u8) {
+    while !bytes.len().is_multiple_of(4) {
+        bytes.push(fill);
+    }
+}
+
+/// A `uri` that names a plain file inside apicula's output directory: no path separators, no
+/// `..`, nothing absolute or scheme-like.
+fn is_plain_file_name(uri: &str) -> bool {
+    !uri.is_empty()
+        && uri != "."
+        && uri != ".."
+        && !uri.contains(['/', '\\', ':', '\0'])
+        && !uri.contains("..")
+}
+
+fn mime_type(name: &str) -> &'static str {
+    match Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        _ => "image/png",
+    }
+}
+
+/// Embeds every image a GLB references by a relative file `uri` into its BIN chunk, so a viewer
+/// that only gets the bytes (three's `GLTFLoader.parse` on an ArrayBuffer) can show the
+/// textures.
+///
+/// `read` returns the bytes of a plain file name from the converter's output directory. Each
+/// image becomes `{ bufferView, mimeType, name }` (the file stem) with its bytes appended to
+/// the BIN chunk (4-byte aligned, zero padded; a chunk is added when there is none); `buffers[0]`,
+/// the chunk lengths and the total length follow, and the JSON chunk is padded with spaces.
+/// `data:` URIs and images that already have a `bufferView` stay as they are, and a GLB without
+/// any such image is returned unchanged.
+///
+/// # Errors
+/// A GLB that cannot be parsed, a `uri` that is not a plain file name, and a referenced file
+/// `read` cannot supply (the error names it).
+pub fn embed_images(
+    glb: &[u8],
+    read: impl Fn(&str) -> Option<Vec<u8>>,
+) -> Result<Vec<u8>, KernelError> {
+    let (mut json, mut bin) = parse_glb(glb)?;
+
+    // Image indices that reference a file, with their uri.
+    let pending: Vec<(usize, String)> = json
+        .get("images")
+        .and_then(|i| i.as_array())
+        .map(|images| {
+            images
+                .iter()
+                .enumerate()
+                .filter_map(|(i, image)| {
+                    let uri = image.get("uri")?.as_str()?;
+                    (!uri.starts_with("data:")).then(|| (i, uri.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if pending.is_empty() {
+        return Ok(glb.to_vec());
+    }
+
+    if json["buffers"][0].get("uri").is_some() {
+        return Err(glb_error(
+            "buffer 0 is external, cannot embed images into it",
+        ));
+    }
+    pad4(&mut bin, 0);
+    let mut views = json
+        .get("bufferViews")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    // A file used by several images is stored once.
+    let mut stored: Vec<(String, usize)> = Vec::new();
+    for (index, uri) in pending {
+        if !is_plain_file_name(&uri) {
+            return Err(glb_error(format!(
+                "image uri {uri:?} is not a plain file name"
+            )));
+        }
+        let view = if let Some((_, view)) = stored.iter().find(|(name, _)| *name == uri) {
+            *view
+        } else {
+            let bytes = read(&uri)
+                .ok_or_else(|| glb_error(format!("referenced image file {uri} is missing")))?;
+            let offset = bin.len();
+            bin.extend_from_slice(&bytes);
+            pad4(&mut bin, 0);
+            views.push(serde_json::json!({
+                "buffer": 0,
+                "byteOffset": offset,
+                "byteLength": bytes.len(),
+            }));
+            stored.push((uri.clone(), views.len() - 1));
+            views.len() - 1
+        };
+        let stem = Path::new(&uri)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&uri)
+            .to_string();
+        let image = json["images"][index]
+            .as_object_mut()
+            .expect("image was an object");
+        image.remove("uri");
+        image.insert("bufferView".into(), view.into());
+        image.insert("mimeType".into(), mime_type(&uri).into());
+        image.insert("name".into(), stem.into());
+    }
+    json["bufferViews"] = views.into();
+    if json
+        .get("buffers")
+        .and_then(|b| b.as_array())
+        .is_none_or(Vec::is_empty)
+    {
+        json["buffers"] = serde_json::json!([{}]);
+    }
+    json["buffers"][0]["byteLength"] = bin.len().into();
+    Ok(write_glb(&json, &bin))
+}
+
+/// The JSON document and BIN chunk data (empty when absent) of a GLB; other chunks are ignored.
+fn parse_glb(glb: &[u8]) -> Result<(serde_json::Value, Vec<u8>), KernelError> {
+    let word = |at: usize| -> Result<u32, KernelError> {
+        glb.get(at..at + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+            .ok_or_else(|| glb_error("truncated"))
+    };
+    if glb.get(0..4) != Some(GLB_MAGIC) {
+        return Err(glb_error("missing glTF magic"));
+    }
+    if word(4)? != 2 {
+        return Err(glb_error("not glTF version 2"));
+    }
+    if word(8)? as usize != glb.len() {
+        return Err(glb_error("length in header does not match the data"));
+    }
+    let mut json = None;
+    let mut bin = None;
+    let mut at = 12;
+    while at < glb.len() {
+        let len = word(at)? as usize;
+        let kind = word(at + 4)?;
+        let data = at
+            .checked_add(8)
+            .and_then(|start| Some(start..start.checked_add(len)?))
+            .and_then(|range| glb.get(range))
+            .ok_or_else(|| glb_error("chunk exceeds the data"))?;
+        match kind {
+            CHUNK_JSON if json.is_none() => {
+                json = Some(
+                    serde_json::from_slice(data)
+                        .map_err(|e| glb_error(format!("JSON chunk: {e}")))?,
+                );
+            }
+            CHUNK_BIN if bin.is_none() => bin = Some(data.to_vec()),
+            _ => {}
+        }
+        at += 8 + len;
+    }
+    let json = json.ok_or_else(|| glb_error("no JSON chunk"))?;
+    Ok((json, bin.unwrap_or_default()))
+}
+
+fn write_glb(json: &serde_json::Value, bin: &[u8]) -> Vec<u8> {
+    let mut json = serde_json::to_vec(json).expect("a JSON value serializes");
+    pad4(&mut json, b' ');
+    let total = 12 + 8 + json.len() + 8 + bin.len();
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(GLB_MAGIC);
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&(total as u32).to_le_bytes());
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(&CHUNK_JSON.to_le_bytes());
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    out.extend_from_slice(&CHUNK_BIN.to_le_bytes());
+    out.extend_from_slice(bin);
+    out
 }

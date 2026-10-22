@@ -325,12 +325,13 @@ mod tests {
         std::fs::write(
             &tool,
             "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
-             mkdir -p \"$out\"; printf 'glTFfake' > \"$out/m.glb\"\n",
+             mkdir -p \"$out\"; printf 'FAKEGLB' > \"$out/m.glb\"\n"
+                .replace("FAKEGLB", crate::commands::FAKE_GLB_PRINTF),
         )
         .unwrap();
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFfake");
+        assert_eq!(glb, crate::commands::fake_glb());
         let models = fixture.dir.path().join(".g4/models");
         let names: Vec<_> = std::fs::read_dir(&models)
             .unwrap()
@@ -341,11 +342,11 @@ mod tests {
         // Second call is a cache hit and does not need the tool.
         assert_eq!(
             get_map_model_glb_with(&state, 1, 0, None).unwrap(),
-            b"glTFfake"
+            crate::commands::fake_glb()
         );
         // A map with a missing area data entry still converts, just without textures.
         let glb = get_map_model_glb_with(&state, 1, 200, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFfake");
+        assert_eq!(glb, crate::commands::fake_glb());
         assert_eq!(std::fs::read_dir(&models).unwrap().count(), 2);
     }
 
@@ -363,14 +364,15 @@ mod tests {
             &tool,
             "#!/bin/sh\n[ \"$4\" = \"-o\" ] || { echo 'bad tileset' >&2; exit 2; }\n\
              while [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
-             mkdir -p \"$out\"; printf 'glTFplain' > \"$out/m.glb\"\n",
+             mkdir -p \"$out\"; printf 'FAKEGLB' > \"$out/m.glb\"\n"
+                .replace("FAKEGLB", crate::commands::FAKE_GLB_PRINTF),
         )
         .unwrap();
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
         // Area data 0 selects the synthetic tileset: the textured run fails, the retry
         // without the tileset yields an untextured model instead of an error.
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         // The untextured result is cached under the plain key.
         let models = fixture.dir.path().join(".g4/models");
         let names: Vec<_> = std::fs::read_dir(&models)
@@ -427,12 +429,13 @@ mod tests {
     #[test]
     fn failing_tileset_is_remembered_and_not_retried() {
         let (fixture, state) = open_synthetic();
-        let (tool, calls) = counting_tool(fixture.dir.path(), "glTFplain", true);
+        let (tool, calls) =
+            counting_tool(fixture.dir.path(), crate::commands::FAKE_GLB_PRINTF, true);
         let models = fixture.dir.path().join(".g4/models");
         assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
 
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
         let fails: Vec<_> = std::fs::read_dir(&models)
             .unwrap()
@@ -454,7 +457,7 @@ mod tests {
             }
         }
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         assert_eq!(recorded_calls(&calls), ["textured", "plain", "plain"]);
         // A map without a tileset problem reports none.
         assert_eq!(map_model_texture_status_impl(&state, 1, 200).unwrap(), None);
@@ -486,7 +489,8 @@ mod tests {
     #[test]
     fn unreadable_area_data_or_tileset_member_still_converts_untextured() {
         let (fixture, state) = open_synthetic();
-        let (tool, calls) = counting_tool(fixture.dir.path(), "glTFplain", false);
+        let (tool, calls) =
+            counting_tool(fixture.dir.path(), crate::commands::FAKE_GLB_PRINTF, false);
         let project = Project::open(fixture.dir.path()).unwrap();
         project.ensure_unpacked(AssetKind::AreaData).unwrap();
         project.ensure_unpacked(AssetKind::MapTexture).unwrap();
@@ -494,7 +498,7 @@ mod tests {
         // A truncated area data member.
         std::fs::write(project.member_path(AssetKind::AreaData, 0), [1, 2, 3]).unwrap();
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         assert_eq!(recorded_calls(&calls), ["plain"]);
         let issue = map_model_texture_status_impl(&state, 1, 0)
             .unwrap()
@@ -508,7 +512,7 @@ mod tests {
         std::fs::set_permissions(&member, std::fs::Permissions::from_mode(0o000)).unwrap();
         std::fs::write(project.member_path(AssetKind::AreaData, 0), [0u8; 8]).unwrap();
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
-        assert_eq!(glb, b"glTFplain");
+        assert_eq!(glb, crate::commands::fake_glb());
         let issue = map_model_texture_status_impl(&state, 1, 0)
             .unwrap()
             .unwrap();
