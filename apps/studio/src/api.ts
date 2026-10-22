@@ -279,6 +279,7 @@ export const renameMatrix = (index: number, name: string) => invoke<void>("renam
 export const createMatrix = (name: string) => invoke<number>("create_matrix", { name });
 /** Appends a copy of a map (without its buildings when `clearBuildings`) and resolves to its index. Written at once; not undoable. */
 export const duplicateMap = (source: number, clearBuildings = false) => invoke<number>("duplicate_map", { source, clearBuildings });
+/** The behaviour names of the open project's game family; rejects while no project is open. */
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });

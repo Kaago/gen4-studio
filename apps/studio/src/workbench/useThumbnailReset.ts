@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { EditBus } from "../bus/editBus";
 import { useBusEvent } from "../bus/useBusEvent";
+import { resetTileNames } from "../world/scene/tileNames";
 import { resetSprites } from "../world/sprites";
 import type { ThumbnailCache } from "../world/thumbnails";
 
@@ -8,7 +9,8 @@ import type { ThumbnailCache } from "../world/thumbnails";
  * The map pictures are keyed by (map, area) for the whole app, so they go stale when the same keys can mean other
  * pictures: another project was opened (`root` changed) or the shown area data got other tilesets (`modelsReload`).
  * Empties `cache` then; mounting does not. The object sprites are keyed by graphics id for the whole app too, but
- * only depend on the project: they are dropped when `root` changes, not on `modelsReload`.
+ * only depend on the project: they are dropped when `root` changes, not on `modelsReload`. So are the tile behaviour names, which depend on the
+ * project's game family.
  */
 export function useThumbnailReset(bus: EditBus, root: string | null, cache: ThumbnailCache) {
   const shownRoot = useRef(root);
@@ -17,6 +19,7 @@ export function useThumbnailReset(bus: EditBus, root: string | null, cache: Thum
     shownRoot.current = root;
     cache.clear();
     resetSprites();
+    resetTileNames();
   }, [root, cache]);
   useBusEvent(bus, "modelsReload", () => cache.clear());
 }

@@ -1,0 +1,63 @@
+# Tile behaviour names and classes of the HeartGold / SoulSilver map permission 'kind' byte.
+# Values are positions in the TILE_BEHAVIOR enum of pret/pokeheartgold
+# (include/constants/metatile_behavior.h, commit 6988158691eb6178cff697cda0428045ddcba5fb), except the
+# explicit assignment NONE = 255; numeric entries (TILE_BEHAVIOR_<n>) and *_UNUSED entries are omitted.
+# Used by the tile hover and overlay colours.
+
+- { value: 0x02, name: TALL_GRASS, class: grass }
+- { value: 0x03, name: VERY_TALL_GRASS, class: grass }
+- { value: 0x06, name: HEADBUTT, class: other }
+- { value: 0x08, name: CAVE_FLOOR, class: other }
+- { value: 0x10, name: WATER_RIVER, class: water }
+- { value: 0x11, name: WHIRLPOOL, class: water }
+- { value: 0x13, name: WATERFALL, class: water }
+- { value: 0x15, name: WATER_SEA, class: water }
+- { value: 0x16, name: PUDDLE, class: water }
+- { value: 0x17, name: SHALLOW_WATER, class: water }
+- { value: 0x1D, name: PUDDLE_NO_SPLASHING, class: water }
+- { value: 0x20, name: ICE, class: ice }
+- { value: 0x21, name: SAND, class: sand }
+- { value: 0x2C, name: MAGMA, class: other }
+- { value: 0x2D, name: REFLECTIVE, class: other }
+- { value: 0x38, name: JUMP_EAST, class: ledge }
+- { value: 0x39, name: JUMP_WEST, class: ledge }
+- { value: 0x3A, name: JUMP_NORTH, class: ledge }
+- { value: 0x3B, name: JUMP_SOUTH, class: ledge }
+- { value: 0x3C, name: LADDER_NORTH, class: warp }
+- { value: 0x3D, name: LADDER_SOUTH, class: warp }
+- { value: 0x3E, name: LADDER_DOWN, class: warp }
+- { value: 0x40, name: SLIDE_EAST, class: slide }
+- { value: 0x41, name: SLIDE_WEST, class: slide }
+- { value: 0x42, name: SLIDE_NORTH, class: slide }
+- { value: 0x43, name: SLIDE_SOUTH, class: slide }
+- { value: 0x4B, name: ROCK_CLIMB_NORTH_SOUTH, class: other }
+- { value: 0x4C, name: ROCK_CLIMB_EAST_WEST, class: other }
+- { value: 0x4D, name: STOP_SLIDING, class: other }
+- { value: 0x5E, name: WARP_STAIRS_EAST, class: warp }
+- { value: 0x5F, name: WARP_STAIRS_WEST, class: warp }
+- { value: 0x62, name: WARP_ENTRANCE_EAST, class: warp }
+- { value: 0x63, name: WARP_ENTRANCE_WEST, class: warp }
+- { value: 0x64, name: WARP_ENTRANCE_NORTH, class: warp }
+- { value: 0x65, name: WARP_ENTRANCE_SOUTH, class: warp }
+- { value: 0x67, name: WARP_PANEL, class: warp }
+- { value: 0x69, name: DOOR, class: door }
+- { value: 0x6A, name: ESCALATOR_FLIP_FACE, class: warp }
+- { value: 0x6B, name: ESCALATOR, class: warp }
+- { value: 0x6C, name: WARP_EAST, class: warp }
+- { value: 0x6D, name: WARP_WEST, class: warp }
+- { value: 0x6E, name: WARP_NORTH, class: warp }
+- { value: 0x6F, name: WARP_SOUTH, class: warp }
+- { value: 0x83, name: PC, class: furniture }
+- { value: 0x85, name: TOWN_MAP, class: furniture }
+- { value: 0x86, name: TV, class: furniture }
+- { value: 0xA4, name: MUD, class: sand }
+- { value: 0xA8, name: SNOW, class: other }
+- { value: 0xE0, name: SMALL_BOOKSHELF_1, class: furniture }
+- { value: 0xE1, name: BOOKSHELF_1, class: furniture }
+- { value: 0xE2, name: BOOKSHELF_2, class: furniture }
+- { value: 0xE4, name: EMPTY_TRASH_CAN, class: furniture }
+- { value: 0xE5, name: MART_SHELF_1, class: furniture }
+- { value: 0xEA, name: SMALL_BOOKSHELF_2, class: furniture }
+- { value: 0xEB, name: MART_SHELF_2, class: furniture }
+- { value: 0xEC, name: MART_SHELF_3, class: furniture }
+- { value: 0xFF, name: NONE, class: other }

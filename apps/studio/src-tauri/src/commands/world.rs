@@ -240,8 +240,11 @@ impl EventsDto {
     }
 }
 
-pub fn tile_behaviors_impl() -> Result<Vec<TileBehavior>, CmdError> {
-    g4_kernel::tiles::tile_behaviors().map_err(CmdError::from)
+/// The behaviour names of the open project's game family.
+pub fn tile_behaviors_impl(state: &AppState) -> Result<Vec<TileBehavior>, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    g4_kernel::tiles::tile_behaviors(session.project.family).map_err(CmdError::from)
 }
 
 pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdError> {
@@ -297,8 +300,8 @@ pub fn set_permission_impl(
 }
 
 #[tauri::command]
-pub fn tile_behaviors() -> Result<Vec<TileBehavior>, CmdError> {
-    tile_behaviors_impl()
+pub fn tile_behaviors(state: State<AppState>) -> Result<Vec<TileBehavior>, CmdError> {
+    tile_behaviors_impl(&state)
 }
 
 #[tauri::command]
@@ -336,12 +339,21 @@ mod tests {
     use crate::commands::*;
 
     #[test]
-    fn tile_behaviors_command_lists_the_embedded_table() {
-        let list = tile_behaviors_impl().unwrap();
+    fn tile_behaviors_command_follows_the_session_family() {
+        // The synthetic project is Platinum (CPUE): the Platinum set, which has no HEADBUTT.
+        let (_fixture, state) = open_synthetic();
+        let list = tile_behaviors_impl(&state).unwrap();
         assert!(
             list.iter()
                 .any(|b| b.name == "WARP_STAIRS_EAST" && b.value == 0x5E)
         );
+        assert!(list.iter().all(|b| b.name != "HEADBUTT"));
+    }
+
+    #[test]
+    fn tile_behaviors_command_needs_an_open_project() {
+        let err = tile_behaviors_impl(&AppState::default()).unwrap_err();
+        assert_eq!(err.message, "no project open");
     }
 
     #[test]
