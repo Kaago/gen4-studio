@@ -7,7 +7,7 @@
 #   G4_APICULA     apicula binary (default: tools/apicula/bin/apicula)
 #   G4_DSROM_CLI   ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom)
 # The g4emu integration step also needs the emulator core (bash scripts/g4emu/setup.sh) and
-# $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them it is recorded as skipped.
+# $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them (or without the Platinum DE ROM) it is recorded as skipped.
 #
 # The projects are only read; writing tests work on copies (vanilla_copy()).
 # Stops at the first failure and prints the result table either way.
@@ -47,12 +47,12 @@ record() { # record <step> <project> <result> <seconds>
 
 print_table() {
   echo
-  printf '%-52s %-44s %-22s %7s\n' "Step" "Project" "Result" "Seconds"
-  printf '%-52s %-44s %-22s %7s\n' "----" "-------" "------" "-------"
+  printf '%-52s %-44s %-26s %7s\n' "Step" "Project" "Result" "Seconds"
+  printf '%-52s %-44s %-26s %7s\n' "----" "-------" "------" "-------"
   local row step project result secs
   for row in "${ROWS[@]+"${ROWS[@]}"}"; do
     IFS='|' read -r step project result secs <<<"$row"
-    printf '%-52s %-44s %-22s %7s\n' "$step" "$project" "$result" "$secs"
+    printf '%-52s %-44s %-26s %7s\n' "$step" "$project" "$result" "$secs"
   done
   echo
   if [ "$FAILED" -eq 0 ] && [ "${#ROWS[@]}" -gt 0 ]; then
@@ -99,13 +99,19 @@ run_step "dist has no bridge" "" bash -c '! grep -rq "__bridge" apps/studio/dist
 
 # g4emu (scripts/g4emu): unit tests always, the emulator tests only when core and save game exist.
 run_step "g4emu unit" "" bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q'
-G4EMU_CORE_FILE="${G4EMU_CORE:-$ROOT/tools/g4emu/core/melondsds_libretro.dylib}"
-if [ -f "$G4EMU_CORE_FILE" ] && [ -f "$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav" ]; then
+G4EMU_CORE_FILE="$(abs "${G4EMU_CORE:-$ROOT/tools/g4emu/core/melondsds_libretro.dylib}")"
+G4EMU_SAVE_FILE="$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav"
+G4EMU_ROM_FILE="$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds"
+if [ ! -f "$G4EMU_CORE_FILE" ]; then
+  record "g4emu integration" "-" "skipped (kein Kern)" 0
+elif [ ! -f "$G4EMU_SAVE_FILE" ]; then
+  record "g4emu integration" "-" "skipped (kein Spielstand)" 0
+elif [ ! -f "$G4EMU_ROM_FILE" ]; then
+  record "g4emu integration" "-" "skipped (keine ROM)" 0
+else
   run_step "g4emu integration" "" \
     env G4EMU_CORE="$G4EMU_CORE_FILE" G4_ROMS_DIR="$G4_ROMS_DIR" \
     bash -c 'cd scripts/g4emu && uv run pytest -m integration -q'
-else
-  record "g4emu integration" "-" "skipped (kein Kern/Spielstand)" 0
 fi
 
 # Gated tests need the tools; without them the tests would only print "skipped".

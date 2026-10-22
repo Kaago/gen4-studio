@@ -8,7 +8,7 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
 
 ## Einmalig einrichten
 
-1. Emulator-Kern holen: `bash scripts/g4emu/setup.sh` (legt die Python-Umgebung an und lädt den festen melonDS-Kern nach `tools/g4emu/core/`; die SHA-256-Summe ist im Skript festgelegt).
+1. Emulator-Kern holen: `bash scripts/g4emu/setup.sh` (legt die Python-Umgebung an und **lädt den festen melonDS-Kern aus dem GitHub-Release** nach `tools/g4emu/core/`; die SHA-256-Summe ist im Skript festgelegt). Ist der Kern noch nicht da, vorher den Nutzer um sein OK für den Download bitten; ist `tools/g4emu/core/melondsds_libretro.dylib` schon da, entfällt der Schritt.
 2. Spielstände prüfen: `ls ../Roms/_testkopien/_saves` zeigt `CPUD-zimmer.sav` (Platin DE), `IPKD-zimmer.sav` (HeartGold DE) und `IPKE-zimmer.sav` (HeartGold US), je mit einer `.md`-Datei. Sie liegen nicht im Repo und werden nie überschrieben.
 3. apicula (Kartenbilder, 3D-Texturen): `tools/apicula/bin/apicula` muss existieren. In einem Git-Worktree fehlt `tools/` (steht in `.gitignore`): entweder `ln -s <Haupt-Checkout>/tools/apicula tools/apicula` oder `export G4_APICULA=<Pfad>`.
 4. Prüfen, dass es läuft: `cd scripts/g4emu && uv run g4emu --help` und `uv run pytest -m "not integration" -q`.
@@ -21,8 +21,8 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
    cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-3a
    ```
 
-   Für HeartGold DE und US entsprechend `"…Goldene Edition HeartGold (Germany)_DSPRE_contents"` und `"…HeartGold Version (USA)_DSPRE_contents"`. Jede Prüfreihe bekommt eine eigene Kopie (Anlegen, Patch und Bauen lassen sich nicht zurücknehmen). Unter `../Roms` wird nichts gelöscht.
-2. **Screenshot-Ordner:** `mkdir -p target/agent/gate-$(date +%F)`; `g4emu` bekommt ihn als `--out` (mit Unterordner je Punkt). Die Werkzeuge des Browser-Fensters liefern Bilder nur an den Agenten, sie schreiben keine Datei: für „Agent + Blick“ beschreibt der Agent das Bild genau (was, wo, welche Zahlen) und nennt dem Nutzer, was er im Fenster ansehen soll; Dateien entstehen nur von `g4emu`.
+   Für HeartGold DE und US entsprechend `"…Goldene Edition HeartGold (Germany)_DSPRE_contents"` und `"…HeartGold Version (USA)_DSPRE_contents"`. Das Ziel darf noch nicht existieren (sonst landet die Kopie als Unterordner darin). Jede Prüfreihe bekommt eine eigene Kopie (Anlegen, Patch und Bauen lassen sich nicht zurücknehmen). Unter `../Roms` wird nichts gelöscht.
+2. **Screenshot-Ordner:** `mkdir -p target/agent/gate-$(date +%F)`; `g4emu` bekommt ihn als `--out` (mit Unterordner je Punkt). Die Werkzeuge des Browser-Fensters liefern Bilder nur an den Agenten, sie schreiben keine Datei: für „Agent + Blick“ beschreibt der Agent Ort und Zahlen (welcher Header, welche Zelle, was zu sehen ist) und sagt dem Nutzer, was er im Fenster ansehen soll. Bilddateien gibt es nur von `g4emu` (`shot`).
 3. **App starten.** Zwei Wege:
    - Ist die Sitzung im Repo-Ordner geöffnet, der `.claude/launch.json` enthält: `preview_start` mit `name: "studio-web"`.
    - Sonst (zum Beispiel in einem Worktree: `preview_start` liest `launch.json` aus dem Ordner, in dem die Sitzung geöffnet wurde): per Bash im Hintergrund
@@ -31,8 +31,8 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
 
    Ports: Vite 1430, Brücke 1431. Die App des Nutzers (1420/1421) bleibt unberührt. Das Skript bricht ab, wenn 1430 oder 1431 belegt ist.
 4. **Projekt öffnen:** `http://127.0.0.1:1430/?project=<absoluter Pfad der Kopie>` (Leerzeichen als `%20`). Die Statusleiste zeigt „Browser-Modus (Brücke)“ und die Projektmeldung. Alternativ „Projekt öffnen“ in der Leiste: ein Dialog mit dem Feld „Pfad“, „OK“ und „Abbrechen“ (Escape bricht ab).
-5. **App beenden:** `kill $(cat target/agent/studio-web.pid)` (TERM an das Skript beendet Brücke und Vite; kein `pkill -f`, das träfe auch die Shell). Nach einem Neustart der Brücke ist kein Projekt mehr offen, die Seite muss neu geladen werden.
-6. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“ samt Pfaden der Bilder.
+5. **App beenden:** Weg 1: `preview_stop`. Weg 2: `kill $(cat target/agent/studio-web.pid)` (TERM an das Skript beendet Brücke und Vite; kein `pkill -f`, das träfe auch die Shell). Danach `lsof -iTCP:1430 -iTCP:1431 -sTCP:LISTEN` (leer = Ports frei). Nach einem Neustart der Brücke ist kein Projekt mehr offen, die Seite muss neu geladen werden.
+6. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
 
 ## Werkzeuge
 
@@ -90,31 +90,31 @@ uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
 
 ## Phase 3a ([phase-3a-gate.md](phase-3a-gate.md))
 
-Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US). Die Gate-Datei schreibt die gebündelte App vor; im Browser-Modus ersetzt `studio-web` sie, die Abweichung kommt in „Auffälligkeiten“.
+Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für die Fehlerfälle aus (F) eine eigene `pt-3a-f`. Die Gate-Datei schreibt die gebündelte App vor; im Browser-Modus ersetzt `studio-web` sie, die Abweichung kommt in „Auffälligkeiten“.
 
 | Punkt | Wer | Wie |
 |---|---|---|
 | (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „+ Neu“ → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Im Studio zeigen“ |
 | (A) 5–10 Raum anlegen (Spielerzimmer in 0002) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „+ Neu“ → „Raum anlegen…“, Vorlage Header 0415, Header 0002, Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Anlegen“. Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0002“, „Zum Ziel“); Gegenprobe `call.sh list_warps` |
 | (A) Stoppuhr und „Zahlen getippt“ | Hand | Die Zeit misst der Mensch bei eigener Bedienung. Der Agent trägt nur seine getippten Zahlen ein und sagt, dass seine Zeit nichts aussagt |
-| (A) 11 Warps von Hand verbinden | Agent | Browser: in 0411 auf der Kachel einer vorhandenen Tür (Liste mit `call.sh get_events` der Eventdatei von 0411) „Warp hinzufügen“, Ziel Header 0001 / Ziel-Warp 0; dann in 0001 Warp 0 zurück nach 0411 mit dem abgelesenen Index. In Route 230 gibt es keine Tür: die Kachel dort muss ein Warp-Verhalten haben (`call.sh tile_behaviors`, `set_permission`), sonst Befund notieren |
-| (A) 12 Gang im Spiel | Agent | „Bauen“ (Pfad `<Kopie>/out.nds`), dann `g4emu run --rom <Kopie>/out.nds --save …/CPUD-zimmer.sav --out …/a12 continue expect-map 415 walk-to 8 4 walk right 1 expect-map 414 …` und weiter aus dem Haus (Tür-Kachel aus `get_events` des Headers 414, dann ein Schritt hinaus) nach 411. Draußen sind die Koordinaten der Warps (`x`, `z`) gleich den `x`, `y` von `where` (Warp 0 von 411 liegt bei 105, 875): `walk-to` auf die Kachel vor der Tür, dann `walk up 1` o. ä. in die Tür; `expect-map` auf die Ziel-ID. Route 230 (Header 1) ebenso über den Warp aus (A) 11 und zurück. Rückgabe 0 und die Header-Folge sind das Ergebnis; `shot` an jeder Station |
+| (A) 11 Warps von Hand verbinden | Agent | Browser, Schritte in Rezept „Warps verbinden“ unten |
+| (A) 12 Gang im Spiel | Agent | „Bauen“, dann `g4emu`, Schritte in Rezept „Gang im Spiel“ unten; Rückgabe 0 und die Header-Folge sind das Ergebnis, `shot` an jeder Station |
 | (B) 1–4 Explorer | Agent | Browser: Suche „Zweiblatt“ im Panel „Welt“, Umschalter „Baum / Liste“, Popover „Begriffe“, „Ohne Ortsnamen“; Texte im DOM lesen (`find`, `get_page_text`) |
 | (C) 1–4 Raster | Agent | Browser: Tab „Raster“, Header 0411, 0003, Route 230; die „+“-Zelle öffnet den Dialog „Karte bei x …, y … anlegen“. Neue Karten, Raster und Eventdateien sind sofort auf der Platte; `call.sh member_counts` zeigt die Zahlen |
 | (D) 1–3 Weltkarte | Agent | Browser: Tab „Weltkarte“, Zellenklick, Zoomen mit dem Mausrad, Linien bei Zweiblattdorf, nach (A) der neue Raum |
 | (D) 4 HeartGold US | Agent | frische Kopie `hg-3a`, `?project=…`; Baum und Weltkarte laden, New Bark Town = Header 0060 |
 | (E) 1–2 Automatik | Agent | `scripts/gate.sh` (rund 25 Minuten, im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
 | (F) Kartenbilder: Ausrichtung | Agent + Blick | Tab „Raster“ und 3D-Ansicht von oben bei Zweiblattdorf nacheinander ansehen, Norden oben, nicht gespiegelt; der Nutzer bestätigt |
-| (F) Kartenbilder ohne apicula | Agent | App mit falschem Pfad starten: `G4_APICULA=/nirgends bash scripts/agent/studio-web.sh …`, Platzhalter und Tooltip lesen |
+| (F) Kartenbilder ohne apicula | Agent | laufende App beenden (Ports sind belegt), dann `G4_APICULA=/nirgends bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`, Seite öffnen: Platzhalter und Tooltip lesen; danach beenden und normal neu starten |
 | (F) Layout im schmalen Panel | Agent | Browser-Fenster so verkleinern (`resize_window`) oder den Teiler ziehen, dass das Panel „Welt“ 300 px breit ist; Listenansicht, Popover „Begriffe“ und „+ Neu“ ansehen, Escape und Klick daneben |
 | (F) Tastatur während eines Assistenten | Agent | Assistent öffnen, Escape, Backspace, Cmd+Z, Cmd+S drücken; danach `call.sh dirty` (leer = nichts verändert) |
-| (F) Raum-Assistent, Fehlerfälle | Agent | Browser: Außen-Kachel x 999 im Schritt Eingang, gesperrte Eventdatei, „Raum hier anbinden…“ im Inspector |
+| (F) Raum-Assistent, Fehlerfälle | Agent | Browser, Schritte in Rezept „Raum-Assistent und Fehlerfälle“ unten (Raster-Wechsel, „Raum hier anbinden…“, Kachel x 999, gesperrte Eventdatei, später Fehler, Cmd+Z) |
 | (F) Layout nach Neustart | Agent | Panel verschieben, Seite neu laden (das Layout liegt im `localStorage`) |
 | Gebündelte App statt `tauri dev` | Hand | kurzer Durchgang im nativen Fenster am Ende (`pnpm bundle`, siehe [release.md](release.md)) |
 
 ## Phase 3b.1 ([phase-3b1-gate.md](phase-3b1-gate.md))
 
-Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (HeartGold DE).
+Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (HeartGold DE). Für (A) 18 eine eigene dritte Kopie `pt-3b1-rep`: `pt-3b1` bleibt unversehrt, sie ist das Gegenbeispiel „ein intaktes Projekt zeigt die Meldung nicht“. In `pt-3b1` und in Originalen werden nie Bytes von Hand geändert.
 
 | Punkt | Wer | Wie |
 |---|---|---|
@@ -122,19 +122,52 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 | (A) 2–3 Assistent bis Patch | Agent | Browser: Header 0342, „+ Neu“ → „Gebiet anlegen…“, zwei Zellen übrig, Name „Route 231“, Schritt Header: „Neuer Header“ ist gesperrt, Kasten „Patch „Dynamische Header“ nötig“ lesen, vorher speichern, „Patch anwenden“ |
 | (A) 4 Platte nach dem Patch | Agent | `cmp <Kopie>/arm9/arm9.bin <Kopie>/arm9/arm9.bin.backup` meldet Unterschiede; `ls <Kopie>/unpacked/dynamicHeaders \| wc -l` gleich Zahl der Header; `ls -l <Kopie>/arm9/arm9.bin*` |
 | (A) 5–6 Neuer Header | Agent | Browser: „Neuer Header“, „Interner Name“ auf `R231`, Zusammenfassung lesen, „Anlegen“, „Im Studio zeigen“ |
-| (A) 7 Platte nach dem Anlegen | Agent | `ls -l <Kopie>/unpacked/dynamicHeaders/NNNN` (24 Byte); `mapname.bin` genau 16 Byte länger; `tail -c 16 <Kopie>/files/fielddata/maptable/mapname.bin \| xxd` beginnt mit `R231` |
-| (A) 8 Variante „behalten“ | Agent | Browser: zweites Gebiet „Route 232“, Eventdatei „behalten“; Gegenprobe `call.sh get_header '{"id":NNNN}'` (gleiche `event_file_id` wie 0342) |
+| (A) 7 Platte nach dem Anlegen | Agent | `ls -l <Kopie>/unpacked/dynamicHeaders/NNNN` (NNNN vierstellig, 24 Byte; in JSON ohne führende Nullen, zum Beispiel `{"id":593}`); `mapname.bin` genau 16 Byte länger; `tail -c 16 <Kopie>/files/fielddata/maptable/mapname.bin \| xxd` beginnt mit `R231` |
+| (A) 8 Variante „behalten“ | Agent | Browser: zweites Gebiet „Route 232“, Eventdatei „behalten“; Gegenprobe `call.sh get_header '{"id":NNNN}'` (NNNN ohne führende Nullen; gleiche `event_file_id` wie 0342) |
 | (A) 9–10 Warp und Gang im Spiel | Agent | Warps in der Oberfläche setzen (siehe 3a (A) 11) und mit `g4emu` laufen, **oder** das Szenario `pt-neuer-header.yaml` auf einer weiteren frischen Kopie (Patch, neuer Header, Treppe, hin und zurück ohne Klick) |
 | (A) 11 NARC im ROM | Agent | `target/debug/g4k extract <Kopie>/out.nds target/agent/gate-<datum>/rom-extrakt` und prüfen, dass `…/files/debug/cb_edit/d_test.narc` existiert (`g4k` steht nach `cargo build -p g4-kernel` bereit; der Zielordner darf nicht unter `../Roms` liegen) |
 | (A) 12–15 DSPRE-Gegenprobe | Hand | DSPRE läuft nur unter Windows |
-| (A) 16 HeartGold DE | Agent | wie (A) 2–10 auf `hg-3b1`, Interner Name `HG_TEST`, Spielstand IPKD (Zimmer Header 64, Treppe nach 63); `ls <Kopie>/files/a/0/5/0` nach dem Bauen |
+| (A) 16 HeartGold DE | Agent | wie (A) 2–10 auf `hg-3b1`, Interner Name `HG_TEST`, Spielstand IPKD (Zimmer Header 64, Treppe nach 63); nach dem Bauen `target/debug/g4k extract <Kopie>/out.nds target/agent/gate-<datum>/rom-hg` und `ls …/rom-hg/files/a/0/5/0` (im ROM, nicht im Projektordner) |
 | (A) 17 Diamant/Perl | Hand | entfällt ohne Projekt |
-| (A) 18 Patch reparieren | Agent | Fehlerzustand auf einer Kopie nachstellen: nach „Patch anwenden“ die 4 Byte bei 0x3A0D6 in `arm9/arm9.bin` auf `CC F7 74 FC` setzen (`printf '\xCC\xF7\x74\xFC' \| dd of=<Kopie>/arm9/arm9.bin bs=1 seek=$((0x3A0D6)) conv=notrunc`), Seite neu laden: Meldung „Patch „Dynamische Header“ fehlerhaft …“ und Knopf „Patch reparieren“, drücken; danach `xxd -s $((0x3A0D6)) -l 4 <Kopie>/arm9/arm9.bin` zeigt `de f7 ad f8`, bauen, `g4emu continue` läuft weiter. Ein unversehrtes Projekt zeigt die Meldung nicht. Dass DSPRE selbst so patcht, gehört zur DSPRE-Gegenprobe (Hand) |
+| (A) 18 Patch reparieren | Agent | Auf der **eigenen** frischen Kopie `pt-3b1-rep` (nie `pt-3b1`, nie ein Original), Schritte in Rezept „Patch reparieren“ unten. Dass DSPRE selbst so patcht, gehört zur DSPRE-Gegenprobe (Hand) |
 | (B) 1–5 Höhen | Agent + Blick | Browser: Tab „Raster“, „Höhen“ einschalten, Zelle anklicken, Inspector „Höhe“ = 2; Hover und Ziehproben mit `hover` und `left_click_drag`, Messwerte über `get_matrix`; wie die erhöhte Zelle aussieht bestätigt der Nutzer am Bild |
 | (C) 1–7 Sprites | Agent + Blick | Agent prüft: Sprite statt gelbem Quadrat, Wechsel des Feldes „Richtung“ (0 bis 3) ohne Neuladen, Platzhalter bei „Grafik“ 60000 (danach Cmd+Z). Aufrecht, nicht gespiegelt und Blickrichtung bestätigt der Nutzer am Bild |
 | (D) 1–3 Kachelnamen HGSS | Agent | Browser: Hover auf Bäumen (`HEADBUTT`), Gras, Wasser, Hüpfkante; Platin: derselbe Wert 0x06 ohne `HEADBUTT`; Namen mit `call.sh tile_behaviors` gegenprüfen |
 | (E) 1–2 `gate.sh` | Agent | `scripts/gate.sh`, Tabelle in die Ergebnisse übernehmen; keine Zeile „skipped“ außer den dokumentierten |
 | (F) 1–3 apicula-Zeitlimit | Agent | `G4_APICULA_TIMEOUT_SECS=1 bash scripts/agent/studio-web.sh …` mit frischer Kopie ohne `.g4/models`; `ls <Kopie>/.g4/models` (keine `.fail`, `last-tool` mit 16 Hexzeichen) |
+
+## Rezepte
+
+**Warps verbinden (3a (A) 11).** Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln.
+1. In 0411: `call.sh get_events '{"eventFileId":390}'` zeigt die Türen (Warp 0 bei 105, 875 führt in das Rivalenhaus). Auf der Kachel einer Tür „Warp hinzufügen“, im Event-Editor Ziel Header 1, Ziel-Warp 0. Den Index des neuen Warps in „Eingänge / Ausgänge“ ablesen.
+2. In 0001 (Route 230): Maus auf die Zielkachel, „Warp hinzufügen“, Ziel Header 411 und der Index aus Schritt 1. Hat die Kachel kein Warp-Verhalten, passt `call.sh tile_behaviors` den Wert an und `set_permission` setzt ihn; gelingt das nicht, den Befund notieren.
+3. Prüfen: `call.sh list_warps` nennt beide Warps.
+
+**Gang im Spiel (3a (A) 12).** Koordinaten von Warps (`x`, `z`) sind draußen gleich `x`, `y` von `where`; die Kachel vor einer Tür liegt eine südlich (Tür bei 105, 875: vorher 105, 876).
+1. „Bauen“ (OK im Pfad-Dialog), Ergebnis `<Kopie>/out.nds`.
+2. Zimmer, Haus, draußen, wieder hinein (aus `scripts/g4emu`):
+   ```sh
+   O=../../target/agent/gate-$(date +%F)/a12; R=../../../Roms/_testkopien
+   uv run g4emu run --rom $R/<Kopie>/out.nds --save $R/_saves/CPUD-zimmer.sav --out $O \
+     continue expect-map 415 walk-to 8 4 walk right 1 expect-map 414 wait 150 shot wohnzimmer
+   ```
+   Weiter mit `--state $O/last.state` (dasselbe `--rom`, `--out $O`), zum Beispiel `walk-to 6 10 walk down 1 expect-map 411 wait 100 shot draussen walk-to 105 876 walk up 1 expect-map 412` (Tür des Rivalenhauses; Tür des eigenen Hauses nach 414 entsprechend aus `get_events`).
+3. Route 230: `walk-to` auf die Warp-Kachel aus „Warps verbinden“ plus ein Schritt in Richtung Ausgang, `expect-map 1`, `shot`; zurück ebenso nach `expect-map 411`.
+
+**Patch reparieren (3b.1 (A) 18)**, auf `pt-3b1-rep`:
+1. App öffnen, „+ Neu“ → „Gebiet anlegen…“, bis Schritt Header, „Patch anwenden“, App beenden (Seite schließen, Brücke stoppen).
+2. Fehler nachstellen: `printf '\xCC\xF7\x74\xFC' | dd of=<pt-3b1-rep>/arm9/arm9.bin bs=1 seek=$((0x3A0D6)) conv=notrunc`
+3. App starten, Kopie öffnen: Meldung „Patch „Dynamische Header“ fehlerhaft …“ und Knopf „Patch reparieren“ (`call.sh header_patch_status` zeigt `repairable: true`). Knopf drücken: Meldung „… repariert …“.
+4. `xxd -g1 -s $((0x3A0D6)) -l 4 <pt-3b1-rep>/arm9/arm9.bin` zeigt `de f7 ad f8`. Bauen, `g4emu run … continue wait 600 shot weiter`: das Spiel läuft nach dem Intro weiter.
+5. Gegenprobe: `pt-3b1` öffnen, die Meldung erscheint nicht.
+
+**Raum-Assistent und Fehlerfälle (3a (F))**, auf einer eigenen Kopie `pt-3a-f`:
+- *Falsches Raster:* in der Szene Header 0342 (Raster 0000) zeigen, „+ Neu“ → „Raum anlegen…“, Vorlage 0415, im Schritt Header einen freien Header, im Schritt Eingang als Außen-Header 0002 („UG“, Raster 0002) wählen. Erwartet: der Schritt fragt nach der Kachel der Tür (leere Felder, kein Hinweis „Kachel zuletzt in der Szene gewählt“). Zum Vergleich Außen-Header 0411 (Raster 0000): die Kachel ist vorbelegt.
+- *„Raum hier anbinden…“:* Header 0411 öffnen, im Inspector „Raum hier anbinden…“: der Assistent hat 0411 als Außen-Header vorgewählt.
+- *Kachel außerhalb:* im Schritt Eingang x 999 eintippen: der Assistent lehnt ab, bevor etwas angelegt wird (`call.sh member_counts` vorher und nachher gleich).
+- *Gesperrte Eventdatei:* App beenden, `printf '\0' >> <pt-3a-f>/unpacked/eventFiles/0390` (hängt ein Byte an die Datei von 0411 an, sie lässt sich dann nicht mehr verlustfrei schreiben), App neu starten. Raum-Assistent mit Außen-Header 0411: der Schritt Eingang nennt die Sperre und bietet „später verbinden“; `call.sh get_events '{"eventFileId":390}'` zeigt `locked`.
+- *Später Fehler:* nur mit gepatchter Kopie (3b.1 (A) 3). `chmod 555 <Kopie>/unpacked/maps`, „Gebiet anlegen…“ mit „Neuer Header“, „Anlegen“: das Ergebnis meldet den Schritt („map copy failed …“) und das schon Angelegte („header NNNN was created“). Danach `chmod 755 <Kopie>/unpacked/maps`. (Ohne neuen Header ist nichts angelegt und der Fehler lautet „nothing was created“.)
+- *Cmd+Z:* vor dem Assistenten `call.sh get_header '{"id":N}'` und `call.sh member_counts` notieren, Assistent mit Header-Umstellung ausführen, `call.sh dirty` zeigt die Änderungen. Cmd+Z so oft drücken, bis `dirty` leer ist (oder `call.sh undo`): `get_header` gleicht wieder dem Vorher-Wert, `member_counts` bleibt erhöht (Karten, Raster und Eventdateien bleiben liegen, wie angesagt).
 
 ## Was beim Nutzer bleibt
 
