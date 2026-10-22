@@ -1,0 +1,24 @@
+import pytest
+from PIL import Image
+
+from g4emu.emu import EmuError, bgrx_to_image, game_code
+
+
+def test_game_code_reads_the_rom_header(make_rom):
+    assert game_code(make_rom("CPUD")) == "CPUD"
+
+
+def test_game_code_of_a_truncated_rom_fails(tmp_path):
+    rom = tmp_path / "short.nds"
+    rom.write_bytes(b"abc")
+    with pytest.raises(EmuError):
+        game_code(rom)
+
+
+def test_bgrx_is_swapped_to_rgb():
+    # One row, two pixels, stride padded to 12 bytes: (R=1,G=2,B=3) and (R=10,G=20,B=30).
+    data = bytes([3, 2, 1, 0, 30, 20, 10, 0, 9, 9, 9, 9])
+    img = bgrx_to_image(data, width=2, height=1)
+    assert isinstance(img, Image.Image)
+    assert img.mode == "RGB"
+    assert [img.getpixel((0, 0)), img.getpixel((1, 0))] == [(1, 2, 3), (10, 20, 30)]

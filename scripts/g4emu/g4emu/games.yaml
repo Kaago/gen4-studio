@@ -1,0 +1,7 @@
+# Per game code (ROM header offset 0x0C). The location record is
+# {u32 header; i32 warp; u32 x; u32 y} at (u32 @ pointer) + offset.
+CPUD:
+  name: Platin DE
+  location: { pointer: 0x02101EE0, offset: 0x1294 }
+  save: CPUD-zimmer.sav
+  start_header: 415
