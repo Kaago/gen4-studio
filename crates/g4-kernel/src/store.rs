@@ -1608,14 +1608,16 @@ mod tests {
         #[test]
         fn text_archive_users_lists_headers() {
             let (_s, mut st) = store();
-            st.edit_header(0, "text", |h| {
+            // The fixture's header 0 already uses archive 433; the edit adds header 1.
+            assert_eq!(st.text_archive_users(433).unwrap(), vec![0]);
+            st.edit_header(1, "text", |h| {
                 if let MapHeader::Pt(h) = h {
                     h.text_archive_id = 433;
                 }
                 Ok(())
             })
             .unwrap();
-            assert_eq!(st.text_archive_users(433).unwrap(), vec![0]);
+            assert_eq!(st.text_archive_users(433).unwrap(), vec![0, 1]);
             assert_eq!(st.text_archive_users(5).unwrap(), Vec::<u16>::new());
         }
     }

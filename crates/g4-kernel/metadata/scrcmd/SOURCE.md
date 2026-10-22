@@ -5,4 +5,5 @@
 - `revision.txt`: 33
 - Downloaded: 2026-10-22
 
-The same revision is embedded by rotom v0.7.0 when it is built.
+rotom v0.7.0 embeds whatever release was latest when it was built. gen4-studio always uses these
+bundled files (revision 33), never rotom's embedded copy.
