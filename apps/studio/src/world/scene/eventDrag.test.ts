@@ -4,8 +4,10 @@ import type { EventsDto, MatrixDto } from "../../api";
 import type { EventRef } from "../events";
 import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
+import { OVERLAY_Y } from "./content";
 import { createEventDrag } from "./eventDrag";
-import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit.testkit";
+import { fakePicker, fakeRefs, settle, slantedView, surfaceKit } from "./dragTestKit.testkit";
+import type { Picker } from "./picking";
 import type { SceneHost } from "./SceneHost";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), updateEvent: vi.fn(), getEvents: vi.fn() }));
@@ -23,13 +25,13 @@ const set = {} as MarkerSet;
 const selected: EventRef = { file: 1, kind: "warp", index: 2 };
 const hitOn = (index: number) => ({ kind: "warp", data: { index, x: 10, z: 10 } }) as never;
 
-function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean; altitudes?: number[] } = {}) {
+function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean; altitudes?: number[]; matrix?: MatrixDto; picker?: Picker } = {}) {
   const events = { event_file_id: 1, locked: options.locked ?? null } as EventsDto;
   const h = {
     selectedEvent: options.select === undefined ? selected : options.select,
     events,
     markers: set,
-    matrix: options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix,
+    matrix: options.matrix ?? options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix,
     scene: { add: vi.fn(), remove: vi.fn() },
     render: vi.fn(),
     refreshHover: vi.fn(),
@@ -38,7 +40,7 @@ function setup(options: { locked?: string | null; select?: EventRef | null; pain
   const { refs, callbacks } = fakeRefs({ paintEnabled: options.paintEnabled ?? true });
   const report = vi.fn();
   const kit = surfaceKit();
-  const picker = fakePicker();
+  const picker = options.picker ?? fakePicker();
   const planePoint = vi.spyOn(picker, "planePoint");
   const drag = createEventDrag(h, picker, kit.surface, refs, report);
   drag.attach();
@@ -103,6 +105,37 @@ describe("createEventDrag", () => {
     const flat = setup();
     flat.press(100, 100);
     expect(flat.planePoint.mock.calls[0][2].constant).toBeCloseTo(-MARKER_Y, 5);
+  });
+
+  describe("across cells of another height", () => {
+    // Cell 0 on the ground, cell 1 five tiles up (altitude 10), seen from a slanted camera.
+    const view = (altitudes: number[]) => slantedView({ index: 0, name: "m", width: 2, height: 1, maps: [1, 2], headers: null, altitudes });
+    const drag = (altitudes: number[], from: [number, number], to: [number, number]) => {
+      const { h, picker, through } = view(altitudes);
+      const at = (t: [number, number]) => {
+        const cellHeight = (altitudes[Math.floor(t[0] / 32)] ?? 0) * 0.5;
+        return through(t[0] + 0.5, OVERLAY_Y + cellHeight, t[1] + 0.5);
+      };
+      vi.mocked(pickMarker).mockReturnValue({ kind: "warp", data: { index: 2, x: from[0], z: from[1] } } as never);
+      const t = setup({ matrix: h.matrix as MatrixDto, picker });
+      const start = at(from);
+      const end = at(to);
+      t.press(start.x, start.y);
+      t.moveTo(end.x, end.y);
+      return t;
+    };
+
+    it("lands on exactly the tile under the pointer when dragged up onto a higher cell", () => {
+      drag([0, 10], [26, 5], [36, 7]);
+      expect(moveMarker).toHaveBeenLastCalledWith(set, { kind: "warp", index: 2 }, { x: 36, z: 7 });
+    });
+
+    it("lands on exactly the tile under the pointer when dragged down onto a lower cell", () => {
+      drag([0, 10], [36, 7], [26, 5]);
+      expect(moveMarker).toHaveBeenLastCalledWith(set, { kind: "warp", index: 2 }, { x: 26, z: 5 });
+      drag([10, 0], [26, 5], [36, 7]);
+      expect(moveMarker).toHaveBeenLastCalledWith(set, { kind: "warp", index: 2 }, { x: 36, z: 7 });
+    });
   });
 
   it("puts the marker back on Escape and writes nothing", () => {

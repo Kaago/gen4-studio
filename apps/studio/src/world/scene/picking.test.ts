@@ -1,33 +1,11 @@
-import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { MatrixDto } from "../../api";
 import { OVERLAY_Y } from "./content";
-import { createPicker } from "./picking";
-import type { SceneHost } from "./SceneHost";
-import type { Loaded } from "./types";
-
-const SIZE = 800;
+import { slantedView } from "./dragTestKit.testkit";
 
 /** A 2 x 1 matrix: cell 0 on the ground, cell 1 at altitude 2 (one tile up). */
 const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2], headers: null, altitudes: [0, 2] };
-const loadedMap = (index: number): Loaded => ({ map: { index, permissions: [], buildings: [] } });
-
-function host(m: MatrixDto | null = matrix) {
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
-  // Looks at the border of the two cells from the side, so that rays are slanted.
-  camera.position.set(45, 30, 20);
-  camera.lookAt(32, 0, 5);
-  camera.updateMatrixWorld(true);
-  camera.updateProjectionMatrix();
-  const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: SIZE, height: SIZE }) };
-  const h = { canvas, camera, matrix: m, loaded: new Map([[1, loadedMap(1)], [2, loadedMap(2)]]) } as unknown as SceneHost;
-  /** Client position at which the view ray passes through scene point (x, y, z). */
-  const through = (x: number, y: number, z: number) => {
-    const p = new THREE.Vector3(x, y, z).project(camera);
-    return { x: ((p.x + 1) / 2) * SIZE, y: ((1 - p.y) / 2) * SIZE };
-  };
-  return { h, picker: createPicker(h), through };
-}
+const host = (m: MatrixDto | null = matrix) => slantedView(m);
 
 describe("pickTile with altitudes", () => {
   it("hits the raised surface of a cell above the ground plane", () => {
@@ -56,5 +34,33 @@ describe("pickTile with altitudes", () => {
     const off = through(200, OVERLAY_Y, 5.5);
     expect(picker.pickTile(off.x, off.y)).toBeNull();
     expect(host(null).picker.pickTile(10, 10)).toBeNull();
+  });
+});
+
+describe("surfacePoint", () => {
+  const tall: MatrixDto = { ...matrix, altitudes: [0, 10] };
+
+  it("is the point of the surface under the pointer, whatever the height of the cell", () => {
+    const { picker, through } = host(tall);
+    for (const [x, z, y] of [
+      [36.5, 5.5, OVERLAY_Y + 5],
+      [26.5, 5.5, OVERLAY_Y],
+    ]) {
+      const at = through(x, y, z);
+      const p = picker.surfacePoint(at.x, at.y);
+      expect(p?.x).toBeCloseTo(x, 3);
+      expect(p?.z).toBeCloseTo(z, 3);
+    }
+  });
+
+  it("includes cells without a map, and is null over no cell", () => {
+    const empty = { ...tall, maps: [1, null] };
+    const { picker, through } = host(empty);
+    const over = through(36.5, OVERLAY_Y + 5, 5.5);
+    expect(picker.surfacePoint(over.x, over.y)?.x).toBeCloseTo(36.5, 3);
+    expect(picker.pickTile(over.x, over.y)).toBeNull();
+    const off = through(200, OVERLAY_Y, 5.5);
+    expect(picker.surfacePoint(off.x, off.y)).toBeNull();
+    expect(host(null).picker.surfacePoint(10, 10)).toBeNull();
   });
 });

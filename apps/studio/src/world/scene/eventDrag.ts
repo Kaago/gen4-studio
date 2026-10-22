@@ -21,7 +21,7 @@ export interface EventDrag {
 }
 
 /**
- * Dragging the selected event marker moves it on the plane of its cell's height in whole tiles (`origin` is the
+ * Dragging the selected event marker moves it on the surface under the pointer in whole tiles (`origin` is the
  * event's tile, so the snapped positions are tiles too). A locked event file cannot be dragged. A
  * press only starts a drag on the selected marker itself; one `update_event` is written when the
  * pointer is released.
@@ -48,7 +48,9 @@ export function createEventDrag(h: SceneHost, picker: Picker, surface: DragSurfa
         origin: { x: hit.data.x, z: hit.data.z },
       };
     },
-    pointOn: picker.planePoint,
+    // The pointer is resolved on the surface of the cell it is over (so a marker dragged across cells of
+    // other heights lands on the tile under the pointer); the start cell's plane is the fallback.
+    pointOn: (x, y, plane) => picker.surfacePoint(x, y) ?? picker.planePoint(x, y, plane),
     // Events stay on the matrix: beyond its edge the marker stops, and so does what is written.
     clamp: (at) => (h.matrix ? clampToMatrix(at, h.matrix) : at),
     move: ({ set, kind, data }, at) => {

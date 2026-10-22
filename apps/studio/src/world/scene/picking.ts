@@ -32,6 +32,8 @@ export interface Picker {
   markerAt(clientX: number, clientY: number): MarkerHit | null;
   /** The tile under a pointer position, or null outside every loaded map cell. */
   pickTile(clientX: number, clientY: number): PickedTile | null;
+  /** The scene point of the surface under a pointer position (the plane of the height of the cell it is over), or null over no matrix cell. */
+  surfacePoint(clientX: number, clientY: number): { x: number; z: number } | null;
   /** The point of `plane` under a pointer position, or null when the view ray never reaches it. */
   planePoint(clientX: number, clientY: number, plane: THREE.Plane): { x: number; z: number } | null;
 }
@@ -62,30 +64,47 @@ export function createPicker(h: SceneHost): Picker {
     aim(clientX, clientY);
     return pickMarker(h.markers, raycaster);
   };
-  const pickTile = (clientX: number, clientY: number) => {
-    if (!h.matrix) return null;
-    aim(clientX, clientY);
+  /**
+   * The point of the surface under the pointer: planes from the highest altitude down, the first one
+   * hit inside a matrix cell of exactly its height (and that `accept`s the cell index) wins.
+   */
+  const surfaceHit = (clientX: number, clientY: number, accept: (index: number) => boolean) => {
     const m = h.matrix;
+    if (!m) return null;
+    aim(clientX, clientY);
     const hit = new THREE.Vector3();
-    // From the highest plane down: the first plane that is hit inside a cell of exactly its height is the surface under the pointer.
     for (const { level, plane } of levelPlanes(m.altitudes)) {
       if (!raycaster.ray.intersectPlane(plane, hit)) continue;
       const at = matrixCellAt(hit, m.width, m.height);
       if (!at) continue;
       const index = at.row * m.width + at.col;
-      if ((m.altitudes?.[index] ?? 0) !== level) continue;
-      const mapId = m.maps[index];
-      const tile = pickCell(hit, cellOrigin(at.col, at.row));
-      const data = mapId === null || mapId === undefined ? undefined : h.loaded.get(mapId);
-      if (!tile || mapId === null || mapId === undefined || !data) continue;
-      return { mapId, data, col: at.col, row: at.row, x: tile.x, y: tile.y };
+      if ((m.altitudes?.[index] ?? 0) !== level || !accept(index)) continue;
+      return { hit, at, index };
     }
     return null;
+  };
+  const surfacePoint = (clientX: number, clientY: number) => {
+    const found = surfaceHit(clientX, clientY, () => true);
+    return found ? { x: found.hit.x, z: found.hit.z } : null;
+  };
+  const pickTile = (clientX: number, clientY: number) => {
+    const m = h.matrix;
+    if (!m) return null;
+    const found = surfaceHit(clientX, clientY, (index) => {
+      const id = m.maps[index];
+      return id !== null && id !== undefined && h.loaded.has(id);
+    });
+    if (!found) return null;
+    const mapId = m.maps[found.index] as number;
+    const data = h.loaded.get(mapId);
+    const tile = pickCell(found.hit, cellOrigin(found.at.col, found.at.row));
+    if (!data || !tile) return null;
+    return { mapId, data, col: found.at.col, row: found.at.row, x: tile.x, y: tile.y };
   };
   const planePoint = (clientX: number, clientY: number, onPlane: THREE.Plane) => {
     aim(clientX, clientY);
     const hit = raycaster.ray.intersectPlane(onPlane, new THREE.Vector3());
     return hit ? { x: hit.x, z: hit.z } : null;
   };
-  return { raycaster, aim, markerAt, pickTile, planePoint };
+  return { raycaster, aim, markerAt, pickTile, surfacePoint, planePoint };
 }

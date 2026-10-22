@@ -1,7 +1,12 @@
 // Test helpers for the drag factories: a fake pointer surface and a stand-in picker. Only tests import this.
+import * as THREE from "three";
 import { vi } from "vitest";
+import type { MatrixDto } from "../../api";
 import type { DragSurface, PointerLike } from "../dragController";
+import { createPicker } from "./picking";
 import type { Picker } from "./picking";
+import type { SceneHost } from "./SceneHost";
+import type { Loaded } from "./types";
 import type { SceneCallbacks, SceneRefs } from "./types";
 
 type Listener = (e: Event) => void;
@@ -83,6 +88,7 @@ export function fakePicker(): Picker {
     aim: vi.fn(),
     markerAt: vi.fn(() => null),
     pickTile: vi.fn(() => null),
+    surfacePoint: vi.fn(() => null),
     planePoint: (x, y) => ({ x, z: y }),
   };
 }
@@ -116,3 +122,25 @@ export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
 
 /** Lets promise callbacks run. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const VIEW_SIZE = 800;
+
+/**
+ * A scene handle with a real picker and a slanted perspective camera over `matrix` (every map in it
+ * loaded); `through` gives the client position whose view ray passes through a scene point.
+ */
+export function slantedView(matrix: MatrixDto | null) {
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  camera.position.set(45, 30, 20);
+  camera.lookAt(32, 0, 5);
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+  const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEW_SIZE, height: VIEW_SIZE }) };
+  const loaded = new Map<number, Loaded>((matrix?.maps ?? []).flatMap((id) => (id === null ? [] : [[id, { map: { index: id, permissions: [], buildings: [] } } as Loaded] as const])));
+  const h = { canvas, camera, matrix, loaded } as unknown as SceneHost;
+  const through = (x: number, y: number, z: number) => {
+    const p = new THREE.Vector3(x, y, z).project(camera);
+    return { x: ((p.x + 1) / 2) * VIEW_SIZE, y: ((1 - p.y) / 2) * VIEW_SIZE };
+  };
+  return { h, picker: createPicker(h), through };
+}
