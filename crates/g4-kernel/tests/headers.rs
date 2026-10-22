@@ -200,6 +200,19 @@ fn header_edits_that_the_game_cannot_store_are_rejected() {
 }
 
 #[test]
+fn header_fits_is_the_dry_run_of_the_edit_check() {
+    let s = common::synthetic_project();
+    let mut st = synthetic_store(&s);
+    let mut header = st.header_table().unwrap()[0].clone();
+    assert!(st.header_fits(&header));
+    if let MapHeader::Pt(h) = &mut header {
+        h.flags = 16;
+    }
+    assert!(!st.header_fits(&header));
+    assert!(!st.header_fits(&MapHeader::DP(MapHeaderDP::default())));
+}
+
+#[test]
 fn save_keeps_changes_made_to_the_rest_of_arm9_since_loading() {
     let s = common::synthetic_project();
     let mut st = synthetic_store(&s);

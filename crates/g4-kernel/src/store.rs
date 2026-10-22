@@ -31,6 +31,13 @@ pub struct SaveReport {
     pub written: Vec<AssetId>,
 }
 
+/// True if writing `header` and reading it back gives `header` (no value was cut or is of
+/// another game family).
+fn header_round_trips(header: &MapHeader, family: uxie::GameFamily) -> bool {
+    let bytes = write_map_header_to_bytes(header);
+    matches!(read_map_header_from_bytes(&bytes, family), Ok(stored) if stored == *header)
+}
+
 fn uxie_family(family: Family) -> uxie::GameFamily {
     match family {
         Family::Dp => uxie::GameFamily::DP,
@@ -463,16 +470,22 @@ impl Store {
                         max: count.saturating_sub(1),
                     })?;
                 edit(header)?;
-                let bytes = write_map_header_to_bytes(header);
-                match read_map_header_from_bytes(&bytes, family) {
-                    Ok(stored) if stored == *header => Ok(()),
-                    _ => Err(KernelError::Uxie(format!(
+                if header_round_trips(header, family) {
+                    Ok(())
+                } else {
+                    Err(KernelError::Uxie(format!(
                         "header {id} does not fit the {game_code} header layout"
-                    ))),
+                    )))
                 }
             }
             _ => Err(mismatch(HEADER_TABLE)),
         })
+    }
+
+    /// Whether `header` would be stored as it is in this game's header layout: the check
+    /// [`Store::edit_header`] ends with, available as a dry run before anything is created.
+    pub fn header_fits(&self, header: &MapHeader) -> bool {
+        header_round_trips(header, uxie_family(self.project.family))
     }
 
     /// Member count of the archive of `kind`: the members of the project, which includes every

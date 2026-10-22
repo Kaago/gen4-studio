@@ -215,7 +215,7 @@ fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdE
     if let EventFileChoice::Copy(source) = assign.event_file {
         check_member(store, AssetKind::Event, source, "event file")?;
     }
-    Ok(())
+    check_header_fits(store, assign)
 }
 
 /// Creates the event file the choice asks for (`Keep` creates none).
@@ -234,6 +234,33 @@ fn provide_event_file(
     Ok(Some(file))
 }
 
+/// Sets the fields of `header` that the assignment changes: the matrix, the area data if
+/// given and the event file if a new one was made.
+fn apply_assign(
+    header: &mut MapHeader,
+    assign: &AssignHeader,
+    matrix: u16,
+    event_file: Option<u16>,
+) {
+    match header {
+        MapHeader::DP(h) => {
+            h.matrix_id = matrix;
+            h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+        }
+        MapHeader::Pt(h) => {
+            h.matrix_id = matrix;
+            h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+        }
+        MapHeader::HGSS(h) => {
+            h.matrix_id = matrix;
+            h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+        }
+    }
+}
+
 /// Points header `assign.id` at `matrix` (and at the new area data and event file, if given).
 fn assign_header(
     store: &mut Store,
@@ -243,25 +270,41 @@ fn assign_header(
 ) -> Result<(), KernelError> {
     let label = format!("assign header {:04} to matrix {matrix:04}", assign.id);
     store.edit_header(assign.id, &label, |header| {
-        match header {
-            MapHeader::DP(h) => {
-                h.matrix_id = matrix;
-                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
-                h.event_file_id = event_file.unwrap_or(h.event_file_id);
-            }
-            MapHeader::Pt(h) => {
-                h.matrix_id = matrix;
-                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
-                h.event_file_id = event_file.unwrap_or(h.event_file_id);
-            }
-            MapHeader::HGSS(h) => {
-                h.matrix_id = matrix;
-                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
-                h.event_file_id = event_file.unwrap_or(h.event_file_id);
-            }
-        }
+        apply_assign(header, assign, matrix, event_file);
         Ok(())
     })?;
+    Ok(())
+}
+
+/// Dry run of the header edit: the new matrix and event file will be the next members of their
+/// archives, so the final header is known before anything is created. Refuses a header the
+/// game's layout could not store (the three fields are full-width in every layout, so this
+/// only guards against a layout change).
+fn check_header_fits(store: &mut Store, assign: &AssignHeader) -> Result<(), CmdError> {
+    let next = |kind| -> Result<u16, CmdError> {
+        let count = store.member_count(kind)?;
+        u16::try_from(count)
+            .map_err(|_| CmdError::from(format!("the {kind} archive has no room for a new member")))
+    };
+    let matrix = next(AssetKind::Matrix)?;
+    let event_file = match assign.event_file {
+        EventFileChoice::Keep => None,
+        EventFileChoice::New | EventFileChoice::Copy(_) => Some(next(AssetKind::Event)?),
+    };
+    let mut header = store
+        .header_table()?
+        .get(usize::from(assign.id))
+        .cloned()
+        .ok_or_else(|| CmdError::from(format!("header {} does not exist", assign.id)))?;
+    apply_assign(&mut header, assign, matrix, event_file);
+    if !store.header_fits(&header) {
+        return Err(format!(
+            "header {} would not fit the game's header layout with matrix {matrix}{}",
+            assign.id,
+            event_file.map_or(String::new(), |f| format!(" and event file {f}"))
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -553,9 +596,9 @@ pub fn create_room(state: State<AppState>, spec: RoomSpec) -> Result<RoomReport,
 mod tests {
     use super::super::open_synthetic;
     use super::super::{
-        dirty_impl, get_events_impl, get_header_impl, get_map_impl, get_matrix_impl,
-        member_counts_impl, reload_asset_impl, set_header_impl, set_matrix_sections_impl,
-        undo_impl,
+        EventKind, add_event_impl, dirty_impl, get_events_impl, get_header_impl, get_map_impl,
+        get_matrix_impl, member_counts_impl, reload_asset_impl, set_header_impl,
+        set_matrix_sections_impl, undo_impl,
     };
     use super::*;
     use g4_kernel::store::MapHeader;
@@ -886,6 +929,58 @@ mod tests {
         assert_eq!((warps[0].dest_header_id, warps[0].dest_warp_id), (1, 1));
         assert_eq!((warps[1].dest_header_id, warps[1].dest_warp_id), (0, 0));
         assert_eq!((warps[1].x, warps[1].z), (16, 30));
+    }
+
+    /// Adds `n` warps to event file `file`.
+    fn add_warps(state: &AppState, file: u16, n: usize) {
+        for i in 0..n {
+            add_event_impl(state, file, EventKind::Warp, i as i32, 0).unwrap();
+        }
+    }
+
+    #[test]
+    fn create_room_links_to_the_end_of_files_that_already_have_warps() {
+        let (_f, state) = open_synthetic();
+        set_event_file(&state, 1, 1);
+        add_warps(&state, 0, 1);
+        add_warps(&state, 1, 2);
+        // The copy of file 1 has its 2 warps, so the room warp becomes warp 2 of file 2; the
+        // outside warp becomes warp 1 of file 0.
+        let report = create_room_impl(&state, room_spec(EventFileChoice::Copy(1))).unwrap();
+        assert_eq!(
+            (report.event_file, report.outside_warp, report.inside_warp),
+            (Some(2), Some(1), Some(2))
+        );
+        let outside = get_events_impl(&state, 0).unwrap().warps;
+        assert_eq!(outside.len(), 2);
+        let w = &outside[1];
+        assert_eq!((w.x, w.z, w.dest_header_id, w.dest_warp_id), (5, 6, 1, 2));
+        let inside = get_events_impl(&state, 2).unwrap().warps;
+        assert_eq!(inside.len(), 3);
+        let w = &inside[2];
+        assert_eq!((w.x, w.z, w.dest_header_id, w.dest_warp_id), (16, 30, 0, 1));
+    }
+
+    #[test]
+    fn create_room_in_a_shared_file_with_warps_appends_both_after_them() {
+        let (_f, state) = open_synthetic();
+        add_warps(&state, 0, 2);
+        let report = create_room_impl(&state, room_spec(EventFileChoice::Keep)).unwrap();
+        assert_eq!(
+            (report.event_file, report.outside_warp, report.inside_warp),
+            (None, Some(2), Some(3))
+        );
+        let warps = get_events_impl(&state, 0).unwrap().warps;
+        assert_eq!(warps.len(), 4);
+        // The outside warp points at the room warp (3), the room warp back at the outside warp (2).
+        assert_eq!(
+            (warps[2].x, warps[2].dest_header_id, warps[2].dest_warp_id),
+            (5, 1, 3)
+        );
+        assert_eq!(
+            (warps[3].x, warps[3].dest_header_id, warps[3].dest_warp_id),
+            (16, 0, 2)
+        );
     }
 
     #[test]
