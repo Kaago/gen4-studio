@@ -3,6 +3,7 @@ import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, 
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import { ask, openPath, savePath } from "../platform/dialogs";
+import { inTauri } from "../platform/transport";
 import type { Message } from "../Toolbar";
 import { eventReadOnlyReason, lockedText } from "../world/events";
 
@@ -196,7 +197,8 @@ export function useProjectSession() {
 
   async function onBuild() {
     try {
-      const out = await savePath({ defaultPath: info ? `${info.root}/out.nds` : "out.nds" });
+      // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
+      const out = await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` });
       if (!out) return;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });

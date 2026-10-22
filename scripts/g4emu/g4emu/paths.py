@@ -25,16 +25,19 @@ def roms_dir() -> Path:
     """`G4_ROMS_DIR` (fallback `G4EMU_ROMS`) if set, else the `Roms` folder next to the repository."""
     env = os.environ.get("G4_ROMS_DIR") or os.environ.get("G4EMU_ROMS")
     if env:
-        return Path(env)
+        return Path(env).resolve()
     return repo_root().parent / "Roms"
 
 
 def check_out_dir(out: Path, roms_dir: Path) -> Path:
-    """Resolve `out` and refuse it when it lies under `roms_dir` outside `_testkopien`."""
+    """Resolve `out` and refuse it when it lies under `roms_dir` outside `_testkopien`, or in the shared save games."""
     resolved = Path(out).resolve()
     roms = Path(roms_dir).resolve()
     if resolved == roms or roms in resolved.parents:
         allowed = roms / "_testkopien"
+        saves = allowed / "_saves"
+        if resolved == saves or saves in resolved.parents:
+            raise ValueError(f"Ausgabeordner {resolved} liegt in den Spielständen {saves}; die sind gesperrt")
         if not (resolved == allowed or allowed in resolved.parents):
             raise ValueError(
                 f"Ausgabeordner {resolved} liegt unter {roms}; erlaubt ist nur {allowed}"

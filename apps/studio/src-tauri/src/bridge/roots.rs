@@ -7,10 +7,18 @@ use crate::errors::CmdError;
 /// Suffix of the folder names of the original ROM projects, which must never be touched.
 const LOCKED_SUFFIX: &str = "_DSPRE_contents";
 
+/// Folder name of the shared save games, which lives inside `_testkopien` and must stay untouched.
+const SAVES_DIR: &str = "_saves";
+
 /// Whether any component of `path` names an original project (ends in `_DSPRE_contents`).
 fn is_locked(path: &Path) -> bool {
     path.components()
         .any(|c| c.as_os_str().to_string_lossy().ends_with(LOCKED_SUFFIX))
+}
+
+/// Whether any component of `path` is exactly the save game folder.
+fn is_saves(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == SAVES_DIR)
 }
 
 /// The allowed root folders, canonical. Every path the bridge opens or writes must lie under
@@ -75,6 +83,9 @@ impl Roots {
         if is_locked(&full) {
             return Err(locked(out));
         }
+        if is_saves(&full) {
+            return Err(saves(out));
+        }
         Ok(full)
     }
 
@@ -88,8 +99,15 @@ impl Roots {
         if is_locked(canonical) {
             return Err(locked(shown));
         }
+        if is_saves(canonical) {
+            return Err(saves(shown));
+        }
         Ok(())
     }
+}
+
+fn saves(shown: &str) -> CmdError {
+    CmdError::from(format!("Spielstände (_saves) sind gesperrt: {shown}"))
 }
 
 fn locked(shown: &str) -> CmdError {
@@ -270,6 +288,46 @@ mod tests {
             "{}",
             err.message
         );
+    }
+
+    #[test]
+    fn output_into_the_saves_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let saves = dir.path().join("_saves");
+        fs::create_dir(&saves).unwrap();
+        let roots = roots_in(&dir);
+        for out in [saves.join("CPUD-zimmer.sav"), saves.join("out.nds")] {
+            let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
+            assert_eq!(err.code, "error");
+            assert!(
+                err.message
+                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                "{}",
+                err.message
+            );
+        }
+        // A folder that merely contains the name is fine.
+        fs::create_dir(dir.path().join("my_saves")).unwrap();
+        let ok = dir.path().join("my_saves").join("out.nds");
+        assert!(roots.check_output(ok.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn project_inside_the_saves_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("_saves").join("p");
+        fs::create_dir_all(&project).unwrap();
+        let roots = roots_in(&dir);
+        for path in [dir.path().join("_saves"), project] {
+            let err = roots.check_project(path.to_str().unwrap()).unwrap_err();
+            assert_eq!(err.code, "error");
+            assert!(
+                err.message
+                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                "{}",
+                err.message
+            );
+        }
     }
 
     #[test]

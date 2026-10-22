@@ -95,7 +95,7 @@ run_step "cargo test (no ROM data)" "" \
 run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "pnpm build" "" bash -c 'cd apps/studio && pnpm build'
 # The dev bridge client is dev-only: nothing of it may reach the production bundle.
-run_step "dist has no bridge" "" bash -c '! grep -rq "__bridge" apps/studio/dist'
+run_step "dist has no bridge" "" bash -c 'test -d apps/studio/dist && ! grep -rq "__bridge" apps/studio/dist'
 
 # g4emu (scripts/g4emu): unit tests always, the emulator tests only when core and save game exist.
 run_step "g4emu unit" "" bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q'

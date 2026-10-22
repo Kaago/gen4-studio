@@ -26,7 +26,18 @@ fi
 
 VITE_PORT=1430
 BRIDGE_PORT=1431
-G4_ROMS_DIR="${G4_ROMS_DIR:-$ROOT/../Roms}"
+# Absolute, so the bridge (which canonicalizes) and the shell agree; a relative value is relative to the repo root.
+abs() { # abs <path>: absolute form of a path whose parent exists
+  local dir base
+  dir="$(dirname "$1")"
+  base="$(basename "$1")"
+  if [ -d "$dir" ]; then
+    printf '%s/%s' "$(cd "$dir" && pwd)" "$base"
+  else
+    printf '%s' "$1"
+  fi
+}
+G4_ROMS_DIR="$(abs "${G4_ROMS_DIR:-$ROOT/../Roms}")"
 
 for port in "$VITE_PORT" "$BRIDGE_PORT"; do
   if lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then

@@ -3,7 +3,7 @@ import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openPath } from "./platform/dialogs";
+import { openPath, savePath } from "./platform/dialogs";
 import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -180,6 +180,18 @@ describe("App wiring", () => {
       window.history.replaceState(null, "", "/?project=/tmp/p");
       await renderFresh();
       expect(openProject).not.toHaveBeenCalled();
+    });
+
+    it("build_dialog_default_path_is_bare_in_tauri_and_prefilled_in_the_browser", async () => {
+      vi.mocked(savePath).mockResolvedValue(null);
+      // Inside Tauri the system dialog gets the bare file name, as before.
+      env.tauri = true;
+      await click("Bauen");
+      expect(savePath).toHaveBeenLastCalledWith({ defaultPath: "out.nds" });
+      // In the browser the in-page field is prefilled with the project folder.
+      env.tauri = false;
+      await click("Bauen");
+      expect(savePath).toHaveBeenLastCalledWith({ defaultPath: "/p/out.nds" });
     });
 
     it("does_not_open_anything_without_a_project_parameter", async () => {

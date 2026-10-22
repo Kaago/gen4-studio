@@ -71,3 +71,24 @@ def test_saves_dir_defaults_under_testkopien_and_honours_override(monkeypatch, t
     assert paths.saves_dir() == tmp_path / "_testkopien" / "_saves"
     monkeypatch.setenv("G4EMU_SAVES", str(tmp_path / "s"))
     assert paths.saves_dir() == tmp_path / "s"
+
+
+def test_out_under_the_shared_saves_is_refused(tmp_path):
+    roms = tmp_path / "Roms"
+    saves = roms / "_testkopien" / "_saves"
+    saves.mkdir(parents=True)
+    with pytest.raises(ValueError, match="Spielstände"):
+        check_out_dir(saves, roms)
+    with pytest.raises(ValueError, match="Spielstände"):
+        check_out_dir(saves / "run", roms)
+    # Other folders next to it stay allowed.
+    other = roms / "_testkopien" / "_saves_old" / "run"
+    assert check_out_dir(other, roms) == other.resolve()
+
+
+def test_roms_dir_is_absolute_even_for_a_relative_setting(monkeypatch, tmp_path):
+    (tmp_path / "rel").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("G4_ROMS_DIR", "rel")
+    assert roms_dir() == (tmp_path / "rel").resolve()
+    assert roms_dir().is_absolute()
