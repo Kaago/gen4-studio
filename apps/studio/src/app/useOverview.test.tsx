@@ -53,12 +53,18 @@ describe("useOverview", () => {
     root = createRoot(container);
     bus = createEditBus();
     latest = null;
+    unmounted = false;
     errors.length = 0;
     vi.mocked(listMatrices).mockReset().mockResolvedValue(emptyMatrices);
     vi.mocked(listWarps).mockReset().mockResolvedValue(emptyWarps);
   });
-  afterEach(() => {
+  let unmounted = false;
+  const unmount = () => {
+    unmounted = true;
     act(() => root.unmount());
+  };
+  afterEach(() => {
+    if (!unmounted) unmount();
     container.remove();
   });
 
@@ -132,7 +138,7 @@ describe("useOverview", () => {
     await render();
     await act(async () => bus.emit({ topic: "matrixData" }));
     expect(errors).toHaveLength(1);
-    expect((errors[0] as Error).message).toBe("1 Raster nicht lesbar: 0007: bad header");
+    expect((errors[0] as Error).message).toBe("Raster: 1 nicht lesbar (0007: bad header)");
   });
 
   it("refresh re-reads both lists", async () => {
@@ -140,5 +146,67 @@ describe("useOverview", () => {
     await act(async () => latest?.refresh());
     expect(listMatrices).toHaveBeenCalledTimes(2);
     expect(listWarps).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports unreadable members again after a project change", async () => {
+    vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [[7, "bad"]] });
+    await render("/a");
+    await render("/b");
+    expect(errors).toHaveLength(2);
+  });
+
+  it("reports unreadable event files with the glossary label", async () => {
+    vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [[3, "bad"]] });
+    await render();
+    expect((errors[0] as Error).message).toBe("Eventdatei: 1 nicht lesbar (0003: bad)");
+  });
+
+  it.each([
+    ["listMatrices", () => vi.mocked(listMatrices), "matrixData", () => ({ topic: "matrixData" }) as const],
+    ["listWarps", () => vi.mocked(listWarps), "eventData", () => ({ topic: "eventData" }) as const],
+  ])("a rejected %s reaches onError and a later event still reads", async (_name, mock, _topic, event) => {
+    const failure = new Error("boom");
+    mock().mockRejectedValueOnce(failure);
+    await render();
+    expect(errors).toEqual([failure]);
+    const calls = mock().mock.calls.length;
+    await act(async () => bus.emit(event()));
+    expect(mock().mock.calls.length).toBe(calls + 1);
+  });
+
+  it("refresh resolves only after the queued catch-up read", async () => {
+    const first = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(first.promise);
+    await render();
+    let resolved = false;
+    let refreshing!: Promise<void>;
+    await act(async () => {
+      refreshing = latest!.refresh().then(() => {
+        resolved = true;
+      });
+    });
+    expect(listMatrices).toHaveBeenCalledTimes(1);
+    const second = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(second.promise);
+    await act(async () => first.resolve(emptyMatrices));
+    expect(listMatrices).toHaveBeenCalledTimes(2);
+    expect(resolved).toBe(false);
+    await act(async () => second.resolve(emptyMatrices));
+    await refreshing;
+    expect(resolved).toBe(true);
+  });
+
+  it("does nothing after the unmount: no queued read, no error", async () => {
+    const first = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(first.promise);
+    await render();
+    await act(async () => bus.emit({ topic: "matrixData" }));
+    expect(listMatrices).toHaveBeenCalledTimes(1);
+    unmount();
+    vi.mocked(listMatrices).mockClear();
+    await act(async () => first.resolve({ matrices: [], unreadable: [[7, "bad"]] }));
+    await flush();
+    expect(listMatrices).not.toHaveBeenCalled();
+    expect(errors).toEqual([]);
   });
 });

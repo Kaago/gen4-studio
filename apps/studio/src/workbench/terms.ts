@@ -9,13 +9,13 @@ export const TERMS: Record<TermKey, { label: string; tech: string | null; short:
   },
   header: {
     label: "Header",
-    tech: null,
+    tech: "MapHeader",
     short: "Ein Eintrag der Ortstabelle: verweist auf Raster, Eventdatei, Area-Data, Musik und Wetter.",
   },
   outside: {
     label: "Außen",
     tech: null,
-    short: "Ein Header, dessen Raster einen Header-Abschnitt hat: die Zellen des Rasters sagen, welcher Header wo gilt.",
+    short: "Ein Header, dessen Raster einen Header-Abschnitt hat (die Region, meist Matrix 0): die Zellen des Rasters sagen, welcher Header wo gilt.",
   },
   room: {
     label: "Raum",
@@ -36,8 +36,11 @@ export const TERMS: Record<TermKey, { label: string; tech: string | null; short:
 /** An id as the Gate documents and the lists write it: four digits. */
 export const id4 = (n: number) => String(n).padStart(4, "0");
 
+/** How an id is written next to a member; the header stays "Header" (the word the Gate documents use), the rest follows the technical name. */
+const ID_NAME: Partial<Record<TermKey, string>> = { header: "Header" };
+
 /** The technical name of a member with its id: "Matrix 0131", "Header 0415". */
 export function techLabel(key: TermKey, id: number): string {
   const term = TERMS[key];
-  return `${term.tech ?? term.label} ${id4(id)}`;
+  return `${ID_NAME[key] ?? term.tech ?? term.label} ${id4(id)}`;
 }

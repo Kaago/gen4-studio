@@ -3,7 +3,7 @@ import { listMatrices, listWarps } from "../api";
 import type { MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { useBusEvent } from "../bus/useBusEvent";
-import { id4 } from "../workbench/terms";
+import { TERMS, id4 } from "../workbench/terms";
 
 export interface Overview {
   matrices: MatrixSummary[];
@@ -14,14 +14,14 @@ export interface Overview {
 
 type Kind = "matrices" | "warps";
 
-/** What `unreadable` members are called in the one error per project and list. */
-const UNREADABLE_NOUN: Record<Kind, string> = { matrices: "Raster", warps: "Eventdateien" };
 const REPORTED_MEMBERS = 3;
 
+/** One error per list: "Raster: 3 nicht lesbar (0007: reason; ...)", the list named with the glossary's label. */
 function unreadableError(kind: Kind, unreadable: [number, string][]): Error {
+  const label = kind === "matrices" ? TERMS.matrix.label : TERMS.eventFile.label;
   const shown = unreadable.slice(0, REPORTED_MEMBERS).map(([id, reason]) => `${id4(id)}: ${reason}`);
-  const more = unreadable.length > REPORTED_MEMBERS ? ` (und ${unreadable.length - REPORTED_MEMBERS} weitere)` : "";
-  return new Error(`${unreadable.length} ${UNREADABLE_NOUN[kind]} nicht lesbar: ${shown.join("; ")}${more}`);
+  const more = unreadable.length > REPORTED_MEMBERS ? `; und ${unreadable.length - REPORTED_MEMBERS} weitere` : "";
+  return new Error(`${label}: ${unreadable.length} nicht lesbar (${shown.join("; ")}${more})`);
 }
 
 interface Slot {
@@ -35,7 +35,7 @@ interface Slot {
  * The matrix and warp overviews of the open project. The first read per project walks every
  * member under the session lock, so a list is never read twice at once: a request during a read
  * is remembered and served by one more read after it. Results that arrive for an older project
- * are dropped. Unreadable members are reported once per project and list.
+ * or after the unmount are dropped. Unreadable members are reported once per project and list.
  */
 export function useOverview(params: { bus: EditBus; projectRoot: string | null; counts: MemberCounts; onError: (e: unknown) => void }): Overview {
   const { bus, projectRoot, counts, onError } = params;
@@ -48,6 +48,7 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
   /** Bumped when the project changes (or the host unmounts): a read started under an older one is dropped. */
   const generation = useRef(0);
   const currentRoot = useRef(projectRoot);
+  const mounted = useRef(false);
   const reported = useRef(new Set<Kind>());
   const latestOnError = useRef(onError);
   latestOnError.current = onError;
@@ -58,12 +59,12 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
       let unreadable: [number, string][];
       if (kind === "matrices") {
         const listing = await listMatrices();
-        if (gen !== generation.current) return;
+        if (gen !== generation.current || !mounted.current) return;
         setMatrices(listing.matrices);
         unreadable = listing.unreadable;
       } else {
         const listing = await listWarps();
-        if (gen !== generation.current) return;
+        if (gen !== generation.current || !mounted.current) return;
         setLinks(listing.links);
         unreadable = listing.unreadable;
       }
@@ -72,7 +73,7 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
         latestOnError.current(unreadableError(kind, unreadable));
       }
     } catch (e) {
-      if (gen === generation.current) latestOnError.current(e);
+      if (gen === generation.current && mounted.current) latestOnError.current(e);
     }
   }, []);
 
@@ -89,8 +90,8 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
         try {
           do {
             slot.queued = false;
-            if (currentRoot.current !== null) await fetchOnce(kind);
-          } while (slot.queued);
+            if (currentRoot.current !== null && mounted.current) await fetchOnce(kind);
+          } while (slot.queued && mounted.current);
         } finally {
           slot.busy = false;
           const waiters = slot.waiters;
@@ -103,12 +104,14 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
     [fetchOnce],
   );
 
-  useEffect(
-    () => () => {
+  // Declared before the read effect, so `mounted` is already true when it starts the first reads.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       generation.current++;
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     if (currentRoot.current !== projectRoot) {
