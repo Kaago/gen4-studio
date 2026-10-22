@@ -1,275 +1,34 @@
 import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { errorText, getBuildingGlb, getEvents, getMap, getMapModelGlb, mapModelTextureStatus, setPermission, tileBehaviors, updateBuilding, updateEvent } from "../api";
+import { errorText, getMap, getMapModelGlb, mapModelTextureStatus, setPermission, updateBuilding, updateEvent } from "../api";
 import type { TextureIssue } from "../api";
 import type { Message } from "../Toolbar";
 import { headerLabel } from "../workbench/headers";
-import type { BuildingDto, EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
+import type { BuildingDto, EventsDto, HeaderSummary, MatrixDto, TileBehavior, WarpDto } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
-import { BuildingLayer } from "./buildingLayer";
 import type { BuildingRef } from "./buildingLayer";
 import { reconcileBuildings, sameBuilding, settleBuilding } from "./buildings";
 import type { BuildingRefresh } from "./buildings";
-import { permissionColor } from "./colors";
 import { DragController } from "./dragController";
-import { clampToMatrix, lockedText } from "./events";
+import { clampToMatrix } from "./events";
 import type { EventLock, EventRef, EventRefresh } from "./events";
 import { describeTile } from "./hover";
-import { MARKER_Y, buildMarkers, disposeMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
+import { MARKER_Y, disposeMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
 import type { MarkerSet } from "./markers";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
-import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
+import { MAP_SIZE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
-import { cloneModel, disposeTree, parseGlb } from "./sceneUtil";
+import { disposeTree, parseGlb } from "./sceneUtil";
 import { drainWhenReady, fetchCurrent, pendingSince } from "../reload";
 import type { RefreshQueue } from "../reload";
-
-interface Loaded {
-  map: MapDto;
-}
-
-/** Height of the overlay plane; clicks are intersected with the same plane. */
-const OVERLAY_Y = 0.05;
-
-interface SceneHandle {
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
-  controls: OrbitControls;
-  content: THREE.Group;
-  overlay: THREE.Object3D | null;
-  render: () => void;
-  /** Matrix and loaded maps behind the current content (null until a matrix is loaded). */
-  matrix: MatrixDto | null;
-  /** The terrain model instances in `content` (one per matrix cell showing a map), for reloading them alone. */
-  models: THREE.Object3D[];
-  /** What the last full load could not read (names, maps), kept for the summary after a models-only reload. */
-  loadProblems: { names: string | null; maps: string[] };
-  loaded: Map<number, Loaded>;
-  tiles: THREE.InstancedMesh | null;
-  /** Map id to the first overlay instance of each matrix cell showing that map. */
-  bases: Map<number, number[]>;
-  /** Tile behaviour names by kind byte (empty until loaded). */
-  names: Map<number, TileBehavior>;
-  markers: MarkerSet | null;
-  /** The events the markers show (null: none shown, or they could not be read). */
-  events: EventsDto | null;
-  /** The selected event, as the scene knows it (follows the `selectedEvent` prop). */
-  selectedEvent: EventRef | null;
-  /** The buildings of the shown matrix (a child of `content`; null until a matrix is loaded). */
-  buildings: BuildingLayer | null;
-  /** The selected building, as the scene knows it (follows the `selectedMap`/`selectedBuilding` props). */
-  selection: BuildingRef | null;
-  /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
-  refreshHover: (() => void) | null;
-  /** A render is already queued for the next animation frame. */
-  renderQueued: boolean;
-  /** The component is gone; late results and queued renders are dropped. */
-  disposed: boolean;
-}
-
-const colorCache = new Map<string, THREE.Color>();
-function overlayColor(kind: number, collision: number, names: Map<number, TileBehavior>): THREE.Color {
-  const hex = permissionColor(kind, collision, names.get(kind)?.class ?? null);
-  let color = colorCache.get(hex);
-  if (!color) colorCache.set(hex, (color = new THREE.Color(hex)));
-  return color;
-}
-
-let namesCache: Promise<Map<number, TileBehavior>> | null = null;
-/** The behaviour table is static, so it is fetched once; a failed fetch is retried on the next load. */
-function loadNames(): Promise<Map<number, TileBehavior>> {
-  namesCache ??= tileBehaviors()
-    .then((list) => new Map(list.map((b) => [b.value, b] as const)))
-    .catch((e) => {
-      namesCache = null;
-      throw e;
-    });
-  return namesCache;
-}
-
-/** Hands the model of map `mapId` to every matrix cell showing that map (clones share geometry and materials). */
-function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model: THREE.Object3D) {
-  let used = false;
-  matrix.maps.forEach((id, i) => {
-    if (id !== mapId) return;
-    const origin = cellOrigin(i % matrix.width, Math.floor(i / matrix.width));
-    const instance = cloneModel(model);
-    // The model is centred on the map centre.
-    instance.scale.setScalar(MODEL_SCALE);
-    instance.position.set(origin.x + MAP_SIZE / 2, 0, origin.z + MAP_SIZE / 2);
-    h.content.add(instance);
-    h.models.push(instance);
-    used = true;
-  });
-  // The clones in `content` are disposed with it; a model without a cell would leak.
-  if (!used) disposeTree(model);
-}
-
-/** Takes every terrain model out of the scene (the overlay, buildings and markers stay). */
-function removeModels(h: SceneHandle) {
-  for (const instance of h.models) {
-    h.content.remove(instance);
-    disposeTree(instance);
-  }
-  h.models = [];
-}
-
-/** Renders on the next animation frame; bursts of arriving models cost one render. */
-function queueRender(h: SceneHandle) {
-  if (h.renderQueued) return;
-  h.renderQueued = true;
-  requestAnimationFrame(() => {
-    h.renderQueued = false;
-    if (!h.disposed) h.render();
-  });
-}
-
-/**
- * A loader job for building model `id`: fetches and parses it, then hands it to the buildings that
- * use it. A failure is remembered in the layer (the buildings keep their box) and rethrown for the
- * caller's summary. Results that arrive after `stale()` turned true are discarded.
- */
-function buildingModelJob(h: SceneHandle, layer: BuildingLayer, id: number, area: number, stale: () => boolean) {
-  return async () => {
-    if (stale()) return;
-    try {
-      const model = await getBuildingGlb(id, area).then(parseGlb);
-      if (stale()) {
-        disposeTree(model);
-        return;
-      }
-      layer.setTemplate(id, model);
-      queueRender(h);
-    } catch (e) {
-      if (!stale()) layer.setFailed(id, errorText(e));
-      throw e;
-    }
-  };
-}
-
-/** Loads the building models the layer still lacks, a few at a time; never rejects. */
-async function loadMissingBuildingModels(h: SceneHandle, layer: BuildingLayer, area: number, stale: () => boolean) {
-  const ids = layer.missingModelIds();
-  await limitConcurrency(
-    ids.map((id) => buildingModelJob(h, layer, id, area, stale)),
-    MODEL_CONCURRENCY,
-  );
-}
-
-/** Drops the selection when its building no longer exists (after an undo, say). */
-function dropMissingSelection(h: SceneHandle, onSelect: (ref: BuildingRef | null) => void) {
-  if (!h.selection || !h.buildings || h.buildings.has(h.selection)) return;
-  h.selection = null;
-  h.buildings.select(null);
-  onSelect(null);
-}
-
-/** Builds the overlay and the building boxes once all maps are known; models are added later. */
-function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
-  const content = new THREE.Group();
-  const cells: { col: number; row: number; data: Loaded }[] = [];
-  matrix.maps.forEach((id, i) => {
-    const data = id === null ? undefined : loaded.get(id);
-    if (data) cells.push({ col: i % matrix.width, row: Math.floor(i / matrix.width), data });
-  });
-
-  const overlay = new THREE.Group();
-  const perCell = MAP_SIZE * MAP_SIZE;
-  const plane = new THREE.PlaneGeometry(1, 1);
-  plane.rotateX(-Math.PI / 2);
-  const planeMaterial = new THREE.MeshBasicMaterial({
-    transparent: true,
-    opacity: 0.45,
-    depthTest: false,
-    depthWrite: false,
-  });
-  const tiles = new THREE.InstancedMesh(plane, planeMaterial, cells.length * perCell);
-  tiles.renderOrder = 10;
-  tiles.frustumCulled = false;
-  const m4 = new THREE.Matrix4();
-  const bases = new Map<number, number[]>();
-  let n = 0;
-  for (const { col, row, data } of cells) {
-    const origin = cellOrigin(col, row);
-    const list = bases.get(data.map.index) ?? [];
-    list.push(n);
-    bases.set(data.map.index, list);
-    for (let i = 0; i < perCell; i++) {
-      const [kind, collision] = data.map.permissions[i] ?? [0, 0];
-      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, OVERLAY_Y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
-      tiles.setMatrixAt(n, m4);
-      tiles.setColorAt(n, overlayColor(kind, collision, names));
-      n++;
-    }
-  }
-  overlay.add(tiles);
-  content.add(overlay);
-
-  const buildings = new BuildingLayer();
-  buildings.build(matrix, loaded);
-  content.add(buildings.root);
-  return { content, overlay, tiles, bases, buildings };
-}
-
-/** Replaces the scene's markers (`events` null: show none); the selected event keeps its outline. */
-function setMarkers(h: SceneHandle, events: EventsDto | null, visible: boolean) {
-  if (h.markers) {
-    h.scene.remove(h.markers.group);
-    disposeMarkers(h.markers);
-    h.markers = null;
-  }
-  h.events = events;
-  if (!h.matrix || !events) return;
-  h.markers = buildMarkers(h.matrix, events);
-  h.markers.group.visible = visible;
-  const selected = h.selectedEvent;
-  if (selected && selected.file === events.event_file_id) selectMarker(h.markers, selected);
-  h.scene.add(h.markers.group);
-}
-
-/** The note shown over the scene about the events: why they are missing, or that they are locked. */
-function eventsNote(fetched: { events: EventsDto | null; error: string | null }): string | null {
-  if (fetched.error) return fetched.error;
-  return fetched.events?.locked ? `Events ${lockedText(fetched.events.locked)}` : null;
-}
-
-/** Fetches the events of a header's event file; never rejects, a failure comes back as text. */
-async function fetchEvents(eventFileId: number | null): Promise<{ events: EventsDto | null; error: string | null }> {
-  if (eventFileId === null) return { events: null, error: null };
-  try {
-    return { events: await getEvents(eventFileId), error: null };
-  } catch (e) {
-    return { events: null, error: `Events nicht geladen: ${errorText(e)}` };
-  }
-}
-
-/**
- * Reads one event file's events again and shows them (their markers are rebuilt). Dropped when
- * `current()` turned false meanwhile (another matrix or event file is shown now).
- */
-async function refreshEvents(h: SceneHandle, file: number, visible: boolean, current: () => boolean, report: (fetched: { events: EventsDto | null; error: string | null }) => void) {
-  const matrixAtStart = h.matrix;
-  const fetched = await fetchEvents(file);
-  if (h.disposed || h.matrix !== matrixAtStart || !current()) return;
-  setMarkers(h, fetched.events, visible);
-  report(fetched);
-  h.render();
-  h.refreshHover?.();
-}
-
-/** Recolours every overlay instance of `mapId` from the map's current permissions. */
-function recolourMap(h: SceneHandle, mapId: number) {
-  const data = h.loaded.get(mapId);
-  const bases = h.bases.get(mapId);
-  if (!data || !bases || !h.tiles) return;
-  for (const base of bases) {
-    data.map.permissions.forEach(([kind, collision], i) => {
-      h.tiles?.setColorAt(base + i, overlayColor(kind, collision, h.names));
-    });
-  }
-  if (h.tiles.instanceColor) h.tiles.instanceColor.needsUpdate = true;
-}
+import { buildingModelJob, dropMissingSelection, loadMissingBuildingModels } from "./scene/buildingModels";
+import { OVERLAY_Y, addModel, buildContent, recolourMap, removeModels, setMarkers } from "./scene/content";
+import { eventsNote, fetchEvents, refreshEvents } from "./scene/eventFetch";
+import { queueRender } from "./scene/handle";
+import type { SceneHandle } from "./scene/handle";
+import { loadNames } from "./scene/tileNames";
+import type { Loaded } from "./scene/types";
 
 interface Props {
   matrix: MatrixDto;
