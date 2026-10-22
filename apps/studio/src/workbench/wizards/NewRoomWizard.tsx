@@ -26,6 +26,10 @@ interface Props {
   links: WarpLink[];
   counts: MemberCounts;
   matrices: MatrixSummary[];
+  /** The overview was read: until then `matrices` (and so the places) tell outside headers from rooms by nothing. */
+  matricesLoaded: boolean;
+  /** The latest read of the overview failed. */
+  matricesFailed: boolean;
   /** The matrix the scene shows (null: none): `lastTile` is a tile of it. */
   shownMatrix: number | null;
   /** The headers grouped by place, as the world explorer shows them: the rooms among them are the templates. */
@@ -65,10 +69,13 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
   };
 }
 
+/** What stands where the rooms (or outside headers) will be listed once the overview is read; null: it is read. */
+const overviewNote = (loaded: boolean, failed: boolean): string | null => (loaded ? null : failed ? "Übersicht nicht verfügbar" : "Lade Übersicht …");
+
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, places, prefill, lastTile, onClose, onCreated, onError }: Props) {
+export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onError }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
   const [form, setForm] = useState<RoomForm>(() => {
@@ -85,6 +92,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
   // The door inside follows the template's own door until the user typed one.
   const [insideEdited, setInsideEdited] = useState(false);
 
+  const waiting = overviewNote(matricesLoaded, matricesFailed);
   const find = (id: number | null) => (id === null ? null : (headers.find((h) => h.id === id) ?? null));
   const template = find(form.template);
   const roomHeader = find(form.header);
@@ -217,7 +225,8 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
               style={{ width: "100%", boxSizing: "border-box", padding: "2px 6px" }}
             />
             <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid #e5e7eb", marginTop: 4 }}>
-              {templates.map((place) => {
+              {waiting !== null && <div style={{ padding: "2px 6px", color: "#6b7280" }}>{waiting}</div>}
+              {waiting === null && templates.map((place) => {
                 return (
                   <div key={place.key}>
                     <div style={{ padding: "2px 6px", background: "#f3f4f6", fontSize: 12, color: "#4b5563" }}>{place.name}</div>
@@ -235,8 +244,8 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
                   </div>
                 );
               })}
-              {templateCount === 0 && <div style={{ padding: "2px 6px", color: "#6b7280" }}>Kein {TERMS.room.label} gefunden</div>}
-              {templateCount > SHOWN && <div style={{ padding: "2px 6px", color: "#6b7280" }}>{templateCount - SHOWN} weitere, Suche eingrenzen</div>}
+              {waiting === null && templateCount === 0 && <div style={{ padding: "2px 6px", color: "#6b7280" }}>Kein {TERMS.room.label} gefunden</div>}
+              {waiting === null && templateCount > SHOWN && <div style={{ padding: "2px 6px", color: "#6b7280" }}>{templateCount - SHOWN} weitere, Suche eingrenzen</div>}
             </div>
             <label style={row}>
               Name
@@ -289,7 +298,11 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
           {/* The lock follows the chosen header outside: picking another one is always possible. */}
           <fieldset disabled={!form.connect} style={{ border: "none", padding: 0, margin: 0 }}>
             <div style={heading}>{TERMS.header.label} außen</div>
-            <HeaderPicker headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
+            {waiting !== null ? (
+              <div style={note}>{waiting}</div>
+            ) : (
+              <HeaderPicker headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
+            )}
             <div style={note}>
               {outsideHeader ? `Gewählt: ${id4(outsideHeader.id)} „${headerLabel(outsideHeader)}“` : `Kein ${TERMS.header.label} außen gewählt.`}
             </div>

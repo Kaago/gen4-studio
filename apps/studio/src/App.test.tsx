@@ -205,6 +205,37 @@ describe("App wiring", () => {
       expect(live().message?.text ?? "").not.toContain("Raster 0005");
     });
 
+    it("does not show the created header later when the header list could not be read and a later read succeeds", async () => {
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await create();
+      const read = vi.mocked(listHeaders).getMockImplementation();
+      vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
+      await click("Im Studio zeigen");
+      expect(live().message?.kind).toBe("error");
+      // The next read (here after a header edit) lists header 1 on the new matrix: the creation is over, nothing selects it.
+      vi.mocked(listHeaders).mockImplementation(read!);
+      vi.mocked(getMatrix).mockClear();
+      await act(async () => void (await data().onHeaderChanged()));
+      expect(data().headers.find((h) => h.id === 1)?.matrix_id).toBe(5);
+      expect(data().selected).toBe(0);
+      expect(getMatrix).not.toHaveBeenCalledWith(5);
+      expect(live().message?.text ?? "").not.toContain("Raster 0005");
+    });
+
+    it("keeps the error of a failed load instead of overwriting it with the announcement", async () => {
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await create();
+      vi.mocked(getMatrix).mockImplementation(async (index) => {
+        if (index === 5) throw new Error("matrix 0005 unreadable");
+        return matrixOf(index);
+      });
+      await click("Im Studio zeigen");
+      expect(live().message?.kind).toBe("error");
+      expect(live().message?.text).toContain("matrix 0005 unreadable");
+    });
+
     it("copies from the matrix of the selected header unless the request names one", async () => {
       await select(listed[1]);
       await act(async () => data().onOpenWizard({ kind: "area" }));

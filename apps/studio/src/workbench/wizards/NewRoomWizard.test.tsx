@@ -71,10 +71,10 @@ describe("NewRoomWizard", () => {
     container.remove();
   });
 
-  async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }) {
+  async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }) {
     await act(async () =>
       root.render(
-        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onError={onError} />,
+        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onError={onError} />,
       ),
     );
     await flush();
@@ -342,6 +342,34 @@ describe("NewRoomWizard", () => {
     const spec = vi.mocked(createRoom).mock.calls[0][0];
     expect(spec.header.event_file).toEqual({ Copy: 8 });
     expect(spec.entrance).toBeNull();
+  });
+
+  it("says_the_overview_is_loading_instead_of_listing_no_rooms_and_no_outside_headers", async () => {
+    // Before the overview arrived every header counts as a room and no places are known.
+    const unknown = buildPlaces(headers, []);
+    await act(async () =>
+      root.render(
+        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onError={onError} />,
+      ),
+    );
+    await flush();
+    expect(container.textContent).toContain("Lade Übersicht …");
+    expect(rowButton("0002")).toBeUndefined();
+    expect(container.textContent).not.toContain("Kein Raum gefunden");
+    // The template the request names is still the chosen one.
+    await next();
+    await click(rowButton("0003"));
+    await next();
+    expect(container.textContent).toContain("Lade Übersicht …");
+    // The only list items left are the four steps: no outside header is offered.
+    expect(container.querySelectorAll("li")).toHaveLength(4);
+  });
+
+  it("says_the_overview_is_not_available_when_reading_it_failed", async () => {
+    await show({ outsideHeader: 0 }, { loaded: false, failed: true });
+    expect(container.textContent).toContain("Übersicht nicht verfügbar");
+    expect(container.textContent).not.toContain("Lade Übersicht");
+    expect(rowButton("0002")).toBeUndefined();
   });
 
   it("clamps_an_inside_tile_into_the_map", async () => {

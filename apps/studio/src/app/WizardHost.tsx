@@ -10,6 +10,10 @@ interface Props {
   wizards: Pick<Wizards, "request" | "close" | "created">;
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
+  /** The matrix overview was read (false: `matrices` is empty because nothing arrived yet, not because there are none). */
+  matricesLoaded: boolean;
+  /** The latest read of the overview failed. */
+  matricesFailed: boolean;
   links: WarpLink[];
   counts: MemberCounts;
   /** The selected header and its matrix: the area wizard copies from that matrix unless the request names another, and selects the header's cells in it. */
@@ -31,7 +35,7 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * The open wizard, above the workbench (a modal over everything). It lives beside the workbench,
  * not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, links, counts, selected, shownMatrix, lastTile, onError }: Props) {
+export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onError }: Props) {
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -58,6 +62,8 @@ export function WizardHost({ wizards, headers, matrices, links, counts, selected
           links={links}
           counts={counts}
           matrices={matrices}
+          matricesLoaded={matricesLoaded}
+          matricesFailed={matricesFailed}
           shownMatrix={shownMatrix}
           places={places}
           prefill={request.prefill}

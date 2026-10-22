@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
+import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
@@ -17,6 +18,9 @@ import type { Created } from "./app/useWizards";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
+
+/** The message that says what a wizard made, unless an error is showing: that one stays. */
+const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads. */
 export default function App() {
@@ -48,7 +52,10 @@ export default function App() {
   // `scene.goTo` reads the header list through a ref that only a render updates, so it runs in the effect below, after the render
   // whose list has the header on the new matrix (a header that now points at another matrix would be loaded with its old one).
   // A list that does not show that (the read failed) never fires it; another project forgets it.
-  const showAfterSync = useRef<(Created & { header: number }) | null>(null);
+  // `settled`: the header list was read again (or the read failed); a list that still does not show the header then never will.
+  const showAfterSync = useRef<(Created & { header: number; settled: boolean }) | null>(null);
+  // Bumped when the sync of a creation settled, so the effect below judges that creation even though no new list arrived (the read failed).
+  const [syncSettled, setSyncSettled] = useState(0);
   const wizards = useWizards({
     onCreated: async (made) => {
       await session.onCountsChanged();
@@ -57,18 +64,29 @@ export default function App() {
       bus.emit({ topic: "eventData" });
       const shownFile = scene.headersRef.current.find((h) => h.id === scene.selectedRef.current)?.event_file_id;
       if (shownFile !== undefined) bus.emit({ topic: "eventsRefetch", file: shownFile });
-      showAfterSync.current = made && made.header !== null ? { ...made, header: made.header } : null;
+      showAfterSync.current = made && made.header !== null ? { ...made, header: made.header, settled: false } : null;
       await Promise.all([scene.syncHeaders(), session.refreshDirty()]);
-      if (made && made.header === null) session.setMessage({ kind: "info", text: made.announcement });
+      if (showAfterSync.current) {
+        showAfterSync.current.settled = true;
+        setSyncSettled((n) => n + 1);
+      }
+      // A read that failed reported itself: the announcement does not wipe that.
+      if (made && made.header === null) session.setMessage(announce(made.announcement));
     },
   });
   useEffect(() => {
     const show = showAfterSync.current;
-    if (show === null || scene.headers.find((h) => h.id === show.header)?.matrix_id !== show.matrix) return;
+    if (show === null) return;
+    if (scene.headers.find((h) => h.id === show.header)?.matrix_id !== show.matrix) {
+      // Settled without a list that has the header on the new matrix: it was not read, and a later list must not show it unasked.
+      if (show.settled) showAfterSync.current = null;
+      return;
+    }
     showAfterSync.current = null;
     // The message comes after the load: selecting a header clears the message when its matrix arrives.
-    void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage({ kind: "info", text: show.announcement }));
-  }, [scene.headers]);
+    // A failed load reported itself (an error message), which the announcement does not wipe.
+    void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
+  }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
   useWindowGuards(session.dirtyRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
@@ -123,6 +141,8 @@ export default function App() {
         wizards={wizards}
         headers={scene.headers}
         matrices={overview.matrices}
+        matricesLoaded={overview.loaded}
+        matricesFailed={overview.failed}
         links={overview.links}
         counts={session.counts}
         selected={selectedHeader}
