@@ -8,6 +8,13 @@
 #   G4_APICULA   apicula binary (default: tools/apicula/bin/apicula if present)
 set -euo pipefail
 
+# A script started as a background job (`bash studio-web.sh &`) from a non-interactive shell inherits
+# SIGINT as ignored, and bash cannot trap a signal that was ignored on entry. Re-exec once with the
+# default disposition so Ctrl-C / `kill -INT` also run the cleanup below.
+if [ -z "${G4_AGENT_REEXEC:-}" ] && command -v perl >/dev/null 2>&1; then
+  G4_AGENT_REEXEC=1 exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV or die "exec: $!"' bash "$0" "$@"
+fi
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
@@ -42,19 +49,35 @@ cargo build -p studio --features dev-bridge --bin studio-bridge
 BRIDGE_PID=""
 VITE_PID=""
 
-# Kills a process and all its descendants (pnpm spawns node as a child).
-kill_tree() { # kill_tree <pid>
+# Prints a process and all its descendants, one pid per line (pnpm spawns node as a child).
+tree_pids() { # tree_pids <pid>
   local child
+  echo "$1"
   for child in $(pgrep -P "$1" 2>/dev/null || true); do
-    kill_tree "$child"
+    tree_pids "$child"
   done
-  kill "$1" 2>/dev/null || true
+}
+# Stops the given pids: TERM first, KILL for whatever still lives after ~5 s.
+stop_pids() { # stop_pids <pid>...
+  local pid i alive
+  kill "$@" 2>/dev/null || true
+  for i in $(seq 1 50); do
+    alive=0
+    for pid in "$@"; do
+      if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+    done
+    [ "$alive" = 0 ] && return 0
+    sleep 0.1
+  done
+  kill -9 "$@" 2>/dev/null || true
 }
 cleanup() {
   trap - EXIT INT TERM
-  [ -z "$VITE_PID" ] || kill_tree "$VITE_PID"
-  [ -z "$BRIDGE_PID" ] || kill_tree "$BRIDGE_PID"
-  wait 2>/dev/null || true
+  # Snapshot the trees first: once a parent dies its children are reparented to init.
+  local pids=()
+  [ -z "$VITE_PID" ] || pids+=($(tree_pids "$VITE_PID"))
+  [ -z "$BRIDGE_PID" ] || pids+=($(tree_pids "$BRIDGE_PID"))
+  [ ${#pids[@]} -eq 0 ] || stop_pids "${pids[@]}"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -73,7 +96,8 @@ for _ in $(seq 1 60); do
     echo "Brücke ist beim Start beendet worden." >&2
     exit 1
   fi
-  if curl -sf -o /dev/null -H "X-G4-Bridge-Token: $TOKEN" "http://127.0.0.1:$BRIDGE_PORT/health"; then
+  # The token goes in via stdin so it never shows up in the process list.
+  if printf 'X-G4-Bridge-Token: %s\n' "$TOKEN" | curl -sf -o /dev/null -H @- "http://127.0.0.1:$BRIDGE_PORT/health"; then
     ready=1
     break
   fi

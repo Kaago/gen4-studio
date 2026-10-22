@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { MutableRefObject } from "react";
-import { invoke } from "../platform/transport";
+import { inTauri, invoke } from "../platform/transport";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "../platform/dialogs";
@@ -11,6 +11,8 @@ import type { Message } from "../Toolbar";
 export function useWindowGuards(dirtyRef: MutableRefObject<number>, setMessage: (message: Message) => void) {
   // Closing the window (button, Cmd+Q) asks before discarding unsaved edits.
   useEffect(() => {
+    // The Tauri window API throws synchronously without Tauri (plain browser).
+    if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     getCurrentWindow()
@@ -34,6 +36,7 @@ export function useWindowGuards(dirtyRef: MutableRefObject<number>, setMessage: 
 
   // Cmd+Q does not close the window first: the backend holds the exit back and asks here.
   useEffect(() => {
+    if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     let asking = false;
