@@ -116,10 +116,16 @@ export function eventReadOnlyReason(e: unknown): string | null {
   return at < 0 ? e.message : e.message.slice(at + marker.length);
 }
 
+/** Added to the confirmation for a warp: what deleting it does not fix. */
+export const WARP_RENUMBER_NOTE = "Warp-Ziele anderer Events, die auf spätere Warps dieser Datei zeigen, werden nicht angepasst.";
+
 /** Text of the confirmation before an event is deleted: its class, index and position. */
 export function eventDeletePrompt(kind: EventKind, index: number, data: Pick<EventData, "x" | "z"> | undefined): string {
   const what = `${KIND_LABELS[kind]} ${index}`;
-  return data ? `${what} (x ${data.x}, z ${data.z}) löschen?` : `${what} löschen?`;
+  const ask = data ? `${what} (x ${data.x}, z ${data.z}) löschen?` : `${what} löschen?`;
+  // The game addresses a warp by its index in the file: later warps move up by one, and warps of
+  // other events that point at them are not renumbered.
+  return kind === "warp" ? `${ask}\n\n${WARP_RENUMBER_NOTE}` : ask;
 }
 
 /** An event by event file, class and index: the identity the scene and the inspector bind to. */

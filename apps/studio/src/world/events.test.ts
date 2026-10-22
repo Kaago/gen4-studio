@@ -100,8 +100,14 @@ describe("event identity helpers", () => {
   });
 
   it("names kind, index and position in the delete prompt", () => {
-    expect(eventDeletePrompt("warp", 1, events.warps[1])).toBe("Warp 1 (x 9, z 4) löschen?");
     expect(eventDeletePrompt("coord", 3, undefined)).toBe("Trigger 3 löschen?");
+    expect(eventDeletePrompt("object", 0, { x: 1, z: 2 })).toBe("Objekt 0 (x 1, z 2) löschen?");
+  });
+
+  it("warns that deleting a warp does not renumber warp targets of other events", () => {
+    expect(eventDeletePrompt("warp", 1, events.warps[1])).toBe(
+      "Warp 1 (x 9, z 4) löschen?\n\nWarp-Ziele anderer Events, die auf spätere Warps dieser Datei zeigen, werden nicht angepasst.",
+    );
   });
 
   it("keeps dragged tiles inside the matrix", () => {
