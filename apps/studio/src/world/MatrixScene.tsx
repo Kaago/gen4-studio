@@ -22,7 +22,7 @@ import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 import { cloneModel, disposeTree, parseGlb } from "./sceneUtil";
-import { fetchCurrent, pendingSince } from "../reload";
+import { drainWhenReady, fetchCurrent, pendingSince } from "../reload";
 import type { RefreshQueue } from "../reload";
 
 interface Loaded {
@@ -360,6 +360,8 @@ function MatrixScene({
   const headersRef = useRef(headers);
   headersRef.current = headers;
   const [eventStatus, setEventStatus] = useState<string | null>(null);
+  // Counts the scenes built (maps fetched, content in place): queued building edits are read again then.
+  const [sceneBuilt, setSceneBuilt] = useState(0);
   // Like the area data, the one the buildings are textured with is read when models are requested.
   const areaRef = useRef(areaDataId);
   areaRef.current = areaDataId;
@@ -811,6 +813,7 @@ function MatrixScene({
         h.controls.update();
         h.render();
         h.refreshHover?.();
+        setSceneBuilt((n) => n + 1);
       }
 
       // Models: a task that has not started when the load is superseded never starts; a started
@@ -919,9 +922,10 @@ function MatrixScene({
   const buildingRequests = useRef(new Map<number, number>());
   const buildingsSeen = useRef(0);
   useEffect(() => {
-    const { items, last } = pendingSince(buildingRefresh, buildingsSeen.current);
-    buildingsSeen.current = last;
     const h = handle.current;
+    // Edits made while the first load still fetches maps stay queued; `sceneBuilt` runs this again.
+    const { items, last } = drainWhenReady(buildingRefresh, buildingsSeen.current, !!(h?.matrix && h.buildings));
+    buildingsSeen.current = last;
     if (!items.length || !h?.matrix || !h.buildings) return;
     const layer = h.buildings;
     const matrixAtStart = h.matrix;
@@ -948,7 +952,7 @@ function MatrixScene({
         if (!stale()) callbacks.current.onError(errorText(e));
       });
     }
-  }, [buildingRefresh]);
+  }, [buildingRefresh, sceneBuilt]);
 
   // The selected event (made by a click, the header list, ...) is outlined; the scene also drags it.
   useEffect(() => {

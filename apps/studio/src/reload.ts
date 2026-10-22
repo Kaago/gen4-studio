@@ -131,6 +131,15 @@ export function enqueue<T>(queue: RefreshQueue<T> | null, item: T): RefreshQueue
   return { entries: [...entries, { seq, item }].slice(-MAX_QUEUED) };
 }
 
+/**
+ * Like `pendingSince`, but while the scene is not `ready` (its first load still builds) nothing is
+ * handed out and nothing is consumed: the requests stay queued until the effect runs again once the
+ * scene is built.
+ */
+export function drainWhenReady<T>(queue: RefreshQueue<T> | null, after: number, ready: boolean): { items: T[]; last: number } {
+  return ready ? pendingSince(queue, after) : { items: [], last: after };
+}
+
 /** The requests newer than `after` (the last `seq` the scene handled) and the new last `seq`. */
 export function pendingSince<T>(queue: RefreshQueue<T> | null, after: number): { items: T[]; last: number } {
   const fresh = (queue?.entries ?? []).filter((e) => e.seq > after);

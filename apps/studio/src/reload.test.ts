@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssetKind, HeaderSummary } from "./api";
-import { MAX_QUEUED, afterFailedSceneLoad, enqueue, fetchCurrent, headerSync, pendingSince, reloadPlan, sceneKey, tilesetReload } from "./reload";
+import { MAX_QUEUED, afterFailedSceneLoad, drainWhenReady, enqueue, fetchCurrent, headerSync, pendingSince, reloadPlan, sceneKey, tilesetReload } from "./reload";
 import type { SceneState } from "./reload";
 
 const scene: SceneState = { matrix: 3, maps: [10, null, 11, 10], area: 5, eventFile: 7 };
@@ -153,6 +153,15 @@ describe("refresh queue", () => {
     expect(pendingSince(queue, first.last).items).toEqual([]);
     const later = enqueue(queue, 4);
     expect(pendingSince(later, first.last).items).toEqual([4]);
+  });
+
+  it("keeps requests queued until the scene is ready, then hands them out once", () => {
+    const queue = enqueue(enqueue(null, 4), 9);
+    const early = drainWhenReady(queue, 0, false);
+    expect(early).toEqual({ items: [], last: 0 });
+    const later = drainWhenReady(queue, early.last, true);
+    expect(later.items).toEqual([4, 9]);
+    expect(drainWhenReady(queue, later.last, true).items).toEqual([]);
   });
 
   it("returns the position it was given when there is nothing", () => {
