@@ -115,6 +115,25 @@ describe("roomLinks", () => {
     expect(link).toEqual({ header: 1, cell: null, reason: "Ziel außerhalb der Region" });
   });
 
+  it("gives_rooms_that_share_an_event_file_their_own_entrance", () => {
+    // Rooms 1 and 2 share event file 11: exits 1 (to the door pair 10/0) and 3 (to the door pair 10/1) are both in it.
+    const doors = [warp(10, 0, 1, 1, 40, 5), warp(10, 1, 2, 3, 70, 5)];
+    const exits = [warp(11, 1, 0, 0), warp(11, 3, 0, 1)];
+    const shared = [header(0, "Zweiblattdorf", 0), header(1, "Zweiblattdorf", 7, 11), header(2, "Zweiblattdorf", 7, 11)];
+    const town = buildPlaces(shared, matrices)[0];
+    const result = roomLinks(town, shared, [...doors, ...exits], region([1, 2, 3], [0, 0, 0]));
+    expect(result.map((l) => [l.header, l.cell])).toEqual([
+      [1, { x: 1, y: 0 }],
+      [2, { x: 2, y: 0 }],
+    ]);
+  });
+
+  it("falls_back_to_the_first_resolving_exit_when_none_points_back", () => {
+    const door = warp(10, 2, 3, 0, 40, 5);
+    const [link] = roomLinks(dorf, headers, [exit, door], region([1, 2], [0, 0]));
+    expect(link.cell).toEqual({ x: 1, y: 0 });
+  });
+
   it("prefers_an_exit_that_resolves_over_one_that_does_not", () => {
     const toRoom = warp(11, 0, 4, 0);
     const good = warp(11, 1, 0, 2);

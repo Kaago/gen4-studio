@@ -5,10 +5,16 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { getMatrix } from "../api";
+import { mapsText } from "./places";
 import { ThumbnailCache } from "../world/thumbnails";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
 
+// Counts how often a room card renders (it calls mapsText on every render).
+vi.mock("./places", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./places")>();
+  return { ...original, mapsText: vi.fn(original.mapsText) };
+});
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -107,7 +113,7 @@ describe("WorldMapPanel", () => {
   it("clicking_a_room_card_opens_the_room", async () => {
     const ctx = context();
     await show(ctx);
-    act(() => container.querySelector<HTMLElement>('[data-room-id="1"]')?.click());
+    act(() => container.querySelector<HTMLElement>('button[data-room-id="1"]')?.click());
     expect(ctx.goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
   });
 
@@ -124,8 +130,34 @@ describe("WorldMapPanel", () => {
     await show(context());
     expect(container.querySelector('line[data-room-id="1"]')).not.toBeNull();
     expect(container.querySelector('line[data-room-id="2"]')).toBeNull();
-    expect(container.querySelector('[data-room-id="2"]')?.textContent).toContain("kein Ausgang");
-    expect(container.querySelector('[data-room-id="1"]')?.textContent).not.toContain("kein Ausgang");
+    const grey = container.querySelector<HTMLElement>('button[data-room-id="2"]');
+    expect(grey?.textContent).toContain("ohne Eingang");
+    expect(grey?.textContent).toContain("kein Ausgang");
+    expect(grey?.title).toContain("kein Ausgang");
+    expect(container.querySelector('button[data-room-id="1"]')?.textContent).not.toContain("ohne Eingang");
+  });
+
+  it("draws_lines_only_for_the_place_of_the_selected_header", async () => {
+    const more = [...headers, header(5, "Route 201", 7)];
+    // Room 5 leaves to the door of header 3 (event file 13) at tile (5, 5), i.e. cell (0, 0).
+    const warps = [...links, { event_file: 15, index: 0, x: 1, z: 1, dest_header_id: 3, dest_warp_id: 1 }, { event_file: 13, index: 1, x: 5, z: 5, dest_header_id: 5, dest_warp_id: 0 }];
+    const lineIds = () => [...container.querySelectorAll("line[data-room-id]")].map((l) => l.getAttribute("data-room-id"));
+    await show(context({ headers: more, warpLinks: warps, selected: 3 }));
+    expect(lineIds()).toEqual(["5"]);
+    // The place of header 3 stays open, but the selection moved to the other one.
+    await show(context({ headers: more, warpLinks: warps, selected: 0 }));
+    expect(container.querySelector<HTMLDetailsElement>('[data-place-key="Route 201"]')?.open).toBe(true);
+    expect(lineIds()).toEqual(["1"]);
+  });
+
+  it("panning_and_zooming_do_not_render_the_place_list_again", async () => {
+    await show(context());
+    const renders = vi.mocked(mapsText).mock.calls.length;
+    expect(renders).toBeGreaterThan(0);
+    const viewport = container.querySelector<HTMLElement>("[data-world-viewport]");
+    act(() => void viewport?.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true })));
+    act(() => void viewport?.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true })));
+    expect(vi.mocked(mapsText).mock.calls.length).toBe(renders);
   });
 
   it("zooms_with_the_wheel_within_its_limits", async () => {

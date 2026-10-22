@@ -1,5 +1,5 @@
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import { id4 } from "./terms";
+import { TERMS, id4 } from "./terms";
 
 export type PlaceKind = "outside" | "inside";
 
@@ -89,4 +89,11 @@ export function placeColor(key: string): string {
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
   return `hsl(${hash % 360} 60% 80%)`;
+}
+
+/** "1 Karte", "4 Karten (2 × 2)"; null when the overview does not know the room's matrix. */
+export function mapsText({ mapCount, size }: PlaceHeader): string | null {
+  if (mapCount === 0) return null;
+  const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
+  return size ? `${maps} (${size})` : maps;
 }

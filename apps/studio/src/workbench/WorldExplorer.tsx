@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixSummary, ProjectInfo } from "../api";
 import { HeaderList } from "./HeaderList";
 import { showsMatrix } from "./headers";
-import { buildPlaces, filterPlaces, placeColor, placeOf } from "./places";
+import { buildPlaces, filterPlaces, mapsText, placeColor, placeOf } from "./places";
 import type { PlaceHeader } from "./places";
 import { TERMS, id4, techLabel } from "./terms";
 import { TermsPopover } from "./TermsPopover";
@@ -48,13 +48,6 @@ function writeMode(mode: Mode): void {
 
 const ellipsis: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 const GREY = "#6b7280";
-
-/** "1 Karte", "4 Karten (2 × 2)"; null when the overview does not know the room's matrix. */
-export function mapsText({ mapCount, size }: PlaceHeader): string | null {
-  if (mapCount === 0) return null;
-  const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
-  return size ? `${maps} (${size})` : maps;
-}
 
 /**
  * One header of a place. The place already carries the location name, so a room is named by its

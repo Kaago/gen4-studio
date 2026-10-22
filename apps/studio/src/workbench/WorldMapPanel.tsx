@@ -1,18 +1,17 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
 import type { Message } from "../Toolbar";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";
 import type { NavTarget } from "./navigation";
-import { buildPlaces, placeColor } from "./places";
-import type { PlaceHeader } from "./places";
+import { buildPlaces, mapsText, placeColor } from "./places";
+import type { Place, PlaceHeader } from "./places";
 import { TERMS, id4 } from "./terms";
 import { useMatrix } from "./useMatrix";
 import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinks } from "./worldMap";
-import type { RoomLink } from "./worldMap";
-import { mapsText } from "./WorldExplorer";
+import type { PlaceCells, RoomLink } from "./worldMap";
 
 /** What the world map needs from App. */
 export interface WorldMapContext {
@@ -121,63 +120,38 @@ function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link:
       type="button"
       data-room-id={h.id}
       aria-current={selected ? "true" : undefined}
-      title={unplaced ? `Kein Eintrag in der Region: ${link.reason}` : undefined}
+      title={unplaced ? `ohne Eingang: ${link.reason}` : undefined}
       onClick={() => onOpen(h.id)}
       style={{ ...card, fontWeight: selected ? 700 : 400, color: unplaced ? GREY : "#111827", background: unplaced ? "#f3f4f6" : "#fff", boxShadow: selected ? "inset 3px 0 0 #2563eb" : "none" }}
     >
       <span>{h.internal_name}</span>
       <span style={{ color: GREY, fontWeight: 400 }}>{grey}</span>
-      {unplaced && <span style={{ color: GREY, fontWeight: 400 }}>{link.reason}</span>}
+      {unplaced && <span style={{ color: GREY, fontWeight: 400 }}>ohne Eingang</span>}
+      {unplaced && <span style={{ color: GREY, fontWeight: 400, fontSize: 11 }}>{link.reason}</span>}
     </button>
   );
 }
 
+interface MapViewProps {
+  /** The region's grid (stable between renders of the panel while its data stays). */
+  grid: ReactNode;
+  /** False: no region to draw; `message` says why. */
+  hasRegion: boolean;
+  message: string;
+  labels: PlaceCells[];
+  /** The room links of the selected header's place: the only ones that get a line. */
+  lineLinks: RoomLink[];
+  /** The selected place's cards are on show (its details are open). */
+  cardsShown: boolean;
+  rootBox: RefObject<HTMLDivElement | null>;
+  list: RefObject<HTMLDivElement | null>;
+}
+
 /**
- * The world map: the region as a raster of map pictures (cells tinted by place, place names on top, wheel to zoom, drag to
- * pan) next to the list of places with a card per room; dashed lines run from the cards of the open places to the cell
- * of each room's entrance. Memoised: it renders when `context` changes (the owner keeps it, see `WorldMapTab`), never for
- * a hover of the scene.
+ * The viewport with the region and the line overlay. It owns the pan and zoom state, so a wheel tick or a pointer move
+ * renders only this component (a few labels and lines), not the grid's cells and not the place list.
  */
-export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context: WorldMapContext }) {
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails } = context;
-  useCacheProgress(cache, onLoadStatus);
-
-  // Without the overview every header would count as a room.
-  const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : [], matricesLoaded ? warpLinks : []), [headers, matrices, warpLinks, matricesLoaded]);
-  const regionIndex = useMemo(() => (matricesLoaded ? (regionMatrix(matrices)?.index ?? null) : null), [matrices, matricesLoaded]);
-  const region = useMatrix(regionIndex, revision, onError);
-  const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
-  const links = useMemo(() => {
-    const byPlace = new Map<string, RoomLink[]>();
-    if (region) for (const place of places) byPlace.set(place.key, roomLinks(place, headers, warpLinks, region));
-    return byPlace;
-  }, [region, places, headers, warpLinks]);
-
-  const colorByHeader = useMemo(() => new Map(places.flatMap((place) => place.headers.map(({ header }) => [header.id, placeColor(place.key)] as const))), [places]);
-  const colorOf = useCallback((header: number | null) => (header === null ? null : (colorByHeader.get(header) ?? null)), [colorByHeader]);
-  const marked = useMemo(() => {
-    const keys = new Set<string>();
-    if (region?.headers && selected !== null) {
-      region.headers.forEach((h, i) => {
-        if (h === selected && region.maps[i] !== null) keys.add(cellKey(i % region.width, Math.floor(i / region.width)));
-      });
-    }
-    return keys;
-  }, [region, selected]);
-  const onCellClick = useCallback(
-    (x: number, y: number) => {
-      if (!region?.headers) return;
-      const i = y * region.width + x;
-      if (region.maps[i] !== null) goTo({ kind: "header", id: region.headers[i] });
-    },
-    [region, goTo],
-  );
-  // Stable between pans and zooms: the grid is the expensive part, a view change must not render its cells again.
-  const grid = useMemo(
-    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} />,
-    [region, headers, areaDataId, marked, colorOf, onCellClick, cache],
-  );
-
+const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLinks, cardsShown, rootBox, list }: MapViewProps) {
   const [view, setView] = useState<View>({ scale: 1, x: 12, y: 12 });
   const viewport = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
@@ -237,24 +211,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     e.preventDefault();
   };
 
-  // The place of the selected header is open; the user opens and closes the others.
-  const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(new Set());
-  const selectedPlace = useMemo(() => (selected === null ? undefined : places.find((p) => p.headers.some((h) => h.header.id === selected))?.key), [places, selected]);
-  useEffect(() => {
-    if (selectedPlace !== undefined) setOpenKeys((prev) => (prev.has(selectedPlace) ? prev : new Set(prev).add(selectedPlace)));
-  }, [selectedPlace]);
-  const onToggle = (key: string, open: boolean) =>
-    setOpenKeys((prev) => {
-      if (prev.has(key) === open) return prev;
-      const next = new Set(prev);
-      if (open) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-
-  // Lines from the room cards of the open places to the cells of their entrances; positions are measured, not computed.
-  const rootBox = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLDivElement>(null);
+  // Lines from the room cards of the selected place to the cells of their entrances; positions are measured, not computed.
   const [lines, setLines] = useState<Line[]>([]);
   const measure = useCallback(() => {
     const rootEl = rootBox.current;
@@ -270,27 +227,26 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     const listRect = listEl.getBoundingClientRect();
     const gridRect = gridEl.getBoundingClientRect();
     const next: Line[] = [];
-    for (const key of openKeys) {
-      for (const link of links.get(key) ?? []) {
-        if (link.cell === null) continue;
-        const cardEl = rootEl.querySelector(`[data-room-id="${link.header}"]`);
-        if (!cardEl) continue;
-        const rect = cardEl.getBoundingClientRect();
-        const l = lineBetween(rect, link.cell, CELL_SIZE, { x: gridRect.left, y: gridRect.top }, view.scale);
-        const hidden =
-          rect.height === 0 ||
-          rect.top < listRect.top ||
-          rect.bottom > listRect.bottom ||
-          l.x2 < shown.left ||
-          l.x2 > shown.right ||
-          l.y2 < shown.top ||
-          l.y2 > shown.bottom;
-        next.push({ header: link.header, x1: l.x1 - origin.left, y1: l.y1 - origin.top, x2: l.x2 - origin.left, y2: l.y2 - origin.top, hidden });
-      }
+    for (const link of lineLinks) {
+      if (link.cell === null) continue;
+      const cardEl = rootEl.querySelector(`[data-room-id="${link.header}"]`);
+      if (!cardEl) continue;
+      const rect = cardEl.getBoundingClientRect();
+      const l = lineBetween(rect, link.cell, CELL_SIZE, { x: gridRect.left, y: gridRect.top }, view.scale);
+      const hidden =
+        !cardsShown ||
+        rect.height === 0 ||
+        rect.top < listRect.top ||
+        rect.bottom > listRect.bottom ||
+        l.x2 < shown.left ||
+        l.x2 > shown.right ||
+        l.y2 < shown.top ||
+        l.y2 > shown.bottom;
+      next.push({ header: link.header, x1: l.x1 - origin.left, y1: l.y1 - origin.top, x2: l.x2 - origin.left, y2: l.y2 - origin.top, hidden });
     }
     setLines((prev) => (sameLines(prev, next) ? prev : next));
-  }, [openKeys, links, view.scale]);
-  // After every render that may have moved a card or the grid: pan, zoom, selection, opened places, new data.
+  }, [lineLinks, cardsShown, view.scale, rootBox, list]);
+  // After every render that may have moved a card or the grid: pan, zoom, selection, opened place, new data.
   useLayoutEffect(measure);
   const measureRef = useRef(measure);
   measureRef.current = measure;
@@ -306,14 +262,11 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       listEl?.removeEventListener("scroll", again);
       observer?.disconnect();
     };
-  }, []);
+  }, [rootBox, list]);
 
   const pitch = CELL_SIZE + GRID_GAP;
-  const openRoom = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
-  const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
-
   return (
-    <div ref={rootBox} style={{ position: "relative", display: "flex", height: "100%", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
+    <>
       <div
         ref={viewport}
         data-world-viewport=""
@@ -321,14 +274,14 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
         onClickCapture={onClickCapture}
         style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "none", cursor: "grab", background: "#f9fafb" }}
       >
-        {region ? (
+        {hasRegion ? (
           <div
             ref={gridBox}
             data-world-grid=""
             style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
           >
             {grid}
-            {cellsOfPlaces.map((place) => (
+            {labels.map((place) => (
               <span
                 key={place.key}
                 data-place-label={place.key}
@@ -352,37 +305,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
             ))}
           </div>
         ) : (
-          <p style={{ margin: 0, padding: 16 }}>{regionIndex === null ? noRegion : "Lade Region …"}</p>
+          <p style={{ margin: 0, padding: 16 }}>{message}</p>
         )}
-      </div>
-      <div ref={list} style={{ width: 300, flex: "none", overflowY: "auto", boxSizing: "border-box", padding: "8px 12px", borderLeft: "1px solid #e5e7eb" }}>
-        {places.map((place) => (
-          <details key={place.key} data-place-key={place.key} open={openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
-            <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 6, background: placeColor(place.key) }} />
-              {place.name}
-            </summary>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px 0 8px 16px" }}>
-              {place.headers.map((entry) =>
-                entry.kind === "inside" ? (
-                  <RoomCard key={entry.header.id} entry={entry} link={links.get(place.key)?.find((l) => l.header === entry.header.id)} selected={entry.header.id === selected} onOpen={openRoom} />
-                ) : (
-                  <button
-                    key={entry.header.id}
-                    type="button"
-                    data-header-id={entry.header.id}
-                    aria-current={entry.header.id === selected ? "true" : undefined}
-                    title={TERMS.outside.short}
-                    onClick={() => openRoom(entry.header.id)}
-                    style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: entry.header.id === selected ? 700 : 400 }}
-                  >
-                    {TERMS.outside.label} · {id4(entry.header.id)}
-                  </button>
-                ),
-              )}
-            </div>
-          </details>
-        ))}
       </div>
       <svg aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
         {lines.map((l) => (
@@ -400,6 +324,138 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           />
         ))}
       </svg>
+    </>
+  );
+});
+
+interface PlaceListProps {
+  places: Place[];
+  links: ReadonlyMap<string, RoomLink[]>;
+  selected: number | null;
+  openKeys: ReadonlySet<string>;
+  onToggle: (key: string, open: boolean) => void;
+  onOpen: (id: number) => void;
+  list: RefObject<HTMLDivElement | null>;
+}
+
+/** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
+const PlaceList = memo(function PlaceList({ places, links, selected, openKeys, onToggle, onOpen, list }: PlaceListProps) {
+  return (
+    <div ref={list} style={{ width: 300, flex: "none", overflowY: "auto", boxSizing: "border-box", padding: "8px 12px", borderLeft: "1px solid #e5e7eb" }}>
+      {places.map((place) => (
+        <details key={place.key} data-place-key={place.key} open={openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
+          <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 6, background: placeColor(place.key) }} />
+            {place.name}
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px 0 8px 16px" }}>
+            {place.headers.map((entry) =>
+              entry.kind === "inside" ? (
+                <RoomCard key={entry.header.id} entry={entry} link={links.get(place.key)?.find((l) => l.header === entry.header.id)} selected={entry.header.id === selected} onOpen={onOpen} />
+              ) : (
+                <button
+                  key={entry.header.id}
+                  type="button"
+                  data-header-id={entry.header.id}
+                  aria-current={entry.header.id === selected ? "true" : undefined}
+                  title={TERMS.outside.short}
+                  onClick={() => onOpen(entry.header.id)}
+                  style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: entry.header.id === selected ? 700 : 400 }}
+                >
+                  {TERMS.outside.label} · {id4(entry.header.id)}
+                </button>
+              ),
+            )}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+});
+
+const NO_LINKS: RoomLink[] = [];
+
+/**
+ * The world map: the region as a raster of map pictures (cells tinted by place, place names on top, wheel to zoom, drag to
+ * pan) next to the list of places with a card per room; dashed lines run from the cards of the selected header's place to
+ * the cell of each room's entrance. Memoised: it renders when `context` changes (the owner keeps it, see `WorldMapTab`),
+ * never for a hover of the scene; pan and zoom live in `MapView` and render neither the grid nor the list.
+ */
+export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context: WorldMapContext }) {
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails } = context;
+  useCacheProgress(cache, onLoadStatus);
+
+  // Without the overview every header would count as a room.
+  const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : [], matricesLoaded ? warpLinks : []), [headers, matrices, warpLinks, matricesLoaded]);
+  const regionIndex = useMemo(() => (matricesLoaded ? (regionMatrix(matrices)?.index ?? null) : null), [matrices, matricesLoaded]);
+  const region = useMatrix(regionIndex, revision, onError);
+  const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
+  const links = useMemo(() => {
+    const byPlace = new Map<string, RoomLink[]>();
+    if (region) for (const place of places) byPlace.set(place.key, roomLinks(place, headers, warpLinks, region));
+    return byPlace;
+  }, [region, places, headers, warpLinks]);
+
+  const colorByHeader = useMemo(() => new Map(places.flatMap((place) => place.headers.map(({ header }) => [header.id, placeColor(place.key)] as const))), [places]);
+  const colorOf = useCallback((header: number | null) => (header === null ? null : (colorByHeader.get(header) ?? null)), [colorByHeader]);
+  const marked = useMemo(() => {
+    const keys = new Set<string>();
+    if (region?.headers && selected !== null) {
+      region.headers.forEach((h, i) => {
+        if (h === selected && region.maps[i] !== null) keys.add(cellKey(i % region.width, Math.floor(i / region.width)));
+      });
+    }
+    return keys;
+  }, [region, selected]);
+  const onCellClick = useCallback(
+    (x: number, y: number) => {
+      if (!region?.headers) return;
+      const i = y * region.width + x;
+      if (region.maps[i] !== null) goTo({ kind: "header", id: region.headers[i] });
+    },
+    [region, goTo],
+  );
+  const grid = useMemo(
+    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} />,
+    [region, headers, areaDataId, marked, colorOf, onCellClick, cache],
+  );
+
+  // The place of the selected header is open; the user opens and closes the others.
+  const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(new Set());
+  const selectedPlace = useMemo(() => (selected === null ? undefined : places.find((p) => p.headers.some((h) => h.header.id === selected))?.key), [places, selected]);
+  useEffect(() => {
+    if (selectedPlace !== undefined) setOpenKeys((prev) => (prev.has(selectedPlace) ? prev : new Set(prev).add(selectedPlace)));
+  }, [selectedPlace]);
+  const onToggle = useCallback(
+    (key: string, open: boolean) =>
+      setOpenKeys((prev) => {
+        if (prev.has(key) === open) return prev;
+        const next = new Set(prev);
+        if (open) next.add(key);
+        else next.delete(key);
+        return next;
+      }),
+    [],
+  );
+  const openRoom = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+
+  const rootBox = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
+
+  return (
+    <div ref={rootBox} style={{ position: "relative", display: "flex", height: "100%", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
+      <MapView
+        grid={grid}
+        hasRegion={region !== null}
+        message={regionIndex === null ? noRegion : "Lade Region …"}
+        labels={cellsOfPlaces}
+        lineLinks={(selectedPlace !== undefined && links.get(selectedPlace)) || NO_LINKS}
+        cardsShown={selectedPlace !== undefined && openKeys.has(selectedPlace)}
+        rootBox={rootBox}
+        list={list}
+      />
+      <PlaceList places={places} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
     </div>
   );
 });

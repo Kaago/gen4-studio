@@ -67,29 +67,37 @@ export function roomLinks(place: Place, headers: readonly HeaderSummary[], links
     if (kind !== "inside") continue;
     const exits = links.filter((l) => l.event_file === header.event_file_id).sort((a, b) => a.index - b.index);
     let reason = "kein Ausgang";
+    // Rooms may share an event file (the wizard can keep it), so the exits of the file are not all this room's: the
+    // one whose paired outside warp leads back to this header is; else the first that resolves.
     let cell: RoomLink["cell"] = null;
+    let fallback: RoomLink["cell"] = null;
     for (const [n, exit] of exits.entries()) {
-      const outcome = entranceCell(exit, byId, links, region);
-      if (typeof outcome !== "string") {
-        cell = outcome;
+      const outcome = entrance(exit, byId, links, region);
+      if (typeof outcome === "string") {
+        if (n === 0) reason = outcome;
+        continue;
+      }
+      if (outcome.paired.dest_header_id === header.id) {
+        cell = outcome.cell;
         break;
       }
-      if (n === 0) reason = outcome;
+      fallback ??= outcome.cell;
     }
+    cell ??= fallback;
     result.push({ header: header.id, cell, reason: cell === null ? reason : null });
   }
   return result;
 }
 
-/** The cell the paired warp of `exit` lies in, or the reason there is none. */
-function entranceCell(exit: WarpLink, byId: ReadonlyMap<number, HeaderSummary>, links: readonly WarpLink[], region: MatrixDto): { x: number; y: number } | string {
+/** The paired warp of `exit` and the cell it lies in, or the reason there is none. */
+function entrance(exit: WarpLink, byId: ReadonlyMap<number, HeaderSummary>, links: readonly WarpLink[], region: MatrixDto): { cell: { x: number; y: number }; paired: WarpLink } | string {
   const target = byId.get(exit.dest_header_id);
   if (!target || target.matrix_id !== region.index) return "Ziel ist kein Außen-Header";
   const paired = links.find((l) => l.event_file === target.event_file_id && l.index === exit.dest_warp_id);
   if (!paired) return "Ziel-Warp fehlt";
   const cell = { x: Math.floor(paired.x / MAP_TILES), y: Math.floor(paired.z / MAP_TILES) };
   if (cell.x < 0 || cell.y < 0 || cell.x >= region.width || cell.y >= region.height) return "Ziel außerhalb der Region";
-  return cell;
+  return { cell, paired };
 }
 
 /**
