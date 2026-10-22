@@ -1798,3 +1798,67 @@ fn location_names_read_the_member_even_when_the_json_differs() {
         .unwrap();
     assert_eq!(names[1], "Zweiblattdorf");
 }
+
+/// A JSON another tool left half-edited, newer than the member.
+fn break_text_json(root: &std::path::Path) -> std::path::PathBuf {
+    let json = root.join("expanded/textArchives/0433.json");
+    std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+    std::fs::write(&json, "{ \"key\": 0, \"messages\": [").unwrap();
+    json
+}
+
+#[test]
+fn undecodable_text_json_is_stale_and_accept_disk_as_base_recovers() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    st.edit_text_archive(433, "rename", |d| {
+        d.messages[1].text = "Zweiblattdorf".into()
+    })
+    .unwrap();
+    st.edit_map(1, "cell", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    let json = break_text_json(s.dir.path());
+    let map_member = s.dir.path().join("unpacked/maps/0001");
+    let map_before = std::fs::read(&map_member).unwrap();
+
+    // Stale, not a decode error; as for any stale asset nothing at all is written.
+    assert!(matches!(
+        st.save().unwrap_err(),
+        KernelError::Stale(id) if id == text_id(433)
+    ));
+    assert_eq!(std::fs::read(&map_member).unwrap(), map_before);
+    assert_eq!(st.dirty(), vec![map_id(1), text_id(433)]);
+
+    // Accepting the broken file keeps the asset dirty; the save overwrites both files.
+    st.accept_disk_as_base(text_id(433)).unwrap();
+    assert!(st.is_dirty(text_id(433)));
+    let report = st.save().unwrap();
+    assert_eq!(report.written, vec![map_id(1), text_id(433)]);
+    let doc = g4_kernel::text::TextArchiveDoc::from_json(&std::fs::read(&json).unwrap(), "en_US")
+        .unwrap();
+    assert_eq!(doc.messages[1].text, "Zweiblattdorf");
+    let member = std::fs::read(s.dir.path().join("unpacked/textArchives/0433")).unwrap();
+    let doc = g4_kernel::text::TextArchiveDoc::from_member(&member, "en_US").unwrap();
+    assert_eq!(doc.messages[1].text, "Zweiblattdorf");
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn reload_of_an_undecodable_text_archive_fails_and_drops_its_index_entry() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(st.search_text("twinleaf", 10).unwrap().len(), 1);
+    break_text_json(s.dir.path());
+    let err = st.reload_from_disk(text_id(433)).unwrap_err().to_string();
+    assert!(err.contains("textArchives/0433.json"), "{err}");
+    assert!(st.search_text("twinleaf", 10).unwrap().is_empty());
+}

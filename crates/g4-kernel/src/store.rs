@@ -162,6 +162,9 @@ fn unwritable_reason(value: &Loaded, bytes: &[u8], family: Family) -> Option<Str
     }
 }
 
+/// Reads the bytes of a location, given the editor's text language.
+type DiskReader = fn(&Location, &str) -> Result<Option<Vec<u8>>, KernelError>;
+
 struct Asset {
     /// Bytes of the asset (a whole member, or the header table slice) as last read from or
     /// written to disk. `None`: the member file was deleted and the user chose to keep
@@ -280,12 +283,21 @@ impl Store {
     /// exist (or `arm9.bin` is missing or too short for the header table slice, or a header
     /// file is missing). Read-only kinds are refused before anything is unpacked.
     fn read_disk(&mut self, id: AssetId) -> Result<(Location, Option<Vec<u8>>), KernelError> {
+        self.read_disk_as(id, read_location)
+    }
+
+    /// [`Store::read_disk`] with the reader of `location` chosen by the caller.
+    fn read_disk_as(
+        &mut self,
+        id: AssetId,
+        read: DiskReader,
+    ) -> Result<(Location, Option<Vec<u8>>), KernelError> {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
-        let bytes = read_location(&location, self.project.language.locale_key())?;
+        let bytes = read(&location, self.lang())?;
         Ok((location, bytes))
     }
 
@@ -1016,6 +1028,9 @@ impl Store {
     /// asset's changesets leave both the undo and the redo stack; those of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
+        // Dropped first: an undecodable text archive is an error below, and the index must
+        // not keep what it read before the file changed.
+        self.drop_text_index(id);
         let bytes = self.read_member(id)?;
         let family = self.project.family;
         let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
@@ -1047,7 +1062,7 @@ impl Store {
         if !self.assets.contains_key(&id) {
             return Ok(());
         }
-        let base = match self.read_disk(id)? {
+        let base = match self.read_disk_as(id, read_base)? {
             (_, Some(bytes)) => Some(bytes),
             (Location::Member(_) | Location::TextSource { .. }, None) => None,
             (Location::Slice { path, .. }, None) => {
@@ -1154,7 +1169,8 @@ impl Store {
         let mut pending = Vec::new();
         for id in self.dirty() {
             let location = self.project.asset_location(id.kind, id.index)?;
-            let on_disk = read_location(&location, self.lang())?;
+            // A text archive that no longer decodes differs from what was loaded: stale.
+            let on_disk = read_base(&location, self.lang())?;
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(id));
@@ -1224,6 +1240,24 @@ fn read_location(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, Ker
     })
 }
 
+/// Like [`read_location`], but a text archive whose winning file does not decode reads as
+/// that file's raw bytes instead of failing. Those never equal the canonical JSON the store
+/// saves, so for the stale check an undecodable file is "changed on disk" (`save` returns
+/// `Stale`), and `accept_disk_as_base` can adopt it as a base that keeps the asset dirty
+/// until a save overwrites the file with the store's version.
+fn read_base(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelError> {
+    let Location::TextSource { json, member } = location else {
+        return read_location(location, lang);
+    };
+    match read_text_doc(json, member, lang) {
+        Err(KernelError::InvalidProject(_)) => match text_winner(json, member)? {
+            Some(path) => std::fs::read(path).map(Some).map_err(io_at(path)),
+            None => Ok(None),
+        },
+        other => Ok(other?.map(|doc| doc.to_json())),
+    }
+}
+
 /// `<folder>/<file>` of `path`, how errors name a text archive file.
 fn short_path(path: &Path) -> String {
     let name = |p: Option<&std::ffi::OsStr>| p.map(|n| n.to_string_lossy().into_owned());
@@ -1254,29 +1288,32 @@ fn read_text_doc(
     member: &Path,
     lang: &str,
 ) -> Result<Option<TextArchiveDoc>, KernelError> {
+    let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
+    match text_winner(json, member)? {
+        Some(path) if path == json => TextArchiveDoc::from_json(&read(json)?, lang)
+            .map(Some)
+            .map_err(|e| text_error_at(json, e)),
+        Some(path) => TextArchiveDoc::from_member(&read(path)?, lang)
+            .map(Some)
+            .map_err(|e| text_error_at(member, e)),
+        None => Ok(None),
+    }
+}
+
+/// The file the loader rule picks: `json` when it exists and is not older than `member`,
+/// else `member` when it exists. `None` when neither does.
+fn text_winner<'a>(json: &'a Path, member: &'a Path) -> Result<Option<&'a Path>, KernelError> {
     let modified = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
         Ok(time) => Ok(Some(time)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_at(path)(e)),
     };
-    let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
-    let json_time = modified(json)?;
-    let member_time = modified(member)?;
-    let json_wins = match (json_time, member_time) {
-        (Some(j), Some(m)) => j >= m,
-        (json, _) => json.is_some(),
-    };
-    if json_wins {
-        TextArchiveDoc::from_json(&read(json)?, lang)
-            .map(Some)
-            .map_err(|e| text_error_at(json, e))
-    } else if member_time.is_some() {
-        TextArchiveDoc::from_member(&read(member)?, lang)
-            .map(Some)
-            .map_err(|e| text_error_at(member, e))
-    } else {
-        Ok(None)
-    }
+    Ok(match (modified(json)?, modified(member)?) {
+        (Some(j), Some(m)) => Some(if j >= m { json } else { member }),
+        (Some(_), None) => Some(json),
+        (None, Some(_)) => Some(member),
+        (None, None) => None,
+    })
 }
 
 /// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.
