@@ -1,7 +1,7 @@
 import { errorText, getEvents } from "../../api";
 import { lockedText } from "../events";
 import { setMarkers } from "./content";
-import type { SceneHandle } from "./handle";
+import type { SceneHost } from "./SceneHost";
 import type { FetchedEvents } from "./types";
 
 /** The note shown over the scene about the events: why they are missing, or that they are locked. */
@@ -24,7 +24,7 @@ export async function fetchEvents(eventFileId: number | null): Promise<FetchedEv
  * Reads one event file's events again and shows them (their markers are rebuilt). Dropped when
  * `current()` turned false meanwhile (another matrix or event file is shown now).
  */
-export async function refreshEvents(h: SceneHandle, file: number, visible: boolean, current: () => boolean, report: (fetched: FetchedEvents) => void) {
+export async function refreshEvents(h: SceneHost, file: number, visible: boolean, current: () => boolean, report: (fetched: FetchedEvents) => void) {
   const matrixAtStart = h.matrix;
   const fetched = await fetchEvents(file);
   if (h.disposed || h.matrix !== matrixAtStart || !current()) return;

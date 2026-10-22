@@ -5,7 +5,7 @@ import { permissionColor } from "../colors";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "../layout";
 import { buildMarkers, disposeMarkers, selectMarker } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
-import type { SceneHandle } from "./handle";
+import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
 /** Height of the overlay plane; clicks are intersected with the same plane. */
@@ -20,7 +20,7 @@ export function overlayColor(kind: number, collision: number, names: Map<number,
 }
 
 /** Hands the model of map `mapId` to every matrix cell showing that map (clones share geometry and materials). */
-export function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model: THREE.Object3D) {
+export function addModel(h: SceneHost, matrix: MatrixDto, mapId: number, model: THREE.Object3D) {
   let used = false;
   matrix.maps.forEach((id, i) => {
     if (id !== mapId) return;
@@ -38,7 +38,7 @@ export function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model
 }
 
 /** Takes every terrain model out of the scene (the overlay, buildings and markers stay). */
-export function removeModels(h: SceneHandle) {
+export function removeModels(h: SceneHost) {
   for (const instance of h.models) {
     h.content.remove(instance);
     disposeTree(instance);
@@ -94,7 +94,7 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
 }
 
 /** Replaces the scene's markers (`events` null: show none); the selected event keeps its outline. */
-export function setMarkers(h: SceneHandle, events: EventsDto | null, visible: boolean) {
+export function setMarkers(h: SceneHost, events: EventsDto | null, visible: boolean) {
   if (h.markers) {
     h.scene.remove(h.markers.group);
     disposeMarkers(h.markers);
@@ -110,7 +110,7 @@ export function setMarkers(h: SceneHandle, events: EventsDto | null, visible: bo
 }
 
 /** Recolours every overlay instance of `mapId` from the map's current permissions. */
-export function recolourMap(h: SceneHandle, mapId: number) {
+export function recolourMap(h: SceneHost, mapId: number) {
   const data = h.loaded.get(mapId);
   const bases = h.bases.get(mapId);
   if (!data || !bases || !h.tiles) return;

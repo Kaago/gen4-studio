@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { MAP_SIZE, MODEL_SCALE } from "../layout";
 import { addModel, buildContent, recolourMap, removeModels, setMarkers } from "./content";
-import type { SceneHandle } from "./handle";
+import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
 const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [1, 1], headers: null, altitudes: null };
@@ -11,7 +11,7 @@ const matrix: MatrixDto = { index: 0, name: "m", width: 2, height: 1, maps: [1, 
 const loadedMap = (index: number): Loaded => ({ map: { index, permissions: Array.from({ length: MAP_SIZE * MAP_SIZE }, () => [0, 0] as [number, number]), buildings: [] } });
 
 /** The parts of a scene handle the content functions touch. */
-function handle(partial: Partial<SceneHandle> = {}): SceneHandle {
+function handle(partial: Partial<SceneHost> = {}): SceneHost {
   return {
     scene: new THREE.Scene(),
     content: new THREE.Group(),
@@ -25,7 +25,7 @@ function handle(partial: Partial<SceneHandle> = {}): SceneHandle {
     events: null,
     selectedEvent: null,
     ...partial,
-  } as unknown as SceneHandle;
+  } as unknown as SceneHost;
 }
 
 const model = () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
