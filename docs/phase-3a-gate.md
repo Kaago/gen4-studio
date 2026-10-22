@@ -35,7 +35,7 @@ Ziel: unter fünf Minuten, ohne eine Zahl zu tippen außer der Header-Wahl. Die 
 
 Auf einer Kopie von Platin DE, mit der gebündelten App:
 
-- [ ] 1. Stoppuhr starten. "+ Neu" → "Gebiet anlegen…". Schritt Quelle: im Feld Raster "Raster 0000" wählen (Route 201 liegt auf Raster 0000, Header 0342), im Gitter zwei nebeneinanderliegende Zellen anklicken, deren Header-ID oben rechts 0342 zeigt (oder Umschalt-Klick für das Rechteck).
+- [ ] 1. Vorbereitung, Stoppuhr noch aus: Header 0342 (Route 201) wählen, den Tab "Raster" öffnen (Raster 0000, Zellen mit Kartenbild, Header-ID in der Zellenecke) und zwei nebeneinanderliegende Zellen mit Header 0342 suchen (das Überfahren zeigt "x …, y … · Karte … · Header 0342"); beide Positionen (x, y) notieren. Dann Stoppuhr starten. "+ Neu" → "Gebiet anlegen…". Schritt Quelle: im Feld Raster "Raster 0000" wählen und im Gitter genau diese zwei Zellen anklicken (oder Umschalt-Klick für das Rechteck). Das Gitter des Assistenten zeigt keine Ecken-IDs; der Tooltip jeder Zelle bestätigt "Header 0342".
 - [ ] 2. Schritt Anordnung: Name "Route 230" eintragen. Es gibt keine Felder für Breite und Höhe, die Größe folgt aus der Auswahl; die Vorschau zeigt 2 × 1. "ohne Gebäude" bleibt aus, "Header-Abschnitt anlegen" bleibt an (Vorgabe).
 - [ ] 3. Schritt Header: Header 0001 ("NOTHING") wählen; die Zeile zeigt "Warps hierher: 0, wirkt unbenutzt" (Text je Zeile). Area-Data ist mit der des ersten Quell-Headers (0342) vorbelegt. Eventdatei ausdrücklich "neu, leer" wählen; die Vorgabe ist "behalten", dann behielte Header 0001 seine alte Eventdatei. Das ist die einzige Auswahl, die nötig ist; getippt wird keine Zahl.
 - [ ] 4. Schritt Zusammenfassung: der Text nennt das Raster "Route 230" 2 × 1, die zwei kopierten Karten und die Umstellung von Header 0001. "Anlegen" drücken. Der Ergebnis-Schritt listet Raster, Karten und Eventdatei; "Im Studio zeigen" wählt Header 0001, die Szene zeigt beide Karten, der Explorer klappt den Ort auf.
@@ -45,8 +45,10 @@ Auf einer Kopie von Platin DE, mit der gebündelten App:
 - [ ] 8. Schritt Eingang: Außen-Header Zweiblattdorf (0411) wählen; die Außen-Kachel ist aus der Szene übernommen (Hinweis "Kachel zuletzt in der Szene gewählt"); die Tür innen ist mit dem ersten Warp der Vorlage vorbelegt.
 - [ ] 9. Schritt Zusammenfassung prüfen, "Anlegen", Ergebnis-Schritt, "Im Studio zeigen". Stoppuhr anhalten. Zeit und die Zahl der getippten Zahlen notieren (Ziel: unter fünf Minuten, keine Zahl außer der Header-Wahl).
 - [ ] 10. Inspector bei Header 0411: der Abschnitt "Eingänge / Ausgänge" zeigt den neuen Warp mit Ziel "0002", "Zum Ziel" springt dorthin; im Raum 0002 zeigt der Abschnitt den Rück-Warp nach 0411.
-- [ ] 11. Speichern, bauen, melonDS: in Zweiblattdorf auf die Kachel laufen, im neuen Raum ankommen, hinauslaufen, wieder in Zweiblattdorf.
-- [ ] 12. Die neue Route 230 ist nur über Header 0001 erreichbar. Damit sie sich im Spiel begehen lässt, nach dem Lauf einen Warp von Hand setzen: im Header-Editor von Zweiblattdorf (0411) "Warp hinzufügen", Ziel Header 0001, Warp 0 (die getippten Zahlen kommen in "Zahlen getippt", gehören aber nicht zur gemessenen Zeit). Speichern, bauen, melonDS: durch den Warp in Route 230, beide Karten sind begehbar.
+- [ ] 11. Die neue Route 230 ist nur über Header 0001 erreichbar, und Header 0001 hat (Eventdatei "neu, leer") noch keinen Warp 0. Zum Begehen von Hand verbinden, erst in Zweiblattdorf, dann in Route 230 (die getippten Zahlen kommen in "Zahlen getippt", gehören aber nicht zur gemessenen Zeit):
+  - Header 0411 öffnen, die Maus auf eine freie Kachel stellen, "Warp hinzufügen", im Event-Editor des neuen Warps Ziel Header 0001 und Ziel-Warp 0 setzen (spiegelt Phase-2-Gate (B)3). Den Index dieses neuen Warps ("Warp N (x …, z …) → …") in der Liste "Eingänge / Ausgänge" ablesen: Schritt zuerst, weil der Warp in 0001 ihn braucht.
+  - Header 0001 öffnen, die Maus in der 3D-Ansicht auf eine freie begehbare Kachel stellen, dann im Header-Editor "Warp hinzufügen" (ohne vorheriges Überfahren erscheint "Erst mit der Maus über die Kachel fahren …"; die Merkung der Kachel geht verloren, wenn die Szene eine andere Matrix zeigt). Der neue Warp ist danach angeheftet; sein Ziel (Header 0411 und, im Feld "Ziel-Warp", den Index des soeben abgelesenen Zweiblattdorf-Warps) wird im Event-Editor des Warps eingetragen, bei einem nicht angehefteten Warp über "Bearbeiten" in der Liste "Eingänge / Ausgänge". Dieser erste Warp in Header 0001 hat Index 0, passend zum Ziel-Warp 0 im Warp von 0411.
+- [ ] 12. Speichern, bauen, melonDS: in Zweiblattdorf auf die Kachel vor dem Rivalenhaus laufen, im neuen Raum ankommen, hinauslaufen, wieder in Zweiblattdorf; durch den von Hand gesetzten Warp in Route 230 laufen, beide Karten sind begehbar, zurückwarpen.
 
 ## (B) Explorer
 
@@ -62,7 +64,7 @@ Auf derselben Kopie von Platin DE:
 - [ ] 1. Tab "Raster" bei Zweiblattdorf (Header 0411): Kartenbilder in jeder Zelle, unten die Karten-ID, oben rechts die Header-ID der Zelle; Doppelklick auf eine Zelle öffnet ihren Header.
 - [ ] 2. Header 0003 (Jubelstadt, Matrix 0, 30 × 30): die Kartenbilder erscheinen nach und nach, ohne dass die Oberfläche hängt; Zellen ohne Bild zeigen eine Fläche in Ortsfarbe mit der Karten-ID.
 - [ ] 3. Route 230 (nach (A)): die gestrichelte "+"-Zelle rechts oder unten öffnet den Dialog "Karte bei x …, y … anlegen"; "Kopie von Karte … (Nachbarzelle)" wählen, "Anlegen": das Raster wächst um eine Zelle, die Szene zeigt die neue Karte.
-- [ ] 4. Das Anlegen im Dialog warnt, dass es sich nicht rückgängig machen lässt,.
+- [ ] 4. Das Anlegen im Dialog warnt, dass es sich nicht rückgängig machen lässt.
 
 ## (D) Weltkarte
 

@@ -13,8 +13,8 @@ Das Gate besteht aus drei Teilen:
 ## Vorbereitung
 
 1. Kopien der Projekte anlegen (Platin DE, HeartGold US), zum Beispiel:
-   `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" /tmp/pt-test`
-   `cp -R "../Roms/Pokemon - HeartGold Version (USA)_DSPRE_contents" /tmp/hg-test`
+   `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-test`
+   `cp -R "../Roms/Pokemon - HeartGold Version (USA)_DSPRE_contents" ../Roms/_testkopien/hg-test`
 2. Gebündelte App bauen: `cd apps/studio && pnpm bundle && bash scripts/check-bundle.sh` (Ausgabe `bundle ok`, siehe `docs/release.md`). Gestartet wird `target/release/bundle/macos/Gen4 Studio.app`, `G4_APICULA` darf nicht gesetzt sein. Beim ersten Start verlangt Gatekeeper eine Freigabe (siehe `docs/release.md`).
 3. Für (C), wo es ausdrücklich dasteht, geht auch `pnpm tauri dev` mit `G4_APICULA` (siehe `docs/dev-setup.md`).
 4. melonDS (die .app) bereithalten.
