@@ -9,4 +9,5 @@ pub mod sprites;
 pub mod store;
 #[cfg(feature = "test-support")]
 pub mod test_support;
+pub mod text;
 pub mod tiles;
