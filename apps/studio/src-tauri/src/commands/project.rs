@@ -8,11 +8,11 @@ use g4_kernel::build::build;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::sprites::SpriteCache;
-use g4_kernel::store::{SaveReport, Store};
+use g4_kernel::store::Store;
 use serde::Serialize;
 use tauri::{Manager, State};
 
-use super::{lock, session};
+use super::{ProblemDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
@@ -89,9 +89,27 @@ pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     Ok(session(&mut guard)?.store.dirty())
 }
 
-pub fn save_impl(state: &AppState) -> Result<SaveReport, CmdError> {
+/// What `save` did: the assets written and the warnings found while encoding them (text
+/// warnings never block the save).
+#[derive(Debug, Serialize)]
+pub struct SaveDto {
+    pub written: Vec<AssetId>,
+    pub problems: Vec<ProblemDto>,
+}
+
+pub fn save_impl(state: &AppState) -> Result<SaveDto, CmdError> {
     let mut guard = lock(state)?;
-    session(&mut guard)?.store.save().map_err(CmdError::from)
+    let session = session(&mut guard)?;
+    let report = session.store.save()?;
+    let root = &session.project.root;
+    Ok(SaveDto {
+        written: report.written,
+        problems: report
+            .problems
+            .iter()
+            .map(|p| ProblemDto::from_kernel(p, root, "text"))
+            .collect(),
+    })
 }
 
 /// Drops the own changes (and their undo/redo entries) of one asset and reloads it from its
@@ -167,7 +185,7 @@ pub fn dirty(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
 }
 
 #[tauri::command]
-pub fn save(state: State<AppState>) -> Result<SaveReport, CmdError> {
+pub fn save(state: State<AppState>) -> Result<SaveDto, CmdError> {
     save_impl(&state)
 }
 

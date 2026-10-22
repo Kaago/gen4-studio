@@ -8,8 +8,10 @@ mod matrix;
 mod models;
 mod overview;
 mod patches;
+mod problems;
 mod project;
 mod sprites;
+mod text;
 mod wizards;
 mod world;
 
@@ -21,8 +23,10 @@ pub use matrix::*;
 pub use models::*;
 pub use overview::*;
 pub use patches::*;
+pub use problems::*;
 pub use project::*;
 pub use sprites::*;
+pub use text::*;
 pub use wizards::*;
 pub use world::*;
 
