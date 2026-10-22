@@ -5,12 +5,16 @@ use g4_kernel::project::Project;
 use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
 
+use crate::lsp::LspProcess;
+
 /// The open project and its asset store.
 pub struct Session {
     pub project: Arc<Project>,
     pub store: Store,
     /// The overworld table and the decoded object sprites of this project.
     pub sprites: SpriteCache,
+    /// The `rotom-lsp` of this project, started by `lsp_start` and stopped with the session.
+    pub lsp: Option<LspProcess>,
 }
 
 /// Tauri-managed state.

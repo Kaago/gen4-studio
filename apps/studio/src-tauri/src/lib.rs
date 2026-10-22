@@ -1,5 +1,6 @@
 mod commands;
 mod errors;
+mod lsp;
 mod menu;
 mod state;
 
@@ -16,6 +17,7 @@ use commands::{
     set_matrix_cell, set_matrix_sections, set_permission, tile_behaviors, undo, update_building,
     update_event, validate_text,
 };
+use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{AppState, QuitAction, quit_action};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, RunEvent};
@@ -78,6 +80,9 @@ pub fn run() {
             add_script,
             resolve_script,
             search_scripts,
+            lsp_start,
+            lsp_send,
+            lsp_stop,
             add_event,
             delete_event,
             get_map_model_glb,
@@ -98,12 +103,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::ExitRequested { api, .. } = event
-                && exit_request_needs_confirmation(app)
-            {
-                api.prevent_exit();
-                // A failed emit only means the prompt cannot be shown; the app stays open.
-                let _ = app.emit("confirm-quit", ());
+            match event {
+                RunEvent::ExitRequested { api, .. } if exit_request_needs_confirmation(app) => {
+                    api.prevent_exit();
+                    // A failed emit only means the prompt cannot be shown; the app stays open.
+                    let _ = app.emit("confirm-quit", ());
+                }
+                // The exit goes ahead (also the one after `force_quit`): end rotom-lsp. `Exit`
+                // covers an exit that skipped the request.
+                RunEvent::ExitRequested { .. } | RunEvent::Exit => lsp::stop_on_exit(app),
+                _ => {}
             }
         });
 }

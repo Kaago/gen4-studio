@@ -131,8 +131,9 @@ fn collect_glbs(dir: &Path, found: &mut Vec<PathBuf>) -> Result<(), KernelError>
 }
 
 /// Kills `child` and everything it started: on Unix the child leads its own process group (see
-/// [`run_with_timeout`]), and the whole group gets SIGKILL so no helper keeps running.
-fn kill_tree(child: &mut std::process::Child) {
+/// [`run_with_timeout`]; long-lived sidecars do the same), and the whole group gets SIGKILL so
+/// no helper keeps running.
+pub fn kill_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     if let Ok(pid) = i32::try_from(child.id()) {
         // SAFETY: plain syscall; a negative pid addresses the process group led by the child.

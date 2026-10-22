@@ -37,14 +37,14 @@ use std::sync::MutexGuard;
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
-fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
+pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
     state
         .session
         .lock()
         .map_err(|_| "internal state is poisoned".into())
 }
 
-fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
+pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 

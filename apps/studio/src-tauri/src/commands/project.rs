@@ -38,11 +38,14 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     };
     let project = Arc::new(project);
     let store = Store::new(Arc::clone(&project));
-    *lock(state)? = Some(Session {
+    let old = lock(state)?.replace(Session {
         project,
         store,
         sprites: SpriteCache::new(),
+        lsp: None,
     });
+    // The old project's language server ends with its session, outside the state lock.
+    drop(old);
     Ok(info)
 }
 

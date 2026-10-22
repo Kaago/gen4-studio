@@ -6,6 +6,7 @@
 #   G4_ROMS_DIR    folder with the *_DSPRE_contents test projects (default: ../Roms)
 #   G4_APICULA     apicula binary (default: tools/apicula/bin/apicula)
 #   G4_DSROM_CLI   ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom)
+#   G4_ROTOM_LSP   rotom-lsp binary (default: tools/rotom/bin/rotom-lsp)
 #
 # The projects are only read; writing tests work on copies (vanilla_copy()).
 # Stops at the first failure and prints the result table either way.
@@ -34,6 +35,7 @@ abs() { # abs <path>: absolute form of a path whose parent exists
 G4_ROMS_DIR="$(abs "${G4_ROMS_DIR:-$ROOT/../Roms}")"
 G4_APICULA="$(abs "${G4_APICULA:-$ROOT/tools/apicula/bin/apicula}")"
 G4_DSROM_CLI="$(abs "${G4_DSROM_CLI:-$G4_ROMS_DIR/_tools/dsrom}")"
+G4_ROTOM_LSP="$(abs "${G4_ROTOM_LSP:-$ROOT/tools/rotom/bin/rotom-lsp}")"
 
 ROWS=()
 FAILED=0
@@ -88,7 +90,7 @@ run_step "cargo clippy (-D warnings)" "" \
   cargo clippy --workspace --all-targets --all-features -- -D warnings
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
-  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA \
+  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
   cargo test --workspace --all-features
 run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "pnpm build" "" bash -c 'cd apps/studio && pnpm build'
@@ -105,6 +107,10 @@ if [ ! -x "$G4_APICULA" ]; then
 fi
 if [ ! -x "$G4_DSROM_CLI" ]; then
   echo "G4_DSROM_CLI is not an executable file: $G4_DSROM_CLI" >&2
+  missing=1
+fi
+if [ ! -x "$G4_ROTOM_LSP" ]; then
+  echo "G4_ROTOM_LSP is not an executable file: $G4_ROTOM_LSP" >&2
   missing=1
 fi
 if [ "$missing" -ne 0 ]; then
@@ -127,6 +133,7 @@ for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
   ran=$((ran + 1))
   run_step "gated tests (cargo test)" "$label" \
     env G4_TEST_PROJECT="$project" G4_APICULA="$G4_APICULA" G4_DSROM_CLI="$G4_DSROM_CLI" \
+    G4_ROTOM_LSP="$G4_ROTOM_LSP" \
     cargo test --workspace --all-features
 done
 

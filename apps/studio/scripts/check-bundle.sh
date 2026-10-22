@@ -9,9 +9,21 @@ BIN="$APP/Contents/MacOS/studio"
 DYLIB="$APP/Contents/Frameworks/libnitroarc_ffi.dylib"
 
 test -x "$APP/Contents/MacOS/apicula"
+test -s "$APP/Contents/MacOS/rotom-lsp"
+test -x "$APP/Contents/MacOS/rotom-lsp"
 test -f "$DYLIB"
 otool -l "$BIN" | grep -A2 LC_RPATH | grep -q "@executable_path/../Frameworks"
 "$APP/Contents/MacOS/apicula" --help >/dev/null
+
+# rotom-lsp: laedt die dylib aus Contents/Frameworks (rpath), startet also ohne dyld-Fehler.
+# Ohne Eingabe beendet es sich (Parse-Fehler oder EOF); nur ein dyld-Fehler ist ein Fehlschlag.
+otool -l "$APP/Contents/MacOS/rotom-lsp" | grep -A2 LC_RPATH | grep -q "@executable_path/../Frameworks"
+LSP_OUT=$("$APP/Contents/MacOS/rotom-lsp" </dev/null 2>&1 || true)
+if printf '%s' "$LSP_OUT" | grep -q "dyld"; then
+  echo "rotom-lsp does not start:" >&2
+  printf '%s\n' "$LSP_OUT" >&2
+  exit 1
+fi
 
 # Die dylib muss ueber den rpath geladen werden, nie ueber einen absoluten Pfad in target/.
 otool -L "$BIN" | grep -q "@rpath/libnitroarc_ffi.dylib"
