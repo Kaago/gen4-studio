@@ -15,6 +15,11 @@ const toggleStyle: React.CSSProperties = {
   background: "rgba(0,0,0,0.5)",
   padding: "4px 8px",
   borderRadius: 4,
+  fontSize: 12,
+  whiteSpace: "nowrap",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
 };
 
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
@@ -62,10 +67,9 @@ export function WorldPanel() {
             onEventMoved={d.onEventMoved}
             onEventsLocked={d.onEventsLocked}
           />
-          <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
+          <div style={{ position: "absolute", top: 8, left: 8, right: 8, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
             <label style={toggleStyle}>
-              <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions
-              anzeigen
+              <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions anzeigen
             </label>
             <label style={toggleStyle}>
               <input type="checkbox" checked={d.showEvents} onChange={(e) => d.onShowEvents(e.target.checked)} /> Events anzeigen
@@ -74,7 +78,7 @@ export function WorldPanel() {
               onClick={() => void d.onAddBuilding(null)}
               disabled={!d.paintEnabled}
               title="Legt ein Gebäude auf der Kachel an, über der die Maus zuletzt war"
-              style={{ ...toggleStyle, border: "none", font: "inherit" }}
+              style={{ ...toggleStyle, border: "none", fontFamily: "inherit" }}
             >
               Neues Gebäude
             </button>
