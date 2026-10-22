@@ -3,7 +3,7 @@ import type { BuildingDto } from "../../api";
 import { updateBuilding } from "../../api";
 import type { BuildingRef } from "../buildingLayer";
 import { createBuildingDrag } from "./buildingDrag";
-import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit";
+import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit.testkit";
 import type { SceneHost } from "./SceneHost";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), updateBuilding: vi.fn() }));

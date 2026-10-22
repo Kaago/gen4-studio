@@ -12,7 +12,7 @@ import { useBuildingRefresh, useEventRefresh, useMapRefresh } from "./scene/useR
 import { useSceneLoader } from "./scene/useSceneLoader";
 import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
-import { useBuildingSelection, useEventSelection, useEventVisibility, usePermissionVisibility } from "./scene/useSceneSync";
+import { useBuildingSelection, useEventSelection, useEventVisibility, usePermissionVisibility } from "./scene/useSceneProps";
 
 interface Props {
   matrix: MatrixDto;

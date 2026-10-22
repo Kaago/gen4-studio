@@ -5,7 +5,7 @@ import type { EventRef } from "../events";
 import { moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { createEventDrag } from "./eventDrag";
-import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit";
+import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit.testkit";
 import type { SceneHost } from "./SceneHost";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), updateEvent: vi.fn(), getEvents: vi.fn() }));

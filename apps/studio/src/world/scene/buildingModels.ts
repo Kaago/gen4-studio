@@ -2,7 +2,6 @@ import { errorText, getBuildingGlb } from "../../api";
 import type { BuildingLayer, BuildingRef } from "../buildingLayer";
 import { MODEL_CONCURRENCY, limitConcurrency } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
-
 import type { SceneHost } from "./SceneHost";
 
 /**

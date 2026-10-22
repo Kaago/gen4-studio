@@ -10,14 +10,14 @@ import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
 
-/** The dockview panels. Each reads only the contexts it renders (see `WorkbenchLive`). */
-
 const toggleStyle: React.CSSProperties = {
   color: "#e5e7eb",
   background: "rgba(0,0,0,0.5)",
   padding: "4px 8px",
   borderRadius: 4,
 };
+
+/** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
 
 export function HeadersPanel() {
   const d = useWorkbench();

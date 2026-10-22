@@ -23,6 +23,7 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
 
     const picker = createPicker(h);
     const surface = { host: parent, canvas: h.canvas, keys: window };
+    // `busy` closes over the drags declared below; it is only called from a later animation frame, after both exist.
     const hover = createHover(h, picker, refs, () => buildingDrag.dragging || eventDrag.dragging);
     h.refreshHover = hover.refresh;
     const buildingDrag = createBuildingDrag(h, picker, surface, refs);

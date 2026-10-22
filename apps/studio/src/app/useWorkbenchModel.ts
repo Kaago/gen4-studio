@@ -41,7 +41,7 @@ interface WorkbenchModelParams {
  * the cell it selects, the message), where a panel subscribes to the piece it renders.
  */
 export function useWorkbenchModel({ bus, session, scene, world, pins, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
-  // Plain closures over the current render in the hooks they come from; stable here for the memoised panels.
+  // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
   const { setMessage } = session;
