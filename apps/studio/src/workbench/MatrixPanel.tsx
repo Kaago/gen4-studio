@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
 import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { AreaGrid, cellKey } from "./AreaGrid";

@@ -18,6 +18,9 @@ import type { Created } from "./app/useWizards";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
+import { projectFromUrl } from "./platform/dialogs";
+import { WebDialogHost } from "./platform/WebDialogHost";
+import { inTauri } from "./platform/transport";
 
 /** The message that says what a wizard made, unless an error is showing: that one stays. */
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
@@ -104,6 +107,15 @@ export default function App() {
     world.resetForProject();
   }
 
+  // Browser mode (dev bridge): `?project=/path` opens that project on load. Once only: StrictMode runs effects twice in dev.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || inTauri()) return;
+    openedFromUrl.current = true;
+    const path = projectFromUrl(window.location.search);
+    if (path !== null) void session.openProjectAt(path, resetProject);
+  }, []);
+
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -155,6 +167,7 @@ export default function App() {
         }}
         onError={session.fail}
       />
+      {!inTauri() && <WebDialogHost />}
     </main>
   );
 }

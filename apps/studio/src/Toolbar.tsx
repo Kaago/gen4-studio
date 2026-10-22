@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { inTauri } from "./platform/transport";
 
 export interface MessageAction {
   label: string;
@@ -55,8 +56,10 @@ export function Toolbar(p: ToolbarProps) {
 
 /** Non-modal message bar at the bottom: errors and results of save/build/run. */
 export function StatusBar({ message, onDismiss }: { message: Message | null; onDismiss: () => void }) {
-  if (!message) return null;
-  const error = message.kind === "error";
+  // Outside Tauri (the dev bridge) the bar always shows that the page is not the app window.
+  const web = !inTauri();
+  if (!message && !web) return null;
+  const error = message?.kind === "error";
   return (
     <div
       role={error ? "alert" : "status"}
@@ -68,20 +71,25 @@ export function StatusBar({ message, onDismiss }: { message: Message | null; onD
         background: error ? "#b91c1c" : "#e5e7eb",
       }}
     >
-      <span
-        title={message.text}
-        style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-      >
-        {message.text}
-      </span>
-      {message.actions?.map((a) => (
-        <button key={a.label} onClick={a.run} style={{ flexShrink: 0 }}>
-          {a.label}
-        </button>
-      ))}
-      <button onClick={onDismiss} style={{ flexShrink: 0 }}>
-        Schließen
-      </button>
+      {web && <span style={{ flex: message ? "none" : 1, fontWeight: 600, whiteSpace: "nowrap" }}>Browser-Modus (Brücke)</span>}
+      {message && (
+        <>
+          <span
+            title={message.text}
+            style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+          >
+            {message.text}
+          </span>
+          {message.actions?.map((a) => (
+            <button key={a.label} onClick={a.run} style={{ flexShrink: 0 }}>
+              {a.label}
+            </button>
+          ))}
+          <button onClick={onDismiss} style={{ flexShrink: 0 }}>
+            Schließen
+          </button>
+        </>
+      )}
     </div>
   );
 }

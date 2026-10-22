@@ -9,7 +9,7 @@ import type { InspectorModel } from "../workbench/Inspector";
 import { useWorldActions } from "./useWorldActions";
 import type { WorldActions } from "./useWorldActions";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn() }));
+vi.mock("../platform/dialogs", () => ({ ask: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

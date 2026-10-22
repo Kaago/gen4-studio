@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
+import { ask, openPath, savePath } from "../platform/dialogs";
 import type { Message } from "../Toolbar";
 import { eventReadOnlyReason, lockedText } from "../world/events";
 
@@ -113,8 +113,17 @@ export function useProjectSession() {
   async function onOpen(resetProject: (headers: HeaderSummary[]) => void) {
     try {
       if (dirtyCount > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
-      const path = await open({ directory: true });
-      if (typeof path !== "string") return;
+      const path = await openPath({ directory: true });
+      if (path === null) return;
+      await openProjectAt(path, resetProject);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** Opens the project at `path` (no question asked); see `onOpen` for `resetProject`. */
+  async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void) {
+    try {
       const opened = await openProject(path);
       // The backend now has the new project. Fetch its listing first, then swap the whole UI
       // state at once; if the listing fails the UI shows the new, empty project instead of
@@ -187,7 +196,7 @@ export function useProjectSession() {
 
   async function onBuild() {
     try {
-      const out = await saveDialog({ defaultPath: "out.nds", filters: [{ name: "ROM", extensions: ["nds"] }] });
+      const out = await savePath({ defaultPath: info ? `${info.root}/out.nds` : "out.nds" });
       if (!out) return;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
@@ -203,8 +212,8 @@ export function useProjectSession() {
   }
 
   async function pickEmulator(): Promise<string | null> {
-    const chosen = await open({ directory: false, multiple: false, title: "Emulator wählen (z. B. melonDS)" });
-    if (typeof chosen !== "string") return null;
+    const chosen = await openPath({ directory: false, title: "Emulator wählen (z. B. melonDS)" });
+    if (chosen === null) return null;
     storeEmulator(chosen);
     return chosen;
   }
@@ -246,6 +255,7 @@ export function useProjectSession() {
     fail,
     onCountsChanged,
     onOpen,
+    openProjectAt,
     onSave,
     onBuild,
     onPickEmulator,

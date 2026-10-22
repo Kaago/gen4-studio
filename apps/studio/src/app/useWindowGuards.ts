@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { invoke } from "../platform/transport";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask } from "../platform/dialogs";
 import { errorText } from "../api";
 import type { Message } from "../Toolbar";
 

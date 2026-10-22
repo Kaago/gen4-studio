@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openPath } from "./platform/dialogs";
 import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
+import { StatusBar } from "./Toolbar";
 import type { EditEvent } from "./bus/editBus";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
 import type { InspectorModel } from "./workbench/Inspector";
@@ -46,10 +47,17 @@ vi.mock("./api", async (importOriginal) => ({
 vi.mock("./world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
+vi.mock("./platform/dialogs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./platform/dialogs")>()),
+  ask: vi.fn(),
+  openPath: vi.fn(),
+  savePath: vi.fn(),
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
-vi.mock("./platform/transport", () => ({ invoke: vi.fn() }));
+// `env.tauri`: whether the page pretends to run inside the Tauri window.
+const env = vi.hoisted(() => ({ tauri: false }));
+vi.mock("./platform/transport", () => ({ invoke: vi.fn(), inTauri: () => env.tauri }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -70,7 +78,7 @@ describe("App wiring", () => {
     vi.resetAllMocks();
     shown.renders = 0;
     listed = [header(0, 0), header(1, 1)];
-    vi.mocked(open).mockResolvedValue("/p");
+    vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
     vi.mocked(listHeaders).mockImplementation(async () => ({ headers: listed, names_error: null }));
     vi.mocked(memberCounts).mockResolvedValue({});
@@ -89,6 +97,8 @@ describe("App wiring", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    env.tauri = false;
+    window.history.replaceState(null, "", "/");
   });
 
   async function click(label: string) {
@@ -135,6 +145,59 @@ describe("App wiring", () => {
     expect(data().onOpenWizard).toBe(opener);
     await click("Abbrechen");
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  describe("browser mode", () => {
+    /** Renders a fresh App (in StrictMode, like the dev server does) after the beforeEach one is gone. */
+    async function renderFresh() {
+      act(() => root.unmount());
+      container.remove();
+      vi.mocked(openProject).mockClear();
+      vi.mocked(openPath).mockClear();
+      container = document.createElement("div");
+      document.body.append(container);
+      root = createRoot(container);
+      await act(async () =>
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        ),
+      );
+    }
+
+    it("opens_the_project_from_the_url_outside_tauri", async () => {
+      window.history.replaceState(null, "", "/?project=/tmp/p");
+      await renderFresh();
+      expect(openProject).toHaveBeenCalledOnce();
+      expect(openProject).toHaveBeenCalledWith("/tmp/p");
+      expect(openPath).not.toHaveBeenCalled();
+      expect(data().headers).toEqual(listed);
+    });
+
+    it("does_not_open_a_project_from_the_url_inside_tauri", async () => {
+      env.tauri = true;
+      window.history.replaceState(null, "", "/?project=/tmp/p");
+      await renderFresh();
+      expect(openProject).not.toHaveBeenCalled();
+    });
+
+    it("does_not_open_anything_without_a_project_parameter", async () => {
+      await renderFresh();
+      expect(openProject).not.toHaveBeenCalled();
+    });
+
+    it("status_bar_shows_the_browser_mode", async () => {
+      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
+      expect(container.textContent).toContain("Browser-Modus (Brücke)");
+      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
+      expect(container.textContent).toMatch(/Browser-Modus \(Brücke\).*Fertig/);
+      env.tauri = true;
+      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
+      expect(container.textContent).not.toContain("Browser-Modus");
+      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
+      expect(container.textContent).toBe("");
+    });
   });
 
   it("offers_to_repair_a_broken_header_patch_when_the_project_opens", async () => {

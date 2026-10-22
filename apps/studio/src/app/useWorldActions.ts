@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask } from "../platform/dialogs";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, updateBuilding } from "../api";
 import type { EventKind, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
