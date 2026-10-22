@@ -22,6 +22,8 @@ import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 import { cloneModel, disposeTree, parseGlb } from "./sceneUtil";
+import { fetchCurrent } from "../reload";
+import type { MapRefresh } from "../reload";
 
 interface Loaded {
   map: MapDto;
@@ -287,8 +289,13 @@ interface Props {
   headers: HeaderSummary[];
   /** Painting is ignored while false (e.g. during a build). */
   paintEnabled: boolean;
-  /** Increment to reload all maps of the matrix from the backend and recolour (after undo/redo). */
-  reloadToken: number;
+  /**
+   * Bumped by every undo and redo, at once (not through a render). A matrix load that was in its
+   * map phase meanwhile fetches again, so it never shows the state from before the undo.
+   */
+  history: { readonly current: number };
+  /** A new request makes the scene refetch one map (overlay colours and buildings of all its cells): undo or redo restored it. */
+  mapRefresh: MapRefresh | null;
   /** Called after a tile was changed in the backend. */
   onEdited: () => void;
   onError: (message: string) => void;
@@ -326,7 +333,8 @@ function MatrixScene({
   showEvents,
   headers,
   paintEnabled,
-  reloadToken,
+  history,
+  mapRefresh,
   onEdited,
   onError,
   onInspect,
@@ -742,8 +750,6 @@ function MatrixScene({
         h.buildings?.resetModels();
         h.render();
       } else {
-        // Fetched next to the maps; a failure only costs the markers, never the scene.
-        const eventsPending = fetchEvents(eventFileRef.current);
         // Without names the overlay is uncoloured by class and the hover shows raw values only.
         const problems: SceneHandle["loadProblems"] = { names: null, maps: [] };
         const namesPending = loadNames().catch((e) => {
@@ -751,17 +757,30 @@ function MatrixScene({
           return new Map<number, TileBehavior>();
         });
         const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
-        const loaded = new Map<number, Loaded>();
-        const mapsPending = Promise.all(
-          ids.map(async (id) => {
-            try {
-              loaded.set(id, { map: await getMap(id) });
-            } catch (e) {
-              problems.maps.push(`Karte ${id}: ${errorText(e)}`);
-            }
-          }),
+        // Maps and events are fetched together; an undo or redo that lands meanwhile makes them
+        // be fetched again. A failure of the events only costs the markers, never the scene.
+        const { loaded, fetchedEvents, mapProblems } = await fetchCurrent(
+          async () => {
+            const loaded = new Map<number, Loaded>();
+            const mapProblems: string[] = [];
+            const [fetchedEvents] = await Promise.all([
+              fetchEvents(eventFileRef.current),
+              Promise.all(
+                ids.map(async (id) => {
+                  try {
+                    loaded.set(id, { map: await getMap(id) });
+                  } catch (e) {
+                    mapProblems.push(`Karte ${id}: ${errorText(e)}`);
+                  }
+                }),
+              ),
+            ]);
+            return { loaded, fetchedEvents, mapProblems };
+          },
+          () => history.current,
         );
-        const [names, fetchedEvents] = await Promise.all([namesPending, eventsPending, mapsPending]);
+        problems.maps = mapProblems;
+        const names = await namesPending;
         if (cancelled || handle.current !== h) return;
         const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names);
         h.scene.remove(h.content);
@@ -845,42 +864,39 @@ function MatrixScene({
     };
   }, [matrix, areaDataId, modelsToken]);
 
-  // Undo/redo changed maps behind the scene's back: refetch every shown map and recolour.
+  // Undo or redo restored one map: refetch it and show its overlay colours and buildings in every
+  // cell that shows it. Requests are not cancelled by a newer one (that one may be about another
+  // map); a result is dropped when the scene shows another matrix by then, or when a newer
+  // request for the same map was made.
+  const mapRequests = useRef(new Map<number, number>());
   useEffect(() => {
     const h = handle.current;
-    if (reloadToken === 0 || !h?.matrix) return;
-    let cancelled = false;
+    const request = mapRefresh;
+    if (!request || !h?.matrix) return;
     // Results are only applied to the matrix they were requested for.
     const matrixAtStart = h.matrix;
+    const seq = (mapRequests.current.get(request.map) ?? 0) + 1;
+    mapRequests.current.set(request.map, seq);
     (async () => {
-      const ids = [...h.loaded.keys()];
-      const [fresh, fetchedEvents] = await Promise.all([Promise.all(ids.map((id) => getMap(id))), fetchEvents(eventFileRef.current)]);
-      if (cancelled || handle.current !== h || h.matrix !== matrixAtStart) return;
-      setMarkers(h, fetchedEvents.events, showEventsRef.current);
-      reportEvents(fetchedEvents);
+      if (!h.loaded.has(request.map)) return;
+      const map = await getMap(request.map);
+      const data = h.loaded.get(request.map);
+      if (h.disposed || handle.current !== h || h.matrix !== matrixAtStart || mapRequests.current.get(request.map) !== seq || !data) return;
+      // An unchanged building keeps its object, which the layer's slots hold: map data and layer
+      // never point at different objects.
+      const { buildings, changed } = reconcileBuildings(data.map.buildings, map.buildings);
+      data.map = { ...map, buildings };
+      recolourMap(h, request.map);
       const layer = h.buildings;
-      fresh.forEach((map, i) => {
-        const data = h.loaded.get(ids[i]);
-        if (!data) return;
-        // Only maps whose buildings changed are rebuilt (a matrix can show hundreds of them); an
-        // unchanged one keeps its building objects, which the layer's slots hold: map data and
-        // layer never point at different objects.
-        const { buildings, changed } = reconcileBuildings(data.map.buildings, map.buildings);
-        data.map = { ...map, buildings };
-        recolourMap(h, ids[i]);
-        if (changed) layer?.syncMap(matrixAtStart, ids[i], buildings);
-      });
+      if (changed) layer?.syncMap(matrixAtStart, request.map, buildings);
       dropMissingSelection(h, callbacks.current.onSelectBuilding);
       h.render();
       h.refreshHover?.();
-      if (layer) await loadMissingBuildingModels(h, layer, areaRef.current, () => cancelled || handle.current !== h || h.buildings !== layer);
+      if (layer) await loadMissingBuildingModels(h, layer, areaRef.current, () => h.disposed || handle.current !== h || h.buildings !== layer);
     })().catch((e) => {
-      if (!cancelled) callbacks.current.onError(errorText(e));
+      if (!h.disposed) callbacks.current.onError(errorText(e));
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadToken]);
+  }, [mapRefresh]);
 
   // The selection (made by a click, the header list, ...) is outlined; the scene also drags it.
   useEffect(() => {

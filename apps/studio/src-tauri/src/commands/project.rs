@@ -65,14 +65,16 @@ pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>,
         .collect())
 }
 
-pub fn undo_impl(state: &AppState) -> Result<bool, CmdError> {
+/// Reverts the latest change and names the asset it restored (`None`: nothing to undo), so
+/// the UI reloads exactly what that asset affects.
+pub fn undo_impl(state: &AppState) -> Result<Option<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.undo().is_some())
+    Ok(session(&mut guard)?.store.undo())
 }
 
-pub fn redo_impl(state: &AppState) -> Result<bool, CmdError> {
+pub fn redo_impl(state: &AppState) -> Result<Option<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.redo().is_some())
+    Ok(session(&mut guard)?.store.redo())
 }
 
 pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
@@ -143,12 +145,12 @@ pub fn member_counts(state: State<AppState>) -> Result<HashMap<AssetKind, usize>
 }
 
 #[tauri::command]
-pub fn undo(state: State<AppState>) -> Result<bool, CmdError> {
+pub fn undo(state: State<AppState>) -> Result<Option<AssetId>, CmdError> {
     undo_impl(&state)
 }
 
 #[tauri::command]
-pub fn redo(state: State<AppState>) -> Result<bool, CmdError> {
+pub fn redo(state: State<AppState>) -> Result<Option<AssetId>, CmdError> {
     redo_impl(&state)
 }
 

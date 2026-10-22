@@ -397,22 +397,22 @@ mod tests {
             get_map_impl(&state, 0).unwrap().permissions[3 * 32 + 3],
             [4, 0x80]
         );
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(
             get_map_impl(&state, 0).unwrap().permissions[3 * 32 + 3],
             before
         );
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(redo_impl(&state).unwrap());
+        assert!(redo_impl(&state).unwrap().is_some());
         assert_eq!(
             get_map_impl(&state, 0).unwrap().permissions[3 * 32 + 3],
             [4, 0x80]
         );
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);
         // Nothing left to redo, and a second undo/redo pair after exhausting reports false.
-        assert!(!redo_impl(&state).unwrap());
-        assert!(undo_impl(&state).unwrap());
-        assert!(!undo_impl(&state).unwrap());
+        assert!(redo_impl(&state).unwrap().is_none());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_none());
     }
 
     #[test]

@@ -141,7 +141,6 @@ struct Asset {
 }
 
 struct Changeset {
-    id: ChangeId,
     asset: AssetId,
     before: Vec<u8>,
     after: Vec<u8>,
@@ -351,7 +350,6 @@ impl Store {
             asset.current = edited;
         }
         self.undo.push(Changeset {
-            id: change,
             asset: id,
             before,
             after,
@@ -577,7 +575,9 @@ impl Store {
     }
 
     /// Takes the asset's current bytes on disk as the base this store compares against,
-    /// keeping its own changes. The next `save` then overwrites the file with them. Does
+    /// keeping its own changes. The next `save` then overwrites the file with them. The
+    /// asset's undo and redo entries are dropped (their snapshots were taken against the old
+    /// base; undoing would write it over the external edit); those of other assets stay. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
@@ -600,6 +600,8 @@ impl Store {
         if let Some(asset) = self.assets.get_mut(&id) {
             asset.saved_bytes = base;
         }
+        self.undo.retain(|c| c.asset != id);
+        self.redo.retain(|c| c.asset != id);
         Ok(())
     }
 
@@ -617,28 +619,29 @@ impl Store {
         }
     }
 
-    /// Reverts the most recent changeset. Returns `None` if there is nothing to undo.
-    pub fn undo(&mut self) -> Option<ChangeId> {
+    /// Reverts the most recent changeset and returns the asset it restored, so the caller
+    /// can reload exactly what changed. `None` if there is nothing to undo.
+    pub fn undo(&mut self) -> Option<AssetId> {
         let change = self.undo.pop()?;
         if !self.restore(change.asset, &change.before) {
             self.undo.push(change);
             return None;
         }
-        let id = change.id;
+        let asset = change.asset;
         self.redo.push(change);
-        Some(id)
+        Some(asset)
     }
 
-    /// Re-applies the most recently undone changeset.
-    pub fn redo(&mut self) -> Option<ChangeId> {
+    /// Re-applies the most recently undone changeset and returns the asset it restored.
+    pub fn redo(&mut self) -> Option<AssetId> {
         let change = self.redo.pop()?;
         if !self.restore(change.asset, &change.after) {
             self.redo.push(change);
             return None;
         }
-        let id = change.id;
+        let asset = change.asset;
         self.undo.push(change);
-        Some(id)
+        Some(asset)
     }
 
     /// Why the loaded asset `id` is read-only (the codec would not write it back byte for

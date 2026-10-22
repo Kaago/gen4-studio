@@ -357,14 +357,20 @@ mod tests {
         // The remaining building moved up to index 0.
         let b = &get_map_impl(&state, 1).unwrap().buildings;
         assert_eq!((b.len(), b[0].model_id, b[0].z), (1, 3, 4.5));
-        assert!(undo_impl(&state).unwrap());
+        assert_eq!(
+            undo_impl(&state).unwrap(),
+            Some(g4_kernel::project::AssetId {
+                kind: g4_kernel::project::AssetKind::Map,
+                index: 1
+            })
+        );
         assert_eq!(get_map_impl(&state, 1).unwrap().buildings.len(), 2);
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(get_map_impl(&state, 1).unwrap().buildings[1].model_id, 0);
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(get_map_impl(&state, 1).unwrap().buildings.len(), 1);
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(redo_impl(&state).unwrap());
+        assert!(redo_impl(&state).unwrap().is_some());
         assert_eq!(get_map_impl(&state, 1).unwrap().buildings.len(), 2);
     }
 
@@ -418,7 +424,7 @@ mod tests {
         set_area_data_impl(&state, 1, a, "buildings tileset").unwrap();
         assert_eq!(glb(1), b"glTFtextured");
         // ... and undo takes it back.
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(glb(1), b"glTFplain");
     }
 

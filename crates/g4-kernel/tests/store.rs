@@ -27,6 +27,72 @@ fn map_id(index: u16) -> AssetId {
     }
 }
 
+fn matrix_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Matrix,
+        index,
+    }
+}
+
+#[test]
+fn undo_reports_the_asset_it_restored() {
+    let (_s, mut st) = store();
+    st.edit_map(1, "a", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    st.edit_matrix(0, "b", |m| {
+        m.maps[0] = 2;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(st.undo(), Some(matrix_id(0)));
+    assert_eq!(st.undo(), Some(map_id(1)));
+    assert_eq!(st.undo(), None);
+    assert_eq!(st.redo(), Some(map_id(1)));
+    assert_eq!(st.redo(), Some(matrix_id(0)));
+    assert_eq!(st.redo(), None);
+}
+
+#[test]
+fn accept_disk_as_base_drops_only_the_history_of_that_asset() {
+    let (s, mut st) = store();
+    let cell = |kind| Cell { kind, collision: 0 };
+    st.edit_map(0, "map", |m| m.set_cell(0, 0, cell(1)))
+        .unwrap();
+    st.edit_map(0, "map again", |m| m.set_cell(0, 1, cell(1)))
+        .unwrap();
+    st.edit_matrix(0, "matrix", |m| {
+        m.maps[1] = 2;
+        Ok(())
+    })
+    .unwrap();
+    st.edit_map(0, "map third", |m| m.set_cell(0, 2, cell(2)))
+        .unwrap();
+    assert_eq!(st.undo(), Some(map_id(0))); // one map changeset on the redo stack
+    let path = s.dir.path().join("unpacked/maps/0000");
+    let mut theirs = std::fs::read(&path).unwrap();
+    theirs[16 + 2 * (6 * 32 + 5) + 1] = 0x80;
+    std::fs::write(&path, &theirs).unwrap();
+    st.accept_disk_as_base(map_id(0)).unwrap();
+    assert!(st.redo().is_none(), "the map's redo entry is gone");
+    assert_eq!(
+        st.undo(),
+        Some(matrix_id(0)),
+        "other assets keep their history"
+    );
+    assert!(st.undo().is_none(), "the map's undo entries are gone");
+    // The store keeps my version of the map and saving overwrites the external edit.
+    assert!(st.is_dirty(map_id(0)));
+}
+
 #[test]
 fn edit_marks_dirty_and_undo_clears_it() {
     let (_s, mut st) = store();
@@ -295,11 +361,11 @@ fn undo_and_redo_walk_the_history_in_order() {
         })
         .unwrap();
     assert_ne!(c1, c2);
-    assert_eq!(st.undo(), Some(c2));
-    assert_eq!(st.undo(), Some(c1));
+    assert_eq!(st.undo(), Some(matrix_id(0)));
+    assert_eq!(st.undo(), Some(map_id(0)));
     assert_eq!(st.undo(), None);
-    assert_eq!(st.redo(), Some(c1));
-    assert_eq!(st.redo(), Some(c2));
+    assert_eq!(st.redo(), Some(map_id(0)));
+    assert_eq!(st.redo(), Some(matrix_id(0)));
     assert_eq!(st.redo(), None);
     assert_eq!(
         st.dirty(),
@@ -796,9 +862,10 @@ fn stale_recovery_reload_and_accept() {
     let on_disk = MapFile::read(&std::fs::read(&path).unwrap(), Family::Pt).unwrap();
     assert_eq!(on_disk.cell(2, 2).unwrap().kind, 2);
     assert!(st.dirty().is_empty());
-    // Undo still reaches the state before my edit and is dirty against the new disk.
-    assert!(st.undo().is_some());
-    assert!(st.is_dirty(id));
+    // The base changed under my edits, so undoing them would write the old base over the
+    // external edit: the asset's history is gone.
+    assert!(st.undo().is_none());
+    assert!(!st.is_dirty(id));
 }
 
 #[test]
@@ -815,12 +882,11 @@ fn reload_discards_only_the_changesets_of_that_asset() {
         )
     })
     .unwrap();
-    let matrix_change = st
-        .edit_matrix(0, "matrix", |m| {
-            m.maps[1] = 2;
-            Ok(())
-        })
-        .unwrap();
+    st.edit_matrix(0, "matrix", |m| {
+        m.maps[1] = 2;
+        Ok(())
+    })
+    .unwrap();
     st.edit_map(0, "map again", |m| {
         m.set_cell(
             0,
@@ -835,7 +901,7 @@ fn reload_discards_only_the_changesets_of_that_asset() {
     assert!(st.undo().is_some()); // leaves one undone map changeset on the redo stack
     st.reload_from_disk(map_id(0)).unwrap();
     assert!(st.redo().is_none());
-    assert_eq!(st.undo(), Some(matrix_change));
+    assert_eq!(st.undo(), Some(matrix_id(0)));
     assert!(st.undo().is_none());
     assert!(st.dirty().is_empty());
 }
@@ -888,9 +954,9 @@ fn accept_disk_as_base_of_a_deleted_member_recreates_it_on_save() {
     assert_eq!(recreated.cell(1, 1).unwrap().kind, 1);
     assert!(st.dirty().is_empty());
     assert_eq!(&recreated, st.map(0).unwrap());
-    // The edit is still undoable and then dirty against the recreated file.
-    assert!(st.undo().is_some());
-    assert!(st.is_dirty(id));
+    // The base changed, so the edit made against the old one is no longer undoable.
+    assert!(st.undo().is_none());
+    assert!(!st.is_dirty(id));
 }
 
 #[test]

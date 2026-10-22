@@ -280,7 +280,13 @@ mod tests {
         );
         set_matrix_sections_impl(&state, 0, false, false).unwrap();
         assert_eq!(get_matrix_impl(&state, 0).unwrap().headers, None);
-        assert!(undo_impl(&state).unwrap());
+        assert_eq!(
+            undo_impl(&state).unwrap(),
+            Some(g4_kernel::project::AssetId {
+                kind: g4_kernel::project::AssetKind::Matrix,
+                index: 0
+            })
+        );
         assert_eq!(
             get_matrix_impl(&state, 0).unwrap().headers,
             Some(vec![1, 0])
@@ -300,8 +306,8 @@ mod tests {
         assert_eq!(get_matrix_impl(&state, 0).unwrap().name, "Neu");
         assert!(rename_matrix_impl(&state, 0, &"x".repeat(256)).is_err());
         assert_eq!(get_matrix_impl(&state, 0).unwrap().name, "Neu");
-        assert!(undo_impl(&state).unwrap());
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(
             get_matrix_impl(&state, 0).unwrap().maps,
             vec![Some(0), Some(1)]
@@ -334,8 +340,8 @@ mod tests {
                 .is_file()
         );
         // Creating is not undoable: undo only reverts the cell edit.
-        assert!(undo_impl(&state).unwrap());
-        assert!(!undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_none());
         assert_eq!(get_matrix_impl(&state, matrix).unwrap().maps, vec![None]);
         assert!(duplicate_map_impl(&state, 99).is_err());
     }

@@ -6,6 +6,7 @@ import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { BuildingRefresh } from "../world/buildings";
+import type { MapRefresh } from "../reload";
 import { lockedText } from "../world/events";
 import type { EventLock, EventRef, EventRefresh } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
@@ -34,7 +35,10 @@ export interface WorkbenchData {
   showEvents: boolean;
   onShowEvents: (show: boolean) => void;
   paintEnabled: boolean;
-  reloadToken: number;
+  /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
+  history: { readonly current: number };
+  /** A request makes the scene refetch one map (overlay and buildings): that map was restored by undo or redo. */
+  mapRefresh: MapRefresh | null;
   onEdited: () => void;
   onError: (e: unknown) => void;
   /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
@@ -134,7 +138,8 @@ function WorldPanel() {
             showEvents={d.showEvents}
             headers={d.headers}
             paintEnabled={d.paintEnabled}
-            reloadToken={d.reloadToken}
+            history={d.history}
+            mapRefresh={d.mapRefresh}
             onEdited={d.onEdited}
             onError={d.onError}
             onInspect={d.onInspect}

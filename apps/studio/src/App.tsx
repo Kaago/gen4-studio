@@ -35,6 +35,8 @@ import Workbench from "./workbench/Workbench";
 import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
 import { tilesetKey } from "./workbench/inspector/areaFields";
+import { afterFailedSceneLoad, fetchCurrent, headerSync, reloadPlan, sceneKey, tilesetReload } from "./reload";
+import type { MapRefresh, ReloadAction } from "./reload";
 import { sameLayout } from "./workbench/matrix";
 import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
@@ -61,14 +63,6 @@ function storeEmulator(path: string) {
   }
 }
 
-/**
- * What a header's scene is rebuilt from: the matrix and, read when a matrix loads, the event file.
- * The area data is not part of it: it only textures the models, which reload on their own.
- */
-function sceneKey(h: HeaderSummary): string {
-  return `${h.matrix_id}:${h.event_file_id}`;
-}
-
 export default function App() {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
@@ -78,7 +72,10 @@ export default function App() {
   const [showEvents, setShowEvents] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
-  const [reloadToken, setReloadToken] = useState(0);
+  const [mapRefresh, setMapRefresh] = useState<MapRefresh | null>(null);
+  // Bumped by every undo and redo the moment it returns: a matrix fetch or scene load that was in
+  // flight meanwhile fetches again. A ref, because state would only change on the next render.
+  const history = useRef(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
   // The selected header is pinned in the inspector; the scene's hover overrides it only while the
@@ -121,6 +118,9 @@ export default function App() {
   // The area data of the shown scene. It changes together with `matrix` (another header) or alone
   // (the header now uses another area data); alone, the scene reloads only its models.
   const [sceneArea, setSceneArea] = useState(0);
+  // The area data of the scene as it is shown right now (`sceneAreaRef` may be ahead of it).
+  const shownAreaRef = useRef(0);
+  shownAreaRef.current = sceneArea;
   // Incremented when the tilesets of the shown area data changed: the scene reloads its models.
   const [modelsToken, setModelsToken] = useState(0);
 
@@ -167,11 +167,19 @@ export default function App() {
       if (area !== sceneAreaRef.current) return;
       const known = tilesetRef.current;
       tilesetRef.current = { area, key };
-      if (reload && (!known || (known.area === area && known.key !== key))) setModelsToken((t) => t + 1);
-    } catch {
-      // Unreadable area data: the models show their texture note; there is nothing to compare.
+      if (reload && tilesetReload(known, area, key)) setModelsToken((t) => t + 1);
+    } catch (e) {
+      // Nothing to compare: the next successful read reloads the models if it is asked to.
       tilesetRef.current = null;
+      if (area === sceneAreaRef.current) setMessage({ kind: "error", text: `Area-Daten ${area} nicht lesbar: ${errorText(e)}` });
     }
+  }, []);
+
+  /** The matrix fetch for the selected header failed: the scene stays as it was, and a later sync must not pair its maps with the new header's area data. */
+  const resetSceneRefs = useCallback(() => {
+    const reset = afterFailedSceneLoad(shownAreaRef.current);
+    sceneKeyRef.current = reset.key;
+    sceneAreaRef.current = reset.area;
   }, []);
 
   /**
@@ -187,7 +195,7 @@ export default function App() {
       const header = listing.headers.find((h) => h.id === selectedRef.current);
       if (!header) return;
       sceneAreaRef.current = header.area_data_id;
-      if (sceneKey(header) === sceneKeyRef.current) {
+      if (headerSync(sceneKeyRef.current, header) === "area") {
         // Only the area data changed: the scene keeps its maps and reloads its models.
         if (sceneLoads.current === 0) setSceneArea(header.area_data_id);
         return;
@@ -196,18 +204,21 @@ export default function App() {
       const sceneSeq = ++selectSeq.current;
       sceneLoads.current++;
       try {
-        const next = await getMatrix(header.matrix_id);
+        const next = await fetchCurrent(() => getMatrix(header.matrix_id), () => history.current);
         if (sceneSeq === selectSeq.current) {
           setMatrix(next);
           setSceneArea(sceneAreaRef.current);
         }
+      } catch (e) {
+        if (sceneSeq === selectSeq.current) resetSceneRefs();
+        throw e;
       } finally {
         sceneLoads.current--;
       }
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
     }
-  }, []);
+  }, [resetSceneRefs]);
 
   /** Reloads the shown matrix (a new object makes the scene refetch all its maps), the headers and the dirty count. */
   const refreshAfterStale = useCallback(
@@ -268,7 +279,7 @@ export default function App() {
     const shown = matrixRef.current;
     if (!shown || (index !== undefined && index !== shown.index)) return;
     const seq = selectSeq.current;
-    const next = await getMatrix(shown.index);
+    const next = await fetchCurrent(() => getMatrix(shown.index), () => history.current);
     if (seq === selectSeq.current && !sameLayout(shown, next)) setMatrix(next);
   }, []);
 
@@ -529,6 +540,7 @@ export default function App() {
       lastMatrixTile.current = null;
       setBuildingRefresh(null);
       setEventRefresh(null);
+      setMapRefresh(null);
       setEventLock(null);
       setMatrix(null);
       setLastRom(null);
@@ -549,38 +561,89 @@ export default function App() {
     sceneAreaRef.current = h.area_data_id;
     sceneLoads.current++;
     try {
-      const next = await getMatrix(h.matrix_id);
+      const next = await fetchCurrent(() => getMatrix(h.matrix_id), () => history.current);
       if (seq !== selectSeq.current) return;
       // Together, so the scene sees a new matrix with its area data and loads everything once.
       setMatrix(next);
       setSceneArea(sceneAreaRef.current);
       setMessage(null);
     } catch (e) {
-      if (seq === selectSeq.current) fail(e);
+      if (seq === selectSeq.current) {
+        resetSceneRefs();
+        fail(e);
+      }
     } finally {
       sceneLoads.current--;
     }
   }
 
+  /** Carries out one action of a `reloadPlan`. */
+  async function reloadAction(a: ReloadAction) {
+    switch (a.kind) {
+      case "unpin":
+        // A pinned building or event is bound by index, which undo and redo can shift (undoing a
+        // delete re-inserts one in front), so it would silently become another one: let go of it.
+        setPinned((p) => pinAfterHistory(p, selectedRef.current));
+        break;
+      case "buildings":
+        setBuildingRevision((r) => r + 1);
+        break;
+      case "map":
+        setMapRefresh((previous) => ({ map: a.map, token: (previous?.token ?? 0) + 1 }));
+        break;
+      case "matrixPanel":
+        setMatrixRevision((r) => r + 1);
+        break;
+      case "matrix":
+        await refreshSceneMatrix(matrixRef.current?.index);
+        break;
+      case "eventsPanel":
+        setEventRevision((r) => r + 1);
+        break;
+      case "events":
+        requestEventRefresh(a.file);
+        break;
+      case "areaPanel":
+        setAreaRevision((r) => r + 1);
+        break;
+      case "models":
+        await noteSceneTileset(true);
+        break;
+      case "headers":
+        setHeaderRevision((r) => r + 1);
+        await syncHeaders();
+        break;
+    }
+  }
+
+  /** Reloads what the restored asset affects (see `reloadPlan`), nothing else. */
+  async function reloadAfterHistory(asset: AssetId) {
+    const shown = matrixRef.current;
+    const plan = reloadPlan(asset, {
+      matrix: shown?.index ?? null,
+      maps: shown?.maps ?? [],
+      area: sceneAreaRef.current,
+      eventFile: headersRef.current.find((h) => h.id === selectedRef.current)?.event_file_id ?? null,
+    });
+    // One failing reload must not keep the others from running; the first failure is reported.
+    let failure: unknown = null;
+    for (const action of plan) {
+      try {
+        await reloadAction(action);
+      } catch (e) {
+        failure ??= e;
+      }
+    }
+    if (failure !== null) throw failure;
+  }
+
   async function step(action: typeof undo) {
     if (!info || busy) return;
     try {
-      if (await action()) {
-        // Undo and redo can shift building indexes (undoing a delete re-inserts one in front), so
-        // a pinned building or event would silently become another one: let go of it.
-        setPinned((p) => pinAfterHistory(p, selectedRef.current));
-        setReloadToken((t) => t + 1);
-        setBuildingRevision((r) => r + 1);
-        setEventRevision((r) => r + 1);
-        // An undone header edit changes the list, the header editor and possibly the scene.
-        setHeaderRevision((r) => r + 1);
-        // An undone matrix edit changes the matrix panel and the scene's matrix.
-        setMatrixRevision((r) => r + 1);
-        // An undone area data edit changes the area editor and possibly the models' textures.
-        setAreaRevision((r) => r + 1);
-        await refreshSceneMatrix();
-        await syncHeaders();
-        await noteSceneTileset(true);
+      const asset = await action();
+      if (asset) {
+        history.current++;
+        await reloadAfterHistory(asset);
       }
     } catch (e) {
       fail(e);
@@ -746,7 +809,8 @@ export default function App() {
     showEvents,
     onShowEvents: setShowEvents,
     paintEnabled: !busy,
-    reloadToken,
+    history,
+    mapRefresh,
     onEdited,
     onError: fail,
     onLoadStatus,

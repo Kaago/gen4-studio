@@ -307,7 +307,7 @@ mod tests {
             b"glTFtextured"
         );
         // ... and undo takes it back.
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(
             get_map_model_glb_with(&state, 0, 1, None).unwrap(),
             b"glTFplain"

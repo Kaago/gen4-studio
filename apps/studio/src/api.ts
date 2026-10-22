@@ -395,10 +395,10 @@ export interface BuildReport {
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
   invoke<void>("set_permission", { index, x, y, kind, collision });
-/** Resolves to false when there was nothing to undo. */
-export const undo = () => invoke<boolean>("undo");
-/** Resolves to false when there was nothing to redo. */
-export const redo = () => invoke<boolean>("redo");
+/** Resolves to the asset that was restored, or null when there was nothing to undo. */
+export const undo = () => invoke<AssetId | null>("undo");
+/** Resolves to the asset that was restored, or null when there was nothing to redo. */
+export const redo = () => invoke<AssetId | null>("redo");
 export const dirty = () => invoke<AssetId[]>("dirty");
 export const save = () => invoke<SaveReport>("save");
 /** Saves dirty assets, then builds the ROM at `out`. */

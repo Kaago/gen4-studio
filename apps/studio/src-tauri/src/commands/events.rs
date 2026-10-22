@@ -656,11 +656,11 @@ mod tests {
         assert_eq!(xs(&state), [2, 3]);
         update_event_impl(&state, 0, EventKind::Warp, 1, patch(|p| p.x = Some(9))).unwrap();
         assert_eq!(xs(&state), [2, 9]);
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(xs(&state), [2, 3]);
-        assert!(undo_impl(&state).unwrap());
+        assert!(undo_impl(&state).unwrap().is_some());
         assert_eq!(xs(&state), [1, 2, 3]);
-        assert!(redo_impl(&state).unwrap());
+        assert!(redo_impl(&state).unwrap().is_some());
         assert_eq!(xs(&state), [2, 3]);
     }
 
