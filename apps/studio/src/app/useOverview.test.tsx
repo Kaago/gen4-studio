@@ -144,11 +144,34 @@ describe("useOverview", () => {
     expect(latest?.loaded).toBe(true);
   });
 
-  it("is not loaded when the matrix listing failed", async () => {
+  it("is not loaded when the matrix listing failed, and says so: failed until a later listing succeeds or the project changes", async () => {
     vi.mocked(listMatrices).mockRejectedValueOnce(new Error("boom"));
-    await render();
+    await render("/a");
     expect(latest?.loaded).toBe(false);
+    expect(latest?.failed).toBe(true);
     expect(errors).toHaveLength(1);
+    await act(async () => bus.emit({ topic: "matrixData" }));
+    expect(latest?.loaded).toBe(true);
+    expect(latest?.failed).toBe(false);
+    vi.mocked(listMatrices).mockRejectedValueOnce(new Error("again"));
+    await render("/b");
+    expect(latest?.loaded).toBe(false);
+    expect(latest?.failed).toBe(true);
+    vi.mocked(listMatrices).mockReturnValueOnce(new Promise(() => {}));
+    await render("/c");
+    expect(latest?.failed).toBe(false);
+  });
+
+  it("does not fail while loading, nor from a failure of an older project", async () => {
+    const old = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(old.promise);
+    await render("/a");
+    expect(latest?.failed).toBe(false);
+    const next = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(next.promise);
+    await render("/b");
+    await act(async () => old.resolve(emptyMatrices));
+    expect(latest?.failed).toBe(false);
   });
 
   it("is not loaded by the result of an older project", async () => {

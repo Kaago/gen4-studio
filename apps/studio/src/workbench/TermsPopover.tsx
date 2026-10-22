@@ -1,18 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { TERMS } from "./terms";
-import { useDismiss } from "./useDismiss";
-
-export const popoverStyle: CSSProperties = {
-  position: "absolute",
-  top: "100%",
-  zIndex: 10,
-  marginTop: 4,
-  background: "#fff",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-};
+import { popoverStyle, useDismiss } from "./useDismiss";
 
 /** The glossary: a button that opens a list of every term of the world explorer with its technical name and explanation. */
 export function TermsPopover() {
@@ -22,7 +10,7 @@ export function TermsPopover() {
   useDismiss(open, wrapper, close);
   return (
     <span ref={wrapper} style={{ position: "relative" }}>
-      <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} title="Was bedeuten Ort, Header, Raster …?">
+      <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} title={`Was bedeuten ${TERMS.place.label}, ${TERMS.header.label}, ${TERMS.matrix.label} …?`}>
         Begriffe
       </button>
       {open && (

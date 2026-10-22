@@ -32,7 +32,7 @@ interface WorkbenchModelParams {
   >;
   pins: Pick<InspectorState, "pinned" | "inspector">;
   /** The matrix and warp overviews of the project (the world explorer's data). */
-  overview: Pick<Overview, "matrices" | "links" | "loaded">;
+  overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
   /** Opens a wizard; must keep its identity (it is handed to memoised panels). */
   onOpenWizard: (request: WizardRequest) => void;
   /** The scene's switches, owned by App. */
@@ -64,6 +64,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     matrices: overview.matrices,
     warpLinks: overview.links,
     matricesLoaded: overview.loaded,
+    matricesFailed: overview.failed,
     onOpenWizard,
     selected: scene.selected,
     onSelect,

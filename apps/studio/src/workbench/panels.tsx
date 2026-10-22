@@ -36,7 +36,7 @@ export function HeadersPanel() {
       headers={d.headers}
       matrices={d.matrices}
       matricesLoaded={d.matricesLoaded}
-      links={d.warpLinks}
+      matricesFailed={d.matricesFailed}
       selected={d.selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}

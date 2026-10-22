@@ -25,6 +25,8 @@ export interface WorkbenchData {
   warpLinks: WarpLink[];
   /** False until the first matrix listing of the project arrived: `matrices` is empty then, which says nothing about the project. */
   matricesLoaded: boolean;
+  /** The matrix listing failed and nothing is loaded (see `Overview.failed`). */
+  matricesFailed: boolean;
   /** Opens the wizard for a new area or room. */
   onOpenWizard: (request: WizardRequest) => void;
   selected: number | null;

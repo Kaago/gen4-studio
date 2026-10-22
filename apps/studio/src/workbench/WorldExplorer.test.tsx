@@ -66,7 +66,7 @@ describe("WorldExplorer", () => {
     headers,
     matrices,
     matricesLoaded: true,
-    links: [],
+    matricesFailed: false,
     selected: null,
     shownMatrix: null,
     revealToken: 0,
@@ -121,11 +121,30 @@ describe("WorldExplorer", () => {
     expect(container.textContent).toContain("Lade Übersicht …");
     // The tree is there at once, with the places and the headers' ids and codes.
     expect(places()).toHaveLength(3);
-    expect(row(1)?.textContent).toBe("T01R01010001");
+    expect(row(1)?.textContent).toBe("Zweiblattdorf0001 · T01R0101");
     render(props({ selected: 1 }));
     expect(container.textContent).not.toContain("Lade Übersicht");
     expect(container.textContent).toContain("3 Orte, 5 Header");
     expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
+  });
+
+  it("says the overview is not available when its first listing failed, instead of loading for ever", () => {
+    render(props({ matricesLoaded: false, matricesFailed: true }));
+    expect(container.textContent).toContain("Übersicht nicht verfügbar");
+    expect(container.textContent).not.toContain("Lade Übersicht");
+    expect(places()).toHaveLength(3);
+    // Loaded wins: a later failing read does not hide what is known.
+    render(props({ matricesFailed: true }));
+    expect(container.textContent).toContain("3 Orte, 5 Header");
+  });
+
+  it("does not guess outside and rooms before the overview is known: every row has the place's name, in id order", () => {
+    // With the overview, header 2 (matrix 0, outside) would come first and header 1 would be named by its code.
+    const listed = [header(1, "Ort", 7, "R1"), header(2, "Ort", 0, "T")];
+    render(props({ headers: listed, matricesLoaded: false, selected: 1 }));
+    expect([...container.querySelectorAll("[data-header-id]")].map((e) => e.textContent)).toEqual(["Ort0001 · R1", "Ort0002 · T"]);
+    render(props({ headers: listed, selected: 1 }));
+    expect([...container.querySelectorAll("[data-header-id]")].map((e) => e.textContent)).toEqual(["Ort0002 · T", "R10001 · 1 Karte"]);
   });
 
   it("marks the selected row and the rows of the shown matrix", () => {

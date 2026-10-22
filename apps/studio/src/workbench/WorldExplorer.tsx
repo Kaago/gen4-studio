@@ -1,13 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { HeaderSummary, MatrixSummary, ProjectInfo, WarpLink } from "../api";
+import type { HeaderSummary, MatrixSummary, ProjectInfo } from "../api";
 import { HeaderList } from "./HeaderList";
 import { showsMatrix } from "./headers";
 import { buildPlaces, filterPlaces, placeColor, placeOf } from "./places";
 import type { PlaceHeader } from "./places";
 import { TERMS, id4, techLabel } from "./terms";
-import { TermsPopover, popoverStyle } from "./TermsPopover";
-import { useDismiss } from "./useDismiss";
+import { TermsPopover } from "./TermsPopover";
+import { popoverStyle, useDismiss } from "./useDismiss";
 import type { WizardRequest } from "./WorkbenchContext";
 
 export interface WorldExplorerProps {
@@ -16,7 +16,8 @@ export interface WorldExplorerProps {
   matrices: MatrixSummary[];
   /** False until the overview's first matrix listing arrived: the rooms' details are left out then (every header would count as a room). */
   matricesLoaded: boolean;
-  links: WarpLink[];
+  /** The first matrix listing failed (and nothing is loaded): the header line says the overview is not available instead of loading. */
+  matricesFailed: boolean;
   selected: number | null;
   /** The matrix the scene shows: headers using it are marked. */
   shownMatrix: number | null;
@@ -51,18 +52,19 @@ const GREY = "#6b7280";
 /** "1 Karte", "4 Karten (2 × 2)"; null when the overview does not know the room's matrix. */
 function mapsText({ mapCount, size }: PlaceHeader): string | null {
   if (mapCount === 0) return null;
-  const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : `${TERMS.map.label}n`}`;
+  const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
   return size ? `${maps} (${size})` : maps;
 }
 
 /**
  * One header of a place. The place already carries the location name, so a room is named by its
- * internal name; the grey part has the id, the code (when it is not the name) and the room's maps.
+ * internal name (as long as the overview is not known, every row is named by the location name:
+ * outside and room are not told apart yet); the grey part has the id, the code (when it is not the name) and the room's maps.
  * Memoised: a selection change renders the rows whose props changed, not all of them.
  */
 const HeaderRow = memo(function HeaderRow({ entry, selected, marked, showRooms, onSelect }: { entry: PlaceHeader; selected: boolean; marked: boolean; showRooms: boolean; onSelect: (h: HeaderSummary) => void }) {
   const h = entry.header;
-  const name = entry.kind === "outside" ? h.location_name || h.internal_name : h.internal_name;
+  const name = entry.kind === "outside" || !showRooms ? h.location_name || h.internal_name : h.internal_name;
   const grey = [id4(h.id), h.internal_name !== name ? h.internal_name : null, showRooms && entry.kind === "inside" ? mapsText(entry) : null].filter((part) => part !== null);
   return (
     <li>
@@ -70,7 +72,7 @@ const HeaderRow = memo(function HeaderRow({ entry, selected, marked, showRooms, 
         data-header-id={h.id}
         onClick={() => onSelect(h)}
         aria-current={selected ? "true" : undefined}
-        title={`${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? " (Raster wird angezeigt)" : ""}`}
+        title={`${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
         style={{
           all: "unset",
           boxSizing: "border-box",
@@ -139,9 +141,10 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
 type TreeProps = Omit<WorldExplorerProps, "onOpenWizard">;
 
 /** The places as one `details` each. Its state (search, opened places) lasts only while the tree mode shows. */
-function WorldTree({ info, headers, matrices, matricesLoaded, links, selected, shownMatrix, revealToken, onSelect }: TreeProps) {
+function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, onSelect }: TreeProps) {
   const [query, setQuery] = useState("");
-  const places = useMemo(() => buildPlaces(headers, matrices, links), [headers, matrices, links]);
+  // Without the overview every header would count as a room: the places then keep plain id order. The warps are not needed here, so a new warp list renders nothing.
+  const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : []), [headers, matrices, matricesLoaded]);
   const shown = useMemo(() => filterPlaces(places, query), [places, query]);
   // The places the user (or a selection) opened; a search opens every place it leaves.
   const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(() => {
@@ -193,8 +196,10 @@ function WorldTree({ info, headers, matrices, matricesLoaded, links, selected, s
       <div style={{ padding: "4px 16px 8px" }}>
         <p style={{ margin: "0 0 8px", ...ellipsis }}>
           {matricesLoaded
-            ? `${info ? `${info.game_code} (${info.family}, ${info.language}): ` : ""}${places.length} Orte, ${headers.length} Header`
-            : "Lade Übersicht …"}
+            ? `${info ? `${info.game_code} (${info.family}, ${info.language}): ` : ""}${places.length} ${TERMS.place.plural}, ${headers.length} ${TERMS.header.plural}`
+            : matricesFailed
+              ? "Übersicht nicht verfügbar"
+              : "Lade Übersicht …"}
         </p>
         <input
           type="search"

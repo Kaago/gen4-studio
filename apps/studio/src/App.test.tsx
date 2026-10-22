@@ -115,6 +115,7 @@ describe("App wiring", () => {
     expect(listMatrices).toHaveBeenCalled();
     expect(listWarps).toHaveBeenCalled();
     expect(data().matricesLoaded).toBe(true);
+    expect(data().matricesFailed).toBe(false);
     expect(data().matrices).toEqual([]);
     expect(data().warpLinks).toEqual([]);
     const opener = data().onOpenWizard;

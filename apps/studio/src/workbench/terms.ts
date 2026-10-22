@@ -1,36 +1,36 @@
 /** The words of the world explorer: every panel takes label and explanation from here (spec §3). */
 export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData";
 
-export const TERMS: Record<TermKey, { label: string; tech: string | null; short: string }> = {
+export const TERMS: Record<TermKey, { label: string; plural: string; tech: string | null; short: string }> = {
   place: {
-    label: "Ort",
+    label: "Ort", plural: "Orte",
     tech: null,
     short: "Alle Header mit demselben Ortsnamen; Header ohne Ortsnamen stehen unter \"Ohne Ortsnamen\".",
   },
   header: {
-    label: "Header",
+    label: "Header", plural: "Header",
     tech: "MapHeader",
     short: "Ein Eintrag der Ortstabelle: verweist auf Raster, Eventdatei, Area-Data, Musik und Wetter.",
   },
   outside: {
-    label: "Außen",
+    label: "Außen", plural: "Außen",
     tech: null,
     short: "Ein Header, dessen Raster einen Header-Abschnitt hat (die Region, meist Matrix 0): die Zellen des Rasters sagen, welcher Header wo gilt.",
   },
   room: {
-    label: "Raum",
+    label: "Raum", plural: "Räume",
     tech: null,
     short: "Ein Header, dessen Raster keinen Header-Abschnitt hat: Innenräume, Höhlen und Dungeons.",
   },
-  matrix: { label: "Raster", tech: "Matrix", short: "Ein Raster aus Karten, 1 × 1 bis 255 × 255." },
-  map: { label: "Karte", tech: "MapFile", short: "32 × 32 Kacheln mit Modell, Gebäuden und Kollision." },
-  warp: { label: "Eingang / Ausgang", tech: "Warp", short: "Ein Warp-Paar verbindet zwei Header." },
+  matrix: { label: "Raster", plural: "Raster", tech: "Matrix", short: "Ein Raster aus Karten, 1 × 1 bis 255 × 255." },
+  map: { label: "Karte", plural: "Karten", tech: "MapFile", short: "32 × 32 Kacheln mit Modell, Gebäuden und Kollision." },
+  warp: { label: "Eingang / Ausgang", plural: "Eingänge / Ausgänge", tech: "Warp", short: "Ein Warp-Paar verbindet zwei Header." },
   eventFile: {
-    label: "Eventdatei",
+    label: "Eventdatei", plural: "Eventdateien",
     tech: "EventFile",
     short: "Warps, Objekte, Trigger und Hintergrund-Events eines Headers.",
   },
-  areaData: { label: "Area-Data", tech: "AreaData", short: "Welche Texturen (Tilesets) ein Header benutzt." },
+  areaData: { label: "Area-Data", plural: "Area-Data", tech: "AreaData", short: "Welche Texturen (Tilesets) ein Header benutzt." },
 };
 
 /** An id as the Gate documents and the lists write it: four digits. */

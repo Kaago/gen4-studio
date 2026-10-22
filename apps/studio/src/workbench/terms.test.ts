@@ -15,4 +15,9 @@ describe("terms", () => {
     expect(TERMS.map.tech).toBe("MapFile");
     expect(TERMS.outside.short).toContain("Region");
   });
+
+  it("has a plural for every term, the nouns the explorer counts with", () => {
+    for (const term of Object.values(TERMS)) expect(term.plural).not.toBe("");
+    expect([TERMS.place.plural, TERMS.header.plural, TERMS.map.plural, TERMS.room.plural]).toEqual(["Orte", "Header", "Karten", "Räume"]);
+  });
 });

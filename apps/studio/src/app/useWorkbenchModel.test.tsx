@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo } from "../api";
+import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../Toolbar";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -46,7 +46,8 @@ const summaries: MatrixSummary[] = [
   { index: 0, name: "m0", width: 30, height: 30, has_headers: true, has_altitudes: false, filled: 900 },
   { index: 1, name: "m1", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
 ];
-const overview = { matrices: summaries, links: [], loaded: true };
+const links: WarpLink[] = [];
+const overview = { matrices: summaries, links, loaded: true, failed: false };
 const matrix: MatrixDto = { index: 1, name: "m", width: 2, height: 2, maps: [1, 2, 3, 4] };
 const shown: MatrixDto = { ...matrix };
 Object.defineProperty(shown, "name", { enumerable: true, get: () => (bodies.matrix++, "m") });
@@ -86,17 +87,18 @@ interface Volatile {
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
   matrices?: MatrixSummary[];
+  links?: WarpLink[];
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, matrices = summaries, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
     scene: { ...scene },
     world: { ...world },
     pins: { pinned: pin, inspector: shownInspector(pin, hover) },
-    overview: matrices === summaries ? overview : { ...overview, matrices },
+    overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
     view: { ...view, showEvents },
   });
@@ -172,9 +174,13 @@ describe("workbench model", () => {
     await show({ hover: null, message: null, showEvents: false });
     expect(reads.data).toBe(1);
     expect(bodies.rows).toBe(0);
-    // Control: the explorer does render (and read the headers' names) for a new overview.
-    await show({ hover: null, message: null, matrices: [...summaries] });
+    // The explorer shows nothing of the warps: a new warp list reaches the panel, not the places.
+    await show({ hover: null, message: null, links: [] });
     expect(reads.data).toBe(2);
+    expect(bodies.rows).toBe(0);
+    // Control: the explorer does render (and read the headers' names) for a new matrix overview.
+    await show({ hover: null, message: null, matrices: [...summaries] });
+    expect(reads.data).toBe(3);
     expect(bodies.rows).toBeGreaterThan(0);
     expect(container.textContent).toContain("Ort 0");
   });
