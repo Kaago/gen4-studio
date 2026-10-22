@@ -321,18 +321,24 @@ impl Project {
         })
     }
 
-    fn arm9_path(&self) -> PathBuf {
+    pub(crate) fn arm9_path(&self) -> PathBuf {
         self.root.join("arm9/arm9.bin")
+    }
+
+    /// Offset of the header table in `arm9.bin` (`UnknownGame` without a known offset).
+    pub(crate) fn header_table_offset(&self) -> Result<u64, KernelError> {
+        let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
+            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
+        tables
+            .get(&self.game_code)
+            .copied()
+            .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))
     }
 
     /// Offset of the header table in `arm9.bin` and the number of headers (one per
     /// `mapname.bin` record), checked against the size of `arm9.bin`.
     fn header_table_extent(&self) -> Result<(u64, usize), KernelError> {
-        let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
-            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
-        let offset = *tables
-            .get(&self.game_code)
-            .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))?;
+        let offset = self.header_table_offset()?;
         let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
         let names_len = std::fs::metadata(&names_path)
             .map_err(io_at(&names_path))?

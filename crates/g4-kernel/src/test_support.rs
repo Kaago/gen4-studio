@@ -9,6 +9,31 @@ use g4_formats::narc::Narc;
 const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
 const HEADER_SIZE: usize = 24;
 
+/// The Platinum US (CPUE) instruction sites the Dynamic Headers patch rewrites: file offsets
+/// of `mov r1,#0x18; mul r1,r0` and of the literal `table base + n` that follows it.
+pub const PT_DYNAMIC_HEADER_REFERENCES: [(usize, usize); 20] = [
+    (0x3A03E, 0x3A048),
+    (0x3A052, 0x3A05C),
+    (0x3A066, 0x3A080),
+    (0x3A08E, 0x3A098),
+    (0x3A0A2, 0x3A0AC),
+    (0x3A0B6, 0x3A0C0),
+    (0x3A0CA, 0x3A0D4),
+    (0x3A0DE, 0x3A0E8),
+    (0x3A0F2, 0x3A108),
+    (0x3A116, 0x3A120),
+    (0x3A12A, 0x3A134),
+    (0x3A13E, 0x3A150),
+    (0x3A15A, 0x3A170),
+    (0x3A17A, 0x3A184),
+    (0x3A18E, 0x3A198),
+    (0x3A1A2, 0x3A1B4),
+    (0x3A1BE, 0x3A1D0),
+    (0x3A1DA, 0x3A1EC),
+    (0x3A1F6, 0x3A208),
+    (0x3A212, 0x3A224),
+];
+
 pub struct Synthetic {
     pub dir: tempfile::TempDir,
 }
@@ -102,7 +127,20 @@ pub fn synthetic_project() -> Synthetic {
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE] = 1; // header 1: area_data_id 1
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 2..PT_HEADER_TABLE_CPUE + HEADER_SIZE + 4]
         .copy_from_slice(&0u16.to_le_bytes());
+    // The code the Dynamic Headers patch rewrites: `mov r1,#0x18; mul r1,r0` at every item 1,
+    // the RAM address `table base + k` at every item 2.
+    for (k, (mul, literal)) in PT_DYNAMIC_HEADER_REFERENCES.into_iter().enumerate() {
+        arm9[mul..mul + 4].copy_from_slice(&[0x18, 0x21, 0x41, 0x43]);
+        let address = 0x0200_0000 + PT_HEADER_TABLE_CPUE as u32 + k as u32;
+        arm9[literal..literal + 4].copy_from_slice(&address.to_le_bytes());
+    }
     write_file(root, "arm9/arm9.bin", &arm9);
+    // The vanilla header container of the patch: DSPRE unpacks it into `unpacked/dynamicHeaders`.
+    write_narc(
+        root,
+        "files/debug/cb_edit/d_test.narc",
+        &[vec![1, 2, 3, 4], vec![5, 6]],
+    );
 
     Synthetic { dir }
 }
