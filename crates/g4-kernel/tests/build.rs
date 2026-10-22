@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use g4_kernel::build::{build, extract_rom, pack_dir};
+use g4_kernel::build::{build, extract_rom, pack_dir, prepare};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
+use g4_kernel::scripts::{self, ScriptSource};
+use g4_kernel::text::{self, Severity, TextArchiveDoc};
 
 const MAP_NARC: &str = "files/fielddata/land_data/land_data.narc";
 
@@ -398,4 +400,222 @@ fn build_leaves_vanilla_dynamic_headers_narc_untouched() {
     let _ = build(&p, &s.dir.path().join("out.nds"));
     assert_eq!(std::fs::read(&narc_path).unwrap(), before);
     assert!(!s.dir.path().join("unpacked/dynamicHeaders").exists());
+}
+
+const SCRIPT_NARC: &str = "files/fielddata/script/scr_seq.narc";
+
+fn narc_members(root: &Path, relative: impl AsRef<Path>) -> Vec<Vec<u8>> {
+    g4_formats::narc::Narc::read(&std::fs::read(root.join(relative)).unwrap())
+        .unwrap()
+        .members
+}
+
+fn write_text_json(p: &Project, index: u16, text: &str) {
+    let dir = p.expanded_dir(AssetKind::TextArchive);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{index:04}.json")),
+        format!(r#"{{"key": 0, "messages": [{{"id": "msg_00000", "en_US": "{text}"}}]}}"#),
+    )
+    .unwrap();
+}
+
+fn member_texts(p: &Project, index: u16) -> Vec<String> {
+    let bytes = std::fs::read(p.member_path(AssetKind::TextArchive, index)).unwrap();
+    TextArchiveDoc::from_member(&bytes, "en_US")
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|m| m.text)
+        .collect()
+}
+
+#[test]
+fn build_compiles_stale_scripts_before_packing() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    let before = narc_members(s.dir.path(), SCRIPT_NARC);
+    scripts::write_source(
+        &p,
+        0,
+        &ScriptSource::Rotom("script Main #1:\n    Message 2\n    End\n".into()),
+    )
+    .unwrap();
+
+    let pre = prepare(&p).unwrap();
+    assert_eq!(pre.compiled, [0], "{pre:?}");
+    assert!(pre.encoded.is_empty() && pre.problems.is_empty(), "{pre:?}");
+    let member = std::fs::read(p.member_path(AssetKind::Script, 0)).unwrap();
+    assert_ne!(member, before[0]);
+
+    // ds-rom cannot build the synthetic project; packing happens before it fails.
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)), "{err}");
+    let after = narc_members(s.dir.path(), SCRIPT_NARC);
+    assert_eq!(after[0], member);
+    assert_eq!(after[1..], before[1..]);
+}
+
+#[test]
+fn build_encodes_stale_text_json() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    assert_eq!(member_texts(&p, 433)[0], "Nowhere");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write_text_json(&p, 433, "Neu");
+
+    let pre = prepare(&p).unwrap();
+    assert_eq!(pre.encoded, [433], "{pre:?}");
+    assert!(
+        pre.compiled.is_empty() && pre.problems.is_empty(),
+        "{pre:?}"
+    );
+    assert_eq!(member_texts(&p, 433), ["Neu"]);
+
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)), "{err}");
+    let text_narc = p.archives.packed(AssetKind::TextArchive).unwrap();
+    let members = narc_members(s.dir.path(), text_narc);
+    assert_eq!(
+        members[433],
+        std::fs::read(p.member_path(AssetKind::TextArchive, 433)).unwrap()
+    );
+}
+
+#[test]
+fn build_with_compile_error_writes_nothing() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 1),
+        common::synthetic_map_bytes(0xEE),
+    )
+    .unwrap();
+    scripts::write_source(
+        &p,
+        0,
+        &ScriptSource::Rotom("script Main #1:\n    NoSuchCommand 3\n    End\n".into()),
+    )
+    .unwrap();
+    let script_narc = std::fs::read(s.dir.path().join(SCRIPT_NARC)).unwrap();
+    let map_narc = std::fs::read(s.dir.path().join(MAP_NARC)).unwrap();
+    let out = s.dir.path().join("out.nds");
+
+    let err = build(&p, &out).unwrap_err();
+    let KernelError::Compile(problems) = err else {
+        panic!("expected Compile, got {err}");
+    };
+    assert_eq!(problems[0].severity, Severity::Error);
+    assert_eq!(problems[0].file, Path::new("expanded/scripts/0000.rotom"));
+    assert_eq!(problems[0].line, 2, "{problems:?}");
+    assert!(!out.exists(), "no ROM");
+    assert_eq!(
+        std::fs::read(s.dir.path().join(SCRIPT_NARC)).unwrap(),
+        script_narc
+    );
+    assert_eq!(
+        std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(),
+        map_narc
+    );
+}
+
+#[test]
+fn undecodable_text_json_aborts_the_build_with_a_problem() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 1),
+        common::synthetic_map_bytes(0xEE),
+    )
+    .unwrap();
+    let dir = p.expanded_dir(AssetKind::TextArchive);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0007.json"), b"{ not json").unwrap();
+    let map_narc = std::fs::read(s.dir.path().join(MAP_NARC)).unwrap();
+
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    let KernelError::Compile(problems) = err else {
+        panic!("expected Compile, got {err}");
+    };
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].severity, Severity::Error);
+    assert_eq!(
+        problems[0].file,
+        Path::new("expanded/textArchives/0007.json")
+    );
+    assert_eq!(
+        std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(),
+        map_narc
+    );
+}
+
+#[test]
+fn encode_stale_leaves_members_that_won_and_up_to_date_json_alone() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    // A JSON older than its member: DSPRE changed the member, the member wins.
+    write_text_json(&p, 433, "Alt");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let member_path = p.member_path(AssetKind::TextArchive, 433);
+    let member = std::fs::read(&member_path).unwrap();
+    std::fs::write(&member_path, &member).unwrap();
+    let json_path = p.expanded_dir(AssetKind::TextArchive).join("0433.json");
+    let json = std::fs::read(&json_path).unwrap();
+    let (encoded, problems) = text::encode_stale(&p).unwrap();
+    assert!(encoded.is_empty() && problems.is_empty());
+    assert_eq!(std::fs::read(&member_path).unwrap(), member);
+    assert_eq!(std::fs::read(&json_path).unwrap(), json);
+
+    // A JSON that wins but says what the member says is not encoded (and not rewritten).
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&json_path, &json).unwrap();
+    let (encoded, _) = text::encode_stale(&p).unwrap();
+    assert_eq!(encoded, [433]);
+    let (encoded, _) = text::encode_stale(&p).unwrap();
+    assert!(encoded.is_empty(), "the second run has nothing to do");
+}
+
+/// Like `vanilla_rebuild_matches_dsrom_cli`, but the scripts are adopted first: the sources
+/// compile back to the unchanged members, so the ROM stays byte-identical. A member that
+/// does not round-trip is named by `adopt` and `compile` tests, not overwritten.
+#[test]
+fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
+    let Some(cli) = std::env::var_os("G4_DSROM_CLI").map(PathBuf::from) else {
+        eprintln!("skipped: G4_DSROM_CLI not set");
+        return;
+    };
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let out_dir = tempfile::tempdir().unwrap();
+    let reference = out_dir.path().join("reference.nds");
+    let status = Command::new(&cli)
+        .arg("build")
+        .arg("--config")
+        .arg(root.join("config.yaml"))
+        .arg("--rom")
+        .arg(&reference)
+        .status()
+        .unwrap();
+    assert!(status.success(), "dsrom build failed: {status}");
+
+    let p = Project::open(&root).unwrap();
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    let ours = out_dir.path().join("ours.nds");
+    let report = build(&p, &ours).unwrap();
+    eprintln!(
+        "compiled {:?}, encoded {:?}, problems {:?}",
+        report.compiled, report.encoded, report.problems
+    );
+    assert!(report.compiled.is_empty(), "{:?}", report.compiled);
+    let a = std::fs::read(&reference).unwrap();
+    let b = std::fs::read(&ours).unwrap();
+    assert_eq!(a.len(), b.len());
+    assert!(a == b, "ROM bytes differ from dsrom CLI output");
 }

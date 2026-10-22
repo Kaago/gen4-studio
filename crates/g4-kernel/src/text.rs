@@ -16,6 +16,8 @@ use serde_json::{Map, Value};
 
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
+use crate::project::{AssetKind, Project};
+use crate::scripts::numbered_files;
 
 /// One message: its id, the text in the editor's language, and every other key of the JSON
 /// entry (foreign languages), kept verbatim.
@@ -392,6 +394,76 @@ pub fn write_archive(
         }
     }
     Ok(problems)
+}
+
+/// Whether `member` already holds what `doc` encodes to: same key and same texts. Encoding
+/// is a function of those two (and the language, which the member does not record).
+fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
+    let Ok(bytes) = std::fs::read(member) else {
+        return false;
+    };
+    TextArchiveDoc::from_member(&bytes, &doc.lang).is_ok_and(|have| {
+        have.key == doc.key
+            && have.messages.len() == doc.messages.len()
+            && have
+                .messages
+                .iter()
+                .zip(&doc.messages)
+                .all(|(a, b)| a.text == b.text)
+    })
+}
+
+/// Encodes every `expanded/textArchives/NNNN.json` that wins against its member by the
+/// loader rule ([`text_winner`]: the member is missing or not newer) like a save does, and
+/// returns the archive numbers it encoded with the warnings of their messages (files
+/// project-relative). A JSON that loses to its member is left alone, the member is newer
+/// (DSPRE changed it). A winning JSON whose texts the member already holds is skipped too:
+/// the mtime order alone cannot tell it from a stale one, because a save leaves the JSON
+/// newer than the member, and encoding it again would rewrite the file on every build.
+/// A JSON that cannot be read is an error [`Problem`], not a failure of the call.
+pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
+    let dir = project.expanded_dir(AssetKind::TextArchive);
+    let lang = project.language.locale_key();
+    let mut encoded = Vec::new();
+    let mut problems = Vec::new();
+    for n in numbered_files(&dir, Some("json"))? {
+        let json = dir.join(format!("{n:04}.json"));
+        let member = project.member_path(AssetKind::TextArchive, n);
+        if text_winner(&json, &member)? != Some(json.as_path()) {
+            continue;
+        }
+        let bytes = std::fs::read(&json).map_err(io_at(&json))?;
+        let doc = match TextArchiveDoc::from_json(&bytes, lang) {
+            Ok(doc) => doc,
+            Err(e) => {
+                problems.push(Problem {
+                    severity: Severity::Error,
+                    file: json
+                        .strip_prefix(&project.root)
+                        .unwrap_or(&json)
+                        .to_path_buf(),
+                    line: 1,
+                    col: 1,
+                    message: e.to_string(),
+                });
+                continue;
+            }
+        };
+        if member_is_current(&member, &doc) {
+            continue;
+        }
+        // The member folder must be complete before one member lands in it.
+        project.ensure_unpacked(AssetKind::TextArchive)?;
+        for mut problem in write_archive(&project.root, &json, &member, &doc)? {
+            problem.file = json
+                .strip_prefix(&project.root)
+                .unwrap_or(&json)
+                .to_path_buf();
+            problems.push(problem);
+        }
+        encoded.push(n);
+    }
+    Ok((encoded, problems))
 }
 
 #[cfg(test)]

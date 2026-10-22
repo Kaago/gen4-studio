@@ -137,7 +137,7 @@ fn member_file(project: &Project, file: u16) -> PathBuf {
 }
 
 /// The numbers of the `NNNN` files (or `NNNN.<ext>` when `ext` is given) in `dir`, sorted.
-fn numbered_files(dir: &Path, ext: Option<&str>) -> Result<Vec<u16>, KernelError> {
+pub(crate) fn numbered_files(dir: &Path, ext: Option<&str>) -> Result<Vec<u16>, KernelError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
