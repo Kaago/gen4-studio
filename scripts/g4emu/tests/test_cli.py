@@ -270,3 +270,47 @@ def test_last_files_skip_an_input_save_in_their_place(
     assert save.read_bytes() == b"battery"
     assert "last.state nicht geschrieben" in captured.err
     assert (out / "last.png").exists()
+
+
+def _dump(path, entries, size=0x2000):
+    import struct
+
+    data = bytearray(size)
+    for offset, fmt, value in entries:
+        struct.pack_into(fmt, data, offset, value)
+    path.write_bytes(bytes(data))
+
+
+def test_find_u16_prints_hits_and_pointers(capfd, tmp_path):
+    # u16 60 (0x3C) / 61 (0x3D) at offset 0x1000; a static pointer to hit - 8 at offset 0x40.
+    _dump(tmp_path / "a.bin", [(0x1000, "<H", 0x3C), (0x40, "<I", 0x02001000 - 8)])
+    _dump(tmp_path / "b.bin", [(0x1000, "<H", 0x3D), (0x40, "<I", 0x02001000 - 8)])
+    code = main(["find-u16", "0x3C", str(tmp_path / "a.bin"), "61", str(tmp_path / "b.bin")])
+    out = capfd.readouterr().out.splitlines()
+    assert code == 0
+    assert out == ["0x02001000", "  ptr 0x02000040 + 0x8"]
+
+
+def test_find_u16_without_hits_exits_2(capfd, tmp_path):
+    _dump(tmp_path / "a.bin", [(0x100, "<H", 5)])
+    assert main(["find-u16", "6", str(tmp_path / "a.bin")]) == 2
+    assert capfd.readouterr().out == ""
+
+
+def test_find_u16_usage_errors(capfd, tmp_path):
+    _dump(tmp_path / "a.bin", [])
+    assert main(["find-u16", "5"]) == 1  # value without a file
+    assert main(["find-u16", "x", str(tmp_path / "a.bin")]) == 1
+    assert main(["find-u16", "70000", str(tmp_path / "a.bin")]) == 1  # not a u16
+    assert main(["find-u16", "5", str(tmp_path / "nope.bin")]) == 1
+    capfd.readouterr()
+
+
+def test_find_u16_pointer_range_options(capfd, tmp_path):
+    # The pointer sits above the default range end and 0x3000 below the hit.
+    _dump(tmp_path / "a.bin", [(0x4000, "<H", 0x3C), (0x3000, "<I", 0x02004000 - 0x3000)], size=0x8000)
+    args = ["find-u16", "0x3C", str(tmp_path / "a.bin")]
+    assert main(args) == 0
+    assert capfd.readouterr().out == "0x02004000\n"
+    assert main([*args, "--max-back", "0x3000", "--hi", "0x02005000"]) == 0
+    assert capfd.readouterr().out == "0x02004000\n  ptr 0x02003000 + 0x3000\n"

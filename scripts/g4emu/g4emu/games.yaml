@@ -6,3 +6,15 @@ CPUD:
   save: CPUD-zimmer.sav
   start_header: 415
   continue_frames: 1200  # overworld shows up around frame 950; the pointer is valid from 107
+IPKD:
+  name: HeartGold DE
+  location: { pointer: 0x02111860, offset: 0x1244 }
+  save: IPKD-zimmer.sav
+  start_header: 64
+  continue_frames: 1000  # overworld fully visible at ~955, controllable from ~945; pointer valid from 193
+IPKE:
+  name: HeartGold US
+  location: { pointer: 0x02111880, offset: 0x1244 }
+  save: IPKE-zimmer.sav
+  start_header: 64
+  continue_frames: 1000  # same timing as IPKD (overworld visible at ~955)

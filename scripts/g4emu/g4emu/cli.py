@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator
 
-from g4emu import emu, paths
+from g4emu import emu, find, paths
 from g4emu.games import load_games
 from g4emu.steps import StepFailed, parse_steps, run_step
 
@@ -42,6 +42,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", required=True, type=Path)
     run.add_argument("--core", type=Path, default=None)
     run.add_argument("steps", nargs="*", help="steps such as: wait 100 press a:6 shot name")
+    finder = sub.add_parser(
+        "find-u16", help="addresses holding VALUE in the matching RAM dump, for every pair"
+    )
+    finder.add_argument("pairs", nargs="+", metavar="VALUE RAM.BIN", help="e.g. 0x3C a.bin 0x3D b.bin")
+    finder.add_argument("--max-back", type=lambda t: int(t, 0), default=0x2000, help="largest offset k from a pointer target to the hit")
+    finder.add_argument("--hi", type=lambda t: int(t, 0), default=0x02110000, help="end of the pointer address range (HeartGold's lies above the default)")
     return parser
 
 
@@ -152,11 +158,37 @@ def _write_last(instance: emu.Emu, out: Path, save: Path | None) -> list[str]:
     return messages
 
 
+def _find_u16(args: argparse.Namespace) -> int:
+    """Print every address that holds each value in its dump, then the static pointers to it."""
+    if len(args.pairs) % 2:
+        return _fail("g4emu find-u16: erwartet Paare aus Wert und RAM-Datei")
+    dumps: list[tuple[int, bytes]] = []
+    for text, file in zip(args.pairs[::2], args.pairs[1::2]):
+        try:
+            value = int(text, 0)
+        except ValueError:
+            return _fail(f"g4emu find-u16: '{text}' ist keine ganze Zahl")
+        if not 0 <= value <= 0xFFFF:
+            return _fail(f"g4emu find-u16: {text} passt nicht in 16 Bit")
+        try:
+            dumps.append((value, Path(file).read_bytes()))
+        except OSError as e:
+            return _fail(f"g4emu find-u16: {file}: {e.strerror or e}")
+    hits = find.find_u16(dumps)
+    for address in hits:
+        print(f"0x{address:08X}")
+        for pointer, k in find.pointers_to(dumps[0][1], address, args.max_back, hi=args.hi):
+            print(f"  ptr 0x{pointer:08X} + 0x{k:X}")
+    return EXIT_OK if hits else EXIT_STEP_FAILED
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
     except _UsageError as e:
         return _fail(f"g4emu: {e}")
+    if args.command == "find-u16":
+        return _find_u16(args)
     return _run(args)
 
 

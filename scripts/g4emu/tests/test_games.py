@@ -54,3 +54,20 @@ def test_continue_frames_is_required(tmp_path):
     path.write_text(path.read_text().replace("300", "-1"))
     with pytest.raises(ValueError, match="continue_frames"):
         load_games(path)
+
+
+@pytest.mark.parametrize(
+    "code, pointer, save",
+    [
+        ("IPKD", 0x02111860, "IPKD-zimmer.sav"),
+        ("IPKE", 0x02111880, "IPKE-zimmer.sav"),
+    ],
+)
+def test_heartgold_entries_use_the_same_record_layout(code, pointer, save):
+    game = load_games()[code]
+    assert (game.pointer, game.offset, game.save) == (pointer, 0x1244, save)
+    assert game.start_header == 64  # T20R0202, the bedroom
+    assert game.continue_frames == 1000
+    ram = bytearray(RAM_SIZE)
+    put_location(ram, game, Location(header=63, warp=1, x=3, y=3))
+    assert read_location(ram, game) == Location(header=63, warp=1, x=3, y=3)
