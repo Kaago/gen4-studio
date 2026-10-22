@@ -133,6 +133,34 @@ function createState(doc: ScriptDocument, wanted: Wanted): EditorState {
 
 const normalized = (text: string) => text.replace(/\r\n?/g, "\n");
 
+/** The single change that turns `old` into `next` (common prefix and suffix kept), so history and selection map through it. */
+function minimalChange(old: string, next: string): { from: number; to: number; insert: string } {
+  const max = Math.min(old.length, next.length);
+  let start = 0;
+  while (start < max && old[start] === next[start]) start++;
+  let endOld = old.length;
+  let endNew = next.length;
+  while (endOld > start && endNew > start && old[endOld - 1] === next[endNew - 1]) {
+    endOld--;
+    endNew--;
+  }
+  return { from: start, to: endOld, insert: next.slice(start, endNew) };
+}
+
+/** `state` with every compartment brought to the wanted extension; the same state when none differs. */
+function reconfigured(state: EditorState, wanted: Wanted): EditorState {
+  const effects = slots(wanted)
+    .filter(([slot, ext]) => slot.get(state) !== ext)
+    .map(([slot, ext]) => slot.reconfigure(ext));
+  return effects.length ? state.update({ effects }).state : state;
+}
+
+function diagnosticsOf(state: EditorState): Diagnostic[] {
+  const found: Diagnostic[] = [];
+  forEachDiagnostic(state, (d) => found.push(d));
+  return found;
+}
+
 /**
  * A CodeMirror editor for one script document at a time. Each document keeps its own `EditorState` in
  * `doc.state`, so switching away and back keeps its undo history, selection and folds. Edits are written to
@@ -164,13 +192,10 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
   useEffect(() => {
     const first = latest.current.doc;
     shown.current = first;
-    first.state ??= createState(first, wantedRef.current);
+    // A stored state may carry an older client, uri or theme: fix it before any plugin is created from it.
+    first.state = reconfigured(first.state ?? createState(first, wantedRef.current), wantedRef.current);
     const view = new EditorView({ state: first.state, parent: host.current! });
-    const report = () => {
-      const found: Diagnostic[] = [];
-      forEachDiagnostic(view.state, (d) => found.push(d));
-      latest.current.onDiagnostics(found);
-    };
+    const report = () => latest.current.onDiagnostics(diagnosticsOf(view.state));
     bridges.set(view, {
       save: () => latest.current.onSave(),
       update(update) {
@@ -186,6 +211,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
       },
     });
     viewRef.current = view;
+    report();
     return () => {
       bridges.delete(view);
       viewRef.current = null;
@@ -200,31 +226,33 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     let switched = false;
     if (shown.current !== doc) {
       shown.current = doc;
-      doc.state ??= createState(doc, wantedRef.current);
+      doc.state = reconfigured(doc.state ?? createState(doc, wantedRef.current), wantedRef.current);
       view.setState(doc.state);
       switched = true;
     }
+    // The client, uri or theme of the shown document changed.
     const effects = slots(wantedRef.current)
       .filter(([slot, ext]) => slot.get(view.state) !== ext)
       .map(([slot, ext]) => slot.reconfigure(ext));
     if (effects.length) view.dispatch({ effects });
 
     const want = normalized(doc.text);
-    const length = view.state.doc.length;
-    if (length !== want.length || view.state.doc.toString() !== want) {
+    const old = view.state.doc.toString();
+    if (old !== want) {
+      // `doc.cursor` is read before the dispatch: the update listener overwrites it with the mapped head.
+      const jump = doc.cursor !== view.state.selection.main.head;
       view.dispatch({
-        changes: { from: 0, to: length, insert: want },
+        changes: minimalChange(old, want),
+        selection: jump ? { anchor: Math.min(doc.cursor, want.length) } : undefined,
+        scrollIntoView: jump,
         annotations: [External.of(true), Transaction.addToHistory.of(false)],
       });
+    } else {
+      const cursor = Math.min(doc.cursor, old.length);
+      if (view.state.selection.main.head !== cursor) view.dispatch({ selection: { anchor: cursor }, scrollIntoView: true });
     }
-    const cursor = Math.min(doc.cursor, view.state.doc.length);
-    if (view.state.selection.main.head !== cursor) view.dispatch({ selection: { anchor: cursor }, scrollIntoView: true });
 
-    if (switched) {
-      const found: Diagnostic[] = [];
-      forEachDiagnostic(view.state, (d) => found.push(d));
-      latest.current.onDiagnostics(found);
-    }
+    if (switched) latest.current.onDiagnostics(diagnosticsOf(view.state));
   });
 
   return <div ref={host} style={{ height: "100%", minHeight: 0 }} />;

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { undo } from "@codemirror/commands";
+import { setDiagnostics } from "@codemirror/lint";
 import { LSPClient, languageServerExtensions } from "@codemirror/lsp-client";
 import type { Diagnostic } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
@@ -85,9 +86,9 @@ describe("ScriptEditor", () => {
   it("calls_onSave_for_the_save_shortcut_and_not_onChange", () => {
     render(docs.open(1, "script", "x"));
     const content = container.querySelector(".cm-content") as HTMLElement;
-    act(() => {
-      content.dispatchEvent(new KeyboardEvent("keydown", { key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true }));
-    });
+    const event = new KeyboardEvent("keydown", { key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => void content.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -141,6 +142,74 @@ describe("ScriptEditor", () => {
     render(doc);
     expect(view().state.doc.toString()).toBe("new text");
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("applies_outside_text_and_an_outside_cursor_from_the_same_render", () => {
+    const doc = docs.open(1, "script", "one\ntwo\nthree\n");
+    doc.cursor = 4;
+    render(doc);
+    doc.text = "ONE\nTWO\nthree\nfour\n";
+    doc.cursor = 10;
+    render(doc);
+    expect(view().state.doc.toString()).toBe("ONE\nTWO\nthree\nfour\n");
+    expect(view().state.selection.main.head).toBe(10);
+    expect(doc.cursor).toBe(10);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps_a_mid_text_cursor_when_outside_text_replaces_the_document", () => {
+    const doc = docs.open(1, "script", "one\ntwo\nthree\n");
+    doc.cursor = 8;
+    render(doc);
+    doc.text = "one\ntwo\nthree\nfour\n";
+    render(doc);
+    expect(view().state.selection.main.head).toBe(8);
+    expect(doc.cursor).toBe(8);
+    // An edit before the cursor in the outside text moves it along.
+    doc.text = "zero\none\ntwo\nthree\nfour\n";
+    render(doc);
+    expect(view().state.selection.main.head).toBe(13);
+  });
+
+  it("undoes_an_earlier_edit_after_an_outside_replace_without_bringing_old_text_back", () => {
+    const doc = docs.open(1, "script", "abc");
+    render(doc);
+    typeAt(3, "!");
+    docs.setText(1, "abc!\nmore");
+    render(doc);
+    expect(view().state.doc.toString()).toBe("abc!\nmore");
+    act(() => void undo(view()));
+    expect(view().state.doc.toString()).toBe("abc\nmore");
+    expect(doc.text).toBe("abc\nmore");
+  });
+
+  it("shows_text_replaced_while_the_document_was_not_shown_and_keeps_its_cursor", () => {
+    const a = docs.open(1, "script", "alpha");
+    const b = docs.open(2, "script", "beta");
+    a.cursor = 2;
+    render(a);
+    render(b);
+    docs.setText(1, "alpha two");
+    onChange.mockReset();
+    render(a);
+    expect(view().state.doc.toString()).toBe("alpha two");
+    expect(view().state.selection.main.head).toBe(2);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(docs.dirty()).toEqual([1]);
+  });
+
+  it("reports_diagnostics_on_mount_and_again_for_a_stored_state_after_a_remount", () => {
+    const doc = docs.open(1, "script", "script A #1:\n");
+    render(doc);
+    expect(onDiagnostics).toHaveBeenCalledTimes(1);
+    expect(lastDiagnostics()).toEqual([]);
+    act(() => view().dispatch(setDiagnostics(view().state, [{ from: 0, to: 6, severity: "error", message: "m" }])));
+    act(() => root.unmount());
+    root = createRoot(container);
+    onDiagnostics.mockReset();
+    render(doc);
+    expect(onDiagnostics).toHaveBeenCalledTimes(1);
+    expect(lastDiagnostics()).toMatchObject([{ from: 0, to: 6, message: "m" }]);
   });
 
   it("does_not_treat_crlf_text_as_an_outside_change", () => {
@@ -234,6 +303,24 @@ describe("ScriptEditor", () => {
       await Promise.resolve();
       expect(server.calls("textDocument/didOpen")).toHaveLength(1);
       expect(server.calls("textDocument/didClose")).toHaveLength(0);
+    });
+
+    it("shows_a_stored_state_with_the_current_client_without_opening_it_on_the_old_one", async () => {
+      const other = new FakeLspServer();
+      const otherClient = new LSPClient({ extensions: [...languageServerExtensions(), lspExtras] }).connect(other);
+      const a = docs.open(1, "script", "a");
+      const b = docs.open(2, "script", "b");
+      render(a, { lsp: otherClient });
+      await vi.waitFor(() => expect(other.calls("textDocument/didOpen")).toHaveLength(1));
+      render(b, { lsp: otherClient });
+      await vi.waitFor(() => expect(other.calls("textDocument/didOpen")).toHaveLength(2));
+      render(a, { lsp: client });
+      await vi.waitFor(() => expect(server.calls("textDocument/didOpen")).toHaveLength(1));
+      // The old client saw b close and nothing more: a's stored state never ran its old plugin again.
+      expect(other.calls("textDocument/didOpen")).toHaveLength(2);
+      expect(other.calls("textDocument/didClose")).toHaveLength(2);
+      expect(server.calls("textDocument/didOpen")[0]!.params).toMatchObject({ textDocument: { uri: uriOf(1) } });
+      otherClient.disconnect();
     });
 
     it("sends_edits_to_the_server_as_didChange", async () => {
