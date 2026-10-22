@@ -176,7 +176,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
             matrix={matrix}
             headers={headers}
             areaFallback={areaDataId}
-            cellSize={matrix.width > 12 ? 32 : 64}
+            cellSize={64}
             selected={selected}
             colorOf={colorOf}
             onCellClick={(x, y) => goTo({ kind: "matrixCell", matrix: matrix.index, x, y })}

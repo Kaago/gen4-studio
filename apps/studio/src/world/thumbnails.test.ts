@@ -197,6 +197,40 @@ describe("ThumbnailCache", () => {
     expect(cache.pending()).toBe(0);
   });
 
+  it("cancel_drops_a_queued_request_and_leaves_a_running_one_alone", async () => {
+    const { cache, glb, calls } = setup({ concurrency: 1 });
+    const seen: string[] = [];
+    cache.subscribe((key) => seen.push(key));
+    cache.request(1, 1); // runs
+    cache.request(2, 1); // queued
+    cache.request(3, 1); // queued
+    expect(cache.pending()).toBe(3);
+
+    cache.cancel(2, 1);
+    expect(cache.pending()).toBe(2);
+    expect(seen).toEqual(["2:1"]);
+    cache.cancel(1, 1); // running: untouched
+    cache.cancel(9, 9); // unknown: untouched
+    expect(cache.pending()).toBe(2);
+    expect(seen).toEqual(["2:1"]);
+
+    calls[0].bytes.resolve(new ArrayBuffer(1));
+    await flush();
+    calls[1].bytes.resolve(new ArrayBuffer(1));
+    await flush();
+    expect(glb.mock.calls).toEqual([
+      [1, 1],
+      [3, 1],
+    ]);
+    expect(cache.get(1, 1)).toBeDefined();
+    expect(cache.get(2, 1)).toBeUndefined();
+    expect(cache.pending()).toBe(0);
+
+    cache.request(2, 1); // a cancelled key can be requested again
+    await flush();
+    expect(glb).toHaveBeenCalledWith(2, 1);
+  });
+
   it("unsubscribe_stops_notifications", async () => {
     const { cache, calls } = setup();
     const seen: string[] = [];

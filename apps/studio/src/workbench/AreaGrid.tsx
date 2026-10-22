@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, RefObject } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
 import { thumbnailArea } from "../world/thumbnails";
@@ -58,8 +59,24 @@ interface CellProps {
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
+/** Whether the element is (nearly) in view; always true where there is no IntersectionObserver (tests). */
+function useVisible(ref: RefObject<HTMLElement | null>, active: boolean): boolean {
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    const el = ref.current;
+    if (!active || !el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => setVisible(entries[entries.length - 1]?.isIntersecting ?? false), { rootMargin: "128px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, active]);
+  return visible;
+}
+
 function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, onClick, onDoubleClick }: CellProps) {
-  const picture = useThumbnail(cache, map, area);
+  const button = useRef<HTMLButtonElement>(null);
+  const visible = useVisible(button, map !== null);
+  // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
+  const picture = useThumbnail(cache, map, area, visible);
   const parts = [`x ${x}, y ${y}`];
   if (map !== null) parts.push(`Karte ${id4(map)}`);
   if (header !== null) parts.push(`Header ${id4(header)}`);
@@ -81,6 +98,7 @@ function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHea
 
   return (
     <button
+      ref={button}
       type="button"
       data-cell={cellKey(x, y)}
       aria-pressed={selected}

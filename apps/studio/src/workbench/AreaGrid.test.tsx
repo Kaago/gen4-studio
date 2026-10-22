@@ -117,4 +117,66 @@ describe("AreaGrid", () => {
     expect(cell(0, 0)?.getAttribute("style")).toContain("rgb(1, 2, 3)");
     expect(cell(1, 0)?.getAttribute("style")).not.toContain("rgb(1, 2, 3)");
   });
+
+  describe("with an IntersectionObserver", () => {
+    interface Fake {
+      element: Element;
+      callback: IntersectionObserverCallback;
+      disconnected: boolean;
+    }
+    let observers: Fake[];
+    beforeEach(() => {
+      observers = [];
+      class FakeObserver {
+        private readonly fake: Fake;
+        constructor(callback: IntersectionObserverCallback) {
+          this.fake = { element: document.body, callback, disconnected: false };
+          observers.push(this.fake);
+        }
+        observe(element: Element) {
+          this.fake.element = element;
+        }
+        disconnect() {
+          this.fake.disconnected = true;
+        }
+      }
+      vi.stubGlobal("IntersectionObserver", FakeObserver);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const setVisible = (x: number, y: number, isIntersecting: boolean) => {
+      const fake = observers.find((o) => o.element === cell(x, y) && !o.disconnected);
+      if (!fake) throw new Error(`no observer for cell ${x},${y}`);
+      act(() => fake.callback([{ isIntersecting } as IntersectionObserverEntry], fake as unknown as IntersectionObserver));
+    };
+
+    it("does_not_request_pictures_of_cells_out_of_view_and_requests_when_they_scroll_in", async () => {
+      show();
+      await flush();
+      expect(glb).not.toHaveBeenCalled();
+      expect(cell(0, 0)?.getAttribute("style")).not.toContain('url("data:');
+
+      setVisible(1, 0, true);
+      await flush();
+      expect(glb.mock.calls).toEqual([[522, 7]]);
+      expect(cell(1, 0)?.getAttribute("style")).toContain('url("data:');
+      expect(cell(0, 0)?.getAttribute("style")).not.toContain('url("data:');
+    });
+
+    it("observes_only_filled_cells", () => {
+      show();
+      expect(observers).toHaveLength(4);
+    });
+
+    it("withdraws_the_queued_request_of_a_cell_that_leaves_the_view", () => {
+      // Concurrency 1 keeps the second request queued behind the first, which never settles.
+      cache = new ThumbnailCache({ glb: vi.fn(() => new Promise<ArrayBuffer>(() => {})) }, async () => "data:x", { concurrency: 1 });
+      show();
+      setVisible(0, 0, true);
+      setVisible(1, 0, true);
+      expect(cache.pending()).toBe(2);
+      setVisible(1, 0, false);
+      expect(cache.pending()).toBe(1);
+    });
+  });
 });

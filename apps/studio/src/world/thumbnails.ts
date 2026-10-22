@@ -71,6 +71,19 @@ export class ThumbnailCache {
     this.pump();
   }
 
+  /**
+   * Drops a queued request nobody wants any more (its cell went away or out of view). A running job finishes normally.
+   * Subscribers of the key are told, so a user that still wants the picture asks again.
+   */
+  cancel(map: number, area: number): void {
+    const key = thumbnailKey(map, area);
+    const at = this.queue.findIndex((job) => job.key === key);
+    if (at < 0) return;
+    this.queue.splice(at, 1);
+    this.open.delete(key);
+    this.notify(key);
+  }
+
   pending(): number {
     return this.open.size;
   }

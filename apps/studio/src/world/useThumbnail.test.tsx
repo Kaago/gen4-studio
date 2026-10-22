@@ -23,9 +23,9 @@ describe("useThumbnail", () => {
     container.remove();
   });
 
-  function Probe({ cache, map, onRender }: { cache: ThumbnailCache; map: number | null; onRender: () => void }) {
+  function Probe({ cache, map, onRender, enabled = true }: { cache: ThumbnailCache; map: number | null; onRender: () => void; enabled?: boolean }) {
     onRender();
-    const value = useThumbnail(cache, map, 1);
+    const value = useThumbnail(cache, map, 1, enabled);
     return <span>{String(value)}</span>;
   }
 
@@ -94,5 +94,50 @@ describe("useThumbnail", () => {
     act(() => root.render(<Probe cache={cache} map={null} onRender={() => {}} />));
     expect(glb).not.toHaveBeenCalled();
     expect(container.textContent).toBe("undefined");
+  });
+
+  it("asks_only_while_enabled", async () => {
+    const glb = vi.fn(async () => new ArrayBuffer(3));
+    const cache = new ThumbnailCache({ glb }, async (b) => `data:${b.byteLength}`);
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} enabled={false} />));
+    await flush();
+    expect(glb).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("undefined");
+
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} enabled />));
+    await flush();
+    expect(glb).toHaveBeenCalledWith(4, 1);
+    expect(container.textContent).toBe("data:3");
+  });
+
+  it("withdraws_a_queued_request_on_unmount_and_when_disabled", () => {
+    const glb = vi.fn(() => new Promise<ArrayBuffer>(() => {}));
+    const cache = new ThumbnailCache({ glb }, async () => "data:x", { concurrency: 1 });
+    cache.request(1, 1); // occupies the only slot
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} />));
+    expect(cache.pending()).toBe(2);
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} enabled={false} />));
+    expect(cache.pending()).toBe(1);
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} />));
+    expect(cache.pending()).toBe(2);
+    act(() => root.render(<span />));
+    expect(cache.pending()).toBe(1);
+  });
+
+  it("a_cancel_by_one_user_makes_another_user_of_the_same_key_ask_again", async () => {
+    const glb = vi.fn((_map: number, _area: number) => new Promise<ArrayBuffer>(() => {}));
+    const cache = new ThumbnailCache({ glb }, async () => "data:x", { concurrency: 1 });
+    cache.request(1, 1); // occupies the only slot, so key 7 stays queued
+    const other = document.createElement("div");
+    const otherRoot = createRoot(other);
+    act(() => {
+      root.render(<Probe cache={cache} map={7} onRender={() => {}} />);
+      otherRoot.render(<Probe cache={cache} map={7} onRender={() => {}} />);
+    });
+    expect(cache.pending()).toBe(2);
+    act(() => root.render(<span />)); // its cancel drops the shared queued job, the other user asks again
+    expect(cache.pending()).toBe(2);
+    act(() => otherRoot.unmount());
+    expect(cache.pending()).toBe(1);
   });
 });
