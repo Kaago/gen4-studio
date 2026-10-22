@@ -8,10 +8,10 @@ use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
 use uxie::text_bank::game_strings::TextBankIds;
-use uxie::text_bank::read_text_archive_bin;
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
+use crate::text::TextArchiveDoc;
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
 const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
@@ -155,6 +155,9 @@ pub enum Location {
     /// `count` files `0000..` of 24 bytes each in `dir` (the header table once the Dynamic
     /// Headers patch is applied); the asset's bytes are their concatenation.
     HeaderFiles { dir: PathBuf, count: usize },
+    /// A text archive: its chatot JSON source and its member. The asset's bytes are the
+    /// canonical JSON.
+    TextSource { json: PathBuf, member: PathBuf },
 }
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
@@ -348,6 +351,14 @@ impl Project {
             .join(self.archives.unpacked_name(kind))
     }
 
+    /// `root/expanded/<name>`: the decoded sources DSPRE keeps next to `unpacked/`. Only the
+    /// text archives (`.json`) and the scripts use it.
+    pub fn expanded_dir(&self, kind: AssetKind) -> PathBuf {
+        self.root
+            .join("expanded")
+            .join(self.archives.unpacked_name(kind))
+    }
+
     /// `root/unpacked/<name>/NNNN`
     pub fn member_path(&self, kind: AssetKind, index: u16) -> PathBuf {
         self.unpacked_dir(kind).join(format!("{index:04}"))
@@ -365,13 +376,20 @@ impl Project {
         dynamic_headers::is_applied(self)
     }
 
-    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files; the
+    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files (a text
+    /// archive is its JSON source and its member, see [`Location::TextSource`]); the
     /// header table is the slice of `arm9/arm9.bin` holding every header (its only asset has
     /// index 0), or, once the Dynamic Headers patch is applied, the files of
     /// `unpacked/dynamicHeaders`. Fails with `InvalidProject` for another index, when
     /// `arm9.bin` is too short for the table or the folder is missing, and with
     /// `UnknownGame` when the game has no known table offset.
     pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+        if kind == AssetKind::TextArchive {
+            return Ok(Location::TextSource {
+                json: self.expanded_dir(kind).join(format!("{index:04}.json")),
+                member: self.member_path(kind, index),
+            });
+        }
         if kind != AssetKind::HeaderTable {
             return Ok(Location::Member(self.member_path(kind, index)));
         }
@@ -701,7 +719,10 @@ impl Project {
             )));
         }
         let path = self.member_path(AssetKind::TextArchive, bank);
-        read_text_archive_bin(&path)
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        // The member stays the source of the names: they are read as the game stores them.
+        TextArchiveDoc::from_member(&bytes, self.language.locale_key())
+            .map(|doc| doc.messages.into_iter().map(|m| m.text).collect())
             .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
     }
 
@@ -733,7 +754,7 @@ impl Project {
                 )
                 .map_err(|e| KernelError::Uxie(format!("{e}")))
             }
-            Location::Member(_) => Err(KernelError::InvalidProject(
+            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
         }
@@ -746,7 +767,7 @@ impl Project {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { count, .. } => Ok(count),
             Location::Slice { len, .. } => Ok(len / MAP_HEADER_SIZE),
-            Location::Member(_) => Err(KernelError::InvalidProject(
+            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
         }
