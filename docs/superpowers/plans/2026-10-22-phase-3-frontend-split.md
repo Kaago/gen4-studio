@@ -4,7 +4,7 @@
 
 **Goal:** `apps/studio/src/App.tsx` (915 Zeilen) und `apps/studio/src/world/MatrixScene.tsx` (1007 Zeilen) ohne Verhaltensänderung in Hooks und reine Module zerlegen, die Synchronisationslogik testbar machen und Hover-Re-Renders der großen Panels beenden.
 
-**Architecture:** MatrixScene wird zu einer dünnen Komponente über `SceneHost` (Renderer, Kamera, Controls, Resize, Dispose) und Hooks für Laden, Refresh-Queues, Hover und die beiden Drags. App.tsx wird zu einer dünnen Komponente über `useProjectSession`, `useSceneSync` (mit reinem Reducer `sceneSync.ts`), `useWorldActions` und `useEditRefresh` (ein Ereignisbus je AssetId statt Revisionszähler und Queues). Der Workbench-Kontext wird in stabile Daten und flüchtigen Zustand (Hover, Meldung) geteilt; Panels werden memoisiert.
+**Architecture (wie gebaut):** `MatrixScene` ist eine dünne Komponente über `SceneHost` (Renderer, Kamera, Controls, Resize, Dispose) und Hooks in `world/scene/` für Aufbau (`useSceneSetup`), Laden (`useSceneLoader`), Refresh-Queues (`useRefreshQueues`), Prop-zu-Szene-Effekte (`useSceneProps`) und die zuletzt geschriebenen Werte (`useSceneRefs`); Hover und Klicks sind Fabriken (`pointerHover`, `canvasClicks`), ebenso die beiden Drags (`buildingDrag`, `eventDrag`). `App.tsx` ist eine dünne Komponente über `useProjectSession`, `useInspectorState`, `useSceneSync` (mit reinem Reducer `sceneSync.ts`), `useWorldActions`, `useHistoryReload`, `useShortcuts`, `useWindowGuards` und `useWorkbenchModel`. Statt Revisionszählern und Queues gibt es einen neutralen Ereignisbus (`src/bus/editBus.ts`, `useBusEvent.ts`), den Schreiber bedienen und Panels und Szene abonnieren; es gibt kein `useEditRefresh`, das `reloadPlan` wendet `useHistoryReload` an. Der Workbench-Kontext ist geteilt (`WorkbenchContext.tsx`: stabile Daten, Hover, ausgewählte Matrixzelle und Meldung je in einem eigenen Kontext), `useWorkbenchModel` baut die Objekte mit stabiler Identität, die memoisierten Panels liegen in `workbench/panels.tsx`.
 
 **Tech Stack:** wie Phase 2 (React 19, three 0.186, dockview 8.6.1, vitest). Keine neuen Abhängigkeiten.
 
@@ -35,7 +35,7 @@
 
 ### Task 1: MatrixScene in SceneHost und Hooks zerlegen
 
-**Files:** Create `world/scene/SceneHost.ts` (Renderer, Kamera, OrbitControls, Resize, Render-Queue, Dispose), `world/scene/useSceneLoader.ts` (Voll-Laden und Nur-Modelle-Laden, Abbruch), `world/scene/useRefreshQueues.ts` (Karten-, Gebäude-, Event-Refresh), `world/scene/useHover.ts` (rAF-Hover, Marker vor Kachel), `world/scene/buildingDrag.ts`, `world/scene/eventDrag.ts` (Fabriken über `dragController.ts`), `world/scene/content.ts` (buildContent, addModel, removeModels, recolourMap, setMarkers aus MatrixScene). Modify `world/MatrixScene.tsx` (nur Verdrahtung, Props unverändert).
+**Files:** Create `world/scene/SceneHost.ts` (Renderer, Kamera, OrbitControls, Resize, Render-Queue, Dispose), `world/scene/useSceneSetup.ts` (baut den Host und verdrahtet Hover, Drags und Klicks), `world/scene/useSceneLoader.ts` (Voll-Laden und Nur-Modelle-Laden, Abbruch), `world/scene/useRefreshQueues.ts` (Karten-, Gebäude-, Event-Refresh), `world/scene/useSceneProps.ts` (Auswahl, Sichtbarkeit), `world/scene/useSceneRefs.ts` (zuletzt geschriebene Werte), `world/scene/pointerHover.ts` und `world/scene/canvasClicks.ts` (Fabriken; rAF-Hover, Marker vor Kachel; Klick-Auswahl), `world/scene/picking.ts` (Raycaster), `world/scene/buildingDrag.ts`, `world/scene/eventDrag.ts` (Fabriken über `dragController.ts`), `world/scene/buildingModels.ts`, `world/scene/eventFetch.ts`, `world/scene/tileNames.ts`, `world/scene/types.ts`, `world/scene/content.ts` (buildContent, addModel, removeModels, recolourMap, setMarkers aus MatrixScene). Modify `world/MatrixScene.tsx` (nur Verdrahtung, Props unverändert). Testhilfe der Drag-Tests: `world/scene/dragTestKit.testkit.ts` (nur Tests importieren sie).
 
 - [ ] Reine Teile zuerst verschieben (content.ts) und vorhandene Tests mitnehmen; neue Tests für `SceneHost.dispose()`-Reihenfolge (gemockter Renderer: Layer, Content, Marker, Renderer) und für die Drag-Fabriken (Begin nur auf gewähltem Objekt, ein Commit bei Pointer-Up).
 - [ ] Hooks extrahieren, Props und Verhalten von `MatrixScene` unverändert; `pnpm test`, `pnpm build`.
@@ -43,7 +43,7 @@
 
 ### Task 2: App-Zustand in useProjectSession, useSceneSync und useWorldActions
 
-**Files:** Create `app/useProjectSession.ts` (open, save, build, run, dirty, Stale-Behandlung, Emulator-Pfad), `app/sceneSync.ts` (reiner Reducer: Auswahl, Szene-Schlüssel, Area, Ladezähler, History-Revision), `app/useSceneSync.ts` (onSelect, syncHeaders, refreshSceneMatrix, noteSceneTileset, goTo über `navigation.ts`), `app/useWorldActions.ts` (Gebäude/Events hinzufügen, löschen, Pins, letzte Kachel), `app/useShortcuts.ts` (Tastenkürzel über `shortcutAction`). Modify `App.tsx` (nur Zusammenbau).
+**Files:** Create `app/useProjectSession.ts` (open, save, build, run, dirty, Stale-Behandlung, Emulator-Pfad), `app/sceneSync.ts` (reiner Reducer: Auswahl, Szene-Schlüssel, Area, Ladezähler, History-Revision), `app/useSceneSync.ts` (onSelect, syncHeaders, refreshSceneMatrix, noteSceneTileset, goTo über `navigation.ts`), `app/useWorldActions.ts` (Gebäude/Events hinzufügen, löschen, Pins, letzte Kachel), `app/useInspectorState.ts` (Pin und Hover), `app/useHistoryReload.ts` (Undo/Redo und Neuladen nach `reloadPlan`), `app/useShortcuts.ts` (Tastenkürzel über `shortcutAction`), `app/useWindowGuards.ts` (Schließen und Beenden fragen bei ungespeicherten Änderungen). Modify `App.tsx` (nur Zusammenbau). Der Verdrahtungstest mit den echten Hooks und gemocktem `api` ist `App.test.tsx`.
 
 - [ ] Reducer `sceneSync` mit Tests: schneller Header-Wechsel verwirft altes Ergebnis; fehlgeschlagenes `getMatrix` setzt Szene-Schlüssel zurück; History-Revision geändert → erneut laden; Area-Wechsel ohne Matrixwechsel → nur Modelle.
 - [ ] Hooks extrahieren, App.tsx unter ~400 Zeilen; `pnpm test`, `pnpm build`.
@@ -51,7 +51,7 @@
 
 ### Task 3: Ereignisbus je Asset statt Revisionszähler
 
-**Files:** Create `app/editBus.ts` (rein: `emit(asset | target)`, `subscribe(filter, fn)`, verlustfrei, geordnet), `app/useEditRefresh.ts` (wendet `reloadPlan` an, versorgt Szene und Inspector). Modify die Nutzer der Zähler `headerRevision`, `matrixRevision`, `areaRevision`, `buildingRevision`, `eventRevision`, `modelsToken`, `revealToken` und der `RefreshQueue`s, soweit der Bus sie ersetzt (die Szene darf intern weiter Queues nutzen).
+**Files:** Create `bus/editBus.ts` (rein, ohne React: `emit(event)`, `subscribe(filter, fn)` mit Topics wie `matrixData`, `mapRefetch`, `modelsReload`; verlustfrei, geordnet), `bus/useBusEvent.ts` (`useBusEvent` abonniert einmal je Bus, `useBusRevision` liefert den Zähler, den ein Editor in seinen Effekt-Abhängigkeiten führt). Es gibt kein `useEditRefresh`: `reloadPlan` wird in `app/useHistoryReload.ts` angewendet und sendet die Ereignisse. Modify die Nutzer der Zähler `headerRevision`, `matrixRevision`, `areaRevision`, `buildingRevision`, `eventRevision`, `modelsToken`, `revealToken` und der `RefreshQueue`s, soweit der Bus sie ersetzt (die Szene darf intern weiter Queues nutzen).
 
 - [ ] Bus-Tests: zwei Ereignisse verschiedener Karten vor dem nächsten Render kommen beide an; Abonnent nach Unmount bekommt nichts; Reihenfolge bleibt.
 - [ ] Umstellen, alte Zähler entfernen, wo der Bus sie ersetzt; `pnpm test`, `pnpm build`.
@@ -59,11 +59,20 @@
 
 ### Task 4: Workbench-Kontext teilen und Panels memoisieren
 
-**Files:** Modify `workbench/Workbench.tsx` (zwei Kontexte: stabile Daten und flüchtiger Zustand Hover/Meldung), `workbench/HeaderList.tsx` (memoisierte Zeilen, stabile Ref-Callbacks oder `data-id`-Suche beim Scrollen), `workbench/MatrixPanel.tsx`, `App.tsx`.
+**Files:** Create `workbench/WorkbenchContext.tsx` (vier Kontexte: stabile Daten, Inspector-Modell, ausgewählte Matrixzelle, Meldung), `workbench/panels.tsx` (die dockview-Panels, jedes liest nur seine Kontexte), `app/useWorkbenchModel.ts` (baut `data` und `live` mit stabiler Identität über `useShallowStable`), `app/useStable.ts` (`useStableCallback`, `useShallowStable`). Modify `workbench/Workbench.tsx`, `workbench/HeaderList.tsx` (memoisierte Zeilen, stabile Ref-Callbacks oder `data-id`-Suche beim Scrollen), `workbench/MatrixPanel.tsx` (memoisiert über ein Kontextobjekt), `App.tsx`.
 
-- [ ] Test: Selektor-/Vergleichsfunktion zeigt, dass ein reines Hover-Update die Props von HeaderList und Matrix-Tab nicht ändert.
+- [ ] Tests (`app/useWorkbenchModel.test.tsx`, `App.test.tsx`): ein reines Hover- oder Meldungs-Update ändert das `data`-Objekt nicht und rendert weder Kopfliste noch Matrix-Tab; umgekehrt rendern Inspector-Panel (Hover) und Matrix-Tab (Zelle gepinnt) für ihre Änderung.
 - [ ] Umsetzen; `pnpm test`, `pnpm build`.
 - [ ] Commit `perf(studio): split workbench context and memoise heavy panels`.
+
+## Bewusste Abweichungen
+
+Die Umstellung ist verhaltensgleich bis auf vier gutartige Unterschiede, die sich aus Bus und Aufteilung ergeben:
+
+1. **Szenen-lokale Refresh-Queues:** Die Refresh-Anforderungen (Karte, Gebäude, Events) leben in der Szene, nicht in App. Wird die Szene neu gemountet, werden bereits behandelte Anforderungen nicht wiederholt (vorher konnte ein Remount sie erneut abspielen).
+2. **Event-Refresh als entdoppelte Queue:** Für Events gilt eine Queue mit entdoppelten Einträgen statt eines einzelnen Slots; mehrere Anforderungen für dieselbe Datei vor dem nächsten Render werden zu einer, verschiedene Dateien gehen weiterhin nicht verloren.
+3. **Stabile `selectedEvent`-Identität beim erneuten Pinnen:** Wird dasselbe Event noch einmal gepinnt, bleibt das `selectedEvent`-Objekt dasselbe (Memo über Datei, Klasse und Index), damit die memoisierte Szene nicht angestoßen wird.
+4. **Bus-Ereignisse ohne gemounteten Abnehmer werden nicht behalten:** Ein Ereignis, für das gerade kein Panel oder keine Szene abonniert hat, geht verloren. Ein später gemountetes Panel liest seine Daten beim Mounten ohnehin neu.
 
 ## Gate
 
