@@ -275,8 +275,8 @@ export const resizeMatrix = (index: number, width: number, height: number) => in
 export const renameMatrix = (index: number, name: string) => invoke<void>("rename_matrix", { index, name });
 /** Appends a 1 x 1 matrix and resolves to its index. Written at once; not undoable. */
 export const createMatrix = (name: string) => invoke<number>("create_matrix", { name });
-/** Appends a copy of a map and resolves to its index. Written at once; not undoable. */
-export const duplicateMap = (source: number) => invoke<number>("duplicate_map", { source });
+/** Appends a copy of a map (without its buildings when `clearBuildings`) and resolves to its index. Written at once; not undoable. */
+export const duplicateMap = (source: number, clearBuildings = false) => invoke<number>("duplicate_map", { source, clearBuildings });
 export const tileBehaviors = () => invoke<TileBehavior[]>("tile_behaviors");
 export const getEvents = (eventFileId: number) => invoke<EventsDto>("get_events", { eventFileId });
 export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
@@ -409,3 +409,122 @@ export const runRom = (emulator: string, rom: string) => invoke<number>("run_rom
 export const reloadAsset = (asset: AssetId) => invoke<void>("reload_asset", { kind: asset.kind, index: asset.index });
 /** Keeps the own version of an asset and takes the file on disk as the new baseline. */
 export const acceptDisk = (asset: AssetId) => invoke<void>("accept_disk", { kind: asset.kind, index: asset.index });
+
+/** One matrix as the overview lists it (no cells). `filled` counts the cells that hold a map. */
+export interface MatrixSummary {
+  index: number;
+  name: string;
+  width: number;
+  height: number;
+  has_headers: boolean;
+  has_altitudes: boolean;
+  filled: number;
+}
+
+/** All matrices; `unreadable` lists [index, reason] of those that could not be read. */
+export interface MatrixListing {
+  matrices: MatrixSummary[];
+  unreadable: [number, string][];
+}
+
+/** A warp that leads to a header: where it sits and where it goes. */
+export interface WarpLink {
+  event_file: number;
+  index: number;
+  x: number;
+  z: number;
+  dest_header_id: number;
+  dest_warp_id: number;
+}
+
+/** All warps of all event files; `unreadable` lists [event file, reason] of those that could not be read. */
+export interface WarpListing {
+  links: WarpLink[];
+  unreadable: [number, string][];
+}
+
+/** What a new header gets for its event file: keep the one it has, a new empty one, or a copy of this file. */
+export type EventFileChoice = "Keep" | "New" | { Copy: number };
+
+/** One filled cell of a new area: a copy of `source_map` at (x, y). */
+export interface AreaCell {
+  x: number;
+  y: number;
+  source_map: number;
+  clear_buildings: boolean;
+}
+
+/** An existing header that is pointed at the new matrix and gets area data and an event file. */
+export interface AssignHeader {
+  id: number;
+  area_data_id: number | null;
+  event_file: EventFileChoice;
+}
+
+export interface AreaSpec {
+  name: string;
+  width: number;
+  height: number;
+  cells: AreaCell[];
+  with_headers: boolean;
+  header: AssignHeader | null;
+}
+
+/** What `create_area` made: the matrix, its maps as [x, y, map id], the event file and the header it assigned. */
+export interface AreaReport {
+  matrix: number;
+  maps: [number, number, number][];
+  event_file: number | null;
+  header: number | null;
+}
+
+export interface ExtendSpec {
+  matrix: number;
+  x: number;
+  y: number;
+  source_map: number;
+  clear_buildings: boolean;
+  header_cell: number | null;
+}
+
+export interface ExtendReport {
+  map: number;
+  width: number;
+  height: number;
+}
+
+/** The door pair of a new room: the outside warp at (x, z) of `outside_header`, the inside one at (inside_x, inside_z). */
+export interface Entrance {
+  outside_header: number;
+  x: number;
+  z: number;
+  inside_x: number;
+  inside_z: number;
+}
+
+export interface RoomSpec {
+  name: string;
+  source_map: number;
+  clear_buildings: boolean;
+  header: AssignHeader;
+  entrance: Entrance | null;
+}
+
+export interface RoomReport {
+  matrix: number;
+  map: number;
+  event_file: number | null;
+  outside_warp: number | null;
+  inside_warp: number | null;
+}
+
+export const listMatrices = () => invoke<MatrixListing>("list_matrices");
+export const listWarps = () => invoke<WarpListing>("list_warps");
+/** Appends an empty event file and resolves to its index. Written at once; not undoable. */
+export const createEventFile = () => invoke<number>("create_event_file");
+/** Appends a copy of an event file and resolves to its index. Written at once; not undoable. */
+export const duplicateEventFile = (source: number) => invoke<number>("duplicate_event_file", { source });
+/** Each wizard is one call; written at once and not undoable. */
+export const createArea = (spec: AreaSpec) => invoke<AreaReport>("create_area", { spec });
+export const extendArea = (spec: ExtendSpec) => invoke<ExtendReport>("extend_area", { spec });
+export const createRoom = (spec: RoomSpec) => invoke<RoomReport>("create_room", { spec });
