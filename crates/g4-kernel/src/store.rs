@@ -167,6 +167,13 @@ pub struct Store {
     unpacked: HashSet<AssetKind>,
 }
 
+/// Most headers a game can have once the Dynamic Headers patch is applied: header files are
+/// named with four digits and DSPRE sorts them by name.
+pub const MAX_HEADERS: usize = 10_000;
+
+/// Size in bytes of one `mapname.bin` record.
+const MAPNAME_RECORD: usize = 16;
+
 /// The one asset of kind `HeaderTable`.
 const HEADER_TABLE: AssetId = AssetId {
     kind: AssetKind::HeaderTable,
@@ -627,6 +634,126 @@ impl Store {
         };
         let bytes = self.member_bytes(id)?;
         self.append_member(AssetKind::Event, &bytes)
+    }
+
+    /// Whether DSPRE's Dynamic Headers patch is applied to the game (the header table then
+    /// lives in `unpacked/dynamicHeaders`).
+    pub fn dynamic_headers_applied(&self) -> Result<bool, KernelError> {
+        self.project.dynamic_headers_applied()
+    }
+
+    /// Applies the Dynamic Headers patch (see [`dynamic_headers::apply`]) with the header
+    /// table as it is on disk and loads the table from the new header files. Refuses with
+    /// [`KernelError::InvalidProject`] while the table has unsaved changes, and when the game
+    /// has no patch or has it already. The table's undo and redo entries are dropped (there
+    /// are none: only a clean table is accepted).
+    pub fn apply_dynamic_headers(&mut self) -> Result<(), KernelError> {
+        if self.dirty().contains(&HEADER_TABLE) {
+            return Err(KernelError::InvalidProject(
+                "the header table has unsaved changes, save them before applying the patch"
+                    .to_owned(),
+            ));
+        }
+        let headers = self.header_table()?.to_vec();
+        dynamic_headers::apply(&self.project, &headers)?;
+        self.assets.remove(&HEADER_TABLE);
+        self.undo.retain(|c| c.asset != HEADER_TABLE);
+        self.redo.retain(|c| c.asset != HEADER_TABLE);
+        self.load(HEADER_TABLE)?;
+        Ok(())
+    }
+
+    /// Appends a header that is a copy of header `template` as the editor shows it (unsaved
+    /// edits included) and returns its id. Needs the Dynamic Headers patch. The header file
+    /// `unpacked/dynamicHeaders/NNNN` and the record in `mapname.bin` are written at once
+    /// (a failure on the second removes the first again); the new header is not part of the
+    /// undo history and does not make the table dirty. `internal_name` must be printable
+    /// ASCII of at most 16 bytes.
+    pub fn create_header(
+        &mut self,
+        template: u16,
+        internal_name: &str,
+    ) -> Result<u16, KernelError> {
+        if !self.dynamic_headers_applied()? {
+            return Err(KernelError::InvalidProject(
+                "new headers need the Dynamic Headers patch, apply the patch first".to_owned(),
+            ));
+        }
+        let name = internal_name.as_bytes();
+        if name.len() > MAPNAME_RECORD || !name.iter().all(|b| (0x20..0x7F).contains(b)) {
+            return Err(KernelError::InvalidProject(format!(
+                "internal name {internal_name:?} is not printable ASCII of at most \
+                 {MAPNAME_RECORD} bytes"
+            )));
+        }
+        let count = self.project.header_count()?;
+        if count >= MAX_HEADERS {
+            return Err(KernelError::InvalidProject(format!(
+                "the game already has {count} headers, the most header files DSPRE can name is {MAX_HEADERS}"
+            )));
+        }
+        let table = self.member_bytes(HEADER_TABLE)?;
+        if table.len() != count * MAP_HEADER_SIZE {
+            return Err(KernelError::InvalidProject(format!(
+                "the header table has {} headers but mapname.bin names {count}",
+                table.len() / MAP_HEADER_SIZE
+            )));
+        }
+        let chunk = table
+            .chunks(MAP_HEADER_SIZE)
+            .nth(usize::from(template))
+            .ok_or(FormatError::OutOfRange {
+                what: "header",
+                value: usize::from(template),
+                max: count.saturating_sub(1),
+            })?
+            .to_vec();
+        let header = read_map_header_from_bytes(&chunk, uxie_family(self.project.family))
+            .map_err(|e| KernelError::Uxie(e.to_string()))?;
+        // `count < MAX_HEADERS` fits a u16.
+        let id = count as u16;
+
+        let root = &self.project.root;
+        let path = dynamic_headers::unpacked_dir(&self.project).join(format!("{id:04}"));
+        if path.exists() {
+            return Err(KernelError::InvalidProject(format!(
+                "{} already exists, refusing to overwrite it",
+                path.display()
+            )));
+        }
+        let names_path = self.project.mapname_path();
+        let mut names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        if names.len() != count * MAPNAME_RECORD {
+            return Err(KernelError::InvalidProject(format!(
+                "{} is {} bytes, {count} records of {MAPNAME_RECORD} bytes would be {}",
+                names_path.display(),
+                names.len(),
+                count * MAPNAME_RECORD
+            )));
+        }
+        names.extend_from_slice(name);
+        names.resize((count + 1) * MAPNAME_RECORD, 0);
+
+        write_atomic(root, &path, &chunk)?;
+        if let Err(e) = write_atomic(root, &names_path, &names) {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+
+        // Keep a loaded table in step with the disk: the new header is neither dirty nor
+        // stale. A table that is not loaded reads it from the files.
+        if let Some(Asset {
+            saved_bytes,
+            current: Loaded::HeaderTable(headers),
+            ..
+        }) = self.assets.get_mut(&HEADER_TABLE)
+        {
+            headers.push(header);
+            if let Some(saved) = saved_bytes {
+                saved.extend_from_slice(&chunk);
+            }
+        }
+        Ok(id)
     }
 
     /// The bytes of `id` as the editor shows them: the store's value when it is loaded and

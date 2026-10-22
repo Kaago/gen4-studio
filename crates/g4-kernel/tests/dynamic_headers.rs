@@ -100,3 +100,45 @@ fn vanilla_project_takes_the_patch() {
     assert!(dynamic_headers::apply(&project, &headers).is_err());
     assert_eq!(std::fs::read(&arm9_path).unwrap(), after);
 }
+
+/// The store applies the patch to a copy, adds a header, and the project still builds a ROM.
+#[test]
+fn store_applies_the_patch_creates_a_header_and_builds() {
+    let Some((tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    if dynamic_headers::plan(&project).unwrap().is_none() {
+        eprintln!(
+            "skipped: {} has no dynamic headers patch",
+            project.game_code
+        );
+        return;
+    }
+    let mut store = Store::new(project.clone());
+    let count = project.header_listing().unwrap().headers.len();
+    if !store.dynamic_headers_applied().unwrap() {
+        store.apply_dynamic_headers().unwrap();
+    }
+    assert!(store.dynamic_headers_applied().unwrap());
+    assert_eq!(store.header_table().unwrap().len(), count);
+    assert!(store.dirty().is_empty());
+
+    assert_eq!(store.create_header(0, "G4TEST").unwrap(), count as u16);
+    assert_eq!(store.header_table().unwrap().len(), count + 1);
+    assert!(store.dirty().is_empty());
+
+    let reread = Project::open(&root).unwrap();
+    let listing = reread.header_listing().unwrap();
+    assert_eq!(listing.headers.len(), count + 1);
+    assert_eq!(listing.headers[count].internal_name, "G4TEST");
+    let dir = dynamic_headers::unpacked_dir(&reread);
+    assert_eq!(
+        std::fs::read(dir.join(format!("{count:04}"))).unwrap(),
+        std::fs::read(dir.join("0000")).unwrap()
+    );
+
+    let rom = tmp.path().join("tmp.nds");
+    g4_kernel::build::build(&reread, &rom).unwrap();
+    assert!(rom.exists());
+}

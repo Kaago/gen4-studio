@@ -1399,3 +1399,191 @@ fn dynamic_headers_kind_is_store_only() {
             .is_err()
     );
 }
+
+fn header_table_id() -> AssetId {
+    AssetId {
+        kind: AssetKind::HeaderTable,
+        index: 0,
+    }
+}
+
+fn set_matrix(st: &mut Store, header: u16, matrix: u16) {
+    use g4_kernel::store::MapHeader;
+    st.edit_header(header, "matrix", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.matrix_id = matrix;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// A synthetic Platinum project, not patched, with a store on it.
+fn unpatched_store() -> (common::Synthetic, Store) {
+    let s = common::synthetic_project();
+    let project = Arc::new(Project::open(s.dir.path()).unwrap());
+    (s, Store::new(project))
+}
+
+#[test]
+fn apply_dynamic_headers_refuses_a_dirty_table() {
+    let (s, mut st) = unpatched_store();
+    set_matrix(&mut st, 0, 5);
+    let arm9 = std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap();
+    let message = st.apply_dynamic_headers().unwrap_err().to_string();
+    assert!(message.contains("save"), "{message}");
+    assert!(!st.dynamic_headers_applied().unwrap());
+    assert_eq!(
+        std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap(),
+        arm9
+    );
+}
+
+#[test]
+fn apply_dynamic_headers_reloads_the_table() {
+    let (_s, mut st) = unpatched_store();
+    let before = st.header_table().unwrap().to_vec();
+    assert!(!st.dynamic_headers_applied().unwrap());
+    st.apply_dynamic_headers().unwrap();
+    assert!(st.dynamic_headers_applied().unwrap());
+    assert_eq!(st.header_table().unwrap(), before.as_slice());
+    assert!(st.dirty().is_empty());
+    assert_eq!(st.undo(), None);
+    // The patch cannot be applied twice.
+    assert!(st.apply_dynamic_headers().is_err());
+}
+
+#[test]
+fn apply_dynamic_headers_works_before_the_table_was_loaded() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    assert_eq!(
+        std::fs::read_dir(s.dir.path().join("unpacked/dynamicHeaders"))
+            .unwrap()
+            .count(),
+        2
+    );
+    assert_eq!(st.header_table().unwrap().len(), 2);
+}
+
+#[test]
+fn create_header_appends_file_and_name() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    assert_eq!(st.create_header(1, "ROUTE_230").unwrap(), 2);
+    assert_eq!(
+        std::fs::read(dir.join("0002")).unwrap(),
+        std::fs::read(dir.join("0001")).unwrap()
+    );
+    let names = std::fs::read(s.dir.path().join("files/fielddata/maptable/mapname.bin")).unwrap();
+    assert_eq!(names.len(), 48);
+    assert_eq!(&names[32..], b"ROUTE_230\0\0\0\0\0\0\0");
+    assert_eq!(st.header_table().unwrap().len(), 3);
+    let table = st.header_table().unwrap().to_vec();
+    let listing = st.project().header_listing_for(&table).unwrap();
+    assert_eq!(listing.headers[2].internal_name, "ROUTE_230");
+    assert!(st.dirty().is_empty());
+    // The table is in step with the disk: a later edit saves without a stale error.
+    set_matrix(&mut st, 2, 4);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    assert_eq!(
+        &std::fs::read(dir.join("0002")).unwrap()[2..4],
+        &4u16.to_le_bytes()
+    );
+    // A fresh project agrees about the count.
+    assert_eq!(
+        Project::open(s.dir.path()).unwrap().header_count().unwrap(),
+        3
+    );
+}
+
+#[test]
+fn create_header_before_the_table_was_loaded() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    assert_eq!(st.create_header(0, "FIRST").unwrap(), 2);
+    assert_eq!(st.header_table().unwrap().len(), 3);
+    assert!(st.dirty().is_empty());
+    assert_eq!(
+        std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0002")).unwrap(),
+        std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0000")).unwrap()
+    );
+}
+
+#[test]
+fn create_header_copies_unsaved_edits_of_the_template() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    let on_disk = std::fs::read(dir.join("0000")).unwrap();
+    set_matrix(&mut st, 0, 9);
+    let id = st.create_header(0, "X").unwrap();
+    assert_eq!(id, 2);
+    let copy = std::fs::read(dir.join("0002")).unwrap();
+    assert_eq!(&copy[2..4], &9u16.to_le_bytes());
+    // Header 0 itself is still unsaved, the new header is not part of the dirty state.
+    assert_eq!(std::fs::read(dir.join("0000")).unwrap(), on_disk);
+    assert_eq!(st.dirty(), vec![header_table_id()]);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    assert_eq!(
+        &std::fs::read(dir.join("0000")).unwrap()[2..4],
+        &9u16.to_le_bytes()
+    );
+    assert_eq!(std::fs::read(dir.join("0002")).unwrap(), copy);
+}
+
+#[test]
+fn create_header_without_patch_is_refused() {
+    let (s, mut st) = unpatched_store();
+    let message = st.create_header(0, "X").unwrap_err().to_string();
+    assert!(message.contains("patch"), "{message}");
+    assert_eq!(
+        std::fs::metadata(s.dir.path().join("files/fielddata/maptable/mapname.bin"))
+            .unwrap()
+            .len(),
+        32
+    );
+}
+
+#[test]
+fn create_header_rejects_non_ascii_or_long_names() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    assert!(st.create_header(0, "Straße").is_err());
+    assert!(st.create_header(0, "ABCDEFGHIJKLMNOPQ").is_err());
+    // 16 bytes fit exactly, without a terminator.
+    assert_eq!(st.create_header(0, "ABCDEFGHIJKLMNOP").unwrap(), 2);
+    let names = std::fs::read(s.dir.path().join("files/fielddata/maptable/mapname.bin")).unwrap();
+    assert_eq!(names.len(), 48);
+    assert_eq!(&names[32..], b"ABCDEFGHIJKLMNOP");
+}
+
+#[test]
+fn create_header_rejects_an_unknown_template() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    assert!(st.create_header(2, "X").is_err());
+    assert_eq!(
+        std::fs::read_dir(s.dir.path().join("unpacked/dynamicHeaders"))
+            .unwrap()
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn create_header_refuses_to_overwrite_a_stray_file() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    let stray = s.dir.path().join("unpacked/dynamicHeaders/0002");
+    std::fs::write(&stray, b"stray").unwrap();
+    assert!(st.create_header(0, "X").is_err());
+    assert_eq!(std::fs::read(&stray).unwrap(), b"stray");
+    assert_eq!(
+        std::fs::metadata(s.dir.path().join("files/fielddata/maptable/mapname.bin"))
+            .unwrap()
+            .len(),
+        32
+    );
+}

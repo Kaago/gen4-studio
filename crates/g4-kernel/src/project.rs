@@ -325,6 +325,12 @@ impl Project {
         self.unpacked_dir(kind).join(format!("{index:04}"))
     }
 
+    /// `root/files/fielddata/maptable/mapname.bin`: one 16-byte NUL-padded internal name per
+    /// map header.
+    pub fn mapname_path(&self) -> PathBuf {
+        self.root.join("files/fielddata/maptable/mapname.bin")
+    }
+
     /// Whether DSPRE's Dynamic Headers patch is applied (`dynamic_headers::is_applied`): the
     /// header table then lives in `unpacked/dynamicHeaders`. Always false for Diamond/Pearl.
     pub fn dynamic_headers_applied(&self) -> Result<bool, KernelError> {
@@ -383,7 +389,7 @@ impl Project {
 
     /// Number of headers: one per `mapname.bin` record.
     fn mapname_count(&self) -> Result<usize, KernelError> {
-        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
+        let names_path = self.mapname_path();
         let names_len = std::fs::metadata(&names_path)
             .map_err(io_at(&names_path))?
             .len();
@@ -711,7 +717,7 @@ impl Project {
         &self,
         headers: &[uxie::MapHeader],
     ) -> Result<HeaderListing, KernelError> {
-        let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
+        let names_path = self.mapname_path();
         let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
         let (locations, names_error) = match self.location_names() {
             Ok(names) => (names, None),
