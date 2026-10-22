@@ -1,5 +1,5 @@
 import { errorText, isCmdError } from "../api";
-import type { CmdError, HeaderSummary } from "../api";
+import type { CmdError } from "../api";
 
 /** Draws a map's terrain model (GLB bytes) from above and returns the picture as a Data-URL. */
 export type ThumbnailRender = (glb: ArrayBuffer) => Promise<string>;
@@ -175,10 +175,4 @@ export class ThumbnailCache {
     this.notify(job.key);
     for (const key of evicted) this.notify(key);
   }
-}
-
-/** The tileset to draw a map with: the `area_data_id` of the header of the map's cell, else `fallback`. */
-export function thumbnailArea(cellHeader: number | null, headers: readonly HeaderSummary[], fallback: number): number {
-  if (cellHeader === null) return fallback;
-  return headers.find((h) => h.id === cellHeader)?.area_data_id ?? fallback;
 }

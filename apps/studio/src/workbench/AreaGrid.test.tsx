@@ -179,4 +179,15 @@ describe("AreaGrid", () => {
       expect(cache.pending()).toBe(1);
     });
   });
+
+  it("renders_again_only_the_cells_whose_selection_changed", () => {
+    const onCellClick = () => {};
+    show({ onCellClick, selected: new Set(["0,0"]) });
+    const reads = vi.spyOn(cache, "get");
+    show({ onCellClick, selected: new Set(["1,0"]) });
+    // Each rendered cell reads its picture once or twice (React may read a store snapshot twice): the two cells whose
+    // selection changed, not all four filled cells.
+    const keys = new Set(reads.mock.calls.map(([map, area]) => `${map}:${area}`));
+    expect([...keys].sort()).toEqual(["521:7", "522:7"]);
+  });
 });

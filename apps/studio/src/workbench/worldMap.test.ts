@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { buildPlaces, placeColor } from "./places";
-import { lineBetween, placeCells, regionMatrix, roomLinks } from "./worldMap";
+import { lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 
 const summary = (index: number, width: number, height: number, has_headers: boolean, filled: number): MatrixSummary => ({
   index,
@@ -152,5 +152,23 @@ describe("lineBetween", () => {
 
   it("scales_the_cell_position_with_the_zoom", () => {
     expect(lineBetween(card, { x: 1, y: 2 }, 32, { x: 10, y: 20 }, 2)).toEqual({ x1: 500, y1: 120, x2: 10 + 50 * 2, y2: 20 + (2 * 34 + 16) * 2 });
+  });
+});
+
+describe("wheelPixels", () => {
+  it("turns_lines_and_pages_into_pixels", () => {
+    expect(wheelPixels({ deltaY: 120, deltaMode: 0 })).toBe(120);
+    expect(wheelPixels({ deltaY: 3, deltaMode: 1 })).toBe(48);
+    expect(wheelPixels({ deltaY: 1, deltaMode: 2 }, 600)).toBe(600);
+  });
+});
+
+describe("roomLinkIndex", () => {
+  it("groups_warps_by_file_in_index_order_and_finds_one_by_file_and_index", () => {
+    const w = (event_file: number, index: number) => ({ event_file, index, x: 0, z: 0, dest_header_id: 0, dest_warp_id: 0 });
+    const index = roomLinkIndex([], [w(5, 2), w(5, 0), w(7, 1)]);
+    expect(index.byFile.get(5)?.map((l) => l.index)).toEqual([0, 2]);
+    expect(index.byWarp.get("7:1")).toEqual(w(7, 1));
+    expect(index.byWarp.get("7:0")).toBeUndefined();
   });
 });

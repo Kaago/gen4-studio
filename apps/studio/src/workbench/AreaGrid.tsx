@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
-import { thumbnailArea } from "../world/thumbnails";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
 import { id4 } from "./terms";
@@ -73,7 +72,8 @@ function useVisible(ref: RefObject<HTMLElement | null>, active: boolean): boolea
   return visible;
 }
 
-function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, onClick, onDoubleClick }: CellProps) {
+/** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, onClick, onDoubleClick }: CellProps) {
   const button = useRef<HTMLButtonElement>(null);
   const visible = useVisible(button, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
@@ -119,10 +119,12 @@ function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHea
       )}
     </button>
   );
-}
+});
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
 export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf }: AreaGridProps) {
+  // The tileset of each header, looked up once per header list instead of a search per cell.
+  const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
   const columns = matrix.width + (onExtend ? 1 : 0);
   const rows = matrix.height + (onExtend ? 1 : 0);
   const cells = [];
@@ -155,7 +157,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           map={map}
           header={header}
           altitude={matrix.altitudes ? (matrix.altitudes[i] ?? 0) : null}
-          area={thumbnailArea(header, headers, areaFallback)}
+          area={header === null ? areaFallback : (areaOf.get(header) ?? areaFallback)}
           color={colorOf ? colorOf(header) : null}
           size={cellSize}
           selected={selected?.has(cellKey(x, y)) ?? false}

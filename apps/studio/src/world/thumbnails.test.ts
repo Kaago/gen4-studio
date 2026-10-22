@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HeaderSummary } from "../api";
-import { ThumbnailCache, TransientRenderError, thumbnailArea, thumbnailKey } from "./thumbnails";
+import { ThumbnailCache, TransientRenderError, thumbnailKey } from "./thumbnails";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -278,14 +277,5 @@ describe("ThumbnailCache", () => {
     calls[0].bytes.resolve(new ArrayBuffer(1));
     await flush();
     expect(seen).toEqual([]);
-  });
-});
-
-describe("thumbnailArea", () => {
-  const headers = [{ id: 7, area_data_id: 3 }] as HeaderSummary[];
-  it("thumbnailArea_prefers_the_cell_header", () => {
-    expect(thumbnailArea(7, headers, 1)).toBe(3);
-    expect(thumbnailArea(null, headers, 1)).toBe(1);
-    expect(thumbnailArea(99, headers, 1)).toBe(1);
   });
 });

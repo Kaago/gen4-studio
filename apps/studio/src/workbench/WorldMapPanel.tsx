@@ -10,7 +10,7 @@ import { buildPlaces, mapsText, placeColor } from "./places";
 import type { Place, PlaceHeader } from "./places";
 import { TERMS, id4 } from "./terms";
 import { useMatrix } from "./useMatrix";
-import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinks } from "./worldMap";
+import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 import type { PlaceCells, RoomLink } from "./worldMap";
 
 /** What the world map needs from App. */
@@ -170,7 +170,7 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
-      const factor = Math.exp(-e.deltaY * 0.0015);
+      const factor = Math.exp(-wheelPixels(e) * 0.0015);
       // Zoom around the pointer: the point under it stays where it is.
       setView((v) => {
         const scale = clampScale(v.scale * factor);
@@ -395,7 +395,9 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
   const links = useMemo(() => {
     const byPlace = new Map<string, RoomLink[]>();
-    if (region) for (const place of places) byPlace.set(place.key, roomLinks(place, headers, warpLinks, region));
+    if (!region) return byPlace;
+    const index = roomLinkIndex(headers, warpLinks);
+    for (const place of places) byPlace.set(place.key, roomLinks(place, headers, warpLinks, region, index));
     return byPlace;
   }, [region, places, headers, warpLinks]);
 

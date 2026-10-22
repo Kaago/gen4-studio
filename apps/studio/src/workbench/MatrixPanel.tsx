@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
@@ -8,7 +8,7 @@ import { DraftInput } from "./DraftInput";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 import { parseCellField, resizePreview } from "./matrix";
 import type { NavTarget } from "./navigation";
-import { buildPlaces, placeColor, placeOf } from "./places";
+import { buildPlaces, placeColor } from "./places";
 import { TERMS } from "./terms";
 import { useMatrix } from "./useMatrix";
 
@@ -55,15 +55,28 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
   const [extendAt, setExtendAt] = useState<{ x: number; y: number } | null>(null);
   // The dialog belongs to the cell it was opened for: another matrix or project ends it.
   useEffect(() => setExtendAt(null), [index, info?.root]);
-  const places = useMemo(() => buildPlaces(headers, []), [headers]);
-  const colorOf = useMemo(
-    () => (header: number | null) => {
-      if (header === null) return null;
-      const place = placeOf(places, header);
-      return place ? placeColor(place.key) : null;
-    },
-    [places],
+  // The place colour of every header, built once per header list (a grid asks for each of its cells).
+  const colorByHeader = useMemo(
+    () => new Map(buildPlaces(headers, []).flatMap((place) => place.headers.map(({ header }) => [header.id, placeColor(place.key)] as const))),
+    [headers],
   );
+  const colorOf = useCallback((header: number | null) => (header === null ? null : (colorByHeader.get(header) ?? null)), [colorByHeader]);
+  // Stable handlers, so the memoised cells render again only when their own data changes.
+  const onCellClick = useCallback(
+    (x: number, y: number) => {
+      if (matrix) goTo({ kind: "matrixCell", matrix: matrix.index, x, y });
+    },
+    [matrix, goTo],
+  );
+  const onCellDoubleClick = useCallback(
+    (x: number, y: number) => {
+      if (!matrix) return;
+      const header = matrix.headers?.[y * matrix.width + x];
+      if (header !== undefined && matrix.maps[y * matrix.width + x] !== null) goTo({ kind: "matrixCell", matrix: matrix.index, x, y, header });
+    },
+    [matrix, goTo],
+  );
+  const onExtend = useCallback((x: number, y: number) => setExtendAt({ x, y }), []);
   const selected = useMemo(
     () => (matrix && selection?.matrix === matrix.index ? new Set([cellKey(selection.x, selection.y)]) : undefined),
     [matrix, selection],
@@ -179,12 +192,9 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
             cellSize={64}
             selected={selected}
             colorOf={colorOf}
-            onCellClick={(x, y) => goTo({ kind: "matrixCell", matrix: matrix.index, x, y })}
-            onCellDoubleClick={(x, y) => {
-              const header = matrix.headers?.[y * matrix.width + x];
-              if (header !== undefined && matrix.maps[y * matrix.width + x] !== null) goTo({ kind: "matrixCell", matrix: matrix.index, x, y, header });
-            }}
-            onExtend={(x, y) => setExtendAt({ x, y })}
+            onCellClick={onCellClick}
+            onCellDoubleClick={onCellDoubleClick}
+            onExtend={onExtend}
           />
         )}
       </div>
