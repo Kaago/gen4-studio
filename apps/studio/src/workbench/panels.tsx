@@ -176,9 +176,9 @@ export function TextTab() {
 
 export function ScriptTab() {
   const d = useWorkbench();
-  const { info, scripts, problems, onError } = d;
+  const { info, scripts, problems, bus, onError } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
-  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, onError }), [info, scripts, problems, onError]);
+  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, onError }), [info, scripts, problems, bus, onError]);
   return (
     <Suspense fallback={<p style={{ padding: 12, color: "#6b7280" }}>Editor wird geladen …</p>}>
       <ScriptPanel context={context} />

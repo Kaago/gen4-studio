@@ -81,21 +81,24 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  */
 export function useScripts({ info, bus, problems, onError }: ScriptsParams): ScriptsController {
   // Another project: nothing of the old one stays open. Reset while rendering, so no render pairs the old documents with the new project.
-  const [owner, setOwner] = useState(() => ({ info, documents: new ScriptDocuments() }));
+  // `saving`: the saves in flight of this project, so a second one (Cmd+S reaches the editor and the app) joins the first.
+  // It belongs to the project: a save of the same file number in the next project must not join the old one.
+  const fresh = () => ({ info, documents: new ScriptDocuments(), saving: new Map<number, Promise<void>>() });
+  const [owner, setOwner] = useState(fresh);
   const [status, setStatus] = useState<ScriptsStatusDto | null>(null);
   const [active, setActive] = useState<number | null>(null);
+  let owned = owner;
   if (owner.info !== info) {
-    setOwner({ info, documents: new ScriptDocuments() });
+    owned = fresh();
+    setOwner(owned);
     setStatus(null);
     setActive(null);
   }
-  const documents = owner.info === info ? owner.documents : new ScriptDocuments();
+  const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
 
-  const latest = useRef({ documents, problems, bus, onError });
-  latest.current = { documents, problems, bus, onError };
-  /** The saves in flight, so a second one (Cmd+S reaches the editor and the app) joins the first. */
-  const saving = useRef(new Map<number, Promise<void>>());
+  const latest = useRef({ documents, saving: owned.saving, problems, bus, onError });
+  latest.current = { documents, saving: owned.saving, problems, bus, onError };
   const dirtyKey = useRef("");
 
   useEffect(() => {
@@ -131,21 +134,24 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   }, []);
 
   const save = useCallback((file: number): Promise<void> => {
-    const { documents: docs } = latest.current;
-    const running = saving.current.get(file);
-    if (running) return running;
+    const { documents: docs, saving } = latest.current;
     const doc = docs.get(file);
     if (!doc) return Promise.resolve();
+    const running = saving.get(file);
+    // A joined save must not leave newer text behind: what was typed after the running save began is saved right after it.
+    if (running) return running.then(() => (lf(doc.text) !== doc.savedText ? save(file) : undefined));
     const job = (async () => {
       const sent = lf(doc.text);
       const dto: SaveScriptDto = doc.kind === "script" ? await saveScript(file, sent) : await saveLevelScript(file, parseLevelScript(file, sent));
+      // Another project was opened while the backend wrote: its problems and archives are not this project's.
+      if (latest.current.documents !== docs) return;
       // Typing during the save stays dirty: only what was sent is on disk now.
       doc.savedText = sent;
       latest.current.problems.applyReport(dto.problems, { files: [scriptPath(file, doc.kind)] });
       for (const archive of dto.touched_archives) latest.current.bus.emit({ topic: "textData", archive });
       bump();
-    })().finally(() => saving.current.delete(file));
-    saving.current.set(file, job);
+    })().finally(() => saving.delete(file));
+    saving.set(file, job);
     return job;
   }, []);
 
@@ -162,6 +168,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   const adopt = useCallback(async (onProgress?: (progress: AdoptProgressDto) => void) => {
     const report = await adoptScripts((p) => onProgress?.(p));
     const docs = latest.current.documents;
+    // rotom wrote its config: a running server (none yet, normally) reads the project state again.
+    latest.current.bus.emit({ topic: "lspFilesChanged", changes: [{ path: "rotom.toml", type: 1 }] });
     try {
       const next = await scriptsStatus();
       if (latest.current.documents === docs) setStatus(next);

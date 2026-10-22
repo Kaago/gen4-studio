@@ -1,6 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { ScriptDocuments, lineOffset, rootUri, scriptUri } from "./documents";
+import { ScriptDocuments, lineOffset, projectFileUri, rootUri, scriptUri } from "./documents";
 
 describe("ScriptDocuments", () => {
   it("opens_a_document_clean_with_no_editor_state", () => {
@@ -97,5 +97,7 @@ describe("lineOffset and rootUri", () => {
     expect(rootUri("/Users/me/My Project/")).toBe("file:///Users/me/My%20Project");
     expect(scriptUri("/Users/me/My Project/", 1).startsWith(rootUri("/Users/me/My Project/"))).toBe(true);
     expect(rootUri("/a#b")).toBe("file:///a%23b");
+    expect(projectFileUri("/Users/me/My Project", "expanded/textArchives/0199.json")).toBe("file:///Users/me/My%20Project/expanded/textArchives/0199.json");
+    expect(projectFileUri("/p", "rotom.toml")).toBe("file:///p/rotom.toml");
   });
 });

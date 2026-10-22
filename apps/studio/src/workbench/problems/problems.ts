@@ -53,7 +53,7 @@ export function countsText({ errors, warnings }: ProblemCounts): string {
 /**
  * The problems of the project, by where they came from: the compile problems of each file, the warnings of each text
  * archive and the live diagnostics of the shown document. Each source is replaced as a whole, so a fixed problem goes
- * and the others stay. Plain store for `useSyncExternalStore`: `list` and `counts` keep their identity until something changed.
+ * and the others stay. A live row with the same file, line and severity as a compile row is not listed or counted. Plain store for `useSyncExternalStore`: `list` and `counts` keep their identity until something changed.
  */
 export class ProblemsStore {
   private readonly compile = new Map<string, ProblemRow[]>();
@@ -134,7 +134,11 @@ export class ProblemsStore {
   }
 
   private changed(): void {
-    const all = [...this.compile.values(), ...this.text.values(), this.live].flat();
+    const compile = [...this.compile.values()].flat();
+    // The language server and the compile find the same fault: one row, the compile's (whose source says "Compile").
+    const known = new Set(compile.map((p) => `${p.file}\0${p.line}\0${p.severity}`));
+    const live = this.live.filter((p) => !known.has(`${p.file}\0${p.line}\0${p.severity}`));
+    const all = [...compile, ...[...this.text.values()].flat(), ...live];
     all.sort((a, b) => Number(b.severity === "error") - Number(a.severity === "error") || a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col);
     this.rows = all;
     const errors = all.filter((p) => p.severity === "error").length;

@@ -2,7 +2,8 @@ import type { LSPClient } from "@codemirror/lsp-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, isCmdError, lspStop } from "../../api";
 import type { ProjectInfo } from "../../api";
-import { rootUri } from "./documents";
+import type { EditBus } from "../../bus/editBus";
+import { projectFileUri, rootUri } from "./documents";
 import { connectLsp } from "./lspConnection";
 import type { LspConnection } from "./lspConnection";
 import { createTauriTransport } from "./tauriTransport";
@@ -33,13 +34,15 @@ const IDLE: Connected = { client: null, state: "starting", note: null };
  * channel and transport for every start; the client resyncs itself (see `connectLsp`). The editor works without it: a
  * missing or dead server only turns the language services off.
  */
-export function useLsp(project: ProjectInfo | null, enabled: boolean): LspStatus {
+export function useLsp(project: ProjectInfo | null, enabled: boolean, bus: EditBus): LspStatus {
   const [connected, setConnected] = useState<Connected>(IDLE);
   const [attempt, setAttempt] = useState(0);
   /** The newest start; a start that finishes late and finds a newer one must not stop the server that one is bringing up. */
   const newest = useRef(0);
   /** The last `lspStop`: a start waits for it, so it cannot stop the server it just started. */
   const stopping = useRef<Promise<void>>(Promise.resolve());
+  /** The running connection, for the file-change notices; null while there is none. */
+  const running = useRef<LspConnection | null>(null);
 
   useEffect(() => {
     if (!project || !enabled) {
@@ -72,17 +75,29 @@ export function useLsp(project: ProjectInfo | null, enabled: boolean): LspStatus
           if (!cancelled) setConnected({ client: null, state: "stopped", note: "rotom-lsp antwortet nicht" });
         },
       });
+      running.current = connection;
       setConnected({ client: connection.client, state: "running", note: null });
     })();
     return () => {
       cancelled = true;
       if (connection) {
+        if (running.current === connection) running.current = null;
         // The client first, then the transport (inside `close`), then the server.
         connection.close();
         stopping.current = lspStop().catch(() => {});
       }
     };
   }, [project, enabled, attempt]);
+
+  // Saved text archives and a new `rotom.toml`: the server reads message ids and project state again (spec §7).
+  useEffect(
+    () =>
+      bus.subscribe("lspFilesChanged", (event) => {
+        if (event.topic !== "lspFilesChanged" || !project) return;
+        running.current?.filesChanged(event.changes.map((c) => ({ uri: projectFileUri(project.root, c.path), type: c.type })));
+      }),
+    [bus, project],
+  );
 
   const restart = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...connected, restart };

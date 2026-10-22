@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectInfo, ScriptsStatusDto } from "../../api";
-import { addScript, adoptScripts, lspStart, lspStop, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
+import { addScript, adoptScripts, lspSend, lspStart, lspStop, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
 import { createEditBus } from "../../bus/editBus";
 import type { EditBus, EditEvent } from "../../bus/editBus";
 import { ProblemsStore } from "../problems/problems";
@@ -49,7 +49,7 @@ describe("ScriptPanel", () => {
   function Host({ project }: { project: ProjectInfo | null }) {
     const { api: scripts } = useScripts({ info: project, bus, problems, onError });
     api = scripts;
-    return <ScriptPanel context={{ project, scripts, problems, onError }} />;
+    return <ScriptPanel context={{ project, scripts, problems, bus, onError }} />;
   }
   const render = (project: ProjectInfo | null = projectA) => act(async () => root.render(<Host project={project} />));
   const settle = () => act(async () => {});
@@ -70,6 +70,7 @@ describe("ScriptPanel", () => {
     vi.mocked(saveLevelScript).mockReset().mockResolvedValue({ problems: [], touched_archives: [] });
     vi.mocked(addScript).mockReset();
     vi.mocked(lspStart).mockReset().mockRejectedValue(MISSING);
+    vi.mocked(lspSend).mockReset().mockResolvedValue(undefined);
     vi.mocked(lspStop).mockReset().mockResolvedValue(undefined);
     vi.mocked(ask).mockReset();
   });
@@ -340,6 +341,122 @@ describe("ScriptPanel", () => {
     expect(vi.mocked(lspStop).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(lspStart).mock.invocationCallOrder[1]!);
     // The documents of the old project are gone.
     expect(api.documents.list()).toEqual([]);
+  });
+
+  /** A language server that answers `initialize`; returns what the client sent. */
+  function answeringServer() {
+    const sent: { id?: number; method: string; params?: any }[] = [];
+    let push: (body: string) => void = () => {};
+    vi.mocked(lspStart).mockImplementation(async (onMessage) => void (push = onMessage));
+    vi.mocked(lspSend).mockImplementation(async (body) => {
+      const message = JSON.parse(body);
+      sent.push(message);
+      if (message.method === "initialize") queueMicrotask(() => push(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { capabilities: {} } })));
+    });
+    return sent;
+  }
+
+  it("tells_a_running_language_server_which_files_changed_with_file_uris", async () => {
+    const sent = answeringServer();
+    await render();
+    await settle();
+    await settle();
+    act(() =>
+      bus.emit({
+        topic: "lspFilesChanged",
+        changes: [
+          { path: "expanded/textArchives/0005.json", type: 2 },
+          { path: "rotom.toml", type: 1 },
+        ],
+      }),
+    );
+    await settle();
+    await settle();
+    const notice = sent.filter((m) => m.method === "workspace/didChangeWatchedFiles");
+    expect(notice).toHaveLength(1);
+    expect(notice[0]!.params).toEqual({
+      changes: [
+        { uri: "file:///a/expanded/textArchives/0005.json", type: 2 },
+        { uri: "file:///a/rotom.toml", type: 1 },
+      ],
+    });
+  });
+
+  it("sends_no_file_notice_when_the_language_server_is_not_running", async () => {
+    vi.mocked(lspStart).mockRejectedValue(MISSING);
+    await render();
+    await settle();
+    act(() => bus.emit({ topic: "lspFilesChanged", changes: [{ path: "expanded/textArchives/0005.json", type: 2 }] }));
+    await settle();
+    expect(lspSend).not.toHaveBeenCalled();
+  });
+
+  it("announces_rotom_toml_as_created_after_an_adoption", async () => {
+    vi.mocked(scriptsStatus).mockResolvedValueOnce({ adopted: false, file_count: 2 });
+    vi.mocked(adoptScripts).mockResolvedValue({ decompiled: 2, skipped_empty: 0, failed: [] });
+    await render();
+    await settle();
+    click(button("Übernehmen"));
+    await settle();
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "rotom.toml", type: 1 }] });
+  });
+
+  it("drops_a_save_that_finishes_after_another_project_was_opened_and_does_not_let_the_next_project_join_it", async () => {
+    let finish!: (dto: { problems: any[]; touched_archives: number[] }) => void;
+    vi.mocked(saveScript).mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await render(projectA);
+    await settle();
+    await open(42);
+    api.documents.get(42)!.text += "x";
+    const inFlight = api.save(42);
+    await render(projectB);
+    await settle();
+    expect(api.documents.list()).toEqual([]);
+    // The old project's save ends now: its compile rows and archives are nobody's in the new project.
+    finish({ problems: [{ severity: "error", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "alt", source: "compile" }], touched_archives: [199] });
+    await act(async () => void (await inFlight));
+    expect(problems.list()).toEqual([]);
+    expect(events.filter((e) => e.topic === "textData")).toEqual([]);
+    // The same file number in the new project saves on its own, it does not join the old save.
+    await open(42);
+    api.documents.get(42)!.text += "y";
+    await act(async () => api.save(42));
+    expect(saveScript).toHaveBeenCalledTimes(2);
+    expect(saveScript).toHaveBeenLastCalledWith(42, `${SCRIPT}y`);
+    expect(api.documents.dirty()).toEqual([]);
+  });
+
+  it("a_save_that_joins_one_in_flight_saves_the_text_typed_meanwhile_right_after_it", async () => {
+    let finish!: (dto: { problems: any[]; touched_archives: number[] }) => void;
+    vi.mocked(saveScript).mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    await render();
+    await settle();
+    await open(42);
+    const doc = api.documents.get(42)!;
+    doc.text += "a";
+    const first = api.save(42);
+    doc.text += "b";
+    const joined = api.save(42);
+    expect(saveScript).toHaveBeenCalledTimes(1);
+    expect(saveScript).toHaveBeenCalledWith(42, `${SCRIPT}a`);
+    await act(async () => {
+      finish({ problems: [], touched_archives: [] });
+      await Promise.all([first, joined]);
+    });
+    expect(saveScript).toHaveBeenCalledTimes(2);
+    expect(saveScript).toHaveBeenLastCalledWith(42, `${SCRIPT}ab`);
+    expect(api.documents.dirty()).toEqual([]);
+    // Nothing typed meanwhile: a joined save does not write again.
+    let done!: (dto: { problems: any[]; touched_archives: number[] }) => void;
+    vi.mocked(saveScript).mockImplementationOnce(() => new Promise((resolve) => (done = resolve)));
+    doc.text += "c";
+    const third = api.save(42);
+    const joinedClean = api.save(42);
+    await act(async () => {
+      done({ problems: [], touched_archives: [] });
+      await Promise.all([third, joinedClean]);
+    });
+    expect(saveScript).toHaveBeenCalledTimes(3);
   });
 
   it("starts_one_language_server_under_strict_mode_and_does_not_stop_it", async () => {

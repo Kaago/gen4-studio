@@ -44,7 +44,7 @@ export default function App() {
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  const session = useProjectSession({ problems, scripts: scriptBridge });
+  const session = useProjectSession({ bus, problems, scripts: scriptBridge });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
   scriptBridge.current = scripts.bridge;
   // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).

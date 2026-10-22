@@ -15,6 +15,8 @@ export const MAX_SILENT_RESYNCS = 5;
 
 export interface LspConnection {
   readonly client: LSPClient;
+  /** Tells the server that files changed on disk (`workspace/didChangeWatchedFiles`); `type` 1 created, 2 changed. */
+  filesChanged(changes: { uri: string; type: 1 | 2 }[]): void;
   /** Disconnects the client, then releases the transport (one tick later). Does not stop the server (`lspStop` does). */
   close(): void;
 }
@@ -77,6 +79,9 @@ export function connectLsp(transport: TauriTransport, options: { rootUri: string
 
   return {
     client,
+    filesChanged(changes) {
+      if (!closed) client.notification("workspace/didChangeWatchedFiles", { changes });
+    },
     close() {
       closed = true;
       if (timer !== null) clearTimeout(timer);

@@ -5,6 +5,7 @@ import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, 
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import type { Message } from "../Toolbar";
+import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptBridge } from "../workbench/script/useScripts";
 import { eventReadOnlyReason, lockedText } from "../world/events";
@@ -28,6 +29,8 @@ function storeEmulator(path: string) {
 }
 
 interface SessionParams {
+  /** Where a saved text archive is announced (the language server reads it again). */
+  bus: EditBus;
   /** Where the problems of a save or a build go. */
   problems: ProblemsStore;
   /** The open scripts, which a build saves first and the unsaved-edit guards count. A ref: the scripts hook is created after this one (it needs `info`). */
@@ -40,7 +43,7 @@ interface SessionParams {
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession({ problems, scripts }: SessionParams) {
+export function useProjectSession({ bus, problems, scripts }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
@@ -184,12 +187,20 @@ export function useProjectSession({ problems, scripts }: SessionParams) {
     });
   }
 
+  /** Saves everything dirty in the store. Text warnings go to the problems store; the language server is told about the archives written. */
+  async function saveStore() {
+    const report = await save();
+    const archives = report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index);
+    // An archive that was written without any warning is cleared.
+    problems.applyReport(report.problems, { archives });
+    if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
+    return report;
+  }
+
   async function onSave() {
     if (!info || busy) return;
     try {
-      const report = await save();
-      // Text warnings of the archives that were written; an archive without any is cleared.
-      problems.applyReport(report.problems, { archives: report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index) });
+      const report = await saveStore();
       // Open scripts are part of the project: saved the way Cmd+S in the editor saves them (after the archives, which a save refuses to run ahead of).
       const dirtyScripts = scripts.current.dirtyFiles();
       for (const file of dirtyScripts) await scripts.current.save(file);
@@ -207,11 +218,15 @@ export function useProjectSession({ problems, scripts }: SessionParams) {
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
       // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
-      for (const file of scripts.current.dirtyFiles()) await scripts.current.save(file);
+      // A script save refuses while a text archive is unsaved, and the build saves the store only after the scripts: with
+      // scripts to save, the store goes first (as in `onSave`).
+      const dirtyScripts = scripts.current.dirtyFiles();
+      const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
+      for (const file of dirtyScripts) await scripts.current.save(file);
       const report = await buildRom(out);
       setLastRom(report.rom);
       problems.applyReport(report.problems);
-      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved} Datei(en) vorher gespeichert)` });
+      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
         const list = e.problems ?? [];

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuildReport, ProblemDto } from "../api";
 import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, save, saveScript, scriptsStatus } from "../api";
 import { createEditBus } from "../bus/editBus";
+import type { EditBus, EditEvent } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "../workbench/script/useScripts";
 import type { ScriptBridge, ScriptsController } from "../workbench/script/useScripts";
@@ -39,11 +40,13 @@ describe("useProjectSession with open scripts", () => {
   let session: ProjectSession;
   let scripts: ScriptsController;
   let problems: ProblemsStore;
+  let bus: EditBus;
+  let events: EditEvent[];
 
   function Host() {
     const bridge = useRef<ScriptBridge>(NO_SCRIPTS);
-    session = useProjectSession({ problems, scripts: bridge });
-    scripts = useScripts({ info: session.info, bus: createEditBus(), problems, onError: session.fail });
+    session = useProjectSession({ bus, problems, scripts: bridge });
+    scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
     bridge.current = scripts.bridge;
     return null;
   }
@@ -60,6 +63,9 @@ describe("useProjectSession with open scripts", () => {
     document.body.append(container);
     root = createRoot(container);
     problems = new ProblemsStore();
+    bus = createEditBus();
+    events = [];
+    bus.subscribe(() => true, (e) => events.push(e));
     vi.mocked(saveDialog).mockReset().mockResolvedValue("/out.nds");
     vi.mocked(ask).mockReset().mockResolvedValue(true);
     vi.mocked(open).mockReset();
@@ -105,10 +111,43 @@ describe("useProjectSession with open scripts", () => {
     expect(scripts.api.documents.dirty()).toEqual([3, 4]);
   });
 
+  it("build_saves_the_store_before_the_open_scripts_so_a_dirty_text_archive_does_not_refuse_them", async () => {
+    // The backend refuses a script save while a text archive is unsaved: the store has to go first.
+    let archiveSaved = false;
+    vi.mocked(save).mockImplementation(async () => {
+      archiveSaved = true;
+      return { written: [{ kind: "TextArchive", index: 5 }, { kind: "Map", index: 1 }], problems: [problem("expanded/textArchives/0005.json", 1, "zu breit", "warning", "text")] };
+    });
+    vi.mocked(saveScript).mockImplementation(async () => {
+      if (!archiveSaved) throw { code: "error", message: "Textarchiv 0005 erst speichern", asset: null };
+      return { problems: [], touched_archives: [] };
+    });
+    await openDirty(3);
+    await build();
+    expect(session.message).toMatchObject({ kind: "info", text: "ROM gebaut: /out.nds (2 Datei(en) vorher gespeichert)" });
+    const first = (m: { mock: { invocationCallOrder: number[] } }) => m.mock.invocationCallOrder[0]!;
+    expect(first(vi.mocked(save))).toBeLessThan(first(vi.mocked(saveScript)));
+    expect(first(vi.mocked(saveScript))).toBeLessThan(first(vi.mocked(buildRom)));
+    expect(problems.list().map((p) => p.message)).toEqual(["zu breit"]);
+    // The language server is told which archive changed.
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/textArchives/0005.json", type: 2 }] });
+    // A failing store save builds nothing and keeps the scripts unsaved.
+    vi.mocked(save).mockRejectedValue({ code: "error", message: "Platte voll", asset: null });
+    vi.mocked(buildRom).mockClear();
+    vi.mocked(saveScript).mockClear();
+    await openDirty(3);
+    await build();
+    expect(session.message).toMatchObject({ kind: "error", text: "Platte voll" });
+    expect(buildRom).not.toHaveBeenCalled();
+    expect(saveScript).not.toHaveBeenCalled();
+  });
+
   it("build_does_not_save_clean_scripts_and_a_cancelled_dialog_saves_nothing", async () => {
     await act(async () => scripts.api.open(3));
     await build();
     expect(saveScript).not.toHaveBeenCalled();
+    // Nothing of the store is saved by the editor side: the build does that itself.
+    expect(save).not.toHaveBeenCalled();
     expect(buildRom).toHaveBeenCalledTimes(1);
     await openDirty(3);
     vi.mocked(saveDialog).mockResolvedValueOnce(null);
@@ -182,6 +221,7 @@ describe("useProjectSession with open scripts", () => {
       expect(vi.mocked(save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(saveScript).mock.invocationCallOrder[0]!);
       expect(session.message).toMatchObject({ kind: "info", text: "3 Datei(en) gespeichert" });
       expect(problems.list().map((p) => p.message)).toEqual(["zu breit"]);
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/textArchives/0005.json", type: 2 }] });
       // The next save of archive 5 without warnings clears them.
       vi.mocked(save).mockResolvedValue({ written: [{ kind: "TextArchive", index: 5 }], problems: [] });
       await act(async () => session.onSave());

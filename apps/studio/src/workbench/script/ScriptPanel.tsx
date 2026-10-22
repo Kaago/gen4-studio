@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ProjectInfo } from "../../api";
 import { useStableCallback } from "../../app/useStable";
+import type { EditBus } from "../../bus/editBus";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
 import { TERMS, id4 } from "../terms";
@@ -23,6 +24,8 @@ export interface ScriptPanelContext {
   scripts: ScriptsApi;
   /** Where the live diagnostics of the shown document go. */
   problems: ProblemsStore;
+  /** Where saved text archives announce themselves to the language server. A stable object. */
+  bus: EditBus;
   onError: (e: unknown) => void;
 }
 
@@ -113,10 +116,10 @@ function lspText(lsp: LspStatus): string | null {
 
 /** The Script panel (spec §8.2): the adoption box until rotom has taken the scripts over, then the documents with their editor. */
 export const ScriptPanel = memo(function ScriptPanel({ context }: { context: ScriptPanelContext }) {
-  const { project, scripts, problems, onError } = context;
+  const { project, scripts, problems, bus, onError } = context;
   const { status, documents, active, open, save, close, add, adopt, onChange } = scripts;
   const adopted = status?.adopted === true;
-  const lsp = useLsp(project, adopted);
+  const lsp = useLsp(project, adopted, bus);
   // The box stays after the adoption until its report was read.
   const [reading, setReading] = useState(false);
   const [seenProject, setSeenProject] = useState(project);

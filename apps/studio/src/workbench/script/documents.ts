@@ -80,7 +80,12 @@ export function lineOffset(text: string, line: number): number {
  */
 export function scriptUri(root: string, file: number, kind: ScriptDocument["kind"] = "script"): string {
   const name = `${String(file).padStart(4, "0")}.${kind === "script" ? "rotom" : "json"}`;
-  return new URL(`file://${encodedRoot(root)}/expanded/scripts/${name}`).href;
+  return projectFileUri(root, `expanded/scripts/${name}`);
+}
+
+/** The `file://` URL of a project-relative path (forward slashes), encoded like `scriptUri`. */
+export function projectFileUri(root: string, path: string): string {
+  return new URL(`file://${encodedRoot(root)}/${path}`).href;
 }
 
 /** The language server's `rootUri`: the project root as `file://` URL, encoded like in `scriptUri`. */

@@ -83,6 +83,27 @@ describe("ProblemsStore", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it("lists_a_live_row_that_repeats_a_compile_row_once_and_counts_it_once", () => {
+    const store = new ProblemsStore();
+    store.replaceForFile(A, [problem(A, 3, "unbekannter Befehl Bogus")]);
+    // The server finds the same fault (other wording, other column) and one more on another line.
+    store.replaceLive([
+      { severity: "error", file: A, line: 3, col: 5, message: "unknown command Bogus" },
+      { severity: "error", file: A, line: 4, col: 1, message: "other" },
+      { severity: "warning", file: A, line: 3, col: 1, message: "other severity" },
+    ]);
+    expect(store.list().map((p) => [p.line, p.source, p.severity])).toEqual([
+      [3, "compile", "error"],
+      [4, "live", "error"],
+      [3, "live", "warning"],
+    ]);
+    expect(store.counts()).toEqual({ errors: 2, warnings: 1 });
+    // Once the compile row is gone (fixed), the live row shows again.
+    store.replaceForFile(A, []);
+    expect(store.list().map((p) => p.line)).toEqual([3, 4, 3]);
+    expect(store.counts()).toEqual({ errors: 2, warnings: 1 });
+  });
+
   it("apply_report_groups_by_file_and_archive_and_clears_the_named_ones", () => {
     const store = new ProblemsStore();
     store.replaceForFile(A, [problem(A, 1, "old")]);
