@@ -694,6 +694,32 @@ fn map_tileset_index_follows_unsaved_edits_and_tolerates_a_missing_area() {
 }
 
 #[test]
+fn area_data_checked_gives_the_edited_record_or_none_past_the_archive() {
+    let (_s, mut st) = store();
+    assert_eq!(st.area_data_checked(200).unwrap(), None);
+    let before = st.area_data_checked(1).unwrap().unwrap();
+    assert_eq!(before.buildings_tileset(), 1);
+    assert_eq!(before.area_type(), None);
+    st.edit_area_data(1, "tileset", |a| {
+        if let AreaData::Dppt {
+            buildings_tileset, ..
+        } = a
+        {
+            *buildings_tileset = 0;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        st.area_data_checked(1)
+            .unwrap()
+            .unwrap()
+            .buildings_tileset(),
+        0
+    );
+}
+
+#[test]
 fn area_data_edit_round_trips() {
     let (s, mut st) = store();
     st.edit_area_data(1, "tileset", |a| {

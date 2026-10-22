@@ -9,6 +9,8 @@ interface Props {
   type?: "text" | "number";
   min?: number;
   max?: number;
+  /** Arrow-key step of a number field; setting it also asks for a decimal keyboard. */
+  step?: number;
   placeholder?: string;
   label: string;
   style?: CSSProperties;
@@ -20,7 +22,7 @@ interface Props {
  * lingers). Text still being typed when the field unmounts (the inspector swaps its content on
  * hover without blurring) is committed instead of lost.
  */
-export function DraftInput({ value, onCommit, type = "text", min, max, placeholder, label, style }: Props) {
+export function DraftInput({ value, onCommit, type = "text", min, max, step, placeholder, label, style }: Props) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
 
@@ -43,9 +45,10 @@ export function DraftInput({ value, onCommit, type = "text", min, max, placehold
   return (
     <input
       type={type}
-      inputMode={type === "number" ? "numeric" : undefined}
+      inputMode={type === "number" ? (step === undefined ? "numeric" : "decimal") : undefined}
       min={min}
       max={max}
+      step={step}
       value={draft}
       placeholder={placeholder}
       aria-label={label}

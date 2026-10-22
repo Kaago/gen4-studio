@@ -230,6 +230,69 @@ mod project_tileset {
         assert_eq!(p.map_tileset_bytes(5).unwrap(), None);
     }
 
+    #[test]
+    fn building_models_and_tilesets_tolerate_out_of_range() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let p = Project::open(fixture.dir.path()).unwrap();
+        // One exterior building model and one building texture set; Platinum has no interior
+        // archive, so `interior` falls back to the exterior one.
+        assert_eq!(
+            p.building_model_bytes(0, false).unwrap().as_deref(),
+            Some(&b"BMD0\0\0\0\0"[..])
+        );
+        assert_eq!(
+            p.building_model_bytes(0, true).unwrap(),
+            p.building_model_bytes(0, false).unwrap()
+        );
+        assert_eq!(p.building_model_bytes(1, false).unwrap(), None);
+        assert_eq!(p.building_model_bytes(99_999, false).unwrap(), None);
+        assert_eq!(p.building_model_bytes(u32::MAX, false).unwrap(), None);
+        // Area data 0 selects building tileset 0, area data 1 (`buildings_tileset` 1) a
+        // tileset the archive does not have, area data 5 does not exist.
+        assert_eq!(
+            p.building_tileset_bytes(0).unwrap().as_deref(),
+            Some(&b"BTX0\0\0\0\0"[..])
+        );
+        assert_eq!(p.building_tileset_bytes(1).unwrap(), None);
+        assert_eq!(p.building_tileset_bytes(5).unwrap(), None);
+    }
+
+    /// Gated: HGSS has an interior archive (222 models in HG DE) next to the 340 exterior ones;
+    /// the other games have only the exterior one and ignore the flag. Works on a copy.
+    #[test]
+    fn vanilla_building_models_follow_the_interior_flag() {
+        let Some((_copy, root)) = g4_kernel::test_support::vanilla_copy() else {
+            return;
+        };
+        let p = Project::open(&root).unwrap();
+        // Model 0 is the same file in both HGSS archives; model 1 differs.
+        let exterior = p.building_model_bytes(1, false).unwrap().unwrap();
+        let interior = p.building_model_bytes(1, true).unwrap().unwrap();
+        let count = p.member_count(AssetKind::BuildingModel).unwrap();
+        assert!(
+            p.building_model_bytes(count as u32, false)
+                .unwrap()
+                .is_none()
+        );
+        if p.has_archive(AssetKind::InteriorBuildingModel) {
+            assert_ne!(exterior, interior);
+            let interior_count = p.member_count(AssetKind::InteriorBuildingModel).unwrap();
+            assert!(interior_count < count);
+            assert!(
+                p.building_model_bytes(interior_count as u32, true)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                p.building_model_bytes(interior_count as u32, false)
+                    .unwrap()
+                    .is_some()
+            );
+        } else {
+            assert_eq!(exterior, interior);
+        }
+    }
+
     /// Map model and texture set of a vanilla header, working on a copy of the project
     /// (unpacking writes `unpacked/`; the original is never touched).
     fn vanilla_model_and_tileset(

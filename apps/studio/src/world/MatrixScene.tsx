@@ -1,25 +1,25 @@
 import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { errorText, getEvents, getMap, getMapModelGlb, mapModelTextureStatus, setPermission, tileBehaviors } from "../api";
+import { errorText, getBuildingGlb, getEvents, getMap, getMapModelGlb, mapModelTextureStatus, setPermission, tileBehaviors, updateBuilding } from "../api";
 import type { TextureIssue } from "../api";
 import type { Message } from "../Toolbar";
 import { headerLabel } from "../workbench/headers";
-import type { EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
+import type { BuildingDto, EventsDto, HeaderSummary, MapDto, MatrixDto, TileBehavior, WarpDto } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
+import { BuildingLayer } from "./buildingLayer";
+import type { BuildingRef } from "./buildingLayer";
+import { sameBuildings } from "./buildings";
+import type { BuildingRefresh } from "./buildings";
 import { permissionColor } from "./colors";
+import { planeDrag } from "./drag";
 import { MARKER_COLORS, markerPosition } from "./events";
 import type { EventData, EventKind } from "./events";
 import { describeTile } from "./hover";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
-import { MAP_SIZE, buildingBox, cellOrigin } from "./layout";
+import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
-
-/** apicula GLB units per tile: a 32-tile map model spans 512 units (measured on vanilla Pt/HGSS maps). */
-const MODEL_UNITS_PER_TILE = 16;
-const MODEL_SCALE = 1 / MODEL_UNITS_PER_TILE;
+import { cloneModel, disposeTree, parseGlb } from "./sceneUtil";
 
 interface Loaded {
   map: MapDto;
@@ -59,8 +59,16 @@ interface SceneHandle {
   /** Tile behaviour names by kind byte (empty until loaded). */
   names: Map<number, TileBehavior>;
   markers: MarkerSet | null;
+  /** The buildings of the shown matrix (a child of `content`; null until a matrix is loaded). */
+  buildings: BuildingLayer | null;
+  /** The selected building, as the scene knows it (follows the `selectedMap`/`selectedBuilding` props). */
+  selection: BuildingRef | null;
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null;
+  /** A render is already queued for the next animation frame. */
+  renderQueued: boolean;
+  /** The component is gone; late results and queued renders are dropped. */
+  disposed: boolean;
 }
 
 const colorCache = new Map<string, THREE.Color>();
@@ -69,27 +77,6 @@ function overlayColor(kind: number, collision: number, names: Map<number, TileBe
   let color = colorCache.get(hex);
   if (!color) colorCache.set(hex, (color = new THREE.Color(hex)));
   return color;
-}
-
-function disposeTree(root: THREE.Object3D) {
-  root.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    mesh.geometry?.dispose();
-    const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-    for (const material of materials) {
-      for (const value of Object.values(material)) {
-        if (value instanceof THREE.Texture) value.dispose();
-      }
-      material.dispose();
-    }
-    (obj as THREE.InstancedMesh).dispose?.();
-  });
-}
-
-function parseGlb(buffer: ArrayBuffer): Promise<THREE.Object3D> {
-  return new Promise((resolve, reject) => {
-    new GLTFLoader().parse(buffer, "", (gltf) => resolve(gltf.scene), reject);
-  });
 }
 
 let namesCache: Promise<Map<number, TileBehavior>> | null = null;
@@ -110,15 +97,7 @@ function addModel(h: SceneHandle, matrix: MatrixDto, mapId: number, model: THREE
   matrix.maps.forEach((id, i) => {
     if (id !== mapId) return;
     const origin = cellOrigin(i % matrix.width, Math.floor(i / matrix.width));
-    const instance = cloneSkinned(model);
-    instance.traverse((obj) => {
-      const mesh = obj as THREE.SkinnedMesh;
-      if (mesh.isSkinnedMesh) mesh.frustumCulled = false;
-      if (mesh.isMesh) {
-        const material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.Material[];
-        for (const m of material) m.side = THREE.DoubleSide;
-      }
-    });
+    const instance = cloneModel(model);
     // The model is centred on the map centre.
     instance.scale.setScalar(MODEL_SCALE);
     instance.position.set(origin.x + MAP_SIZE / 2, 0, origin.z + MAP_SIZE / 2);
@@ -139,7 +118,57 @@ function removeModels(h: SceneHandle) {
   h.models = [];
 }
 
-/** Builds the overlay and building objects once all maps are known; models are added later. */
+/** Renders on the next animation frame; bursts of arriving models cost one render. */
+function queueRender(h: SceneHandle) {
+  if (h.renderQueued) return;
+  h.renderQueued = true;
+  requestAnimationFrame(() => {
+    h.renderQueued = false;
+    if (!h.disposed) h.render();
+  });
+}
+
+/**
+ * A loader job for building model `id`: fetches and parses it, then hands it to the buildings that
+ * use it. A failure is remembered in the layer (the buildings keep their box) and rethrown for the
+ * caller's summary. Results that arrive after `stale()` turned true are discarded.
+ */
+function buildingModelJob(h: SceneHandle, layer: BuildingLayer, id: number, area: number, stale: () => boolean) {
+  return async () => {
+    if (stale()) return;
+    try {
+      const model = await getBuildingGlb(id, area).then(parseGlb);
+      if (stale()) {
+        disposeTree(model);
+        return;
+      }
+      layer.setTemplate(id, model);
+      queueRender(h);
+    } catch (e) {
+      if (!stale()) layer.setFailed(id, errorText(e));
+      throw e;
+    }
+  };
+}
+
+/** Loads the building models the layer still lacks, a few at a time; never rejects. */
+async function loadMissingBuildingModels(h: SceneHandle, layer: BuildingLayer, area: number, stale: () => boolean) {
+  const ids = layer.missingModelIds();
+  await limitConcurrency(
+    ids.map((id) => buildingModelJob(h, layer, id, area, stale)),
+    MODEL_CONCURRENCY,
+  );
+}
+
+/** Drops the selection when its building no longer exists (after an undo, say). */
+function dropMissingSelection(h: SceneHandle, onSelect: (ref: BuildingRef | null) => void) {
+  if (!h.selection || !h.buildings || h.buildings.has(h.selection)) return;
+  h.selection = null;
+  h.buildings.select(null);
+  onSelect(null);
+}
+
+/** Builds the overlay and the building boxes once all maps are known; models are added later. */
 function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map<number, TileBehavior>) {
   const content = new THREE.Group();
   const cells: { col: number; row: number; data: Loaded }[] = [];
@@ -180,24 +209,10 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map
   overlay.add(tiles);
   content.add(overlay);
 
-  const boxes: { cx: number; cy: number; cz: number; sx: number; sy: number; sz: number }[] = [];
-  for (const { col, row, data } of cells) {
-    const origin = cellOrigin(col, row);
-    for (const b of data.map.buildings) boxes.push(buildingBox(b, origin));
-  }
-  const boxMesh = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshBasicMaterial({ color: "#f59e0b", wireframe: true }),
-    boxes.length,
-  );
-  boxMesh.frustumCulled = false;
-  const q = new THREE.Quaternion();
-  boxes.forEach((b, i) => {
-    m4.compose(new THREE.Vector3(b.cx, b.cy, b.cz), q, new THREE.Vector3(b.sx, b.sy, b.sz));
-    boxMesh.setMatrixAt(i, m4);
-  });
-  content.add(boxMesh);
-  return { content, overlay, tiles, bases };
+  const buildings = new BuildingLayer();
+  buildings.build(matrix, loaded);
+  content.add(buildings.root);
+  return { content, overlay, tiles, bases, buildings };
 }
 
 /** Builds the marker meshes of `events`; events outside the matrix get no marker. */
@@ -298,6 +313,15 @@ interface Props {
   onInspect: (model: InspectorModel) => void;
   /** Load progress and the summary of what failed to load (null: nothing to show, clears the progress). */
   onStatus: (message: Message | null) => void;
+  /** The selected building (both null: none). The scene outlines it and lets it be dragged. */
+  selectedMap: number | null;
+  selectedBuilding: number | null;
+  /** A click on a building (or null for none). The owner decides what to select and passes it back. */
+  onSelectBuilding: (ref: BuildingRef | null) => void;
+  /** A building was moved by dragging and the move is written. */
+  onBuildingMoved: (map: number) => void;
+  /** A new request makes the scene read one map's buildings again (they were edited elsewhere). */
+  buildingRefresh: BuildingRefresh | null;
 }
 
 function MatrixScene({
@@ -314,6 +338,11 @@ function MatrixScene({
   onError,
   onInspect,
   onStatus,
+  selectedMap,
+  selectedBuilding,
+  onSelectBuilding,
+  onBuildingMoved,
+  buildingRefresh,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
@@ -325,8 +354,11 @@ function MatrixScene({
   const headersRef = useRef(headers);
   headersRef.current = headers;
   const [eventStatus, setEventStatus] = useState<string | null>(null);
-  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect, onStatus });
-  callbacks.current = { paintEnabled, onEdited, onError, onInspect, onStatus };
+  // Like the area data, the one the buildings are textured with is read when models are requested.
+  const areaRef = useRef(areaDataId);
+  areaRef.current = areaDataId;
+  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved });
+  callbacks.current = { paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved };
 
   // Renderer, camera and controls live as long as the component.
   useEffect(() => {
@@ -376,7 +408,11 @@ function MatrixScene({
       bases: new Map(),
       names: new Map(),
       markers: null,
+      buildings: null,
+      selection: null,
       refreshHover: null,
+      renderQueued: false,
+      disposed: false,
     };
     handle.current = h;
 
@@ -466,6 +502,7 @@ function MatrixScene({
     };
     const onMove = (e: PointerEvent) => {
       pointer = { x: e.clientX, y: e.clientY };
+      updateDrag(e);
       scheduleHover();
     };
     const onLeave = () => {
@@ -477,15 +514,129 @@ function MatrixScene({
       scheduleHover();
     };
 
+    // Dragging the selected building moves it on the ground plane (buildings snap to half tiles).
+    // The drag starts in the capture phase, before OrbitControls sees the press, so the camera stays still.
+    interface Drag {
+      ref: BuildingRef;
+      building: BuildingDto;
+      plane: THREE.Plane;
+      /** Plane point under the pointer at the press, and the building's position, in scene units. */
+      start: { x: number; z: number };
+      origin: { x: number; z: number };
+      /** Scene position of the centre of the building's map cell (building positions are relative to it). */
+      centre: { x: number; z: number };
+      downAt: { x: number; y: number };
+      pointerId: number;
+      moved: boolean;
+      latest: { x: number; z: number };
+    }
+    let drag: Drag | null = null;
+    /** The point of `plane` under a pointer position, or null when the view ray never reaches it. */
+    const planePoint = (clientX: number, clientY: number, plane: THREE.Plane) => {
+      aim(clientX, clientY);
+      const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      return hit ? { x: hit.x, z: hit.z } : null;
+    };
+    const onDownCapture = (e: PointerEvent) => {
+      const selected = h.selection;
+      if (e.button !== 0 || !selected || !h.buildings || !callbacks.current.paintEnabled) return;
+      aim(e.clientX, e.clientY);
+      const hit = h.buildings.pick(raycaster);
+      if (!hit || hit.ref.map !== selected.map || hit.ref.index !== selected.index) return;
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.building.y);
+      const start = planePoint(e.clientX, e.clientY, plane);
+      if (!start) return;
+      const centre = { x: hit.cell.x + MAP_SIZE / 2, z: hit.cell.z + MAP_SIZE / 2 };
+      e.stopPropagation();
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      drag = {
+        ref: hit.ref,
+        building: hit.building,
+        plane,
+        start,
+        origin: { x: centre.x + hit.building.x, z: centre.z + hit.building.z },
+        centre,
+        downAt: { x: e.clientX, y: e.clientY },
+        pointerId: e.pointerId,
+        moved: false,
+        latest: { x: hit.building.x, z: hit.building.z },
+      };
+    };
+    function updateDrag(e: PointerEvent) {
+      const d = drag;
+      // A press that has not travelled yet is still a click on the building.
+      if (!d || (!d.moved && isClick(d.downAt, { x: e.clientX, y: e.clientY }))) return;
+      const at = planePoint(e.clientX, e.clientY, d.plane);
+      if (!at) return;
+      d.moved = true;
+      const world = planeDrag(d.start, at, d.origin);
+      d.latest = { x: world.x - d.centre.x, z: world.z - d.centre.z };
+      h.buildings?.show(d.ref, { ...d.building, x: d.latest.x, z: d.latest.z });
+      h.render();
+    }
+    /** Ends a drag: one `update_building` for the whole move; a refused move puts the building back. */
+    const finishDrag = (d: Drag) => {
+      drag = null;
+      if (canvas.hasPointerCapture(d.pointerId)) canvas.releasePointerCapture(d.pointerId);
+      const { ref, building } = d;
+      const next = { ...building, x: d.latest.x, z: d.latest.z };
+      if (!d.moved || (next.x === building.x && next.z === building.z)) {
+        h.buildings?.show(ref, building);
+        h.render();
+        return;
+      }
+      updateBuilding(ref.map, ref.index, { x: next.x, z: next.z }).then(
+        () => {
+          const data = h.loaded.get(ref.map);
+          // The maps may have been reloaded while the command was in flight: then the scene already shows what the backend holds.
+          if (!data || data.map.buildings[ref.index] !== building) return;
+          data.map.buildings[ref.index] = next;
+          h.buildings?.show(ref, next);
+          h.render();
+          callbacks.current.onBuildingMoved(ref.map);
+        },
+        (err) => {
+          const data = h.loaded.get(ref.map);
+          if (data && data.map.buildings[ref.index] === building) {
+            h.buildings?.show(ref, building);
+            h.render();
+          }
+          callbacks.current.onError(errorText(err));
+        },
+      );
+    };
+    const onLostCapture = () => {
+      // The browser took the pointer away (cancel, window switch): the move was never confirmed.
+      const d = drag;
+      if (!d) return;
+      drag = null;
+      h.buildings?.show(d.ref, d.building);
+      h.render();
+    };
+
     let down: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => {
       down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
     };
     const onUp = (e: PointerEvent) => {
+      if (drag && e.pointerId === drag.pointerId) {
+        finishDrag(drag);
+        return;
+      }
       const start = down;
       down = null;
       if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
       const cb = callbacks.current;
+      // A building under the click is selected instead of painting the tile below it.
+      if (h.buildings) {
+        aim(e.clientX, e.clientY);
+        const hit = h.buildings.pick(raycaster);
+        if (hit) {
+          cb.onSelectBuilding(hit.ref);
+          return;
+        }
+      }
       if (!cb.paintEnabled || !h.overlay?.visible) return;
       const picked = pickTile(e.clientX, e.clientY);
       if (!picked) return;
@@ -505,14 +656,18 @@ function MatrixScene({
         (err) => callbacks.current.onError(errorText(err)),
       );
     };
+    el.addEventListener("pointerdown", onDownCapture, true);
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("lostpointercapture", onLostCapture);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerleave", onLeave);
 
     return () => {
+      el.removeEventListener("pointerdown", onDownCapture, true);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("lostpointercapture", onLostCapture);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerleave", onLeave);
       cancelAnimationFrame(frame);
@@ -520,7 +675,9 @@ function MatrixScene({
       callbacks.current.onStatus(null);
       const current = handle.current;
       handle.current = null;
+      h.disposed = true;
       if (current?.markers) disposeTree(current.markers.group);
+      current?.buildings?.dispose();
       observer.disconnect();
       controls.removeEventListener("change", render);
       controls.dispose();
@@ -549,20 +706,13 @@ function MatrixScene({
       report({ kind: "info", text: "Lade Karten ..." });
       setEventStatus(null);
     }
-    // Frames bursts of arriving models into at most one render per animation frame.
-    let renderQueued = false;
-    const queueRender = () => {
-      if (renderQueued) return;
-      renderQueued = true;
-      requestAnimationFrame(() => {
-        renderQueued = false;
-        if (handle.current === h) h.render();
-      });
-    };
+    const stale = () => cancelled || handle.current !== h;
 
     (async () => {
       if (modelsOnly) {
         removeModels(h);
+        // The building models are textured by the area data too: they show boxes until reloaded.
+        h.buildings?.resetModels();
         h.render();
       } else {
         // Fetched next to the maps; a failure only costs the markers, never the scene.
@@ -586,10 +736,13 @@ function MatrixScene({
         );
         const [names, fetchedEvents] = await Promise.all([namesPending, eventsPending, mapsPending]);
         if (cancelled || handle.current !== h) return;
-        const { content, overlay, tiles, bases } = buildContent(matrix, loaded, names);
+        const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names);
         h.scene.remove(h.content);
+        h.buildings?.dispose();
         disposeTree(h.content);
         h.content = content;
+        h.buildings = buildings;
+        buildings.select(h.selection);
         h.models = [];
         h.loadProblems = problems;
         h.overlay = overlay;
@@ -617,21 +770,27 @@ function MatrixScene({
       // one finishes, but its scene is disposed instead of added.
       const modelIds = [...h.loaded.keys()];
       const textureIssues: TextureIssue[] = [];
-      const tasks = modelIds.map((id) => async () => {
-        if (cancelled || handle.current !== h) return;
+      const mapTasks = modelIds.map((id) => async () => {
+        if (stale()) return;
         const model = await getMapModelGlb(id, area).then(parseGlb);
         // The backend falls back to an untextured model when the tileset is unusable; ask why.
         // A failing status call only costs the note.
         await mapModelTextureStatus(id, area)
           .then((issue) => issue && textureIssues.push(issue))
           .catch(() => undefined);
-        if (cancelled || handle.current !== h) {
+        if (stale()) {
           disposeTree(model);
           return;
         }
         addModel(h, matrix, id, model);
-        queueRender();
+        queueRender(h);
       });
+      // Building models come after the terrain, through the same bounded loader.
+      const layer = h.buildings;
+      const buildingIds = layer ? layer.missingModelIds() : [];
+      const buildingTasks = layer ? buildingIds.map((id) => buildingModelJob(h, layer, id, area, stale)) : [];
+      const labels = [...modelIds.map((id) => `Map ${id}`), ...buildingIds.map((id) => `Gebäudemodell ${id}`)];
+      const tasks = [...mapTasks, ...buildingTasks];
       let lastReport = 0;
       const progress = (done: number, total: number) => {
         // The status bar re-renders the whole workbench: at most ten updates per second.
@@ -640,9 +799,9 @@ function MatrixScene({
         lastReport = now;
         report({ kind: "info", text: `Modelle ${done}/${total}` });
       };
-      progress(0, modelIds.length);
+      progress(0, tasks.length);
       const results = await limitConcurrency(tasks, MODEL_CONCURRENCY, progress);
-      const modelErrors = results.flatMap((r, i) => (r.status === "rejected" ? [`Map ${modelIds[i]}: ${errorText(r.reason)}`] : []));
+      const modelErrors = results.flatMap((r, i) => (r.status === "rejected" ? [`${labels[i]}: ${errorText(r.reason)}`] : []));
       const { names: namesError, maps: mapErrors } = h.loadProblems;
       const problems = [
         namesError,
@@ -672,14 +831,20 @@ function MatrixScene({
       if (cancelled || handle.current !== h || h.matrix !== matrixAtStart) return;
       setMarkers(h, fetchedEvents.events, showEventsRef.current);
       setEventStatus(fetchedEvents.error);
+      const layer = h.buildings;
       fresh.forEach((map, i) => {
         const data = h.loaded.get(ids[i]);
         if (!data) return;
+        // Only maps whose buildings changed are rebuilt: a matrix can show hundreds of them.
+        const buildingsChanged = !sameBuildings(data.map.buildings, map.buildings);
         data.map = map;
         recolourMap(h, ids[i]);
+        if (buildingsChanged) layer?.syncMap(matrixAtStart, ids[i], map.buildings);
       });
+      dropMissingSelection(h, callbacks.current.onSelectBuilding);
       h.render();
       h.refreshHover?.();
+      if (layer) await loadMissingBuildingModels(h, layer, areaRef.current, () => cancelled || handle.current !== h || h.buildings !== layer);
     })().catch((e) => {
       if (!cancelled) callbacks.current.onError(errorText(e));
     });
@@ -687,6 +852,44 @@ function MatrixScene({
       cancelled = true;
     };
   }, [reloadToken]);
+
+  // The selection (made by a click, the header list, ...) is outlined; the scene also drags it.
+  useEffect(() => {
+    const h = handle.current;
+    if (!h) return;
+    h.selection = selectedMap === null || selectedBuilding === null ? null : { map: selectedMap, index: selectedBuilding };
+    h.buildings?.select(h.selection);
+    h.render();
+  }, [selectedMap, selectedBuilding]);
+
+  // A building of one map was edited elsewhere (inspector, add, delete): read that map's buildings
+  // again and show them; a model that is new (or asked for again) loads in the background.
+  useEffect(() => {
+    const h = handle.current;
+    const request = buildingRefresh;
+    if (!request || !h?.matrix || !h.buildings) return;
+    const layer = h.buildings;
+    const matrixAtStart = h.matrix;
+    let cancelled = false;
+    const stale = () => cancelled || handle.current !== h || h.buildings !== layer;
+    (async () => {
+      const data = h.loaded.get(request.map);
+      if (!data) return;
+      const fresh = await getMap(request.map);
+      if (stale() || h.matrix !== matrixAtStart) return;
+      data.map.buildings = fresh.buildings;
+      layer.syncMap(matrixAtStart, request.map, fresh.buildings);
+      if (request.retryModel !== null) layer.retry(request.retryModel);
+      dropMissingSelection(h, callbacks.current.onSelectBuilding);
+      h.render();
+      await loadMissingBuildingModels(h, layer, areaRef.current, stale);
+    })().catch((e) => {
+      if (!cancelled) callbacks.current.onError(errorText(e));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [buildingRefresh]);
 
   useEffect(() => {
     showRef.current = showPermissions;

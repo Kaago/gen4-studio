@@ -135,7 +135,12 @@ export interface BuildingDto {
   sx: number;
   sy: number;
   sz: number;
+  /** Raw rotation words, 8 upper-case hex digits each. The game ignores them for map buildings; shown, never edited. */
+  rotation: [string, string, string];
 }
+
+/** The fields of a building that can be changed; missing ones stay as they are. */
+export type BuildingPatch = Partial<Pick<BuildingDto, "model_id" | "x" | "y" | "z" | "sx" | "sy" | "sz">>;
 
 export interface MapDto {
   index: number;
@@ -206,6 +211,20 @@ export function errorText(e: unknown): string {
   return isCmdError(e) ? e.message : String(e);
 }
 
+/** Wraps a call so that a call with the same arguments made while one is running gets that one's result. */
+function shareInflight<A extends (number | string)[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  const running = new Map<string, Promise<R>>();
+  return (...args) => {
+    const key = args.join(":");
+    let pending = running.get(key);
+    if (!pending) {
+      pending = call(...args).finally(() => running.delete(key));
+      running.set(key, pending);
+    }
+    return pending;
+  };
+}
+
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
 export const listHeaders = () => invoke<HeaderListing>("list_headers");
 /** Map header `id` including unsaved edits. */
@@ -262,6 +281,22 @@ export const getMap = (index: number) => invoke<MapDto>("get_map", { index });
  */
 export const getMapModelGlb = (index: number, areaDataId: number) =>
   invoke<ArrayBuffer>("get_map_model_glb", { index, areaDataId });
+
+/**
+ * Raw GLB bytes of a building model, textured with the building tileset of `areaDataId` (HGSS
+ * interior areas use the interior model archive). Rejects with "building model N does not exist"
+ * for an id outside its archive. Requests for the same model and area that are in flight at the
+ * same time share one call, so the scene and the inspector never convert a model twice.
+ */
+export const getBuildingGlb = shareInflight((modelId: number, areaDataId: number) =>
+  invoke<ArrayBuffer>("get_building_glb", { modelId, areaDataId }),
+);
+/** Changes fields of building `index` of map `map` (one undoable change). */
+export const updateBuilding = (map: number, index: number, patch: BuildingPatch) => invoke<void>("update_building", { map, index, patch });
+/** Appends a building (model 0, map centre, scale 1.0) to a map and resolves to its index (one undoable change). */
+export const addBuilding = (map: number) => invoke<number>("add_building", { map });
+/** Removes a building; the ones after it move up by one (one undoable change). */
+export const deleteBuilding = (map: number, index: number) => invoke<void>("delete_building", { map, index });
 
 /** Why a map's model is untextured because of its tileset (see `mapModelTextureStatus`). */
 export interface TextureIssue {

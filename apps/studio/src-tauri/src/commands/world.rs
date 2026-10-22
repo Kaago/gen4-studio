@@ -53,6 +53,9 @@ pub struct BuildingDto {
     pub sx: f32,
     pub sy: f32,
     pub sz: f32,
+    /// Raw rotation words as 8 upper-case hex digits each. The game ignores the rotation of map
+    /// buildings, so it is only shown, never edited (see `BuildingPatch`).
+    pub rotation: [String; 3],
 }
 
 #[derive(Serialize)]
@@ -64,9 +67,9 @@ pub struct MapDto {
 }
 
 /// One map tile is 16 world units; positions are fx32 (20.12), so 16 * 4096 raw units per tile.
-const TILE_RAW: f32 = 65536.0;
+pub(super) const TILE_RAW: f32 = 65536.0;
 /// fx32 value of 1.0.
-const FX_ONE: f32 = 4096.0;
+pub(super) const FX_ONE: f32 = 4096.0;
 
 impl MapDto {
     pub fn from_map(index: u16, map: &MapFile) -> MapDto {
@@ -88,6 +91,7 @@ impl MapDto {
                     sx: b.scale[0] as f32 / FX_ONE,
                     sy: b.scale[1] as f32 / FX_ONE,
                     sz: b.scale[2] as f32 / FX_ONE,
+                    rotation: b.rotation.map(|r| format!("{:08X}", r as u32)),
                 })
                 .collect(),
         }
@@ -332,7 +336,7 @@ mod tests {
         map.buildings.push(g4_formats::map::Building {
             model_id: 1,
             position: [-16 << 16, 0, 2 << 16],
-            rotation: [0; 3],
+            rotation: [-1, 0, 0x1234],
             scale: [0x1000; 3],
             dummy: [0; 8],
         });
@@ -341,6 +345,11 @@ mod tests {
         assert_eq!(dto.buildings[0].x, -16.0);
         assert_eq!(dto.buildings[0].z, 2.0);
         assert_eq!(dto.buildings[0].sx, 1.0);
+        // Rotation is passed on as raw words, negative ones as two's complement.
+        assert_eq!(
+            dto.buildings[0].rotation,
+            ["FFFFFFFF", "00000000", "00001234"]
+        );
     }
 
     #[test]

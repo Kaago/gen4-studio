@@ -278,12 +278,21 @@ impl Store {
     /// Index of the map texture set that `AreaData[area_data_id]` selects, as the store holds
     /// it (unsaved edits included). `Ok(None)` when the area data index lies outside its archive.
     pub fn map_tileset_index(&mut self, area_data_id: u8) -> Result<Option<u16>, KernelError> {
+        Ok(self
+            .area_data_checked(area_data_id)?
+            .map(|a| a.map_tileset()))
+    }
+
+    /// Area data record `area_data_id` as the store holds it (unsaved edits included), the
+    /// building tileset and area type of buildings included. `Ok(None)` when the index lies
+    /// outside the archive.
+    pub fn area_data_checked(&mut self, area_data_id: u8) -> Result<Option<AreaData>, KernelError> {
         self.ensure_unpacked(AssetKind::AreaData)?;
         let count = self.project.member_count(AssetKind::AreaData)?;
         if usize::from(area_data_id) >= count {
             return Ok(None);
         }
-        Ok(Some(self.area_data(u16::from(area_data_id))?.map_tileset()))
+        Ok(Some(*self.area_data(u16::from(area_data_id))?))
     }
 
     /// Returns the event file `index`, loading it from disk on first use. A file that the

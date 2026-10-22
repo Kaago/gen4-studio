@@ -4,6 +4,8 @@ import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockv
 import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
+import type { BuildingRef } from "../world/buildingLayer";
+import type { BuildingRefresh } from "../world/buildings";
 import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
 import { Inspector } from "./Inspector";
@@ -55,6 +57,22 @@ export interface WorkbenchData {
   onCountsChanged: () => void | Promise<void>;
   /** Pins `model` in the inspector (until another header or cell is chosen). */
   onPin: (model: InspectorModel) => void;
+  /** The building selected in the scene (it is the pinned inspector model); null: none. */
+  selectedBuilding: BuildingRef | null;
+  /** A click in the scene chose a building (null: none). */
+  onSelectBuilding: (ref: BuildingRef | null) => void;
+  /** A drag moved a building and the move is written. */
+  onBuildingMoved: (map: number) => void;
+  /** Changes whenever buildings may have changed behind the building editor (a drag, undo, redo). */
+  buildingRevision: number;
+  /** A new request makes the scene read one map's buildings again. */
+  buildingRefresh: BuildingRefresh | null;
+  /** The building editor wrote a field: refresh the scene and the dirty count. */
+  onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
+  /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
+  onAddBuilding: (fallbackMap: number | null) => void | Promise<void>;
+  /** Asks first, then deletes the building. */
+  onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   message: Message | null;
   onDismissMessage: () => void;
 }
@@ -99,6 +117,11 @@ function WorldPanel() {
             onError={d.onError}
             onInspect={d.onInspect}
             onStatus={d.onLoadStatus}
+            selectedMap={d.selectedBuilding?.map ?? null}
+            selectedBuilding={d.selectedBuilding?.index ?? null}
+            onSelectBuilding={d.onSelectBuilding}
+            onBuildingMoved={d.onBuildingMoved}
+            buildingRefresh={d.buildingRefresh}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
             <label style={toggleStyle}>
@@ -108,6 +131,14 @@ function WorldPanel() {
             <label style={toggleStyle}>
               <input type="checkbox" checked={d.showEvents} onChange={(e) => d.onShowEvents(e.target.checked)} /> Events anzeigen
             </label>
+            <button
+              onClick={() => void d.onAddBuilding(null)}
+              disabled={!d.paintEnabled}
+              title="Legt ein Gebäude auf der Kachel an, über der die Maus zuletzt war"
+              style={{ ...toggleStyle, border: "none", font: "inherit" }}
+            >
+              Neues Gebäude
+            </button>
           </div>
         </>
       ) : (
@@ -150,6 +181,15 @@ function InspectorPanel() {
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, revision: d.areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
+      buildingEditor={{
+        areaDataId: d.areaDataId,
+        counts: d.memberCounts,
+        revision: d.buildingRevision,
+        onChanged: d.onBuildingChanged,
+        onAdd: d.onAddBuilding,
+        onDelete: d.onDeleteBuilding,
+        onError: d.onError,
+      }}
       matrixEditor={{
         headerCount: d.headers.length,
         counts: d.memberCounts,

@@ -15,7 +15,7 @@ use crate::state::AppState;
 /// Finds the apicula executable: `G4_APICULA`, then `apicula` next to the running binary, then
 /// (debug builds only) the repository's `tools/apicula/bin/apicula`. A set `G4_APICULA` always
 /// wins, even when it points nowhere, so a typo is reported instead of silently ignored.
-fn find_apicula() -> Option<PathBuf> {
+pub(super) fn find_apicula() -> Option<PathBuf> {
     if let Some(env) = std::env::var_os("G4_APICULA").filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(env));
     }
@@ -111,12 +111,45 @@ fn require_apicula(apicula: Option<&Path>) -> Result<&Path, KernelError> {
     Ok(apicula)
 }
 
-/// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`),
-/// cached by content hash under `<project>/.g4/models/`. `apicula` is only needed on a cache
-/// miss. A map whose area data or tileset does not exist or cannot be read, or whose textured
-/// conversion fails, is converted without textures; a failed textured conversion is recorded
-/// next to the cache (`<key>.fail`) so later loads skip it. The reason is available through
-/// [`map_model_texture_status_impl`].
+/// GLB bytes of one NSBMD with an optional NSBTX texture set, cached by content hash in
+/// `cache_dir`; shared by the map terrain and the building models. `apicula` is only needed
+/// on a cache miss. A missing tileset, or a textured conversion that fails, falls back to the
+/// untextured model; a failed textured conversion is recorded next to the cache (`<key>.fail`)
+/// so later loads skip it. Runs apicula, so it must be called without the state lock.
+pub(super) fn glb_with_fallback(
+    cache_dir: &Path,
+    nsbmd: &[u8],
+    tileset: Option<&[u8]>,
+    apicula: Option<&Path>,
+) -> Result<Vec<u8>, CmdError> {
+    let mut textured_failure = None;
+    if let Some(tileset) = tileset {
+        if let Some(bytes) = glb_cache_get(cache_dir, nsbmd, Some(tileset))? {
+            return Ok(bytes);
+        }
+        if glb_fail_get(cache_dir, nsbmd, Some(tileset))?.is_none() {
+            let apicula = require_apicula(apicula)?;
+            match glb_cached(cache_dir, apicula, nsbmd, Some(tileset)) {
+                Ok(bytes) => return Ok(bytes),
+                Err(e) => textured_failure = Some(e.to_string()),
+            }
+        }
+    }
+    let plain = match glb_cache_get(cache_dir, nsbmd, None)? {
+        Some(bytes) => bytes,
+        None => glb_cached(cache_dir, require_apicula(apicula)?, nsbmd, None)?,
+    };
+    // Recorded only now: if the untextured conversion fails too, the tileset is not to blame.
+    if let (Some(reason), Some(tileset)) = (textured_failure, tileset) {
+        // Best effort: without a marker the next load simply tries the tileset again.
+        let _ = glb_fail_record(cache_dir, nsbmd, Some(tileset), &reason);
+    }
+    Ok(plain)
+}
+
+/// GLB bytes of the map's terrain model with the map's texture set (from `area_data_id`); see
+/// [`glb_with_fallback`] for caching and the untextured fallback. The reason a model came out
+/// untextured is available through [`map_model_texture_status_impl`].
 pub fn get_map_model_glb_with(
     state: &AppState,
     index: u16,
@@ -129,29 +162,7 @@ pub fn get_map_model_glb_with(
         tileset,
         ..
     } = model_inputs(state, index, area_data_id)?;
-    let mut textured_failure = None;
-    if let Some(tileset) = tileset.as_deref() {
-        if let Some(bytes) = glb_cache_get(&cache_dir, &nsbmd, Some(tileset))? {
-            return Ok(bytes);
-        }
-        if glb_fail_get(&cache_dir, &nsbmd, Some(tileset))?.is_none() {
-            let apicula = require_apicula(apicula)?;
-            match glb_cached(&cache_dir, apicula, &nsbmd, Some(tileset)) {
-                Ok(bytes) => return Ok(bytes),
-                Err(e) => textured_failure = Some(e.to_string()),
-            }
-        }
-    }
-    let plain = match glb_cache_get(&cache_dir, &nsbmd, None)? {
-        Some(bytes) => bytes,
-        None => glb_cached(&cache_dir, require_apicula(apicula)?, &nsbmd, None)?,
-    };
-    // Recorded only now: if the untextured conversion fails too, the tileset is not to blame.
-    if let (Some(reason), Some(tileset)) = (textured_failure, tileset.as_deref()) {
-        // Best effort: without a marker the next load simply tries the tileset again.
-        let _ = glb_fail_record(&cache_dir, &nsbmd, Some(tileset), &reason);
-    }
-    Ok(plain)
+    glb_with_fallback(&cache_dir, &nsbmd, tileset.as_deref(), apicula)
 }
 
 /// Whether the model of map `index` is shown without textures because of its tileset: the area

@@ -52,6 +52,14 @@ Skalierungswert `0x1000` (fx32 = 1.0) um ein Byte versetzt gelesen (das
 Byte `0x10` an 0x1D ist das zweite Byte von `scale[0]`). Die Felder
 `rotation` und `scale` werden in Phase 1 nur als rohe `i32` gehalten.
 
+Einheiten: Eine Kachel sind 16 Welteinheiten, `position` ist fx32 in
+Welteinheiten, also entspricht eine Kachel dem Rohwert `0x10000` (65536). Der
+Studio rechnet Positionen in Kacheln ab Kartenmitte (`position = Kacheln ×
+65536`, gerundet) und Skalierungen als Faktor (`scale = Faktor × 4096`,
+gerundet). Das Spiel ignoriert `rotation` bei Karten-Gebäuden
+(`applyRotation = FALSE` in `map_prop.c`); der Studio erhält sie verbatim und
+zeigt sie nur als Hexwert.
+
 ### `buildings_tail`
 
 Der Gebäude-Abschnitt ist nicht immer ein Vielfaches von 48 Bytes. In

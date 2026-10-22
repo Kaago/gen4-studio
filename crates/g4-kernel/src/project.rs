@@ -461,14 +461,21 @@ impl Project {
     /// Index of the map texture set that `AreaData[area_data_id]` selects with its
     /// `map_tileset`. `Ok(None)` when the area data index lies outside its archive.
     pub fn map_tileset_index(&self, area_data_id: u8) -> Result<Option<u16>, KernelError> {
+        Ok(self
+            .area_data_on_disk(area_data_id)?
+            .map(|a| a.map_tileset()))
+    }
+
+    /// Area data record `area_data_id` as saved on disk; `Ok(None)` when the index lies
+    /// outside its archive.
+    fn area_data_on_disk(&self, area_data_id: u8) -> Result<Option<AreaData>, KernelError> {
         let area_count = self.ensure_unpacked(AssetKind::AreaData)?;
         if usize::from(area_data_id) >= area_count {
             return Ok(None);
         }
         let area_path = self.member_path(AssetKind::AreaData, u16::from(area_data_id));
         let area_bytes = std::fs::read(&area_path).map_err(io_at(&area_path))?;
-        let area = AreaData::read(&area_bytes, self.family)?;
-        Ok(Some(area.map_tileset()))
+        Ok(Some(AreaData::read(&area_bytes, self.family)?))
     }
 
     /// Bytes of map texture set `tileset` (NSBTX) from the unpacked archive on disk, or
@@ -490,6 +497,55 @@ impl Project {
             Some(tileset) => self.map_tileset_member(tileset),
             None => Ok(None),
         }
+    }
+
+    /// Bytes of building texture set `tileset` (NSBTX) from the unpacked archive on disk, or
+    /// `Ok(None)` when the index lies outside the archive.
+    pub fn building_tileset_member(&self, tileset: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        self.read_member_if_present(AssetKind::BuildingTexture, tileset)
+    }
+
+    /// Bytes of the building texture set that `AreaData[area_data_id]` selects with its
+    /// `buildings_tileset`, from the unpacked archives on disk. `Ok(None)` when the area data
+    /// index or the tileset index lies outside its archive.
+    pub fn building_tileset_bytes(&self, area_data_id: u8) -> Result<Option<Vec<u8>>, KernelError> {
+        match self.area_data_on_disk(area_data_id)? {
+            Some(area) => self.building_tileset_member(area.buildings_tileset()),
+            None => Ok(None),
+        }
+    }
+
+    /// NSBMD bytes of building model `model_id`, or `Ok(None)` when the index lies outside the
+    /// archive. `interior` selects the interior archive, but only where the game has one (HGSS);
+    /// everywhere else the one building archive is used.
+    pub fn building_model_bytes(
+        &self,
+        model_id: u32,
+        interior: bool,
+    ) -> Result<Option<Vec<u8>>, KernelError> {
+        let kind = if interior && self.has_archive(AssetKind::InteriorBuildingModel) {
+            AssetKind::InteriorBuildingModel
+        } else {
+            AssetKind::BuildingModel
+        };
+        match u16::try_from(model_id) {
+            Ok(index) => self.read_member_if_present(kind, index),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Member `index` of the unpacked archive of `kind`, `Ok(None)` past its last member.
+    fn read_member_if_present(
+        &self,
+        kind: AssetKind,
+        index: u16,
+    ) -> Result<Option<Vec<u8>>, KernelError> {
+        let count = self.ensure_unpacked(kind)?;
+        if usize::from(index) >= count {
+            return Ok(None);
+        }
+        let path = self.member_path(kind, index);
+        std::fs::read(&path).map(Some).map_err(io_at(&path))
     }
 
     fn uxie_family(&self) -> uxie::GameFamily {

@@ -4,12 +4,16 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import {
+  addBuilding,
+  deleteBuilding,
+  getBuildingGlb,
   getHeader,
   headerFamily,
   memberCounts,
   headerFields,
   isCmdError,
   setHeader,
+  updateBuilding,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
@@ -105,5 +109,47 @@ describe("header commands", () => {
     invoke.mockResolvedValue({ Matrix: 4, HeaderTable: 1 });
     expect(await memberCounts()).toEqual({ Matrix: 4, HeaderTable: 1 });
     expect(invoke).toHaveBeenLastCalledWith("member_counts");
+  });
+});
+
+describe("building commands", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("passes ids and the patch through under the commands' argument names", async () => {
+    invoke.mockResolvedValue(undefined);
+    await updateBuilding(3, 1, { x: -13.5, sy: 2 });
+    expect(invoke).toHaveBeenLastCalledWith("update_building", { map: 3, index: 1, patch: { x: -13.5, sy: 2 } });
+    await deleteBuilding(3, 1);
+    expect(invoke).toHaveBeenLastCalledWith("delete_building", { map: 3, index: 1 });
+    invoke.mockResolvedValue(4);
+    expect(await addBuilding(3)).toBe(4);
+    expect(invoke).toHaveBeenLastCalledWith("add_building", { map: 3 });
+  });
+
+  it("shares a running model request but asks again once it settled", async () => {
+    const releases: ((v: ArrayBuffer) => void)[] = [];
+    invoke.mockImplementation(() => new Promise<ArrayBuffer>((r) => releases.push(r)));
+    const a = getBuildingGlb(5, 2);
+    const b = getBuildingGlb(5, 2);
+    const other = getBuildingGlb(5, 3);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenCalledWith("get_building_glb", { modelId: 5, areaDataId: 2 });
+    const glb = new ArrayBuffer(8);
+    releases.forEach((release) => release(glb));
+    expect(await a).toBe(glb);
+    expect(await b).toBe(glb);
+    await other;
+    invoke.mockResolvedValue(new ArrayBuffer(1));
+    await getBuildingGlb(5, 2);
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not remember a failed request", async () => {
+    invoke.mockRejectedValueOnce({ code: "error", message: "building model 9 does not exist", asset: null });
+    await expect(getBuildingGlb(9, 0)).rejects.toMatchObject({ message: "building model 9 does not exist" });
+    invoke.mockResolvedValue(new ArrayBuffer(1));
+    await expect(getBuildingGlb(9, 0)).resolves.toBeInstanceOf(ArrayBuffer);
   });
 });

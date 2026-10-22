@@ -98,6 +98,14 @@ impl AreaData {
             AreaData::Dppt { map_tileset, .. } | AreaData::Hgss { map_tileset, .. } => map_tileset,
         }
     }
+
+    /// HGSS area type (0 = inside, 1 = outside); `None` for the DPPt layout, which has none.
+    pub fn area_type(&self) -> Option<u8> {
+        match *self {
+            AreaData::Hgss { area_type, .. } => Some(area_type),
+            AreaData::Dppt { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -117,6 +125,7 @@ mod tests {
         assert_eq!(AreaData::read(&bytes, Family::Pt).unwrap(), a);
         assert_eq!(AreaData::read(&bytes, Family::Dp).unwrap(), a);
         assert_eq!((a.buildings_tileset(), a.map_tileset()), (1, 2));
+        assert_eq!(a.area_type(), None);
     }
 
     #[test]
@@ -132,6 +141,7 @@ mod tests {
         assert_eq!(bytes, [1, 0, 2, 0, 3, 0, 1, 9]);
         assert_eq!(AreaData::read(&bytes, Family::Hgss).unwrap(), a);
         assert_eq!((a.buildings_tileset(), a.map_tileset()), (1, 2));
+        assert_eq!(a.area_type(), Some(1));
     }
 
     #[test]

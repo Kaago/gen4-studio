@@ -5,10 +5,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   acceptDisk,
+  addBuilding,
   buildRom,
+  deleteBuilding,
   dirty,
   errorText,
   getAreaData,
+  getMap,
   getMatrix,
   isCmdError,
   listHeaders,
@@ -19,6 +22,7 @@ import {
   runRom,
   save,
   undo,
+  updateBuilding,
 } from "./api";
 import type { AssetId, HeaderListing, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "./api";
 import { staleText } from "./assets";
@@ -29,6 +33,9 @@ import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
 import { tilesetKey } from "./workbench/inspector/areaFields";
 import { sameLayout } from "./workbench/matrix";
+import type { BuildingRef } from "./world/buildingLayer";
+import { isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
+import type { BuildingRefresh } from "./world/buildings";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -72,8 +79,19 @@ export default function App() {
   // pointer is over a cell or marker.
   const [pinned, setPinned] = useState<InspectorModel>({ kind: "none" });
   const [hover, setHover] = useState<InspectorModel | null>(null);
-  const inspector = hover ?? pinned;
-  const onInspect = useCallback((model: InspectorModel) => setHover(model.kind === "none" ? null : model), []);
+  // A selected building stays in the inspector while the pointer is over the scene (it is being dragged
+  // there); event markers still take over.
+  const inspector = pinned.kind === "building" && hover?.kind === "tile" ? pinned : (hover ?? pinned);
+  // The tile the pointer was last over: where "Neues Gebäude" puts a building.
+  const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
+  const onInspect = useCallback((model: InspectorModel) => {
+    if (model.kind === "tile") lastTile.current = { map: model.map, x: model.x, y: model.y };
+    setHover(model.kind === "none" ? null : model);
+  }, []);
+  const pinnedRef = useRef(pinned);
+  pinnedRef.current = pinned;
+  const [buildingRevision, setBuildingRevision] = useState(0);
+  const [buildingRefresh, setBuildingRefresh] = useState<BuildingRefresh | null>(null);
   const [counts, setCounts] = useState<MemberCounts>({});
   const [headerRevision, setHeaderRevision] = useState(0);
   const [matrixRevision, setMatrixRevision] = useState(0);
@@ -177,6 +195,7 @@ export default function App() {
         setHeaderRevision((r) => r + 1);
         setMatrixRevision((r) => r + 1);
         setAreaRevision((r) => r + 1);
+        setBuildingRevision((r) => r + 1);
         await syncHeaders();
         await noteSceneTileset(true);
       } finally {
@@ -251,6 +270,88 @@ export default function App() {
     [refreshAfterStale],
   );
 
+  /** Shows the header again in the inspector when a building was pinned (it was deselected, deleted or undone away). */
+  const unpinBuilding = useCallback(() => {
+    setPinned((p) => (p.kind !== "building" ? p : selectedRef.current === null ? { kind: "none" } : { kind: "header", id: selectedRef.current }));
+  }, []);
+  const onSelectBuilding = useCallback(
+    (ref: BuildingRef | null) => (ref ? setPinned({ kind: "building", map: ref.map, index: ref.index }) : unpinBuilding()),
+    [unpinBuilding],
+  );
+  const requestBuildingRefresh = useCallback((map: number, retryModel: number | null) => {
+    setBuildingRefresh((previous) => ({ map, token: (previous?.token ?? 0) + 1, retryModel }));
+  }, []);
+  // The scene wrote a drag: only the building editor (and the dirty count) has to catch up.
+  const onBuildingMoved = useCallback(async () => {
+    setBuildingRevision((r) => r + 1);
+    await refreshDirty();
+  }, [refreshDirty]);
+  // The building editor wrote a field: the scene reads that map's buildings again.
+  const onBuildingChanged = useCallback(
+    async (map: number, retryModel: number | null) => {
+      requestBuildingRefresh(map, retryModel);
+      await refreshDirty();
+    },
+    [requestBuildingRefresh, refreshDirty],
+  );
+  /** After an undo or redo: stops showing a building that is gone. */
+  const dropGoneBuildingPin = useCallback(async () => {
+    const p = pinnedRef.current;
+    if (p.kind !== "building") return;
+    try {
+      if (p.index >= (await getMap(p.map)).buildings.length) unpinBuilding();
+    } catch {
+      unpinBuilding();
+    }
+  }, [unpinBuilding]);
+
+  // A new building goes on the tile the pointer was last over (the map centre of `fallbackMap` when
+  // that is unknown); it is selected afterwards. Adding and moving are two undoable changes.
+  const onAddBuilding = useCallback(
+    async (fallbackMap: number | null) => {
+      const shown = matrixRef.current;
+      if (!shown) return;
+      const hovered = lastTile.current && shown.maps.includes(lastTile.current.map) ? lastTile.current : null;
+      const map = hovered?.map ?? fallbackMap;
+      if (map === null) {
+        setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Gebäude entstehen soll." });
+        return;
+      }
+      let added: number | null = null;
+      try {
+        added = await addBuilding(map);
+        if (hovered) {
+          const at = newBuildingPosition(hovered.x, hovered.y);
+          await updateBuilding(map, added, { x: at.x, z: at.z });
+        }
+      } catch (e) {
+        fail(e);
+      }
+      if (added !== null) setPinned({ kind: "building", map, index: added });
+      requestBuildingRefresh(map, null);
+      setBuildingRevision((r) => r + 1);
+      await refreshDirty();
+    },
+    [fail, requestBuildingRefresh, refreshDirty],
+  );
+
+  const onDeleteBuilding = useCallback(
+    async (map: number, index: number) => {
+      try {
+        if (!(await ask(`Gebäude ${index} von Karte ${String(map).padStart(4, "0")} löschen?`, { kind: "warning" }))) return;
+        await deleteBuilding(map, index);
+      } catch (e) {
+        fail(e);
+      }
+      // The ones after a deleted building move up by one: nothing stays selected.
+      unpinBuilding();
+      requestBuildingRefresh(map, null);
+      setBuildingRevision((r) => r + 1);
+      await refreshDirty();
+    },
+    [fail, unpinBuilding, requestBuildingRefresh, refreshDirty],
+  );
+
   const onMatrixEdited = useCallback(
     async (index: number) => {
       setMatrixRevision((r) => r + 1);
@@ -317,6 +418,8 @@ export default function App() {
       setSelected(null);
       setPinned({ kind: "none" });
       setHover(null);
+      lastTile.current = null;
+      setBuildingRefresh(null);
       setMatrix(null);
       setLastRom(null);
       if (listError !== null) fail(listError);
@@ -353,7 +456,10 @@ export default function App() {
     if (!info || busy) return;
     try {
       if (await action()) {
+        // A building that the undo took away must not stay selected.
+        await dropGoneBuildingPin();
         setReloadToken((t) => t + 1);
+        setBuildingRevision((r) => r + 1);
         // An undone header edit changes the list, the header editor and possibly the scene.
         setHeaderRevision((r) => r + 1);
         // An undone matrix edit changes the matrix panel and the scene's matrix.
@@ -481,10 +587,24 @@ export default function App() {
   }, []);
 
   // Shortcuts always call the handlers of the latest render.
-  const latest = useRef({ onSave, step });
-  latest.current = { onSave, step };
+  const latest = useRef({ onSave, step, onDeleteBuilding, unpinBuilding });
+  latest.current = { onSave, step, onDeleteBuilding, unpinBuilding };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const selected = pinnedRef.current;
+      if (selected.kind === "building" && !e.repeat) {
+        // Delete (Backspace on a Mac keyboard) removes the selected building after asking; neither it
+        // nor Escape touches a form field that is being typed in.
+        if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey })) {
+          e.preventDefault();
+          void latest.current.onDeleteBuilding(selected.map, selected.index);
+          return;
+        }
+        if (e.key === "Escape" && !isTypingTarget(e.target as HTMLElement | null)) {
+          latest.current.unpinBuilding();
+          return;
+        }
+      }
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key === "z") {
@@ -528,6 +648,14 @@ export default function App() {
     onMatrixEdited,
     onCountsChanged,
     onPin: setPinned,
+    selectedBuilding: pinned.kind === "building" ? { map: pinned.map, index: pinned.index } : null,
+    onSelectBuilding,
+    onBuildingMoved,
+    buildingRevision,
+    buildingRefresh,
+    onBuildingChanged,
+    onAddBuilding,
+    onDeleteBuilding,
     message,
     onDismissMessage: () => setMessage(null),
   };
