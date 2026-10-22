@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createTextArchive, editTextArchive, errorText, searchText, validateText } from "../../api";
-import type { HeaderSummary, MemberCounts, ProblemDto, TextEdit, TextHit } from "../../api";
+import type { HeaderSummary, MemberCounts, ProblemDto, ProjectInfo, TextEdit, TextHit } from "../../api";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
 import { archiveLabel, archiveRows, filterArchives, hitLabel, segments, SEARCH_LIMIT, toTextForm, usersByArchive, usersLabel, visibleLine } from "./textModel";
@@ -10,6 +10,8 @@ import { useTextArchive } from "./useTextArchive";
 
 /** What the text panel needs from App. */
 export interface TextPanelContext {
+  /** The open project; another object means another project was opened: the panel starts over and drops what it had not written. */
+  project: ProjectInfo | null;
   /** The header table: each header's `text_archive_id` says which headers use an archive. */
   headers: HeaderSummary[];
   /** The member counts; `TextArchive` is the number of archives. */
@@ -118,13 +120,14 @@ function MessageEditor({ value, onCommit }: { value: string; onCommit: (text: st
     });
   }, []);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set again here: StrictMode's simulated unmount would otherwise leave it false for good.
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       flush();
-    },
-    [flush],
-  );
+    };
+  }, [flush]);
 
   // A line break typed or pasted is written as `\n`, and the caret stays where it was typed.
   useLayoutEffect(() => {
@@ -201,7 +204,7 @@ function MessageEditor({ value, onCommit }: { value: string; onCommit: (text: st
  * archive and the field of the chosen message on the right.
  */
 export const TextPanel = memo(function TextPanel({ context }: { context: TextPanelContext }) {
-  const { headers, counts, target, revision, goTo } = context;
+  const { project, headers, counts, target, revision, goTo } = context;
   const [archiveIndex, setArchiveIndex] = useState<number | null>(null);
   const [message, setMessage] = useState(0);
   const [query, setQuery] = useState("");
@@ -210,6 +213,18 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
   const { archive, error, loading, reload } = useTextArchive(archiveIndex, revision);
   const list = useRef<HTMLUListElement>(null);
 
+  // Another project: nothing of the old one stays open, typed or found. Reset while rendering, so no render shows the old
+  // archive with the new project; commits of the old project are dropped by `run` (see `project` there).
+  const [seenProject, setSeenProject] = useState(project);
+  if (seenProject !== project) {
+    setSeenProject(project);
+    setArchiveIndex(null);
+    setMessage(0);
+    setQuery("");
+    setHits(null);
+    setSearchError(null);
+  }
+
   // The callbacks of the latest render, for the commits that run later (a blur, a timer, an unmount).
   const latest = useRef(context);
   latest.current = context;
@@ -217,8 +232,10 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
   shown.current = archiveIndex;
   // Edits go to the backend one after the other, in the order they were made.
   const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const run = useCallback((index: number, edit: TextEdit): Promise<boolean> => {
+  // `owner` is the project the edit was made in: an edit that outlives its project (a timer, an unmount flush, a queued job) is dropped.
+  const run = useCallback((owner: ProjectInfo | null, index: number, edit: TextEdit): Promise<boolean> => {
     const job = chain.current.then(async () => {
+      if (latest.current.project !== owner) return false;
       try {
         await editTextArchive(index, edit);
         latest.current.onEdited();
@@ -282,8 +299,8 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
   const selectedMessage = messages.length === 0 ? null : Math.min(message, messages.length - 1);
 
   const commit = useCallback(
-    async (index: number, messageIndex: number, text: string) => {
-      const ok = await run(index, { Set: { index: messageIndex, text } });
+    async (owner: ProjectInfo | null, index: number, messageIndex: number, text: string) => {
+      const ok = await run(owner, index, { Set: { index: messageIndex, text } });
       if (ok && shown.current === index) void reload();
       return ok;
     },
@@ -292,14 +309,14 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
 
   async function append() {
     if (archiveIndex === null) return;
-    if (!(await run(archiveIndex, "Append")) || shown.current !== archiveIndex) return;
+    if (!(await run(project, archiveIndex, "Append")) || shown.current !== archiveIndex) return;
     const changed = await reload();
     if (changed) setMessage(changed.messages.length - 1);
   }
 
   async function removeLast() {
     if (archiveIndex === null) return;
-    if (!(await run(archiveIndex, "RemoveLast")) || shown.current !== archiveIndex) return;
+    if (!(await run(project, archiveIndex, "RemoveLast")) || shown.current !== archiveIndex) return;
     const changed = await reload();
     if (changed) setMessage((m) => Math.min(m, changed.messages.length - 1));
   }
@@ -308,7 +325,7 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
     try {
       const index = await createTextArchive();
       await latest.current.onCountsChanged();
-      select(index);
+      if (latest.current.project === project) select(index);
     } catch (e) {
       latest.current.onError(e);
     }
@@ -404,7 +421,7 @@ export const TextPanel = memo(function TextPanel({ context }: { context: TextPan
                   <MessageEditor
                     key={`${archiveIndex}:${selectedMessage}`}
                     value={messages[selectedMessage].text}
-                    onCommit={(text) => commit(archiveIndex, selectedMessage, text)}
+                    onCommit={(text) => commit(project, archiveIndex, selectedMessage, text)}
                   />
                 )}
               </>

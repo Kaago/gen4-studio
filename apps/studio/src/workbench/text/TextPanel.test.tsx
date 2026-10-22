@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, TextArchiveDto } from "../../api";
+import type { HeaderSummary, ProjectInfo, TextArchiveDto } from "../../api";
 import { createTextArchive, editTextArchive, getTextArchive, searchText, validateText } from "../../api";
 import { TextPanel } from "./TextPanel";
 import type { TextPanelContext } from "./TextPanel";
@@ -47,7 +47,9 @@ describe("TextPanel", () => {
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
   const goTo = vi.fn();
+  const projectA: ProjectInfo = { root: "/a", game_code: "CPUE", family: "Pt", language: "en", header_count: 3 };
   const base = (over: Partial<TextPanelContext> = {}): TextPanelContext => ({
+    project: projectA,
     headers: [header(12, 433), header(13, 433), header(14, 5)],
     counts: { TextArchive: 435 },
     target: null,
@@ -209,6 +211,44 @@ describe("TextPanel", () => {
     blur(textarea()!);
     await flush();
     expect(onError).toHaveBeenCalledWith(refused);
+  });
+
+  it("shows the stored text again when an edit is refused, also under StrictMode", async () => {
+    vi.mocked(editTextArchive).mockRejectedValueOnce({ code: "error", message: "refused", asset: null });
+    act(() => root.render(<StrictMode><TextPanel context={base()} /></StrictMode>));
+    await flush();
+    click(archiveButton(433));
+    await flush();
+    click(messageButton(1));
+    type(textarea()!, "Zweiblattdorf");
+    blur(textarea()!);
+    await flush();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(textarea()?.value).toBe("Twinleaf Town");
+  });
+
+  it("starts over when another project is opened and never writes a pending text into it", async () => {
+    await open433();
+    click(messageButton(1));
+    type(searchBox()!, "twin");
+    type(textarea()!, "Text des alten Projekts");
+    vi.useFakeTimers();
+    // Another project: a new info object. The pending commit (500 ms) must be dropped, not flushed.
+    show(base({ project: { ...projectA, root: "/b" } }));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    vi.useRealTimers();
+    await flush();
+    expect(editTextArchive).not.toHaveBeenCalled();
+    expect(textarea()).toBeNull();
+    expect(container.querySelector("[data-message]")).toBeNull();
+    expect(searchBox()?.value).toBe("");
+    expect(container.querySelector("[data-hit]")).toBeNull();
+    // The new project's archive reads fresh when chosen.
+    vi.mocked(getTextArchive).mockClear();
+    click(archiveButton(433));
+    await flush();
+    expect(getTextArchive).toHaveBeenCalledTimes(1);
+    expect(textarea()?.value).toBe("Nowhere");
   });
 
   it("warns about a text that does not fit, from validateText", async () => {

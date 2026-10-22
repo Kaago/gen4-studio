@@ -159,11 +159,11 @@ export function TextTab() {
   const d = useWorkbench();
   // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
+  const { info, headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<TextPanelContext>(
-    () => ({ headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
-    [headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
+    [info, headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
   );
   return <TextPanel context={context} />;
 }
