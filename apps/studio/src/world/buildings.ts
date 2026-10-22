@@ -48,6 +48,22 @@ export function isTypingTarget(target: { tagName?: string; isContentEditable?: b
   return target.isContentEditable === true || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
+/** The app-level shortcut a key event asks for (Cmd/Ctrl+Z, +Shift+Z, +S), or null; none while typing in a field, where Z must stay the text field's own undo. */
+export function shortcutAction(e: {
+  key: string;
+  target: { tagName?: string; isContentEditable?: boolean } | null;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}): "undo" | "redo" | "save" | null {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
+  const key = e.key.toLowerCase();
+  if (key === "s") return "save";
+  if (key === "z" && !isTypingTarget(e.target)) return e.shiftKey ? "redo" : "undo";
+  return null;
+}
+
 /** Whether a key event asks to delete the selected building: Delete or Backspace, unmodified, not typed into a field. */
 export function wantsDelete(e: { key: string; target: { tagName?: string; isContentEditable?: boolean } | null; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): boolean {
   if (e.metaKey || e.ctrlKey || e.altKey) return false;

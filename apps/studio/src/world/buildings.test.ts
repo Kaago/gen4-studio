@@ -10,6 +10,7 @@ import {
   reconcileBuildings,
   sameBuildings,
   settleBuilding,
+  shortcutAction,
   snapHalfTile,
   wantsDelete,
 } from "./buildings";
@@ -127,5 +128,23 @@ describe("buildings", () => {
   it("names model and position in the delete confirmation", () => {
     expect(deletePrompt(12, 3, { model_id: 7, x: -5.5, y: 1, z: 4 })).toBe("Gebäude 3 von Karte 0012 (Modell 7, x -5.5, y 1, z 4) löschen?");
     expect(deletePrompt(12, 3, undefined)).toBe("Gebäude 3 von Karte 0012 löschen?");
+  });
+
+  it("maps Cmd/Ctrl+Z and +S to app shortcuts, but leaves Z to a field being typed in", () => {
+    const key = (k: string, o: Partial<{ target: { tagName?: string } | null; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
+      shortcutAction({ key: k, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+    expect(key("z")).toBe("undo");
+    expect(key("Z", { shiftKey: true })).toBe("redo");
+    expect(key("z", { metaKey: false, ctrlKey: true })).toBe("undo");
+    expect(key("s")).toBe("save");
+    expect(key("z", { target: null })).toBe("undo");
+    // Typing: the text field keeps its own undo; saving still works.
+    expect(key("z", { target: { tagName: "INPUT" } })).toBeNull();
+    expect(key("z", { target: { tagName: "TEXTAREA" }, shiftKey: true })).toBeNull();
+    expect(key("s", { target: { tagName: "INPUT" } })).toBe("save");
+    // Unmodified or Alt-modified keys are not shortcuts.
+    expect(key("z", { metaKey: false })).toBeNull();
+    expect(key("z", { altKey: true })).toBeNull();
+    expect(key("x")).toBeNull();
   });
 });

@@ -44,7 +44,7 @@ import { nextSelection } from "./workbench/navigation";
 import type { NavTarget } from "./workbench/navigation";
 import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
-import { deletePrompt, isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
+import { deletePrompt, isTypingTarget, newBuildingPosition, shortcutAction, wantsDelete } from "./world/buildings";
 import type { BuildingRefresh } from "./world/buildings";
 import { eventAt, eventDeletePrompt, eventEditGate, eventReadOnlyReason, lockedText } from "./world/events";
 import type { EventLock, EventRef, EventRefresh } from "./world/events";
@@ -828,12 +828,11 @@ export default function App() {
           return;
         }
       }
-      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "z") {
+      const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey });
+      if (action === "undo" || action === "redo") {
         e.preventDefault();
-        void latest.current.step(e.shiftKey ? redo : undo);
-      } else if (key === "s") {
+        void latest.current.step(action === "redo" ? redo : undo);
+      } else if (action === "save") {
         e.preventDefault();
         void latest.current.onSave();
       }
