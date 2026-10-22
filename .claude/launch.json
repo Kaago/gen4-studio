@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/agent/studio-web.sh"],
+      "port": 1430
+    }
+  ]
+}
