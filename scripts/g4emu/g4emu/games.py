@@ -29,6 +29,17 @@ class Game:
     offset: int
     save: str
     start_header: int
+    continue_frames: int  # `continue` presses A at least this long (the intro shows a valid pointer)
+
+
+def _continue_frames(code: str, entry: dict) -> int:
+    """Required: without it `continue` could end inside the intro, so a missing value is an error."""
+    if "continue_frames" not in entry:
+        raise ValueError(f"games.yaml: {code} braucht continue_frames")
+    value = entry["continue_frames"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"games.yaml: {code}: continue_frames muss eine ganze Zahl >= 0 sein")
+    return value
 
 
 def load_games(path: Path | None = None) -> dict[str, Game]:
@@ -44,6 +55,7 @@ def load_games(path: Path | None = None) -> dict[str, Game]:
             offset=int(loc["offset"]),
             save=entry["save"],
             start_header=int(entry["start_header"]),
+            continue_frames=_continue_frames(code, entry),
         )
     return games
 

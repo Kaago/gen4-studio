@@ -100,7 +100,8 @@ def test_out_under_roms_exits_1(capfd, monkeypatch, tmp_path, make_rom, fake_ope
     monkeypatch.setattr(emu, "open_emu", fake_open_emu)
     roms = tmp_path / "Roms"
     roms.mkdir()
-    monkeypatch.setenv("G4EMU_ROMS", str(roms))
+    monkeypatch.delenv("G4EMU_ROMS", raising=False)
+    monkeypatch.setenv("G4_ROMS_DIR", str(roms))
     core = tmp_path / "core.dylib"
     core.write_bytes(b"x")
     code = main(["run", "--rom", str(make_rom()), "--out", str(roms / "o"),

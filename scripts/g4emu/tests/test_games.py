@@ -1,5 +1,7 @@
 import struct
 
+import pytest
+
 from conftest import RAM_BASE, RAM_SIZE, put_location
 from g4emu.games import Location, load_games, read_location
 
@@ -33,3 +35,22 @@ def test_negative_warp_is_signed(cpud):
     ram = bytearray(RAM_SIZE)
     put_location(ram, cpud, Location(header=1, warp=-1, x=0, y=0))
     assert read_location(ram, cpud).warp == -1
+
+
+def test_cpud_continue_frames_covers_the_intro(cpud):
+    assert cpud.continue_frames == 1200
+
+
+def test_continue_frames_is_required(tmp_path):
+    path = tmp_path / "games.yaml"
+    path.write_text(
+        "XXXX:\n  name: X\n  location: { pointer: 0x02100000, offset: 4 }\n"
+        "  save: x.sav\n  start_header: 1\n"
+    )
+    with pytest.raises(ValueError, match="XXXX braucht continue_frames"):
+        load_games(path)
+    path.write_text(path.read_text() + "  continue_frames: 300\n")
+    assert load_games(path)["XXXX"].continue_frames == 300
+    path.write_text(path.read_text().replace("300", "-1"))
+    with pytest.raises(ValueError, match="continue_frames"):
+        load_games(path)

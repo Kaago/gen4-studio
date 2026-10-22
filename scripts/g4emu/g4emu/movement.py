@@ -19,11 +19,9 @@ EXPECT_TIMEOUT = 600
 # `continue` presses A for A_HOLD frames out of every A_PERIOD frames.
 A_PERIOD = 20
 A_HOLD = 6
-# The save block that holds the location is in RAM from about frame 107 on, long before the
-# title screen: the pointer is valid and stable during the intro, so "readable and stable" alone
-# would end `continue` there. The overworld shows up around frame 950 when A is pressed this
-# way, so `continue` does not return before this many frames.
-CONTINUE_MIN_FRAMES = 1200
+# `continue` does not return before `game.continue_frames` frames (games.yaml): the save block that
+# holds the location is in RAM long before the title screen, so the pointer is valid and stable
+# during the intro and "readable and stable" alone would end `continue` there.
 # After the last tile the character may still be mid-step (the position changes when a step
 # starts, a step takes about 16 frames); let it finish before the next step runs.
 SETTLE_FRAMES = 20
@@ -56,13 +54,9 @@ def _current(emu: Emu, game: Game) -> Location:
         emu.step(1)
 
 
-def continue_game(
-    emu: Emu,
-    game: Game,
-    timeout: int = CONTINUE_TIMEOUT,
-    min_frames: int = CONTINUE_MIN_FRAMES,
-) -> Location:
-    """Press A every 20 frames until a location is readable and its header stable for 30 frames."""
+def continue_game(emu: Emu, game: Game, timeout: int = CONTINUE_TIMEOUT) -> Location:
+    """Press A every 20 frames until `game.continue_frames` frames have passed and a location is
+    readable with a header that stayed the same for 30 frames."""
     start = emu.frame
     header: int | None = None
     since = emu.frame
@@ -74,7 +68,7 @@ def continue_game(
             header = None if loc is None else loc.header
             since = emu.frame
         elif (
-            emu.frame - since >= STABLE_FRAMES and _frames_since(emu, start) >= min_frames
+            emu.frame - since >= STABLE_FRAMES and _frames_since(emu, start) >= game.continue_frames
         ):
             return loc
     raise StepFailed(f"kein gültiger Ort nach {_frames_since(emu, start)} Bildern")

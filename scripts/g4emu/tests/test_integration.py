@@ -1,18 +1,16 @@
 """Needs the real core (setup.sh) and the Platinum DE ROM; run with `pytest -m integration`."""
 
+import hashlib
 import json
-import os
 import subprocess
 import sys
-from pathlib import Path
-
 import pytest
 
 from g4emu import paths
 
-ROMS = Path(os.environ["G4_ROMS_DIR"]) if os.environ.get("G4_ROMS_DIR") else paths.roms_dir()
+ROMS = paths.roms_dir()
 ROM = ROMS / "Pokemon - Platin-Edition (Germany).nds"
-SAVE = ROMS / "_testkopien" / "_saves" / "CPUD-zimmer.sav"  # read only, never written
+SAVE = ROMS / "_testkopien" / "_saves" / "CPUD-zimmer.sav"  # shared with other work: never written
 
 pytestmark = [
     pytest.mark.integration,
@@ -41,6 +39,7 @@ def test_platinum_continue_and_stairs(tmp_path):
     # Verified with the real core: the save starts in the bedroom (header 415) at x 7, y 4.
     # (8, 4) is the blue mat left of the stair box; one step right is the stairs warp to the
     # living room (header 414), where the player appears at x 10, y 3.
+    before = (hashlib.sha256(SAVE.read_bytes()).hexdigest(), SAVE.stat().st_mtime_ns)
     proc = subprocess.run(
         [sys.executable, "-m", "g4emu.cli", "run", "--rom", str(ROM), "--save", str(SAVE),
          "--out", str(tmp_path),
@@ -48,6 +47,7 @@ def test_platinum_continue_and_stairs(tmp_path):
         capture_output=True, text=True, check=False, timeout=60,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert before == (hashlib.sha256(SAVE.read_bytes()).hexdigest(), SAVE.stat().st_mtime_ns)
     lines = [json.loads(line) for line in proc.stdout.splitlines()]
     assert [line["step"] for line in lines] == [
         "continue", "walk-to", "walk", "expect-map", "where",

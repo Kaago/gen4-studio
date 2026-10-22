@@ -104,3 +104,9 @@ def test_file_steps_write_into_out(fake_emu, tmp_path):
 def test_file_step_names_cannot_escape_out(fake_emu, tmp_path):
     with pytest.raises(ValueError):
         run_step(fake_emu, None, Step("shot", ["../evil"]), tmp_path)
+
+
+def test_every_parsed_step_has_a_handler():
+    from g4emu.steps import ARITY, HANDLERS
+
+    assert set(ARITY) == set(HANDLERS)

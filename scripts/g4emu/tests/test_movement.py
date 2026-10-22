@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from g4emu.games import Location
@@ -124,7 +126,7 @@ def test_continue_presses_a_until_a_location_is_stable(fake_emu, cpud):
     fake_emu.attach(cpud, Location(415, -1, 7, 4))
     fake_emu.script(1, None)
     fake_emu.script(100, Location(415, -1, 7, 4))
-    loc = continue_game(fake_emu, cpud, min_frames=0)
+    loc = continue_game(fake_emu, replace(cpud, continue_frames=0))
     assert loc.header == 415
     assert fake_emu.frame == 100 + STABLE_FRAMES
     pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
@@ -136,14 +138,14 @@ def test_continue_presses_a_until_a_location_is_stable(fake_emu, cpud):
 def test_continue_does_not_end_while_the_intro_shows_a_stale_location(fake_emu, cpud):
     # The location is readable from the start, as during the intro of the real game.
     fake_emu.attach(cpud, Location(415, -1, 7, 4))
-    continue_game(fake_emu, cpud, min_frames=500)
+    continue_game(fake_emu, replace(cpud, continue_frames=500))
     assert fake_emu.frame >= 500
 
 
 def test_continue_restarts_the_window_when_the_header_changes(fake_emu, cpud):
     fake_emu.attach(cpud, Location(415, -1, 7, 4))
     fake_emu.script(20, Location(414, 1, 10, 3))
-    loc = continue_game(fake_emu, cpud, min_frames=0)
+    loc = continue_game(fake_emu, replace(cpud, continue_frames=0))
     assert loc.header == 414 and fake_emu.frame == 20 + STABLE_FRAMES
 
 

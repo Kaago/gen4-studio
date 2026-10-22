@@ -5,3 +5,4 @@ CPUD:
   location: { pointer: 0x02101EE0, offset: 0x1294 }
   save: CPUD-zimmer.sav
   start_header: 415
+  continue_frames: 1200  # overworld shows up around frame 950; the pointer is valid from 107

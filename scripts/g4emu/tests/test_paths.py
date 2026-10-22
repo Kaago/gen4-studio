@@ -1,6 +1,6 @@
 import pytest
 
-from g4emu.paths import check_out_dir
+from g4emu.paths import check_out_dir, roms_dir
 
 
 def test_out_under_roms_is_refused(tmp_path):
@@ -43,3 +43,22 @@ def test_same_file_with_a_missing_target(tmp_path):
     assert same_file(tmp_path / "x.sav", None) is False
     (tmp_path / "dangling").symlink_to(tmp_path / "nope")
     assert same_file(tmp_path / "dangling", save) is False
+
+
+def test_roms_dir_reads_g4_roms_dir_first(monkeypatch, tmp_path):
+    monkeypatch.setenv("G4_ROMS_DIR", str(tmp_path / "a"))
+    monkeypatch.setenv("G4EMU_ROMS", str(tmp_path / "b"))
+    assert roms_dir() == tmp_path / "a"
+    monkeypatch.delenv("G4_ROMS_DIR")
+    assert roms_dir() == tmp_path / "b"  # old name stays a fallback
+    monkeypatch.delenv("G4EMU_ROMS")
+    assert roms_dir().name == "Roms"
+
+
+def test_guard_uses_only_g4_roms_dir(monkeypatch, tmp_path):
+    roms = tmp_path / "Roms"
+    (roms / "sub").mkdir(parents=True)
+    monkeypatch.delenv("G4EMU_ROMS", raising=False)
+    monkeypatch.setenv("G4_ROMS_DIR", str(roms))
+    with pytest.raises(ValueError, match="Roms"):
+        check_out_dir(roms / "sub", roms_dir())

@@ -22,8 +22,8 @@ def default_core() -> Path:
 
 
 def roms_dir() -> Path:
-    """`G4EMU_ROMS` if set, else the `Roms` folder next to the repository."""
-    env = os.environ.get("G4EMU_ROMS")
+    """`G4_ROMS_DIR` (fallback `G4EMU_ROMS`) if set, else the `Roms` folder next to the repository."""
+    env = os.environ.get("G4_ROMS_DIR") or os.environ.get("G4EMU_ROMS")
     if env:
         return Path(env)
     return repo_root().parent / "Roms"

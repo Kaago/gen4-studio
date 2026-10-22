@@ -154,7 +154,7 @@ Den Spielcode liest `g4emu` aus dem ROM-Kopf (Offset 0x0C). Für Spiele ohne Ein
 
 | Schritt | Wirkung |
 |---|---|
-| `continue` | Titelbild und Menü per A bis „Weiter“, dann warten, bis der Positionszeiger gültig ist und die Header-ID 30 Bilder lang gleich bleibt (Zeitlimit 3000 Bilder). |
+| `continue` | Titelbild und Menü per A bis „Weiter“: A wird gedrückt, bis die Mindestzahl Bilder je Spiel aus `games.yaml` (`continue_frames`, Pflichtfeld) vergangen ist, weil der Positionszeiger schon im Intro gültig ist (Platin: ab Bild 107, Spielwelt um Bild 950, Wert 1200). Danach gilt: warten, bis der Positionszeiger gültig ist und die Header-ID 30 Bilder lang gleich bleibt (Zeitlimit 3000 Bilder). |
 | `wait N` | N Bilder laufen lassen |
 | `press TASTE[:N]` | Taste N Bilder halten (Standard 6). Tasten: `a b x y l r start select up down left right` |
 | `tap X Y` | Tipp auf den unteren Bildschirm (Pixel 0–255, 0–191), 6 Bilder |
