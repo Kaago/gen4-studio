@@ -1,6 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { ScriptDocuments, scriptUri } from "./documents";
+import { ScriptDocuments, lineOffset, rootUri, scriptUri } from "./documents";
 
 describe("ScriptDocuments", () => {
   it("opens_a_document_clean_with_no_editor_state", () => {
@@ -79,5 +79,23 @@ describe("scriptUri", () => {
 
   it("uses_json_for_a_level_script", () => {
     expect(scriptUri("/r", 12, "levelScript")).toBe("file:///r/expanded/scripts/0012.json");
+  });
+});
+
+describe("lineOffset and rootUri", () => {
+  it("finds_where_a_one_based_line_starts_and_clamps", () => {
+    const text = "one\ntwo\nthree";
+    expect(lineOffset(text, 1)).toBe(0);
+    expect(lineOffset(text, 0)).toBe(0);
+    expect(lineOffset(text, 2)).toBe(4);
+    expect(lineOffset(text, 3)).toBe(8);
+    expect(lineOffset(text, 9)).toBe(text.length);
+    expect(lineOffset("", 5)).toBe(0);
+  });
+
+  it("encodes_the_root_like_the_file_uris_do", () => {
+    expect(rootUri("/Users/me/My Project/")).toBe("file:///Users/me/My%20Project");
+    expect(scriptUri("/Users/me/My Project/", 1).startsWith(rootUri("/Users/me/My Project/"))).toBe(true);
+    expect(rootUri("/a#b")).toBe("file:///a%23b");
   });
 });

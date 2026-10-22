@@ -61,6 +61,17 @@ export class ScriptDocuments {
   }
 }
 
+/** The offset where 1-based `line` of `text` starts; the end of the text for a line beyond it, 0 for line 1 or less. */
+export function lineOffset(text: string, line: number): number {
+  let offset = 0;
+  for (let n = 1; n < line; n++) {
+    const next = text.indexOf("\n", offset);
+    if (next < 0) return text.length;
+    offset = next + 1;
+  }
+  return offset;
+}
+
 /**
  * The language server's name for a script file: `file://<root>/expanded/scripts/NNNN.rotom` (`.json` for a
  * level script). Case is kept. Characters are percent-encoded as the URL standard does for a file path (spaces,
@@ -68,11 +79,19 @@ export class ScriptDocuments {
  * in the root are encoded too, so they cannot start an escape, fragment or query.
  */
 export function scriptUri(root: string, file: number, kind: ScriptDocument["kind"] = "script"): string {
-  const dir = root
+  const name = `${String(file).padStart(4, "0")}.${kind === "script" ? "rotom" : "json"}`;
+  return new URL(`file://${encodedRoot(root)}/expanded/scripts/${name}`).href;
+}
+
+/** The language server's `rootUri`: the project root as `file://` URL, encoded like in `scriptUri`. */
+export function rootUri(root: string): string {
+  return new URL(`file://${encodedRoot(root)}`).href;
+}
+
+function encodedRoot(root: string): string {
+  return root
     .replace(/\/+$/, "")
     .replace(/%/g, "%25")
     .replace(/#/g, "%23")
     .replace(/\?/g, "%3F");
-  const name = `${String(file).padStart(4, "0")}.${kind === "script" ? "rotom" : "json"}`;
-  return new URL(`file://${dir}/expanded/scripts/${name}`).href;
 }

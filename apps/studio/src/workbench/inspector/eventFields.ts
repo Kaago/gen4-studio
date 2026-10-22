@@ -1,5 +1,6 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
 import { KIND_LABELS, eventAt } from "../../world/events";
+import { TERMS } from "../terms";
 import type { EventData } from "../../world/events";
 import type { RecordBackend, RecordFields } from "./headerCommit";
 
@@ -55,12 +56,12 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "graphics_id", label: "Grafik", ...U16 },
         { key: "movement_type", label: "Bewegung", ...U16 },
         { key: "dir", label: "Richtung (0 oben, 1 unten, 2 links, 3 rechts)", ...I16 },
-        { key: "script", label: "Skript", ...U16 },
+        { key: "script", label: TERMS.script.label, ...U16 },
       ];
     case "coord":
-      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: "Skript", ...U16 }];
+      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
     case "bg":
-      return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: "Skript", ...U16 }];
+      return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
 }
 

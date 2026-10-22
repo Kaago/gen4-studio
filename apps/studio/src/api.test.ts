@@ -10,6 +10,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import {
   addBuilding,
+  addScript,
+  adoptScripts,
   createTextArchive,
   deleteBuilding,
   editTextArchive,
@@ -23,6 +25,11 @@ import {
   lspSend,
   lspStart,
   lspStop,
+  readScript,
+  resolveScript,
+  saveLevelScript,
+  saveScript,
+  scriptsStatus,
   searchText,
   setHeader,
   updateBuilding,
@@ -231,5 +238,38 @@ describe("language server commands", () => {
     await lspSend("{}");
     await lspStop();
     expect(invoke.mock.calls).toEqual([["lsp_send", { body: "{}" }], ["lsp_stop"]]);
+  });
+});
+
+describe("script commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("adoptScripts_passes_a_channel_that_feeds_the_progress_callback_and_resolves_to_the_report", async () => {
+    const report = { decompiled: 2, skipped_empty: 0, failed: [] };
+    invoke.mockResolvedValue(report);
+    const onProgress = vi.fn();
+    await expect(adoptScripts(onProgress)).resolves.toBe(report);
+    const [cmd, args] = invoke.mock.calls[0]!;
+    expect(cmd).toBe("adopt_scripts");
+    args.progress.onmessage({ done: 1, total: 2 });
+    expect(onProgress).toHaveBeenCalledWith({ done: 1, total: 2 });
+  });
+
+  it("calls_each_command_with_the_argument_names_of_the_backend", async () => {
+    invoke.mockResolvedValue(undefined);
+    await scriptsStatus();
+    await readScript(3);
+    await saveScript(3, "text");
+    await saveLevelScript(4, { a: 1 });
+    await addScript(3);
+    await resolveScript(415, 2);
+    expect(invoke.mock.calls).toEqual([
+      ["scripts_status"],
+      ["read_script", { file: 3 }],
+      ["save_script", { file: 3, text: "text" }],
+      ["save_level_script", { file: 4, doc: { a: 1 } }],
+      ["add_script", { file: 3 }],
+      ["resolve_script", { header: 415, n: 2 }],
+    ]);
   });
 });

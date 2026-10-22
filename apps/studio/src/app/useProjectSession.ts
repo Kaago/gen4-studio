@@ -1,9 +1,12 @@
 import { useCallback, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import type { Message } from "../Toolbar";
+import type { ProblemsStore } from "../workbench/problems/problems";
+import type { ScriptBridge } from "../workbench/script/useScripts";
 import { eventReadOnlyReason, lockedText } from "../world/events";
 
 const EMULATOR_KEY = "g4.emulatorPath";
@@ -24,13 +27,20 @@ function storeEmulator(path: string) {
   }
 }
 
+interface SessionParams {
+  /** Where the problems of a save or a build go. */
+  problems: ProblemsStore;
+  /** The open scripts, which a build saves first and the unsaved-edit guards count. A ref: the scripts hook is created after this one (it needs `info`). */
+  scripts: MutableRefObject<ScriptBridge>;
+}
+
 /**
  * The project as a whole: opening, saving, building and running it, the unsaved-edit count, the
  * message bar and the handling of a file that changed on disk (`stale`). What a stale resolution
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession() {
+export function useProjectSession({ problems, scripts }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
@@ -112,7 +122,7 @@ export function useProjectSession() {
   /** Asks for a project folder and opens it; `resetProject` swaps the scene's and the editors' state for the new project's header list. */
   async function onOpen(resetProject: (headers: HeaderSummary[]) => void) {
     try {
-      if (dirtyCount > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
+      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
       const path = await open({ directory: true });
       if (typeof path !== "string") return;
       const opened = await openProject(path);
@@ -178,7 +188,12 @@ export function useProjectSession() {
     if (!info || busy) return;
     try {
       const report = await save();
-      setMessage({ kind: "info", text: `${report.written.length} Datei(en) gespeichert` });
+      // Text warnings of the archives that were written; an archive without any is cleared.
+      problems.applyReport(report.problems, { archives: report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index) });
+      // Open scripts are part of the project: saved the way Cmd+S in the editor saves them (after the archives, which a save refuses to run ahead of).
+      const dirtyScripts = scripts.current.dirtyFiles();
+      for (const file of dirtyScripts) await scripts.current.save(file);
+      setMessage({ kind: "info", text: `${report.written.length + dirtyScripts.length} Datei(en) gespeichert` });
     } catch (e) {
       fail(e);
     }
@@ -191,11 +206,21 @@ export function useProjectSession() {
       if (!out) return;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
+      // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
+      for (const file of scripts.current.dirtyFiles()) await scripts.current.save(file);
       const report = await buildRom(out);
       setLastRom(report.rom);
+      problems.applyReport(report.problems);
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved} Datei(en) vorher gespeichert)` });
     } catch (e) {
-      fail(e);
+      if (isCmdError(e) && e.code === "compile") {
+        const list = e.problems ?? [];
+        problems.applyReport(list);
+        const errors = list.filter((p) => p.severity === "error").length;
+        setMessage({ kind: "error", text: errors > 0 ? `Build abgebrochen: ${errors} Fehler` : `Build abgebrochen: ${e.message}` });
+      } else {
+        fail(e);
+      }
     } finally {
       setBusy(false);
     }

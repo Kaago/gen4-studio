@@ -8,7 +8,10 @@ import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } f
 import type { Message } from "../Toolbar";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, TextTab } from "../workbench/panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab } from "../workbench/panels";
+import { ProblemsStore } from "../workbench/problems/problems";
+import { ScriptDocuments } from "../workbench/script/documents";
+import type { ScriptsApi } from "../workbench/script/useScripts";
 import { shownInspector } from "../workbench/pin";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
@@ -78,6 +81,9 @@ const world = {
   onDeleteEvent: noop,
 } as unknown as Inputs["world"];
 const text = { target: null, onOpen: noop };
+/** The scripts as App's hook hands them over: the same object until its revision changes. */
+const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
+const problems = new ProblemsStore();
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
@@ -89,12 +95,14 @@ interface Volatile {
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
+  /** Another scripts object, as after a document was opened (its revision moved). */
+  scripts?: ScriptsApi;
   matrices?: MatrixSummary[];
   links?: WarpLink[];
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
@@ -104,6 +112,8 @@ function Model({ pin = pinned, hover, message, showEvents = true, matrices = sum
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
     text,
+    scripts: scriptsApi,
+    problems,
     view: { ...view, showEvents },
   });
   onModel(model);
@@ -150,7 +160,7 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel, text: TextTab };
+  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -218,6 +228,24 @@ describe("workbench model", () => {
     // The tab rendered, the memoised text panel did not: its context is the same object.
     expect(reads.data).toBe(1);
     expect(bodies.text).toBe(0);
+  });
+
+  it("does not render the script or problems panel for a hover or a message, and the script panel follows a new scripts object", async () => {
+    const showScript = await mountPanel("script");
+    // The editor chunk is loaded on its own: the panel appears once it has arrived.
+    await vi.waitFor(() => expect(container.textContent).toContain("Scripts werden geprüft"));
+    for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
+    await showScript({ hover: tile(1), message: null });
+    await showScript({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.data).toBe(0);
+    await showScript({ hover: null, message: null, scripts: { ...scripts, revision: 1 } });
+    expect(reads.data).toBe(1);
+
+    const showProblems = await mountPanel("problems");
+    expect(container.textContent).toContain("Keine Probleme");
+    await showProblems({ hover: tile(1), message: null });
+    await showProblems({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.data).toBe(0);
   });
 
   it("renders the status strip for a message, not for a hover", async () => {

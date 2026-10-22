@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
+import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, scriptsStatus, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -37,6 +37,8 @@ vi.mock("./api", async (importOriginal) => ({
   listWarps: vi.fn(),
   createArea: vi.fn(),
   headerPatchStatus: vi.fn(),
+  scriptsStatus: vi.fn(),
+  readScript: vi.fn(),
   applyHeaderPatch: vi.fn(),
   repairHeaderPatch: vi.fn(),
   undo: vi.fn(),
@@ -74,6 +76,8 @@ describe("App wiring", () => {
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
     vi.mocked(listHeaders).mockImplementation(async () => ({ headers: listed, names_error: null }));
     vi.mocked(memberCounts).mockResolvedValue({});
+    vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Main #1:\n\tEnd\n" });
     vi.mocked(dirty).mockResolvedValue([]);
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
@@ -117,6 +121,46 @@ describe("App wiring", () => {
     expect(shown.renders).toBeGreaterThanOrEqual(rendersBefore + 5);
     // ... and the data object stayed the same.
     expect(data()).toBe(before);
+  });
+
+  it("opens a script file at a line for a link to a script and leaves the selection alone", async () => {
+    await select(listed[1]);
+    const selected = data().selected;
+    await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
+    expect(readScript).toHaveBeenCalledWith(42);
+    expect(data().scripts.active).toBe(42);
+    expect(data().scripts.documents.get(42)?.cursor).toBe("script Main #1:\n".length);
+    expect(data().selected).toBe(selected);
+    // The workbench's shortcut for the same thing.
+    await act(async () => data().onOpenScript(43));
+    expect(data().scripts.active).toBe(43);
+  });
+
+  it("counts unsaved scripts in the toolbar and forgets scripts and problems with the project", async () => {
+    await act(async () => data().onOpenScript(42));
+    expect(container.textContent).toContain("gespeichert");
+    expect(container.textContent).not.toContain("ungespeichert");
+    const doc = data().scripts.documents.get(42)!;
+    const before = data();
+    doc.text += "// edit\n";
+    await act(async () => data().scripts.onChange(42));
+    expect(container.textContent).toContain("● ungespeichert (1)");
+    expect(data().scripts).not.toBe(before.scripts);
+    // Typing more keeps the dirty set: nothing moves.
+    const dirtyScripts = data().scripts;
+    doc.text += "// more\n";
+    await act(async () => data().scripts.onChange(42));
+    expect(data().scripts).toBe(dirtyScripts);
+    // A save-free switch: reset the document so the open-project guard does not ask.
+    doc.savedText = doc.text;
+    await act(async () => data().scripts.onChange(42));
+    data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "error", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
+    // The backend hands out a fresh info object for every project it opens.
+    vi.mocked(openProject).mockImplementation(async () => ({ root: "/q", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 }));
+    await click("Projekt öffnen");
+    expect(data().scripts.documents.list()).toEqual([]);
+    expect(data().scripts.active).toBeNull();
+    expect(data().problems.list()).toEqual([]);
   });
 
   it("hands the workbench the matrix and warp overviews of the open project, and a wizard opener that keeps its identity", async () => {

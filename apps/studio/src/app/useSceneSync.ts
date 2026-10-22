@@ -25,6 +25,8 @@ interface SceneSyncParams {
   dockApi: MutableRefObject<DockviewApi | null>;
   /** Tells the text panel which archive and message to open (a link to a text archive). */
   onOpenText: (index: number, message?: number) => void;
+  /** Tells the script panel which file to open, and at which 1-based line (a link to a script). */
+  onOpenScript: (file: number, line?: number) => void;
 }
 
 /**
@@ -32,7 +34,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, onOpenText }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, onOpenText, onOpenScript }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -223,6 +225,10 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
       // A text archive changes neither the selection nor the pin: the text panel opens it and takes the focus.
       if (next.text) {
         onOpenText(next.text.index, next.text.message ?? undefined);
+        focusPanel(next.panel);
+      } else if (next.script) {
+        // Likewise a script: the panel opens the document, the selection stays.
+        onOpenScript(next.script.file, next.script.line ?? undefined);
         focusPanel(next.panel);
       } else if (target.kind === "header") {
         setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });

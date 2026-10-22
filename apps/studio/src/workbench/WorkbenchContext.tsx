@@ -7,6 +7,8 @@ import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
+import type { ProblemsStore } from "./problems/problems";
+import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
 
 /** What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in. */
@@ -94,6 +96,12 @@ export interface WorkbenchData {
   textTarget: TextTarget | null;
   /** Opens a text archive (and one of its messages) in the text panel. */
   onOpenText: (index: number, message?: number) => void;
+  /** The project's scripts: status, open documents and their commands. Changes with its `revision`. */
+  scripts: ScriptsApi;
+  /** Opens a script file (and moves to a 1-based line) in the script panel. */
+  onOpenScript: (file: number, line?: number) => void;
+  /** The problems of the project; a stable object that notifies its own subscribers. */
+  problems: ProblemsStore;
   onDismissMessage: () => void;
 }
 

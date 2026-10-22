@@ -1,5 +1,5 @@
 /** The words of the world explorer: every panel takes label and explanation from here (spec §3). */
-export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData" | "patch" | "textArchive" | "message";
+export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData" | "patch" | "textArchive" | "message" | "scriptFile" | "script" | "levelScript" | "problem";
 
 export const TERMS: Record<TermKey, { label: string; plural: string; tech: string | null; short: string }> = {
   place: {
@@ -37,6 +37,18 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
     short: "Die Nachrichten eines Headers; Scripts zeigen sie über die Nummer.",
   },
   message: { label: "Nachricht", plural: "Nachrichten", tech: null, short: "Ein Text eines Textarchivs; Scripts rufen ihn über seine Nummer ab." },
+  scriptFile: {
+    label: "Scriptdatei", plural: "Scriptdateien",
+    tech: "ScriptFile",
+    short: "Alle Scripts eines Headers in einer Datei; Events nennen die Nummer `#n` darin.",
+  },
+  script: { label: "Script", plural: "Scripts", tech: null, short: "Ein Ablauf in rotom, zum Beispiel `script Main #1`." },
+  levelScript: {
+    label: "Level-Script", plural: "Level-Scripts",
+    tech: null,
+    short: "Läuft beim Laden oder Betreten der Karte oder wenn eine Variable einen Wert hat.",
+  },
+  problem: { label: "Problem", plural: "Probleme", tech: null, short: "Ein Fehler oder eine Warnung aus Compile, Text oder Sprachdienst." },
   patch: {
     label: "ROM-Patch", plural: "ROM-Patches",
     tech: null,

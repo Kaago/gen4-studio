@@ -36,6 +36,16 @@ describe("nextSelection", () => {
     expect(nextSelection(state, { kind: "header", id: 4 })).toEqual({ selectedHeader: 4, pinned: { kind: "header", id: 4 }, panel: "headers" });
   });
 
+  it("a script opens in the script panel at its line and leaves selection and pin alone", () => {
+    expect(nextSelection(state, { kind: "script", file: 42, line: 7 })).toEqual({
+      selectedHeader: 3,
+      pinned: null,
+      panel: "script",
+      script: { file: 42, line: 7 },
+    });
+    expect(nextSelection(state, { kind: "script", file: 42 })).toMatchObject({ panel: "script", script: { file: 42, line: null } });
+  });
+
   it("an unknown header changes nothing", () => {
     expect(nextSelection(state, { kind: "header", id: 999 })).toEqual({ selectedHeader: 3, pinned: null, panel: null });
   });

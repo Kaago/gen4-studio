@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
+import { countsText } from "./workbench/problems/problems";
+import type { ProblemCounts } from "./workbench/problems/problems";
 
 export interface MessageAction {
   label: string;
@@ -53,9 +55,17 @@ export function Toolbar(p: ToolbarProps) {
   );
 }
 
-/** Non-modal message bar at the bottom: errors and results of save/build/run. */
-export function StatusBar({ message, onDismiss }: { message: Message | null; onDismiss: () => void }) {
-  if (!message) return null;
+/** Non-modal message bar at the bottom: errors and results of save/build/run, and the problem count ("2 Fehler, 1 Warnung"). */
+export function StatusBar({ message, problems, onDismiss }: { message: Message | null; problems?: ProblemCounts; onDismiss: () => void }) {
+  const summary = problems ? countsText(problems) : "";
+  if (!message) {
+    if (!summary) return null;
+    return (
+      <div role="status" style={{ ...bar, borderTop: "1px solid #ccc", borderBottom: "none", color: problems!.errors > 0 ? "#b91c1c" : "#b45309" }}>
+        {summary}
+      </div>
+    );
+  }
   const error = message.kind === "error";
   return (
     <div
@@ -74,6 +84,7 @@ export function StatusBar({ message, onDismiss }: { message: Message | null; onD
       >
         {message.text}
       </span>
+      {summary && <span style={{ flexShrink: 0 }}>{summary}</span>}
       {message.actions?.map((a) => (
         <button key={a.label} onClick={a.run} style={{ flexShrink: 0 }}>
           {a.label}

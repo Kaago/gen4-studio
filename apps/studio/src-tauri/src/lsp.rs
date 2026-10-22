@@ -131,6 +131,10 @@ impl Worker {
     }
 }
 
+/// Pushed into the channel after an automatic restart, so the client can resync (initialize and open its
+/// documents again). Synthetic: the server never sends it.
+pub const RESTARTED_NOTIFICATION: &str = r#"{"jsonrpc":"2.0","method":"$/g4/restarted"}"#;
+
 /// A running `rotom-lsp`: the child (leader of its own process group), a writer thread that owns
 /// its stdin (`send` only queues, so a server that does not read never blocks the caller) and
 /// the reader thread that turns its stdout into channel messages.
@@ -331,6 +335,9 @@ impl LspProcess {
         self.reader = Some(spawned.reader);
         self.writer = Some(spawned.writer);
         self.stopped = false;
+        // The new server has lost the client's `initialize` and every opened document: tell the client, so it
+        // starts over (the frontend resyncs on this method; it is not part of the language server protocol).
+        let _ = self.sink.send(RESTARTED_NOTIFICATION.to_owned());
         Ok(())
     }
 }
@@ -657,12 +664,20 @@ while :; do sleep 1; done
         let dir = Scratch::new("restart");
         let marker = dir.0.join("starts");
         let fake = dir.script("rotom-lsp", &flaky_script(&marker));
-        let (sink, _rx) = channel();
+        let (sink, rx) = channel();
         let mut lsp = LspProcess::start(&fake, &dir.0, sink).unwrap();
         wait_dead(&mut lsp);
+        // Nothing is pushed before the restart.
+        assert!(rx.try_recv().is_err());
         lsp.set_restart_after(Duration::ZERO);
         lsp.send_or_restart("{}").unwrap();
         assert_eq!(lsp.restarts(), 1);
+        // The client is told to resync, with a notification that is valid JSON-RPC.
+        let pushed = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(pushed, RESTARTED_NOTIFICATION);
+        let json: serde_json::Value = serde_json::from_str(&pushed).unwrap();
+        assert_eq!(json["method"], "$/g4/restarted");
+        assert!(json.get("id").is_none());
         assert!(lsp.alive());
         // The restarted shell writes its marker line a moment after it started.
         let deadline = Instant::now() + Duration::from_secs(10);

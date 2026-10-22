@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Suspense, lazy, useMemo, useSyncExternalStore } from "react";
 import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
@@ -8,6 +8,9 @@ import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
+import { ProblemsPanel } from "./problems/ProblemsPanel";
+import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
+import type { ScriptPanelContext } from "./script/ScriptPanel";
 import { TextPanel } from "./text/TextPanel";
 import type { TextPanelContext } from "./text/TextPanel";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
@@ -15,6 +18,9 @@ import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
+
+/** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
+const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
 const toggleStyle: React.CSSProperties = {
   color: "#e5e7eb",
@@ -168,6 +174,24 @@ export function TextTab() {
   return <TextPanel context={context} />;
 }
 
+export function ScriptTab() {
+  const d = useWorkbench();
+  const { info, scripts, problems, onError } = d;
+  // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
+  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, onError }), [info, scripts, problems, onError]);
+  return (
+    <Suspense fallback={<p style={{ padding: 12, color: "#6b7280" }}>Editor wird geladen …</p>}>
+      <ScriptPanel context={context} />
+    </Suspense>
+  );
+}
+
+export function ProblemsTab() {
+  const { problems, goTo } = useWorkbench();
+  const context = useMemo<ProblemsPanelContext>(() => ({ problems, goTo }), [problems, goTo]);
+  return <ProblemsPanel context={context} />;
+}
+
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
@@ -227,9 +251,10 @@ export function InspectorPanel() {
 export function StatusPanel() {
   const d = useWorkbench();
   const message = useMessage();
+  const counts = useSyncExternalStore(d.problems.subscribe, d.problems.counts);
   return (
     <div style={{ height: "100%", overflowY: "auto" }}>
-      <StatusBar message={message} onDismiss={d.onDismissMessage} />
+      <StatusBar message={message} problems={counts} onDismiss={d.onDismissMessage} />
     </div>
   );
 }

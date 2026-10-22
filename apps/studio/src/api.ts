@@ -662,3 +662,57 @@ export async function lspStart(onMessage: (body: string) => void): Promise<void>
 export const lspSend = (body: string) => invoke<void>("lsp_send", { body });
 
 export const lspStop = () => invoke<void>("lsp_stop");
+
+/** Whether rotom has taken the project over (`rotom.toml` and the sources exist) and how many script files it has. */
+export interface ScriptsStatusDto {
+  adopted: boolean;
+  file_count: number;
+}
+
+export interface AdoptProgressDto {
+  done: number;
+  total: number;
+}
+
+export interface AdoptReportDto {
+  decompiled: number;
+  skipped_empty: number;
+  /** Script files rotom could not decompile (file number, message); they stay binary. */
+  failed: [number, string][];
+}
+
+/** A level script as rotom's JSON document; the panel shows it as text and hands the parsed text back. */
+export type LevelScriptDoc = Record<string, unknown>;
+
+/** A script file as the editor opens it (`kind` is the tag). A binary file cannot be edited. */
+export type ScriptSourceDto = { kind: "script"; text: string } | { kind: "levelScript"; doc: LevelScriptDoc } | { kind: "binary"; size: number };
+
+export interface SaveScriptDto {
+  /** Every problem the compile reported, also those of other sources that were stale. */
+  problems: ProblemDto[];
+  /** Text archives a text literal in a script appended to; the store holds them again. */
+  touched_archives: number[];
+}
+
+export type ScriptTargetDto = { kind: "file"; file: number; line: number } | { kind: "ambiguous"; candidates: number[] } | { kind: "unknown" };
+
+export const scriptsStatus = () => invoke<ScriptsStatusDto>("scripts_status");
+
+/** Decompiles every script file into `expanded/scripts/`; `onProgress` is called as files are done. Takes seconds. */
+export async function adoptScripts(onProgress: (progress: AdoptProgressDto) => void): Promise<AdoptReportDto> {
+  const progress = new Channel<AdoptProgressDto>();
+  progress.onmessage = onProgress;
+  return invoke<AdoptReportDto>("adopt_scripts", { progress });
+}
+
+export const readScript = (file: number) => invoke<ScriptSourceDto>("read_script", { file });
+/**
+ * Writes the source and compiles what is stale. A source that does not compile is saved anyway and comes back as
+ * problems. Rejects (code "error") with "Textarchiv NNNN erst speichern" while a text archive has unsaved edits.
+ */
+export const saveScript = (file: number, text: string) => invoke<SaveScriptDto>("save_script", { file, text });
+export const saveLevelScript = (file: number, doc: LevelScriptDoc) => invoke<SaveScriptDto>("save_level_script", { file, doc });
+export const newScriptFile = (kind: "script" | "levelScript") => invoke<number>("new_script_file", { kind });
+/** Appends an empty script to the script file and resolves to its number. Same refusal as `saveScript`. */
+export const addScript = (file: number) => invoke<number>("add_script", { file });
+export const resolveScript = (header: number, n: number) => invoke<ScriptTargetDto>("resolve_script", { header, n });
