@@ -1251,7 +1251,7 @@ fn read_base(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelE
         return read_location(location, lang);
     };
     match read_text_doc(json, member, lang) {
-        Err(KernelError::InvalidProject(_)) => match text_winner(json, member)? {
+        Err(KernelError::InvalidProject(_)) => match text::text_winner(json, member)? {
             Some(path) => std::fs::read(path).map(Some).map_err(io_at(path)),
             None => Ok(None),
         },
@@ -1290,7 +1290,7 @@ fn read_text_doc(
     lang: &str,
 ) -> Result<Option<TextArchiveDoc>, KernelError> {
     let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
-    match text_winner(json, member)? {
+    match text::text_winner(json, member)? {
         Some(path) if path == json => TextArchiveDoc::from_json(&read(json)?, lang)
             .map(Some)
             .map_err(|e| text_error_at(json, e)),
@@ -1299,22 +1299,6 @@ fn read_text_doc(
             .map_err(|e| text_error_at(member, e)),
         None => Ok(None),
     }
-}
-
-/// The file the loader rule picks: `json` when it exists and is not older than `member`,
-/// else `member` when it exists. `None` when neither does.
-fn text_winner<'a>(json: &'a Path, member: &'a Path) -> Result<Option<&'a Path>, KernelError> {
-    let modified = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
-        Ok(time) => Ok(Some(time)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(io_at(path)(e)),
-    };
-    Ok(match (modified(json)?, modified(member)?) {
-        (Some(j), Some(m)) => Some(if j >= m { json } else { member }),
-        (Some(_), None) => Some(json),
-        (None, Some(_)) => Some(member),
-        (None, None) => None,
-    })
 }
 
 /// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.

@@ -18,7 +18,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
-use crate::text::{Problem, Severity, TextArchiveDoc, write_archive};
+use crate::text::{Problem, Severity, TextArchiveDoc, text_winner, write_archive};
 
 pub const ROTOM_TOML: &str = "rotom.toml";
 
@@ -36,6 +36,7 @@ fn rotom_error(what: &str, error: impl std::fmt::Display) -> KernelError {
 }
 
 fn rotom_family(family: Family) -> rotom::GameFamily {
+    // rotom v0.7.0: src/database.rs GameFamily (re-export of uxie::GameFamily)
     match family {
         Family::Dp => rotom::GameFamily::DP,
         Family::Pt => rotom::GameFamily::Platinum,
@@ -86,8 +87,32 @@ fn load_config(project: &Project) -> Result<rotom::project_config::RotomConfig, 
         )));
     }
     // rotom v0.7.0: src/project/config.rs load_config
-    rotom::project_config::load_config(&project.root)
-        .map_err(|e| KernelError::InvalidProject(format!("{ROTOM_TOML}: {e}")))
+    let config = rotom::project_config::load_config(&project.root)
+        .map_err(|e| KernelError::InvalidProject(format!("{ROTOM_TOML}: {e}")))?;
+    // Sources and members are read and written at the DSPRE layout; a rotom.toml that points
+    // elsewhere (a CLI-adopted project) would make saves miss the members.
+    let binary = format!(
+        "unpacked/{}",
+        member_dir(project)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    );
+    let norm = |roots: &[String]| -> Vec<String> {
+        roots
+            .iter()
+            .map(|r| r.replace('\\', "/").trim_end_matches('/').to_owned())
+            .collect()
+    };
+    if norm(&config.paths.source_roots) != [SOURCE_ROOT]
+        || norm(&config.paths.binary_roots) != [binary.clone()]
+    {
+        return Err(KernelError::InvalidProject(format!(
+            "{ROTOM_TOML}: source_roots/binary_roots weichen vom DSPRE-Layout ab \
+             (erwartet {SOURCE_ROOT} und {binary})"
+        )));
+    }
+    Ok(config)
 }
 
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
@@ -223,6 +248,8 @@ pub fn adopt(
     project: &Project,
     progress: &mut dyn FnMut(AdoptProgress),
 ) -> Result<AdoptReport, KernelError> {
+    // rotom v0.7.0: src/project/config.rs RotomConfig, ProjectMetadata, WorkspaceConfig,
+    // ProjectTypeConfig, PathsConfig, DatabaseConfig
     use rotom::project_config::{
         DatabaseConfig, PathsConfig, ProjectMetadata, ProjectTypeConfig, RotomConfig,
         WorkspaceConfig,
@@ -299,7 +326,8 @@ pub fn adopt(
         .map_err(|e| rotom_error("decompile", e))?;
     progress(AdoptProgress { done: total, total });
 
-    // Last, so a failed run leaves the project unadopted and `adopt` can run again.
+    // Last, so a failure before this point leaves no rotom.toml. Sources rotom already wrote stay,
+    // and `adopt` refuses to run over them; a failed run needs them removed by hand.
     let toml = toml::to_string_pretty(&config)
         .map_err(|e| KernelError::InvalidProject(format!("{ROTOM_TOML}: {e}")))?;
     write_atomic(root, &root.join(ROTOM_TOML), toml.as_bytes())?;
@@ -344,6 +372,7 @@ fn text_json_hashes(project: &Project) -> Result<BTreeMap<u16, u64>, KernelError
 
 /// Byte offset where rotom's error starts, if its variant has a span.
 fn error_start(error: &rotom::CompileError) -> Option<usize> {
+    // rotom v0.7.0: src/compiler/diagnostic/error.rs CompileError (Parse, Analysis, Lowering spans)
     use rotom::CompileError::{Analysis, Lowering, Parse};
     match error {
         Parse { span, .. } | Analysis { span, .. } => Some(span.start),
@@ -397,8 +426,10 @@ fn restore_quirks(
     Ok(())
 }
 
-/// The archive number in rotom's "failed to load text archive N: no text archive found for ID N"
-/// (src/lib.rs `compile_file_internal`, the warm step): the JSON rotom needs is missing.
+/// The archive number in "failed to load text archive N: no text archive found for ID N": uxie
+/// 0.9.7 src/workspace.rs `Workspace::load_archive_into_cache` raises the NotFound, rotom
+/// v0.7.0 src/lib.rs `compile_file_internal` (the warm step) wraps it in `CompileError::Io`.
+/// The JSON rotom needs is missing.
 fn missing_text_archive(error: &rotom::CompileError) -> Option<u16> {
     let rotom::CompileError::Io { message } = error else {
         return None;
@@ -438,6 +469,30 @@ fn materialize_text_json(
     Ok(true)
 }
 
+/// Rewrites every `expanded/textArchives/NNNN.json` that is older than its member (DSPRE
+/// changed the member) from the member, by the store's loader rule: rotom reads the JSON
+/// without any mtime rule, so it would number and append messages against a stale file and
+/// the later encode would overwrite the member's newer content. The member stays untouched;
+/// the new JSON is not older than it, so the store agrees.
+fn refresh_stale_text_json(project: &Project) -> Result<(), KernelError> {
+    let lang = project.language.locale_key();
+    for n in numbered_files(&project.expanded_dir(AssetKind::TextArchive), Some("json"))? {
+        let json = project
+            .expanded_dir(AssetKind::TextArchive)
+            .join(format!("{n:04}.json"));
+        let member = project.member_path(AssetKind::TextArchive, n);
+        if text_winner(&json, &member)? != Some(member.as_path()) {
+            continue;
+        }
+        let bytes = std::fs::read(&member).map_err(io_at(&member))?;
+        // An undecodable member is left to the text editor to report.
+        if let Ok(doc) = TextArchiveDoc::from_member(&bytes, lang) {
+            write_atomic(&project.root, &json, &doc.to_json())?;
+        }
+    }
+    Ok(())
+}
+
 /// Compiles every source that is stale per rotom's compile state (source, command database
 /// and compiler hashes), exactly like `rotom compile` in the project root: members and
 /// `.rotom/status/compile-state.json` are written by rotom, quirks come from the state.
@@ -449,6 +504,7 @@ fn materialize_text_json(
 pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
     let config = load_config(project)?;
     let root = &project.root;
+    refresh_stale_text_json(project)?;
     let mut before = text_json_hashes(project)?;
     let state_path = config.status_dir(root).join("compile-state.json");
     let quirks = saved_quirks(&state_path);
@@ -809,6 +865,8 @@ pub enum ScriptTarget {
 fn common_scripts(project: &Project) -> Result<Option<GlobalScriptTable>, KernelError> {
     use uxie::GameLanguage;
     let language = project.uxie_language();
+    // uxie 0.9.7: src/script_file/global_script_table.rs GlobalScriptTable::
+    // platinum_{western,japanese,korean}_hardcoded, from_hgss_binary_file_for_language
     Ok(match project.family {
         Family::Dp => None,
         Family::Pt => Some(match language {
@@ -1427,11 +1485,97 @@ mod tests {
         )
         .unwrap();
         assert!(!compile(&p).unwrap().problems.is_empty());
-        assert_eq!(quirk(), 0, "rotom drops the quirk of a source that fails");
+        assert_eq!(
+            quirk(),
+            0,
+            "the state keeps the quirk after a source failed to compile"
+        );
 
         write_source(&p, 0, &ScriptSource::Rotom(source)).unwrap();
         assert_eq!(compile(&p).unwrap().compiled, [0]);
         assert!(!has_marker(&member(&p, 0)), "no jump table end marker");
         assert_eq!(quirk(), 0);
+    }
+
+    #[test]
+    fn a_member_newer_than_its_json_wins_and_gets_the_new_literal() {
+        let (_s, p) = adopted();
+        p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+        let json_path = p.expanded_dir(AssetKind::TextArchive).join("0433.json");
+        let member_path = p.member_path(AssetKind::TextArchive, 433);
+        let stale = crate::text::TextArchiveDoc::from_member(
+            &std::fs::read(&member_path).unwrap(),
+            "en_US",
+        )
+        .unwrap();
+        std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
+        std::fs::write(&json_path, stale.to_json()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        // DSPRE changed the member afterwards.
+        let edited = crate::test_support::text_archive_bytes(&[
+            "Nowhere",
+            "Twinleaf Town",
+            "Sandgem Town",
+            "Edited in DSPRE",
+        ]);
+        std::fs::write(&member_path, &edited).unwrap();
+
+        write_source(
+            &p,
+            0,
+            &ScriptSource::Rotom("script Main #1:\n    Message \"Hallo Welt\"\n    End\n".into()),
+        )
+        .unwrap();
+        let report = compile(&p).unwrap();
+        assert_eq!(report.compiled, [0], "{report:?}");
+        assert_eq!(report.touched_archives, [433]);
+        let texts = |bytes: &[u8]| -> Vec<String> {
+            crate::text::TextArchiveDoc::from_member(bytes, "en_US")
+                .unwrap()
+                .messages
+                .into_iter()
+                .map(|m| m.text)
+                .collect()
+        };
+        let member = texts(&std::fs::read(&member_path).unwrap());
+        assert_eq!(
+            member,
+            [
+                "Nowhere",
+                "Twinleaf Town",
+                "Sandgem Town",
+                "Edited in DSPRE",
+                "Hallo Welt"
+            ]
+        );
+        let json =
+            crate::text::TextArchiveDoc::from_json(&std::fs::read(&json_path).unwrap(), "en_US")
+                .unwrap();
+        assert_eq!(json.messages.len(), 5);
+        assert_eq!(json.messages[3].text, "Edited in DSPRE");
+    }
+
+    #[test]
+    fn a_rotom_toml_with_other_roots_is_refused() {
+        let (s, p) = adopted();
+        let path = s.dir.path().join(ROTOM_TOML);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(
+            &path,
+            text.replace(
+                "source_roots = [\"expanded/scripts\"]",
+                "source_roots = [\"scripts\"]",
+            ),
+        )
+        .unwrap();
+        let source = ScriptSource::Rotom("script Main #1:\n\tEnd\n".into());
+        for err in [
+            write_source(&p, 0, &source).unwrap_err(),
+            compile(&p).map(|_| ()).unwrap_err(),
+        ] {
+            assert!(matches!(err, KernelError::InvalidProject(_)));
+            assert!(err.to_string().contains("DSPRE-Layout"), "{err}");
+            assert!(err.to_string().contains("expanded/scripts"), "{err}");
+        }
     }
 }

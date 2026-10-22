@@ -245,6 +245,25 @@ impl TextArchiveDoc {
     }
 }
 
+/// The file the loader rule picks: `json` when it exists and is not older than `member`,
+/// else `member` when it exists. `None` when neither does.
+pub(crate) fn text_winner<'a>(
+    json: &'a Path,
+    member: &'a Path,
+) -> Result<Option<&'a Path>, KernelError> {
+    let modified = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(time) => Ok(Some(time)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    };
+    Ok(match (modified(json)?, modified(member)?) {
+        (Some(j), Some(m)) => Some(if j >= m { json } else { member }),
+        (Some(_), None) => Some(json),
+        (None, Some(_)) => Some(member),
+        (None, None) => None,
+    })
+}
+
 /// Position of byte offset `at` in `text`: 1-based line and 1-based UTF-16 column.
 fn position(text: &str, at: usize) -> (u32, u32) {
     let at = at.min(text.len());
