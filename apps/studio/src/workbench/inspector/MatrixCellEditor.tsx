@@ -4,12 +4,15 @@ import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { MemberCounts } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { cellLabel, parseCellField } from "../matrix";
+import type { NavTarget } from "../navigation";
 import { useMatrix } from "../useMatrix";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
   /** Number of map headers (the largest header id plus one). */
   headerCount: number;
+  /** Follows a link (the cell's header). */
+  goTo: (target: NavTarget) => void;
   counts: MemberCounts;
   /** Changes whenever matrix data may have changed behind the editor (edits, undo, redo, reload). */
   revision: number;
@@ -23,7 +26,7 @@ const input: CSSProperties = { width: "100%", fontFamily: "ui-monospace, monospa
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: number; x: number; y: number; context: MatrixCellContext }) {
-  const { headerCount, counts, revision, onEdited, onCountsChanged, onError } = context;
+  const { headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
 
@@ -125,6 +128,11 @@ export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: num
           <p style={{ margin: "4px 0", fontSize: 12, color: "#6b7280" }}>Die Matrix hat keinen Höhenabschnitt (im Matrix-Panel einschaltbar).</p>
         )}
       </div>
+      {header !== null && map !== null && header < headerCount && (
+        <button type="button" onClick={() => goTo({ kind: "header", id: header })} style={{ marginTop: 8, marginRight: 8 }}>
+          Header {String(header).padStart(4, "0")} öffnen
+        </button>
+      )}
       <button disabled={map === null || working} onClick={() => map !== null && void duplicate(map)} style={{ marginTop: 8 }}>
         Karte duplizieren und hier eintragen
       </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, setHeader } from "../../api";
 import type { HeaderSummary, MapHeader, MemberCounts } from "../../api";
 import { headerLabel } from "../headers";
+import type { NavTarget } from "../navigation";
 import { Field } from "./Field";
 import { fieldValue, headerFieldSpecs, pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
@@ -15,8 +16,8 @@ export interface HeaderEditorContext {
   revision: number;
   /** Called after a field was written, so the list, the scene and the dirty count follow. */
   onChanged: () => void | Promise<void>;
-  /** Shows area data `id` in the inspector. */
-  onOpenArea: (id: number) => void;
+  /** Follows a link (area data, matrix panel). */
+  goTo: (target: NavTarget) => void;
   onError: (e: unknown) => void;
 }
 
@@ -25,7 +26,7 @@ export interface HeaderEditorContext {
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context }: { id: number; context: HeaderEditorContext }) {
-  const { headers, counts, revision, onChanged, onOpenArea, onError } = context;
+  const { headers, counts, revision, onChanged, goTo, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -79,9 +80,14 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
         </div>
       )}
       {header !== null && (
-        <button type="button" style={{ marginTop: 8 }} onClick={() => onOpenArea(fieldValue(header, "area_data_id"))}>
-          Area-Data {String(fieldValue(header, "area_data_id")).padStart(4, "0")} öffnen
-        </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          <button type="button" onClick={() => goTo({ kind: "area", id: fieldValue(header, "area_data_id") })}>
+            Area-Data {String(fieldValue(header, "area_data_id")).padStart(4, "0")} öffnen
+          </button>
+          <button type="button" onClick={() => goTo({ kind: "matrixCell", matrix: fieldValue(header, "matrix_id"), x: 0, y: 0 })} title="Zeigt die Matrix im Matrix-Panel">
+            Matrix {String(fieldValue(header, "matrix_id")).padStart(4, "0")} öffnen
+          </button>
+        </div>
       )}
       <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>Neue Header lassen sich in Vanilla-ROMs nicht anlegen.</p>
     </div>

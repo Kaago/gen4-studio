@@ -5,6 +5,7 @@ import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../
 import type { MatrixDto, ProjectInfo } from "../api";
 import { DraftInput } from "./DraftInput";
 import { cellLabel, parseCellField, resizePreview } from "./matrix";
+import type { NavTarget } from "./navigation";
 import { useMatrix } from "./useMatrix";
 
 /** What the matrix panel needs from App. */
@@ -16,7 +17,8 @@ export interface MatrixPanelContext {
   revision: number;
   /** The cell shown in the inspector, if any. */
   selection: { matrix: number; x: number; y: number } | null;
-  onSelectCell: (matrix: number, x: number, y: number) => void;
+  /** Follows a link: a click shows the cell in the inspector, a double click on a cell with a header opens the header. */
+  goTo: (target: NavTarget) => void;
   /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
   onEdited: (index: number) => void | Promise<void>;
   /** A member was appended to an archive: refresh the member counts. */
@@ -49,7 +51,7 @@ function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boole
 }
 
 export function MatrixPanel({ context }: { context: MatrixPanelContext }) {
-  const { info, sceneMatrix, revision, selection, onSelectCell, onEdited, onCountsChanged, onError } = context;
+  const { info, sceneMatrix, revision, selection, goTo, onEdited, onCountsChanged, onError } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
@@ -73,7 +75,7 @@ export function MatrixPanel({ context }: { context: MatrixPanelContext }) {
       const made = await createMatrix("neu");
       setCreated(made);
       await onCountsChanged();
-      onSelectCell(made, 0, 0);
+      goTo({ kind: "matrixCell", matrix: made, x: 0, y: 0 });
     } catch (e) {
       onError(e);
     }
@@ -158,12 +160,14 @@ export function MatrixPanel({ context }: { context: MatrixPanelContext }) {
                   {Array.from({ length: matrix.width }, (_, x) => {
                     const i = y * matrix.width + x;
                     const map = matrix.maps[i] ?? null;
+                    const header = matrix.headers && map !== null ? (matrix.headers[i] ?? null) : null;
                     const selected = selection?.matrix === matrix.index && selection.x === x && selection.y === y;
                     return (
                       <td key={x} style={{ padding: 0 }}>
                         <button
-                          onClick={() => onSelectCell(matrix.index, x, y)}
-                          title={`x ${x}, y ${y}${matrix.altitudes ? `, Höhe ${matrix.altitudes[i]}` : ""}`}
+                          onClick={() => goTo({ kind: "matrixCell", matrix: matrix.index, x, y })}
+                          onDoubleClick={() => header !== null && goTo({ kind: "matrixCell", matrix: matrix.index, x, y, header })}
+                          title={`x ${x}, y ${y}${matrix.altitudes ? `, Höhe ${matrix.altitudes[i]}` : ""}${header !== null ? ", Doppelklick öffnet den Header" : ""}`}
                           style={cellStyle(selected, map === null)}
                         >
                           {cellLabel(map, matrix.headers ? (matrix.headers[i] ?? null) : null)}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary } from "../api";
-import { filterHeaders, headerLabel } from "./headers";
+import { filterHeaders, headerLabel, showsMatrix } from "./headers";
 
 const header = (id: number, internal_name: string, location_name: string): HeaderSummary => ({
   id,
@@ -37,5 +37,18 @@ describe("headerLabel", () => {
   it("prefers the location name and falls back to the internal name", () => {
     expect(headerLabel(headers[0])).toBe("Zweiblattdorf");
     expect(headerLabel(headers[3])).toBe("EVERYWHERE");
+  });
+});
+
+describe("showsMatrix", () => {
+  const h = { ...header(411, "T01", "Zweiblattdorf"), matrix_id: 7 };
+
+  it("marks a header whose matrix is the shown one", () => {
+    expect(showsMatrix(h, 7)).toBe(true);
+    expect(showsMatrix(h, 8)).toBe(false);
+  });
+
+  it("marks nothing while no matrix is shown", () => {
+    expect(showsMatrix(h, null)).toBe(false);
   });
 });

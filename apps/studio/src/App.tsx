@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DockviewApi } from "dockview-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -39,6 +40,8 @@ import { afterFailedSceneLoad, fetchCurrent, headerSync, reloadPlan, sceneKey, t
 import { enqueue } from "./reload";
 import type { RefreshQueue, ReloadAction } from "./reload";
 import { sameLayout } from "./workbench/matrix";
+import { nextSelection } from "./workbench/navigation";
+import type { NavTarget } from "./workbench/navigation";
 import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
 import { deletePrompt, isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
@@ -79,6 +82,10 @@ export default function App() {
   const history = useRef(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
+  // The dockview api of the workbench (a link focuses the panel that shows its target) and a token
+  // that makes the header list scroll to the selection whenever a link leads to a header.
+  const dockApi = useRef<DockviewApi | null>(null);
+  const [revealToken, setRevealToken] = useState(0);
   // The selected header is pinned in the inspector; the scene's hover overrides it only while the
   // pointer is over a cell or marker.
   const [pinned, setPinned] = useState<InspectorModel>({ kind: "none" });
@@ -578,6 +585,45 @@ export default function App() {
     }
   }
 
+  /**
+   * Follows a link (see `nextSelection`): a header goes through the same path as a click in the
+   * list (its matrix loads under the selection guards), the inspector is pinned to the target and
+   * the panel showing it is focused.
+   */
+  function goTo(target: NavTarget) {
+    const shown = matrixRef.current;
+    const current = headersRef.current.find((h) => h.id === selectedRef.current);
+    const next = nextSelection(
+      {
+        selectedHeader: selectedRef.current,
+        matrix: shown?.index ?? null,
+        maps: shown ? shown.maps.filter((m): m is number => m !== null) : [],
+        eventFile: current?.event_file_id ?? null,
+        headers: headersRef.current,
+      },
+      target,
+    );
+    if (next.pinned === null) {
+      if (target.kind === "header") setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
+      return;
+    }
+    if (next.panel === "headers") setRevealToken((t) => t + 1);
+    // A header already selected has its matrix loaded: it is only pinned again below.
+    if (next.selectedHeader !== selectedRef.current) {
+      const header = headersRef.current.find((h) => h.id === next.selectedHeader);
+      if (header) void onSelect(header);
+    }
+    // After a header's own pin, so a building or event the header brought in wins.
+    setPinned(next.pinned);
+    if (next.panel !== null) {
+      try {
+        dockApi.current?.getPanel(next.panel)?.focus();
+      } catch {
+        /* the workbench is going away */
+      }
+    }
+  }
+
   /** Carries out one action of a `reloadPlan`. */
   async function reloadAction(a: ReloadAction) {
     switch (a.kind) {
@@ -801,6 +847,8 @@ export default function App() {
     headers,
     selected,
     onSelect: (h) => void onSelect(h),
+    goTo,
+    revealToken,
     matrix,
     areaDataId: sceneArea,
     modelsToken,
@@ -825,7 +873,6 @@ export default function App() {
     matrixRevision,
     onMatrixEdited,
     onCountsChanged,
-    onPin: setPinned,
     selectedBuilding: pinned.kind === "building" ? { map: pinned.map, index: pinned.index } : null,
     onSelectBuilding,
     onBuildingMoved,
@@ -863,7 +910,7 @@ export default function App() {
         onRun={() => void onRun()}
         onPickEmulator={() => void onPickEmulator()}
       />
-      <Workbench data={workbench} />
+      <Workbench data={workbench} apiRef={dockApi} />
     </main>
   );
 }

@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
@@ -16,6 +17,7 @@ import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { InspectorModel } from "./Inspector";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
+import type { NavTarget } from "./navigation";
 
 /** Everything the panels show. App owns the state; panels read it through this context. */
 export interface WorkbenchData {
@@ -23,6 +25,10 @@ export interface WorkbenchData {
   headers: HeaderSummary[];
   selected: number | null;
   onSelect: (h: HeaderSummary) => void;
+  /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */
+  goTo: (target: NavTarget) => void;
+  /** Bumped by every link to a header: the list scrolls to the selection again. */
+  revealToken: number;
   matrix: MatrixDto | null;
   /** Area data the scene's models are textured with (follows the shown header, set together with `matrix`). */
   areaDataId: number;
@@ -62,8 +68,6 @@ export interface WorkbenchData {
   onMatrixEdited: (index: number) => void | Promise<void>;
   /** A map or matrix member was appended: refresh the member counts. */
   onCountsChanged: () => void | Promise<void>;
-  /** Pins `model` in the inspector (until another header or cell is chosen). */
-  onPin: (model: InspectorModel) => void;
   /** The building selected in the scene (it is the pinned inspector model); null: none. */
   selectedBuilding: BuildingRef | null;
   /** A click in the scene chose a building (null: none). */
@@ -120,7 +124,14 @@ const toggleStyle: React.CSSProperties = {
 
 function HeadersPanel() {
   const d = useWorkbench();
-  return <HeaderList info={d.info} headers={d.headers} selected={d.selected} onSelect={d.onSelect} />;
+  return <HeaderList
+      info={d.info}
+      headers={d.headers}
+      selected={d.selected}
+      shownMatrix={d.matrix?.index ?? null}
+      revealToken={d.revealToken}
+      onSelect={d.onSelect}
+    />;
 }
 
 function WorldPanel() {
@@ -196,7 +207,7 @@ function MatrixTab() {
         sceneMatrix: d.matrix?.index ?? null,
         revision: d.matrixRevision,
         selection: selection && { matrix: selection.matrix, x: selection.x, y: selection.y },
-        onSelectCell: (matrix, x, y) => d.onPin({ kind: "matrixCell", matrix, x, y }),
+        goTo: d.goTo,
         onEdited: d.onMatrixEdited,
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,
@@ -215,7 +226,7 @@ function InspectorPanel() {
         counts: d.memberCounts,
         revision: d.headerRevision,
         onChanged: d.onHeaderChanged,
-        onOpenArea: (id) => d.onPin({ kind: "area", id }),
+        goTo: d.goTo,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, revision: d.areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
@@ -235,11 +246,12 @@ function InspectorPanel() {
         onChanged: d.onEventChanged,
         onAdd: d.onAddEvent,
         onDelete: d.onDeleteEvent,
-        onOpenHeader: d.onSelect,
+        goTo: d.goTo,
         onError: d.onError,
       }}
       matrixEditor={{
         headerCount: d.headers.length,
+        goTo: d.goTo,
         counts: d.memberCounts,
         revision: d.matrixRevision,
         onEdited: d.onMatrixEdited,
@@ -321,8 +333,10 @@ function initLayout(api: DockviewApi) {
   applyDefaultLayout(api);
 }
 
-export default function Workbench({ data }: { data: WorkbenchData }) {
+/** `apiRef` hands App the dockview api (focusing a panel when a link leads there). */
+export default function Workbench({ data, apiRef }: { data: WorkbenchData; apiRef: MutableRefObject<DockviewApi | null> }) {
   function onReady(event: DockviewReadyEvent) {
+    apiRef.current = event.api;
     initLayout(event.api);
     fitStatusStrip(event.api);
     // The subscription ends with the api when dockview unmounts, so it needs no cleanup of its own.

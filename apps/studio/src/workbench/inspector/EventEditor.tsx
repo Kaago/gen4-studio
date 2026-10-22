@@ -9,6 +9,7 @@ import { parseNumberField } from "./buildingFields";
 import { AddEvent } from "./AddEvent";
 import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs } from "./eventFields";
 import type { EventFieldSpec } from "./eventFields";
+import type { NavTarget } from "../navigation";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
 
@@ -25,8 +26,8 @@ export interface EventEditorContext {
   onAdd: (kind: EventKind) => void | Promise<void>;
   /** Asks for confirmation, then deletes the event. */
   onDelete: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
-  /** Selects a header in the list, as clicking it does. */
-  onOpenHeader: (header: HeaderSummary) => void;
+  /** Follows a link (a warp's destination header). */
+  goTo: (target: NavTarget) => void;
   onError: (e: unknown) => void;
 }
 
@@ -41,7 +42,7 @@ const muted: CSSProperties = { fontSize: 12, color: "#6b7280" };
  * (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context }: { file: number; kind: EventKind; index: number; context: EventEditorContext }) {
-  const { headers, family, revision, onChanged, onAdd, onDelete, onOpenHeader, onError } = context;
+  const { headers, family, revision, onChanged, onAdd, onDelete, goTo, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
@@ -115,7 +116,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
         <div style={{ marginTop: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <span style={{ flex: 1, minWidth: 0, color: destination.known ? "#111827" : "#b91c1c" }}>Ziel: {destination.text}</span>
-            <button type="button" disabled={destHeader === undefined} onClick={() => destHeader && onOpenHeader(destHeader)} title="Wählt den Zielheader in der Liste">
+            <button type="button" disabled={destHeader === undefined} onClick={() => destHeader && goTo({ kind: "header", id: destHeader.id })} title="Wählt den Zielheader in der Liste">
               Zum Ziel
             </button>
           </div>

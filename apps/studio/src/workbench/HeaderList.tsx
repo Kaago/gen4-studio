@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
-import { filterHeaders } from "./headers";
+import { filterHeaders, showsMatrix } from "./headers";
 
 interface Props {
   info: ProjectInfo | null;
   headers: HeaderSummary[];
   selected: number | null;
+  /** The matrix the scene shows: headers using it are marked. */
+  shownMatrix: number | null;
+  /** Bumped by every link to a header: the list scrolls to the selection again, also when it was selected already. */
+  revealToken: number;
   onSelect: (h: HeaderSummary) => void;
 }
 
@@ -15,9 +19,29 @@ const COLUMNS = "48px minmax(0, 1fr) minmax(0, 96px) 48px";
 
 const cell: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
-export function HeaderList({ info, headers, selected, onSelect }: Props) {
+export function HeaderList({ info, headers, selected, shownMatrix, revealToken, onSelect }: Props) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterHeaders(headers, query), [headers, query]);
+  const rows = useRef(new Map<number, HTMLButtonElement>());
+  // The selection and token last scrolled to, so a search that hides the selection later does not pull it back.
+  const revealed = useRef<string | null>(null);
+  // A newly selected header (also one chosen by a link) is scrolled into view; a search that hides
+  // it is cleared first.
+  useEffect(() => {
+    if (selected === null) {
+      revealed.current = null;
+      return;
+    }
+    const key = `${selected}:${revealToken}`;
+    if (revealed.current === key) return;
+    const row = rows.current.get(selected);
+    if (row) {
+      revealed.current = key;
+      row.scrollIntoView({ block: "nearest" });
+    } else if (query !== "") {
+      setQuery("");
+    }
+  });
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
       <div style={{ padding: "12px 16px 8px" }}>
@@ -39,8 +63,13 @@ export function HeaderList({ info, headers, selected, onSelect }: Props) {
         {shown.map((h) => (
           <li key={h.id}>
             <button
+              ref={(el) => {
+                if (el) rows.current.set(h.id, el);
+                else rows.current.delete(h.id);
+              }}
               onClick={() => onSelect(h)}
-              title={`${String(h.id).padStart(4, "0")} ${h.location_name} ${h.internal_name} Matrix ${h.matrix_id}`}
+              aria-current={h.id === selected ? "true" : undefined}
+              title={`${String(h.id).padStart(4, "0")} ${h.location_name} ${h.internal_name} Matrix ${h.matrix_id}${showsMatrix(h, shownMatrix) ? " (Matrix wird angezeigt)" : ""}`}
               style={{
                 all: "unset",
                 boxSizing: "border-box",
@@ -51,6 +80,8 @@ export function HeaderList({ info, headers, selected, onSelect }: Props) {
                 cursor: "pointer",
                 lineHeight: 1.6,
                 fontWeight: h.id === selected ? 700 : 400,
+                background: showsMatrix(h, shownMatrix) ? "#eff6ff" : "transparent",
+                boxShadow: showsMatrix(h, shownMatrix) ? "inset 3px 0 0 #2563eb" : "none",
               }}
             >
               <span style={{ ...cell, fontFamily: "ui-monospace, monospace" }}>{String(h.id).padStart(4, "0")}</span>

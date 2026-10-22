@@ -11,3 +11,8 @@ export function filterHeaders(headers: HeaderSummary[], query: string): HeaderSu
   if (q === "") return headers;
   return headers.filter((h) => h.location_name.toLowerCase().includes(q) || h.internal_name.toLowerCase().includes(q));
 }
+
+/** True when the header uses the matrix the scene shows right now (`shown`: its index, null: none). */
+export function showsMatrix(h: HeaderSummary, shown: number | null): boolean {
+  return shown !== null && h.matrix_id === shown;
+}
