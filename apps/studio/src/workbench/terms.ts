@@ -1,5 +1,5 @@
 /** The words of the world explorer: every panel takes label and explanation from here (spec §3). */
-export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData";
+export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData" | "patch";
 
 export const TERMS: Record<TermKey, { label: string; plural: string; tech: string | null; short: string }> = {
   place: {
@@ -31,6 +31,11 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
     short: "Warps, Objekte, Trigger und Hintergrund-Events eines Headers.",
   },
   areaData: { label: "Area-Data", plural: "Area-Data", tech: "AreaData", short: "Welche Texturen (Tilesets) ein Header benutzt." },
+  patch: {
+    label: "ROM-Patch", plural: "ROM-Patches",
+    tech: null,
+    short: "Eine dauerhafte Änderung am Spielcode. Der Patch „Dynamische Header“ verlegt die Header in eine Datei je Header, damit neue angelegt werden können; DSPRE kennt ihn.",
+  },
 };
 
 /** An id as the Gate documents and the lists write it: four digits. */

@@ -9,12 +9,13 @@ import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
+import { useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
 import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, overviewNote, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
 interface Props {
@@ -31,6 +32,8 @@ interface Props {
   onClose: (written: boolean) => void;
   /** "Im Studio zeigen": the app reads the project again and shows the new area. */
   onCreated: (report: AreaReport, spec: AreaSpec) => Promise<void>;
+  /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
+  onHeaderPatch: () => Promise<void>;
   onError: (e: unknown) => void;
 }
 
@@ -55,7 +58,7 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onError }: Props) {
+export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onError }: Props) {
   const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -71,7 +74,10 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
 
   const mapMax = counts.Map === undefined ? 0xfffe : Math.max(0, counts.Map - 1);
   const source = matrix ? sourceHeader(matrix, headers, form.selected) : null;
-  const built = areaSpec(form);
+  // A new header is a copy of the header the area data is taken from (the first source cell's), else of header 0.
+  const template = source?.id ?? 0;
+  const patch = useHeaderPatch(onHeaderPatch);
+  const built = areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length);
   const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
   const previewTileset = previewArea(form, headers, source);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
@@ -150,7 +156,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
     }
   }
 
-  const headerValue: HeaderChoiceValue = { header: form.header, areaDataId: form.areaDataId, eventFile: form.eventFile };
+  const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, template), areaDataId: form.areaDataId, eventFile: form.eventFile };
   const pickedCount = form.selected.length + form.manualMaps.length;
 
   const steps: WizardStep[] = [
@@ -232,7 +238,22 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       id: "header",
       title: TERMS.header.label,
       canNext: true,
-      content: <HeaderChoice headers={headers} links={links} counts={counts} value={headerValue} copySource={source?.event_file_id ?? null} onChange={(v) => setForm((f) => ({ ...f, ...v }))} />,
+      content: (
+        <HeaderChoice
+          headers={headers}
+          links={links}
+          counts={counts}
+          value={headerValue}
+          copySource={source?.event_file_id ?? null}
+          onChange={(v) => setForm((f) => ({ ...f, ...v, newHeader: newHeaderForm(v.newHeader, f.name) }))}
+          patch={patch.patch}
+          patchError={patch.error}
+          patchBusy={patch.busy}
+          onApplyPatch={patch.apply}
+          template={template}
+          defaultName={internalName(form.name)}
+        />
+      ),
     },
     {
       id: "summary",
@@ -274,7 +295,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       submitLabel="Anlegen"
       onSubmit={() => void create()}
       onClose={() => onClose(outcome !== null)}
-      busy={busy}
+      busy={busy || patch.busy}
       result={result}
       error={refusal}
     />

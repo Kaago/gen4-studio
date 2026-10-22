@@ -22,6 +22,8 @@ interface Props {
   shownMatrix: number | null;
   /** The tile the pointer was last over in the shown matrix (null: none yet): the room wizard starts its outside door there. */
   lastTile: () => { x: number; z: number } | null;
+  /** The Dynamic Headers patch was applied from a wizard: the header table and the header list are read again. */
+  onHeaderPatch: () => Promise<void>;
   onError: (e: unknown) => void;
 }
 
@@ -35,7 +37,7 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * The open wizard, above the workbench (a modal over everything). It lives beside the workbench,
  * not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onError }: Props) {
+export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onError }: Props) {
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -54,6 +56,7 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
           prefill={areaPrefill(request.prefill, selected)}
           onClose={close}
           onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0] })}
+          onHeaderPatch={onHeaderPatch}
           onError={onError}
         />
       );
@@ -72,6 +75,7 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
           lastTile={lastTile}
           onClose={close}
           onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec).lines[0] })}
+          onHeaderPatch={onHeaderPatch}
           onError={onError}
         />
       );

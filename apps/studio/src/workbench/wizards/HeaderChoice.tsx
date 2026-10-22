@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import type { CSSProperties } from "react";
-import type { EventFileChoice, HeaderSummary, MemberCounts, WarpLink } from "../../api";
+import type { EventFileChoice, HeaderPatchDto, HeaderSummary, MemberCounts, WarpLink } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
 import { HeaderPicker } from "../inspector/HeaderPicker";
 import { parseCellField } from "../matrix";
 import { TERMS, id4 } from "../terms";
+import { INTERNAL_NAME_MAX, internalName } from "./wizardSpecs";
 import type { HeaderChoiceValue } from "./wizardSpecs";
 
 interface Props {
@@ -16,14 +17,33 @@ interface Props {
   /** The event file a copy would be made of (null: there is none to copy). */
   copySource: number | null;
   onChange: (value: HeaderChoiceValue) => void;
+  /** The state of the Dynamic Headers patch; null until it is read (or when reading it failed: see `patchError`). */
+  patch: HeaderPatchDto | null;
+  /** Why the state could not be read, or why the patch could not be applied (the backend's text). */
+  patchError: string | null;
+  /** The patch is being applied. */
+  patchBusy: boolean;
+  /** Applies the patch; it reports its failure through `patchError`. */
+  onApplyPatch: () => Promise<void>;
+  /** The header a new header is copied from. */
+  template: number;
+  /** The internal name a new header gets unless one is typed. */
+  defaultName: string;
 }
 
 const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
 const heading: CSSProperties = { fontWeight: 600, marginBottom: 4 };
+const box: CSSProperties = { border: "1px solid #d97706", background: "#fffbeb", borderRadius: 6, padding: "8px 12px", margin: "8px 0" };
+const muted: CSSProperties = { color: "#6b7280", margin: "6px 0" };
+const NAME_PATTERN = "[A-Z0-9_]*";
 
 /** The step "Header wählen": which header the new matrix is given to, with its area data and event file. */
-export function HeaderChoice({ headers, links, counts, value, copySource, onChange }: Props) {
+export function HeaderChoice({ headers, links, counts, value, copySource, onChange, patch, patchError, patchBusy, onApplyPatch, template, defaultName }: Props) {
   const chosen = value.header === null ? null : (headers.find((h) => h.id === value.header) ?? null);
+  const creating = value.newHeader !== null;
+  const templateHeader = headers.find((h) => h.id === template);
+  // The number the new header gets: the next one.
+  const newId = headers.length;
   // Warps that lead to each header: a header none leads to is not reachable in the game.
   const incoming = useMemo(() => {
     const counts = new Map<number, number>();
@@ -36,38 +56,101 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
   const eventFile = (choice: EventFileChoice) => set({ eventFile: choice });
   const isCopy = typeof value.eventFile === "object";
 
+  const canCreate = patch !== null && patch.supported && patch.applied;
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 16 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={heading}>{TERMS.header.label} wählen</div>
-          <HeaderPicker
-            headers={headers}
-            current={value.header ?? -1}
-            onPick={(id) => set({ header: id })}
-            renderExtra={(h) => (incomingCount(h.id) === 0 ? "Warps hierher: 0, wirkt unbenutzt" : `Warps hierher: ${incomingCount(h.id)}`)}
+      <div>
+        <label style={row}>
+          <input type="radio" name="header-mode" checked={!creating} onChange={() => set({ newHeader: null })} />
+          Vorhandenen {TERMS.header.label} umstellen
+        </label>
+        <label style={row}>
+          <input
+            type="radio"
+            name="header-mode"
+            disabled={!canCreate}
+            checked={creating}
+            onChange={() => set({ header: null, newHeader: { template, internalName: defaultName } })}
           />
-          <button type="button" disabled={value.header === null} onClick={() => set({ header: null })} style={{ marginTop: 4 }}>
-            Keinen {TERMS.header.label} umstellen
-          </button>
-        </div>
-        <div style={{ width: 200, flexShrink: 0 }}>
-          <div style={heading}>Gewählt</div>
-          {chosen ? (
-            <>
-              <div>
-                {TERMS.header.label} {id4(chosen.id)} „{headerLabel(chosen)}“
-              </div>
-              <div>Warps hierher: {incomingCount(chosen.id)}</div>
-              {incomingCount(chosen.id) === 0 && <div style={{ color: "#b45309" }}>wirkt unbenutzt: nichts führt hierher</div>}
-            </>
-          ) : (
-            <div style={{ color: "#6b7280" }}>Kein {TERMS.header.label} gewählt: nur das {TERMS.matrix.label} wird angelegt.</div>
-          )}
-        </div>
+          Neuer {TERMS.header.label}
+        </label>
       </div>
+      {patch === null && patchError === null && <div style={muted}>Prüfe, ob neue {TERMS.header.plural} möglich sind …</div>}
+      {(patch === null ? patchError !== null : !patch.supported) && (
+        <div style={muted}>
+          Neue {TERMS.header.plural} gibt es nur für Platin und HeartGold/SoulSilver.
+          {patchError !== null && <div style={{ color: "#b91c1c" }}>{patchError}</div>}
+        </div>
+      )}
+      {patch?.supported === true && !patch.applied && (
+        <div style={box}>
+          <div style={heading}>{TERMS.patch.label} „Dynamische Header“ nötig</div>
+          <p style={{ margin: "4px 0" }}>
+            Der Patch ändert Bytes im Spielcode (arm9.bin). Die {TERMS.header.plural} liegen danach in einer Datei je {TERMS.header.label}. Das lässt sich nicht zurücknehmen; die Sicherung
+            arm9.bin.backup wird angelegt. DSPRE kennt den Patch und zeigt ihn als angewendet.
+          </p>
+          <button type="button" disabled={patchBusy} onClick={() => void onApplyPatch()}>
+            Patch anwenden
+          </button>
+          {patchBusy && <span style={{ marginLeft: 8, color: "#6b7280" }}>Wende an …</span>}
+          {patchError !== null && <div style={{ color: "#b91c1c", marginTop: 6 }}>{patchError}</div>}
+        </div>
+      )}
 
-      <fieldset disabled={chosen === null} style={{ border: "none", padding: 0, margin: "12px 0 0" }}>
+      {creating && value.newHeader !== null ? (
+        <div style={{ margin: "8px 0" }}>
+          <div>
+            Kopie von {TERMS.header.label} {id4(template)}
+            {templateHeader ? ` „${headerLabel(templateHeader)}“` : ""}
+          </div>
+          <label style={row}>
+            Interner Name
+            <DraftInput
+              label="Interner Name"
+              value={value.newHeader.internalName}
+              maxLength={INTERNAL_NAME_MAX}
+              pattern={NAME_PATTERN}
+              onCommit={(text) => set({ newHeader: { template, internalName: internalName(text) } })}
+              style={{ width: 200, fontFamily: "ui-monospace, monospace" }}
+            />
+          </label>
+          <div style={muted}>
+            Wird {TERMS.header.label} {id4(newId)}; höchstens {INTERNAL_NAME_MAX} Zeichen: A bis Z, 0 bis 9 und _.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={heading}>{TERMS.header.label} wählen</div>
+            <HeaderPicker
+              headers={headers}
+              current={value.header ?? -1}
+              onPick={(id) => set({ header: id })}
+              renderExtra={(h) => (incomingCount(h.id) === 0 ? "Warps hierher: 0, wirkt unbenutzt" : `Warps hierher: ${incomingCount(h.id)}`)}
+            />
+            <button type="button" disabled={value.header === null} onClick={() => set({ header: null })} style={{ marginTop: 4 }}>
+              Keinen {TERMS.header.label} umstellen
+            </button>
+          </div>
+          <div style={{ width: 200, flexShrink: 0 }}>
+            <div style={heading}>Gewählt</div>
+            {chosen ? (
+              <>
+                <div>
+                  {TERMS.header.label} {id4(chosen.id)} „{headerLabel(chosen)}“
+                </div>
+                <div>Warps hierher: {incomingCount(chosen.id)}</div>
+                {incomingCount(chosen.id) === 0 && <div style={{ color: "#b45309" }}>wirkt unbenutzt: nichts führt hierher</div>}
+              </>
+            ) : (
+              <div style={{ color: "#6b7280" }}>Kein {TERMS.header.label} gewählt: nur das {TERMS.matrix.label} wird angelegt.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <fieldset disabled={chosen === null && !creating} style={{ border: "none", padding: 0, margin: "12px 0 0" }}>
         <label style={row}>
           {TERMS.areaData.label}
           <DraftInput
@@ -86,7 +169,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
         <div style={heading}>{TERMS.eventFile.label}</div>
         <label style={row}>
           <input type="radio" name="event-file" checked={value.eventFile === "Keep"} onChange={() => eventFile("Keep")} />
-          behalten
+          {creating ? `behalten (geteilt mit ${TERMS.header.label} ${id4(template)})` : "behalten"}
         </label>
         <label style={row}>
           <input type="radio" name="event-file" checked={value.eventFile === "New"} onChange={() => eventFile("New")} />

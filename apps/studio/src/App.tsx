@@ -148,6 +148,11 @@ export default function App() {
         selected={selectedHeader}
         shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
+        onHeaderPatch={async () => {
+          // The header table now lives in files: the header editor reads it again, and so does the list.
+          bus.emit({ topic: "headerTable" });
+          await scene.syncHeaders();
+        }}
         onError={session.fail}
       />
     </main>

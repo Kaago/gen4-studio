@@ -3,9 +3,39 @@ import { isCmdError } from "../../api";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
 
+/** The internal name of a header the wizard creates: A-Z, 0-9 and `_` only, at most 16 bytes (the kernel's limit). */
+export const INTERNAL_NAME_MAX = 16;
+
+/**
+ * An internal name derived from a typed name: words joined by `_`, upper case, ASCII letters and digits only (every
+ * other character is dropped, not transliterated), at most 16 characters; "NEWMAP" when nothing is left.
+ */
+export function internalName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Za-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toUpperCase()
+    .slice(0, INTERNAL_NAME_MAX);
+  return cleaned === "" ? "NEWMAP" : cleaned;
+}
+
+/**
+ * A header the wizard creates first. `template` is the header it is copied from; `internalName` is the typed name,
+ * null while it follows the wizard's name.
+ */
+export interface NewHeaderForm {
+  template: number;
+  internalName: string | null;
+}
+
 /** What the "Header wählen" step edits (shared by the area and the room wizard). */
 export interface HeaderChoiceValue {
   header: number | null;
+  /** A header to be created instead (then `header` is null); `internalName` is what the field shows. */
+  newHeader: { template: number; internalName: string } | null;
   /** Area data the header gets; null keeps the one it has. */
   areaDataId: number | null;
   eventFile: EventFileChoice;
@@ -29,6 +59,8 @@ export interface AreaForm {
   /** The new matrix gets a header section. */
   withHeaders: boolean;
   header: number | null;
+  /** Create a header (as the next number) and assign that one; `header` is then not used. */
+  newHeader: NewHeaderForm | null;
   areaDataId: number | null;
   eventFile: EventFileChoice;
 }
@@ -41,6 +73,7 @@ export const emptyAreaForm: AreaForm = {
   clearBuildings: false,
   withHeaders: true,
   header: null,
+  newHeader: null,
   areaDataId: null,
   // A new area on an existing header would otherwise share that header's event file (and its warps).
   eventFile: "New",
@@ -71,8 +104,41 @@ export function areaLayout(form: AreaForm): { width: number; height: number; cel
   };
 }
 
-/** The backend request for the form, or what is wrong with it. */
-export function areaSpec(form: AreaForm): { spec: AreaSpec } | { error: string } {
+/**
+ * The header assignment of a form: the existing header, or the header to be created, which gets the number
+ * `headerCount` (the count of headers there are now). Null: none.
+ */
+export function assignHeader(
+  form: { header: number | null; newHeader: NewHeaderForm | null; areaDataId: number | null; eventFile: EventFileChoice; name: string },
+  headerCount: number,
+): AssignHeader | null {
+  const { newHeader } = form;
+  if (newHeader !== null) {
+    return {
+      id: headerCount,
+      area_data_id: form.areaDataId,
+      event_file: form.eventFile,
+      new_header: { template: newHeader.template, internal_name: internalName(newHeader.internalName ?? form.name) },
+    };
+  }
+  return form.header === null ? null : { id: form.header, area_data_id: form.areaDataId, event_file: form.eventFile };
+}
+
+/** The form's new header as the step shows it (the name resolved), for `template`; null when none is asked for. */
+export function newHeaderValue(newHeader: NewHeaderForm | null, name: string, template: number): HeaderChoiceValue["newHeader"] {
+  return newHeader === null ? null : { template, internalName: newHeader.internalName ?? internalName(name) };
+}
+
+/** The new header as the form keeps it: a name equal to the one derived from `name` follows later changes of `name`. */
+export function newHeaderForm(value: HeaderChoiceValue["newHeader"], name: string): NewHeaderForm | null {
+  return value === null ? null : { template: value.template, internalName: value.internalName === internalName(name) ? null : value.internalName };
+}
+
+/**
+ * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now:
+ * a new header gets that number.
+ */
+export function areaSpec(form: AreaForm, headerCount: number): { spec: AreaSpec } | { error: string } {
   const { width, height, cells } = areaLayout(form);
   if (cells.length === 0) return { error: `Mindestens eine ${TERMS.map.label} wählen.` };
   if (width > MAX_SIDE || height > MAX_SIDE) return { error: `Höchstens ${MAX_SIDE} Spalten/Zeilen.` };
@@ -85,7 +151,7 @@ export function areaSpec(form: AreaForm): { spec: AreaSpec } | { error: string }
       height,
       cells,
       with_headers: form.withHeaders,
-      header: form.header === null ? null : { id: form.header, area_data_id: form.areaDataId, event_file: form.eventFile },
+      header: assignHeader(form, headerCount),
     },
   };
 }
@@ -98,9 +164,15 @@ const eventFileText = (choice: EventFileChoice): string => {
 
 /** The sentence for the header a wizard points at the new matrix: area data and event file included. */
 function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): string {
+  const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
+  const created = assign.new_header;
+  if (created) {
+    // "Keep" on a new header keeps what the copy has: the template's event file, which both headers then share.
+    const file = assign.event_file === "Keep" ? `behalten (geteilt mit ${TERMS.header.label} ${id4(created.template)})` : eventFileText(assign.event_file);
+    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)} „${created.internal_name}“ neu an (Kopie von ${id4(created.template)}) und stellt ihn auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${file}.`;
+  }
   const assigned = headers.find((h) => h.id === assign.id);
   const name = assigned ? ` „${headerLabel(assigned)}“` : "";
-  const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
   return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
 }
 
@@ -109,6 +181,8 @@ function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): st
  * Null when no warp leads there, or its raster stays the same.
  */
 function inUseLine(assign: AssignHeader, headers: readonly HeaderSummary[], links: readonly WarpLink[]): string | null {
+  // A header that is yet to be made has no warps and no raster to lose.
+  if (assign.new_header) return null;
   const incoming = links.filter((l) => l.dest_header_id === assign.id).length;
   const assigned = headers.find((h) => h.id === assign.id);
   if (incoming === 0 || !assigned) return null;
@@ -219,6 +293,8 @@ export interface RoomForm {
   templateMap: number | null;
   clearBuildings: boolean;
   header: number | null;
+  /** Create a header (as the next number) and assign that one; `header` is then not used. */
+  newHeader: NewHeaderForm | null;
   areaDataId: number | null;
   eventFile: EventFileChoice;
   /** The entrance is made now (off: the room is connected later). */
@@ -238,6 +314,7 @@ export const emptyRoomForm: RoomForm = {
   templateMap: null,
   clearBuildings: false,
   header: null,
+  newHeader: null,
   areaDataId: null,
   eventFile: "New",
   connect: true,
@@ -255,19 +332,21 @@ export const MAP_LAST_TILE = 31;
 export const matrixTiles = (matrix: { width: number; height: number }) => ({ x: matrix.width * 32, z: matrix.height * 32 });
 
 /**
- * The backend request for the form, or what is wrong with it. `outsideMatrix` is the size of the outside header's
- * matrix: the door outside must lie in it (null or omitted: unknown, not checked).
+ * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now (a
+ * new header gets that number). `outsideMatrix` is the size of the outside header's matrix: the door outside must lie
+ * in it (null or omitted: unknown, not checked).
  */
-export function roomSpec(form: RoomForm, outsideMatrix?: { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
+export function roomSpec(form: RoomForm, headerCount: number, outsideMatrix?: { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
   if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
-  if (form.header === null) return { error: `${TERMS.header.label} wählen.` };
+  const header = assignHeader(form, headerCount);
+  if (header === null) return { error: `${TERMS.header.label} wählen.` };
   if (form.connect) {
     const inside = [form.insideX, form.insideZ];
     if (inside.some((n) => !Number.isInteger(n) || n < 0 || n > MAP_LAST_TILE)) return { error: `Kachel liegt außerhalb der Karte (0 bis ${MAP_LAST_TILE}).` };
     if (form.outsideHeader === null) return { error: `Außen-${TERMS.header.label} wählen.` };
-    if (form.outsideHeader === form.header) return { error: `Der Außen-${TERMS.header.label} darf nicht der ${TERMS.header.label} des neuen ${TERMS.room.label}s sein.` };
+    if (form.outsideHeader === header.id) return { error: `Der Außen-${TERMS.header.label} darf nicht der ${TERMS.header.label} des neuen ${TERMS.room.label}s sein.` };
     if (form.x === null || form.z === null) return { error: `Kachel der Tür außen eintragen (x und z).` };
     if (outsideMatrix) {
       const size = matrixTiles(outsideMatrix);
@@ -281,7 +360,7 @@ export function roomSpec(form: RoomForm, outsideMatrix?: { width: number; height
       name,
       source_map: form.templateMap,
       clear_buildings: form.clearBuildings,
-      header: { id: form.header, area_data_id: form.areaDataId, event_file: form.eventFile },
+      header,
       entrance:
         form.connect && form.outsideHeader !== null && form.x !== null && form.z !== null
           ? { outside_header: form.outsideHeader, x: form.x, z: form.z, inside_x: form.insideX, inside_z: form.insideZ }

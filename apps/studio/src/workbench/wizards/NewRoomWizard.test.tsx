@@ -3,12 +3,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoom, getEvents, getMatrix } from "../../api";
-import type { EventsDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import { createRoom, getEvents, getMatrix, headerPatchStatus } from "../../api";
+import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMatrix: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -33,6 +33,7 @@ const summary = (index: number, hasHeaders: boolean): MatrixSummary => ({ index,
 const matrices = [summary(0, true), summary(2, false), summary(3, false), summary(4, false), summary(5, true)];
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
+const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, narc: "unpacked/dynamicHeaders", ...change });
 const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0 };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
@@ -52,6 +53,7 @@ describe("NewRoomWizard", () => {
   const onCreated = vi.fn();
   const onError = vi.fn();
   const lastTile = vi.fn();
+  const onHeaderPatch = vi.fn();
   let lockedFiles: Record<number, string>;
   beforeEach(() => {
     container = document.createElement("div");
@@ -65,6 +67,8 @@ describe("NewRoomWizard", () => {
     onCreated.mockReset().mockResolvedValue(undefined);
     onError.mockReset();
     lastTile.mockReset().mockReturnValue({ x: 12, z: 7 });
+    onHeaderPatch.mockReset().mockResolvedValue(undefined);
+    vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -74,7 +78,7 @@ describe("NewRoomWizard", () => {
   async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }) {
     await act(async () =>
       root.render(
-        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onError={onError} />,
+        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
       ),
     );
     await flush();
@@ -349,7 +353,7 @@ describe("NewRoomWizard", () => {
     const unknown = buildPlaces(headers, []);
     await act(async () =>
       root.render(
-        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onError={onError} />,
+        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
       ),
     );
     await flush();
@@ -403,6 +407,47 @@ describe("NewRoomWizard", () => {
     expect(button("Im Studio zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  describe("a new header", () => {
+    const radio = (label: string) => [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.parentElement?.textContent?.startsWith(label));
+    async function toHeaderStep() {
+      await show();
+      await click(rowButton("0002"));
+      await flush();
+      await next();
+    }
+
+    it("gates_weiter_on_a_choice_and_sends_the_new_header_as_a_copy_of_the_template_headers_next_number", async () => {
+      await toHeaderStep();
+      expect(button("Weiter")?.disabled).toBe(true);
+      await click(radio("Neuer Header"));
+      expect(button("Weiter")?.disabled).toBe(false);
+      expect(container.textContent).toContain("Kopie von Header 0002 „Spielerhaus“");
+      await next();
+      await next();
+      expect(container.textContent).toContain("legt Header 0006 „NEUER_RAUM“ neu an (Kopie von 0002) und stellt ihn auf das neue Raster um, Area-Data 0004, Eventdatei: neu, leer.");
+      await click(button("Anlegen"));
+      const spec = vi.mocked(createRoom).mock.calls[0][0];
+      expect(spec.header).toEqual({ id: 6, area_data_id: 4, event_file: "New", new_header: { template: 2, internal_name: "NEUER_RAUM" } });
+    });
+
+    it("starts_with_a_new_event_file_and_says_that_keeping_it_shares_the_templates", async () => {
+      await toHeaderStep();
+      await click(radio("Neuer Header"));
+      expect(radio("neu, leer")?.checked).toBe(true);
+      await click(radio("behalten"));
+      await next();
+      await next();
+      expect(container.textContent).toContain("Eventdatei: behalten (geteilt mit Header 0002)");
+    });
+
+    it("does_not_offer_a_new_header_without_the_patch", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ supported: false, applied: false, narc: null }));
+      await toHeaderStep();
+      expect(radio("Neuer Header")?.disabled).toBe(true);
+      expect(container.textContent).toContain("Neue Header gibt es nur für Platin und HeartGold/SoulSilver");
+    });
   });
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {

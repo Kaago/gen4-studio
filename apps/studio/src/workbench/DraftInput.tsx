@@ -11,6 +11,10 @@ interface Props {
   max?: number;
   /** Arrow-key step of a number field; setting it also asks for a decimal keyboard. */
   step?: number;
+  /** Longest text the field takes while typing (text fields). */
+  maxLength?: number;
+  /** Regular expression the text should match (a hint to the browser; the owner still checks what it commits). */
+  pattern?: string;
   placeholder?: string;
   label: string;
   disabled?: boolean;
@@ -23,7 +27,7 @@ interface Props {
  * lingers). Text still being typed when the field unmounts (the inspector swaps its content on
  * hover without blurring) is committed instead of lost.
  */
-export function DraftInput({ value, onCommit, type = "text", min, max, step, placeholder, label, disabled, style }: Props) {
+export function DraftInput({ value, onCommit, type = "text", min, max, step, maxLength, pattern, placeholder, label, disabled, style }: Props) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
 
@@ -50,6 +54,8 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, pla
       min={min}
       max={max}
       step={step}
+      maxLength={maxLength}
+      pattern={pattern}
       value={draft}
       placeholder={placeholder}
       aria-label={label}

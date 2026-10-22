@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createArea, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, memberCounts, openProject, undo } from "./api";
+import { applyHeaderPatch, createArea, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -36,6 +36,8 @@ vi.mock("./api", async (importOriginal) => ({
   listMatrices: vi.fn(),
   listWarps: vi.fn(),
   createArea: vi.fn(),
+  headerPatchStatus: vi.fn(),
+  applyHeaderPatch: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
 }));
@@ -76,6 +78,7 @@ describe("App wiring", () => {
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
+    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, narc: "unpacked/dynamicHeaders" });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -160,6 +163,25 @@ describe("App wiring", () => {
       await click("Anlegen");
       expect(createArea).toHaveBeenCalledOnce();
     }
+
+    it("reads the header table and the header list again after a wizard applied the patch", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, narc: "unpacked/dynamicHeaders" });
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await press(container.querySelector('[data-cell="0,0"]'));
+      await click("Weiter");
+      await click("Weiter");
+      const tableReads = vi.fn();
+      data().bus.subscribe("headerTable", tableReads);
+      vi.mocked(listHeaders).mockClear();
+      await click("Patch anwenden");
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      expect(tableReads).toHaveBeenCalledOnce();
+      expect(listHeaders).toHaveBeenCalled();
+      // The patch is in: the new header can be chosen.
+      expect(buttons().some((b) => b.textContent === "Patch anwenden")).toBe(false);
+    });
 
     it("reads the project again after it wrote and shows the header that now has the new matrix", async () => {
       await select(listed[0]);

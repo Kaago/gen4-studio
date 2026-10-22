@@ -457,11 +457,21 @@ export interface AreaCell {
   clear_buildings: boolean;
 }
 
-/** An existing header that is pointed at the new matrix and gets area data and an event file. */
+/** A header the wizard creates first: a copy of `template` (as the editor shows it) under this internal name. */
+export interface NewHeader {
+  template: number;
+  internal_name: string;
+}
+
+/**
+ * A header that is pointed at the new matrix and gets area data and an event file. With `new_header` it does not exist
+ * yet: `id` is then the current header count (the number it gets), and "Keep" shares the template's event file.
+ */
 export interface AssignHeader {
   id: number;
   area_data_id: number | null;
   event_file: EventFileChoice;
+  new_header?: NewHeader | null;
 }
 
 export interface AreaSpec {
@@ -531,3 +541,15 @@ export const duplicateEventFile = (source: number) => invoke<number>("duplicate_
 export const createArea = (spec: AreaSpec) => invoke<AreaReport>("create_area", { spec });
 export const extendArea = (spec: ExtendSpec) => invoke<ExtendReport>("extend_area", { spec });
 export const createRoom = (spec: RoomSpec) => invoke<RoomReport>("create_room", { spec });
+
+/** The Dynamic Headers patch of the open game: whether it exists for it, and whether it is in the game already. */
+export interface HeaderPatchDto {
+  supported: boolean;
+  applied: boolean;
+  /** The NARC the headers live in once patched (null: no patch for this game). */
+  narc: string | null;
+}
+
+export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_status");
+/** Changes the game's code for good; refuses while the header table has unsaved edits. */
+export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");

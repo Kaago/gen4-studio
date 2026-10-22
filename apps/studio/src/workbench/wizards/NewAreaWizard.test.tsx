@@ -3,11 +3,11 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createArea, getMatrix } from "../../api";
-import type { AreaReport, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
+import { applyHeaderPatch, createArea, getMatrix, headerPatchStatus } from "../../api";
+import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
 import { NewAreaWizard } from "./NewAreaWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
 // The grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -26,6 +26,7 @@ const matrixOf = (index: number): MatrixDto =>
   index === 0
     ? { index: 0, name: "m0", width: 2, height: 1, maps: [0, 1] }
     : { index: 1, name: "m1", width: 3, height: 2, maps: [10, 11, null, 13, 14, 15], headers: [1, 1, 0, 0, 0, 0] };
+const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, narc: "unpacked/dynamicHeaders", ...change });
 const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null };
 
 describe("NewAreaWizard", () => {
@@ -34,6 +35,7 @@ describe("NewAreaWizard", () => {
   const onClose = vi.fn();
   const onCreated = vi.fn();
   const onError = vi.fn();
+  const onHeaderPatch = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -43,6 +45,9 @@ describe("NewAreaWizard", () => {
     onClose.mockReset();
     onCreated.mockReset().mockResolvedValue(undefined);
     onError.mockReset();
+    onHeaderPatch.mockReset().mockResolvedValue(undefined);
+    vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
+    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patchState());
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -50,7 +55,7 @@ describe("NewAreaWizard", () => {
   });
 
   const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }) => (
-    <NewAreaWizard headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />
+    <NewAreaWizard headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
   );
   async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }) {
     await act(async () => root.render(wizard(prefill)));
@@ -133,7 +138,7 @@ describe("NewAreaWizard", () => {
 
     async function open(prefill: { matrix?: number; header?: number }) {
       await act(async () =>
-        root.render(<NewAreaWizard headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />),
+        root.render(<NewAreaWizard headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
       );
       await flush();
     }
@@ -348,6 +353,104 @@ describe("NewAreaWizard", () => {
     expect(button("Im Studio zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  describe("a new header", () => {
+    /** Header 0001 is the source of cell (0, 0) of matrix 1, so the new header (number 0002) is a copy of it. */
+    async function toHeaderStep() {
+      await show({ matrix: 1 });
+      await click(cell(0, 0));
+      await next();
+      await next();
+    }
+    const radio = (label: string) => [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.parentElement?.textContent?.startsWith(label));
+    const nameField = () => container.querySelector<HTMLInputElement>('input[aria-label="Interner Name"]');
+    async function typeInto(input: HTMLInputElement, text: string) {
+      await act(async () => input.focus());
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => input.blur());
+    }
+
+    it("sends_the_new_header_with_the_next_number_and_the_source_header_as_template", async () => {
+      await toHeaderStep();
+      expect(headerPatchStatus).toHaveBeenCalledOnce();
+      await click(radio("Neuer Header"));
+      expect(container.textContent).toContain("Kopie von Header 0001 „NOTHING“");
+      expect(nameField()?.value).toBe("NEUES_GEBIET");
+      await next();
+      expect(container.textContent).toContain("legt Header 0002 „NEUES_GEBIET“ neu an (Kopie von 0001) und stellt ihn auf das neue Raster um, Area-Data 0003, Eventdatei: neu, leer.");
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header).toEqual({ id: 2, area_data_id: 3, event_file: "New", new_header: { template: 1, internal_name: "NEUES_GEBIET" } });
+    });
+
+    it("follows_the_area_name_until_an_internal_name_is_typed", async () => {
+      const rename = async (name: string) => {
+        await click(button("Zurück"));
+        await typeInto(container.querySelector<HTMLInputElement>('input[aria-label="Name des neuen Gebiets"]')!, name);
+        await next();
+      };
+      await toHeaderStep();
+      await click(radio("Neuer Header"));
+      await rename("Route 230");
+      expect(nameField()?.value).toBe("ROUTE_230");
+      await typeInto(nameField()!, "mein weg");
+      expect(nameField()?.value).toBe("MEIN_WEG");
+      await rename("Route 231");
+      // A typed name stays.
+      expect(nameField()?.value).toBe("MEIN_WEG");
+    });
+
+    it("says_that_keeping_the_event_file_shares_the_templates", async () => {
+      await toHeaderStep();
+      await click(radio("Neuer Header"));
+      await click(radio("behalten"));
+      await next();
+      expect(container.textContent).toContain("Eventdatei: behalten (geteilt mit Header 0001)");
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header?.event_file).toBe("Keep");
+    });
+
+    it("applies_the_patch_on_demand_and_then_offers_the_new_header", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      await toHeaderStep();
+      expect(radio("Neuer Header")?.disabled).toBe(true);
+      expect(container.textContent).toContain("arm9.bin.backup");
+      await click(button("Patch anwenden"));
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      // The app reads the header table and list again.
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(button("Patch anwenden")).toBeUndefined();
+      expect(radio("Neuer Header")?.disabled).toBe(false);
+    });
+
+    it("shows_the_backends_refusal_in_the_step_and_keeps_the_button", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "the header table has unsaved changes: save first", asset: null });
+      await toHeaderStep();
+      await click(button("Patch anwenden"));
+      expect(container.textContent).toContain("the header table has unsaved changes: save first");
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(radio("Neuer Header")?.disabled).toBe(true);
+      expect(button("Patch anwenden")?.disabled).toBe(false);
+    });
+
+    it("offers_no_new_header_for_a_game_without_the_patch_or_when_the_status_fails", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ supported: false, applied: false, narc: null }));
+      await toHeaderStep();
+      expect(radio("Neuer Header")?.disabled).toBe(true);
+      expect(container.textContent).toContain("Neue Header gibt es nur für Platin und HeartGold/SoulSilver");
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(headerPatchStatus).mockRejectedValue({ code: "error", message: "unknown game code XXXX", asset: null });
+      await toHeaderStep();
+      expect(radio("Neuer Header")?.disabled).toBe(true);
+      expect(container.textContent).toContain("unknown game code XXXX");
+      expect(onError).not.toHaveBeenCalled();
+    });
   });
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {
