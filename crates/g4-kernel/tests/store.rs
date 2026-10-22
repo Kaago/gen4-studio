@@ -1587,3 +1587,80 @@ fn create_header_refuses_to_overwrite_a_stray_file() {
         32
     );
 }
+
+fn matrix_of(st: &mut Store, header: u16) -> u16 {
+    st.header_table().unwrap()[usize::from(header)].matrix_id()
+}
+
+#[test]
+fn undo_after_create_header_keeps_the_new_header() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    let old = matrix_of(&mut st, 0);
+    set_matrix(&mut st, 0, 5);
+    assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
+    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.header_table().unwrap().len(), 3);
+    assert_eq!(matrix_of(&mut st, 0), old);
+    assert!(st.dirty().is_empty());
+    // The table is still savable: an edit now writes through the files.
+    set_matrix(&mut st, 2, 8);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    assert_eq!(
+        &std::fs::read(dir.join("0002")).unwrap()[2..4],
+        &8u16.to_le_bytes()
+    );
+    // Redo of the edit that was undone keeps all three headers as well.
+    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.header_table().unwrap().len(), 3);
+}
+
+#[test]
+fn redo_after_create_header_keeps_the_new_header() {
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    let old = matrix_of(&mut st, 0);
+    set_matrix(&mut st, 0, 5);
+    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
+    assert_eq!(st.redo(), Some(header_table_id()));
+    assert_eq!(st.header_table().unwrap().len(), 3);
+    assert_eq!(matrix_of(&mut st, 0), 5);
+    assert_eq!(st.dirty(), vec![header_table_id()]);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    assert_eq!(
+        &std::fs::read(dir.join("0000")).unwrap()[2..4],
+        &5u16.to_le_bytes()
+    );
+    assert_eq!(std::fs::read(dir.join("0002")).unwrap().len(), 24);
+    // And back: undo restores the old value, still with three headers.
+    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.header_table().unwrap().len(), 3);
+    assert_eq!(matrix_of(&mut st, 0), old);
+}
+
+#[cfg(unix)]
+#[test]
+fn create_header_rolls_back_when_mapname_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let (s, mut st) = unpatched_store();
+    st.apply_dynamic_headers().unwrap();
+    st.header_table().unwrap();
+    let table_before = st.header_table().unwrap().to_vec();
+    let maptable = s.dir.path().join("files/fielddata/maptable");
+    let names_path = maptable.join("mapname.bin");
+    let names_before = std::fs::read(&names_path).unwrap();
+    // A folder that cannot be written refuses the rename of the new mapname.bin.
+    std::fs::set_permissions(&maptable, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = st.create_header(0, "X");
+    std::fs::set_permissions(&maptable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(result.is_err());
+    assert!(!s.dir.path().join("unpacked/dynamicHeaders/0002").exists());
+    assert_eq!(std::fs::read(&names_path).unwrap(), names_before);
+    assert_eq!(st.header_table().unwrap(), table_before.as_slice());
+    assert!(st.dirty().is_empty());
+    // Nothing is left behind: the same call works once the folder is writable.
+    assert_eq!(st.create_header(0, "X").unwrap(), 2);
+}

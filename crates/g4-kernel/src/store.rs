@@ -666,8 +666,9 @@ impl Store {
     /// Appends a header that is a copy of header `template` as the editor shows it (unsaved
     /// edits included) and returns its id. Needs the Dynamic Headers patch. The header file
     /// `unpacked/dynamicHeaders/NNNN` and the record in `mapname.bin` are written at once
-    /// (a failure on the second removes the first again); the new header is not part of the
-    /// undo history and does not make the table dirty. `internal_name` must be printable
+    /// (a failure on the second removes the first again); the new header is not an undoable
+    /// step (undo and redo of earlier table edits leave it in place) and does not make the
+    /// table dirty. `internal_name` must be printable
     /// ASCII of at most 16 bytes.
     pub fn create_header(
         &mut self,
@@ -751,6 +752,14 @@ impl Store {
             headers.push(header);
             if let Some(saved) = saved_bytes {
                 saved.extend_from_slice(&chunk);
+            }
+        }
+        // The table's changesets hold whole-table snapshots; the new header is unchanged in
+        // every one of them, so it is appended to each, and undo and redo keep working.
+        for change in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            if change.asset == HEADER_TABLE {
+                change.before.extend_from_slice(&chunk);
+                change.after.extend_from_slice(&chunk);
             }
         }
         Ok(id)
