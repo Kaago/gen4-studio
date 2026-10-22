@@ -1243,3 +1243,29 @@ fn duplicate_map_with_clear_buildings_keeps_everything_else() {
     assert_eq!(full.buildings.len(), source_map.buildings.len());
     assert!(st.duplicate_map_with(99, true).is_err());
 }
+
+/// Platinum DE map 506 has two bytes after its last building record (`0D 0A`). A copy without
+/// buildings keeps them, and the building section shrinks to exactly those bytes.
+#[test]
+fn duplicate_map_with_clear_buildings_keeps_a_buildings_tail_from_disk() {
+    let (s, mut st) = store();
+    let path = s.dir.path().join("unpacked/maps/0002");
+    let mut map = MapFile::read(&std::fs::read(&path).unwrap(), Family::Pt).unwrap();
+    assert!(!map.buildings.is_empty());
+    map.buildings_tail = vec![0x0D, 0x0A];
+    map.validate().unwrap();
+    std::fs::write(&path, map.write(Family::Pt)).unwrap();
+
+    // Never loaded: the store parses the file on disk.
+    let index = st.duplicate_map_with(2, true).unwrap();
+    let bytes = std::fs::read(s.dir.path().join(format!("unpacked/maps/{index:04}"))).unwrap();
+    let copy = MapFile::read(&bytes, Family::Pt).unwrap();
+    assert!(copy.buildings.is_empty());
+    assert_eq!(copy.buildings_tail, vec![0x0D, 0x0A]);
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 2);
+    // The copy loads editable: maps never lock, because `MapFile::read` refuses any file
+    // that `MapFile::write` would not reproduce byte for byte.
+    st.map(index).unwrap();
+    assert_eq!(st.locked(map_id(index)), None);
+    assert_eq!(st.locked(map_id(2)), None);
+}

@@ -558,8 +558,9 @@ impl Store {
     }
 
     /// Like [`Store::duplicate_map`]; with `clear_buildings` the copy has no buildings (its
-    /// `buildings_tail` is kept). A read-only source is read from disk, parsed, cleared and
-    /// written again.
+    /// `buildings_tail` is kept). A source that is not loaded is parsed from disk. Maps never
+    /// lock: [`MapFile::read`] refuses any file [`MapFile::write`] would not reproduce, so the
+    /// parsed source writes back unchanged apart from the cleared buildings.
     pub fn duplicate_map_with(
         &mut self,
         source: u16,
