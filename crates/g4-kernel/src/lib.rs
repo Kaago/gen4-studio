@@ -5,6 +5,7 @@ pub mod export;
 mod fsutil;
 pub mod project;
 pub mod run;
+pub mod scripts;
 pub mod sprites;
 pub mod store;
 #[cfg(feature = "test-support")]

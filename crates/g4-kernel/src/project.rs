@@ -699,7 +699,7 @@ impl Project {
         std::fs::read(&path).map(Some).map_err(io_at(&path))
     }
 
-    fn uxie_family(&self) -> uxie::GameFamily {
+    pub(crate) fn uxie_family(&self) -> uxie::GameFamily {
         match self.family {
             Family::Dp => uxie::GameFamily::DP,
             Family::Pt => uxie::GameFamily::Platinum,
@@ -707,7 +707,7 @@ impl Project {
         }
     }
 
-    fn uxie_language(&self) -> uxie::GameLanguage {
+    pub(crate) fn uxie_language(&self) -> uxie::GameLanguage {
         match self.language {
             Language::English => uxie::GameLanguage::English,
             Language::French => uxie::GameLanguage::French,
@@ -739,7 +739,7 @@ impl Project {
 
     /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
     /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
-    fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
+    pub fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { dir, count } => {
                 let bytes = dynamic_headers::read_files(&dir, count)?

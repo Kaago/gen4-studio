@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::project::{AssetId, AssetKind};
+use crate::text::Problem;
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
@@ -42,6 +43,9 @@ pub enum KernelError {
     /// The asset can be shown but not written back byte for byte, so editing is refused.
     #[error("{asset} is read-only: {reason}")]
     ReadOnly { asset: AssetId, reason: String },
+    /// Scripts or texts did not compile; the problems carry file, line and column.
+    #[error("{} problem(s) in scripts or texts", .0.len())]
+    Compile(Vec<Problem>),
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.
@@ -83,6 +87,17 @@ mod tests {
         assert_eq!(
             KernelError::NotEditable(AssetKind::AreaData).to_string(),
             "area data cannot be edited"
+        );
+        let problem = |message: &str| Problem {
+            severity: crate::text::Severity::Error,
+            file: "expanded/scripts/0000.rotom".into(),
+            line: 3,
+            col: 2,
+            message: message.into(),
+        };
+        assert_eq!(
+            KernelError::Compile(vec![problem("a"), problem("b")]).to_string(),
+            "2 problem(s) in scripts or texts"
         );
         assert_eq!(
             KernelError::InvalidProject("header.yaml: missing gamecode".into()).to_string(),

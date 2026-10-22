@@ -8,6 +8,9 @@ use g4_formats::narc::Narc;
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
 const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
 const HEADER_SIZE: usize = 24;
+/// How many Platinum headers uxie's `Workspace` (and with it rotom's compile) reads from
+/// `arm9.bin`: a shorter file makes it fail to read the table.
+const UXIE_PT_HEADER_COUNT: usize = 559;
 
 /// The Platinum US (CPUE) instruction sites the Dynamic Headers patch rewrites: file offsets
 /// of `mov r1,#0x18; mul r1,r0` and of the literal `table base + n` that follows it.
@@ -59,10 +62,11 @@ pub fn synthetic_project() -> Synthetic {
     let root = dir.path();
     std::fs::write(
         root.join("header.yaml"),
-        "game_title: \"POKEMON PL\"\ngamecode: CPUE\nmaker_code: \"01\"\n",
+        "title: \"POKEMON PL\"\ngamecode: CPUE\nmakercode: \"01\"\n",
     )
     .unwrap();
-    std::fs::write(root.join("config.yaml"), "").unwrap();
+    // The keys uxie's `RomHeader` reads from a ds-rom project (real projects have more).
+    std::fs::write(root.join("config.yaml"), "header: header.yaml\n").unwrap();
 
     let maps: Vec<Vec<u8>> = (0..3u8).map(synthetic_map_bytes).collect();
     write_narc(root, "files/fielddata/land_data/land_data.narc", &maps);
@@ -130,7 +134,8 @@ pub fn synthetic_project() -> Synthetic {
 
     // arm9.bin: zero-filled, with two Platinum headers at the CPUE table offset.
     // Platinum header layout (uxie): byte 0 = area_data_id, bytes 2..4 = matrix_id (LE).
-    let mut arm9 = vec![0u8; PT_HEADER_TABLE_CPUE + 2 * HEADER_SIZE + 64];
+    // The headers after the first two stay zero.
+    let mut arm9 = vec![0u8; PT_HEADER_TABLE_CPUE + UXIE_PT_HEADER_COUNT * HEADER_SIZE + 64];
     arm9[PT_HEADER_TABLE_CPUE] = 0; // header 0: area_data_id 0
     arm9[PT_HEADER_TABLE_CPUE + 2..PT_HEADER_TABLE_CPUE + 4].copy_from_slice(&0u16.to_le_bytes());
     // Platinum header byte 18 = location_name: header 0 names "Twinleaf Town", header 1
