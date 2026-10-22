@@ -8,7 +8,7 @@ import type { HeaderSummary, MatrixDto, ProjectInfo } from "../api";
 import type { Message } from "../Toolbar";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, MatrixTab, StatusPanel } from "../workbench/panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel } from "../workbench/panels";
 import { shownInspector } from "../workbench/pin";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
@@ -70,9 +70,11 @@ const world = {
 } as unknown as Inputs["world"];
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop };
 
-const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: {} as never });
+const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
 
 interface Volatile {
+  /** What is pinned in the inspector (default: header 1). */
+  pin?: InspectorModel;
   hover: InspectorModel | null;
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
@@ -80,13 +82,13 @@ interface Volatile {
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ hover, message, showEvents = true, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
     scene: { ...scene },
     world: { ...world },
-    pins: { pinned, inspector: shownInspector(pinned, hover) },
+    pins: { pinned: pin, inspector: shownInspector(pin, hover) },
     view: { ...view, showEvents },
   });
   onModel(model);
@@ -133,15 +135,16 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel };
+  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel };
 
-  async function mountPanel(name: keyof typeof panels) {
+  /** `base` is merged into every state the returned `show` renders (the pin, say). */
+  async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
     const { getMatrix } = await import("../api");
     vi.mocked(getMatrix).mockResolvedValue(shown);
     const Panel = panels[name];
     // One element for all renders, as in dockview: the panel renders again only through the contexts it reads.
     const element = <Panel />;
-    const show = (v: Volatile) => act(async () => root.render(<Model {...v} onModel={noop}>{element}</Model>));
+    const show = (v: Volatile) => act(async () => root.render(<Model {...base} {...v} onModel={noop}>{element}</Model>));
     await show({ hover: null, message: null });
     for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
     bodies.rows = 0;
@@ -186,5 +189,51 @@ describe("workbench model", () => {
     await show({ hover: null, message: { kind: "info", text: "Modelle 4/900" } });
     expect(reads.message).toBe(2);
     expect(container.textContent).toContain("Modelle 4/900");
+  });
+
+  it("renders the inspector panel for a hover, not for a message", async () => {
+    // Nothing pinned: the editors would fetch from the backend, and this is about what the panel shows.
+    const show = await mountPanel("inspector", { pin: { kind: "none" } });
+    expect(container.textContent).toContain("Nichts ausgewählt");
+    await show({ hover: tile(3), message: null });
+    expect(reads.inspector).toBe(1);
+    expect(container.textContent).toContain("Kachel x 3, y 0");
+    await show({ hover: tile(4), message: null });
+    expect(reads.inspector).toBe(2);
+    expect(container.textContent).toContain("Kachel x 4, y 0");
+    await show({ hover: null, message: null });
+    expect(reads.inspector).toBe(3);
+    expect(container.textContent).toContain("Nichts ausgewählt");
+    // Control: a message is not part of what the panel reads.
+    await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.inspector).toBe(3);
+  });
+
+  it("renders the matrix tab when the shown matrix cell changes (pin, hover over a tile)", async () => {
+    const show = await mountPanel("matrix");
+    const selectedCells = () => [...container.querySelectorAll<HTMLElement>("table button")].filter((b) => b.style.background !== "transparent").map((b) => b.title);
+    expect(selectedCells()).toEqual([]);
+    const cell = (x: number, y: number): InspectorModel => ({ kind: "matrixCell", matrix: 1, x, y });
+    await show({ pin: cell(1, 0), hover: null, message: null });
+    expect(reads.selection).toBe(1);
+    // The memoised matrix panel (the 900 cells) rendered for the new selection, and highlights it.
+    expect(bodies.matrix).toBeGreaterThan(0);
+    expect(selectedCells()).toEqual([expect.stringContaining("x 1, y 0")]);
+    // The selection follows the pin to another cell ...
+    bodies.matrix = 0;
+    await show({ pin: cell(0, 1), hover: null, message: null });
+    expect(reads.selection).toBe(2);
+    expect(bodies.matrix).toBeGreaterThan(0);
+    expect(selectedCells()).toEqual([expect.stringContaining("x 0, y 1")]);
+    // ... a hover over a tile takes the inspector over, so the cell is no longer the shown one ...
+    bodies.matrix = 0;
+    await show({ pin: cell(0, 1), hover: tile(2), message: null });
+    expect(reads.selection).toBe(3);
+    expect(bodies.matrix).toBeGreaterThan(0);
+    expect(selectedCells()).toEqual([]);
+    // ... and when the pointer leaves, it is back.
+    await show({ pin: cell(0, 1), hover: null, message: null });
+    expect(reads.selection).toBe(4);
+    expect(selectedCells()).toEqual([expect.stringContaining("x 0, y 1")]);
   });
 });
