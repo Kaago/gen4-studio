@@ -91,7 +91,7 @@ Nicht in 3a: neue Header (Patch, jetzt 3b.1), Gelände malen (Phase 6), Höhen u
 
 ## Phase 3b: Daten-Editoren, Skripte, Text, Import
 
-Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. Sie beginnt, wenn das Gate von Phase 3a bestanden ist; die Teile bauen aufeinander auf.
+Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. 3b.1 wurde auf Wunsch implementiert, während das Gate von Phase 3a noch offen ist; beide Gates sind offen. 3b.2 bis 3b.4 beginnen, wenn beide Gates bestanden sind; die Teile bauen aufeinander auf.
 
 ### Phase 3b.1: Fundament
 

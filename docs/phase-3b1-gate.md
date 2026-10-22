@@ -76,7 +76,7 @@ Auf einer frischen Kopie von Platin DE, mit der gebündelten App. Die Ausrichtun
 - [ ] 3. Im Inspector bei einem Objekt "Richtung" ändern (0 bis 3): das Sprite in der Szene wechselt mit, ohne Neuladen.
 - [ ] 4. Ein Objekt ohne Sprite (im Feld "Grafik" einen Wert weit außerhalb der Sprite-Tabelle eintragen, zum Beispiel 60000; danach Cmd+Z) behält das gelbe Quadrat als Marker und löst keinen Fehler in der Statusleiste aus; das Quadrat bleibt auch nach Neuladen der Szene.
 - [ ] 5. Beim Laden (Kopie frisch geöffnet, Header gewählt) zeigen die Objekte kurz das gelbe Quadrat, dann das Sprite. Auswahl, Hover und Ziehen funktionieren am Sprite wie am alten Marker; die Umrandung der Auswahl liegt um das Sprite.
-- [ ] 6. HeartGold DE (Kopie `hg-3b1`): New Bark Town (im Explorer nach dem Ort suchen) zeigt Personen als Sprites, ebenso mindestens ein Trainer auf einer Route; ein Objekt mit 3D-Grafik oder ohne Eintrag zeigt das gelbe Quadrat.
+- [ ] 6. HeartGold DE (Kopie `hg-3b1`): Neuborkia (New Bark Town in der US-Fassung; im Explorer nach dem Ort suchen) zeigt Personen als Sprites, ebenso mindestens ein Trainer auf einer Route; ein Objekt mit 3D-Grafik oder ohne Eintrag zeigt das gelbe Quadrat.
 - [ ] 7. Neue Objekte (Art "Objekt", "Hinzufügen" in der Leiste der 3D-Ansicht) erscheinen sofort als Sprite oder Quadrat, ohne dass die Szene stockt.
 
 ## (D) Kachelnamen HGSS

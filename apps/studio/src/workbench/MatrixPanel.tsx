@@ -177,8 +177,8 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
         </button>
       </div>
       <p style={note}>
-        Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten, die 3D-Ansicht wertet sie
-        noch nicht aus.
+        Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten; eine Stufe hebt die Zelle in
+        der 3D-Ansicht um eine halbe Kachel.
       </p>
       {created !== null && created !== sceneMatrix && (
         <p style={{ ...note, color: "#92400e" }}>Diese Matrix gehört noch zu keinem Header. Im Header-Editor einem Header als Matrix zuweisen, dann zeigt die Szene sie.</p>

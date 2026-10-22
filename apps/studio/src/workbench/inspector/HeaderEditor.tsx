@@ -100,7 +100,7 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
       {summary && (
         <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
       )}
-      <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>Neue Header lassen sich in Vanilla-ROMs nicht anlegen.</p>
+      <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
     </div>
   );
 }

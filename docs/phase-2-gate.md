@@ -85,14 +85,14 @@ Gesammelt aus den Task-Reviews. Die Unterpunkte sind Dinge, die kein automatisch
 - [ ] Hover gegen angeheftet: der gewählte Header bleibt im Inspector angeheftet; ein Hover über der Szene überschreibt ihn nur, solange der Zeiger auf einer Kachel steht, danach erscheint der Header wieder.
 - [ ] Undo-Beschriftungen nennen die geänderten Felder lesbar.
 - [ ] In ein Header-Feld tippen, dann den Zeiger über die Szene bewegen: der Wert ist geschrieben (nicht verloren).
-- [ ] Der Hinweis, dass sich neue Header nicht anlegen lassen, steht im Header-Editor.
+- (ersetzt durch Phase 3b.1: der Hinweis nennt jetzt die Assistenten für neue Header, geprüft in [docs/phase-3b1-gate.md](phase-3b1-gate.md) (A))
 
 ### Matrix
 
 - [ ] Eine Matrix 2 × 1 aus zwei duplizierten Karten anlegen; Header 0001 darauf umstellen; die Szene zeigt beide Karten.
 - [ ] Speichern und Bauen enthalten die neuen Member (Karten, Matrix).
 - [ ] Verkleinern einer Matrix mit gefüllten Zellen fragt nach.
-- [ ] Der Hinweis im Matrix-Panel, dass Höhen in der Szene nicht ausgewertet werden, steht da.
+- (ersetzt durch Phase 3b.1: die Szene wertet Höhen aus, geprüft in [docs/phase-3b1-gate.md](phase-3b1-gate.md) (B))
 
 ### Area-Data
 
