@@ -36,15 +36,17 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
   // The same tile as a position in the whole matrix, where "Hinzufügen" puts an event. Unlike the
   // one above it is forgotten when the scene gets another matrix (the position is only valid in one).
-  const lastMatrixTile = useRef<{ x: number; z: number } | null>(null);
+  const matrixTile = useRef<{ x: number; z: number } | null>(null);
   useEffect(() => {
-    lastMatrixTile.current = null;
+    matrixTile.current = null;
   }, [matrix]);
+  /** The tile the pointer was last over as a position in the shown matrix (null: none yet); the room wizard puts its door there. */
+  const lastMatrixTile = useCallback(() => matrixTile.current, []);
   const onInspect = useCallback(
     (model: InspectorModel) => {
       if (model.kind === "tile") {
         lastTile.current = { map: model.map, x: model.x, y: model.y };
-        lastMatrixTile.current = { x: model.absX, z: model.absZ };
+        matrixTile.current = { x: model.absX, z: model.absZ };
       }
       setHover(model.kind === "none" ? null : model);
     },
@@ -166,7 +168,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         setMessage({ kind: "error", text: gate.text });
         return;
       }
-      const tile = lastMatrixTile.current;
+      const tile = matrixTile.current;
       if (!tile) {
         setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
         return;
@@ -214,7 +216,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     setPinned({ kind: "none" });
     setHover(null);
     lastTile.current = null;
-    lastMatrixTile.current = null;
+    matrixTile.current = null;
     setEventLock(null);
   }
 
@@ -222,6 +224,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     eventLock,
     selectedEvent,
     onInspect,
+    lastMatrixTile,
     onEventsLocked,
     unpinSelection,
     onSelectBuilding,

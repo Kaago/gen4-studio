@@ -191,9 +191,9 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
   /**
    * Follows a link (see `nextSelection`): a header goes through the same path as a click in the
    * list (its matrix loads under the selection guards), the inspector is pinned to the target and
-   * the panel showing it is focused.
+   * the panel showing it is focused. Resolves when the matrix of a newly selected header has loaded (or failed).
    */
-  function goTo(target: NavTarget) {
+  function goTo(target: NavTarget): Promise<void> | void {
     const shown = matrixRef.current;
     const current = headersRef.current.find((h) => h.id === selectedRef.current);
     const next = nextSelection(
@@ -212,9 +212,10 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
     if (next.panel === "headers") bus.emit({ topic: "headerReveal" });
     // A header already selected has its matrix loaded: it is only pinned again below.
+    let loading: Promise<void> | undefined;
     if (next.selectedHeader !== selectedRef.current) {
       const header = headersRef.current.find((h) => h.id === next.selectedHeader);
-      if (header) void onSelect(header);
+      if (header) loading = onSelect(header);
     }
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
@@ -225,6 +226,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
         /* the workbench is going away */
       }
     }
+    return loading;
   }
 
   /** Another project was opened: nothing of the old one stays selected, shown or in flight. */

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
@@ -12,11 +12,10 @@ import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
 import { useWindowGuards } from "./app/useWindowGuards";
+import { useWizards } from "./app/useWizards";
+import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
-
-/** Until the wizards are connected, "+ Neu" opens nothing. Module-level: the explorer is memoised on its identity. */
-const openWizard = () => {};
 
 /** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads. */
 export default function App() {
@@ -44,6 +43,28 @@ export default function App() {
   });
   // The matrix and warp overviews behind the world explorer; read again when the member counts change.
   const overview = useOverview({ bus, projectRoot: session.info?.root ?? null, counts: session.counts, onError: session.fail });
+  // A wizard wrote to the project: counts, matrix overview, header list and dirty count catch up, then the new header is shown.
+  // `scene.goTo` reads the header list through a ref that only a render updates, so it runs in the effect below, after the render
+  // that carries the list just read (a header that now points at another matrix would be loaded with its old one).
+  const showAfterSync = useRef<{ header: number; announcement?: string } | null>(null);
+  const wizards = useWizards({
+    onCreated: async (header, announcement) => {
+      await session.onCountsChanged();
+      bus.emit({ topic: "matrixData" });
+      showAfterSync.current = header === null ? null : { header, announcement };
+      await Promise.all([scene.syncHeaders(), session.refreshDirty()]);
+      if (header === null && announcement) session.setMessage({ kind: "info", text: announcement });
+    },
+  });
+  useEffect(() => {
+    const show = showAfterSync.current;
+    if (show === null) return;
+    showAfterSync.current = null;
+    // The message comes after the load: selecting a header clears the message when its matrix arrives.
+    void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => {
+      if (show.announcement) session.setMessage({ kind: "info", text: show.announcement });
+    });
+  }, [scene.headers]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
   useWindowGuards(session.dirtyRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
@@ -68,7 +89,7 @@ export default function App() {
     world,
     pins,
     overview,
-    onOpenWizard: openWizard,
+    onOpenWizard: wizards.open,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
   });
 
@@ -88,6 +109,14 @@ export default function App() {
         onPickEmulator={() => void session.onPickEmulator()}
       />
       <Workbench data={data} live={live} apiRef={dockApi} />
+      <WizardHost
+        wizards={wizards}
+        headers={scene.headers}
+        matrices={overview.matrices}
+        links={overview.links}
+        counts={session.counts}
+        onError={session.fail}
+      />
     </main>
   );
 }

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, memberCounts, openProject, undo } from "./api";
+import { createArea, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -35,8 +35,13 @@ vi.mock("./api", async (importOriginal) => ({
   getAreaData: vi.fn(),
   listMatrices: vi.fn(),
   listWarps: vi.fn(),
+  createArea: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
+}));
+// The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
+vi.mock("./world/thumbnailStore", () => ({
+  thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
@@ -119,9 +124,43 @@ describe("App wiring", () => {
     expect(data().matrices).toEqual([]);
     expect(data().warpLinks).toEqual([]);
     const opener = data().onOpenWizard;
-    expect(() => opener({ kind: "area" })).not.toThrow();
+    await act(async () => opener({ kind: "area" }));
+    expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Gebiet anlegen");
     await select(listed[0]);
+    // Opening the wizard and everything after it leaves the workbench's data alone.
     expect(data().onOpenWizard).toBe(opener);
+    await click("Abbrechen");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  describe("new area wizard", () => {
+    it("reads the project again after it wrote and shows the header that now has the new matrix", async () => {
+      vi.mocked(listMatrices).mockResolvedValue({ matrices: [{ index: 0, name: "m0", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 }], unreadable: [] });
+      vi.mocked(createArea).mockImplementation(async () => {
+        // The backend now has the matrix and header 1 points at it.
+        listed = [header(0, 0), header(1, 5)];
+        return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1 };
+      });
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
+      const buttons = () => [...container.querySelectorAll("button")];
+      await press(container.querySelector('[data-cell="0,0"]'));
+      await click("Weiter");
+      await click("Weiter");
+      await press(buttons().find((b) => b.textContent?.startsWith("0001")));
+      await click("Weiter");
+      await click("Anlegen");
+      expect(createArea).toHaveBeenCalledOnce();
+      expect(data().selected).toBe(0);
+      await click("Im Studio zeigen");
+      // Header 1 was selected with its new matrix, not the one the old header list had for it.
+      expect(data().selected).toBe(1);
+      expect(vi.mocked(getMatrix).mock.calls[vi.mocked(getMatrix).mock.calls.length - 1]?.[0]).toBe(5);
+      expect(data().matrix?.index).toBe(5);
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(live().message?.text).toContain("Raster 0005");
+    });
   });
 
   describe("undo", () => {
