@@ -127,7 +127,7 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(text)) setOutcome({ kind: "partial", message: text });
+      if (isLateFailure(e)) setOutcome({ kind: "partial", message: text });
       else setRefusal(text);
     } finally {
       setBusy(false);

@@ -321,7 +321,7 @@ describe("NewAreaWizard", () => {
   });
 
   it("shows_a_late_failure_in_the_result_step_with_the_way_to_finish_by_hand", async () => {
-    vi.mocked(createArea).mockRejectedValue({ code: "error", message: "matrix 0131 and maps 0571, 0572 were created; header edit failed: boom", asset: null });
+    vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "matrix 0131 and maps 0571, 0572 were created; header edit failed: boom", asset: null });
     await show();
     await click(cell(0, 0));
     await next();

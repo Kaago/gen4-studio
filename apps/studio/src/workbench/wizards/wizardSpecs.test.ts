@@ -306,9 +306,11 @@ describe("templateWarp", () => {
 });
 
 describe("isLateFailure", () => {
-  it("tells_a_failure_after_creating_from_one_before", () => {
-    expect(isLateFailure("map 0571 and matrix 0131 were created; header edit failed: boom")).toBe(true);
-    expect(isLateFailure("nothing was created; x failed: y")).toBe(false);
-    expect(isLateFailure("map 9999 does not exist (the game has 600)")).toBe(false);
+  it("tells_a_failure_after_creating_from_one_before_by_the_code", () => {
+    expect(isLateFailure({ code: "partial", message: "map 0571 and matrix 0131 were created; header edit failed: boom", asset: null })).toBe(true);
+    // The text alone no longer decides: a plain error with the same words is a refusal.
+    expect(isLateFailure({ code: "error", message: "map 0571 was created; header edit failed: boom", asset: null })).toBe(false);
+    expect(isLateFailure({ code: "error", message: "nothing was created; x failed: y", asset: null })).toBe(false);
+    expect(isLateFailure("map 0571 was created; header edit failed: boom")).toBe(false);
   });
 });

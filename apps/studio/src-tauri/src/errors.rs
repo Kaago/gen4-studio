@@ -5,7 +5,8 @@ use g4_kernel::error::KernelError;
 use g4_kernel::project::AssetId;
 use serde::Serialize;
 
-/// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"` or
+/// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
+/// `"partial"` (a wizard command failed after it had created members, which stay) or
 /// `"error"`; `asset` is set for `"stale"` and `"read_only"` and serializes as `null` otherwise.
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
@@ -34,6 +35,17 @@ impl From<String> for CmdError {
     fn from(message: String) -> Self {
         CmdError {
             code: "error",
+            message,
+            asset: None,
+        }
+    }
+}
+
+impl CmdError {
+    /// A wizard command failed after it had created members; `message` names them.
+    pub fn partial(message: String) -> Self {
+        CmdError {
+            code: "partial",
             message,
             asset: None,
         }

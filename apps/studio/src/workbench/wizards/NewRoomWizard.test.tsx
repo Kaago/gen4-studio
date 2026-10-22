@@ -393,7 +393,7 @@ describe("NewRoomWizard", () => {
   });
 
   it("shows_a_late_failure_in_the_result_step", async () => {
-    vi.mocked(createRoom).mockRejectedValue({ code: "error", message: "map 0571 and matrix 0131 were created; header edit failed: boom", asset: null });
+    vi.mocked(createRoom).mockRejectedValue({ code: "partial", message: "map 0571 and matrix 0131 were created; header edit failed: boom", asset: null });
     await show();
     await toEntrance();
     await next();

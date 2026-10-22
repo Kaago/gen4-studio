@@ -364,9 +364,12 @@ export interface AssetId {
   index: number;
 }
 
-/** Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only". */
+/**
+ * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only".
+ * "partial": a wizard command failed after it had created members; they stay, the message names them.
+ */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "error";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error";
   message: string;
   asset: AssetId | null;
 }
@@ -375,7 +378,7 @@ export function isCmdError(e: unknown): e is CmdError {
   if (typeof e !== "object" || e === null) return false;
   const o = e as Record<string, unknown>;
   return (
-    (o.code === "stale" || o.code === "read_only" || o.code === "tool_missing" || o.code === "error") &&
+    (o.code === "stale" || o.code === "read_only" || o.code === "tool_missing" || o.code === "partial" || o.code === "error") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object")
   );

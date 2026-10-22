@@ -114,6 +114,12 @@ pub(crate) struct Created {
     pub event_files: Vec<u16>,
 }
 
+impl Created {
+    fn is_empty(&self) -> bool {
+        self.matrices.is_empty() && self.maps.is_empty() && self.event_files.is_empty()
+    }
+}
+
 /// Names the created members, e.g. "matrix 0001 and maps 0003, 0004 were created".
 pub(crate) fn created_text(created: &Created) -> String {
     fn part(one: &str, many: &str, ids: &[u16]) -> Option<String> {
@@ -145,9 +151,16 @@ pub(crate) fn created_text(created: &Created) -> String {
     }
 }
 
-/// The error of a step that failed after members were created: says what stays behind.
+/// The error of a step that failed during a run: says what stays behind. Code `"partial"`
+/// once a member was created (the frontend shows what is left to finish by hand), otherwise
+/// a plain `"error"`.
 fn late(created: &Created, step: &str, e: impl std::fmt::Display) -> CmdError {
-    format!("{}; {step} failed: {e}", created_text(created)).into()
+    let message = format!("{}; {step} failed: {e}", created_text(created));
+    if created.is_empty() {
+        message.into()
+    } else {
+        CmdError::partial(message)
+    }
 }
 
 fn id(kind: AssetKind, index: u16) -> AssetId {
@@ -1102,6 +1115,24 @@ mod tests {
             ..Created::default()
         };
         assert_eq!(created_text(&created), "map 0003 was created");
+    }
+
+    #[test]
+    fn a_failure_after_creating_is_partial_and_one_before_is_a_plain_error() {
+        let created = Created {
+            maps: vec![3],
+            ..Created::default()
+        };
+        let err = late(&created, "header edit", "boom");
+        assert_eq!(err.code, "partial");
+        assert_eq!(
+            err.message,
+            "map 0003 was created; header edit failed: boom"
+        );
+        assert!(err.asset.is_none());
+        let err = late(&Created::default(), "map copy", "boom");
+        assert_eq!(err.code, "error");
+        assert_eq!(err.message, "nothing was created; map copy failed: boom");
     }
 
     #[test]

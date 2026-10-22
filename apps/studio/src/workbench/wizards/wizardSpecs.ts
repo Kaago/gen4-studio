@@ -1,4 +1,5 @@
 import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
+import { isCmdError } from "../../api";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
 
@@ -177,11 +178,11 @@ export function parseMapList(text: string, mapMax: number): { maps: number[]; in
   return { maps, invalid };
 }
 
-/** The backend's error for a run that failed after it had created members: "matrix 0131 and maps … were created; header edit failed: …". */
-const LATE_FAILURE = /^(?!nothing was created).*\b(?:was|were) created; .* failed: /s;
-
-/** Whether a wizard's error says that members stayed behind (the wizard cannot repair them; the result step says so). */
-export const isLateFailure = (text: string): boolean => LATE_FAILURE.test(text);
+/**
+ * Whether a wizard's error says that members stayed behind (the backend's code "partial"; the
+ * wizard cannot repair them, the result step says so).
+ */
+export const isLateFailure = (e: unknown): boolean => isCmdError(e) && e.code === "partial";
 
 /** What the "Raum anlegen" wizard edits. `template` is the room's header, `templateMap` the map it is copied from. */
 export interface RoomForm {

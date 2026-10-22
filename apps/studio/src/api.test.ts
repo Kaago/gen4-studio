@@ -24,6 +24,7 @@ describe("isCmdError", () => {
     expect(isCmdError({ code: "stale", message: "m", asset: { kind: "Map", index: 0 } })).toBe(true);
     expect(isCmdError({ code: "error", message: "m", asset: null })).toBe(true);
     expect(isCmdError({ code: "read_only", message: "m", asset: { kind: "Event", index: 3 } })).toBe(true);
+    expect(isCmdError({ code: "partial", message: "map 0003 was created; header edit failed: boom", asset: null })).toBe(true);
     expect(isCmdError("plain string")).toBe(false);
   });
 
