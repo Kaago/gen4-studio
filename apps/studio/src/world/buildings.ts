@@ -62,22 +62,48 @@ export interface BuildingRefresh {
   retryModel: number | null;
 }
 
+/** Whether two buildings are identical in every field. */
+export function sameBuilding(x: BuildingDto, y: BuildingDto): boolean {
+  return (
+    x.model_id === y.model_id &&
+    x.x === y.x &&
+    x.y === y.y &&
+    x.z === y.z &&
+    x.sx === y.sx &&
+    x.sy === y.sy &&
+    x.sz === y.sz &&
+    x.rotation.every((r, k) => r === y.rotation[k])
+  );
+}
+
 /** Whether two building lists are identical in every field. */
 export function sameBuildings(a: readonly BuildingDto[], b: readonly BuildingDto[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((x, i) => {
-      const y = b[i];
-      return (
-        x.model_id === y.model_id &&
-        x.x === y.x &&
-        x.y === y.y &&
-        x.z === y.z &&
-        x.sx === y.sx &&
-        x.sy === y.sy &&
-        x.sz === y.sz &&
-        x.rotation.every((r, k) => r === y.rotation[k])
-      );
-    })
-  );
+  return a.length === b.length && a.every((x, i) => sameBuilding(x, b[i]));
+}
+
+/**
+ * What a map's buildings are after a reload: when `fresh` holds the same values as `current`, the
+ * current list itself (same objects, so the scene's slots, which hold those objects, stay in step
+ * with the map data); otherwise `fresh`, which the scene must be rebuilt from (`changed`).
+ */
+export function reconcileBuildings(current: BuildingDto[], fresh: BuildingDto[]): { buildings: BuildingDto[]; changed: boolean } {
+  return sameBuildings(current, fresh) ? { buildings: current, changed: false } : { buildings: fresh, changed: true };
+}
+
+/**
+ * Records a confirmed move: puts `next` at `index` of `list` when the building there still has the
+ * values `expected` (compared by value, not identity) and says whether it did. A list that no
+ * longer has that building was replaced by a reload, which the scene already follows.
+ */
+export function settleBuilding(list: BuildingDto[], index: number, expected: BuildingDto, next: BuildingDto): boolean {
+  const current = list[index];
+  if (!current || !sameBuilding(current, expected)) return false;
+  list[index] = next;
+  return true;
+}
+
+/** Text of the confirmation before a building is deleted: its index, map, model and position. */
+export function deletePrompt(map: number, index: number, b: Pick<BuildingDto, "model_id" | "x" | "y" | "z"> | undefined): string {
+  const what = `Gebäude ${index} von Karte ${String(map).padStart(4, "0")}`;
+  return b ? `${what} (Modell ${b.model_id}, x ${b.x}, y ${b.y}, z ${b.z}) löschen?` : `${what} löschen?`;
 }

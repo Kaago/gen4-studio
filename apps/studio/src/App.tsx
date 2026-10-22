@@ -33,8 +33,9 @@ import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
 import { tilesetKey } from "./workbench/inspector/areaFields";
 import { sameLayout } from "./workbench/matrix";
+import { pinAfterHistory } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
-import { isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
+import { deletePrompt, isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
 import type { BuildingRefresh } from "./world/buildings";
 
 const EMULATOR_KEY = "g4.emulatorPath";
@@ -196,6 +197,8 @@ export default function App() {
         setMatrixRevision((r) => r + 1);
         setAreaRevision((r) => r + 1);
         setBuildingRevision((r) => r + 1);
+        // The reload may have re-ordered the buildings: a pinned one is bound by index, so let go of it.
+        setPinned((p) => pinAfterHistory(p, selectedRef.current));
         await syncHeaders();
         await noteSceneTileset(true);
       } finally {
@@ -270,9 +273,9 @@ export default function App() {
     [refreshAfterStale],
   );
 
-  /** Shows the header again in the inspector when a building was pinned (it was deselected, deleted or undone away). */
+  /** Shows the header again in the inspector when a building was pinned (it was deselected or deleted). */
   const unpinBuilding = useCallback(() => {
-    setPinned((p) => (p.kind !== "building" ? p : selectedRef.current === null ? { kind: "none" } : { kind: "header", id: selectedRef.current }));
+    setPinned((p) => pinAfterHistory(p, selectedRef.current));
   }, []);
   const onSelectBuilding = useCallback(
     (ref: BuildingRef | null) => (ref ? setPinned({ kind: "building", map: ref.map, index: ref.index }) : unpinBuilding()),
@@ -294,17 +297,6 @@ export default function App() {
     },
     [requestBuildingRefresh, refreshDirty],
   );
-  /** After an undo or redo: stops showing a building that is gone. */
-  const dropGoneBuildingPin = useCallback(async () => {
-    const p = pinnedRef.current;
-    if (p.kind !== "building") return;
-    try {
-      if (p.index >= (await getMap(p.map)).buildings.length) unpinBuilding();
-    } catch {
-      unpinBuilding();
-    }
-  }, [unpinBuilding]);
-
   // A new building goes on the tile the pointer was last over (the map centre of `fallbackMap` when
   // that is unknown); it is selected afterwards. Adding and moving are two undoable changes.
   const onAddBuilding = useCallback(
@@ -338,7 +330,9 @@ export default function App() {
   const onDeleteBuilding = useCallback(
     async (map: number, index: number) => {
       try {
-        if (!(await ask(`Gebäude ${index} von Karte ${String(map).padStart(4, "0")} löschen?`, { kind: "warning" }))) return;
+        // The building is named by model and position, not only by an index that shifts.
+        const building = await getMap(map).then((m) => m.buildings[index], () => undefined);
+        if (!(await ask(deletePrompt(map, index, building), { kind: "warning" }))) return;
         await deleteBuilding(map, index);
       } catch (e) {
         fail(e);
@@ -456,8 +450,9 @@ export default function App() {
     if (!info || busy) return;
     try {
       if (await action()) {
-        // A building that the undo took away must not stay selected.
-        await dropGoneBuildingPin();
+        // Undo and redo can shift building indexes (undoing a delete re-inserts one in front), so
+        // a pinned building would silently become another one: let go of it.
+        setPinned((p) => pinAfterHistory(p, selectedRef.current));
         setReloadToken((t) => t + 1);
         setBuildingRevision((r) => r + 1);
         // An undone header edit changes the list, the header editor and possibly the scene.

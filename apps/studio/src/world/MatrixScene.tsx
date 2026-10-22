@@ -9,7 +9,7 @@ import type { BuildingDto, EventsDto, HeaderSummary, MapDto, MatrixDto, TileBeha
 import type { InspectorModel } from "../workbench/Inspector";
 import { BuildingLayer } from "./buildingLayer";
 import type { BuildingRef } from "./buildingLayer";
-import { sameBuildings } from "./buildings";
+import { reconcileBuildings, sameBuilding, settleBuilding } from "./buildings";
 import type { BuildingRefresh } from "./buildings";
 import { permissionColor } from "./colors";
 import { planeDrag } from "./drag";
@@ -590,15 +590,15 @@ function MatrixScene({
         () => {
           const data = h.loaded.get(ref.map);
           // The maps may have been reloaded while the command was in flight: then the scene already shows what the backend holds.
-          if (!data || data.map.buildings[ref.index] !== building) return;
-          data.map.buildings[ref.index] = next;
+          if (!data || !settleBuilding(data.map.buildings, ref.index, building, next)) return;
           h.buildings?.show(ref, next);
           h.render();
           callbacks.current.onBuildingMoved(ref.map);
         },
         (err) => {
           const data = h.loaded.get(ref.map);
-          if (data && data.map.buildings[ref.index] === building) {
+          const current = data?.map.buildings[ref.index];
+          if (current && sameBuilding(current, building)) {
             h.buildings?.show(ref, building);
             h.render();
           }
@@ -835,11 +835,13 @@ function MatrixScene({
       fresh.forEach((map, i) => {
         const data = h.loaded.get(ids[i]);
         if (!data) return;
-        // Only maps whose buildings changed are rebuilt: a matrix can show hundreds of them.
-        const buildingsChanged = !sameBuildings(data.map.buildings, map.buildings);
-        data.map = map;
+        // Only maps whose buildings changed are rebuilt (a matrix can show hundreds of them); an
+        // unchanged one keeps its building objects, which the layer's slots hold: map data and
+        // layer never point at different objects.
+        const { buildings, changed } = reconcileBuildings(data.map.buildings, map.buildings);
+        data.map = { ...map, buildings };
         recolourMap(h, ids[i]);
-        if (buildingsChanged) layer?.syncMap(matrixAtStart, ids[i], map.buildings);
+        if (changed) layer?.syncMap(matrixAtStart, ids[i], buildings);
       });
       dropMissingSelection(h, callbacks.current.onSelectBuilding);
       h.render();

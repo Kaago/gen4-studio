@@ -5,8 +5,11 @@ import {
   buildingModelIds,
   buildingTransform,
   isTypingTarget,
+  deletePrompt,
   newBuildingPosition,
+  reconcileBuildings,
   sameBuildings,
+  settleBuilding,
   snapHalfTile,
   wantsDelete,
 } from "./buildings";
@@ -71,5 +74,58 @@ describe("buildings", () => {
     expect(sameBuildings([b(1)], [{ ...b(1), z: 0.5 }])).toBe(false);
     expect(sameBuildings([b(1)], [{ ...b(1), rotation: ["00000000", "00000001", "00000000"] }])).toBe(false);
     expect(sameBuildings([], [])).toBe(true);
+  });
+
+  it("keeps the old building objects when a reload brings nothing new", () => {
+    const current = [b(1), b(2)];
+    const r = reconcileBuildings(current, [b(1), b(2)]);
+    expect(r.changed).toBe(false);
+    expect(r.buildings).toBe(current);
+    const fresh = [b(1), b(3)];
+    expect(reconcileBuildings(current, fresh)).toEqual({ buildings: fresh, changed: true });
+  });
+
+  it("settles a move by value, so a reload in between does not lose it", () => {
+    const list = [b(1), b(2)];
+    // The scene's slot holds `slot`; after a reload without changes the list still holds it.
+    const slot = list[1];
+    const moved = { ...slot, x: 2.5 };
+    expect(settleBuilding(list, 1, slot, moved)).toBe(true);
+    expect(list[1]).toBe(moved);
+    // Even a fresh object with the same values counts as the same building.
+    expect(settleBuilding(list, 0, { ...b(1) }, { ...b(1), z: 1 })).toBe(true);
+    // A building that changed meanwhile, or is gone, is left alone.
+    expect(settleBuilding(list, 1, slot, { ...slot, x: 9 })).toBe(false);
+    expect(settleBuilding(list, 5, slot, slot)).toBe(false);
+    expect(list[1]).toBe(moved);
+  });
+
+  it("follows the repro: undo after a reload, a drag, and another undo", () => {
+    // Map data and slot share the objects; this mirrors MatrixScene's bookkeeping.
+    let data = [b(1)];
+    let slot = data[0];
+    let rebuilt = 0;
+    const reload = (fresh: ReturnType<typeof b>[]) => {
+      const r = reconcileBuildings(data, fresh);
+      data = r.buildings;
+      if (r.changed) {
+        slot = data[0];
+        rebuilt++;
+      }
+    };
+    reload([b(1)]); // a tile paint undone: nothing changed in the buildings
+    expect(rebuilt).toBe(0);
+    const moved = { ...slot, x: 1 };
+    expect(settleBuilding(data, 0, slot, moved)).toBe(true); // the drag is written
+    slot = moved; // layer.show(ref, moved)
+    reload([b(1)]); // Cmd+Z: the backend has the old position again
+    expect(rebuilt).toBe(1);
+    expect(slot.x).toBe(0);
+    expect(data[0].x).toBe(0);
+  });
+
+  it("names model and position in the delete confirmation", () => {
+    expect(deletePrompt(12, 3, { model_id: 7, x: -5.5, y: 1, z: 4 })).toBe("Gebäude 3 von Karte 0012 (Modell 7, x -5.5, y 1, z 4) löschen?");
+    expect(deletePrompt(12, 3, undefined)).toBe("Gebäude 3 von Karte 0012 löschen?");
   });
 });
