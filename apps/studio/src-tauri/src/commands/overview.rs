@@ -109,12 +109,14 @@ pub fn list_warps_impl(state: &AppState) -> Result<WarpListing, CmdError> {
     Ok(listing)
 }
 
-#[tauri::command]
+/// `async` keeps the first listing of a project (it reads every matrix) off the main thread.
+#[tauri::command(async)]
 pub fn list_matrices(state: State<AppState>) -> Result<MatrixListing, CmdError> {
     list_matrices_impl(&state)
 }
 
-#[tauri::command]
+/// `async` keeps the first listing of a project (it reads every event file) off the main thread.
+#[tauri::command(async)]
 pub fn list_warps(state: State<AppState>) -> Result<WarpListing, CmdError> {
     list_warps_impl(&state)
 }
