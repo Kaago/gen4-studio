@@ -24,3 +24,4 @@ serde_json = "1"
 
 [dev-dependencies]
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }
+g4-formats = { path = "../../../crates/g4-formats", features = ["test-support"] }

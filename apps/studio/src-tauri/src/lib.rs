@@ -7,11 +7,11 @@ use commands::{
     accept_disk, add_building, add_event, apply_header_patch, build_rom, create_area,
     create_event_file, create_matrix, create_room, delete_building, delete_event, dirty,
     duplicate_event_file, duplicate_map, extend_area, force_quit, get_area_data, get_building_glb,
-    get_events, get_header, get_map, get_map_model_glb, get_matrix, header_patch_status,
-    list_headers, list_matrices, list_warps, map_model_texture_status, member_counts, open_project,
-    redo, reload_asset, rename_matrix, resize_matrix, run_rom, save, set_area_data, set_header,
-    set_matrix_cell, set_matrix_sections, set_permission, tile_behaviors, undo, update_building,
-    update_event,
+    get_events, get_header, get_map, get_map_model_glb, get_matrix, get_object_sprite,
+    header_patch_status, list_headers, list_matrices, list_warps, map_model_texture_status,
+    member_counts, open_project, redo, reload_asset, rename_matrix, resize_matrix, run_rom, save,
+    set_area_data, set_header, set_matrix_cell, set_matrix_sections, set_permission,
+    tile_behaviors, undo, update_building, update_event,
 };
 use state::{AppState, QuitAction, quit_action};
 use std::sync::atomic::Ordering;
@@ -62,6 +62,7 @@ pub fn run() {
             add_event,
             delete_event,
             get_map_model_glb,
+            get_object_sprite,
             map_model_texture_status,
             tile_behaviors,
             set_permission,

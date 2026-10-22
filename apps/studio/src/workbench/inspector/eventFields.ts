@@ -15,6 +15,7 @@ export interface EventFieldSpec {
 }
 
 const U16 = { min: 0, max: 0xffff };
+const I16 = { min: -0x8000, max: 0x7fff };
 
 /** x and z as the kind stores them (u16 for warps and objects, i16 for triggers, i32 for background events). */
 function positionRange(kind: EventKind): { min: number; max: number } {
@@ -53,6 +54,7 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "local_id", label: "Lokale ID", ...U16 },
         { key: "graphics_id", label: "Grafik", ...U16 },
         { key: "movement_type", label: "Bewegung", ...U16 },
+        { key: "dir", label: "Richtung (0 oben, 1 unten, 2 links, 3 rechts)", ...I16 },
         { key: "script", label: "Skript", ...U16 },
       ];
     case "coord":
@@ -67,7 +69,7 @@ export function clampEventValue(spec: Pick<EventFieldSpec, "min" | "max">, n: nu
   return Math.min(spec.max, Math.max(spec.min, Math.round(n)));
 }
 
-const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length"];
+const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length"];
 
 function value(e: EventData, key: string): number {
   return Number((e as unknown as Record<string, unknown>)[key]);

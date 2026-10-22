@@ -52,6 +52,7 @@ pub struct EventPatch {
     pub event_type: Option<u16>,
     pub graphics_id: Option<u16>,
     pub movement_type: Option<u16>,
+    pub dir: Option<i16>,
     pub local_id: Option<u16>,
     pub dest_header_id: Option<u16>,
     pub dest_warp_id: Option<u16>,
@@ -93,6 +94,7 @@ impl EventPatch {
             && s.event_type.is_none()
             && s.graphics_id.is_none()
             && s.movement_type.is_none()
+            && s.dir.is_none()
             && s.local_id.is_none()
             && s.dest_header_id.is_none()
             && s.dest_warp_id.is_none()
@@ -151,6 +153,9 @@ impl EventPatch {
                 }
                 if let Some(v) = self.movement_type {
                     next.movement_type = v;
+                }
+                if let Some(v) = self.dir {
+                    next.dir = v;
                 }
                 if let Some(v) = self.local_id {
                     next.local_id = v;
@@ -548,6 +553,7 @@ mod tests {
                 p.event_type = Some(2);
                 p.graphics_id = Some(9);
                 p.movement_type = Some(3);
+                p.dir = Some(2);
                 p.local_id = Some(7);
                 p.dest_header_id = Some(5);
                 p.dest_warp_id = Some(6);
@@ -568,9 +574,10 @@ mod tests {
                 o.script,
                 o.graphics_id,
                 o.movement_type,
-                o.local_id
+                o.local_id,
+                o.dir
             ),
-            (30, 31, 2001, 9, 3, 7)
+            (30, 31, 2001, 9, 3, 7, 2)
         );
         let c = &ev.coords[0];
         assert_eq!(

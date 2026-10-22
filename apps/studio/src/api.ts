@@ -168,6 +168,8 @@ export interface ObjectDto {
   graphics_id: number;
   movement_type: number;
   script: number;
+  /** Facing: 0 up, 1 down, 2 left, 3 right. */
+  dir: number;
   x: number;
   z: number;
   y: number;
@@ -308,6 +310,7 @@ export interface EventPatch {
   event_type?: number;
   graphics_id?: number;
   movement_type?: number;
+  dir?: number;
   local_id?: number;
   dest_header_id?: number;
   dest_warp_id?: number;
@@ -315,6 +318,18 @@ export interface EventPatch {
   width?: number;
   length?: number;
 }
+/** A decoded overworld sprite: RGBA8, row-major, row 0 is the top. */
+export interface SpriteDto {
+  width: number;
+  height: number;
+  rgba: number[];
+}
+/**
+ * The overworld sprite of an object with `graphicsId` facing `facing` (0 up, 1 down, 2 left, 3 right), or null
+ * when it has none (no table entry, a 3D overworld, an unsupported format). Rejects when the sprite table or
+ * archive cannot be read.
+ */
+export const getObjectSprite = shareInflight((graphicsId: number, facing: number) => invoke<SpriteDto | null>("get_object_sprite", { graphicsId, facing }));
 /** Changes fields of event `index` of class `kind` in an event file (one undoable change). */
 export const updateEvent = (eventFile: number, kind: EventKind, index: number, patch: EventPatch) =>
   invoke<void>("update_event", { eventFile, kind, index, patch });

@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
+import * as sprites from "../world/sprites";
 import { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 
@@ -45,6 +46,17 @@ describe("useThumbnailReset", () => {
     expect(clear).not.toHaveBeenCalled();
     bus.emit({ topic: "modelsReload" });
     expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgets_the_object_sprites_with_another_project_but_not_on_models_reload", () => {
+    const reset = vi.spyOn(sprites, "resetSprites");
+    act(() => root.render(<Probe projectRoot="/a" />));
+    act(() => root.render(<Probe projectRoot="/a" />));
+    bus.emit({ topic: "modelsReload" });
+    expect(reset).not.toHaveBeenCalled();
+    act(() => root.render(<Probe projectRoot="/b" />));
+    expect(reset).toHaveBeenCalledTimes(1);
+    reset.mockRestore();
   });
 
   it("forgets_pictures_of_the_old_project", async () => {

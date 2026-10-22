@@ -7,6 +7,7 @@ use std::sync::Arc;
 use g4_kernel::build::build;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
+use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::{SaveReport, Store};
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -37,7 +38,11 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     };
     let project = Arc::new(project);
     let store = Store::new(Arc::clone(&project));
-    *lock(state)? = Some(Session { project, store });
+    *lock(state)? = Some(Session {
+        project,
+        store,
+        sprites: SpriteCache::new(),
+    });
     Ok(info)
 }
 

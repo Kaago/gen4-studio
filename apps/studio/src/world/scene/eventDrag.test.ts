@@ -4,6 +4,7 @@ import type { EventsDto, MatrixDto } from "../../api";
 import type { EventRef } from "../events";
 import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
+import * as THREE from "three";
 import { OVERLAY_Y } from "./content";
 import { createEventDrag } from "./eventDrag";
 import { fakePicker, fakeRefs, settle, slantedView, surfaceKit } from "./dragTestKit.testkit";
@@ -49,7 +50,7 @@ function setup(options: { locked?: string | null; select?: EventRef | null; pain
 
 beforeEach(() => {
   vi.mocked(updateEvent).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(getEvents).mockReset().mockResolvedValue({ event_file_id: 1, locked: null } as EventsDto);
+  vi.mocked(getEvents).mockReset().mockResolvedValue({ event_file_id: 1, locked: null, objects: [] } as unknown as EventsDto);
   vi.mocked(pickMarker).mockReset().mockReturnValue(hitOn(2));
   vi.mocked(moveMarker).mockReset();
 });
@@ -158,5 +159,45 @@ describe("createEventDrag", () => {
     expect(moveMarker).toHaveBeenLastCalledWith(set, { kind: "warp", index: 2 }, { x: 10, z: 10 });
     expect(t.callbacks.onError).toHaveBeenCalledWith("refused");
     expect(t.callbacks.onEventMoved).not.toHaveBeenCalled();
+  });
+
+  describe("an object shown as a sprite", () => {
+    const object = { index: 3, local_id: 3, graphics_id: 1, movement_type: 0, script: 0, dir: 1, x: 12, z: 13, y: 0 };
+    const objectEvents: EventsDto = { event_file_id: 1, locked: null, bg: [], objects: [object], warps: [], coords: [] };
+
+    /** A drag over the real sprite marker of the object: the mocked marker functions run the real ones. */
+    async function spriteSetup() {
+      const real = await vi.importActual<typeof import("../markers")>("../markers");
+      const realSet = real.buildMarkers({ ...matrix, maps: [1, 1, 1, 1] }, objectEvents);
+      const sprite = [...realSet.entries.keys()].find((o) => o instanceof THREE.Sprite) as THREE.Sprite;
+      vi.mocked(pickMarker).mockReturnValue({ kind: "object", data: object } as never);
+      vi.mocked(moveMarker).mockImplementation(real.moveMarker);
+      const t = setup({ select: { file: 1, kind: "object", index: 3 } });
+      t.h.markers = realSet;
+      return { ...t, sprite, realSet };
+    }
+
+    it("moves the sprite with the pointer in whole tiles and writes the new tile once on release", async () => {
+      const t = await spriteSetup();
+      t.press(100, 100);
+      t.moveTo(105.2, 98.4);
+      expect(t.sprite.position.toArray()).toEqual([17.5, 0, 11.5]);
+      expect(updateEvent).not.toHaveBeenCalled();
+      t.release(105.2, 98.4);
+      expect(updateEvent).toHaveBeenCalledTimes(1);
+      expect(updateEvent).toHaveBeenCalledWith(1, "object", 3, { x: 17, z: 11 });
+      await settle();
+      expect(t.callbacks.onEventMoved).toHaveBeenCalledWith(1);
+    });
+
+    it("puts the sprite back on its tile on Escape", async () => {
+      const t = await spriteSetup();
+      t.press(100, 100);
+      t.moveTo(106, 100);
+      expect(t.sprite.position.x).toBe(18.5);
+      t.escape();
+      expect(t.sprite.position.toArray()).toEqual([12.5, 0, 13.5]);
+      expect(updateEvent).not.toHaveBeenCalled();
+    });
   });
 });

@@ -9,6 +9,7 @@ mod models;
 mod overview;
 mod patches;
 mod project;
+mod sprites;
 mod wizards;
 mod world;
 
@@ -21,6 +22,7 @@ pub use models::*;
 pub use overview::*;
 pub use patches::*;
 pub use project::*;
+pub use sprites::*;
 pub use wizards::*;
 pub use world::*;
 

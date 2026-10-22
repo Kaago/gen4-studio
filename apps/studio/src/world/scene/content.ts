@@ -3,8 +3,10 @@ import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { BuildingLayer } from "../buildingLayer";
 import { permissionColor } from "../colors";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin, cellY } from "../layout";
-import { buildMarkers, disposeMarkers, selectMarker } from "../markers";
+import { applySprite, buildMarkers, disposeMarkers, selectMarker } from "../markers";
+import type { MarkerSet } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
+import { peekSprite, spriteTexture } from "../sprites";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -110,6 +112,27 @@ export function setMarkers(h: SceneHost, events: EventsDto | null, visible: bool
   const selected = h.selectedEvent;
   if (selected && selected.file === events.event_file_id) selectMarker(h.markers, selected);
   h.scene.add(h.markers.group);
+  loadSprites(h, h.markers, events);
+}
+
+/**
+ * Gives the object markers of `set` their sprites. Sprites that are already loaded are applied at once; the others
+ * are asked for (once per graphics id and facing, see `spriteTexture`) and drawn when they arrive. A result for a
+ * set that has been replaced meanwhile is dropped (the new set asks for itself); an object without a sprite keeps
+ * its yellow square.
+ */
+function loadSprites(h: SceneHost, set: MarkerSet, events: EventsDto) {
+  for (const object of events.objects) {
+    const ready = peekSprite(object.graphics_id, object.dir);
+    if (ready !== undefined) {
+      if (ready) applySprite(set, object.index, ready);
+      continue;
+    }
+    void spriteTexture(object.graphics_id, object.dir).then((look) => {
+      if (!look || h.markers !== set) return;
+      if (applySprite(set, object.index, look)) h.queueRender();
+    });
+  }
 }
 
 /** Recolours every overlay instance of `mapId` from the map's current permissions. */

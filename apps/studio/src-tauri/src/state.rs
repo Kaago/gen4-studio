@@ -2,12 +2,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use g4_kernel::project::Project;
+use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
 
 /// The open project and its asset store.
 pub struct Session {
     pub project: Arc<Project>,
     pub store: Store,
+    /// The overworld table and the decoded object sprites of this project.
+    pub sprites: SpriteCache,
 }
 
 /// Tauri-managed state.

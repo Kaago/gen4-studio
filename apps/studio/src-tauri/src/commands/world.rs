@@ -116,6 +116,8 @@ pub struct ObjectDto {
     pub graphics_id: u16,
     pub movement_type: u16,
     pub script: u16,
+    /// Facing: 0 up, 1 down, 2 left, 3 right.
+    pub dir: i16,
     pub x: u16,
     pub z: u16,
     pub y: i32,
@@ -202,6 +204,7 @@ impl EventsDto {
                     graphics_id: e.graphics_id,
                     movement_type: e.movement_type,
                     script: e.script,
+                    dir: e.dir,
                     x: e.x,
                     z: e.z,
                     y: e.y,

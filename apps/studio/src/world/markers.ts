@@ -11,8 +11,15 @@ const BEACON_HEIGHT = 1.2;
 /** Height of the flat plane that shows the area of a coordinate trigger (above the permission overlay). */
 const AREA_Y = 0.08;
 
-/** Height of each marker mesh above the ground of its cell (the flat marker and the beacon differ). */
-const meshBase = new WeakMap<THREE.InstancedMesh, number>();
+/** Texels per tile of an overworld sprite. */
+export const SPRITE_TEXELS_PER_TILE = 16;
+/** Size in tiles of the yellow placeholder an object shows until (or unless) its sprite is there. */
+const PLACEHOLDER_SIZE = { width: 0.8, height: 0.4 };
+/** Width of the outline of a selected event (a sprite wider than this is outlined at its own width). */
+const OUTLINE_WIDTH = 0.95;
+
+/** Height of each marker above the ground of its cell (the flat marker and the beacon differ; a sprite stands on the ground). */
+const meshBase = new WeakMap<THREE.Object3D, number>();
 
 /** An event by class and index within the class (the identity the editor binds to). */
 export interface MarkerRef {
@@ -24,14 +31,26 @@ export interface MarkerRef {
 export interface MarkerSet {
   group: THREE.Group;
   matrix: MatrixDto;
-  /** Event class and data per instance, for every mesh in `group` that can be picked. */
-  entries: Map<THREE.InstancedMesh, { kind: EventKind; data: EventData[] }>;
+  /**
+   * Event class and data per instance, for everything in `group` that can be picked: instanced meshes (one
+   * entry per class, instance i belongs to `data[i]`) and the billboard sprite of each object event (`data` has one event).
+   */
+  entries: Map<THREE.Object3D, { kind: EventKind; data: EventData[] }>;
   /** The flat planes showing the `width x length` area of coordinate triggers (instance i belongs to `areaData[i]`). */
   area: THREE.InstancedMesh | null;
   areaData: Extract<EventData, { width: number }>[];
   /** The outline of the selected marker (null: none). */
   outline: THREE.LineSegments | null;
   selected: MarkerRef | null;
+  /** The yellow texture of the sprites that have no picture yet; owned (and disposed) by the set. */
+  placeholder: THREE.DataTexture;
+}
+
+/** A sprite texture as `applySprite` takes it: the texture (owned by the sprite cache) and its size in texels. */
+export interface SpriteLook {
+  texture: THREE.Texture;
+  width: number;
+  height: number;
 }
 
 /** An event marker under a ray. */
@@ -47,7 +66,20 @@ function areaMatrix(x: number, y: number, z: number, width: number, length: numb
   return into.compose(new THREE.Vector3(x + width / 2, y, z + length / 2), new THREE.Quaternion(), new THREE.Vector3(Math.max(width, 0), 1, Math.max(length, 0)));
 }
 
-/** Builds the marker meshes of `events`; events outside the matrix get no marker. */
+/** A 1 x 1 texture of `color`, for the sprites that wait for their picture. */
+function colorTexture(color: string): THREE.DataTexture {
+  // The bytes are sRGB, the colour space the texture declares.
+  const rgb = [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16));
+  const texture = new THREE.DataTexture(new Uint8Array([...rgb, 255]), 1, 1, THREE.RGBAFormat);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Builds the marker meshes of `events`; events outside the matrix get no marker. Object events are billboard
+ * sprites showing a yellow square until `applySprite` gives them their picture.
+ */
 export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
   const group = new THREE.Group();
   const entries: MarkerSet["entries"] = new Map();
@@ -60,12 +92,27 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
   const m4 = new THREE.Matrix4();
   let area: THREE.InstancedMesh | null = null;
   let areaData: MarkerSet["areaData"] = [];
+  const placeholder = colorTexture(MARKER_COLORS.object);
   for (const { kind, list } of classes) {
     const placed = list.flatMap((data) => {
       const at = markerPosition(data.x, data.z, matrix);
       return at ? [{ data, at }] : [];
     });
     if (placed.length === 0) continue;
+    if (kind === "object") {
+      for (const { data, at } of placed) {
+        // Anchored at the bottom: the sprite stands on the ground of the tile.
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: placeholder, depthTest: false, transparent: true }));
+        sprite.center.set(0.5, 0);
+        sprite.scale.set(PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1);
+        sprite.renderOrder = 11;
+        sprite.position.set(at.wx, cellYAtTile(matrix, data.x, data.z), at.wz);
+        meshBase.set(sprite, 0);
+        group.add(sprite);
+        entries.set(sprite, { kind, data: [data] });
+      }
+      continue;
+    }
     const geometries = [new THREE.BoxGeometry(0.8, 0.4, 0.8)];
     if (kind === "warp") geometries.push(new THREE.BoxGeometry(0.8, BEACON_HEIGHT, 0.8));
     const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
@@ -95,12 +142,33 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
       group.add(area);
     }
   }
-  return { group, matrix, entries, area, areaData, outline: null, selected: null };
+  return { group, matrix, entries, area, areaData, outline: null, selected: null, placeholder };
 }
 
-/** Frees the GPU resources of a marker set (the caller takes its group out of the scene). */
+/**
+ * Frees the GPU resources of a marker set (the caller takes its group out of the scene). A sprite's picture belongs
+ * to the sprite cache and is shared between sets, so only the sprite's material goes; the shared sprite geometry stays.
+ */
 export function disposeMarkers(set: MarkerSet) {
-  disposeTree(set.group);
+  for (const child of set.group.children) {
+    if (child instanceof THREE.Sprite) child.material.dispose();
+    else disposeTree(child);
+  }
+  set.placeholder.dispose();
+}
+
+/**
+ * Gives the sprite of object `index` its picture: the texture and a size of `width / 16 x height / 16` tiles. Returns
+ * whether the set has that object (events outside the matrix have no marker). A selected object's outline grows with it.
+ */
+export function applySprite(set: MarkerSet, index: number, look: SpriteLook): boolean {
+  const ref: MarkerRef = { kind: "object", index };
+  const sprite = instancesOf(set, ref)[0]?.mesh;
+  if (!(sprite instanceof THREE.Sprite)) return false;
+  sprite.material.map = look.texture;
+  sprite.scale.set(look.width / SPRITE_TEXELS_PER_TILE, look.height / SPRITE_TEXELS_PER_TILE, 1);
+  if (sameRef(set.selected, ref)) selectMarker(set, ref);
+  return true;
 }
 
 /**
@@ -109,16 +177,19 @@ export function disposeMarkers(set: MarkerSet) {
  */
 export function pickMarker(set: MarkerSet | null, raycaster: THREE.Raycaster): MarkerHit | null {
   if (!set?.group.visible) return null;
+  // A sprite is hit through its world matrix, which a render refreshes: a move or rebuild since then is not in it yet.
+  set.group.updateMatrixWorld();
   const hit = raycaster.intersectObjects([...set.entries.keys()], false)[0];
-  if (!hit || !(hit.object instanceof THREE.InstancedMesh) || hit.instanceId === undefined) return null;
+  if (!hit) return null;
+  // A sprite is a single instance.
   const entry = set.entries.get(hit.object);
-  const data = entry?.data[hit.instanceId];
+  const data = entry?.data[hit.instanceId ?? 0];
   return entry && data ? { kind: entry.kind, data } : null;
 }
 
-/** Every instance (mesh and index) that draws event `ref`. */
-function instancesOf(set: MarkerSet, ref: MarkerRef): { mesh: THREE.InstancedMesh; i: number; data: EventData }[] {
-  const found: { mesh: THREE.InstancedMesh; i: number; data: EventData }[] = [];
+/** Every instance (mesh or sprite, and index) that draws event `ref`. */
+function instancesOf(set: MarkerSet, ref: MarkerRef): { mesh: THREE.Object3D; i: number; data: EventData }[] {
+  const found: { mesh: THREE.Object3D; i: number; data: EventData }[] = [];
   for (const [mesh, entry] of set.entries) {
     if (entry.kind !== ref.kind) continue;
     const i = entry.data.findIndex((d) => d.index === ref.index);
@@ -139,8 +210,8 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   set.selected = null;
   const found = ref ? instancesOf(set, ref)[0] : undefined;
   if (!ref || !found) return;
-  const height = ref.kind === "warp" ? BEACON_HEIGHT : 0.4;
-  const box = new THREE.BoxGeometry(0.95, height, 0.95);
+  const { width, height } = outlineSize(found.mesh, ref.kind);
+  const box = new THREE.BoxGeometry(width, height, width);
   const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: "#ffffff", depthTest: false }));
   box.dispose();
   outline.renderOrder = 12;
@@ -151,10 +222,19 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   placeOutline(set, found.data.x, found.data.z);
 }
 
+/** The box that outlines a marker: a sprite's own height (and its width when wider than the usual box). */
+function outlineSize(marker: THREE.Object3D, kind: EventKind): { width: number; height: number } {
+  if (marker instanceof THREE.Sprite) return { width: Math.max(OUTLINE_WIDTH, marker.scale.x), height: marker.scale.y };
+  return { width: OUTLINE_WIDTH, height: kind === "warp" ? BEACON_HEIGHT : 0.4 };
+}
+
 function placeOutline(set: MarkerSet, x: number, z: number) {
   if (!set.outline || !set.selected) return;
-  const height = set.selected.kind === "warp" ? BEACON_HEIGHT : 0.4;
-  set.outline.position.set(x + 0.5, (set.selected.kind === "warp" ? height / 2 : MARKER_Y) + cellYAtTile(set.matrix, x, z), z + 0.5);
+  const marker = instancesOf(set, set.selected)[0]?.mesh;
+  if (!marker) return;
+  // The centre of the box above the ground of the cell: a sprite stands on it, a warp's beacon too, the flat markers float.
+  const lift = marker instanceof THREE.Sprite ? marker.scale.y / 2 : set.selected.kind === "warp" ? BEACON_HEIGHT / 2 : MARKER_Y;
+  set.outline.position.set(x + 0.5, lift + cellYAtTile(set.matrix, x, z), z + 0.5);
 }
 
 /**
@@ -165,6 +245,11 @@ function placeOutline(set: MarkerSet, x: number, z: number) {
 export function moveMarker(set: MarkerSet, ref: MarkerRef, tile: { x: number; z: number }) {
   const m4 = new THREE.Matrix4();
   for (const { mesh, i } of instancesOf(set, ref)) {
+    if (!(mesh instanceof THREE.InstancedMesh)) {
+      // A sprite: stands on the ground of its tile.
+      mesh.position.set(tile.x + 0.5, (meshBase.get(mesh) ?? 0) + cellYAtTile(set.matrix, tile.x, tile.z), tile.z + 0.5);
+      continue;
+    }
     mesh.getMatrixAt(i, m4);
     m4.setPosition(tile.x + 0.5, (meshBase.get(mesh) ?? MARKER_Y) + cellYAtTile(set.matrix, tile.x, tile.z), tile.z + 0.5);
     mesh.setMatrixAt(i, m4);

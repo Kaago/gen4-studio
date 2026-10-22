@@ -35,7 +35,7 @@ describe("event texts", () => {
   });
 
   it("describes objects, triggers and background events", () => {
-    const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, x: 12, z: 13, y: -1 };
+    const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, dir: 1, x: 12, z: 13, y: -1 };
     expect(eventTitle("object", object)).toBe("Objekt 2 · ID 7");
     expect(eventDetails("object", object)).toBe("Position x 12, z 13, y -1 · Grafik 9 · Bewegung 3 · Skript 2001");
     const coord = { index: 1, script: 9000, x: 3, z: 5, width: 2, length: 1 };
