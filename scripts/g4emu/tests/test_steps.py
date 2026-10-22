@@ -104,8 +104,3 @@ def test_file_steps_write_into_out(fake_emu, tmp_path):
 def test_file_step_names_cannot_escape_out(fake_emu, tmp_path):
     with pytest.raises(ValueError):
         run_step(fake_emu, None, Step("shot", ["../evil"]), tmp_path)
-
-
-def test_step_without_handler_is_an_error(fake_emu, tmp_path):
-    with pytest.raises(ValueError, match="walk"):
-        run_step(fake_emu, None, Step("walk", ["up", "1"]), tmp_path)

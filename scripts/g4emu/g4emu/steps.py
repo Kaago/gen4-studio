@@ -7,15 +7,14 @@ from pathlib import Path
 from typing import Callable
 
 from g4emu.emu import BUTTONS, Emu
-from g4emu.games import Game, read_location
+from g4emu.games import Game, Location, read_location
 from g4emu.paths import same_file
 
 DEFAULT_HOLD = 6
 RELEASE_FRAMES = 4  # idle frames after a press/tap so consecutive presses stay separate
 TAP_HOLD = 6
 
-# step name -> (min args, max args). Steps added later (walk, walk-to, expect-map,
-# continue) are known to the parser already; they only need a handler below.
+# step name -> (min args, max args)
 ARITY: dict[str, tuple[int, int]] = {
     "continue": (0, 0),
     "wait": (1, 1),
@@ -160,8 +159,64 @@ def _dump_ram(
     return {"file": str(path)}
 
 
+def _require_game(game: Game | None) -> Game:
+    if game is None:
+        raise StepFailed("Spiel nicht in games.yaml")
+    return game
+
+
+def _loc_json(loc: Location) -> dict:
+    return {"header": loc.header, "warp": loc.warp, "x": loc.x, "y": loc.y}
+
+
+# movement imports StepFailed from this module, so it is imported inside the handlers.
+def _continue(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    from g4emu import movement
+
+    return _loc_json(movement.continue_game(emu, _require_game(game)))
+
+
+def _walk(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    from g4emu import movement
+
+    direction = step.args[0]
+    if direction not in movement.DIRECTIONS:
+        raise ValueError(
+            f"walk: unbekannte Richtung '{direction}' (erlaubt: {' '.join(movement.DIRECTIONS)})"
+        )
+    tiles = _int(step.args[1], "walk")
+    return _loc_json(movement.walk(emu, _require_game(game), direction, tiles))
+
+
+def _walk_to(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    from g4emu import movement
+
+    x, y = _int(step.args[0], "walk-to"), _int(step.args[1], "walk-to")
+    return _loc_json(movement.walk_to(emu, _require_game(game), x, y))
+
+
+def _expect_map(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    from g4emu import movement
+
+    header = _int(step.args[0], "expect-map")
+    timeout = _int(step.args[1], "expect-map") if len(step.args) > 1 else movement.EXPECT_TIMEOUT
+    return _loc_json(movement.wait_for_map(emu, _require_game(game), header, timeout))
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
+    "continue": _continue,
+    "walk": _walk,
+    "walk-to": _walk_to,
+    "expect-map": _expect_map,
     "wait": _wait,
     "press": _press,
     "tap": _tap,
