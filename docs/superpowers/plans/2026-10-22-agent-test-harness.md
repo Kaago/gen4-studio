@@ -4,7 +4,7 @@
 
 **Goal:** Ein Claude-Agent bedient die echte Oberfläche von Gen4 Studio im Browser-Fenster (über die Dev-Brücke `studio-bridge`) und prüft Spielgänge mit dem skriptbaren Emulator `g4emu`, sodass er die meisten Gate-Punkte selbst abarbeitet.
 
-**Architecture:** Ein Dev-only-Binary im Crate `studio` stellt dieselben 46 Befehle (`*_impl`) per HTTP auf 127.0.0.1 bereit; das Frontend wählt per `transport.ts` zwischen Tauri und HTTP und ersetzt native Dialoge im Browser durch Dialoge auf der Seite. Ein Python-Werkzeug (`libretro.py` + Kern melonDS DS) bootet gebaute ROMs mit vorbereitetem Spielstand, steuert die Figur und liest die Header-ID aus dem RAM; Szenarien verbinden Projektänderung, Bauen und Spielgang.
+**Architecture:** Ein Dev-only-Binary im Crate `studio` stellt dieselben 47 Befehle (Stand `main` 6e6aa77) (`*_impl`) per HTTP auf 127.0.0.1 bereit; das Frontend wählt per `transport.ts` zwischen Tauri und HTTP und ersetzt native Dialoge im Browser durch Dialoge auf der Seite. Ein Python-Werkzeug (`libretro.py` + Kern melonDS DS) bootet gebaute ROMs mit vorbereitetem Spielstand, steuert die Figur und liest die Header-ID aus dem RAM; Szenarien verbinden Projektänderung, Bauen und Spielgang.
 
 **Tech Stack:** Rust (Tauri 2 Crate `studio`, `tiny_http` 0.12, `clap` 4), React 19 + Vite + vitest, Python 3.12 mit `uv`, `libretro.py` 0.12.0, melonDS DS 1.4.0, pytest.
 
@@ -58,7 +58,7 @@
   // bridge/dispatch.rs
   pub enum Reply { Json(serde_json::Value), Bytes(Vec<u8>) }
   pub enum DispatchError { Unknown(String), Cmd(CmdError) }
-  pub const COMMANDS: &[&str];   // 46 names, same order as generate_handler!
+  pub const COMMANDS: &[&str];   // 47 names today, same order as generate_handler!
   pub fn dispatch(state: &AppState, roots: &Roots, name: &str, args: serde_json::Value) -> Result<Reply, DispatchError>;
   ```
 - Meldungen (deutsch, `code: "error"`): `"Pfad liegt außerhalb der erlaubten Ordner: {pfad}"`, `"Originale (_DSPRE_contents) sind gesperrt: {pfad}"`, `"Im Browser-Modus nicht verfügbar, g4emu benutzen"` (`run_rom`), `"Ungültige Argumente für {befehl}: {serde-fehler}"`.
@@ -76,7 +76,7 @@ Expected: Kompilierfehler (Modul fehlt).
 
 - [ ] **Step 4: Tests für `dispatch` schreiben**
 
-- `commands_match_the_tauri_handler`: liest `include_str!("../lib.rs")`, schneidet den Block `generate_handler![ … ]` heraus, trennt an Kommas, vergleicht die Namensmenge mit `COMMANDS` in beide Richtungen und `COMMANDS.len() == 46`.
+- `commands_match_the_tauri_handler`: liest `include_str!("../lib.rs")`, schneidet den Block `generate_handler![ … ]` heraus, trennt an Kommas, vergleicht die Namensmenge mit `COMMANDS` in beide Richtungen und dass keiner doppelt vorkommt (keine fest eingetragene Anzahl).
 - `every_command_accepts_the_keys_api_ts_sends`: auf `open_synthetic()` (aus `commands`, dafür `pub(crate)`-Sichtbarkeit unter `#[cfg(test)]` freigeben) je Befehl ein Aufruf mit den Schlüsseln aus `apps/studio/src/api.ts`, z. B. `get_events {"eventFileId":1}`, `duplicate_map {"source":0,"clearBuildings":true}`, `get_object_sprite {"graphicsId":0,"facing":0}`, `get_building_glb {"modelId":0,"areaDataId":0}`, `map_model_texture_status {"index":0,"areaDataId":0}`, `update_event {"eventFile":1,"kind":"warp","index":0,"patch":{"dest_header_id":2}}`. Erwartung je Befehl: kein `DispatchError::Cmd` mit Meldung „Ungültige Argumente“ (inhaltliche Fehler wie `tool_missing` sind erlaubt). `open_project` und `build_rom` mit Pfaden unter einer `Roots`-Wurzel, die den synthetischen Projektordner enthält.
 - `reads_match_the_direct_impl_call`: `list_headers`, `get_header {"id":0}`, `get_matrix {"index":0}`, `dirty` liefern dasselbe JSON wie `serde_json::to_value(<name>_impl(...))`.
 - `glb_commands_reply_with_bytes_or_tool_missing`: `get_map_model_glb` ergibt `Reply::Bytes` oder `Cmd` mit `code == "tool_missing"`, nie `Json`.
@@ -125,7 +125,7 @@ Expected: PASS, keine Warnungen.
 
 - [ ] **Step 1: Tests für HTTP schreiben** (Server auf Port 0 mit einer Wurzel, kleiner Client über `std::net::TcpStream`, der eine HTTP/1.1-Anfrage schreibt und Status, Inhaltstyp und Körper liest)
 
-`binds_to_loopback_only` (`addr.ip()` ist `127.0.0.1`), `health_answers_with_the_command_count` (`{"ok":true,"commands":46}`), `wrong_host_is_403` (`Host: evil.example:PORT`), `missing_token_is_401`, `wrong_token_is_401`, `foreign_origin_is_403`, `own_origin_is_accepted`, `text_plain_is_415`, `unknown_command_is_404`, `cmd_error_is_400_with_code` (`dirty` ohne Projekt → `{"code":"error","message":"no project open",…}`), `success_is_200_json` (`open_project` auf das synthetische Projekt), `bytes_reply_is_octet_stream` (`response_parts(Reply::Bytes(vec![1,2,3]))` → `(200, "application/octet-stream", [1,2,3])`; `response_parts(Reply::Json(json!(null)))` → `(200, "application/json", b"null")`).
+`binds_to_loopback_only` (`addr.ip()` ist `127.0.0.1`), `health_answers_with_the_command_count` (`{"ok":true,"commands":COMMANDS.len()}`), `wrong_host_is_403` (`Host: evil.example:PORT`), `missing_token_is_401`, `wrong_token_is_401`, `foreign_origin_is_403`, `own_origin_is_accepted`, `text_plain_is_415`, `unknown_command_is_404`, `cmd_error_is_400_with_code` (`dirty` ohne Projekt → `{"code":"error","message":"no project open",…}`), `success_is_200_json` (`open_project` auf das synthetische Projekt), `bytes_reply_is_octet_stream` (`response_parts(Reply::Bytes(vec![1,2,3]))` → `(200, "application/octet-stream", [1,2,3])`; `response_parts(Reply::Json(json!(null)))` → `(200, "application/json", b"null")`).
 
 - [ ] **Step 2: Tests scheitern sehen** — `cargo test -p studio --features dev-bridge bridge::http` → Kompilierfehler.
 
@@ -391,7 +391,7 @@ Expected: Explorer zeigt Orte, Statusleiste zeigt „Browser-Modus (Brücke)“;
 
 - [ ] **Step 3: Beispielszenario mit echten Werten**: `pt-treppe-warp.yaml` wie in Spec §4.5. Die Werte vorher ermitteln: Event-Datei von Header 0415 und Index des Treppen-Warps (`call.sh get_header '{"id":415}'`, `call.sh get_events '{"eventFileId":…}'`), Treppen-Kachel und eine Tür-Kachel im Ziel aus dem Probelauf bzw. mit `where`. Kommentarkopf der Datei nennt die Platzhalter und ein Beispiel `--set`.
 
-- [ ] **Step 4: Ende-zu-Ende auf einer frischen Kopie**: `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-agent-szenario`; Szenario mit einem vorhandenen Ziel-Header ohne Patch: Treppe des Spielerzimmers auf 0412 (Rivalenhaus, Erdgeschoss, Warp 0) umbiegen, dort durch die Haustür hinaus → Exit 0, Header-Folge `415, 412, 411`, Screenshots zeigen Ankunft und Ankunft draußen. Falls die Patch-Korrektur aus der Sitzung „dynamic-headers-patch“ bis dahin auf `main` ist: zusätzlich mit neuem Header über die Brücke (`apply_header_patch`, `create_area`) und prüfen, dass der Zeiger mit gepatchtem `arm9` hält (Spec §8); sonst diesen Teil in `docs/agent-gate.md` als offen vermerken.
+- [ ] **Step 4: Ende-zu-Ende auf einer frischen Kopie**: `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-agent-szenario`; Szenario mit einem vorhandenen Ziel-Header ohne Patch: Treppe des Spielerzimmers auf 0412 (Rivalenhaus, Erdgeschoss, Warp 0) umbiegen, dort durch die Haustür hinaus → Exit 0, Header-Folge `415, 412, 411`, Screenshots zeigen Ankunft und Ankunft draußen. Zweiter Lauf mit neuem Header (Patch-Korrektur ist seit 6e6aa77 auf `main`): auf einer weiteren frischen Kopie über `studio-bridge batch` `apply_header_patch` und `create_area` (Spec wie der Assistent, „Neuer Header“), dann das Szenario mit Ziel = neuer Header; prüfen, dass `continue`, `where` und `expect-map` mit gepatchtem `arm9` stimmen (Spec §8). Den Batch als `scripts/agent/scenarios/pt-neuer-header.yaml` ablegen.
 
 - [ ] **Step 5: Commit** — `feat(g4emu): scenarios that edit, build and play a project copy`
 

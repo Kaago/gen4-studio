@@ -32,7 +32,7 @@ Nicht in dieser Spec: feste Browser-Tests (Playwright), DSPRE-Automatik (Windows
 
 ### 3.1 Fakten aus dem Code
 
-- Alle 46 Tauri-Befehle in `apps/studio/src-tauri/src/commands/*.rs` sind dünne Hüllen um testbare Funktionen `*_impl(&AppState, …)`. `AppState` hält die Sitzung in einem `Mutex` und braucht kein Tauri.
+- Alle 47 Tauri-Befehle (Stand `main` 6e6aa77, inklusive `repair_header_patch`) in `apps/studio/src-tauri/src/commands/*.rs` sind dünne Hüllen um testbare Funktionen `*_impl(&AppState, …)`. `AppState` hält die Sitzung in einem `Mutex` und braucht kein Tauri.
 - Vier Befehle brauchen ein `AppHandle`: `get_map_model_glb` und `get_building_glb` liefern rohe Bytes (`tauri::ipc::Response`), `build_rom` läuft auf einem Blocking-Worker, und `force_quit` beendet die App. Die drei ersten haben `*_impl`-Funktionen ohne `AppHandle`.
 - Das Frontend ruft alle Befehle über `src/api.ts` auf (`invoke` aus `@tauri-apps/api/core`), dazu `useWindowGuards.ts` (`force_quit`). Tauri übersetzt die camelCase-Schlüssel der Argumente in snake_case-Parameter.
 - Native Dialoge stehen an vier Stellen: `ask` (Ja/Nein) in `useWindowGuards.ts`, `useWorldActions.ts`, `useProjectSession.ts` und `MatrixPanel.tsx`; `open` (Ordner und Datei) und `save` in `useProjectSession.ts`. `useWindowGuards.ts` fängt das Fehlen eines Tauri-Fensters schon ab.
@@ -60,7 +60,7 @@ Ein Modul `apps/studio/src-tauri/src/bridge/` im Crate `studio` (nur mit Feature
   - **400** mit dem `CmdError` als JSON.
   - **404** bei unbekanntem Befehl.
   - **401, 403 oder 415** bei verletzten Regeln aus §3.4.
-- `GET /health` liefert `{"ok":true,"commands":46}` (für Startskripte).
+- `GET /health` liefert `{"ok":true,"commands":<Anzahl>}` (heute 47) (für Startskripte).
 
 ### 3.4 Schutz
 
@@ -240,13 +240,14 @@ play:
 | (A) 12–15 DSPRE-Gegenprobe | Hand | DSPRE läuft nur unter Windows |
 | (A) 16 HeartGold DE | Agent | wie (A) 2–10 auf `hg-de-gate`, Spielstand IPKD |
 | (A) 17 Diamant/Perl | Hand | entfällt ohne Projekt |
+| (A) 18 Patch reparieren | Agent | den fehlerhaften Zustand auf einer Kopie nachstellen: nach „Patch anwenden“ die 4 Byte bei 0x3A0D6 in `arm9/arm9.bin` auf `CC F7 74 FC` setzen (wie DSPRE), dann Meldung, „Patch reparieren“, Bytes und Spielgang prüfen; dass DSPRE selbst so patcht, bleibt Teil der DSPRE-Gegenprobe (Hand) |
 | (B) 1–5 Höhen | Agent + Blick | Browser-Fenster (WebGL läuft dort auf der echten GPU), Hover- und Ziehproben im Agent, Optik per Screenshot |
 | (C) 1–7 Sprites | Agent + Blick | Agent prüft Erscheinen, Wechsel der Richtung, Platzhalter; aufrecht und Blickrichtung bestätigt der Nutzer am Screenshot |
 | (D) 1–3 Kachelnamen HGSS | Agent | Hover im Browser-Fenster |
 | (E) 1–2 `gate.sh` | Agent | Skript |
 | (F) 1–3 apicula-Zeitlimit | Agent | Brücke mit `G4_APICULA_TIMEOUT_SECS=1` |
 
-Befunde aus dem bisherigen Handdurchlauf, die die Anleitung aufnimmt: Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln. Der Gebiets-Assistent nimmt Header 0 als Vorlage, wenn die erste gewählte Zelle Füllfläche ist. Der Patch für Platin DE ist ohne die Korrektur aus der Sitzung „dynamic-headers-patch“ kaputt. Die Anleitung prüft diese Punkte nicht neu, sondern verweist auf die Problemliste.
+Befunde aus dem bisherigen Handdurchlauf, die die Anleitung aufnimmt: Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln. Der Gebiets-Assistent nimmt Header 0 als Vorlage, wenn die erste gewählte Zelle Füllfläche ist. Der von DSPRE übernommene Patch war für Platin DE/FR/IT/ES fehlerhaft; die Korrektur samt „Patch reparieren“ ist seit 6e6aa77 auf `main`. Die Anleitung prüft diese Punkte nicht neu, sondern verweist auf die Problemliste.
 
 ## 6. Anleitung `docs/agent-gate.md`
 
@@ -291,7 +292,7 @@ Kurz und auf Deutsch:
 ## 8. Risiken
 
 - **Zeiger von HeartGold:** Er kann einen anderen Aufbau haben als bei Platin. Die Umsetzung sucht ihn mit `dump-ram` und `find-u16` wie bei Platin und prüft ihn über zwei frische Starts.
-- **Zeiger von Platin nach dem Patch:** Ob der Zeiger mit dem Patch „Dynamic Headers“ hält, ist noch nicht geprüft. Der Patch überschreibt Code an fester Stelle und verschiebt keine Daten, deshalb ist das zu erwarten. Die Umsetzung prüft es mit der Kopie `pt-gate` nach der Patch-Korrektur.
+- **Zeiger von Platin nach dem Patch:** Ob der Zeiger mit dem Patch „Dynamic Headers“ hält, ist noch nicht geprüft. Der Patch überschreibt Code an fester Stelle und verschiebt keine Daten, deshalb ist das zu erwarten. Die Umsetzung prüft es im Szenario-Test mit neuem Header (Patch-Korrektur ist auf `main`).
 - **Kern-Version:** Ein neues Release von melonDS DS kann Optionen umbenennen. Die Version steht fest im Setup-Skript; ein Wechsel ist eine bewusste Änderung mit erneutem Integrationstest.
 - **Browser-Fenster:** WebGL und Drag in der 3D-Szene sind dort nicht erprobt. Falls Ziehen per Maus nicht klappt, prüft der Agent Ziehproben über `update_event` per `call.sh` und markiert den Punkt „Agent + Blick“.
 - **Tasten:** `Cmd+S` im Browser-Fenster kann die Seite speichern wollen, statt dass die App es abfängt. Die Anleitung nennt das, falls es auftritt.
