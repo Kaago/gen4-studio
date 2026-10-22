@@ -69,7 +69,7 @@ describe("ExtendAreaDialog", () => {
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  const escape = (target: EventTarget = document) => act(async () => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  const escape = (target: EventTarget = document) => act(async () => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
 
   it("puts_the_focus_on_the_first_control", async () => {
     await show();
@@ -92,10 +92,30 @@ describe("ExtendAreaDialog", () => {
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  it("leaves_the_dialog_open_when_escape_is_pressed_in_a_text_field", async () => {
+  it("takes_back_typed_text_with_escape_and_closes_only_from_an_unedited_field", async () => {
     await show();
-    await escape(container.querySelector('input[aria-label^="Header-Zelle"]')!);
+    const field = container.querySelector<HTMLInputElement>('input[aria-label^="Header-Zelle"]')!;
+    const before = field.value;
+    await act(async () => field.focus());
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, "77");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await escape(field);
+    // The first Escape takes back "77"; the dialog stays.
     expect(onDone).not.toHaveBeenCalled();
+    expect(field.value).toBe(before);
+    // The field is unedited now: Escape closes.
+    await escape(field);
+    expect(onDone).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps_tab_inside_the_dialog", async () => {
+    await show();
+    const controls = [...container.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), button:not([disabled])")];
+    controls[controls.length - 1].focus();
+    await act(async () => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(controls[0]);
   });
 
   it("ignores_escape_while_the_request_runs", async () => {

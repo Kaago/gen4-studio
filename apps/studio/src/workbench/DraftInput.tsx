@@ -59,8 +59,13 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, pla
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
-        else if (e.key === "Escape") setDraft(value);
+        else if (e.key === "Escape" && draft !== value) {
+          // Taking back the typed text uses the key: a dialog around the field must not close as well.
+          e.preventDefault();
+          setDraft(value);
+        }
       }}
+      data-draft=""
       style={{ boxSizing: "border-box", padding: "2px 6px", ...style }}
     />
   );

@@ -128,7 +128,7 @@ describe("NewAreaWizard", () => {
 
   describe("the source grid", () => {
     const placed = [{ ...header(0, "ZERO"), location_name: "Sandgem" }, { ...header(1, "NOTHING", 1, 3, 8), location_name: "Route 201" }];
-    const caption = () => container.querySelector('[aria-live="polite"]')?.textContent;
+    const caption = () => container.querySelector('[data-caption]')?.textContent;
     const hover = (x: number, y: number) => act(async () => void cell(x, y)?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
 
     async function open(prefill: { matrix?: number; header?: number }) {

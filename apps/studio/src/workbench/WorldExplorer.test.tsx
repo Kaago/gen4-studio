@@ -103,6 +103,12 @@ describe("WorldExplorer", () => {
     expect(expected.style.background).not.toBe("");
   });
 
+  it("names each place for screen readers without running the count into the name", () => {
+    render(props());
+    expect(places().map((d) => d.querySelector("summary")?.getAttribute("aria-label"))).toEqual(["Zweiblattdorf, 3 Header", "Route 201, 1 Header", "Ohne Ortsnamen, 1 Header"]);
+    expect(places()[0].querySelector('summary [aria-hidden="true"]')?.textContent).toBe("3");
+  });
+
   it("starts with every place closed when nothing is selected", () => {
     render(props());
     expect(places().map((d) => d.open)).toEqual([false, false, false]);
@@ -244,6 +250,27 @@ describe("WorldExplorer", () => {
       act(() => button("+ Neu")!.click());
       act(() => button("Raum anlegen…")?.click());
       expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "room" });
+    });
+
+    it("is used with the keyboard: focus on the first entry, arrows wrap, Escape gives the focus back", () => {
+      render(props());
+      const neu = button("+ Neu")!;
+      neu.focus();
+      act(() => neu.click());
+      const items = () => [...container.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+      expect(document.activeElement).toBe(items()[0]);
+      const press = (key: string) => act(() => void document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+      press("ArrowDown");
+      expect(document.activeElement).toBe(items()[1]);
+      press("ArrowDown");
+      expect(document.activeElement).toBe(items()[0]);
+      press("ArrowUp");
+      expect(document.activeElement).toBe(items()[1]);
+      press("Home");
+      expect(document.activeElement).toBe(items()[0]);
+      press("Escape");
+      expect(container.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(neu);
     });
 
     it("closes on Escape and on a click elsewhere", () => {

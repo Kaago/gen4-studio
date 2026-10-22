@@ -63,7 +63,7 @@ export function PickGrid({ matrix, headers, areaFallback, selected, places, last
       >
         {grid}
       </div>
-      <div style={caption} aria-live="polite">
+      <div style={caption} data-caption="">
         {(shown && cellCaption(matrix, places, shown.x, shown.y)) ?? ""}
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { HeaderSummary, MatrixSummary, ProjectInfo } from "../api";
 import { HeaderList } from "./HeaderList";
 import { showsMatrix } from "./headers";
@@ -93,20 +93,39 @@ const barButton: CSSProperties = { fontFamily: "inherit", fontSize: 12 };
 function NewMenu({ onOpenWizard }: { onOpenWizard: (request: WizardRequest) => void }) {
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLSpanElement>(null);
-  const close = useCallback(() => setOpen(false), []);
-  useDismiss(open, wrapper, close);
-  const choose = (request: WizardRequest) => {
+  const toggle = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  // Closing while the focus is in the menu gives it back to "+ Neu" (Escape, a choice).
+  const close = useCallback(() => {
+    if (menu.current?.contains(document.activeElement)) toggle.current?.focus();
     setOpen(false);
+  }, []);
+  useDismiss(open, wrapper, close);
+  // An opened menu takes the focus on its first entry, so the arrow keys work at once.
+  useEffect(() => {
+    if (open) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+  const choose = (request: WizardRequest) => {
+    close();
     onOpenWizard(request);
+  };
+  /** Up and down move between the entries (wrapping), Home and End jump to the ends. */
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const to = e.key === "ArrowDown" ? (at + 1) % items.length : e.key === "ArrowUp" ? (at - 1 + items.length) % items.length : e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : null;
+    if (to === null || items.length === 0) return;
+    e.preventDefault();
+    items[to].focus();
   };
   const entry: CSSProperties = { all: "unset", display: "block", padding: "4px 12px", cursor: "pointer", whiteSpace: "nowrap" };
   return (
     <span ref={wrapper} style={{ position: "relative" }}>
-      <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} style={barButton}>
+      <button ref={toggle} type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} style={barButton}>
         + Neu
       </button>
       {open && (
-        <div role="menu" style={{ ...popoverStyle, left: 0, padding: "4px 0" }}>
+        <div ref={menu} role="menu" onKeyDown={onMenuKey} style={{ ...popoverStyle, left: 0, padding: "4px 0" }}>
           <button role="menuitem" onClick={() => choose({ kind: "area" })} style={entry}>
             Gebiet anlegen…
           </button>
@@ -206,10 +225,12 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
       <div ref={tree} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 16px" }}>
         {shown.map((place) => (
           <details key={place.key} data-place-key={place.key} open={query !== "" || openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
-            <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
+            <summary style={{ cursor: "pointer", lineHeight: 1.6 }} aria-label={`${place.name}, ${place.headers.length} ${place.headers.length === 1 ? TERMS.header.label : TERMS.header.plural}`}>
               <span data-place-chip="" style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 6, background: placeColor(place.key) }} />
               {place.name}
-              <span style={{ float: "right", color: GREY, fontSize: 12 }}>{place.headers.length}</span>
+              <span aria-hidden="true" style={{ float: "right", color: GREY, fontSize: 12 }}>
+                {place.headers.length}
+              </span>
             </summary>
             <ul style={{ listStyle: "none", margin: 0, padding: "0 0 4px 16px" }}>
               {place.headers.map((entry) => (

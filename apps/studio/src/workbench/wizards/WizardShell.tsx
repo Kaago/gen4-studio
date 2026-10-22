@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { escapeCloses, useFocusTrap } from "../modal";
 
 export interface WizardStep {
   id: string;
@@ -50,12 +51,12 @@ export function WizardShell({ title, steps, step, onStep, submitLabel, onSubmit,
   const working = useRef(busy);
   working.current = busy;
 
+  useFocusTrap(dialog);
   useEffect(() => {
     dialog.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || working.current) return;
-      // Escape in a text field takes back what was typed there (see DraftInput); it must not also close the wizard.
-      if (e.target instanceof HTMLElement && e.target.matches("input, textarea, select")) return;
+      // Escape that takes back typed text, or clears a search, does not also close the wizard (see `escapeCloses`).
+      if (working.current || !escapeCloses(e)) return;
       close.current();
     };
     document.addEventListener("keydown", onKey);

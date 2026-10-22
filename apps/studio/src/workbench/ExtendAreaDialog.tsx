@@ -4,6 +4,7 @@ import { extendArea } from "../api";
 import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
 import { DraftInput } from "./DraftInput";
 import { extendDefaults, extendSpec } from "./extend";
+import { escapeCloses, useFocusTrap } from "./modal";
 import { parseCellField } from "./matrix";
 import { id4 } from "./terms";
 
@@ -37,18 +38,18 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
   const [headerCell, setHeaderCell] = useState(neighbour?.header ?? 0);
   const [working, setWorking] = useState(false);
 
-  // Escape cancels (not while the request runs) and the first control has the focus. Escape in a text
-  // field takes back what was typed there (see DraftInput); it must not also close the dialog.
+  // Escape cancels (not while the request runs; not when it takes back typed text, see `escapeCloses`), the first
+  // control has the focus and Tab stays inside the dialog.
   const dialog = useRef<HTMLDivElement>(null);
   const leave = useRef(onDone);
   leave.current = onDone;
   const running = useRef(working);
   running.current = working;
+  useFocusTrap(dialog);
   useEffect(() => {
     dialog.current?.querySelector<HTMLElement>("input, select, button")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || running.current) return;
-      if (e.target instanceof HTMLElement && e.target.matches("textarea, select, input:not([type=radio]):not([type=checkbox])")) return;
+      if (running.current || !escapeCloses(e)) return;
       leave.current(null);
     };
     document.addEventListener("keydown", onKey);
