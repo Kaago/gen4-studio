@@ -24,17 +24,24 @@ export function parseGlb(buffer: ArrayBuffer): Promise<THREE.Object3D> {
   });
 }
 
+/** Makes every material under `root` draw both sides (apicula's terrain and building output needs it). */
+export function drawDoubleSided(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.Material[];
+    for (const m of material) m.side = THREE.DoubleSide;
+  });
+}
+
 /** A copy of a parsed model that shares its geometry and materials (drawn double-sided, never culled when skinned). */
 export function cloneModel(model: THREE.Object3D): THREE.Object3D {
   const instance = cloneSkinned(model);
   instance.traverse((obj) => {
     const mesh = obj as THREE.SkinnedMesh;
     if (mesh.isSkinnedMesh) mesh.frustumCulled = false;
-    if (mesh.isMesh) {
-      const material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.Material[];
-      for (const m of material) m.side = THREE.DoubleSide;
-    }
   });
+  drawDoubleSided(instance);
   return instance;
 }
 

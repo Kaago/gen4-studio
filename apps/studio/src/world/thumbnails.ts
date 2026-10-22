@@ -18,13 +18,14 @@ interface Job {
 
 /**
  * Map pictures keyed by map and tileset. Each picture is produced once (concurrent requests share the work, at most
- * `concurrency` run at a time, in request order); the oldest are dropped beyond `capacity`; a failure is remembered
- * and never retried until `clear()`.
+ * `concurrency` run at a time, in request order); the least recently used are dropped beyond `capacity`; a failure is
+ * remembered and never retried until `clear()`. Whenever an entry disappears (eviction, `clear()`) subscribers are told,
+ * so a mounted user can ask again.
  */
 export class ThumbnailCache {
   private readonly capacity: number;
   private readonly concurrency: number;
-  /** In insertion order, so the first entry is the oldest. */
+  /** Least recently used first (`get` moves an entry to the end). */
   private readonly done = new Map<string, string>();
   private readonly failures = new Map<string, string>();
   private readonly queue: Job[] = [];
@@ -48,7 +49,13 @@ export class ThumbnailCache {
   get(map: number, area: number): string | null | undefined {
     const key = thumbnailKey(map, area);
     if (this.failures.has(key)) return null;
-    return this.done.get(key);
+    const url = this.done.get(key);
+    if (url !== undefined) {
+      // Reading refreshes the entry, so eviction drops the least recently used picture.
+      this.done.delete(key);
+      this.done.set(key, url);
+    }
+    return url;
   }
 
   /** Error text of a failed entry (null when the entry has not failed). */
@@ -77,12 +84,18 @@ export class ThumbnailCache {
   }
 
   clear(): void {
+    const keys = [...this.done.keys(), ...this.failures.keys(), ...this.open];
     this.generation++;
     this.done.clear();
     this.failures.clear();
     this.queue.length = 0;
     this.open.clear();
     this.running = 0;
+    for (const key of keys) this.notify(key);
+  }
+
+  private notify(key: string): void {
+    for (const fn of [...this.listeners]) fn(key);
   }
 
   private pump(): void {
@@ -105,18 +118,21 @@ export class ThumbnailCache {
     if (generation !== this.generation) return;
     this.running--;
     this.open.delete(job.key);
+    const evicted: string[] = [];
     if (url !== null) {
       this.done.set(job.key, url);
       while (this.done.size > this.capacity) {
         const oldest = this.done.keys().next().value;
         if (oldest === undefined) break;
         this.done.delete(oldest);
+        evicted.push(oldest);
       }
     } else {
       this.failures.set(job.key, error);
     }
     this.pump();
-    for (const fn of [...this.listeners]) fn(job.key);
+    this.notify(job.key);
+    for (const key of evicted) this.notify(key);
   }
 }
 

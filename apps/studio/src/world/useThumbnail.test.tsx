@@ -47,6 +47,47 @@ describe("useThumbnail", () => {
     expect(onRender.mock.calls.length).toBe(renders);
   });
 
+  it("re_requests_a_key_the_cache_evicted", async () => {
+    const glb = vi.fn(async () => new ArrayBuffer(3));
+    const cache = new ThumbnailCache({ glb }, async (b) => `data:${b.byteLength}`, { capacity: 1 });
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} />));
+    await flush();
+    expect(container.textContent).toBe("data:3");
+
+    cache.request(9, 1); // evicts 4:1, the mounted probe's key
+    await flush();
+    await flush();
+    expect(glb.mock.calls).toEqual([
+      [4, 1],
+      [9, 1],
+      [4, 1],
+    ]);
+    expect(container.textContent).toBe("data:3");
+  });
+
+  it("re_requests_a_key_after_clear", async () => {
+    const glb = vi.fn(async () => new ArrayBuffer(3));
+    const cache = new ThumbnailCache({ glb }, async (b) => `data:${b.byteLength}`);
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} />));
+    await flush();
+    act(() => cache.clear());
+    expect(container.textContent).toBe("undefined");
+    await flush();
+    expect(glb).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("data:3");
+  });
+
+  it("re_requests_a_key_cleared_while_in_flight", async () => {
+    const glb = vi.fn(async () => new ArrayBuffer(3));
+    const cache = new ThumbnailCache({ glb }, async (b) => `data:${b.byteLength}`);
+    act(() => root.render(<Probe cache={cache} map={4} onRender={() => {}} />));
+    act(() => cache.clear()); // before the first picture arrived
+    await flush();
+    await flush();
+    expect(glb).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("data:3");
+  });
+
   it("a_null_map_requests_nothing", () => {
     const glb = vi.fn(async () => new ArrayBuffer(3));
     const cache = new ThumbnailCache({ glb }, async () => "data:x");

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { MAP_SIZE, MODEL_UNITS_PER_TILE } from "./layout";
-import { disposeTree, parseGlb } from "./sceneUtil";
+import { disposeTree, drawDoubleSided, parseGlb } from "./sceneUtil";
 import type { ThumbnailRender } from "./thumbnails";
 
 /** Half the picture's width in model units: a map is `MAP_SIZE` tiles wide, so it fills the picture. */
@@ -23,6 +23,7 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
 
   return async (glb) => {
     const model = await parseGlb(glb);
+    drawDoubleSided(model);
     try {
       if (!gl) {
         gl = new THREE.WebGLRenderer({
@@ -34,20 +35,19 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
         gl.setSize(size, size, false);
         gl.setClearColor(0x1b1b1f, 1);
       }
-      // Frame the middle of the model whatever its origin, so every map fills the picture the same way.
+      // The 3D view places a map model with its origin on the map centre (scene/content.ts `addModel`), so look
+      // at the origin: a model that does not span the whole map then sits in the picture as it does in the view.
       const box = new THREE.Box3().setFromObject(model);
-      const centre = box.getCenter(new THREE.Vector3());
-      camera.position.set(centre.x, box.max.y + 100, centre.z);
+      camera.position.set(0, box.max.y + 100, 0);
       camera.near = 1;
       camera.far = box.max.y - box.min.y + 200;
-      camera.lookAt(centre.x, 0, centre.z);
+      camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
-      sun.target.position.set(centre.x, 0, centre.z);
-      scene.add(sun.target, model);
+      scene.add(model);
       gl.render(scene, camera);
       return gl.domElement.toDataURL("image/png");
     } finally {
-      scene.remove(model, sun.target);
+      scene.remove(model);
       disposeTree(model);
     }
   };

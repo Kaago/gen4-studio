@@ -118,6 +118,52 @@ describe("ThumbnailCache", () => {
     expect(cache.get(3, 0)).toBe("data:image/png;base64,3");
   });
 
+  it("eviction_is_least_recently_used_and_tells_subscribers", async () => {
+    const { cache, calls } = setup({ capacity: 2, concurrency: 1 });
+    const seen: string[] = [];
+    for (const map of [1, 2]) {
+      cache.request(map, 0);
+      calls[calls.length - 1].bytes.resolve(new ArrayBuffer(map));
+      await flush();
+    }
+    cache.get(1, 0); // 1 was used last, so 2 is the oldest
+    cache.subscribe((key) => seen.push(key));
+    cache.request(3, 0);
+    calls[calls.length - 1].bytes.resolve(new ArrayBuffer(3));
+    await flush();
+    expect(cache.get(2, 0)).toBeUndefined();
+    expect(cache.get(1, 0)).toBeDefined();
+    expect(seen).toEqual(["3:0", "2:0"]);
+  });
+
+  it("a_failed_entry_survives_eviction_pressure", async () => {
+    const { cache, glb, calls } = setup({ capacity: 1, concurrency: 1 });
+    cache.request(1, 0);
+    calls[0].bytes.reject({ code: "x", message: "boom", asset: null });
+    await flush();
+    for (const map of [2, 3, 4]) {
+      cache.request(map, 0);
+      calls[calls.length - 1].bytes.resolve(new ArrayBuffer(map));
+      await flush();
+    }
+    expect(cache.get(1, 0)).toBeNull();
+    cache.request(1, 0);
+    expect(glb).toHaveBeenCalledTimes(4);
+  });
+
+  it("the_concurrency_cap_holds_after_a_rejection_with_queued_jobs", async () => {
+    const { cache, glb, calls } = setup({ concurrency: 1 });
+    for (const map of [1, 2, 3]) cache.request(map, 0);
+    expect(glb).toHaveBeenCalledTimes(1);
+    calls[0].bytes.reject({ code: "x", message: "boom", asset: null });
+    await flush();
+    expect(glb).toHaveBeenCalledTimes(2);
+    expect(calls.map((c) => c.key)).toEqual(["1:0", "2:0"]);
+    calls[1].bytes.resolve(new ArrayBuffer(1));
+    await flush();
+    expect(glb).toHaveBeenCalledTimes(3);
+  });
+
   it("clear_forgets_everything_including_failures", async () => {
     const { cache, glb, calls } = setup();
     cache.request(1, 0);
@@ -143,10 +189,11 @@ describe("ThumbnailCache", () => {
     cache.subscribe((key) => seen.push(key));
     cache.request(1, 0);
     cache.clear();
+    expect(seen).toEqual(["1:0"]);
     calls[0].bytes.resolve(new ArrayBuffer(1));
     await flush();
     expect(cache.get(1, 0)).toBeUndefined();
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(["1:0"]);
     expect(cache.pending()).toBe(0);
   });
 
