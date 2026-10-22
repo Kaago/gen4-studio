@@ -6,3 +6,7 @@ license.workspace = true
 
 [dependencies]
 thiserror = "2"
+
+[features]
+# Fixtures (BTX0 builder) for this crate's and downstream tests.
+test-support = []

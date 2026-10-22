@@ -5,3 +5,5 @@ pub mod map;
 pub mod matrix;
 pub mod narc;
 pub mod nsbtx;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

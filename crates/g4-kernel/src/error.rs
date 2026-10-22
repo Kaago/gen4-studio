@@ -28,6 +28,10 @@ pub enum KernelError {
     InvalidProject(String),
     #[error("{0} cannot be edited")]
     NotEditable(AssetKind),
+    /// An error remembered by a cache (for example `SpriteCache`) and handed out again on
+    /// later calls; the text is the original error's message, verbatim.
+    #[error("{0}")]
+    Remembered(String),
     #[error("build: {0}")]
     Build(String),
     #[error("{0} changed on disk since it was loaded")]

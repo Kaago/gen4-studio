@@ -6,7 +6,7 @@ license.workspace = true
 
 [features]
 # Fixtures (synthetic project, vanilla helpers) for this crate's and downstream tests.
-test-support = ["dep:tempfile"]
+test-support = ["dep:tempfile", "g4-formats/test-support"]
 
 [dependencies]
 g4-formats = { path = "../g4-formats" }

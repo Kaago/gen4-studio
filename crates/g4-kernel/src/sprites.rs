@@ -260,7 +260,7 @@ impl SpriteCache {
             .table
             .get_or_insert_with(|| OverworldTable::load(project).map_err(|e| e.to_string()))
             .as_ref()
-            .map_err(|e| invalid(e.clone()))?;
+            .map_err(|e| KernelError::Remembered(e.clone()))?;
         let Some(member) = table.sprite_for(graphics_id) else {
             self.sprites.insert(key, None);
             return Ok(None);
@@ -269,7 +269,7 @@ impl SpriteCache {
             .narc
             .get_or_insert_with(|| read_sprite_narc(project).map_err(|e| e.to_string()))
             .as_ref()
-            .map_err(|e| invalid(e.clone()))?;
+            .map_err(|e| KernelError::Remembered(e.clone()))?;
         let sprite = decode_sprite(narc, member, facing).map(Arc::new);
         self.sprites.insert(key, sprite.clone());
         Ok(sprite)
@@ -315,6 +315,7 @@ mod tests {
     use std::path::Path;
 
     use g4_formats::narc::Narc;
+    use g4_formats::test_support::btx0;
 
     use super::*;
     use crate::test_support::synthetic_project;
@@ -498,113 +499,24 @@ mod tests {
 
     // ---- sprite cache ------------------------------------------------------------------
 
-    fn put_u16(out: &mut Vec<u8>, v: u16) {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-
-    fn put_u32(out: &mut Vec<u8>, v: u32) {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-
-    /// Info block of a TEX0 section: `data` entries of `datum_size` bytes plus names.
-    fn info_block(prefix: &str, data: &[Vec<u8>], datum_size: u16) -> Vec<u8> {
-        let n = data.len();
-        let mut out = vec![0u8, n as u8];
-        put_u16(&mut out, (16 + 4 * n) as u16);
-        put_u16(&mut out, 8);
-        put_u16(&mut out, (4 + 4 * n) as u16);
-        put_u32(&mut out, 0x017F);
-        for i in 0..n {
-            put_u32(&mut out, i as u32);
-        }
-        put_u16(&mut out, datum_size);
-        put_u16(&mut out, (4 + datum_size as usize * n) as u16);
-        for d in data {
-            out.extend_from_slice(d);
-        }
-        for i in 0..n {
-            let mut name = [0u8; 16];
-            let s = format!("{prefix}{i}");
-            name[..s.len()].copy_from_slice(s.as_bytes());
-            out.extend_from_slice(&name);
-        }
-        out
-    }
-
     /// A BTX0 with one 16-colour texture per entry of `sizes` (all texels index 0 except
-    /// the second of the first row, which is index 1) and one palette. Same layout as the
-    /// builder in `g4-formats/src/nsbtx.rs`.
-    fn btx0(sizes: &[(u32, u32)]) -> Vec<u8> {
-        const TEX0_HEADER: usize = 60;
-        let mut tex_block = Vec::new();
-        let mut tex_entries = Vec::new();
-        for &(w, h) in sizes {
-            let off = tex_block.len();
-            let mut data = vec![0u8; (w * h / 2) as usize];
-            data[0] = 0x10;
-            tex_block.extend_from_slice(&data);
-            while tex_block.len() % 8 != 0 {
-                tex_block.push(0);
-            }
-            let wlog = (w / 8).trailing_zeros();
-            let hlog = (h / 8).trailing_zeros();
-            let params = (off as u32 >> 3) | (wlog << 20) | (hlog << 23) | (3 << 26);
-            let mut e = Vec::new();
-            put_u32(&mut e, params);
-            put_u32(&mut e, 0);
-            tex_entries.push(e);
-        }
-        let mut pal_block = Vec::new();
-        for c in 0..16u16 {
-            put_u16(&mut pal_block, 0x7FFF - c);
-        }
-        let mut pal_entry = Vec::new();
-        put_u16(&mut pal_entry, 0);
-        put_u16(&mut pal_entry, 0);
-        let tex_info = info_block("tex", &tex_entries, 8);
-        let pal_info = info_block("pal", &[pal_entry], 4);
-
-        let tex_info_off = TEX0_HEADER;
-        let pal_info_off = tex_info_off + tex_info.len();
-        let tex_block_off = pal_info_off + pal_info.len();
-        let pal_block_off = tex_block_off + tex_block.len();
-        let tex0_size = pal_block_off + pal_block.len();
-
-        let mut t = Vec::new();
-        t.extend_from_slice(b"TEX0");
-        put_u32(&mut t, tex0_size as u32);
-        put_u32(&mut t, 0);
-        put_u16(&mut t, (tex_block.len() >> 3) as u16);
-        put_u16(&mut t, tex_info_off as u16);
-        put_u32(&mut t, 0);
-        put_u32(&mut t, tex_block_off as u32);
-        put_u32(&mut t, 0);
-        put_u16(&mut t, 0);
-        put_u16(&mut t, 0);
-        put_u32(&mut t, 0);
-        put_u32(&mut t, tex0_size as u32);
-        put_u32(&mut t, tex0_size as u32);
-        put_u32(&mut t, 0);
-        put_u16(&mut t, (pal_block.len() >> 3) as u16);
-        put_u16(&mut t, 0);
-        put_u32(&mut t, pal_info_off as u32);
-        put_u32(&mut t, pal_block_off as u32);
-        assert_eq!(t.len(), TEX0_HEADER);
-        t.extend_from_slice(&tex_info);
-        t.extend_from_slice(&pal_info);
-        t.extend_from_slice(&tex_block);
-        t.extend_from_slice(&pal_block);
-
-        let mut out = Vec::new();
-        out.extend_from_slice(b"BTX0");
-        put_u16(&mut out, 0xFEFF);
-        put_u16(&mut out, 2);
-        put_u32(&mut out, (20 + t.len()) as u32);
-        put_u16(&mut out, 16);
-        put_u16(&mut out, 1);
-        put_u32(&mut out, 20);
-        out.extend_from_slice(&t);
-        out
+    /// the second of the first row, which is index 1) and one palette.
+    fn sprite_btx(sizes: &[(u32, u32)]) -> Vec<u8> {
+        let data: Vec<Vec<u8>> = sizes
+            .iter()
+            .map(|&(w, h)| {
+                let mut d = vec![0u8; (w * h / 2) as usize];
+                d[0] = 0x10;
+                d
+            })
+            .collect();
+        let textures: Vec<_> = sizes
+            .iter()
+            .zip(&data)
+            .map(|(&(w, h), d)| (w, h, 3, false, d.as_slice()))
+            .collect();
+        let palette: Vec<u16> = (0..16).map(|c| 0x7FFF - c).collect();
+        btx0(&textures, &[&palette])
     }
 
     const SPRITE_NARC: &str = "files/data/mmodel/mmodel.narc";
@@ -616,7 +528,7 @@ mod tests {
         let narc = Narc {
             members: vec![
                 [b"BMD0".as_slice(), &[0; 8]].concat(),
-                btx0(&[(8, 8), (8, 16), (8, 32), (8, 64)]),
+                sprite_btx(&[(8, 8), (8, 16), (8, 32), (8, 64)]),
             ],
         };
         write(dir.path(), SPRITE_NARC, &narc.write());
@@ -709,9 +621,11 @@ mod tests {
     }
 
     #[test]
-    fn a_table_error_is_remembered_and_returned_every_time() {
+    fn a_table_error_is_remembered_with_its_original_message() {
         let synth = synthetic_project();
         let project = Project::open(synth.dir.path()).unwrap();
+        let original = OverworldTable::load(&project).unwrap_err().to_string();
+        assert!(original.contains("overlays.yaml"), "{original}");
         let mut cache = SpriteCache::new();
         let first = cache
             .object_sprite(&project, 0, Facing::Down)
@@ -726,15 +640,63 @@ mod tests {
             .object_sprite(&project, 0, Facing::Down)
             .unwrap_err()
             .to_string();
-        assert_eq!(first, second);
-        assert!(first.contains("overlays.yaml"), "{first}");
+        // No prefix is added, on the first call or on later ones.
+        assert_eq!(first, original);
+        assert_eq!(second, original);
+    }
+
+    #[test]
+    fn a_nested_table_error_keeps_its_exact_message() {
+        // overlays.yaml exists but has no overlay 5: a metadata error, which used to get a
+        // second "invalid project metadata" prefix.
+        let synth = synthetic_project();
+        overlays_yaml(synth.dir.path(), &[(1, OV1_BASE, OV1_SIZE)]);
+        let project = Project::open(synth.dir.path()).unwrap();
+        let original = OverworldTable::load(&project).unwrap_err().to_string();
+        assert_eq!(original.matches("invalid project metadata").count(), 1);
+        let mut cache = SpriteCache::new();
+        for _ in 0..2 {
+            let e = cache
+                .object_sprite(&project, 0, Facing::Down)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(e, original);
+        }
+    }
+
+    #[test]
+    fn a_narc_error_is_remembered_with_its_original_message() {
+        let (dir, _) = pt_project(&pt_entries(&[(0, 0), (0xFFFF, 0)]));
+        let project = Project::open(dir.path()).unwrap();
+        let original = read_sprite_narc(&project).unwrap_err().to_string();
+        assert!(original.contains("mmodel.narc"), "{original}");
+        let mut cache = SpriteCache::new();
+        let first = cache
+            .object_sprite(&project, 0, Facing::Down)
+            .unwrap_err()
+            .to_string();
+        // The NARC appears afterwards; the cache does not look again.
+        write(
+            dir.path(),
+            SPRITE_NARC,
+            &Narc {
+                members: vec![sprite_btx(&[(8, 8)])],
+            }
+            .write(),
+        );
+        let second = cache
+            .object_sprite(&project, 0, Facing::Down)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(first, original);
+        assert_eq!(second, original);
     }
 
     #[test]
     fn a_broken_sprite_is_none_and_cached() {
         let (dir, _) = pt_project(&pt_entries(&[(0, 0), (0xFFFF, 0)]));
         // A BTX0 header cut off in the middle.
-        let mut btx = btx0(&[(8, 8)]);
+        let mut btx = sprite_btx(&[(8, 8)]);
         btx.truncate(30);
         let narc = Narc { members: vec![btx] };
         write(dir.path(), SPRITE_NARC, &narc.write());
@@ -746,17 +708,5 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-    }
-
-    #[test]
-    fn a_missing_sprite_narc_is_an_error() {
-        let (dir, _) = pt_project(&pt_entries(&[(0, 0), (0xFFFF, 0)]));
-        let project = Project::open(dir.path()).unwrap();
-        let mut cache = SpriteCache::new();
-        let err = cache
-            .object_sprite(&project, 0, Facing::Down)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("mmodel.narc"), "{err}");
     }
 }
