@@ -107,8 +107,9 @@ def _run(args: argparse.Namespace) -> int:
     game = load_games().get(code)
 
     out.mkdir(parents=True, exist_ok=True)
+    save = args.save.resolve() if args.save is not None else None
     status = EXIT_OK
-    error_message = None  # printed after fd 2 is back; inside it would land in core.log
+    messages: list[str] = []  # printed after fd 2 is back; inside it would land in core.log
     try:
         with _core_output_to(out / "core.log") as emit:
             with emu.open_emu(core, args.rom, args.save, out / "work") as instance:
@@ -117,24 +118,38 @@ def _run(args: argparse.Namespace) -> int:
                         instance.load_state(args.state)
                     for step in steps:
                         try:
-                            emit(run_step(instance, game, step, out))
+                            emit(run_step(instance, game, step, out, protected=save))
                         except StepFailed as e:
                             emit({"step": step.name, "args": step.args, "ok": False, "error": str(e)})
                             status = EXIT_STEP_FAILED
                             break
-                        except ValueError as e:
+                        except (ValueError, emu.EmuError, OSError) as e:
                             emit({"step": step.name, "args": step.args, "ok": False, "error": str(e)})
-                            error_message = str(e)
+                            messages.append(str(e))
                             status = EXIT_ERROR
                             break
                 finally:
-                    instance.save_state(out / "last.state")
-                    instance.screenshot(out / "last.png")
+                    messages.extend(_write_last(instance, out, save))
     except (emu.EmuError, OSError) as e:
         return _fail(str(e))
-    if error_message:
-        print(error_message, file=sys.stderr)
+    for message in messages:
+        print(message, file=sys.stderr)
     return status
+
+
+def _write_last(instance: emu.Emu, out: Path, save: Path | None) -> list[str]:
+    """Best effort: write last.state / last.png; problems become messages and never change the exit code."""
+    messages: list[str] = []
+    for name, write in (("last.state", instance.save_state), ("last.png", instance.screenshot)):
+        target = out / name
+        if paths.same_file(target, save):
+            messages.append(f"{name} nicht geschrieben: {target} ist der Eingabe-Spielstand")
+            continue
+        try:
+            write(target)
+        except (emu.EmuError, OSError) as e:
+            messages.append(f"{name} nicht geschrieben: {e}")
+    return messages
 
 
 def main(argv: list[str] | None = None) -> int:

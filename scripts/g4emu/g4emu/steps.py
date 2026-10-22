@@ -8,6 +8,7 @@ from typing import Callable
 
 from g4emu.emu import BUTTONS, Emu
 from g4emu.games import Game, read_location
+from g4emu.paths import same_file
 
 DEFAULT_HOLD = 6
 RELEASE_FRAMES = 4  # idle frames after a press/tap so consecutive presses stay separate
@@ -77,19 +78,26 @@ def _int(text: str, what: str) -> int:
     return value
 
 
-def _file(out: Path, name: str, suffix: str) -> Path:
+def _file(out: Path, name: str, suffix: str, protected: Path | None) -> Path:
     if not name or "/" in name or "\\" in name or name.startswith("."):
         raise ValueError(f"Ungültiger Dateiname: {name!r}")
-    return out / f"{name}{suffix}"
+    path = out / f"{name}{suffix}"
+    if same_file(path, protected):
+        raise ValueError(f"{path} ist der Eingabe-Spielstand und wird nie überschrieben")
+    return path
 
 
-def _wait(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
+def _wait(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
     n = _int(step.args[0], "wait")
     emu.step(n)
     return {"frames": n}
 
 
-def _press(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
+def _press(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
     button, _, count = step.args[0].partition(":")
     if button not in BUTTONS:
         raise ValueError(f"press: unbekannte Taste '{button}' (erlaubt: {' '.join(BUTTONS)})")
@@ -99,7 +107,9 @@ def _press(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
     return {"button": button, "frames": hold}
 
 
-def _tap(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
+def _tap(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
     x, y = _int(step.args[0], "tap"), _int(step.args[1], "tap")
     point = touch_point(x, y)
     emu.step(TAP_HOLD, touch=point)
@@ -107,7 +117,9 @@ def _tap(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
     return {"x": x, "y": y}
 
 
-def _where(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
+def _where(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
     if game is None:
         raise StepFailed("Spiel nicht in games.yaml")
     loc = read_location(emu.ram(), game)
@@ -116,31 +128,39 @@ def _where(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
     return {"header": loc.header, "warp": loc.warp, "x": loc.x, "y": loc.y}
 
 
-def _shot(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
-    path = _file(out, step.args[0], ".png")
+def _shot(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    path = _file(out, step.args[0], ".png", protected)
     emu.screenshot(path)
     return {"file": str(path)}
 
 
-def _state(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
-    path = _file(out, step.args[0], ".state")
+def _state(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    path = _file(out, step.args[0], ".state", protected)
     emu.save_state(path)
     return {"file": str(path)}
 
 
-def _write_save(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
-    path = _file(out, step.args[0], ".sav")
+def _write_save(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    path = _file(out, step.args[0], ".sav", protected)
     emu.write_save(path)
     return {"file": str(path)}
 
 
-def _dump_ram(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
-    path = _file(out, step.args[0], ".bin")
+def _dump_ram(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    path = _file(out, step.args[0], ".bin", protected)
     path.write_bytes(bytes(emu.ram()))
     return {"file": str(path)}
 
 
-Handler = Callable[[Emu, "Game | None", Step, Path], dict]
+Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
     "wait": _wait,
     "press": _press,
@@ -153,10 +173,12 @@ HANDLERS: dict[str, Handler] = {
 }
 
 
-def run_step(emu: Emu, game: Game | None, step: Step, out: Path) -> dict:
-    """Run one step and return its JSON line. Raises StepFailed (goal missed) or ValueError (bad input)."""
+def run_step(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Run one step and return its JSON line. `protected` is a file no step may overwrite (the input save). Raises StepFailed (goal missed) or ValueError (bad input)."""
     handler = HANDLERS.get(step.name)
     if handler is None:
         raise ValueError(f"Schritt {step.name} ist noch nicht implementiert")
-    data = handler(emu, game, step, out)
+    data = handler(emu, game, step, out, protected)
     return {"step": step.name, "ok": True, **data, "frame": emu.frame}

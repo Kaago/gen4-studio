@@ -40,3 +40,16 @@ def check_out_dir(out: Path, roms_dir: Path) -> Path:
                 f"Ausgabeordner {resolved} liegt unter {roms}; erlaubt ist nur {allowed}"
             )
     return resolved
+
+
+def same_file(path: Path, other: Path | None) -> bool:
+    """True when `path` is the file `other` (through symlinks or hard links). `other=None` never matches."""
+    if other is None:
+        return False
+    path, other = Path(path), Path(other)
+    try:
+        if path.exists() and other.exists():
+            return os.path.samefile(path, other)
+    except OSError:
+        pass
+    return path.resolve() == other.resolve()

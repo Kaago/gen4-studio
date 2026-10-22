@@ -106,8 +106,9 @@ class _LibretroEmu:
 
     def screenshot(self, path: Path) -> None:
         shot = self._video.screenshot()
-        if shot is None:
-            raise EmuError("Noch kein Bild vorhanden; zuerst Bilder laufen lassen")
+        if shot is None:  # nothing rendered yet (frame 0): a black frame keeps last.png reliable
+            Image.new("RGB", (SCREEN_WIDTH, SCREEN_HEIGHT)).save(path, format="PNG")
+            return
         if shot.pixel_format.name != "XRGB8888":
             raise EmuError(f"Unbekanntes Pixelformat {shot.pixel_format.name}")
         bgrx_to_image(shot.data, shot.width, shot.height).save(path, format="PNG")

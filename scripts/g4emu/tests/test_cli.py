@@ -136,3 +136,136 @@ def test_core_output_goes_to_core_log(capfd, monkeypatch, tmp_path, make_rom, fa
     log = (out / "core.log").read_text()
     assert "[melonDS] noise" in log and "stderr noise" in log
     assert len(lines) == 1
+
+
+def _use(monkeypatch, fake_emu):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def opener(core, rom, save, workdir):
+        yield fake_emu
+
+    monkeypatch.setattr(emu, "open_emu", opener)
+
+
+def _core(tmp_path):
+    core = tmp_path / "core.dylib"
+    core.write_bytes(b"x")
+    return core
+
+
+def test_failed_step_at_frame_zero_exits_2_and_leaves_last_files(
+    capfd, monkeypatch, tmp_path, make_rom
+):
+    from conftest import FakeEmu
+
+    _use(monkeypatch, FakeEmu(screenshot_fails_at_frame0=True))
+    out = tmp_path / "out"
+    code = main(["run", "--rom", str(make_rom("XXXX")), "--out", str(out),
+                 "--core", str(_core(tmp_path)), "where"])
+    captured = capfd.readouterr()
+    lines = [json.loads(line) for line in captured.out.splitlines()]
+    assert code == 2
+    assert lines == [{"step": "where", "args": [], "ok": False, "error": "Spiel nicht in games.yaml"}]
+    assert (out / "last.state").exists()
+    # The screenshot failure is reported, but it neither changes the exit code nor hides the step error.
+    assert "last.png nicht geschrieben" in captured.err
+
+
+def test_where_first_with_a_known_game_still_leaves_last_files(
+    capfd, monkeypatch, tmp_path, make_rom, fake_open_emu
+):
+    monkeypatch.setattr(emu, "open_emu", fake_open_emu)
+    code, _, out, _ = run_cli(capfd, tmp_path, make_rom, "where")
+    assert code == 0  # CPUD is known; no pointer yet reads as nulls
+    assert (out / "last.png").exists() and (out / "last.state").exists()
+
+
+def test_emu_error_inside_a_step_emits_a_json_line(capfd, monkeypatch, tmp_path, make_rom):
+    from conftest import FakeEmu
+
+    _use(monkeypatch, FakeEmu(screenshot_fails_at_frame0=True))
+    out = tmp_path / "out"
+    code = main(["run", "--rom", str(make_rom()), "--out", str(out),
+                 "--core", str(_core(tmp_path)), "shot", "a"])
+    captured = capfd.readouterr()
+    lines = [json.loads(line) for line in captured.out.splitlines()]
+    assert code == 1
+    assert lines[0]["step"] == "shot" and lines[0]["ok"] is False
+    assert "Noch kein Bild" in lines[0]["error"]
+    assert "Noch kein Bild" in captured.err
+    assert (out / "last.state").exists()
+
+
+def test_bad_press_at_frame_zero_still_leaves_last_files(
+    capfd, monkeypatch, tmp_path, make_rom, fake_open_emu
+):
+    monkeypatch.setattr(emu, "open_emu", fake_open_emu)
+    code, lines, out, captured = run_cli(capfd, tmp_path, make_rom, "press", "z")
+    assert code == 1
+    assert lines[0]["ok"] is False and "z" in lines[0]["error"]
+    assert "z" in captured.err
+    assert (out / "last.state").exists() and (out / "last.png").exists()
+
+
+def _save_inside_out(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    save = out / "in.sav"
+    save.write_bytes(b"battery")
+    os.utime(save, (1_000_000, 1_000_000))
+    return out, save
+
+
+def test_save_inside_out_is_never_overwritten(capfd, monkeypatch, tmp_path, make_rom, fake_open_emu):
+    monkeypatch.setattr(emu, "open_emu", fake_open_emu)
+    out, save = _save_inside_out(tmp_path)
+    before = save.stat()
+    code = main(["run", "--rom", str(make_rom()), "--out", str(out), "--core", str(_core(tmp_path)),
+                 "--save", str(save), "write-save", "in"])
+    captured = capfd.readouterr()
+    lines = [json.loads(line) for line in captured.out.splitlines()]
+    assert code == 1
+    assert lines[0]["ok"] is False and "Eingabe-Spielstand" in lines[0]["error"]
+    assert save.read_bytes() == b"battery"
+    assert save.stat().st_mtime_ns == before.st_mtime_ns
+
+
+def test_save_reached_through_a_symlink_is_never_overwritten(
+    capfd, monkeypatch, tmp_path, make_rom, fake_open_emu
+):
+    monkeypatch.setattr(emu, "open_emu", fake_open_emu)
+    out = tmp_path / "out"
+    out.mkdir()
+    save = tmp_path / "in.sav"
+    save.write_bytes(b"battery")
+    os.utime(save, (1_000_000, 1_000_000))
+    (out / "alias.sav").symlink_to(save)
+    (out / "alias.state").symlink_to(save)
+    before = save.stat()
+    code = main(["run", "--rom", str(make_rom()), "--out", str(out), "--core", str(_core(tmp_path)),
+                 "--save", str(save), "write-save", "alias"])
+    lines = [json.loads(line) for line in capfd.readouterr().out.splitlines()]
+    assert code == 1 and lines[0]["ok"] is False
+    code = main(["run", "--rom", str(make_rom()), "--out", str(out), "--core", str(_core(tmp_path)),
+                 "--save", str(save), "state", "alias"])
+    assert code == 1
+    assert save.read_bytes() == b"battery"
+    assert save.stat().st_mtime_ns == before.st_mtime_ns
+
+
+def test_last_files_skip_an_input_save_in_their_place(
+    capfd, monkeypatch, tmp_path, make_rom, fake_open_emu
+):
+    monkeypatch.setattr(emu, "open_emu", fake_open_emu)
+    out = tmp_path / "out"
+    out.mkdir()
+    save = out / "last.state"  # absurd, but the guard must hold for last.* too
+    save.write_bytes(b"battery")
+    code = main(["run", "--rom", str(make_rom()), "--out", str(out), "--core", str(_core(tmp_path)),
+                 "--save", str(save), "wait", "1"])
+    captured = capfd.readouterr()
+    assert code == 0
+    assert save.read_bytes() == b"battery"
+    assert "last.state nicht geschrieben" in captured.err
+    assert (out / "last.png").exists()

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from g4emu.emu import EmuError
 from g4emu.games import Game, Location
 
 RAM_BASE = 0x02000000
@@ -18,7 +19,9 @@ LOCATION_BLOCK = 0x02200000
 class FakeEmu:
     """RAM is a plain bytearray; counts frames and remembers what was pressed."""
 
-    def __init__(self) -> None:
+    def __init__(self, screenshot_fails_at_frame0: bool = False) -> None:
+        # Mimics a core that has rendered nothing yet and refuses to take a screenshot.
+        self.screenshot_fails_at_frame0 = screenshot_fails_at_frame0
         self.frame = 0
         self._ram = bytearray(RAM_SIZE)
         # One entry per emulated frame: (pressed buttons, touch point).
@@ -39,6 +42,8 @@ class FakeEmu:
         return memoryview(self._ram)
 
     def screenshot(self, path: Path) -> None:
+        if self.screenshot_fails_at_frame0 and self.frame == 0:
+            raise EmuError("Noch kein Bild vorhanden")
         Path(path).write_bytes(b"fake-png")
 
     def save_state(self, path: Path) -> None:
