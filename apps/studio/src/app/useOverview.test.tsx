@@ -75,6 +75,30 @@ describe("useOverview", () => {
     expect(latest?.matrices).toEqual([]);
   });
 
+  it("keeps the lists and the overview object when a read finds the same content, and replaces them when it finds another", async () => {
+    const matrix = { index: 0, name: "m", width: 2, height: 1, has_headers: true, has_altitudes: false, filled: 2 };
+    const link = { event_file: 8, index: 0, x: 1, z: 1, dest_header_id: 1, dest_warp_id: 0 };
+    vi.mocked(listMatrices).mockResolvedValue({ matrices: [matrix], unreadable: [] });
+    vi.mocked(listWarps).mockResolvedValue({ links: [link], unreadable: [] });
+    await render();
+    const first = latest;
+    expect(first?.links).toEqual([link]);
+    // The same lists again, as fresh objects (an eventsRefetch after every wizard run reads the warps once more).
+    vi.mocked(listMatrices).mockResolvedValue({ matrices: [{ ...matrix }], unreadable: [] });
+    vi.mocked(listWarps).mockResolvedValue({ links: [{ ...link }], unreadable: [] });
+    await act(async () => bus.emit({ topic: "matrixData" }));
+    await act(async () => bus.emit({ topic: "eventsRefetch", file: 8 }));
+    expect(listWarps).toHaveBeenCalledTimes(2);
+    expect(latest).toBe(first);
+    expect(latest?.links).toBe(first?.links);
+    expect(latest?.matrices).toBe(first?.matrices);
+    // A changed warp replaces only its list.
+    vi.mocked(listWarps).mockResolvedValue({ links: [{ ...link, x: 9 }], unreadable: [] });
+    await act(async () => bus.emit({ topic: "eventsRefetch", file: 8 }));
+    expect(latest?.links).toEqual([{ ...link, x: 9 }]);
+    expect(latest?.matrices).toBe(first?.matrices);
+  });
+
   it("does not read without a project", async () => {
     await render(null);
     expect(listMatrices).not.toHaveBeenCalled();

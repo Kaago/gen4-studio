@@ -4,6 +4,7 @@ import type { MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { useBusEvent } from "../bus/useBusEvent";
 import { TERMS, id4 } from "../workbench/terms";
+import { shallowEqual } from "./useStable";
 
 export interface Overview {
   matrices: MatrixSummary[];
@@ -26,6 +27,11 @@ function unreadableError(kind: Kind, unreadable: [number, string][]): Error {
   const shown = unreadable.slice(0, REPORTED_MEMBERS).map(([id, reason]) => `${id4(id)}: ${reason}`);
   const more = unreadable.length > REPORTED_MEMBERS ? `; und ${unreadable.length - REPORTED_MEMBERS} weitere` : "";
   return new Error(`${label}: ${unreadable.length} nicht lesbar (${shown.join("; ")}${more})`);
+}
+
+/** `previous` while `next` lists equal entries (compared field by field), else `next`: a read that found nothing new keeps the identity of the list. */
+function keepIfEqual<T extends object>(previous: T[], next: T[]): T[] {
+  return previous.length === next.length && previous.every((entry, i) => shallowEqual(entry, next[i] as T)) ? previous : next;
 }
 
 interface Slot {
@@ -66,14 +72,14 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
       if (kind === "matrices") {
         const listing = await listMatrices();
         if (gen !== generation.current || !mounted.current) return;
-        setMatrices(listing.matrices);
+        setMatrices((previous) => keepIfEqual(previous, listing.matrices));
         setLoaded(true);
         setFailed(false);
         unreadable = listing.unreadable;
       } else {
         const listing = await listWarps();
         if (gen !== generation.current || !mounted.current) return;
-        setLinks(listing.links);
+        setLinks((previous) => keepIfEqual(previous, listing.links));
         unreadable = listing.unreadable;
       }
       if (unreadable.length > 0 && !reported.current.has(kind)) {
