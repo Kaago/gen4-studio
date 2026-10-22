@@ -18,7 +18,7 @@ import { HeaderChoice } from "./HeaderChoice";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { MAP_LAST_TILE, emptyRoomForm, isLateFailure, matrixTiles, roomResult, roomSpec, roomSummary, templateWarp } from "./wizardSpecs";
+import { MAP_LAST_TILE, emptyRoomForm, isLateFailure, matrixTiles, overviewNote, roomResult, roomSpec, roomSummary, templateWarp } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 
 interface Props {
@@ -68,9 +68,6 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
     eventFile: typeof form.eventFile === "object" ? { Copy: template.event_file_id } : form.eventFile,
   };
 }
-
-/** What stands where the rooms (or outside headers) will be listed once the overview is read; null: it is read. */
-const overviewNote = (loaded: boolean, failed: boolean): string | null => (loaded ? null : failed ? "Übersicht nicht verfügbar" : "Lade Übersicht …");
 
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 

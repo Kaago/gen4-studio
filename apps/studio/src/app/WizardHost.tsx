@@ -47,6 +47,8 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
         <NewAreaWizard
           headers={headers}
           matrices={matrices}
+          matricesLoaded={matricesLoaded}
+          matricesFailed={matricesFailed}
           links={links}
           counts={counts}
           prefill={areaPrefill(request.prefill, selected)}

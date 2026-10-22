@@ -49,8 +49,8 @@ describe("NewAreaWizard", () => {
     container.remove();
   });
 
-  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices) => (
-    <NewAreaWizard headers={headers} matrices={listed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />
+  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }) => (
+    <NewAreaWizard headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />
   );
   async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }) {
     await act(async () => root.render(wizard(prefill)));
@@ -133,7 +133,7 @@ describe("NewAreaWizard", () => {
 
     async function open(prefill: { matrix?: number; header?: number }) {
       await act(async () =>
-        root.render(<NewAreaWizard headers={placed} matrices={matrices} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />),
+        root.render(<NewAreaWizard headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />),
       );
       await flush();
     }
@@ -219,8 +219,21 @@ describe("NewAreaWizard", () => {
     expect(vi.mocked(createArea).mock.calls[0][0].header?.event_file).toBe("New");
   });
 
+  it("says_the_overview_is_loading_or_unavailable_instead_of_no_raster", async () => {
+    await act(async () => root.render(wizard(undefined, [], { loaded: false, failed: false })));
+    await flush();
+    expect(container.textContent).toContain("Lade Übersicht …");
+    expect(container.textContent).not.toContain("Kein Raster vorhanden.");
+    await act(async () => root.render(wizard(undefined, [], { loaded: false, failed: true })));
+    expect(container.textContent).toContain("Übersicht nicht verfügbar");
+    expect(container.textContent).not.toContain("Kein Raster vorhanden.");
+    // Loaded and really empty: then there is no raster.
+    await act(async () => root.render(wizard(undefined, [], { loaded: true, failed: false })));
+    expect(container.textContent).toContain("Kein Raster vorhanden.");
+  });
+
   it("falls_back_to_the_first_matrix_once_the_overview_arrives_when_nothing_is_prefilled", async () => {
-    await act(async () => root.render(wizard(undefined, [])));
+    await act(async () => root.render(wizard(undefined, [], { loaded: false, failed: false })));
     await flush();
     expect(getMatrix).not.toHaveBeenCalled();
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(0);

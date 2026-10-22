@@ -178,6 +178,9 @@ export function parseMapList(text: string, mapMax: number): { maps: number[]; in
   return { maps, invalid };
 }
 
+/** What a wizard shows in place of lists that need the overview: null once it is loaded. */
+export const overviewNote = (loaded: boolean, failed: boolean): string | null => (loaded ? null : failed ? "Übersicht nicht verfügbar" : "Lade Übersicht …");
+
 /**
  * Whether a wizard's error says that members stayed behind (the backend's code "partial"; the
  * wizard cannot repair them, the result step says so).

@@ -14,12 +14,15 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, overviewNote, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
 interface Props {
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
+  /** Whether the overview (`matrices`) has been read, or its read failed: until then no source can be offered. */
+  matricesLoaded: boolean;
+  matricesFailed: boolean;
   links: WarpLink[];
   counts: MemberCounts;
   /** The source matrix, and the header whose cells in it are selected when the wizard opens. */
@@ -49,7 +52,7 @@ function previewMatrix(form: AreaForm): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClose, onCreated, onError }: Props) {
+export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onError }: Props) {
   const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -175,7 +178,7 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
               onCellClick={onCell}
             />
           ) : (
-            <div style={note}>{sourceMatrix === null ? `Kein ${TERMS.matrix.label} vorhanden.` : "Lade …"}</div>
+            <div style={note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? `Kein ${TERMS.matrix.label} vorhanden.`) : "Lade …"}</div>
           )}
           <label style={row}>
             {TERMS.map.plural} per Nummer:
