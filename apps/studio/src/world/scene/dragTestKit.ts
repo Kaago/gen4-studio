@@ -3,7 +3,6 @@ import { vi } from "vitest";
 import type { DragSurface, PointerLike } from "../dragController";
 import type { Picker } from "./picking";
 import type { SceneCallbacks, SceneRefs } from "./types";
-import type { SceneHost } from "./SceneHost";
 
 type Listener = (e: Event) => void;
 
@@ -117,5 +116,3 @@ export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
 
 /** Lets promise callbacks run. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-export type FakeHost = SceneHost;
