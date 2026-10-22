@@ -1,0 +1,40 @@
+# Source: DSPRE RomInfo.SetOWtable (overlay 5 offsets; HGSS: RAM address of the pointer in overlay 1). Verified: CPUD 440 entries, IPKD 901 entries.
+# overlay5_offset: file offset of the table in arm9_overlays/ov005.bin (Diamond/Pearl, Platinum).
+overlay5_offset:
+  ADAE: 0x22BCC
+  APAE: 0x22BCC
+  ADAJ: 0x23BB8
+  APAJ: 0x23BB8
+  ADAD: 0x22B84
+  APAD: 0x22B84
+  ADAS: 0x22B84
+  APAS: 0x22B84
+  ADAF: 0x22B84
+  APAF: 0x22B84
+  ADAI: 0x22B84
+  APAI: 0x22B84
+  CPUE: 0x2BC34
+  CPUI: 0x2BC44
+  CPUF: 0x2BC3C
+  CPUS: 0x2BC3C
+  CPUD: 0x2BC50
+  CPUJ: 0x2BA24
+# overlay1_pointer: RAM address of the u32 pointer to the table (HeartGold/SoulSilver).
+overlay1_pointer:
+  IPKE: 0x021F92FC
+  IPGE: 0x021F92FC
+  IPKI: 0x021F929C
+  IPGI: 0x021F929C
+  IPKF: 0x021F931C
+  IPGF: 0x021F931C
+  IPKS: 0x021F931C
+  IPGS: 0x021F933C
+  IPKD: 0x021F92DC
+  IPGD: 0x021F92DC
+  IPKJ: 0x021F86C4
+  IPGJ: 0x021F86C4
+# Packed sprite NARC per family (member = sprite number of the table).
+sprites:
+  dp: files/data/mmodel/mmodel.narc
+  pt: files/data/mmodel/mmodel.narc
+  hgss: files/a/0/8/1

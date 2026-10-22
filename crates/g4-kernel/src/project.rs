@@ -275,6 +275,34 @@ struct HeaderYaml {
     gamecode: String,
 }
 
+/// One ARM9 overlay of a ds-rom project (`arm9_overlays/overlays.yaml`): where the game
+/// loads it and the file holding its (decompressed) bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overlay {
+    /// RAM address the overlay is loaded at.
+    pub base_address: u32,
+    /// Size of the code and data in bytes (the file's length without the bss).
+    pub code_size: u32,
+    /// `arm9_overlays/ovNNN.bin`, absolute (below the project root).
+    pub path: PathBuf,
+}
+
+/// `overlays.yaml`: only the keys this crate reads; ds-rom writes more.
+#[derive(Debug, Deserialize)]
+struct OverlaysYaml {
+    #[serde(default)]
+    overlays: Vec<OverlayYaml>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OverlayYaml {
+    id: u16,
+    base_address: u32,
+    code_size: u32,
+    #[serde(default)]
+    file_name: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct Project {
     pub root: PathBuf,
@@ -419,6 +447,29 @@ impl Project {
             )));
         }
         Ok((offset, count))
+    }
+
+    /// Overlay `id` from `arm9_overlays/overlays.yaml`. ds-rom keeps overlays decompressed on
+    /// disk (the file's `compressed` flag describes the ROM), so `path` can be read directly.
+    pub fn overlay(&self, id: u16) -> Result<Overlay, KernelError> {
+        let dir = self.root.join("arm9_overlays");
+        let yaml_path = dir.join("overlays.yaml");
+        let text = std::fs::read_to_string(&yaml_path).map_err(io_at(&yaml_path))?;
+        let parsed: OverlaysYaml = serde_yaml::from_str(&text)
+            .map_err(|e| KernelError::InvalidProject(format!("{}: {e}", yaml_path.display())))?;
+        let entry = parsed
+            .overlays
+            .into_iter()
+            .find(|o| o.id == id)
+            .ok_or_else(|| {
+                KernelError::InvalidProject(format!("{}: no overlay {id}", yaml_path.display()))
+            })?;
+        let file_name = entry.file_name.unwrap_or_else(|| format!("ov{id:03}.bin"));
+        Ok(Overlay {
+            base_address: entry.base_address,
+            code_size: entry.code_size,
+            path: dir.join(file_name),
+        })
     }
 
     /// Whether the archive of `kind` exists in this project's game family.
