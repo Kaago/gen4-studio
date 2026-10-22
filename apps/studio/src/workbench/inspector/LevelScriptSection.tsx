@@ -4,7 +4,7 @@ import { readScript, saveLevelScript } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { TERMS, id4 } from "../terms";
-import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, clampNumber, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, varConditions } from "./levelScript";
+import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, clampNumber, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
 import type { HeaderEntryType, VarCondition } from "./levelScript";
 import { ADOPT_HINT, openScriptNumber } from "./scriptNav";
 
@@ -21,8 +21,10 @@ interface Props {
   onOpenScript: (file: number, line?: number) => void;
   /** Creates a level script file and writes its number into the header (the editor's edit path). */
   onCreate: () => Promise<void>;
-  /** A form change was saved (compiled): the problems and the open document follow. */
-  onSaved: (file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => void;
+  /** A form change was saved (compiled): the problems and the open document follow. `project` is the one the form saved in. */
+  onSaved: (project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => void;
+  /** Whether `project` is still the open one (a save that waits for its turn is dropped when it is not). */
+  isCurrentProject: (project: ProjectInfo | null) => boolean;
   onError: (e: unknown) => void;
 }
 
@@ -42,38 +44,49 @@ const rowStyle: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems:
  * saved (and compiled) at once, in order and one at a time; the problems of a compile that fails go to the problems
  * store through `onSaved`.
  */
-export function LevelScriptSection({ header, levelScriptId, project, adopted, revision, onOpenScript, onCreate, onSaved, onError }: Props) {
+export function LevelScriptSection({ header, levelScriptId, project, adopted, revision, onOpenScript, onCreate, onSaved, isCurrentProject, onError }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const callbacks = useRef({ onSaved, onError });
-  callbacks.current = { onSaved, onError };
+  const callbacks = useRef({ onSaved, isCurrentProject, onError });
+  callbacks.current = { onSaved, isCurrentProject, onError };
   // The document the form shows, kept synchronously so two changes in one tick build on each other; `edits` counts
   // them, so a read that was started before a change cannot bring the older text back.
   const docRef = useRef<LevelScriptDoc | null>(null);
   const edits = useRef(0);
+  // True while the form holds a document rotom would reject: it is not saved, and a re-read must not drop it.
+  const held = useRef(false);
+  // Bumped when a save failed: the form reads the file again, so it does not show entries that were never written.
+  const [failures, setFailures] = useState(0);
   const file = levelScriptId;
 
   useEffect(() => {
-    // A save in flight has newer text than the file: the form keeps its own.
-    if (file === 0 || !adopted || saves.busy(file)) return;
+    if (file === 0 || !adopted || held.current) return;
     let current = true;
-    const seen = edits.current;
-    readScript(file).then(
-      (source) => {
-        if (!current || edits.current !== seen) return;
-        const doc = source.kind === "levelScript" ? source.doc : null;
-        docRef.current = doc;
-        setLoaded({ project, file, doc });
-      },
-      (e: unknown) => current && callbacks.current.onError(e),
-    );
+    const read = () => {
+      if (!current) return;
+      const seen = edits.current;
+      readScript(file).then(
+        (source) => {
+          if (!current || edits.current !== seen) return;
+          const doc = source.kind === "levelScript" ? source.doc : null;
+          docRef.current = doc;
+          setLoaded({ project, file, doc });
+        },
+        (e: unknown) => current && callbacks.current.onError(e),
+      );
+    };
+    // A save of the file in flight has newer text than the disk: read when it (and the ones behind it) are done.
+    const stopWaiting = saves.busy(file) ? saves.whenIdle(file, read) : (read(), () => {});
     return () => {
       current = false;
+      stopWaiting();
     };
-  }, [project, file, adopted, revision]);
+  }, [project, file, adopted, revision, failures]);
 
   const [type, setType] = useState<HeaderEntryType>("on_load");
   const [script, setScript] = useState("");
   const [cond, setCond] = useState({ var: "", value: "", script: "" });
+  // Why the last add was refused.
+  const [addHint, setAddHint] = useState<string | null>(null);
 
   const container = (children: ReactNode) => (
     <section aria-label={TERMS.levelScript.label} style={{ marginTop: 12 }}>
@@ -114,12 +127,25 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
     edits.current += 1;
     docRef.current = next;
     setLoaded({ project, file, doc: next });
-    saves.push(file, { doc: next, done: (dto) => callbacks.current.onSaved(file, next, dto), fail: (e) => callbacks.current.onError(e) });
+    setAddHint(null);
+    // A document rotom would reject is shown with its hints and not sent; the next valid one carries every change.
+    held.current = validationHints(next).length > 0;
+    if (held.current) return;
+    saves.push(file, {
+      doc: next,
+      current: () => callbacks.current.isCurrentProject(project),
+      done: (dto) => callbacks.current.onSaved(project, file, next, dto),
+      fail: (e) => {
+        callbacks.current.onError(e);
+        setFailures((n) => n + 1);
+      },
+    });
   };
   const open = (n: number) => void openScriptNumber(header.id, n, onOpenScript, onError);
   const number = (text: string, max: number) => (text.trim() === "" ? null : clampNumber(Number(text), max));
   const entries = headerEntries(doc);
   const conditions = varConditions(doc);
+  const hints = validationHints(doc);
   const numberInput = (label: string, value: number, max: number, onCommit: (n: number) => void) => (
     <DraftInput
       label={label}
@@ -153,6 +179,8 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
     setScript("");
   };
   const addCondition = () => {
+    // var 0 ends the table in the file: such a row is not added.
+    if ((number(cond.var, CONDITION_MAX) ?? 0) === 0) return setAddHint(HINT_ZERO_VAR);
     const v = { var: number(cond.var, CONDITION_MAX) ?? 0, value: number(cond.value, CONDITION_MAX) ?? 0, script_id: number(cond.script, CONDITION_MAX) ?? 0 };
     edit((d) => addVarCondition(d, v));
     setCond({ var: "", value: "", script: "" });
@@ -169,6 +197,14 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
           Als JSON öffnen
         </button>
       </div>
+      {hints.length > 0 && (
+        <div role="status" style={{ color: "#b45309", margin: "4px 0" }}>
+          {hints.map((hint) => (
+            <div key={hint}>{hint}</div>
+          ))}
+          <div style={{ color: "#6b7280" }}>Nicht gespeichert, bis das Level-Script gültig ist.</div>
+        </div>
+      )}
       <table aria-label="Kopfeinträge" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
@@ -250,6 +286,11 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
           Bedingung hinzufügen
         </button>
       </div>
+      {addHint !== null && (
+        <div role="status" style={{ color: "#b45309", margin: "4px 0" }}>
+          {addHint}
+        </div>
+      )}
     </>,
   );
 }

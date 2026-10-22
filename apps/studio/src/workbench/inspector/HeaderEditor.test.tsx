@@ -67,6 +67,7 @@ describe("HeaderEditor scripts", () => {
     scriptsRevision: 0,
     onOpenScript,
     onLevelScriptSaved,
+    isCurrentProject: () => true,
     onCountsChanged,
     onError,
     ...over,
@@ -127,6 +128,18 @@ describe("HeaderEditor scripts", () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(onCountsChanged).toHaveBeenCalledTimes(1);
     expect(onOpenScript).toHaveBeenCalledWith(812);
+  });
+
+  it("neither_opens_the_new_file_nor_refreshes_the_counts_when_the_header_write_was_refused", async () => {
+    vi.mocked(newScriptFile).mockResolvedValue(812);
+    vi.mocked(setHeader).mockRejectedValue({ code: "error", message: "Wert passt nicht", asset: null });
+    await show();
+    await click(button("Neue Scriptdatei anlegen"));
+    await flush();
+    expect(setHeader).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith({ code: "error", message: "Wert passt nicht", asset: null });
+    expect(onOpenScript).not.toHaveBeenCalled();
+    expect(onCountsChanged).not.toHaveBeenCalled();
   });
 
   it("writes_the_number_of_a_new_level_script_into_the_header_without_opening_it", async () => {

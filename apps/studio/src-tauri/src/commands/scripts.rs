@@ -549,6 +549,30 @@ mod tests {
     }
 
     #[test]
+    fn save_level_script_that_rotom_rejects_is_saved_and_reported_as_problems() {
+        let (f, state) = adopted();
+        let mut doc = serde_json::json!({
+            "header_entries": [{ "type": "on_var_condition" }],
+            "var_conditions": [{ "var": 0, "value": 1, "script_id": 5 }],
+        });
+        let invalid: LevelScriptDoc = serde_json::from_value(doc.take()).unwrap();
+        // A save is Ok with problems (like a script that does not compile), not a `compile` CmdError.
+        let report = save_level_script_impl(&state, 1, invalid.clone()).unwrap();
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert_eq!(report.problems[0].file, "expanded/scripts/0001.json");
+        // The source is saved anyway; the member keeps its old bytes.
+        let ScriptSourceDto::LevelScript { doc: read } = read_script_impl(&state, 1).unwrap()
+        else {
+            panic!("file 1 is a level script");
+        };
+        assert_eq!(read, invalid);
+        assert_eq!(
+            std::fs::read(f.dir.path().join("unpacked/scripts/0001")).unwrap(),
+            [0u8; 4]
+        );
+    }
+
+    #[test]
     fn new_script_file_and_add_script() {
         let (f, state) = adopted();
         let script = new_script_file_impl(&state, "script".into()).unwrap();

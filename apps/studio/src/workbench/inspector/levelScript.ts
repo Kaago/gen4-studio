@@ -93,8 +93,29 @@ export function setVarCondition(doc: LevelScriptDoc, index: number, patch: Parti
   );
 }
 
+/** What rotom's `validate` refuses (src/decompiler/levelscript.rs LevelScript::validate), as hints in the form's words. */
+export const HINT_ZERO_VAR = "Variable 0 beendet die Tabelle — bitte eine Variable angeben";
+export const HINT_DUPLICATE_VAR_TRIGGER = `Nur der erste Eintrag „${TRIGGER_LABELS.on_var_condition}“ zählt`;
+export const HINT_CONDITIONS_WITHOUT_TRIGGER = `Variablen-Bedingungen brauchen einen Eintrag „${TRIGGER_LABELS.on_var_condition}“`;
+
+/**
+ * Why rotom would reject `doc` (empty when it would not). A document in such a state is not saved: the form shows the
+ * hints instead, and the next change that makes it valid saves it.
+ */
+export function validationHints(doc: LevelScriptDoc): string[] {
+  const triggers = headerEntries(doc).filter((e) => e.type === "on_var_condition").length;
+  const conditions = varConditions(doc);
+  const hints: string[] = [];
+  if (triggers > 1) hints.push(HINT_DUPLICATE_VAR_TRIGGER);
+  if (conditions.length > 0 && triggers === 0) hints.push(HINT_CONDITIONS_WITHOUT_TRIGGER);
+  if (conditions.some((c) => c.var === 0)) hints.push(HINT_ZERO_VAR);
+  return hints;
+}
+
 interface SaveJob {
   doc: LevelScriptDoc;
+  /** Whether the project the form belongs to is still the open one; asked when the job's turn comes. */
+  current: () => boolean;
   done: (dto: SaveScriptDto) => void;
   fail: (e: unknown) => void;
 }
@@ -103,11 +124,13 @@ interface SaveJob {
  * Saves of level scripts, one at a time per file. A form change saves at once, so a second change can arrive while
  * the first save runs: it waits, and of several waiting ones only the latest is sent (the last edit wins, and an
  * older document can never be written after a newer one). Module-wide, not per form: a form that is replaced (another
- * header opened) must not run its save next to the one still in flight.
+ * header opened) must not run its save next to the one still in flight. A waiting job of a project that is no longer open
+ * is dropped (the backend would write its document into the other project's file of that number).
  */
 export class LevelScriptSaves {
   private readonly pending = new Map<number, SaveJob>();
   private readonly running = new Set<number>();
+  private readonly idle = new Map<number, Set<() => void>>();
 
   constructor(private readonly save: (file: number, doc: LevelScriptDoc) => Promise<SaveScriptDto>) {}
 
@@ -122,11 +145,20 @@ export class LevelScriptSaves {
     return this.running.has(file) || this.pending.has(file);
   }
 
+  /** Calls `callback` once, when no save of the file runs or waits any more. Returns the way to withdraw it. */
+  whenIdle(file: number, callback: () => void): () => void {
+    const callbacks = this.idle.get(file) ?? new Set<() => void>();
+    callbacks.add(callback);
+    this.idle.set(file, callbacks);
+    return () => void callbacks.delete(callback);
+  }
+
   private async drain(file: number): Promise<void> {
     this.running.add(file);
     try {
       for (let job = this.pending.get(file); job; job = this.pending.get(file)) {
         this.pending.delete(file);
+        if (!job.current()) continue;
         let dto: SaveScriptDto;
         try {
           dto = await this.save(file, job.doc);
@@ -138,6 +170,9 @@ export class LevelScriptSaves {
       }
     } finally {
       this.running.delete(file);
+      const callbacks = this.idle.get(file);
+      this.idle.delete(file);
+      callbacks?.forEach((callback) => callback());
     }
   }
 }

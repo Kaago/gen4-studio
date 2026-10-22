@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LevelScriptDoc, SaveScriptDto } from "../../api";
-import { LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, varConditions } from "./levelScript";
+import { HINT_CONDITIONS_WITHOUT_TRIGGER, HINT_DUPLICATE_VAR_TRIGGER, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
 
 const empty: LevelScriptDoc = { header_entries: [], var_conditions: [] };
 
@@ -79,7 +79,7 @@ describe("LevelScriptSaves", () => {
     const promise = new Promise<SaveScriptDto>((res, rej) => ((resolve = res), (reject = rej)));
     return { promise, resolve, reject };
   };
-  const job = (doc: LevelScriptDoc) => ({ doc, done: vi.fn(), fail: vi.fn() });
+  const job = (doc: LevelScriptDoc, current = () => true) => ({ doc, current, done: vi.fn(), fail: vi.fn() });
   const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   it("never_runs_two_saves_of_one_file_at_once_and_sends_only_the_latest_waiting_document", async () => {
@@ -125,5 +125,69 @@ describe("LevelScriptSaves", () => {
     await tick();
     expect(after.fail).toHaveBeenCalledTimes(1);
     stuck.resolve(ok);
+  });
+
+  it("drops_a_waiting_save_of_a_project_that_is_no_longer_open_and_still_sends_the_next_of_the_open_one", async () => {
+    const first = deferred();
+    const save = vi.fn((_file: number, _doc: LevelScriptDoc) => (save.mock.calls.length === 1 ? first.promise : Promise.resolve(ok)));
+    const saves = new LevelScriptSaves(save);
+    let open = true;
+    const running = job({ n: 1 });
+    const waiting = job({ n: 2 }, () => open);
+    saves.push(7, running);
+    saves.push(7, waiting);
+    // Another project is opened while the first save runs.
+    open = false;
+    first.resolve(ok);
+    await tick();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(waiting.done).not.toHaveBeenCalled();
+    expect(waiting.fail).not.toHaveBeenCalled();
+    expect(saves.busy(7)).toBe(false);
+    // The other project's own save of that file number goes through.
+    const next = job({ n: 3 });
+    saves.push(7, next);
+    await tick();
+    expect(save).toHaveBeenLastCalledWith(7, { n: 3 });
+  });
+
+  it("calls_when_idle_callbacks_once_after_the_last_save_and_lets_them_be_withdrawn", async () => {
+    const first = deferred();
+    const saves = new LevelScriptSaves(vi.fn((_f: number, _d: LevelScriptDoc) => first.promise));
+    const called = vi.fn();
+    const withdrawn = vi.fn();
+    saves.push(4, job({ n: 1 }));
+    saves.push(4, job({ n: 2 }));
+    saves.whenIdle(4, called);
+    saves.whenIdle(4, withdrawn)();
+    await tick();
+    expect(called).not.toHaveBeenCalled();
+    first.resolve(ok);
+    await tick();
+    expect(called).toHaveBeenCalledTimes(1);
+    expect(withdrawn).not.toHaveBeenCalled();
+  });
+});
+
+describe("validationHints", () => {
+  const trigger = { type: "on_var_condition" };
+  it("is_empty_for_documents_rotom_accepts", () => {
+    expect(validationHints(empty)).toEqual([]);
+    expect(validationHints({ header_entries: [trigger, { type: "on_load", script_id: 1 }], var_conditions: [{ var: 5, value: 0, script_id: 0 }] })).toEqual([]);
+  });
+
+  it("names_a_condition_with_var_zero", () => {
+    expect(validationHints({ header_entries: [trigger], var_conditions: [{ var: 0, value: 1, script_id: 2 }] })).toEqual([HINT_ZERO_VAR]);
+    expect(HINT_ZERO_VAR).toBe("Variable 0 beendet die Tabelle — bitte eine Variable angeben");
+  });
+
+  it("names_a_second_on_var_condition_entry", () => {
+    expect(validationHints({ header_entries: [trigger, trigger], var_conditions: [] })).toEqual([HINT_DUPLICATE_VAR_TRIGGER]);
+    expect(HINT_DUPLICATE_VAR_TRIGGER).toBe("Nur der erste Eintrag „Variablen-Bedingungen (on_var_condition)“ zählt");
+  });
+
+  it("names_conditions_without_an_on_var_condition_entry", () => {
+    expect(validationHints({ header_entries: [{ type: "on_load", script_id: 1 }], var_conditions: [{ var: 3, value: 1, script_id: 2 }] })).toEqual([HINT_CONDITIONS_WITHOUT_TRIGGER]);
+    expect(HINT_CONDITIONS_WITHOUT_TRIGGER).toBe("Variablen-Bedingungen brauchen einen Eintrag „Variablen-Bedingungen (on_var_condition)“");
   });
 });

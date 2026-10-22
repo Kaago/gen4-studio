@@ -38,10 +38,13 @@ describe("LevelScriptSection", () => {
   const onCreate = vi.fn();
   const onSaved = vi.fn();
   const onError = vi.fn();
+  // The project the app has open: a queued save of another one is dropped.
+  let openProject: ProjectInfo | null = projectA;
+  const isCurrentProject = (p: ProjectInfo | null) => p === openProject;
   type Over = Partial<Parameters<typeof LevelScriptSection>[0]>;
   const show = (over: Over = {}) =>
     act(async () =>
-      root.render(<LevelScriptSection header={header} levelScriptId={1} project={projectA} adopted revision={0} onOpenScript={onOpenScript} onCreate={onCreate} onSaved={onSaved} onError={onError} {...over} />),
+      root.render(<LevelScriptSection header={header} levelScriptId={1} project={projectA} adopted revision={0} onOpenScript={onOpenScript} onCreate={onCreate} onSaved={onSaved} isCurrentProject={isCurrentProject} onError={onError} {...over} />),
     );
   beforeEach(() => {
     container = document.createElement("div");
@@ -51,6 +54,7 @@ describe("LevelScriptSection", () => {
     vi.mocked(saveLevelScript).mockReset().mockResolvedValue(ok);
     vi.mocked(resolveScript).mockReset();
     for (const fn of [onOpenScript, onCreate, onSaved, onError]) fn.mockReset();
+    openProject = projectA;
     onCreate.mockResolvedValue(undefined);
   });
   afterEach(() => {
@@ -111,7 +115,7 @@ describe("LevelScriptSection", () => {
       header_entries: [{ type: "on_load", script_id: 3 }, { type: "on_var_condition" }, { type: "on_resume", script_id: 9 }],
       var_conditions: [{ var: 16384, value: 1, script_id: 4 }],
     });
-    expect(onSaved).toHaveBeenCalledWith(1, expect.objectContaining({ header_entries: expect.any(Array) }), ok);
+    expect(onSaved).toHaveBeenCalledWith(projectA, 1, expect.objectContaining({ header_entries: expect.any(Array) }), ok);
     // The new row is shown at once, before and without a re-read.
     expect(rows("Kopfeinträge")).toHaveLength(3);
     expect(readScript).toHaveBeenCalledTimes(1);
@@ -266,5 +270,139 @@ describe("LevelScriptSection", () => {
     expect(readScript).toHaveBeenCalledTimes(reads);
     running.resolve(ok);
     await flush();
+  });
+
+  it("drops_a_waiting_save_after_another_project_was_opened_and_hands_the_saving_project_to_on_saved", async () => {
+    const first = deferred<SaveScriptDto>();
+    vi.mocked(saveLevelScript).mockReturnValueOnce(first.promise);
+    await show({ project: projectA });
+    await flush();
+    await click(button("Entfernen", rows("Variablen-Bedingungen")[0]));
+    await click(button("Entfernen", rows("Kopfeinträge")[0]));
+    // Project B is opened while the first save runs and the second waits.
+    openProject = projectB;
+    await show({ project: projectB });
+    first.resolve(ok);
+    await flush();
+    expect(saveLevelScript).toHaveBeenCalledTimes(1);
+    // The result of the save belongs to the project it was made in.
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(onSaved.mock.calls[0]![0]).toBe(projectA);
+  });
+
+  it("reads_after_the_running_save_when_it_mounts_while_the_file_is_being_saved", async () => {
+    const running = deferred<SaveScriptDto>();
+    vi.mocked(saveLevelScript).mockReturnValueOnce(running.promise);
+    await show();
+    await flush();
+    await click(button("Eintrag hinzufügen"));
+    // A second form for the same file (the header was selected again) mounts while the save runs.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    vi.mocked(readScript).mockClear();
+    await show();
+    await flush();
+    expect(readScript).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Lade");
+    vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [{ type: "on_load", script_id: 8 }], var_conditions: [] } });
+    running.resolve(ok);
+    await flush();
+    expect(readScript).toHaveBeenCalledTimes(1);
+    expect(field("Script 1").value).toBe("8");
+  });
+
+  it("reads_the_file_again_after_a_failed_save_so_no_unwritten_entries_stay_shown", async () => {
+    await show();
+    await flush();
+    vi.mocked(saveLevelScript).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    await click(button("Eintrag hinzufügen"));
+    await flush();
+    expect(onError).toHaveBeenCalledWith({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    // The disk still has the two entries it had.
+    expect(readScript).toHaveBeenCalledTimes(2);
+    expect(rows("Kopfeinträge")).toHaveLength(2);
+  });
+
+  describe("states rotom rejects", () => {
+    const hint = (text: string) => [...container.querySelectorAll('[role="status"], [role="status"] div')].some((d) => d.textContent === text);
+    const ZERO = "Variable 0 beendet die Tabelle — bitte eine Variable angeben";
+    const DUPLICATE = "Nur der erste Eintrag „Variablen-Bedingungen (on_var_condition)“ zählt";
+    const ORPHAN = "Variablen-Bedingungen brauchen einen Eintrag „Variablen-Bedingungen (on_var_condition)“";
+
+    it("refuses_to_add_a_condition_with_a_blank_or_zero_variable", async () => {
+      await show();
+      await flush();
+      await click(button("Bedingung hinzufügen"));
+      expect(hint(ZERO)).toBe(true);
+      await setValue(field("Neue Variable"), "0");
+      await click(button("Bedingung hinzufügen"));
+      expect(rows("Variablen-Bedingungen")).toHaveLength(1);
+      expect(saveLevelScript).not.toHaveBeenCalled();
+      // A valid variable is added and the hint goes.
+      await setValue(field("Neue Variable"), "7");
+      await click(button("Bedingung hinzufügen"));
+      await flush();
+      expect(hint(ZERO)).toBe(false);
+      expect(rows("Variablen-Bedingungen")).toHaveLength(2);
+      expect(saveLevelScript).toHaveBeenCalledTimes(1);
+    });
+
+    it("does_not_save_an_existing_condition_set_to_variable_0_and_shows_the_hint", async () => {
+      await show();
+      await flush();
+      await typeAndBlur(field("Variable 1"), "0");
+      await flush();
+      expect(hint(ZERO)).toBe(true);
+      expect(saveLevelScript).not.toHaveBeenCalled();
+      // Fixing it saves the document with the fix.
+      await typeAndBlur(field("Variable 1"), "9");
+      await flush();
+      expect(hint(ZERO)).toBe(false);
+      expect(vi.mocked(saveLevelScript).mock.lastCall![1].var_conditions).toEqual([{ var: 9, value: 1, script_id: 4 }]);
+    });
+
+    it("shows_a_hint_for_a_second_on_var_condition_entry_and_sends_nothing", async () => {
+      await show();
+      await flush();
+      await setValue(select("Neuer Auslöser"), "on_var_condition", "change");
+      await click(button("Eintrag hinzufügen"));
+      await flush();
+      expect(hint(DUPLICATE)).toBe(true);
+      expect(saveLevelScript).not.toHaveBeenCalled();
+      await click(button("Entfernen", rows("Kopfeinträge")[2]));
+      await flush();
+      expect(hint(DUPLICATE)).toBe(false);
+      expect(saveLevelScript).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets_a_condition_come_before_its_trigger_and_saves_once_the_pair_is_complete", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await show();
+      await flush();
+      await setValue(field("Neue Variable"), "5");
+      await click(button("Bedingung hinzufügen"));
+      await flush();
+      expect(hint(ORPHAN)).toBe(true);
+      expect(saveLevelScript).not.toHaveBeenCalled();
+      expect(rows("Variablen-Bedingungen")).toHaveLength(1);
+      await setValue(select("Neuer Auslöser"), "on_var_condition", "change");
+      await click(button("Eintrag hinzufügen"));
+      await flush();
+      expect(hint(ORPHAN)).toBe(false);
+      expect(saveLevelScript).toHaveBeenCalledTimes(1);
+      expect(saveLevelScript).toHaveBeenCalledWith(1, { header_entries: [{ type: "on_var_condition" }], var_conditions: [{ var: 5, value: 0, script_id: 0 }] });
+    });
+
+    it("keeps_the_unsaved_document_when_the_revision_changes_while_it_is_held_back", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await show();
+      await flush();
+      await setValue(field("Neue Variable"), "5");
+      await click(button("Bedingung hinzufügen"));
+      await show({ revision: 1 });
+      await flush();
+      expect(rows("Variablen-Bedingungen")).toHaveLength(1);
+      expect(hint(ORPHAN)).toBe(true);
+    });
   });
 });

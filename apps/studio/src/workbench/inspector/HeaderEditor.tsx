@@ -37,8 +37,10 @@ export interface HeaderEditorContext {
   scriptsRevision: number;
   /** Opens a script file in the script panel (a level script as JSON). */
   onOpenScript: (file: number, line?: number) => void;
-  /** The level-script form saved a document: its problems and an open document follow. */
-  onLevelScriptSaved: (file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => void;
+  /** The level-script form saved a document in `project`: its problems and an open document follow. */
+  onLevelScriptSaved: (project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => void;
+  /** Whether `project` is still the open one (the form drops saves that wait while another project is opened). */
+  isCurrentProject: (project: ProjectInfo | null) => boolean;
   /** A script file was added: the member counts (the pickers' limits) follow. */
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
@@ -52,7 +54,7 @@ const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context }: { id: number; context: HeaderEditorContext }) {
-  const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, onCountsChanged, onError } = context;
+  const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -90,7 +92,8 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
     try {
       const n = await newScriptFile(kind);
       const label = kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label;
-      await session.current?.commit(key, label, n);
+      // Only a number that is in the header is worth opening (a refused write was reported; the new file stays unused).
+      if (!(await session.current?.commit(key, label, n))) return;
       await onCountsChanged();
       if (kind === "script") onOpenScript(n);
     } catch (e) {
@@ -155,6 +158,7 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
           onOpenScript={onOpenScript}
           onCreate={() => createFile("level_script_id", "levelScript")}
           onSaved={onLevelScriptSaved}
+          isCurrentProject={isCurrentProject}
           onError={onError}
         />
       )}

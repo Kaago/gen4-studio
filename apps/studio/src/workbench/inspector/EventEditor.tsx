@@ -95,7 +95,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
     const n = await onAddScript(owner.script_file_id);
     if (n === null) return;
     // The number goes through the edit path like a typed one: undoable, and the event is dirty.
-    await session.current?.commit("script", TERMS.script.label, n);
+    if (!(await session.current?.commit("script", TERMS.script.label, n))) return;
     onOpenScript(owner.script_file_id);
   };
 

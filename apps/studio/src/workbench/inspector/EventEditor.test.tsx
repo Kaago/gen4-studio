@@ -106,6 +106,17 @@ describe("EventEditor scripts", () => {
     expect(onOpenScript).toHaveBeenCalledWith(77);
   });
 
+  it("does_not_open_the_script_file_when_the_event_write_was_refused", async () => {
+    onAddScript.mockResolvedValue(12);
+    vi.mocked(updateEvent).mockRejectedValue({ code: "error", message: "gesperrt", asset: null });
+    await show();
+    await click(button("Neues Script"));
+    await flush();
+    expect(updateEvent).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith({ code: "error", message: "gesperrt", asset: null });
+    expect(onOpenScript).not.toHaveBeenCalled();
+  });
+
   it("leaves_the_event_alone_when_adding_the_script_failed", async () => {
     onAddScript.mockResolvedValue(null);
     await show();

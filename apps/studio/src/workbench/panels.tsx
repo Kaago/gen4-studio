@@ -1,5 +1,5 @@
-import { Suspense, lazy, useCallback, useMemo, useSyncExternalStore } from "react";
-import type { LevelScriptDoc, SaveScriptDto } from "../api";
+import { Suspense, lazy, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import type { ProjectInfo } from "../api";
 import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
@@ -210,8 +210,10 @@ export function InspectorPanel() {
   // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
   const goTo = d.goTo;
   const openScript = (file: number, line?: number) => goTo({ kind: "script", file, line });
-  const { scripts, info } = d;
-  const onLevelScriptSaved = (file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => scripts.onLevelScriptSaved(info, file, doc, dto);
+  // Read when a queued form save gets its turn: a project opened since then is not the one the save was made in.
+  const openProject = useRef(d.info);
+  openProject.current = d.info;
+  const isCurrentProject = useCallback((project: ProjectInfo | null) => openProject.current === project, []);
   return (
     <Inspector
       model={inspector}
@@ -228,7 +230,8 @@ export function InspectorPanel() {
         scriptsAdopted: d.scripts.status?.adopted === true,
         scriptsRevision: d.scripts.revision,
         onOpenScript: openScript,
-        onLevelScriptSaved,
+        onLevelScriptSaved: d.scripts.onLevelScriptSaved,
+        isCurrentProject,
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,
       }}
