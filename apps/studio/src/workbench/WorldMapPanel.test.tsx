@@ -150,6 +150,25 @@ describe("WorldMapPanel", () => {
     expect(lineIds()).toEqual(["1"]);
   });
 
+  it("measures_the_lines_again_when_a_place_above_the_selected_one_opens_or_closes", async () => {
+    await show(context({ selected: 3 }));
+    const measured = vi.spyOn(Element.prototype, "getBoundingClientRect");
+    try {
+      const other = container.querySelector<HTMLDetailsElement>('[data-place-key="Zweiblattdorf"]');
+      expect(other?.open).toBe(false);
+      measured.mockClear();
+      // The user opens the other place: the selected place's cards move, nothing else changes.
+      act(() => {
+        if (other) other.open = true;
+        other?.dispatchEvent(new Event("toggle"));
+      });
+      expect(other?.open).toBe(true);
+      expect(measured).toHaveBeenCalled();
+    } finally {
+      measured.mockRestore();
+    }
+  });
+
   it("panning_and_zooming_do_not_render_the_place_list_again", async () => {
     await show(context());
     const renders = vi.mocked(mapsText).mock.calls.length;

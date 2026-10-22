@@ -143,6 +143,8 @@ interface MapViewProps {
   lineLinks: RoomLink[];
   /** The selected place's cards are on show (its details are open). */
   cardsShown: boolean;
+  /** Changes whenever the list may have laid its cards out differently (places opened or closed, selection, new data): the lines are measured again. */
+  listLayout: unknown;
   rootBox: RefObject<HTMLDivElement | null>;
   list: RefObject<HTMLDivElement | null>;
 }
@@ -151,7 +153,7 @@ interface MapViewProps {
  * The viewport with the region and the line overlay. It owns the pan and zoom state, so a wheel tick or a pointer move
  * renders only this component (a few labels and lines), not the grid's cells and not the place list.
  */
-const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLinks, cardsShown, rootBox, list }: MapViewProps) {
+const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLinks, cardsShown, listLayout, rootBox, list }: MapViewProps) {
   const [view, setView] = useState<View>({ scale: 1, x: 12, y: 12 });
   const viewport = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
@@ -246,8 +248,9 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
     }
     setLines((prev) => (sameLines(prev, next) ? prev : next));
   }, [lineLinks, cardsShown, view.scale, rootBox, list]);
-  // After every render that may have moved a card or the grid: pan, zoom, selection, opened place, new data.
-  useLayoutEffect(measure);
+  // After every render that may have moved a card or the grid: pan, zoom, selection, opened places, new data. `listLayout`
+  // is what brings a change of the list (its own state) here at all, as this component is memoised.
+  useLayoutEffect(measure, [measure, listLayout, view]);
   const measureRef = useRef(measure);
   measureRef.current = measure;
   useEffect(() => {
@@ -439,6 +442,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   );
   const openRoom = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
 
+  // Everything that can move a card of the list; the map measures its lines again when it changes.
+  const listLayout = useMemo(() => ({}), [places, links, selected, openKeys]);
   const rootBox = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
@@ -452,6 +457,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
         labels={cellsOfPlaces}
         lineLinks={(selectedPlace !== undefined && links.get(selectedPlace)) || NO_LINKS}
         cardsShown={selectedPlace !== undefined && openKeys.has(selectedPlace)}
+        listLayout={listLayout}
         rootBox={rootBox}
         list={list}
       />
