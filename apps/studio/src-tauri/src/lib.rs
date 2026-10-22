@@ -1,3 +1,5 @@
+#[cfg(feature = "dev-bridge")]
+pub mod bridge;
 mod commands;
 mod errors;
 mod menu;

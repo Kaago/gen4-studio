@@ -11,6 +11,10 @@ license.workspace = true
 name = "studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Dev-only HTTP bridge (`studio-bridge`) that lets an agent drive the UI in a browser.
+dev-bridge = ["dep:tiny_http", "dep:clap"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -21,7 +25,10 @@ g4-kernel = { path = "../../../crates/g4-kernel" }
 g4-formats = { path = "../../../crates/g4-formats" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tiny_http = { version = "0.12", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
 
 [dev-dependencies]
+tempfile = "3"
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }
 g4-formats = { path = "../../../crates/g4-formats", features = ["test-support"] }

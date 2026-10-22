@@ -64,7 +64,7 @@ fn fake_glb() -> Vec<u8> {
 /// A synthetic project opened in a fresh state (shared by the tests of all command modules).
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState) {
+pub(crate) fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState) {
     let fixture = g4_kernel::test_support::synthetic_project();
     let state = AppState::default();
     open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
