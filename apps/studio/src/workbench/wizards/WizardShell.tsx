@@ -21,6 +21,8 @@ interface Props {
   busy: boolean;
   /** What the wizard did; when set, it replaces the steps and only "Schließen" is left. */
   result: ReactNode | null;
+  /** A refusal of the last "Anlegen" (plain backend text; nothing was written): shown beside the buttons, the wizard stays where it is. */
+  error?: string | null;
 }
 
 const backdrop: CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
@@ -37,10 +39,11 @@ const sheet: CSSProperties = {
   color: "#111827",
   outline: "none",
 };
-const footer: CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 16px", borderTop: "1px solid #e5e7eb" };
+const footer: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "10px 16px", borderTop: "1px solid #e5e7eb" };
+const banner: CSSProperties = { flex: 1, color: "#b91c1c", overflowWrap: "anywhere", maxHeight: 80, overflowY: "auto" };
 
 /** The modal frame of a wizard: the step list on the left, one step's content on the right, back / next / submit below. */
-export function WizardShell({ title, steps, step, onStep, submitLabel, onSubmit, onClose, busy, result }: Props) {
+export function WizardShell({ title, steps, step, onStep, submitLabel, onSubmit, onClose, busy, result, error = null }: Props) {
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -83,6 +86,11 @@ export function WizardShell({ title, steps, step, onStep, submitLabel, onSubmit,
           <div style={{ flex: 1, padding: 16, overflowY: "auto", minWidth: 0 }}>{result ?? current?.content}</div>
         </div>
         <div style={footer}>
+          {result === null && error && (
+            <div role="alert" style={banner}>
+              {error}
+            </div>
+          )}
           {result !== null ? (
             <button type="button" onClick={onClose}>
               Schließen

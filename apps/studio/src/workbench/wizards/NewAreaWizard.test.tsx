@@ -198,7 +198,7 @@ describe("NewAreaWizard", () => {
     expect(container.textContent).toContain("nichts führt hierher");
   });
 
-  it("stays_on_the_summary_and_reports_a_failure_that_created_nothing", async () => {
+  it("stays_on_the_summary_and_shows_a_refusal_that_created_nothing_inside_the_dialog", async () => {
     vi.mocked(createArea).mockRejectedValue({ code: "error", message: "map 9999 does not exist (the game has 600)", asset: null });
     await show();
     await click(cell(0, 0));
@@ -206,10 +206,25 @@ describe("NewAreaWizard", () => {
     await next();
     await next();
     await click(button("Anlegen"));
-    expect(onError).toHaveBeenCalledOnce();
+    // The refusal is shown inside the dialog (the status strip is hidden behind its backdrop).
+    expect(onError).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("map 9999 does not exist (the game has 600)");
     expect(container.querySelector('[aria-current="step"]')?.textContent).toBe("4. Zusammenfassung");
     expect(button("Anlegen")?.disabled).toBe(false);
     expect(button("Im Studio zeigen")).toBeUndefined();
+  });
+
+  it("drops_the_refusal_when_the_user_goes_back_to_change_something", async () => {
+    vi.mocked(createArea).mockRejectedValue({ code: "error", message: "map 9999 does not exist (the game has 600)", asset: null });
+    await show();
+    await click(cell(0, 0));
+    await next();
+    await next();
+    await next();
+    await click(button("Anlegen"));
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    await click(button("Zurück"));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("shows_a_late_failure_in_the_result_step_with_the_way_to_finish_by_hand", async () => {

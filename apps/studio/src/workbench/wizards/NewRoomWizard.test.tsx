@@ -351,13 +351,15 @@ describe("NewRoomWizard", () => {
     expect(field("Innen: Kachel x").value).toBe("31");
   });
 
-  it("stays_on_the_summary_and_reports_a_refusal_that_created_nothing", async () => {
+  it("stays_on_the_summary_and_shows_a_refusal_that_created_nothing_inside_the_dialog", async () => {
     vi.mocked(createRoom).mockRejectedValue({ code: "error", message: "the room's header cannot also be the header outside", asset: null });
     await show();
     await toEntrance();
     await next();
     await click(button("Anlegen"));
-    expect(onError).toHaveBeenCalledOnce();
+    // The refusal is shown inside the dialog (the status strip is hidden behind its backdrop).
+    expect(onError).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("the room's header cannot also be the header outside");
     expect(current()).toBe("4. Zusammenfassung");
     expect(button("Anlegen")?.disabled).toBe(false);
   });

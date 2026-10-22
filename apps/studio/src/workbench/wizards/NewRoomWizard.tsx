@@ -79,6 +79,8 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // The refusal of the last "Anlegen" (nothing was written), shown inside the dialog.
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   // The door inside follows the template's own door until the user typed one.
   const [insideEdited, setInsideEdited] = useState(false);
@@ -173,13 +175,14 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
   async function create() {
     if ("error" in built) return;
     setBusy(true);
+    setRefusal(null);
     try {
       setOutcome({ kind: "done", report: await createRoom(built.spec), spec: built.spec });
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
       if (isLateFailure(text)) setOutcome({ kind: "partial", message: text });
-      else onError(e);
+      else setRefusal(text);
     } finally {
       setBusy(false);
     }
@@ -354,12 +357,16 @@ export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, p
       title={`${TERMS.room.label} anlegen`}
       steps={steps}
       step={step}
-      onStep={setStep}
+      onStep={(i) => {
+        setRefusal(null);
+        setStep(i);
+      }}
       submitLabel="Anlegen"
       onSubmit={() => void create()}
       onClose={() => onClose(outcome !== null)}
       busy={busy}
       result={result}
+      error={refusal}
     />
   );
 }

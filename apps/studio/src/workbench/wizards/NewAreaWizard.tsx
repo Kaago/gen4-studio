@@ -49,6 +49,8 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // The refusal of the last "Anlegen" (nothing was written), shown inside the dialog.
+  const [refusal, setRefusal] = useState<string | null>(null);
   // The cell a Shift-click spans its rectangle from.
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [rejected, setRejected] = useState<string[]>([]);
@@ -93,13 +95,14 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
   async function create() {
     if ("error" in built) return;
     setBusy(true);
+    setRefusal(null);
     try {
       setOutcome({ kind: "done", report: await createArea(built.spec), spec: built.spec });
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
       if (isLateFailure(text)) setOutcome({ kind: "partial", message: text });
-      else onError(e);
+      else setRefusal(text);
     } finally {
       setBusy(false);
     }
@@ -232,12 +235,16 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
       title="Gebiet anlegen"
       steps={steps}
       step={step}
-      onStep={setStep}
+      onStep={(i) => {
+        setRefusal(null);
+        setStep(i);
+      }}
       submitLabel="Anlegen"
       onSubmit={() => void create()}
       onClose={() => onClose(outcome !== null)}
       busy={busy}
       result={result}
+      error={refusal}
     />
   );
 }
