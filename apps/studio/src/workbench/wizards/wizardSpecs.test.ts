@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 
 const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event });
@@ -312,5 +312,17 @@ describe("isLateFailure", () => {
     expect(isLateFailure({ code: "error", message: "map 0571 was created; header edit failed: boom", asset: null })).toBe(false);
     expect(isLateFailure({ code: "error", message: "nothing was created; x failed: y", asset: null })).toBe(false);
     expect(isLateFailure("map 0571 was created; header edit failed: boom")).toBe(false);
+  });
+});
+
+describe("previewArea", () => {
+  const h = (id: number, area_data_id: number) => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id, event_file_id: 0 });
+  const headers = [h(1, 4), h(2, 9)];
+  it("prefers_the_forms_area_then_the_chosen_header_then_the_source", () => {
+    expect(previewArea({ areaDataId: 7, header: 1 }, headers, h(2, 9))).toBe(7);
+    expect(previewArea({ areaDataId: null, header: 1 }, headers, h(2, 9))).toBe(4);
+    expect(previewArea({ areaDataId: null, header: null }, headers, h(2, 9))).toBe(9);
+    expect(previewArea({ areaDataId: null, header: 99 }, headers, h(2, 9))).toBe(9);
+    expect(previewArea({ areaDataId: null, header: null }, headers, null)).toBe(0);
   });
 });

@@ -166,6 +166,16 @@ export function sourceHeader(matrix: MatrixDto, headers: readonly HeaderSummary[
   return null;
 }
 
+/**
+ * The tileset (area data) the new area will be shown with, for its preview: the one the form sets, else the chosen
+ * header's own (it keeps it), else the source header's (no header is assigned yet), else 0.
+ */
+export function previewArea(form: Pick<AreaForm, "areaDataId" | "header">, headers: readonly HeaderSummary[], source: HeaderSummary | null): number {
+  if (form.areaDataId !== null) return form.areaDataId;
+  const chosen = form.header === null ? undefined : headers.find((h) => h.id === form.header);
+  return chosen?.area_data_id ?? source?.area_data_id ?? 0;
+}
+
 /** A list of map numbers typed as text; `invalid` holds the entries that are no map of the game (`mapMax` is the highest). */
 export function parseMapList(text: string, mapMax: number): { maps: number[]; invalid: string[] } {
   const maps: number[] = [];

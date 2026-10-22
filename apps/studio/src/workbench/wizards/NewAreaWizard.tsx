@@ -14,7 +14,7 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, overviewNote, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, overviewNote, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
 interface Props {
@@ -42,13 +42,16 @@ const PREVIEW_CELLS = 1024;
 const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
 const note: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 
-/** Builds the matrix the preview grid shows: the layout's maps, and a header section filled with the chosen header. */
-function previewMatrix(form: AreaForm): MatrixDto | null {
+/**
+ * Builds the matrix the preview grid shows: the layout's maps only. It has no header section on purpose: the grid
+ * then draws every cell with `previewArea`, the tileset the new area will be shown with.
+ */
+function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
   const { width, height, cells } = areaLayout(form);
   if (cells.length === 0 || width * height > PREVIEW_CELLS) return null;
   const maps: (number | null)[] = Array.from({ length: width * height }, () => null);
   for (const c of cells) maps[c.y * width + c.x] = c.source_map;
-  return { index: form.sourceMatrix ?? 0, name: form.name, width, height, maps, headers: form.withHeaders ? maps.map(() => form.header ?? 0) : undefined };
+  return { index, name: form.name, width, height, maps };
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
@@ -69,7 +72,8 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   const mapMax = counts.Map === undefined ? 0xfffe : Math.max(0, counts.Map - 1);
   const source = matrix ? sourceHeader(matrix, headers, form.selected) : null;
   const built = areaSpec(form);
-  const preview = useMemo(() => previewMatrix(form), [form]);
+  const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
+  const previewTileset = previewArea(form, headers, source);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
   // The place and colour of every header, built once: a grid asks for each of its cells.
   const headerPlaces = useMemo<HeaderPlaces>(() => {
@@ -216,7 +220,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
           {"error" in built && <div style={{ color: "#b91c1c" }}>{built.error}</div>}
           <div style={{ maxHeight: 320, overflow: "auto", padding: 2, marginTop: 8 }}>
             {preview ? (
-              <AreaGrid matrix={preview} headers={headers} areaFallback={0} cellSize={32} />
+              <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} />
             ) : (
               "spec" in built && <div style={note}>Die Vorschau entfällt bei so vielen Zellen.</div>
             )}
