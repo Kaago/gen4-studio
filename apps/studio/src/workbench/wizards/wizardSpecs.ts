@@ -41,7 +41,8 @@ export const emptyAreaForm: AreaForm = {
   withHeaders: true,
   header: null,
   areaDataId: null,
-  eventFile: "Keep",
+  // A new area on an existing header would otherwise share that header's event file (and its warps).
+  eventFile: "New",
 };
 
 /** The largest side of a matrix. */
@@ -125,7 +126,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec): { lines: string[
   }
   return {
     lines,
-    next: [`Eingang verbinden: ${TERMS.room.label} anlegen… oder Inspector › Ausgänge`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
+    next: [`Mit der Welt verbinden: ${TERMS.header.label}-Editor › ${TERMS.warp.plural} › Warp hinzufügen (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
   };
 }
 

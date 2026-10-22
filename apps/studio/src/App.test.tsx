@@ -215,6 +215,23 @@ describe("App wiring", () => {
     });
   });
 
+  it("selects the cells of the selected header in its matrix when the area wizard opens without a source", async () => {
+    const withHeaders = (index: number): MatrixDto => ({ index, name: `m${index}`, width: 2, height: 1, maps: [index, index + 10], headers: [1, 0] });
+    vi.mocked(getMatrix).mockImplementation(async (index) => withHeaders(index));
+    vi.mocked(listMatrices).mockResolvedValue({ matrices: [{ index: 1, name: "m1", width: 2, height: 1, has_headers: true, has_altitudes: false, filled: 2 }], unreadable: [] });
+    await act(async () => data().bus.emit({ topic: "matrixData" }));
+    await select(listed[1]);
+    await act(async () => data().onOpenWizard({ kind: "area" }));
+    const selectedCells = () => [...container.querySelectorAll("[data-cell][aria-pressed=true]")].map((e) => e.getAttribute("data-cell"));
+    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(selectedCells()).toEqual(["0,0"]);
+    // A request that names its source matrix selects nothing.
+    await click("Abbrechen");
+    await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 1 } }));
+    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(selectedCells()).toEqual([]);
+  });
+
   describe("undo", () => {
     /** The history revision at the time of every bus event and matrix fetch after the undo. */
     function record() {

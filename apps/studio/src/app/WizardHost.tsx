@@ -12,8 +12,8 @@ interface Props {
   matrices: MatrixSummary[];
   links: WarpLink[];
   counts: MemberCounts;
-  /** The matrix of the selected header: the area wizard copies from it unless the request names another. */
-  selectedMatrix: number | null;
+  /** The selected header and its matrix: the area wizard copies from that matrix unless the request names another, and selects the header's cells in it. */
+  selected: { header: number; matrix: number } | null;
   /** The matrix the scene shows (null: none): `lastTile` is a tile of it. */
   shownMatrix: number | null;
   /** The tile the pointer was last over in the shown matrix (null: none yet): the room wizard starts its outside door there. */
@@ -21,11 +21,17 @@ interface Props {
   onError: (e: unknown) => void;
 }
 
+/** The source matrix: the request's, else the selected header's (and then that header's cells are selected). */
+function areaPrefill(requested: { matrix?: number } | undefined, selected: Props["selected"]): { matrix?: number; header?: number } {
+  if (requested?.matrix !== undefined) return { matrix: requested.matrix };
+  return selected ? { matrix: selected.matrix, header: selected.header } : {};
+}
+
 /**
  * The open wizard, above the workbench (a modal over everything). It lives beside the workbench,
  * not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, links, counts, selectedMatrix, shownMatrix, lastTile, onError }: Props) {
+export function WizardHost({ wizards, headers, matrices, links, counts, selected, shownMatrix, lastTile, onError }: Props) {
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -39,7 +45,7 @@ export function WizardHost({ wizards, headers, matrices, links, counts, selected
           matrices={matrices}
           links={links}
           counts={counts}
-          prefill={{ ...request.prefill, matrix: request.prefill?.matrix ?? selectedMatrix ?? undefined }}
+          prefill={areaPrefill(request.prefill, selected)}
           onClose={close}
           onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0] })}
           onError={onError}

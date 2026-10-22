@@ -126,6 +126,99 @@ describe("NewAreaWizard", () => {
     expect(selected()).toEqual([]);
   });
 
+  describe("the source grid", () => {
+    const placed = [{ ...header(0, "ZERO"), location_name: "Sandgem" }, { ...header(1, "NOTHING", 1, 3, 8), location_name: "Route 201" }];
+    const caption = () => container.querySelector('[aria-live="polite"]')?.textContent;
+    const hover = (x: number, y: number) => act(async () => void cell(x, y)?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+
+    async function open(prefill: { matrix?: number; header?: number }) {
+      await act(async () =>
+        root.render(<NewAreaWizard headers={placed} matrices={matrices} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />),
+      );
+      await flush();
+    }
+
+    it("selects_the_cells_of_the_header_the_wizard_was_opened_for", async () => {
+      await open({ matrix: 1, header: 1 });
+      expect(selected()).toEqual(["0,0", "1,0"]);
+      // The selection is the user's from here on: a click deselects.
+      await click(cell(0, 0));
+      expect(selected()).toEqual(["1,0"]);
+      expect(button("Weiter")?.disabled).toBe(false);
+    });
+
+    it("takes_the_area_data_of_the_preselected_header_and_skips_empty_cells", async () => {
+      await open({ matrix: 1, header: 0 });
+      // (2, 0) holds header 0 but no map: it cannot be copied.
+      expect(selected()).toEqual(["0,1", "1,1", "2,1"]);
+      await next();
+      await next();
+      expect(container.querySelector<HTMLInputElement>('input[aria-label^="Area-Data"]')?.value).toBe("0");
+    });
+
+    it("selects_nothing_for_a_matrix_without_header_section", async () => {
+      await open({ matrix: 0, header: 1 });
+      expect(selected()).toEqual([]);
+      expect(button("Weiter")?.disabled).toBe(true);
+    });
+
+    it("selects_nothing_when_the_header_has_no_cell_in_the_matrix", async () => {
+      await open({ matrix: 1, header: 5 });
+      expect(selected()).toEqual([]);
+    });
+
+    it("selects_nothing_when_the_wizard_has_no_header_to_start_from", async () => {
+      await open({ matrix: 1 });
+      expect(selected()).toEqual([]);
+    });
+
+    it("tints_the_cells_by_place", async () => {
+      await open({ matrix: 1 });
+      const tint = (x: number, y: number) => cell(x, y)?.style.boxShadow;
+      expect(tint(0, 0)).not.toBe("");
+      expect(tint(0, 1)).not.toBe("");
+      expect(tint(0, 0)).not.toBe(tint(0, 1));
+      expect(tint(1, 0)).toBe(tint(0, 0));
+    });
+
+    it("names_the_hovered_cell_else_the_one_clicked_last", async () => {
+      await open({ matrix: 1 });
+      expect(caption()).toBe("");
+      await hover(1, 0);
+      expect(caption()).toBe("Route 201 · Header 0001 · Karte 0011");
+      await hover(0, 1);
+      expect(caption()).toBe("Sandgem · Header 0000 · Karte 0013");
+      await act(async () => void cell(0, 1)?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+      expect(caption()).toBe("");
+      await click(cell(1, 0));
+      expect(caption()).toBe("Route 201 · Header 0001 · Karte 0011");
+    });
+
+    it("names_only_the_map_for_a_matrix_without_header_section", async () => {
+      await open({ matrix: 0 });
+      await hover(1, 0);
+      expect(caption()).toBe("Karte 0001");
+    });
+
+    it("names_an_empty_cell_as_empty", async () => {
+      await open({ matrix: 1 });
+      await hover(2, 0);
+      expect(caption()).toBe("Keine Karte bei x 2, y 0");
+    });
+  });
+
+  it("gives_the_new_header_an_empty_event_file_unless_another_is_chosen", async () => {
+    await show({ matrix: 1 });
+    await click(cell(0, 0));
+    await next();
+    await next();
+    await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0001")));
+    await next();
+    expect(container.textContent).toContain("Eventdatei: neu, leer.");
+    await click(button("Anlegen"));
+    expect(vi.mocked(createArea).mock.calls[0][0].header?.event_file).toBe("New");
+  });
+
   it("falls_back_to_the_first_matrix_once_the_overview_arrives_when_nothing_is_prefilled", async () => {
     await act(async () => root.render(wizard(undefined, [])));
     await flush();

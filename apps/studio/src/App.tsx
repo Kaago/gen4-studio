@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
@@ -98,6 +98,11 @@ export default function App() {
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
   });
 
+  const selectedHeader = useMemo(() => {
+    const header = scene.headers.find((h) => h.id === scene.selected);
+    return header ? { header: header.id, matrix: header.matrix_id } : null;
+  }, [scene.headers, scene.selected]);
+
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", height: "100vh" }}>
       <Toolbar
@@ -120,7 +125,7 @@ export default function App() {
         matrices={overview.matrices}
         links={overview.links}
         counts={session.counts}
-        selectedMatrix={scene.headers.find((h) => h.id === scene.selected)?.matrix_id ?? null}
+        selected={selectedHeader}
         shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
         onError={session.fail}

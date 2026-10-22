@@ -48,6 +48,12 @@ describe("areaLayout", () => {
   });
 });
 
+describe("emptyAreaForm", () => {
+  it("gives_the_new_header_an_empty_event_file_instead_of_sharing_the_old_one", () => {
+    expect(emptyAreaForm.eventFile).toBe("New");
+  });
+});
+
 describe("areaSpec", () => {
   it("refuses_an_empty_selection", () => {
     expect(areaSpec(form())).toEqual({ error: "Mindestens eine Karte wählen." });
@@ -126,7 +132,7 @@ describe("areaResult", () => {
     expect(lines[0]).toBe("Raster 0131 „Route 230“ (2 × 1) angelegt.");
     expect(lines.join("\n")).toContain("Karten 0571, 0572");
     expect(lines.join("\n")).toContain("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0055");
-    expect(next).toEqual(["Eingang verbinden: Raum anlegen… oder Inspector › Ausgänge", "Karten prüfen: Raster-Tab"]);
+    expect(next).toEqual(["Mit der Welt verbinden: Header-Editor › Eingänge / Ausgänge › Warp hinzufügen (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
   });
 
   it("uses_the_singular_and_leaves_out_a_header_that_was_not_assigned", () => {

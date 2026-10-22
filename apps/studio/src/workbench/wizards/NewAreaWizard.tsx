@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createArea, errorText } from "../../api";
 import type { AreaReport, AreaSpec, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
 import { AreaGrid, cellKey } from "../AreaGrid";
+import { buildPlaces, placeColor } from "../places";
 import { DraftInput } from "../DraftInput";
 import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
+import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
+import { PickGrid } from "./PickGrid";
+import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
@@ -18,7 +22,8 @@ interface Props {
   matrices: MatrixSummary[];
   links: WarpLink[];
   counts: MemberCounts;
-  prefill?: { matrix?: number };
+  /** The source matrix, and the header whose cells in it are selected when the wizard opens. */
+  prefill?: { matrix?: number; header?: number };
   /** The wizard is left; `written` says whether it changed the project (the app then reads it again). */
   onClose: (written: boolean) => void;
   /** "Im Studio zeigen": the app reads the project again and shows the new area. */
@@ -63,6 +68,15 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
   const built = areaSpec(form);
   const preview = useMemo(() => previewMatrix(form), [form]);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
+  // The place and colour of every header, built once: a grid asks for each of its cells.
+  const headerPlaces = useMemo<HeaderPlaces>(() => {
+    const byHeader = new Map<number, { name: string; color: string }>();
+    for (const place of buildPlaces(headers, [])) {
+      const color = placeColor(place.key);
+      for (const { header } of place.headers) byHeader.set(header.id, { name: place.name, color });
+    }
+    return byHeader;
+  }, [headers]);
 
   /** A new selection: area data follows the first source cell's header unless the user changed it, and a copy source that went away is dropped. */
   function pick(selected: PickedCell[]) {
@@ -71,18 +85,30 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
       const after = matrix ? sourceHeader(matrix, headers, selected) : null;
       const untouched = f.areaDataId === (before?.area_data_id ?? null);
       const lostCopy = typeof f.eventFile === "object" && f.eventFile.Copy !== after?.event_file_id;
-      return { ...f, selected, areaDataId: untouched ? (after?.area_data_id ?? null) : f.areaDataId, eventFile: lostCopy ? "Keep" : f.eventFile };
+      return { ...f, selected, areaDataId: untouched ? (after?.area_data_id ?? null) : f.areaDataId, eventFile: lostCopy ? emptyAreaForm.eventFile : f.eventFile };
     });
   }
 
-  function onCell(x: number, y: number, { shift }: { shift: boolean }) {
+  // Opened for a header: its cells of the source matrix are selected once, as soon as the matrix is read.
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || !matrix || prefill?.header === undefined || matrix.index !== prefill.matrix || !matrix.headers || form.selected.length > 0) return;
+    preselected.current = true;
+    const cells: PickedCell[] = [];
+    matrix.maps.forEach((map, i) => {
+      if (map !== null && matrix.headers?.[i] === prefill.header) cells.push({ x: i % matrix.width, y: Math.floor(i / matrix.width), map });
+    });
+    if (cells.length > 0) pick(cells);
+  }, [matrix]);
+
+  const onCell = useStableCallback((x: number, y: number, { shift }: { shift: boolean }) => {
     if (!matrix) return;
     pick(shift && anchor ? rectSelection(form.selected, matrix, anchor, { x, y }) : toggleSelection(form.selected, matrix, x, y));
     setAnchor({ x, y });
-  }
+  });
 
   function chooseSource(index: number) {
-    setForm((f) => ({ ...f, sourceMatrix: index, selected: [], areaDataId: null, eventFile: typeof f.eventFile === "object" ? "Keep" : f.eventFile }));
+    setForm((f) => ({ ...f, sourceMatrix: index, selected: [], areaDataId: null, eventFile: typeof f.eventFile === "object" ? emptyAreaForm.eventFile : f.eventFile }));
     setAnchor(null);
   }
 
@@ -138,20 +164,19 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
             </select>
           </label>
           <div style={note}>{TERMS.map.plural} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</div>
-          <div style={{ maxHeight: 320, overflow: "auto", padding: 2 }}>
-            {matrix ? (
-              <AreaGrid
-                matrix={matrix}
-                headers={headers}
-                areaFallback={headers.find((h) => h.matrix_id === matrix.index)?.area_data_id ?? 0}
-                cellSize={32}
-                selected={selectedKeys}
-                onCellClick={onCell}
-              />
-            ) : (
-              <div style={note}>{sourceMatrix === null ? `Kein ${TERMS.matrix.label} vorhanden.` : "Lade …"}</div>
-            )}
-          </div>
+          {matrix ? (
+            <PickGrid
+              matrix={matrix}
+              headers={headers}
+              areaFallback={headers.find((h) => h.matrix_id === matrix.index)?.area_data_id ?? 0}
+              selected={selectedKeys}
+              places={headerPlaces}
+              last={anchor}
+              onCellClick={onCell}
+            />
+          ) : (
+            <div style={note}>{sourceMatrix === null ? `Kein ${TERMS.matrix.label} vorhanden.` : "Lade …"}</div>
+          )}
           <label style={row}>
             {TERMS.map.plural} per Nummer:
             <DraftInput label={`${TERMS.map.plural} per Nummer`} value={form.manualMaps.join(", ")} onCommit={setManual} placeholder="z. B. 12, 13" style={{ flex: 1 }} />
