@@ -12,10 +12,10 @@ import type { BuildingRef } from "./buildingLayer";
 import { reconcileBuildings, sameBuilding, settleBuilding } from "./buildings";
 import type { BuildingRefresh } from "./buildings";
 import { permissionColor } from "./colors";
-import { planeDrag } from "./drag";
-import { MARKER_COLORS, markerPosition } from "./events";
-import type { EventData, EventKind } from "./events";
+import { DragController } from "./dragController";
 import { describeTile } from "./hover";
+import { buildMarkers, disposeMarkers, pickMarker } from "./markers";
+import type { MarkerSet } from "./markers";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
@@ -27,17 +27,6 @@ interface Loaded {
 
 /** Height of the overlay plane; clicks are intersected with the same plane. */
 const OVERLAY_Y = 0.05;
-
-/** Centre height of the flat event markers; the tall warp beacon stands on the ground. */
-const MARKER_Y = 0.3;
-const BEACON_HEIGHT = 1.2;
-
-/** The event markers of the shown header: one instanced mesh per class, plus a tall one for warps. */
-interface MarkerSet {
-  group: THREE.Group;
-  /** Event class and data per instance, for every mesh in `group`. */
-  entries: Map<THREE.InstancedMesh, { kind: EventKind; data: EventData[] }>;
-}
 
 interface SceneHandle {
   scene: THREE.Scene;
@@ -215,46 +204,11 @@ function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, names: Map
   return { content, overlay, tiles, bases, buildings };
 }
 
-/** Builds the marker meshes of `events`; events outside the matrix get no marker. */
-function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
-  const group = new THREE.Group();
-  const entries: MarkerSet["entries"] = new Map();
-  const classes: { kind: EventKind; list: EventData[] }[] = [
-    { kind: "warp", list: events.warps },
-    { kind: "object", list: events.objects },
-    { kind: "coord", list: events.coords },
-    { kind: "bg", list: events.bg },
-  ];
-  const m4 = new THREE.Matrix4();
-  for (const { kind, list } of classes) {
-    const placed = list.flatMap((data) => {
-      const at = markerPosition(data.x, data.z, matrix);
-      return at ? [{ data, at }] : [];
-    });
-    if (placed.length === 0) continue;
-    const geometries = [new THREE.BoxGeometry(0.8, 0.4, 0.8)];
-    if (kind === "warp") geometries.push(new THREE.BoxGeometry(0.8, BEACON_HEIGHT, 0.8));
-    const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
-    geometries.forEach((geometry, g) => {
-      const mesh = new THREE.InstancedMesh(geometry, material, placed.length);
-      mesh.renderOrder = 11;
-      mesh.frustumCulled = false;
-      placed.forEach(({ at }, i) => {
-        m4.setPosition(at.wx, g === 0 ? MARKER_Y : BEACON_HEIGHT / 2, at.wz);
-        mesh.setMatrixAt(i, m4);
-      });
-      group.add(mesh);
-      entries.set(mesh, { kind, data: placed.map((p) => p.data) });
-    });
-  }
-  return { group, entries };
-}
-
 /** Replaces the scene's markers (`events` null: show none). */
 function setMarkers(h: SceneHandle, events: EventsDto | null, visible: boolean) {
   if (h.markers) {
     h.scene.remove(h.markers.group);
-    disposeTree(h.markers.group);
+    disposeMarkers(h.markers);
     h.markers = null;
   }
   if (!h.matrix || !events) return;
@@ -431,15 +385,10 @@ function MatrixScene({
       raycaster.setFromCamera(ndc, camera);
     };
     /** The nearest event marker under a pointer position, or null (also while markers are hidden). */
-    const pickMarker = (clientX: number, clientY: number) => {
-      const set = h.markers;
-      if (!set?.group.visible) return null;
+    const markerAt = (clientX: number, clientY: number) => {
+      if (!h.markers?.group.visible) return null;
       aim(clientX, clientY);
-      const hit = raycaster.intersectObjects([...set.entries.keys()], false)[0];
-      if (!hit || !(hit.object instanceof THREE.InstancedMesh) || hit.instanceId === undefined) return null;
-      const entry = set.entries.get(hit.object);
-      const data = entry?.data[hit.instanceId];
-      return entry && data ? { kind: entry.kind, data } : null;
+      return pickMarker(h.markers, raycaster);
     };
     /** The tile under a pointer position, or null outside every loaded map cell. */
     const pickTile = (clientX: number, clientY: number) => {
@@ -465,7 +414,7 @@ function MatrixScene({
     const showHover = () => {
       frame = 0;
       // A marker under the pointer wins over the tile below it.
-      const marker = pointer ? pickMarker(pointer.x, pointer.y) : null;
+      const marker = pointer ? markerAt(pointer.x, pointer.y) : null;
       if (marker) {
         const key = `event:${marker.kind}:${marker.data.index}`;
         if (key === shown) return;
@@ -502,7 +451,6 @@ function MatrixScene({
     };
     const onMove = (e: PointerEvent) => {
       pointer = { x: e.clientX, y: e.clientY };
-      updateDrag(e);
       scheduleHover();
     };
     const onLeave = () => {
@@ -515,77 +463,21 @@ function MatrixScene({
     };
 
     // Dragging the selected building moves it on the ground plane (buildings snap to half tiles).
-    // The drag starts in the capture phase, before OrbitControls sees the press, so the camera stays still.
-    interface Drag {
+    /** What a building drag holds on to: the building as it was at the press and the centre of its map cell (its positions are relative to it). */
+    interface BuildingDrag {
       ref: BuildingRef;
       building: BuildingDto;
-      plane: THREE.Plane;
-      /** Plane point under the pointer at the press, and the building's position, in scene units. */
-      start: { x: number; z: number };
-      origin: { x: number; z: number };
-      /** Scene position of the centre of the building's map cell (building positions are relative to it). */
       centre: { x: number; z: number };
-      downAt: { x: number; y: number };
-      pointerId: number;
-      moved: boolean;
-      latest: { x: number; z: number };
     }
-    let drag: Drag | null = null;
     /** The point of `plane` under a pointer position, or null when the view ray never reaches it. */
     const planePoint = (clientX: number, clientY: number, plane: THREE.Plane) => {
       aim(clientX, clientY);
       const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
       return hit ? { x: hit.x, z: hit.z } : null;
     };
-    const onDownCapture = (e: PointerEvent) => {
-      const selected = h.selection;
-      if (e.button !== 0 || !selected || !h.buildings || !callbacks.current.paintEnabled) return;
-      aim(e.clientX, e.clientY);
-      const hit = h.buildings.pick(raycaster);
-      if (!hit || hit.ref.map !== selected.map || hit.ref.index !== selected.index) return;
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.building.y);
-      const start = planePoint(e.clientX, e.clientY, plane);
-      if (!start) return;
-      const centre = { x: hit.cell.x + MAP_SIZE / 2, z: hit.cell.z + MAP_SIZE / 2 };
-      e.stopPropagation();
-      e.preventDefault();
-      canvas.setPointerCapture(e.pointerId);
-      drag = {
-        ref: hit.ref,
-        building: hit.building,
-        plane,
-        start,
-        origin: { x: centre.x + hit.building.x, z: centre.z + hit.building.z },
-        centre,
-        downAt: { x: e.clientX, y: e.clientY },
-        pointerId: e.pointerId,
-        moved: false,
-        latest: { x: hit.building.x, z: hit.building.z },
-      };
-    };
-    function updateDrag(e: PointerEvent) {
-      const d = drag;
-      // A press that has not travelled yet is still a click on the building.
-      if (!d || (!d.moved && isClick(d.downAt, { x: e.clientX, y: e.clientY }))) return;
-      const at = planePoint(e.clientX, e.clientY, d.plane);
-      if (!at) return;
-      d.moved = true;
-      const world = planeDrag(d.start, at, d.origin);
-      d.latest = { x: world.x - d.centre.x, z: world.z - d.centre.z };
-      h.buildings?.show(d.ref, { ...d.building, x: d.latest.x, z: d.latest.z });
-      h.render();
-    }
     /** Ends a drag: one `update_building` for the whole move; a refused move puts the building back. */
-    const finishDrag = (d: Drag) => {
-      drag = null;
-      if (canvas.hasPointerCapture(d.pointerId)) canvas.releasePointerCapture(d.pointerId);
-      const { ref, building } = d;
-      const next = { ...building, x: d.latest.x, z: d.latest.z };
-      if (!d.moved || (next.x === building.x && next.z === building.z)) {
-        h.buildings?.show(ref, building);
-        h.render();
-        return;
-      }
+    const commitBuildingDrag = ({ ref, building, centre }: BuildingDrag, at: { x: number; z: number }) => {
+      const next = { ...building, x: at.x - centre.x, z: at.z - centre.z };
       updateBuilding(ref.map, ref.index, { x: next.x, z: next.z }).then(
         () => {
           const data = h.loaded.get(ref.map);
@@ -606,24 +498,38 @@ function MatrixScene({
         },
       );
     };
-    const onLostCapture = () => {
-      // The browser took the pointer away (cancel, window switch): the move was never confirmed.
-      const d = drag;
-      if (!d) return;
-      drag = null;
-      h.buildings?.show(d.ref, d.building);
-      h.render();
-    };
+    const buildingDrag = new DragController<BuildingDrag, THREE.Plane>({ host: el, canvas }, 0.5, {
+      begin: (e) => {
+        const selected = h.selection;
+        if (!selected || !h.buildings || !callbacks.current.paintEnabled) return null;
+        aim(e.clientX, e.clientY);
+        const hit = h.buildings.pick(raycaster);
+        if (!hit || hit.ref.map !== selected.map || hit.ref.index !== selected.index) return null;
+        const centre = { x: hit.cell.x + MAP_SIZE / 2, z: hit.cell.z + MAP_SIZE / 2 };
+        return {
+          subject: { ref: hit.ref, building: hit.building, centre },
+          plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.building.y),
+          origin: { x: centre.x + hit.building.x, z: centre.z + hit.building.z },
+        };
+      },
+      pointOn: planePoint,
+      move: ({ ref, building, centre }, at) => {
+        h.buildings?.show(ref, { ...building, x: at.x - centre.x, z: at.z - centre.z });
+        h.render();
+      },
+      commit: commitBuildingDrag,
+      cancel: ({ ref, building }) => {
+        h.buildings?.show(ref, building);
+        h.render();
+      },
+    });
+    const detachBuildingDrag = buildingDrag.attach();
 
     let down: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => {
       down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
     };
     const onUp = (e: PointerEvent) => {
-      if (drag && e.pointerId === drag.pointerId) {
-        finishDrag(drag);
-        return;
-      }
       const start = down;
       down = null;
       if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
@@ -656,18 +562,15 @@ function MatrixScene({
         (err) => callbacks.current.onError(errorText(err)),
       );
     };
-    el.addEventListener("pointerdown", onDownCapture, true);
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("lostpointercapture", onLostCapture);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerleave", onLeave);
 
     return () => {
-      el.removeEventListener("pointerdown", onDownCapture, true);
+      detachBuildingDrag();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("lostpointercapture", onLostCapture);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerleave", onLeave);
       cancelAnimationFrame(frame);
@@ -676,7 +579,7 @@ function MatrixScene({
       const current = handle.current;
       handle.current = null;
       h.disposed = true;
-      if (current?.markers) disposeTree(current.markers.group);
+      if (current?.markers) disposeMarkers(current.markers);
       current?.buildings?.dispose();
       observer.disconnect();
       controls.removeEventListener("change", render);
