@@ -53,3 +53,11 @@ def same_file(path: Path, other: Path | None) -> bool:
     except OSError:
         pass
     return path.resolve() == other.resolve()
+
+
+def saves_dir() -> Path:
+    """`G4EMU_SAVES` if set, else `<roms>/_testkopien/_saves`."""
+    env = os.environ.get("G4EMU_SAVES")
+    if env:
+        return Path(env)
+    return roms_dir() / "_testkopien" / "_saves"

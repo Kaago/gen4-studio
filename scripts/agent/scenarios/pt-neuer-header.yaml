@@ -1,0 +1,43 @@
+# Platin DE: patch the game for dynamic headers, create a new area with a NEW header
+# (two copied Route 201 cells, a new event file), point the player-room stairs at it and walk there.
+# The point: continue / where / expect-map must keep working on the patched arm9.
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   NEUE_EVENTDATEI index of the new event file create_area makes (534 on an unmodified Platin DE)
+#   TREPPE_X/Y    tile on which the stairs trigger when you step right (the mat, 8 4)
+# Example (from scripts/g4emu; the copy lives under Roms/_testkopien):
+#   uv run g4emu scenario ../agent/scenarios/pt-neuer-header.yaml \
+#     --project ../../../Roms/_testkopien/pt-agent-neuer-header --out ../../target/agent/neuer-header \
+#     --set NEUER_HEADER=593 --set NEUE_EVENTDATEI=534 --set TREPPE_X=8 --set TREPPE_Y=4
+game: CPUD
+edits:
+  - [apply_header_patch, {}]
+  - - create_area
+    - spec:
+        name: Agent Testgebiet
+        width: 2
+        height: 1
+        cells:                       # Route 201 (header 342) occupies the matrix 0 cells (3, 26) = map 5 and (4, 26) = map 6
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 6, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_AGENT_TEST}
+  # the new event file is empty: give it the arrival warp (index 0) the stairs lead to, leading back to the room
+  - [add_event, {eventFile: "${NEUE_EVENTDATEI}", kind: warp, x: 10, z: 10}]
+  - [update_event, {eventFile: "${NEUE_EVENTDATEI}", kind: warp, index: 0, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_header_id: "${NEUER_HEADER}", dest_warp_id: 0}}]
+build: out.nds
+play:
+  - continue
+  - expect-map 415
+  - walk-to "${TREPPE_X}" "${TREPPE_Y}"
+  - walk right 1
+  - expect-map "${NEUER_HEADER}"
+  - wait 150
+  - shot neuer-header
+  - where

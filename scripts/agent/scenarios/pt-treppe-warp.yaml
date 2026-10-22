@@ -1,0 +1,37 @@
+# Platin DE: redirect the player-room stairs to another header, walk through the new
+# connection and leave through the destination's front door.
+#
+# Edited: warp WARP of event file 394 (header 415, the player's room upstairs).
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   WARP       index of the stairs warp in event file 394 (0)
+#   ZIEL       destination header (412 = rival's house, ground floor)
+#   TREPPE_X/Y tile on which the stairs trigger when you step right (the mat, 8 4)
+#   TUER_X/Y   tile in the destination from which stepping down leaves (the door, 6 10)
+#   ZURUECK    header you end up in after the door (411 = Zweiblattdorf)
+# A warp fires when the player stands on its event tile and presses towards the exit,
+# so each walk-to is followed by one more step.
+#
+# Example (from scripts/g4emu, after bash setup.sh; the copy lives under Roms/_testkopien):
+#   uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
+#     --project ../../../Roms/_testkopien/pt-agent-szenario --out ../../target/agent/szenario \
+#     --set WARP=0 --set ZIEL=412 --set TREPPE_X=8 --set TREPPE_Y=4 \
+#     --set TUER_X=6 --set TUER_Y=10 --set ZURUECK=411
+# Expected header sequence: 415, 412, 411.
+game: CPUD
+edits:
+  - [update_event, {eventFile: 394, kind: warp, index: "${WARP}", patch: {dest_header_id: "${ZIEL}", dest_warp_id: 0}}]
+build: out.nds
+play:
+  - continue
+  - expect-map 415
+  - walk-to "${TREPPE_X}" "${TREPPE_Y}"
+  - walk right 1
+  - expect-map "${ZIEL}"
+  - wait 150            # the arrival fade and the one automatic step end before the screenshot
+  - shot angekommen
+  - walk-to "${TUER_X}" "${TUER_Y}"
+  - walk down 1
+  - expect-map "${ZURUECK}"
+  - wait 90
+  - shot draussen
+  - where

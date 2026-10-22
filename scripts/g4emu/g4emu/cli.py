@@ -42,6 +42,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", required=True, type=Path)
     run.add_argument("--core", type=Path, default=None)
     run.add_argument("steps", nargs="*", help="steps such as: wait 100 press a:6 shot name")
+    scen = sub.add_parser("scenario", help="edit a project copy, build it and play it")
+    scen.add_argument("file", type=Path)
+    scen.add_argument("--project", required=True, type=Path, help="project copy under Roms/_testkopien")
+    scen.add_argument("--set", dest="sets", action="append", default=[], metavar="NAME=WERT")
+    scen.add_argument("--out", required=True, type=Path)
+    scen.add_argument("--core", type=Path, default=None)
     finder = sub.add_parser(
         "find-u16", help="addresses holding VALUE in the matching RAM dump, for every pair"
     )
@@ -182,6 +188,26 @@ def _find_u16(args: argparse.Namespace) -> int:
     return EXIT_OK if hits else EXIT_STEP_FAILED
 
 
+def _scenario(args: argparse.Namespace) -> int:
+    from g4emu import scenario
+
+    env: dict[str, str] = {}
+    for item in args.sets:
+        name, sep, value = item.partition("=")
+        if not sep or not name:
+            return _fail(f"g4emu scenario: --set erwartet NAME=WERT, bekam '{item}'")
+        env[name] = value
+    try:
+        loaded = scenario.load_scenario(args.file, env)
+    except KeyError as e:
+        return _fail(f"g4emu scenario: Platzhalter {e.args[0]} fehlt (--set {e.args[0]}=WERT)")
+    except (OSError, ValueError) as e:
+        return _fail(f"g4emu scenario: {e}")
+    return scenario.run_scenario(
+        loaded, args.project, args.out, paths.repo_root(), paths.saves_dir(), args.core
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
@@ -189,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(f"g4emu: {e}")
     if args.command == "find-u16":
         return _find_u16(args)
+    if args.command == "scenario":
+        return _scenario(args)
     return _run(args)
 
 

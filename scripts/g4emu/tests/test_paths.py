@@ -1,5 +1,6 @@
 import pytest
 
+from g4emu import paths
 from g4emu.paths import check_out_dir, roms_dir
 
 
@@ -62,3 +63,11 @@ def test_guard_uses_only_g4_roms_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("G4_ROMS_DIR", str(roms))
     with pytest.raises(ValueError, match="Roms"):
         check_out_dir(roms / "sub", roms_dir())
+
+
+def test_saves_dir_defaults_under_testkopien_and_honours_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("G4_ROMS_DIR", str(tmp_path))
+    monkeypatch.delenv("G4EMU_SAVES", raising=False)
+    assert paths.saves_dir() == tmp_path / "_testkopien" / "_saves"
+    monkeypatch.setenv("G4EMU_SAVES", str(tmp_path / "s"))
+    assert paths.saves_dir() == tmp_path / "s"
