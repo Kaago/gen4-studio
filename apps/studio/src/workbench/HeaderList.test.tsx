@@ -80,6 +80,14 @@ describe("HeaderList", () => {
     expect(reads() - before).toBe(headers.filter((h) => h.matrix_id === 2).length * perRow);
   });
 
+  it("gives the location name priority over the internal name in a narrow panel", () => {
+    const { headers } = countedHeaders(2);
+    act(() => root.render(<HeaderList {...props(headers)} />));
+    const row = container.querySelector<HTMLElement>("[data-header-id]")!;
+    // Location: at least 72px, the larger share; internal name: the smaller share, shrinks to nothing.
+    expect(row.style.gridTemplateColumns).toBe("40px minmax(72px, 3fr) minmax(0, 2fr) 40px");
+  });
+
   it("scrolls the selected row into view by its id, again for a new reveal token, and calls onSelect with the header", () => {
     const { headers } = countedHeaders(50);
     const onSelect = vi.fn();

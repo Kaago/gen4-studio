@@ -14,8 +14,8 @@ interface Props {
   onSelect: (h: HeaderSummary) => void;
 }
 
-/** id, location name, internal name, matrix. */
-const COLUMNS = "48px minmax(0, 1fr) minmax(0, 96px) 48px";
+/** id, location name, internal name, matrix. The location name has priority: it shrinks last (never below 72px), the internal name first. */
+const COLUMNS = "40px minmax(72px, 3fr) minmax(0, 2fr) 40px";
 
 const cell: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
@@ -33,7 +33,7 @@ const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, onSelec
           boxSizing: "border-box",
           display: "grid",
           gridTemplateColumns: COLUMNS,
-          columnGap: 8,
+          columnGap: 6,
           width: "100%",
           cursor: "pointer",
           lineHeight: 1.6,
