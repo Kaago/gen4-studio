@@ -1,6 +1,6 @@
 # Gen4 Studio: Roadmap
 
-Stand: 2026-10-21. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
+Stand: 2026-10-22. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
 
 Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phase beginnt, bevor das Gate der vorherigen bestanden ist. Zeitangaben sind bewusst weggelassen; die Reihenfolge und die Gates sind die Zusage.
 
@@ -10,7 +10,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 |---|---|---|
 | 0 | Entscheidungsgrundlage (erledigt) | Analyse, Spec, Roadmap liegen vor |
 | 1 | Kernel-Fundament und Shell-Spike: Projekt öffnen, Permissions malen, speichern, ROM bauen, im Emulator laufen | Edit-Build-Play-Schleife funktioniert auf einem HGSS- und einem Platin-Projekt |
-| 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
+| 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
 | 3 | Daten-Editoren v1: Scripts (rotom), Encounter, Trainer, Text, Pokémon-Basisdaten; Kartenimport | Ein kleiner Hack (neue Route, neue Trainer, neue Texte, ein Script) komplett im Studio |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
 | 5 | Plugin-Host | Ein First-Party-Editor und ein Beispiel-Plugin laufen über dieselbe API |
@@ -31,6 +31,8 @@ Risiken: uxie-Header-Offsets für HGSS; NARC-Padding; Gebäudekoordinaten-Konven
 
 ## Phase 2: Welt-Editor v1
 
+Status: implementiert, Gate offen. 2a und 2b sind gebaut und automatisch getestet; die Prüfung von Hand (GUI, melonDS) steht in [docs/phase-2-gate.md](phase-2-gate.md) und ist noch nicht durchgeführt. Phase 2 gilt erst als abgeschlossen, wenn dort das Ergebnis eingetragen ist.
+
 Detailpläne: [Phase 2a: Fundament, Bundle und Orientierung](superpowers/plans/2026-10-21-phase-2a-foundation-and-orientation.md) (Eingangskriterien, Workbench, Hover, Event-Marker, Texturen, Ortsnamen, große Matrizen, App-Bundle) und [Phase 2b: Welt-Editoren](superpowers/plans/2026-10-21-phase-2b-editors.md) (Header, Matrix, Area-Data, Gebäude, Events, Undo je Asset, Querverlinkung).
 
 Eingangskriterien aus dem Abschluss-Review von Phase 1:
@@ -48,15 +50,23 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 
 
 Lieferumfang:
-- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump).
-- Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen.
-- Gebäude: Position, Skalierung, Rotation (Dekodierung der 13 Bytes ab 0x10), Modellwahl aus dem Gebäude-NARC, Vorschau als GLB.
+- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump). Er ändert bestehende Header; neue Header lassen sich nicht anlegen (siehe Phase 3).
+- Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen. Der Höhenabschnitt (`altitudes`) ist editierbar, die Szene wertet ihn noch nicht aus.
+- Gebäude: Position, Skalierung, Modellwahl aus dem Gebäude-NARC, Vorschau als GLB. Die Rotation (13 Bytes ab 0x10) wird verbatim erhalten und nur als Hexwert angezeigt, weil das Spiel sie bei Karten-Gebäuden ignoriert.
 - Events: uxie `EventFile` (Objekte, Warps, Koordinaten-Trigger, Hintergrund-Events) platzieren und verschieben in der 3D-Ansicht; Warps per Drag verbinden.
 - Area-Data-Editor.
 - Workbench mit Dockview: Projektbaum, Tabs, Inspector, Problems.
 - Undo/Redo über alle Asset-Arten; "Open in ..."-Querverlinkung.
 
-Gate: Eine neue Route aus bestehenden Kartendateien in einer neuen Matrix, mit Warps zu einer bestehenden Stadt, ist im Emulator begehbar.
+Gate: Eine neue Route aus bestehenden Kartendateien in einer neuen Matrix, mit Warps zu einer bestehenden Stadt, ist im Emulator begehbar. Ablauf und Einzelprüfungen: [docs/phase-2-gate.md](phase-2-gate.md).
+
+In Phase 3 verschoben (offene Reste von Phase 2):
+- Höhen (`altitudes`) in der Szene auswerten; die Modelle liegen bisher auf y = 0.
+- Objekt-Sprites für Events (bisher Marker).
+- Neue Header per Patch: die Header-Tabelle liegt fest im ARM9, ein Anlegen braucht einen Patch.
+- Kachelverhalten-Namen je Spielfamilie: `tile_behaviors.yaml` stammt aus pokeplatinum, HGSS soll einen eigenen Satz aus pokeheartgold bekommen.
+- apicula mit Timeout aufrufen (heute ohne Zeitlimit).
+- Modell-Cache-Schlüssel um die apicula-Version erweitern (heute nur Hash über NSBMD und NSBTX); damit werden auch `.fail`-Marker bei einem apicula-Update ungültig.
 
 ## Phase 3: Daten-Editoren v1 und Kartenimport
 
@@ -67,6 +77,7 @@ Lieferumfang:
 - Datenbank-UI nach Pokémon-Studio-Muster; Referenzzähler.
 - Kartenimport: PDSMS `.pdsmap`/`.pdsts`, NSBMD-Dateien, OBJ über apicula-Pfad; Kollisionsimport.
 - Project Checks: kaputte Warps, Scripts ohne Ziel, Trainer ohne Party, Textlängen.
+- Offene Reste aus Phase 2: Höhen in der Szene, Objekt-Sprites, neue Header per Patch, Kachelnamen je Familie für HGSS, apicula-Timeout, Cache-Schlüssel mit apicula-Version (Details unter Phase 2).
 
 Gate: Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
 
