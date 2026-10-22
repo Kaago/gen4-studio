@@ -32,6 +32,8 @@ Auf einer Kopie von Platin DE und HeartGold US, mit der gebündelten App (nicht 
 
 ## (B) Gate von Phase 2b
 
+Hinweis: Dieser Teil läuft künftig über die Assistenten von Phase 3a, siehe [docs/phase-3a-gate.md](phase-3a-gate.md), Teil (A). Die Schritte unten beschreiben den Weg von Hand über den Inspector.
+
 Auf einer Kopie von Platin DE:
 
 - [ ] 1. Zwei Karten duplizieren (zum Beispiel die beiden Karten von Route 201; Header 0008 "Route 201" zeigt die Matrix-Zellen), neue Matrix 2 × 1 mit den Kopien anlegen.

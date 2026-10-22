@@ -11,7 +11,8 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 0 | Entscheidungsgrundlage (erledigt) | Analyse, Spec, Roadmap liegen vor |
 | 1 | Kernel-Fundament und Shell-Spike: Projekt öffnen, Permissions malen, speichern, ROM bauen, im Emulator laufen | Edit-Build-Play-Schleife funktioniert auf einem HGSS- und einem Platin-Projekt |
 | 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
-| 3 | Daten-Editoren v1: Scripts (rotom), Encounter, Trainer, Text, Pokémon-Basisdaten; Kartenimport | Ein kleiner Hack (neue Route, neue Trainer, neue Texte, ein Script) komplett im Studio |
+| 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (in Arbeit, Gate offen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
+| 3b | Daten-Editoren v1 und Kartenimport: Scripts (rotom), Encounter, Trainer, Text, Pokémon-Basisdaten | Ein kleiner Hack (neue Route, neue Trainer, neue Texte, ein Script) komplett im Studio |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
 | 5 | Plugin-Host | Ein First-Party-Editor und ein Beispiel-Plugin laufen über dieselbe API |
 | 6 | Kartenerstellung und Weltformat | Karte im Studio malen, zu NSBMD/BDHC bauen, spielen |
@@ -41,8 +42,8 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 - Cmd+Q-Rückfrage prüfen; falls sie fehlt, Exit-Guard auf Rust-Seite (`RunEvent::ExitRequested`).
 - Kernel aufräumen: `Store` entpackt bei Bedarf selbst, Edit-Closures dürfen fehlschlagen, Fehler tragen Pfad und Asset, eigener Fehlertyp für Projekt-Metadaten statt `Build`.
 - `MapFile::validate` lehnt `buildings_tail` ab 48 Bytes ab, bevor Gebäude editierbar werden.
-- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula in `spawn_blocking`. Der apicula-Timeout ist in Phase 3 verschoben.
-- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt. In Phase 3 verschoben (siehe Querschnitt: CI).
+- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula in `spawn_blocking`. Der apicula-Timeout ist in Phase 3b verschoben.
+- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt. In Phase 3b verschoben (siehe Querschnitt: CI).
 - Matrix-Orientierung bestätigt (Byte 0 = Breite), Test in g4-formats.
 - Orientierung im Welt-Editor: Kachelkoordinaten und Kacheltyp beim Überfahren anzeigen, Warps und Events markieren, Map-Texturen laden. Ohne diese Hilfen ließ sich im GUI-Test die Treppe nicht finden.
 - Header-Liste lesbar machen: Anzeigenamen statt interner Kürzel (T01R0102 ist das Haus des Rivalen, T01R0202 das des Spielers), keine Zeilenumbrüche.
@@ -50,7 +51,7 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 
 
 Lieferumfang:
-- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump). Er ändert bestehende Header; neue Header lassen sich nicht anlegen (siehe Phase 3).
+- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump). Er ändert bestehende Header; neue Header lassen sich nicht anlegen (siehe Phase 3b).
 - Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen. Der Höhenabschnitt (`altitudes`) ist editierbar, die Szene wertet ihn noch nicht aus.
 - Gebäude: Position, Skalierung, Modellwahl aus dem Gebäude-NARC, Vorschau als GLB. Die Rotation (13 Bytes ab 0x10) wird verbatim erhalten und nur als Hexwert angezeigt, weil das Spiel sie bei Karten-Gebäuden ignoriert.
 - Events: uxie `EventFile` (Objekte, Warps, Koordinaten-Trigger, Hintergrund-Events) platzieren und verschieben in der 3D-Ansicht; Warps per Drag verbinden.
@@ -58,9 +59,9 @@ Lieferumfang:
 - Workbench mit Dockview: Projektbaum, Tabs, Inspector, Problems.
 - Undo/Redo über alle Asset-Arten; "Open in ..."-Querverlinkung.
 
-Gate: Eine neue Route aus bestehenden Kartendateien in einer neuen Matrix, mit Warps zu einer bestehenden Stadt, ist im Emulator begehbar. Ablauf und Einzelprüfungen: [docs/phase-2-gate.md](phase-2-gate.md).
+Gate: Eine neue Route aus bestehenden Kartendateien in einer neuen Matrix, mit Warps zu einer bestehenden Stadt, ist im Emulator begehbar. Ablauf und Einzelprüfungen: [docs/phase-2-gate.md](phase-2-gate.md). Teil (B) dieses Gates läuft künftig über die Assistenten von Phase 3a.
 
-In Phase 3 verschoben (offene Reste von Phase 2):
+In Phase 3b verschoben (offene Reste von Phase 2):
 - Höhen (`altitudes`) in der Szene auswerten; die Modelle liegen bisher auf y = 0.
 - Objekt-Sprites für Events (bisher Marker).
 - Neue Header per Patch: die Header-Tabelle liegt fest im ARM9, ein Anlegen braucht einen Patch.
@@ -69,7 +70,25 @@ In Phase 3 verschoben (offene Reste von Phase 2):
 - CI mit den gated Vanilla-Tests gegen mindestens ein Platin- und ein HGSS-Projekt.
 - Modell-Cache-Schlüssel um die apicula-Version erweitern (heute nur Hash über NSBMD und NSBTX); damit werden auch `.fail`-Marker bei einem apicula-Update ungültig.
 
-## Phase 3: Daten-Editoren v1 und Kartenimport
+## Phase 3a: Welt-Explorer, Assistenten, Weltkarte
+
+Status: in Arbeit. Alle Tasks sind implementiert und automatisch getestet; die Prüfung von Hand (GUI, melonDS) steht in [docs/phase-3a-gate.md](phase-3a-gate.md) und ist noch nicht durchgeführt. Anlass war der Gate-Durchlauf von Phase 2: das Raster-Panel war nicht verständlich, die Reihenfolge der Schritte unklar und das Ergebnis nicht sichtbar.
+
+Spezifikation: [docs/superpowers/specs/2026-10-22-world-explorer-design.md](superpowers/specs/2026-10-22-world-explorer-design.md).
+
+Lieferumfang:
+- Welt-Explorer: Baum nach Orten (Außen, Räume) mit Suche, Umschalter auf die Liste, Glossar "Begriffe"; Panel "Raster" mit Kartenbildern.
+- Assistenten "Gebiet anlegen", "Raum anlegen" und "Gebiet erweitern" mit Zusammenfassung vor dem Anlegen und Ergebnis-Schritt; Abschnitt "Eingänge / Ausgänge" im Header-Editor (Raum anbinden, Zum Ziel).
+- Weltkarte: Region mit Ortsfarben, Räume je Ort, Linien von Räumen zu ihren Eingängen.
+- Backend: Übersichten (`list_matrices`, `list_warps`), Assistenten-Befehle (`create_area`, `extend_area`, `create_room`), Store-Erweiterungen für Eventdateien und Karten.
+
+Gate: Die neue Route aus Phase 2 (B) und ein neuer Raum mit Eingang entstehen per Assistent in unter fünf Minuten, ohne eine Zahl außer der Header-Wahl zu tippen, und sind in melonDS begehbar. Ablauf und Einzelprüfungen: [docs/phase-3a-gate.md](phase-3a-gate.md).
+
+Nicht in 3a: neue Header (Patch), Gelände malen (Phase 6), Höhen und Objekt-Sprites, Verschieben von Karten in der Weltkarte.
+
+## Phase 3b: Daten-Editoren v1 und Kartenimport
+
+Beginnt, wenn das Gate von Phase 3a bestanden ist.
 
 Lieferumfang:
 - Scripts: rotom-Projekt (`rotom.toml`, `.rotom/command_database/`) anlegen oder übernehmen; Monaco mit rotom-lsp; Compile beim Build; Decompile beim ersten Öffnen.
@@ -116,6 +135,6 @@ Gate: Eine im Studio gemalte Karte wird gebaut, in eine Matrix gesetzt und im Em
 ## Querschnitt (laufend ab Phase 1)
 
 - CI: `cargo test`, `cargo clippy -D warnings`, `pnpm test`, Builds für macOS (arm64) und Windows (x64); Linux als Best-Effort.
-- Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3.
+- Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3b.
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).
