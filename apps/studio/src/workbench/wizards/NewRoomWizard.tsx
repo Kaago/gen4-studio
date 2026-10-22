@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { createRoom, errorText } from "../../api";
-import type { HeaderSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
 import { lockedText } from "../../world/events";
 import { thumbnails } from "../../world/thumbnailStore";
 import { useThumbnail } from "../../world/useThumbnail";
@@ -18,18 +18,21 @@ import { HeaderChoice } from "./HeaderChoice";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { MAP_LAST_TILE, emptyRoomForm, isLateFailure, roomResult, roomSpec, roomSummary, templateWarp } from "./wizardSpecs";
+import { MAP_LAST_TILE, emptyRoomForm, isLateFailure, matrixTiles, roomResult, roomSpec, roomSummary, templateWarp } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 
 interface Props {
   headers: HeaderSummary[];
   links: WarpLink[];
   counts: MemberCounts;
+  matrices: MatrixSummary[];
+  /** The matrix the scene shows (null: none): `lastTile` is a tile of it. */
+  shownMatrix: number | null;
   /** The headers grouped by place, as the world explorer shows them: the rooms among them are the templates. */
   places: Place[];
   /** The header outside the entrance is made in, and the room to copy, when the request already knows them. */
   prefill?: { outsideHeader?: number; template?: number };
-  /** The tile the pointer was last over in the shown matrix (null: none yet): where the door outside is put. */
+  /** The tile the pointer was last over in the shown matrix (null: none yet): the door outside starts there when the outside header uses that matrix. */
   lastTile: () => { x: number; z: number } | null;
   /** The wizard is left; `written` says whether it changed the project (the app then reads it again). */
   onClose: (written: boolean) => void;
@@ -56,6 +59,8 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
     template: template.id,
     templateMap: null,
     areaDataId: template.area_data_id,
+    insideX: emptyRoomForm.insideX,
+    insideZ: emptyRoomForm.insideZ,
     eventFile: typeof form.eventFile === "object" ? { Copy: template.event_file_id } : form.eventFile,
   };
 }
@@ -63,10 +68,11 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, places, prefill, lastTile, onClose, onCreated, onError }: Props) {
+export function NewRoomWizard({ headers, links, counts, matrices, shownMatrix, places, prefill, lastTile, onClose, onCreated, onError }: Props) {
+  // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
+  const [hovered] = useState(lastTile);
   const [form, setForm] = useState<RoomForm>(() => {
-    const tile = lastTile();
-    const start: RoomForm = { ...emptyRoomForm, outsideHeader: prefill?.outsideHeader ?? null, x: tile?.x ?? 0, z: tile?.z ?? 0 };
+    const start: RoomForm = { ...emptyRoomForm, outsideHeader: prefill?.outsideHeader ?? null };
     const template = prefill?.template === undefined ? undefined : headers.find((h) => h.id === prefill.template);
     return template ? withTemplate(start, template) : start;
   });
@@ -85,7 +91,6 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
   // The room is a copy of the first map of the template's matrix.
   const templateMatrix = useMatrix(template?.matrix_id ?? null, 0, onError);
   const templateMap = templateMatrix?.maps[0] ?? null;
-  useEffect(() => setForm((f) => (f.templateMap === templateMap ? f : { ...f, templateMap })), [templateMap]);
   const picture = useThumbnail(thumbnails, templateMap, template?.area_data_id ?? 0);
 
   const templateEvents = useEvents(template?.event_file_id ?? null, onError);
@@ -93,7 +98,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
   const [doorX, doorZ] = [door?.x, door?.z];
   useEffect(() => {
     if (!insideEdited && doorX !== undefined && doorZ !== undefined) setForm((f) => ({ ...f, insideX: clampTile(doorX), insideZ: clampTile(doorZ) }));
-  }, [doorX, doorZ, insideEdited]);
+  }, [doorX, doorZ, insideEdited, form.template]);
 
   // An entrance writes a warp into the event file of the header outside and into the room's: a locked one cannot take it.
   const keptFile = form.eventFile === "Keep" ? (roomHeader?.event_file_id ?? null) : null;
@@ -106,7 +111,15 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
   else if (keptEvents?.locked && roomHeader) blocked = `${TERMS.eventFile.label} ${id4(roomHeader.event_file_id)} des ${TERMS.room.label}s ist ${lockedText(keptEvents.locked)}`;
 
   const connect = form.connect && blocked === null;
-  const built = roomSpec({ ...form, connect });
+  // The door outside: what the user typed, else the pointer's last tile when the outside header uses the shown matrix. Anything else stays open.
+  const outsideMatrix = outsideHeader ? (matrices.find((m) => m.index === outsideHeader.matrix_id) ?? null) : null;
+  const fromScene = outsideHeader && hovered && outsideHeader.matrix_id === shownMatrix ? hovered : null;
+  const outsideX = form.x ?? fromScene?.x ?? null;
+  const outsideZ = form.z ?? fromScene?.z ?? null;
+  const sceneDefault = fromScene !== null && (form.x === null || form.z === null);
+  const outsideSize = outsideMatrix ? matrixTiles(outsideMatrix) : null;
+  // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
+  const built = roomSpec({ ...form, templateMap, x: outsideX, z: outsideZ, connect }, outsideMatrix);
 
   const candidates = useMemo(() => {
     const outside = places.flatMap((p) => p.headers).filter((h) => h.kind === "outside" || h.header.id === prefill?.outsideHeader);
@@ -126,6 +139,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
   }, [places, query]);
 
   function chooseTemplate(chosen: HeaderSummary) {
+    if (chosen.id === form.template) return;
     setForm((f) => withTemplate(f, chosen));
     setInsideEdited(false);
   }
@@ -138,7 +152,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
     setForm((f) => ({ ...f, ...change }));
     if (inside) setInsideEdited(true);
   };
-  const tileField = (label: string, value: number, max: number, key: "x" | "z" | "insideX" | "insideZ") => (
+  const tileField = (label: string, value: number | null, max: number, key: "x" | "z" | "insideX" | "insideZ") => (
     <label style={row}>
       {label}
       <DraftInput
@@ -146,7 +160,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
         type="number"
         min={0}
         max={max}
-        value={String(value)}
+        value={value === null ? "" : String(value)}
         onCommit={(text) => {
           const n = parseCellField(text, max, false);
           if (n !== null && n !== "empty") setTile({ [key]: n }, key.startsWith("inside"));
@@ -186,7 +200,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
     {
       id: "template",
       title: "Vorlage",
-      canNext: form.template !== null && form.templateMap !== null,
+      canNext: template !== null && templateMap !== null,
       content: (
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -269,18 +283,39 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
             später verbinden (keinen Eingang anlegen)
           </label>
           {blocked !== null && form.connect && <div style={{ color: "#b45309", margin: "6px 0" }}>Der Eingang lässt sich jetzt nicht anlegen: {blocked}</div>}
-          <fieldset disabled={!connect} style={{ border: "none", padding: 0, margin: 0 }}>
+          {/* The lock follows the chosen header outside: picking another one is always possible. */}
+          <fieldset disabled={!form.connect} style={{ border: "none", padding: 0, margin: 0 }}>
             <div style={heading}>{TERMS.header.label} außen</div>
-            <HeaderPicker headers={candidates} current={form.outsideHeader ?? -1} disabled={!connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
+            <HeaderPicker headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
             <div style={note}>
               {outsideHeader ? `Gewählt: ${id4(outsideHeader.id)} „${headerLabel(outsideHeader)}“` : `Kein ${TERMS.header.label} außen gewählt.`}
             </div>
+          </fieldset>
+          <fieldset disabled={!connect} style={{ border: "none", padding: 0, margin: 0 }}>
             <div style={heading}>Tür außen (Kachel im {TERMS.matrix.label} des {TERMS.header.label}s)</div>
-            {tileField("Außen: Kachel x", form.x, MATRIX_LAST_TILE, "x")}
-            {tileField("Außen: Kachel z", form.z, MATRIX_LAST_TILE, "z")}
+            {outsideMatrix && outsideSize && (
+              <div style={note}>
+                {TERMS.matrix.label} {id4(outsideMatrix.index)}: {outsideSize.x} × {outsideSize.z} Kacheln (x 0 bis {outsideSize.x - 1}, z 0 bis {outsideSize.z - 1}).
+              </div>
+            )}
+            {tileField("Außen: Kachel x", outsideX, outsideSize ? outsideSize.x - 1 : MATRIX_LAST_TILE, "x")}
+            {tileField("Außen: Kachel z", outsideZ, outsideSize ? outsideSize.z - 1 : MATRIX_LAST_TILE, "z")}
+            {sceneDefault && <div style={note}>Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).</div>}
+            {outsideHeader && outsideX === null && outsideZ === null && (
+              <div style={note}>
+                Noch keine Kachel: die Maus war zuletzt nicht über diesem {TERMS.matrix.label}; x und z eintragen.
+              </div>
+            )}
             <div style={heading}>Tür innen, Rückweg (Kachel 0 bis {MAP_LAST_TILE} im neuen {TERMS.room.label})</div>
             {tileField("Innen: Kachel x", form.insideX, MAP_LAST_TILE, "insideX")}
             {tileField("Innen: Kachel z", form.insideZ, MAP_LAST_TILE, "insideZ")}
+            {!insideEdited && door && <div style={note}>aus der Vorlage übernommen (ihr erster Warp, Kachel x {door.x}, z {door.z}).</div>}
+            {!insideEdited && door && (door.x > MAP_LAST_TILE || door.z > MAP_LAST_TILE) && (
+              <div style={{ color: "#b45309", margin: "6px 0" }}>
+                Dieser Warp liegt außerhalb der ersten {TERMS.map.label} der Vorlage und wurde auf Kachel x {form.insideX}, z {form.insideZ} begrenzt: prüfen.
+              </div>
+            )}
+            {!insideEdited && !door && <div style={note}>Standardwert: die Vorlage hat keinen Warp.</div>}
           </fieldset>
           {"error" in built && <div style={{ color: "#b91c1c", marginTop: 8 }}>{built.error}</div>}
         </div>
@@ -293,7 +328,7 @@ export function NewRoomWizard({ headers, links, counts, places, prefill, lastTil
       content: (
         <div>
           {"spec" in built ? (
-            roomSummary(built.spec, headers).map((line) => (
+            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined).map((line) => (
               <p key={line} style={{ margin: "6px 0" }}>
                 {line}
               </p>

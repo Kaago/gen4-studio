@@ -121,6 +121,7 @@ export default function App() {
         links={overview.links}
         counts={session.counts}
         selectedMatrix={scene.headers.find((h) => h.id === scene.selected)?.matrix_id ?? null}
+        shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
         onError={session.fail}
       />

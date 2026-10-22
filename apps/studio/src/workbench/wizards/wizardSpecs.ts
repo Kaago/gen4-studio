@@ -194,9 +194,9 @@ export interface RoomForm {
   /** The entrance is made now (off: the room is connected later). */
   connect: boolean;
   outsideHeader: number | null;
-  /** The door outside, a tile of the outside header's matrix. */
-  x: number;
-  z: number;
+  /** The door outside, a tile of the outside header's matrix; null: not entered yet. */
+  x: number | null;
+  z: number | null;
   /** The door inside, a tile of the room's map. */
   insideX: number;
   insideZ: number;
@@ -212,8 +212,8 @@ export const emptyRoomForm: RoomForm = {
   eventFile: "New",
   connect: true,
   outsideHeader: null,
-  x: 0,
-  z: 0,
+  x: null,
+  z: null,
   insideX: 16,
   insideZ: 30,
 };
@@ -221,8 +221,14 @@ export const emptyRoomForm: RoomForm = {
 /** The last tile of a map (a map is 32 × 32 tiles). */
 export const MAP_LAST_TILE = 31;
 
-/** The backend request for the form, or what is wrong with it. */
-export function roomSpec(form: RoomForm): { spec: RoomSpec } | { error: string } {
+/** The tiles of a matrix per side (a map is 32 tiles wide). */
+export const matrixTiles = (matrix: { width: number; height: number }) => ({ x: matrix.width * 32, z: matrix.height * 32 });
+
+/**
+ * The backend request for the form, or what is wrong with it. `outsideMatrix` is the size of the outside header's
+ * matrix: the door outside must lie in it (null or omitted: unknown, not checked).
+ */
+export function roomSpec(form: RoomForm, outsideMatrix?: { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
   if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
@@ -232,6 +238,13 @@ export function roomSpec(form: RoomForm): { spec: RoomSpec } | { error: string }
     if (inside.some((n) => !Number.isInteger(n) || n < 0 || n > MAP_LAST_TILE)) return { error: `Kachel liegt außerhalb der Karte (0 bis ${MAP_LAST_TILE}).` };
     if (form.outsideHeader === null) return { error: `Außen-${TERMS.header.label} wählen.` };
     if (form.outsideHeader === form.header) return { error: `Der Außen-${TERMS.header.label} darf nicht der ${TERMS.header.label} des neuen ${TERMS.room.label}s sein.` };
+    if (form.x === null || form.z === null) return { error: `Kachel der Tür außen eintragen (x und z).` };
+    if (outsideMatrix) {
+      const size = matrixTiles(outsideMatrix);
+      if (form.x < 0 || form.z < 0 || form.x >= size.x || form.z >= size.z) {
+        return { error: `Kachel x ${form.x}, z ${form.z} liegt außerhalb des ${TERMS.matrix.label}s (x 0 bis ${size.x - 1}, z 0 bis ${size.z - 1}).` };
+      }
+    }
   }
   return {
     spec: {
@@ -240,7 +253,7 @@ export function roomSpec(form: RoomForm): { spec: RoomSpec } | { error: string }
       clear_buildings: form.clearBuildings,
       header: { id: form.header, area_data_id: form.areaDataId, event_file: form.eventFile },
       entrance:
-        form.connect && form.outsideHeader !== null
+        form.connect && form.outsideHeader !== null && form.x !== null && form.z !== null
           ? { outside_header: form.outsideHeader, x: form.x, z: form.z, inside_x: form.insideX, inside_z: form.insideZ }
           : null,
     },
@@ -248,12 +261,13 @@ export function roomSpec(form: RoomForm): { spec: RoomSpec } | { error: string }
 }
 
 /** What "Anlegen" will do, one sentence per line, for the last step. */
-export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[]): string[] {
+export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ mit einer Kopie von ${TERMS.map.label} ${id4(spec.source_map)} an, ${spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden"}.`];
   lines.push(assignLine(spec.header, headers));
   const entrance = spec.entrance;
   if (entrance === null) {
-    lines.push(`Legt keinen Eingang an: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „Ausgänge“ setzen.`);
+    const why = notConnected ? ` (${notConnected})` : "";
+    lines.push(`Legt keinen Eingang an${why}: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „Ausgänge“ setzen.`);
   } else {
     const outside = headers.find((h) => h.id === entrance.outside_header);
     const name = outside ? ` ${headerLabel(outside)}` : "";

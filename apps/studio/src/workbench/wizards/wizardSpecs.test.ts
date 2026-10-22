@@ -211,6 +211,22 @@ describe("roomSpec", () => {
     expect("spec" in roomSpec(roomForm({ insideX: 40, connect: false }))).toBe(true);
   });
 
+  it("asks_for_the_door_outside_when_it_is_not_entered_yet", () => {
+    expect("error" in roomSpec(roomForm({ x: null }))).toBe(true);
+    expect("error" in roomSpec(roomForm({ z: null }))).toBe(true);
+    expect("spec" in roomSpec(roomForm({ x: null, z: null, connect: false }))).toBe(true);
+  });
+
+  it("refuses_a_door_outside_the_outside_headers_matrix", () => {
+    const size = { width: 2, height: 1 };
+    expect("spec" in roomSpec(roomForm({ x: 63, z: 31 }), size)).toBe(true);
+    expect(roomSpec(roomForm({ x: 64, z: 7 }), size)).toEqual({ error: "Kachel x 64, z 7 liegt außerhalb des Rasters (x 0 bis 63, z 0 bis 31)." });
+    expect("error" in roomSpec(roomForm({ x: 3, z: 32 }), size)).toBe(true);
+    expect("error" in roomSpec(roomForm({ x: -1 }), size)).toBe(true);
+    // An unknown matrix is not checked.
+    expect("spec" in roomSpec(roomForm({ x: 9999 }), null)).toBe(true);
+  });
+
   it("refuses_the_rooms_own_header_as_the_header_outside", () => {
     expect("error" in roomSpec(roomForm({ outsideHeader: 1 }))).toBe(true);
   });
@@ -230,6 +246,11 @@ describe("roomSummary", () => {
     expect(lines).toContain("Stellt Header 0001 „NOTHING“ auf das neue Raster um, Area-Data 0003, Eventdatei: neu, leer.");
     expect(lines[0]).toContain("Karte 0321");
     expect(lines[lines.length - 1]).toBe("Anlegen lässt sich nicht rückgängig machen.");
+  });
+
+  it("names_why_no_entrance_is_made", () => {
+    const lines = roomSummary({ ...spec, entrance: null }, known, "Eventdatei 0005 ist schreibgeschützt");
+    expect(lines.some((l) => l.startsWith("Legt keinen Eingang an (Eventdatei 0005 ist schreibgeschützt)"))).toBe(true);
   });
 
   it("says_that_nothing_is_connected_without_an_entrance", () => {

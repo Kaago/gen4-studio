@@ -14,7 +14,9 @@ interface Props {
   counts: MemberCounts;
   /** The matrix of the selected header: the area wizard copies from it unless the request names another. */
   selectedMatrix: number | null;
-  /** The tile the pointer was last over in the shown matrix (null: none yet): the room wizard puts its outside door there. */
+  /** The matrix the scene shows (null: none): `lastTile` is a tile of it. */
+  shownMatrix: number | null;
+  /** The tile the pointer was last over in the shown matrix (null: none yet): the room wizard starts its outside door there. */
   lastTile: () => { x: number; z: number } | null;
   onError: (e: unknown) => void;
 }
@@ -23,7 +25,7 @@ interface Props {
  * The open wizard, above the workbench (a modal over everything). It lives beside the workbench,
  * not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, links, counts, selectedMatrix, lastTile, onError }: Props) {
+export function WizardHost({ wizards, headers, matrices, links, counts, selectedMatrix, shownMatrix, lastTile, onError }: Props) {
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -49,6 +51,8 @@ export function WizardHost({ wizards, headers, matrices, links, counts, selected
           headers={headers}
           links={links}
           counts={counts}
+          matrices={matrices}
+          shownMatrix={shownMatrix}
           places={places}
           prefill={request.prefill}
           lastTile={lastTile}
