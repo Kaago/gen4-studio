@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { extendArea } from "../api";
 import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
@@ -37,6 +37,24 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
   const [headerCell, setHeaderCell] = useState(neighbour?.header ?? 0);
   const [working, setWorking] = useState(false);
 
+  // Escape cancels (not while the request runs) and the first control has the focus. Escape in a text
+  // field takes back what was typed there (see DraftInput); it must not also close the dialog.
+  const dialog = useRef<HTMLDivElement>(null);
+  const leave = useRef(onDone);
+  leave.current = onDone;
+  const running = useRef(working);
+  running.current = working;
+  useEffect(() => {
+    dialog.current?.querySelector<HTMLElement>("input, select, button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || running.current) return;
+      if (e.target instanceof HTMLElement && e.target.matches("textarea, select, input:not([type=radio]):not([type=checkbox])")) return;
+      leave.current(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const sourceMap = mode === "neighbour" && neighbour ? neighbour.map : picked;
 
   async function create() {
@@ -54,7 +72,7 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
 
   return (
     <div style={backdrop} role="presentation">
-      <div role="dialog" aria-modal="true" aria-label={`Karte bei x ${x}, y ${y} anlegen`} style={sheet}>
+      <div ref={dialog} role="dialog" aria-modal="true" aria-label={`Karte bei x ${x}, y ${y} anlegen`} style={sheet}>
         <div style={{ fontSize: 14, fontWeight: 600 }}>Karte bei x {x}, y {y} anlegen</div>
         <fieldset style={{ border: "none", padding: 0, margin: "8px 0" }} disabled={working}>
           {neighbour && (

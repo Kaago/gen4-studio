@@ -68,4 +68,44 @@ describe("ExtendAreaDialog", () => {
     expect(extendArea).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalledWith(null);
   });
+
+  const escape = (target: EventTarget = document) => act(async () => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+
+  it("puts_the_focus_on_the_first_control", async () => {
+    await show();
+    const first = container.querySelector("input");
+    expect(first?.type).toBe("radio");
+    expect(document.activeElement).toBe(first);
+  });
+
+  it("cancels_with_escape_without_calling_the_backend", async () => {
+    await show();
+    await escape();
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(onDone).toHaveBeenCalledWith(null);
+    expect(extendArea).not.toHaveBeenCalled();
+  });
+
+  it("cancels_with_escape_while_a_radio_button_has_the_focus", async () => {
+    await show();
+    await escape(container.querySelector("input")!);
+    expect(onDone).toHaveBeenCalledWith(null);
+  });
+
+  it("leaves_the_dialog_open_when_escape_is_pressed_in_a_text_field", async () => {
+    await show();
+    await escape(container.querySelector('input[aria-label^="Header-Zelle"]')!);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("ignores_escape_while_the_request_runs", async () => {
+    let finish!: (report: { map: number; width: number; height: number }) => void;
+    vi.mocked(extendArea).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await show();
+    await act(async () => button("Anlegen")?.click());
+    await escape();
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => finish({ map: 600, width: 3, height: 1 }));
+    expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
+  });
 });
