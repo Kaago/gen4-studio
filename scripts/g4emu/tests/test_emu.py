@@ -22,3 +22,33 @@ def test_bgrx_is_swapped_to_rgb():
     assert isinstance(img, Image.Image)
     assert img.mode == "RGB"
     assert [img.getpixel((0, 0)), img.getpixel((1, 0))] == [(1, 2, 3), (10, 20, 30)]
+
+
+class _NoFrameVideo:
+    def screenshot(self):
+        return None
+
+
+def _libretro_emu_without_core():
+    from g4emu.emu import _LibretroEmu
+
+    emu = _LibretroEmu.__new__(_LibretroEmu)  # skip __init__: no session needed for this branch
+    emu._video = _NoFrameVideo()
+    emu.frame = 0
+    return emu
+
+
+def test_screenshot_before_the_first_frame_is_black(tmp_path):
+    emu = _libretro_emu_without_core()
+    emu.screenshot(tmp_path / "a.png")
+    img = Image.open(tmp_path / "a.png")
+    assert img.size == (256, 384) and img.mode == "RGB"
+    assert img.getextrema() == ((0, 0), (0, 0), (0, 0))
+
+
+def test_screenshot_without_image_after_frames_is_an_error(tmp_path):
+    emu = _libretro_emu_without_core()
+    emu.frame = 5
+    with pytest.raises(EmuError, match="Noch kein Bild"):
+        emu.screenshot(tmp_path / "a.png")
+    assert not (tmp_path / "a.png").exists()

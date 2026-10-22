@@ -31,3 +31,15 @@ def test_symlink_into_roms_is_refused(tmp_path):
     link.symlink_to(roms)
     with pytest.raises(ValueError):
         check_out_dir(link / "x", roms)
+
+
+def test_same_file_with_a_missing_target(tmp_path):
+    from g4emu.paths import same_file
+
+    save = tmp_path / "in.sav"
+    save.write_bytes(b"x")
+    assert same_file(tmp_path / "other.sav", save) is False  # target does not exist yet
+    assert same_file(tmp_path / "in.sav", save) is True
+    assert same_file(tmp_path / "x.sav", None) is False
+    (tmp_path / "dangling").symlink_to(tmp_path / "nope")
+    assert same_file(tmp_path / "dangling", save) is False

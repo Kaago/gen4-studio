@@ -106,7 +106,10 @@ class _LibretroEmu:
 
     def screenshot(self, path: Path) -> None:
         shot = self._video.screenshot()
-        if shot is None:  # nothing rendered yet (frame 0): a black frame keeps last.png reliable
+        if shot is None:
+            if self.frame > 0:  # frames ran but no image arrived: the video driver is broken
+                raise EmuError(f"Noch kein Bild vorhanden (nach {self.frame} Bildern)")
+            # Frame 0: nothing rendered yet; a black frame keeps last.png reliable.
             Image.new("RGB", (SCREEN_WIDTH, SCREEN_HEIGHT)).save(path, format="PNG")
             return
         if shot.pixel_format.name != "XRGB8888":
