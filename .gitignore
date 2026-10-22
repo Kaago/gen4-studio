@@ -6,3 +6,4 @@ tools/
 .DS_Store
 apps/studio/src-tauri/binaries/
 apps/studio/src-tauri/frameworks/
+.superpowers/
