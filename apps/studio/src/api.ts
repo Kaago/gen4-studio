@@ -386,20 +386,29 @@ export interface AssetId {
 /**
  * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only".
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
+ * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile";
   message: string;
   asset: AssetId | null;
+  /** The problems behind a "compile" error; empty for every other code. */
+  problems: ProblemDto[];
 }
 
 export function isCmdError(e: unknown): e is CmdError {
   if (typeof e !== "object" || e === null) return false;
   const o = e as Record<string, unknown>;
   return (
-    (o.code === "stale" || o.code === "read_only" || o.code === "tool_missing" || o.code === "partial" || o.code === "error") &&
+    (o.code === "stale" ||
+      o.code === "read_only" ||
+      o.code === "tool_missing" ||
+      o.code === "partial" ||
+      o.code === "error" ||
+      o.code === "compile") &&
     typeof o.message === "string" &&
-    (o.asset === null || typeof o.asset === "object")
+    (o.asset === null || typeof o.asset === "object") &&
+    (o.problems === undefined || Array.isArray(o.problems))
   );
 }
 
@@ -425,6 +434,12 @@ export interface BuildReport {
   /** Asset kinds that were packed (every kind the project has an archive for, by unpacked folder name) with their member counts. */
   packed: [string, number][];
   rom: string;
+  /** Script files compiled before packing. */
+  compiled: number[];
+  /** Text archives encoded before packing. */
+  encoded: number[];
+  /** Warnings of the pre-build save, the compile and the text encoding; `source` tells them apart. */
+  problems: ProblemDto[];
 }
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>

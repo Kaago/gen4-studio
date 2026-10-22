@@ -754,6 +754,15 @@ fn problems_in(
 /// `Main #1` (or an empty level script), compiled so the member exists. A failure removes
 /// the source again.
 pub fn new_script_file(project: &Project, kind: SourceKind) -> Result<u16, KernelError> {
+    new_script_file_reported(project, kind).map(|(file, _)| file)
+}
+
+/// [`new_script_file`] that also names the text archives its compile changed
+/// ([`CompileReport::touched_archives`]), for a store that must reload them.
+pub fn new_script_file_reported(
+    project: &Project,
+    kind: SourceKind,
+) -> Result<(u16, Vec<u16>), KernelError> {
     let source = match kind {
         SourceKind::Script => ScriptSource::Rotom("script Main #1:\n\tEnd\n".to_owned()),
         SourceKind::LevelScript => ScriptSource::LevelScript(LevelScriptDoc::default()),
@@ -788,7 +797,7 @@ pub fn new_script_file(project: &Project, kind: SourceKind) -> Result<u16, Kerne
         }
         return Err(KernelError::Compile(problems));
     }
-    Ok(file)
+    Ok((file, report.touched_archives))
 }
 
 /// The script slots (`#n`) a rotom source declares, with the span of their statement.
@@ -817,6 +826,12 @@ fn declared_slots(text: &str) -> Vec<(u32, std::ops::Range<usize>)> {
 /// Appends `\nscript script_<N> #<N>:\n\tEnd\n` with N one above the highest `#n`, writes and
 /// compiles; returns N. A compile error in the file puts the old text back.
 pub fn add_script(project: &Project, file: u16) -> Result<u16, KernelError> {
+    add_script_reported(project, file).map(|(n, _)| n)
+}
+
+/// [`add_script`] that also names the text archives its compile changed
+/// ([`CompileReport::touched_archives`]), for a store that must reload them.
+pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16>), KernelError> {
     let ScriptSource::Rotom(text) = read_source(project, file)? else {
         return Err(KernelError::InvalidProject(format!(
             "script file {file:04} is not a script"
@@ -842,7 +857,7 @@ pub fn add_script(project: &Project, file: u16) -> Result<u16, KernelError> {
         restore(project);
         return Err(KernelError::Compile(errors));
     }
-    Ok(n)
+    Ok((n, report.touched_archives))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -960,7 +975,7 @@ pub fn resolve_script(
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct SearchHit {
     pub file: u16,
     pub line: u32,

@@ -33,6 +33,14 @@ describe("isCmdError", () => {
     expect(isCmdError("plain string")).toBe(false);
   });
 
+  it("accepts the compile code with its problems", () => {
+    const problem = { severity: "error", file: "expanded/scripts/0000.rotom", line: 2, col: 5, message: "m", source: "compile" };
+    const error = { code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem] };
+    expect(isCmdError(error)).toBe(true);
+    expect(isCmdError({ ...error, problems: [] })).toBe(true);
+    expect(isCmdError({ ...error, problems: "none" })).toBe(false);
+  });
+
   it("rejects objects of the wrong shape", () => {
     expect(isCmdError(null)).toBe(false);
     expect(isCmdError({ code: "other", message: "m", asset: null })).toBe(false);

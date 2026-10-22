@@ -469,6 +469,22 @@ fn build_compiles_stale_scripts_before_packing() {
 }
 
 #[test]
+fn prepare_reports_text_archives_a_script_literal_touched() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    scripts::write_source(
+        &p,
+        0,
+        &ScriptSource::Rotom("script Main #1:\n    Message \"Hallo Welt\"\n    End\n".into()),
+    )
+    .unwrap();
+    let pre = prepare(&p).unwrap();
+    assert_eq!(pre.compiled, [0], "{pre:?}");
+    assert_eq!(pre.touched_archives, [433], "{pre:?}");
+}
+
+#[test]
 fn build_encodes_stale_text_json() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();

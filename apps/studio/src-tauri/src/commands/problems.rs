@@ -36,12 +36,37 @@ impl ProblemDto {
             source,
         }
     }
+
+    /// Like [`ProblemDto::from_kernel`], with `source` taken from where the problem comes
+    /// from: a file below `expanded/scripts/` is a compile problem, anything else (the text
+    /// JSON below `expanded/textArchives/`) a text problem. Kernel problems carry no source of
+    /// their own, so every caller that mixes both steps (build, the compile error) uses this.
+    pub fn by_origin(problem: &Problem, root: &Path) -> ProblemDto {
+        let relative = problem.file.strip_prefix(root).unwrap_or(&problem.file);
+        let source = if relative.starts_with("expanded/scripts") {
+            "compile"
+        } else {
+            "text"
+        };
+        ProblemDto::from_kernel(problem, root, source)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn origin_decides_the_source() {
+        let root = Path::new("/p/root");
+        let by = |file: &str| ProblemDto::by_origin(&problem(file, Severity::Error), root).source;
+        assert_eq!(by("expanded/scripts/0001.rotom"), "compile");
+        assert_eq!(by("/p/root/expanded/scripts/0001.rotom"), "compile");
+        assert_eq!(by("expanded/textArchives/0433.json"), "text");
+        assert_eq!(by("/p/root/expanded/textArchives/0433.json"), "text");
+        assert_eq!(by(""), "text");
+    }
 
     fn problem(file: &str, severity: Severity) -> Problem {
         Problem {

@@ -13,14 +13,17 @@ use crate::text::{self, Problem, Severity};
 
 /// What `build` did: the asset kinds whose unpacked folder was packed (with their member
 /// count; archives whose bytes did not change are counted but not rewritten), the ROM, the
-/// script members compiled and the text archives encoded before packing, and the warnings
-/// those steps raised.
+/// script members compiled and the text archives encoded before packing, the text archives
+/// whose JSON a script's text literal changed, and the warnings those steps raised.
 #[derive(Debug)]
 pub struct BuildReport {
     pub packed: Vec<(AssetKind, usize)>,
     pub rom: PathBuf,
     pub compiled: Vec<u16>,
     pub encoded: Vec<u16>,
+    /// Text archives a compiled script appended messages to (see
+    /// [`scripts::CompileReport::touched_archives`]); a store that holds them must reload.
+    pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
 }
 
@@ -29,6 +32,7 @@ pub struct BuildReport {
 pub struct Prepared {
     pub compiled: Vec<u16>,
     pub encoded: Vec<u16>,
+    pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
 }
 
@@ -41,6 +45,7 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     if scripts::is_adopted(project) {
         let report = scripts::compile(project)?;
         prepared.compiled = report.compiled;
+        prepared.touched_archives = report.touched_archives;
         prepared.problems = report.problems;
     }
     let (encoded, problems) = text::encode_stale(project)?;
@@ -201,6 +206,7 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
         rom: out_rom.to_path_buf(),
         compiled: prepared.compiled,
         encoded: prepared.encoded,
+        touched_archives: prepared.touched_archives,
         problems: prepared.problems,
     })
 }

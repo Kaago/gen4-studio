@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use g4_kernel::build::build;
+use g4_kernel::build::{BuildReport, build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::sprites::SpriteCache;
@@ -47,12 +47,17 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
 }
 
 /// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds (by
-/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, and the ROM path.
+/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, the ROM path,
+/// the script files compiled and the text archives encoded before packing, and the warnings
+/// of the pre-build save and of those two steps (`source` tells them apart).
 #[derive(Debug, Serialize)]
 pub struct BuildDto {
     pub saved: usize,
     pub packed: Vec<(String, usize)>,
     pub rom: String,
+    pub compiled: Vec<u16>,
+    pub encoded: Vec<u16>,
+    pub problems: Vec<ProblemDto>,
 }
 
 /// Member count of every asset kind the project has an archive for (the header table counts
@@ -131,19 +136,67 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 }
 
 /// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. The
-/// state lock is held only for the save, not for the ds-rom build.
+/// state lock is held only for the save and the reload afterwards, not for the ds-rom build.
+/// Scripts that need it are compiled and texts encoded first (see `g4_kernel::build::prepare`):
+/// an error there is `CmdError { code: "compile" }` and nothing is packed. Text archives the
+/// compile appended messages to are loaded again in the store.
 pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError> {
-    let (project, saved) = {
+    let (project, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
-        let saved = if session.store.dirty().is_empty() {
-            0
+        let (saved, problems) = if session.store.dirty().is_empty() {
+            (0, Vec::new())
         } else {
-            session.store.save()?.written.len()
+            let report = session.store.save()?;
+            let root = &session.project.root;
+            let warnings = report
+                .problems
+                .iter()
+                .map(|p| ProblemDto::from_kernel(p, root, "text"))
+                .collect();
+            (report.written.len(), warnings)
         };
-        (Arc::clone(&session.project), saved)
+        (Arc::clone(&session.project), saved, problems)
     };
     let report = build(&project, Path::new(out)).map_err(CmdError::from)?;
+    build_dto(state, &project, report, saved, problems)
+}
+
+/// The result of a finished build; reloads the text archives its compile changed.
+fn build_dto(
+    state: &AppState,
+    project: &Project,
+    report: BuildReport,
+    saved: usize,
+    mut problems: Vec<ProblemDto>,
+) -> Result<BuildDto, CmdError> {
+    problems.extend(
+        report
+            .problems
+            .iter()
+            .map(|p| ProblemDto::by_origin(p, &project.root)),
+    );
+    if !report.touched_archives.is_empty() {
+        // The ROM is built: a failed reload is a warning, not a failed build.
+        let mut guard = lock(state)?;
+        let store = &mut session(&mut guard)?.store;
+        for &index in &report.touched_archives {
+            let id = AssetId {
+                kind: AssetKind::TextArchive,
+                index,
+            };
+            if let Err(e) = store.reload_from_disk(id) {
+                problems.push(ProblemDto {
+                    severity: "warning",
+                    file: format!("expanded/textArchives/{index:04}.json"),
+                    line: 1,
+                    col: 1,
+                    message: format!("Textarchiv {index:04} konnte nicht neu geladen werden: {e}"),
+                    source: "text",
+                });
+            }
+        }
+    }
     Ok(BuildDto {
         saved,
         packed: report
@@ -152,6 +205,9 @@ pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError>
             .map(|(kind, count)| (project.archives.unpacked_name(*kind).to_owned(), *count))
             .collect(),
         rom: report.rom.display().to_string(),
+        compiled: report.compiled,
+        encoded: report.encoded,
+        problems,
     })
 }
 
@@ -309,6 +365,91 @@ mod tests {
         let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
         assert!(err.message.contains("changed on disk"), "{}", err.message);
         assert!(!out.exists());
+    }
+
+    #[test]
+    fn build_with_a_compile_error_is_code_compile_and_packs_nothing() {
+        let (fixture, state) = open_synthetic();
+        scripts::adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        scripts::save_script_impl(&state, 0, "script Main #1:\n    NoSuch\n    End\n".into())
+            .unwrap();
+        let out = fixture.dir.path().join("out/rom.nds");
+        let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.code, "compile");
+        assert_eq!(err.message, "1 Fehler in Scripts oder Texten");
+        assert_eq!(err.problems.len(), 1, "{:?}", err.problems);
+        let problem = &err.problems[0];
+        assert_eq!(
+            (problem.source, problem.file.as_str(), problem.line),
+            ("compile", "expanded/scripts/0000.rotom", 2)
+        );
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn build_result_maps_problems_by_origin_and_reloads_touched_archives() {
+        use g4_kernel::text::{Problem, Severity};
+        let (fixture, state) = open_synthetic();
+        let project = Arc::clone(&lock(&state).unwrap().as_ref().unwrap().project);
+        assert_eq!(
+            get_text_archive_impl(&state, 433).unwrap().messages.len(),
+            3
+        );
+        // A compile changed the JSON behind the store's back.
+        let json = fixture.dir.path().join("expanded/textArchives/0433.json");
+        std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+        let doc = g4_kernel::text::TextArchiveDoc::from_member(
+            &std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
+            "en_US",
+        )
+        .unwrap();
+        let mut doc = doc;
+        doc.messages.push(g4_kernel::text::TextMessage {
+            id: "msg_00003".into(),
+            text: "Neu".into(),
+            other: Default::default(),
+        });
+        std::fs::write(&json, doc.to_json()).unwrap();
+
+        let warning = |file: &str| Problem {
+            severity: Severity::Warning,
+            file: file.into(),
+            line: 1,
+            col: 1,
+            message: "w".into(),
+        };
+        let report = BuildReport {
+            packed: vec![(AssetKind::Map, 3)],
+            rom: "out.nds".into(),
+            compiled: vec![0],
+            encoded: vec![7],
+            touched_archives: vec![433],
+            problems: vec![
+                warning("expanded/scripts/0000.rotom"),
+                warning("expanded/textArchives/0007.json"),
+            ],
+        };
+        let pre_save = ProblemDto::from_kernel(
+            &warning("expanded/textArchives/0433.json"),
+            &project.root,
+            "text",
+        );
+        let dto = build_dto(&state, &project, report, 2, vec![pre_save]).unwrap();
+        assert_eq!(
+            (dto.saved, dto.compiled.clone(), dto.encoded.clone()),
+            (2, vec![0], vec![7])
+        );
+        let sources: Vec<_> = dto.problems.iter().map(|p| p.source).collect();
+        assert_eq!(sources, ["text", "compile", "text"]);
+        assert_eq!(dto.packed, [("maps".to_owned(), 3)]);
+        let texts: Vec<_> = get_text_archive_impl(&state, 433)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.text)
+            .collect();
+        assert_eq!(texts.last().map(String::as_str), Some("Neu"));
+        assert!(dirty_impl(&state).unwrap().is_empty());
     }
 
     fn corrupt_map_member_on_disk(fixture: &g4_kernel::test_support::Synthetic) {
