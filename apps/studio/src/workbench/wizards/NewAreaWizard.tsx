@@ -7,9 +7,10 @@ import { DraftInput } from "../DraftInput";
 import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import { HeaderChoice } from "./HeaderChoice";
+import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, isLateFailure, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
 interface Props {
@@ -26,9 +27,6 @@ interface Props {
 }
 
 type Outcome = { kind: "done"; report: AreaReport; spec: AreaSpec } | { kind: "partial"; message: string };
-
-/** The backend's error for a run that failed after it had created members: "matrix 0131 and maps … were created; header edit failed: …". */
-const LATE_FAILURE = /^(?!nothing was created).*\b(?:was|were) created; .* failed: /s;
 
 /** Above this many cells the preview is left out (a 255 × 255 grid would be 65,025 buttons). */
 const PREVIEW_CELLS = 1024;
@@ -100,7 +98,7 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (LATE_FAILURE.test(text)) setOutcome({ kind: "partial", message: text });
+      if (isLateFailure(text)) setOutcome({ kind: "partial", message: text });
       else onError(e);
     } finally {
       setBusy(false);
@@ -223,37 +221,10 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
 
   let result = null;
   if (outcome?.kind === "done") {
-    const { lines, next } = areaResult(outcome.report, outcome.spec);
     const { report, spec } = outcome;
-    result = (
-      <div>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Gebiet angelegt</div>
-        {lines.map((line) => (
-          <p key={line} style={{ margin: "4px 0" }}>
-            {line}
-          </p>
-        ))}
-        <div style={{ fontWeight: 600, margin: "10px 0 4px" }}>Als Nächstes</div>
-        <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {next.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-        <button type="button" disabled={busy} onClick={() => void show(report, spec)} style={{ marginTop: 12 }}>
-          Im Studio zeigen
-        </button>
-      </div>
-    );
+    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec)} busy={busy} onShow={() => void show(report, spec)} />;
   } else if (outcome?.kind === "partial") {
-    result = (
-      <div>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Anlegen unterbrochen</div>
-        <p style={{ margin: "4px 0" }}>{outcome.message}</p>
-        <p style={{ margin: "4px 0" }}>
-          Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen. Den Rest im {TERMS.matrix.label}-Tab und im {TERMS.header.label}-Editor von Hand fertigstellen.
-        </p>
-      </div>
-    );
+    result = <PartialResult message={outcome.message} />;
   }
 
   return (

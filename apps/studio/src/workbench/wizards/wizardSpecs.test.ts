@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AreaReport, AreaSpec, HeaderSummary, MatrixDto } from "../../api";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
-import type { AreaForm } from "./wizardSpecs";
+import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import type { AreaForm, RoomForm } from "./wizardSpecs";
 
 const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event });
 const headers = [header(0, "ZERO"), header(1, "NOTHING"), header(2, "TWO", 5, 7, 9)];
@@ -169,5 +169,119 @@ describe("parseMapList", () => {
     expect(parseMapList("7, 8 9", 600)).toEqual({ maps: [7, 8, 9], invalid: [] });
     expect(parseMapList("7, x, 700, 2.5", 600)).toEqual({ maps: [7], invalid: ["x", "700", "2.5"] });
     expect(parseMapList("  ", 600)).toEqual({ maps: [], invalid: [] });
+  });
+});
+
+const roomForm = (change: Partial<RoomForm> = {}): RoomForm => ({ ...emptyRoomForm, template: 7, templateMap: 321, header: 1, outsideHeader: 0, x: 12, z: 7, ...change });
+const place = (id: number, location: string, internal: string): HeaderSummary => ({ ...header(id, internal), location_name: location });
+
+describe("roomSpec", () => {
+  it("asks_for_a_template_first", () => {
+    expect(roomSpec(roomForm({ template: null }))).toEqual({ error: "Vorlage wählen." });
+    expect(roomSpec(roomForm({ templateMap: null }))).toEqual({ error: "Vorlage wählen." });
+  });
+
+  it("asks_for_the_header_and_for_the_outside_header_only_when_connecting", () => {
+    expect(roomSpec(roomForm({ header: null }))).toEqual({ error: "Header wählen." });
+    expect(roomSpec(roomForm({ outsideHeader: null }))).toEqual({ error: "Außen-Header wählen." });
+    expect("spec" in roomSpec(roomForm({ outsideHeader: null, connect: false }))).toBe(true);
+  });
+
+  it("builds_the_request_with_the_entrance", () => {
+    const built = roomSpec(roomForm({ name: " Haus ", areaDataId: 3, eventFile: { Copy: 9 }, clearBuildings: true, insideX: 5, insideZ: 6 }));
+    expect(built).toEqual({
+      spec: {
+        name: "Haus",
+        source_map: 321,
+        clear_buildings: true,
+        header: { id: 1, area_data_id: 3, event_file: { Copy: 9 } },
+        entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6 },
+      },
+    });
+  });
+
+  it("makes_no_entrance_when_connecting_later", () => {
+    const built = roomSpec(roomForm({ connect: false }));
+    expect("spec" in built && built.spec.entrance).toBeNull();
+  });
+
+  it("refuses_an_inside_tile_off_the_map_but_only_when_connecting", () => {
+    expect(roomSpec(roomForm({ insideX: 40 }))).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
+    expect(roomSpec(roomForm({ insideZ: -1 }))).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
+    expect("spec" in roomSpec(roomForm({ insideX: 40, connect: false }))).toBe(true);
+  });
+
+  it("refuses_the_rooms_own_header_as_the_header_outside", () => {
+    expect("error" in roomSpec(roomForm({ outsideHeader: 1 }))).toBe(true);
+  });
+
+  it("refuses_an_empty_name", () => {
+    expect(roomSpec(roomForm({ name: "  " }))).toEqual({ error: "Name darf nicht leer sein." });
+  });
+});
+
+describe("roomSummary", () => {
+  const spec: RoomSpec = { name: "Haus", source_map: 321, clear_buildings: false, header: { id: 1, area_data_id: 3, event_file: "New" }, entrance: { outside_header: 411, x: 12, z: 7, inside_x: 16, inside_z: 30 } };
+  const known = [header(1, "NOTHING"), place(411, "Zweiblattdorf", "T01")];
+
+  it("names_the_connection_and_the_header_it_changes", () => {
+    const lines = roomSummary(spec, known);
+    expect(lines).toContain("Verbindet 0411 Zweiblattdorf (Kachel x 12, z 7) mit dem neuen Raum.");
+    expect(lines).toContain("Stellt Header 0001 „NOTHING“ auf das neue Raster um, Area-Data 0003, Eventdatei: neu, leer.");
+    expect(lines[0]).toContain("Karte 0321");
+    expect(lines[lines.length - 1]).toBe("Anlegen lässt sich nicht rückgängig machen.");
+  });
+
+  it("says_that_nothing_is_connected_without_an_entrance", () => {
+    const lines = roomSummary({ ...spec, entrance: null }, known);
+    expect(lines.some((l) => l.startsWith("Verbindet"))).toBe(false);
+    expect(lines.some((l) => l.startsWith("Legt keinen Eingang an"))).toBe(true);
+  });
+});
+
+describe("roomResult", () => {
+  const spec: RoomSpec = { name: "Haus", source_map: 321, clear_buildings: false, header: { id: 1, area_data_id: null, event_file: "New" }, entrance: { outside_header: 411, x: 12, z: 7, inside_x: 16, inside_z: 30 } };
+  const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0 };
+
+  it("lists_what_was_made_and_the_warps", () => {
+    const { lines, next } = roomResult(report, spec);
+    expect(lines[0]).toBe("Raum „Haus“ angelegt: Raster 0131, Karte 0571.");
+    expect(lines[1]).toBe("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0020.");
+    expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 im neuen Raum.");
+    expect(next[0]).toContain("Emulator");
+  });
+
+  it("points_to_the_exits_section_when_no_entrance_was_made", () => {
+    const { lines, next } = roomResult({ ...report, outside_warp: null, inside_warp: null }, { ...spec, entrance: null });
+    expect(lines).toHaveLength(2);
+    expect(next[0]).toContain("Ausgänge");
+  });
+});
+
+describe("templateWarp", () => {
+  const events = (warps: { x: number; z: number }[]): EventsDto => ({
+    event_file_id: 1,
+    locked: null,
+    bg: [],
+    objects: [],
+    coords: [],
+    warps: warps.map((w, index) => ({ index, ...w, dest_header_id: 0, dest_warp_id: 0, height: 0 })),
+  });
+
+  it("is_the_position_of_the_first_warp", () => {
+    expect(templateWarp(events([{ x: 3, z: 9 }, { x: 5, z: 5 }]))).toEqual({ x: 3, z: 9 });
+  });
+
+  it("is_null_without_warps_or_events", () => {
+    expect(templateWarp(events([]))).toBeNull();
+    expect(templateWarp(null)).toBeNull();
+  });
+});
+
+describe("isLateFailure", () => {
+  it("tells_a_failure_after_creating_from_one_before", () => {
+    expect(isLateFailure("map 0571 and matrix 0131 were created; header edit failed: boom")).toBe(true);
+    expect(isLateFailure("nothing was created; x failed: y")).toBe(false);
+    expect(isLateFailure("map 9999 does not exist (the game has 600)")).toBe(false);
   });
 });

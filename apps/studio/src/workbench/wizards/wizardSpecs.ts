@@ -1,4 +1,4 @@
-import type { AreaCell, AreaReport, AreaSpec, EventFileChoice, HeaderSummary, MatrixDto } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
 
@@ -94,20 +94,23 @@ const eventFileText = (choice: EventFileChoice): string => {
   return `Kopie von ${id4(choice.Copy)}`;
 };
 
+/** The sentence for the header a wizard points at the new matrix: area data and event file included. */
+function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): string {
+  const assigned = headers.find((h) => h.id === assign.id);
+  const name = assigned ? ` „${headerLabel(assigned)}“` : "";
+  const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
+  return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
+}
+
+const NOT_UNDOABLE = "Anlegen lässt sich nicht rückgängig machen.";
+
 /** What "Anlegen" will do, one sentence per line, for the last step. */
 export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[]): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
   const copies = spec.cells.map((c) => `${TERMS.map.label} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
   lines.push(`Kopiert ${copies}, ${spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden"}.`);
-  if (spec.header === null) {
-    lines.push(`Stellt keinen ${TERMS.header.label} um.`);
-  } else {
-    const assigned = headers.find((h) => h.id === spec.header?.id);
-    const name = assigned ? ` „${headerLabel(assigned)}“` : "";
-    const area = spec.header.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(spec.header.area_data_id)}`;
-    lines.push(`Stellt ${TERMS.header.label} ${id4(spec.header.id)}${name} auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${eventFileText(spec.header.event_file)}.`);
-  }
-  lines.push("Anlegen lässt sich nicht rückgängig machen.");
+  lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers));
+  lines.push(NOT_UNDOABLE);
   return lines;
 }
 
@@ -171,4 +174,115 @@ export function parseMapList(text: string, mapMax: number): { maps: number[]; in
     else invalid.push(entry);
   }
   return { maps, invalid };
+}
+
+/** The backend's error for a run that failed after it had created members: "matrix 0131 and maps … were created; header edit failed: …". */
+const LATE_FAILURE = /^(?!nothing was created).*\b(?:was|were) created; .* failed: /s;
+
+/** Whether a wizard's error says that members stayed behind (the wizard cannot repair them; the result step says so). */
+export const isLateFailure = (text: string): boolean => LATE_FAILURE.test(text);
+
+/** What the "Raum anlegen" wizard edits. `template` is the room's header, `templateMap` the map it is copied from. */
+export interface RoomForm {
+  name: string;
+  template: number | null;
+  templateMap: number | null;
+  clearBuildings: boolean;
+  header: number | null;
+  areaDataId: number | null;
+  eventFile: EventFileChoice;
+  /** The entrance is made now (off: the room is connected later). */
+  connect: boolean;
+  outsideHeader: number | null;
+  /** The door outside, a tile of the outside header's matrix. */
+  x: number;
+  z: number;
+  /** The door inside, a tile of the room's map. */
+  insideX: number;
+  insideZ: number;
+}
+
+export const emptyRoomForm: RoomForm = {
+  name: "Neuer Raum",
+  template: null,
+  templateMap: null,
+  clearBuildings: false,
+  header: null,
+  areaDataId: null,
+  eventFile: "New",
+  connect: true,
+  outsideHeader: null,
+  x: 0,
+  z: 0,
+  insideX: 16,
+  insideZ: 30,
+};
+
+/** The last tile of a map (a map is 32 × 32 tiles). */
+export const MAP_LAST_TILE = 31;
+
+/** The backend request for the form, or what is wrong with it. */
+export function roomSpec(form: RoomForm): { spec: RoomSpec } | { error: string } {
+  if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
+  const name = form.name.trim();
+  if (name === "") return { error: "Name darf nicht leer sein." };
+  if (form.header === null) return { error: `${TERMS.header.label} wählen.` };
+  if (form.connect) {
+    const inside = [form.insideX, form.insideZ];
+    if (inside.some((n) => !Number.isInteger(n) || n < 0 || n > MAP_LAST_TILE)) return { error: `Kachel liegt außerhalb der Karte (0 bis ${MAP_LAST_TILE}).` };
+    if (form.outsideHeader === null) return { error: `Außen-${TERMS.header.label} wählen.` };
+    if (form.outsideHeader === form.header) return { error: `Der Außen-${TERMS.header.label} darf nicht der ${TERMS.header.label} des neuen ${TERMS.room.label}s sein.` };
+  }
+  return {
+    spec: {
+      name,
+      source_map: form.templateMap,
+      clear_buildings: form.clearBuildings,
+      header: { id: form.header, area_data_id: form.areaDataId, event_file: form.eventFile },
+      entrance:
+        form.connect && form.outsideHeader !== null
+          ? { outside_header: form.outsideHeader, x: form.x, z: form.z, inside_x: form.insideX, inside_z: form.insideZ }
+          : null,
+    },
+  };
+}
+
+/** What "Anlegen" will do, one sentence per line, for the last step. */
+export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[]): string[] {
+  const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ mit einer Kopie von ${TERMS.map.label} ${id4(spec.source_map)} an, ${spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden"}.`];
+  lines.push(assignLine(spec.header, headers));
+  const entrance = spec.entrance;
+  if (entrance === null) {
+    lines.push(`Legt keinen Eingang an: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „Ausgänge“ setzen.`);
+  } else {
+    const outside = headers.find((h) => h.id === entrance.outside_header);
+    const name = outside ? ` ${headerLabel(outside)}` : "";
+    lines.push(`Verbindet ${id4(entrance.outside_header)}${name} (Kachel x ${entrance.x}, z ${entrance.z}) mit dem neuen ${TERMS.room.label}.`);
+    lines.push(`Der Rückweg liegt im neuen ${TERMS.room.label} auf Kachel x ${entrance.inside_x}, z ${entrance.inside_z}.`);
+  }
+  lines.push(NOT_UNDOABLE);
+  return lines;
+}
+
+/** What `create_room` made, in words, and where to go on from there. */
+export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[]; next: string[] } {
+  const lines = [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.matrix.label} ${id4(report.matrix)}, ${TERMS.map.label} ${id4(report.map)}.`];
+  const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
+  lines.push(`${TERMS.header.label} ${id4(spec.header.id)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
+  if (spec.entrance !== null && report.outside_warp !== null && report.inside_warp !== null) {
+    lines.push(`Eingang: Warp ${report.outside_warp} in ${TERMS.header.label} ${id4(spec.entrance.outside_header)}, Rückweg: Warp ${report.inside_warp} im neuen ${TERMS.room.label}.`);
+  }
+  return {
+    lines,
+    next:
+      spec.entrance === null
+        ? [`Eingang verbinden: ${TERMS.header.label}-Editor › Ausgänge › Warp hinzufügen`, `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]
+        : ["Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen", `Innenraum einrichten: Objekte und Trigger im ${TERMS.header.label}-Editor`],
+  };
+}
+
+/** Where the first warp of the template room is: the door the player leaves by, and so a good place for the way back in the new room. */
+export function templateWarp(events: EventsDto | null): { x: number; z: number } | null {
+  const first = events?.warps[0];
+  return first ? { x: first.x, z: first.z } : null;
 }

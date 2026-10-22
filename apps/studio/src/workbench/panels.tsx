@@ -154,6 +154,9 @@ export function InspectorPanel() {
         revision: headerRevision,
         onChanged: d.onHeaderChanged,
         goTo: d.goTo,
+        eventRevision,
+        onOpenWizard: d.onOpenWizard,
+        onAddWarp: () => void d.onAddEvent("warp"),
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}

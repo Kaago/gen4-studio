@@ -3,6 +3,8 @@ import { getHeader, headerFamily, setHeader } from "../../api";
 import type { HeaderSummary, MapHeader, MemberCounts } from "../../api";
 import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
+import type { WizardRequest } from "../WorkbenchContext";
+import { ExitsSection } from "./ExitsSection";
 import { Field } from "./Field";
 import { fieldValue, headerFieldSpecs, pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
@@ -18,6 +20,12 @@ export interface HeaderEditorContext {
   onChanged: () => void | Promise<void>;
   /** Follows a link (area data, matrix panel). */
   goTo: (target: NavTarget) => void;
+  /** Changes whenever events were changed behind the exits section's back (a drag, add, delete, undo, redo). */
+  eventRevision: number;
+  /** Opens a wizard ("Raum hier anbinden…"). */
+  onOpenWizard: (request: WizardRequest) => void;
+  /** Adds a warp to the selected header's event file. */
+  onAddWarp: () => void;
   onError: (e: unknown) => void;
 }
 
@@ -26,7 +34,7 @@ export interface HeaderEditorContext {
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context }: { id: number; context: HeaderEditorContext }) {
-  const { headers, counts, revision, onChanged, goTo, onError } = context;
+  const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -88,6 +96,9 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
             Matrix {String(fieldValue(header, "matrix_id")).padStart(4, "0")} öffnen
           </button>
         </div>
+      )}
+      {summary && (
+        <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
       )}
       <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>Neue Header lassen sich in Vanilla-ROMs nicht anlegen.</p>
     </div>

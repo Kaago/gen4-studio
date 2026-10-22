@@ -53,6 +53,10 @@ export default function App() {
     onCreated: async (made) => {
       await session.onCountsChanged();
       bus.emit({ topic: "matrixData" });
+      // A room's entrance adds a warp to the event file of the header outside, which may be the one shown.
+      bus.emit({ topic: "eventData" });
+      const shownFile = scene.headersRef.current.find((h) => h.id === scene.selectedRef.current)?.event_file_id;
+      if (shownFile !== undefined) bus.emit({ topic: "eventsRefetch", file: shownFile });
       showAfterSync.current = made && made.header !== null ? { ...made, header: made.header } : null;
       await Promise.all([scene.syncHeaders(), session.refreshDirty()]);
       if (made && made.header === null) session.setMessage({ kind: "info", text: made.announcement });
@@ -117,6 +121,7 @@ export default function App() {
         links={overview.links}
         counts={session.counts}
         selectedMatrix={scene.headers.find((h) => h.id === scene.selected)?.matrix_id ?? null}
+        lastTile={world.lastMatrixTile}
         onError={session.fail}
       />
     </main>
