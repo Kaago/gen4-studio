@@ -34,6 +34,19 @@ pub const PT_DYNAMIC_HEADER_REFERENCES: [(usize, usize); 20] = [
     (0x3A212, 0x3A224),
 ];
 
+/// Where the Platinum US (CPUE) routine of the Dynamic Headers patch calls: the function that
+/// loads a NARC member and the one that frees it (file offsets in `arm9.bin`).
+pub const PT_DYNAMIC_HEADER_LOAD: usize = 0x6AC0;
+pub const PT_DYNAMIC_HEADER_FREE: usize = 0x181C4;
+/// The first bytes of those two functions, as they are in Platinum DE and HeartGold DE/US.
+pub const DYNAMIC_HEADER_LOAD_SIGNATURE: [u8; 24] = [
+    0x10, 0xB5, 0x82, 0xB0, 0x00, 0x23, 0x00, 0x93, 0x84, 0x00, 0x03, 0x48, 0x01, 0x93, 0x00, 0x59,
+    0xFF, 0xF7, 0x6A, 0xFF, 0x02, 0xB0, 0x10, 0xBD,
+];
+pub const DYNAMIC_HEADER_FREE_SIGNATURE: [u8; 16] = [
+    0xF8, 0xB5, 0x06, 0x1C, 0x30, 0x1F, 0x00, 0x68, 0x00, 0x06, 0x04, 0x0E, 0x18, 0x48, 0x81, 0x8A,
+];
+
 pub struct Synthetic {
     pub dir: tempfile::TempDir,
 }
@@ -134,6 +147,11 @@ pub fn synthetic_project() -> Synthetic {
         let address = 0x0200_0000 + PT_HEADER_TABLE_CPUE as u32 + k as u32;
         arm9[literal..literal + 4].copy_from_slice(&address.to_le_bytes());
     }
+    // The two functions the patch's routine calls.
+    arm9[PT_DYNAMIC_HEADER_LOAD..PT_DYNAMIC_HEADER_LOAD + 24]
+        .copy_from_slice(&DYNAMIC_HEADER_LOAD_SIGNATURE);
+    arm9[PT_DYNAMIC_HEADER_FREE..PT_DYNAMIC_HEADER_FREE + 16]
+        .copy_from_slice(&DYNAMIC_HEADER_FREE_SIGNATURE);
     write_file(root, "arm9/arm9.bin", &arm9);
     // The vanilla header container of the patch: DSPRE unpacks it into `unpacked/dynamicHeaders`.
     write_narc(

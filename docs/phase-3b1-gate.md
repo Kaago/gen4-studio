@@ -57,6 +57,10 @@ HeartGold DE (Kopie `hg-3b1`), die Kurzfassung:
 - [ ] 16. Kopie `hg-3b1` öffnen, "+ Neu" → "Gebiet anlegen…" mit einem beliebigen Quell-Header, im Schritt Header "Patch anwenden", dann "Neuer Header" mit Interner Name `HG_TEST`, anlegen, speichern, bauen: `files/a/0/5/0` ist im ROM, das ROM startet in melonDS, das neue Gebiet ist über einen von Hand gesetzten Warp begehbar (wie Schritt 9 und 10).
 - [ ] 17. Auf Diamant/Perl (falls ein Projekt zur Hand ist; sonst entfällt der Punkt) steht im Schritt Header "Neue Header gibt es nur für Platin und HeartGold/SoulSilver", und "Neuer Header" ist nicht wählbar.
 
+Reparatur eines fehlerhaften Patches (Platin DE; Fehler #2 des ersten Gate-Laufs, siehe [docs/formats/dynamic_headers.md](formats/dynamic_headers.md) "Abweichung von DSPRE"):
+
+- [ ] 18. Eine frische Kopie von Platin DE in DSPRE öffnen und dort den Patch "Dynamic Header Allocation" anwenden (DSPRE schreibt den falschen Aufruf `CC F7 74 FC` bei 0x3A0D6). Die Kopie in Gen4 Studio öffnen: die Meldungszeile sagt "Patch „Dynamische Header“ fehlerhaft …" und bietet "Patch reparieren"; im Schritt Header eines Assistenten steht derselbe Hinweis, und "Neuer Header" ist gesperrt. "Patch reparieren" drücken: Meldung "… repariert …", bei 0x3A0D6 stehen `DE F7 AD F8`, sonst ist `arm9.bin` unverändert. Bauen, melonDS: das Spiel läuft nach dem Intro weiter. Ein intaktes Projekt (`pt-3b1`) zeigt die Meldung nicht.
+
 ## (B) Höhen
 
 Auf einer frischen Kopie von Platin DE, mit der gebündelten App:

@@ -38,11 +38,24 @@ const ARM9_RAM_BASE: u64 = 0x0200_0000;
 /// Size in bytes of one map header.
 const HEADER_SIZE: usize = uxie::map_header::MAP_HEADER_SIZE;
 
+/// Where in the routine the Thumb `bl` to the function that loads a NARC member starts.
+const LOAD_CALL: usize = 8;
+/// Where in the routine the Thumb `bl` to the function that frees it starts.
+const FREE_CALL: usize = 14;
+
 #[derive(Deserialize)]
 struct Data {
     init: HashMap<String, Init>,
+    targets: Targets,
+    verified: Vec<String>,
     families: HashMap<String, FamilyData>,
     unpacked: String,
+}
+
+#[derive(Deserialize)]
+struct Targets {
+    load: String,
+    free: String,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +108,13 @@ pub struct PatchPlan {
     pub init_offset: u64,
     /// The 20 routine bytes.
     pub init_bytes: Vec<u8>,
+    /// The first bytes of the function the routine's first call (load) has to reach.
+    pub load_signature: Vec<u8>,
+    /// The first bytes of the function the routine's second call (free) has to reach.
+    pub free_signature: Vec<u8>,
+    /// The routine was checked against this game's own `arm9.bin`; for every other game
+    /// only the check of both calls in [`apply`] stands behind it.
+    pub verified: bool,
     /// (instruction site, literal) pairs: `18 21 41 43` becomes `19 00 C0 46`, and the
     /// literal `table base + n` becomes `n`.
     pub references: Vec<(u64, u64)>,
@@ -157,6 +177,9 @@ pub fn plan(project: &Project) -> Result<Option<PatchPlan>, KernelError> {
     Ok(Some(PatchPlan {
         init_offset: init.offset,
         init_bytes: hex(&init.bytes)?,
+        load_signature: hex(&data.targets.load)?,
+        free_signature: hex(&data.targets.free)?,
+        verified: data.verified.contains(&project.game_code),
         references,
         special_case,
         narc: family.narc.clone(),
@@ -294,6 +317,56 @@ fn expect_bytes(arm9: &[u8], offset: u64, expected: &[u8], what: &str) -> Result
     }
 }
 
+/// The file offset a Thumb `bl` (two halfwords `11110 hi`, `11111 lo`) at file offset `site`
+/// calls: `site + 4 + offset`, the 22-bit offset sign-extended and doubled. File offsets and
+/// RAM addresses differ by the constant [`ARM9_RAM_BASE`], so the arithmetic is the same.
+/// `None` for anything that is not a `bl`, and for a target before the start of arm9.bin.
+fn bl_target(site: u64, bytes: &[u8]) -> Option<u64> {
+    let [a, b, c, d] = *bytes else {
+        return None;
+    };
+    let (high, low) = (u16::from_le_bytes([a, b]), u16::from_le_bytes([c, d]));
+    if high >> 11 != 0b11110 || low >> 11 != 0b11111 {
+        return None;
+    }
+    let raw = (i64::from(high & 0x7FF) << 12) | (i64::from(low & 0x7FF) << 1);
+    let offset = if raw & 0x40_0000 != 0 {
+        raw - 0x80_0000
+    } else {
+        raw
+    };
+    site.checked_add(4)?.checked_add_signed(offset)
+}
+
+/// Checks that each of the two calls of `routine` (placed at `plan.init_offset`) reaches the
+/// function it is meant to: the bytes at its target in `arm9` must start with the plan's
+/// signature. A wrong target makes the game hang after the intro, see
+/// `docs/formats/dynamic_headers.md`.
+fn check_targets(arm9: &[u8], plan: &PatchPlan, routine: &[u8]) -> Result<(), KernelError> {
+    for (slot, name, signature) in [
+        (LOAD_CALL, "load", &plan.load_signature),
+        (FREE_CALL, "free", &plan.free_signature),
+    ] {
+        let site = plan.init_offset + slot as u64;
+        let target = routine
+            .get(slot..slot + 4)
+            .and_then(|call| bl_target(site, call))
+            .ok_or_else(|| refuse(format!("the {name} call at {site:#X} is no bl")))?;
+        match slice_at(arm9, target, signature.len()) {
+            Some(found) if found == signature.as_slice() => {}
+            found => {
+                let found = found.map_or_else(|| "the end of arm9.bin".to_owned(), hex_string);
+                return Err(refuse(format!(
+                    "the {name} call at {site:#X} goes to {target:#X}, which is not the {name} \
+                     function (expected {}, found {found})",
+                    hex_string(signature)
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Checks that the literal at file offset `literal` is a RAM address inside the header
 /// table (`[table base, table base + 24)`) and returns its index into the header.
 fn literal_index(arm9: &[u8], literal: u64, table_offset: u64) -> Result<u32, KernelError> {
@@ -347,6 +420,7 @@ pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<(), KernelError
             plan.init_offset
         )));
     }
+    check_targets(&arm9, &plan, &plan.init_bytes)?;
     let mut literals = Vec::new();
     for &(mul, literal) in &plan.references {
         expect_bytes(&arm9, mul, &OLD_INSTRUCTIONS, "instructions")?;
@@ -373,7 +447,11 @@ pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<(), KernelError
     }
 
     write_header_folder(project, headers)?;
+    write_arm9(project, &arm9)
+}
 
+/// Backs `arm9.bin` up as `arm9.bin.backup` unless that exists, then replaces it atomically.
+fn write_arm9(project: &Project, arm9: &[u8]) -> Result<(), KernelError> {
     let arm9_path = project.arm9_path();
     let mut backup = arm9_path.clone().into_os_string();
     backup.push(".backup");
@@ -381,7 +459,67 @@ pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<(), KernelError
     if !backup.exists() {
         std::fs::copy(&arm9_path, &backup).map_err(io_at(&backup))?;
     }
-    write_atomic(&project.root, &arm9_path, &arm9)
+    write_atomic(&project.root, &arm9_path, arm9)
+}
+
+/// Why the patch in `arm9` cannot be repaired; `Ok` with the repaired image when it can. It
+/// can when the routine is applied, one of its calls misses (see [`check_targets`]), it
+/// differs from the routine of `plan` only inside the two calls, and that routine's calls
+/// both hit. Such a routine is what DSPRE and Studio before this check wrote for CPUS, CPUI,
+/// CPUF and CPUD.
+fn repaired(plan: &PatchPlan, mut arm9: Vec<u8>) -> Result<Vec<u8>, KernelError> {
+    let at = plan.init_offset;
+    let len = plan.init_bytes.len();
+    let Some(current) = slice_at(&arm9, at, len) else {
+        return Err(refuse(format!("routine at {at:#X} lies outside arm9.bin")));
+    };
+    if signature_at(&arm9, at) != Some(PATCH_SIGNATURE) {
+        return Err(refuse(format!("not applied (no signature at {at:#X})")));
+    }
+    if check_targets(&arm9, plan, current).is_ok() {
+        return Err(refuse(format!("the routine at {at:#X} is intact")));
+    }
+    let in_a_call = |i: usize| {
+        (LOAD_CALL..LOAD_CALL + 4).contains(&i) || (FREE_CALL..FREE_CALL + 4).contains(&i)
+    };
+    if let Some(i) = (0..len).find(|&i| !in_a_call(i) && current[i] != plan.init_bytes[i]) {
+        return Err(refuse(format!(
+            "the routine at {at:#X} is not the one this game gets (byte {i} differs: {})",
+            hex_string(current)
+        )));
+    }
+    check_targets(&arm9, plan, &plan.init_bytes)?;
+    arm9[at as usize..at as usize + len].copy_from_slice(&plan.init_bytes);
+    Ok(arm9)
+}
+
+/// Whether the patch is applied with a routine that [`repair`] can fix: one of its two calls
+/// misses its function (the game hangs after the intro), and the routine is otherwise the
+/// one this game gets. False when the patch is not applied, intact, or a routine of
+/// unknown origin; false for Diamond/Pearl.
+pub fn needs_repair(project: &Project) -> Result<bool, KernelError> {
+    let Some(plan) = plan(project)? else {
+        return Ok(false);
+    };
+    if !is_applied(project)? {
+        return Ok(false);
+    }
+    Ok(repaired(&plan, read_arm9(project)?).is_ok())
+}
+
+/// Rewrites the routine of an applied patch whose calls miss (see [`needs_repair`]) with
+/// the routine this game gets; only bytes inside its two calls change. Refuses, writing
+/// nothing, in every other case. `arm9.bin` is backed up as `arm9.bin.backup` unless that
+/// exists and rewritten atomically; the header files are not touched.
+pub fn repair(project: &Project) -> Result<(), KernelError> {
+    let plan = plan(project)?.ok_or_else(|| {
+        refuse(format!(
+            "{} has no dynamic headers patch (Diamond/Pearl)",
+            project.game_code
+        ))
+    })?;
+    let arm9 = repaired(&plan, read_arm9(project)?)?;
+    write_arm9(project, &arm9)
 }
 
 /// Replaces `unpacked/dynamicHeaders` by one file `NNNN` per header: the files are written
@@ -418,7 +556,10 @@ mod tests {
     use super::*;
     use crate::project::Project;
     use crate::store::{MapHeader, Store};
-    use crate::test_support::{PT_DYNAMIC_HEADER_REFERENCES, Synthetic, synthetic_project};
+    use crate::test_support::{
+        PT_DYNAMIC_HEADER_FREE, PT_DYNAMIC_HEADER_LOAD, PT_DYNAMIC_HEADER_REFERENCES, Synthetic,
+        synthetic_project,
+    };
 
     const TABLE: usize = 0xE601C;
 
@@ -467,6 +608,8 @@ mod tests {
         assert_eq!(plan.init_bytes.len(), 20);
         assert_eq!(plan.references.len(), 20);
         assert_eq!(plan.special_case, None);
+        assert!(!plan.verified);
+        assert_eq!(plan.free_signature.len(), 16);
         assert_eq!(
             plan.narc,
             std::path::PathBuf::from("files/debug/cb_edit/d_test.narc")
@@ -603,6 +746,171 @@ mod tests {
             assert!(tables.contains_key(code), "{code}");
             assert_eq!(hex(&init.bytes).unwrap().len(), 20, "{code}");
         }
+    }
+
+    /// Zeroes `len` bytes at `at` in the fixture's arm9.bin and returns the new contents.
+    fn clobber(s: &Synthetic, at: usize, len: usize) -> Vec<u8> {
+        let mut arm9 = std::fs::read(arm9_path(s)).unwrap();
+        arm9[at..at + len].fill(0);
+        std::fs::write(arm9_path(s), &arm9).unwrap();
+        arm9
+    }
+
+    fn assert_nothing_written(s: &Synthetic, arm9: &[u8]) {
+        assert_eq!(std::fs::read(arm9_path(s)).unwrap(), arm9);
+        assert!(!s.dir.path().join("unpacked/dynamicHeaders").exists());
+        assert!(!s.dir.path().join("arm9/arm9.bin.backup").exists());
+    }
+
+    #[test]
+    fn bl_target_decodes_thumb_bl() {
+        // Platinum DE: the routine's calls at 0x3A0D0 and 0x3A0D6.
+        assert_eq!(bl_target(0x3A0D0, &[0xCC, 0xF7, 0x00, 0xFD]), Some(0x6AD4));
+        assert_eq!(bl_target(0x3A0D6, &[0xDE, 0xF7, 0xAD, 0xF8]), Some(0x18234));
+        // DSPRE's bytes for the second call land in the middle of a function.
+        assert_eq!(bl_target(0x3A0D6, &[0xCC, 0xF7, 0x74, 0xFC]), Some(0x69C2));
+        // A forward call.
+        assert_eq!(bl_target(0x100, &[0x00, 0xF0, 0x02, 0xF8]), Some(0x108));
+        // Not a BL: `mov r3,r0; pop {pc}`, and a call further back than arm9.bin starts.
+        assert_eq!(bl_target(0x10, &[0x03, 0x1C, 0x00, 0xBD]), None);
+        assert_eq!(bl_target(0x10, &[0xFF, 0xF7, 0x00, 0xF8]), None);
+        assert_eq!(bl_target(0x10, &[0x00, 0xF0]), None);
+    }
+
+    #[test]
+    fn apply_refuses_a_routine_whose_free_call_misses_and_writes_nothing() {
+        let s = synthetic_project();
+        let arm9 = clobber(&s, PT_DYNAMIC_HEADER_FREE, 2);
+        let err = apply_to(&s).unwrap_err().to_string();
+        assert!(err.contains("0x181C4"), "{err}");
+        assert!(err.contains("free"), "{err}");
+        assert_nothing_written(&s, &arm9);
+    }
+
+    #[test]
+    fn apply_refuses_a_routine_whose_load_call_misses_and_writes_nothing() {
+        let s = synthetic_project();
+        let arm9 = clobber(&s, PT_DYNAMIC_HEADER_LOAD + 20, 1);
+        let err = apply_to(&s).unwrap_err().to_string();
+        assert!(err.contains("0x6AC0"), "{err}");
+        assert!(err.contains("load"), "{err}");
+        assert_nothing_written(&s, &arm9);
+    }
+
+    #[test]
+    fn check_targets_names_the_call_that_is_no_bl() {
+        let s = synthetic_project();
+        let arm9 = std::fs::read(arm9_path(&s)).unwrap();
+        let plan = plan(&open(&s)).unwrap().unwrap();
+        assert!(check_targets(&arm9, &plan, &plan.init_bytes).is_ok());
+        let mut routine = plan.init_bytes.clone();
+        routine[14..18].fill(0);
+        let err = check_targets(&arm9, &plan, &routine)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("0x3A032"), "{err}");
+    }
+
+    /// Applies the patch to the fixture, then puts `call` in place of the routine's free call.
+    fn applied_with_free_call(s: &Synthetic, call: [u8; 4]) -> Vec<u8> {
+        apply_to(s).unwrap();
+        let mut arm9 = std::fs::read(arm9_path(s)).unwrap();
+        arm9[0x3A024 + 14..0x3A024 + 18].copy_from_slice(&call);
+        std::fs::write(arm9_path(s), &arm9).unwrap();
+        arm9
+    }
+
+    #[test]
+    fn a_routine_with_a_wrong_call_is_repaired() {
+        let s = synthetic_project();
+        let good = {
+            let project = open(&s);
+            plan(&project).unwrap().unwrap().init_bytes
+        };
+        // A BL two halfwords short of the free function.
+        let broken = applied_with_free_call(&s, [0xDE, 0xF7, 0xC5, 0xF8]);
+        let project = open(&s);
+        assert!(is_applied(&project).unwrap());
+        assert!(needs_repair(&project).unwrap());
+        std::fs::remove_file(s.dir.path().join("arm9/arm9.bin.backup")).unwrap();
+
+        repair(&project).unwrap();
+        let after = std::fs::read(arm9_path(&s)).unwrap();
+        assert_eq!(&after[0x3A024..0x3A024 + 20], good.as_slice());
+        for (i, (a, b)) in broken.iter().zip(&after).enumerate() {
+            assert!(
+                (0x3A024 + 14..0x3A024 + 18).contains(&i) || a == b,
+                "byte {i:#X}"
+            );
+        }
+        assert_eq!(
+            std::fs::read(s.dir.path().join("arm9/arm9.bin.backup")).unwrap(),
+            broken
+        );
+        assert!(!needs_repair(&project).unwrap());
+        assert!(is_applied(&project).unwrap());
+        assert!(repair(&project).is_err());
+    }
+
+    #[test]
+    fn a_correct_routine_needs_no_repair() {
+        let s = synthetic_project();
+        let project = open(&s);
+        assert!(!needs_repair(&project).unwrap());
+        assert!(repair(&project).is_err());
+        apply_to(&s).unwrap();
+        assert!(!needs_repair(&project).unwrap());
+        let arm9 = std::fs::read(arm9_path(&s)).unwrap();
+        assert!(
+            repair(&project)
+                .unwrap_err()
+                .to_string()
+                .contains("0x3A024")
+        );
+        assert_eq!(std::fs::read(arm9_path(&s)).unwrap(), arm9);
+    }
+
+    #[test]
+    fn a_foreign_routine_is_not_repaired() {
+        let s = synthetic_project();
+        let mut arm9 = applied_with_free_call(&s, [0xDE, 0xF7, 0xC5, 0xF8]);
+        // A byte outside the two calls differs too: not the routine this crate writes.
+        arm9[0x3A024 + 4] = 0x33;
+        std::fs::write(arm9_path(&s), &arm9).unwrap();
+        let project = open(&s);
+        assert!(!needs_repair(&project).unwrap());
+        let err = repair(&project).unwrap_err().to_string();
+        assert!(err.contains("0x3A024"), "{err}");
+        assert_eq!(std::fs::read(arm9_path(&s)).unwrap(), arm9);
+    }
+
+    #[test]
+    fn a_wrong_routine_is_not_repaired_when_the_right_one_would_miss_too() {
+        let s = synthetic_project();
+        applied_with_free_call(&s, [0xDE, 0xF7, 0xC5, 0xF8]);
+        let arm9 = clobber(&s, PT_DYNAMIC_HEADER_FREE, 2);
+        let project = open(&s);
+        assert!(!needs_repair(&project).unwrap());
+        assert!(repair(&project).is_err());
+        assert_eq!(std::fs::read(arm9_path(&s)).unwrap(), arm9);
+    }
+
+    #[test]
+    fn every_routine_has_both_calls_and_the_verified_games_are_listed() {
+        let data = data().unwrap();
+        for (code, init) in &data.init {
+            let bytes = hex(&init.bytes).unwrap();
+            for slot in [LOAD_CALL, FREE_CALL] {
+                let site = init.offset + slot as u64;
+                assert!(bl_target(site, &bytes[slot..slot + 4]).is_some(), "{code}");
+            }
+        }
+        assert_eq!(data.verified, ["CPUD", "IPKD", "IPKE"]);
+        // The European Platinum versions share CPUD's layout and routine.
+        for code in ["CPUS", "CPUI", "CPUF"] {
+            assert_eq!(data.init[code].bytes, data.init["CPUD"].bytes, "{code}");
+        }
+        assert!(data.init["CPUD"].bytes.contains("DE F7 AD F8"));
     }
 
     #[test]

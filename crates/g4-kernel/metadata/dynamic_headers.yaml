@@ -2,17 +2,20 @@
 # holds the headers afterwards. Offsets are file offsets in the decompressed arm9/arm9.bin.
 # Source: DSPRE ToolboxDB.cs (DynamicHeadersPatchData) and PatchToolboxDialog.cs
 # (dynamicHeadersButton_Click); facts about the game binaries, not DSPRE code.
-# Verified on CPUD, IPKD and IPKE.
 #
-# `init`: where the 20-byte routine goes in each game and what it is. IPGS has no entry of
-# its own in DSPRE (it takes the IPKE default); that is unproven there and is caught by the
-# precondition check of `apply`.
+# `init`: where the 20-byte routine goes in each game and what it is. The routine calls two
+# functions with a Thumb `bl` at byte 8 (load a NARC member) and at byte 14 (free it); `apply`
+# decodes both and refuses unless `targets` matches at each. IPGS has no entry of its own in
+# DSPRE (it takes the IPKE default). CPUS, CPUI, CPUF and CPUD deviate from DSPRE: DSPRE's
+# free call `CC F7 74 FC` lands at 0x69C2, in the middle of a function, and the game hangs;
+# `DE F7 AD F8` calls 0x18234, the address DSPRE's own comment names for these versions
+# (see docs/formats/dynamic_headers.md).
 init:
   CPUE: { offset: 0x3A024, bytes: "00 B5 01 1C 94 20 00 22 CC F7 48 FD 03 1C DE F7 C7 F8 00 BD" }
-  CPUS: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C CC F7 74 FC 00 BD" }
-  CPUI: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C CC F7 74 FC 00 BD" }
-  CPUF: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C CC F7 74 FC 00 BD" }
-  CPUD: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C CC F7 74 FC 00 BD" }
+  CPUS: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C DE F7 AD F8 00 BD" }
+  CPUI: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C DE F7 AD F8 00 BD" }
+  CPUF: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C DE F7 AD F8 00 BD" }
+  CPUD: { offset: 0x3A0C8, bytes: "00 B5 01 1C 94 20 00 22 CC F7 00 FD 03 1C DE F7 AD F8 00 BD" }
   CPUJ: { offset: 0x39BE0, bytes: "00 B5 01 1C 94 20 00 22 CC F7 0A FF 03 1C DE F7 3D F9 00 BD" }
   IPKS: { offset: 0x3B260, bytes: "00 B5 01 1C 32 20 00 22 CC F7 5C F9 03 1C DF F7 4D FC 00 BD" }
   IPKJ: { offset: 0x3AE20, bytes: "00 B5 01 1C 32 20 00 22 CC F7 08 FB 03 1C DF F7 C7 FC 00 BD" }
@@ -26,6 +29,18 @@ init:
   IPGI: { offset: 0x3B268, bytes: "00 B5 01 1C 32 20 00 22 CC F7 58 F9 03 1C DF F7 49 FC 00 BD" }
   IPKD: { offset: 0x3B268, bytes: "00 B5 01 1C 32 20 00 22 CC F7 58 F9 03 1C DF F7 49 FC 00 BD" }
   IPGD: { offset: 0x3B268, bytes: "00 B5 01 1C 32 20 00 22 CC F7 58 F9 03 1C DF F7 49 FC 00 BD" }
+
+# The first bytes of the two functions the routine calls, the same in Platinum DE and
+# HeartGold DE/US: `load` is the whole 24-byte function at 0x6AD4 (CPUD) and 0x7524
+# (IPKD/IPKE), `free` the start of the one at 0x18234 and 0x1AB0C. Its `push {r3-r7,lr}`
+# matters: the routine keeps the loaded pointer in r3 across the call.
+targets:
+  load: "10 B5 82 B0 00 23 00 93 84 00 03 48 01 93 00 59 FF F7 6A FF 02 B0 10 BD"
+  free: "F8 B5 06 1C 30 1F 00 68 00 06 04 0E 18 48 81 8A"
+
+# The games whose routine was checked against their own arm9.bin (and, for CPUD, in game).
+# Every other one relies on the check of `targets` when the patch is applied.
+verified: [CPUD, IPKD, IPKE]
 
 # Per family: the reference game (`base`, whose `init` offset the lists below are written
 # for; every other game shifts them by init.offset(game) - init.offset(base)), the NARC

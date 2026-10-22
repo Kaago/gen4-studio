@@ -33,7 +33,7 @@ const summary = (index: number, hasHeaders: boolean): MatrixSummary => ({ index,
 const matrices = [summary(0, true), summary(2, false), summary(3, false), summary(4, false), summary(5, true)];
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
-const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, narc: "unpacked/dynamicHeaders", ...change });
+const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
 const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0 };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
