@@ -30,6 +30,18 @@ impl From<KernelError> for CmdError {
                 .iter()
                 .filter(|p| p.severity == Severity::Error)
                 .count();
+            // Without an error there is nothing to show as "N Fehler": a plain error.
+            if errors == 0 {
+                return CmdError {
+                    code: "error",
+                    message: e.to_string(),
+                    asset: None,
+                    problems: problems
+                        .iter()
+                        .map(|p| ProblemDto::by_origin(p, Path::new("")))
+                        .collect(),
+                };
+            }
             return CmdError {
                 code: "compile",
                 message: format!("{errors} Fehler in Scripts oder Texten"),
@@ -173,6 +185,24 @@ mod tests {
         let json = serde_json::to_value(&err).unwrap();
         assert_eq!(json["code"], "compile");
         assert_eq!(json["problems"][2]["message"], "glyph");
+    }
+
+    #[test]
+    fn compile_error_without_an_error_problem_is_a_plain_error() {
+        use g4_kernel::text::Problem;
+        let warning = Problem {
+            severity: Severity::Warning,
+            file: "expanded/textArchives/0433.json".into(),
+            line: 1,
+            col: 1,
+            message: "w".into(),
+        };
+        let err = CmdError::from(KernelError::Compile(vec![warning]));
+        assert_eq!(err.code, "error");
+        assert!(!err.message.starts_with("0 Fehler"), "{}", err.message);
+        let empty = CmdError::from(KernelError::Compile(Vec::new()));
+        assert_eq!(empty.code, "error");
+        assert!(!empty.message.starts_with("0 Fehler"), "{}", empty.message);
     }
 
     #[test]

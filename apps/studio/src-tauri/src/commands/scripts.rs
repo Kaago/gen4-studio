@@ -471,6 +471,9 @@ mod tests {
     #[test]
     fn save_script_refuses_with_dirty_text_archive() {
         let (_f, state) = adopted();
+        let ScriptSourceDto::Rotom { text: original } = read_script_impl(&state, 0).unwrap() else {
+            panic!("file 0 is a script");
+        };
         edit_text_archive_impl(
             &state,
             ARCHIVE,
@@ -480,18 +483,24 @@ mod tests {
             },
         )
         .unwrap();
-        let err = save_script_impl(&state, 0, "script Main #1:\n    End\n".into()).unwrap_err();
-        assert_eq!(err.code, "error");
-        assert_eq!(err.message, "Textarchiv 0433 erst speichern");
+        let refusals = [
+            save_script_impl(&state, 0, "script Main #1:\n    End\n".into()).map(drop),
+            save_level_script_impl(&state, 1, LevelScriptDoc::default()).map(drop),
+            new_script_file_impl(&state, "script".into()).map(drop),
+            add_script_impl(&state, 0).map(drop),
+        ];
+        for refusal in refusals {
+            let err = refusal.unwrap_err();
+            assert_eq!(err.code, "error");
+            assert_eq!(err.message, "Textarchiv 0433 erst speichern");
+        }
         // Nothing was written or compiled, and the edit is still pending.
         let ScriptSourceDto::Rotom { text } = read_script_impl(&state, 0).unwrap() else {
             panic!("file 0 is a script");
         };
-        assert_ne!(text, "script Main #1:\n    End\n");
+        assert_eq!(text, original);
+        assert_eq!(list_script_files_impl(&state).unwrap().len(), 3);
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);
-        assert!(save_level_script_impl(&state, 1, LevelScriptDoc::default()).is_err());
-        assert!(new_script_file_impl(&state, "script".into()).is_err());
-        assert!(add_script_impl(&state, 0).is_err());
     }
 
     #[test]

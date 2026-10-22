@@ -162,10 +162,13 @@ pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError>
     build_dto(state, &project, report, saved, problems)
 }
 
-/// The result of a finished build; reloads the text archives its compile changed.
+/// The result of a finished build; reloads the text archives its compile changed. The lock
+/// was released for the build, so the session may be another one by now (a project opened
+/// meanwhile): then nothing is reloaded, the archives belong to `project`, not to it. An
+/// archive edited in this session since the build started is kept and reported.
 fn build_dto(
     state: &AppState,
-    project: &Project,
+    project: &Arc<Project>,
     report: BuildReport,
     saved: usize,
     mut problems: Vec<ProblemDto>,
@@ -177,23 +180,37 @@ fn build_dto(
             .map(|p| ProblemDto::by_origin(p, &project.root)),
     );
     if !report.touched_archives.is_empty() {
-        // The ROM is built: a failed reload is a warning, not a failed build.
         let mut guard = lock(state)?;
-        let store = &mut session(&mut guard)?.store;
-        for &index in &report.touched_archives {
-            let id = AssetId {
-                kind: AssetKind::TextArchive,
-                index,
+        if let Ok(session) = session(&mut guard)
+            && Arc::ptr_eq(&session.project, project)
+        {
+            let warning = |index: u16, message: String| ProblemDto {
+                severity: "warning",
+                file: format!("expanded/textArchives/{index:04}.json"),
+                line: 1,
+                col: 1,
+                message,
+                source: "text",
             };
-            if let Err(e) = store.reload_from_disk(id) {
-                problems.push(ProblemDto {
-                    severity: "warning",
-                    file: format!("expanded/textArchives/{index:04}.json"),
-                    line: 1,
-                    col: 1,
-                    message: format!("Textarchiv {index:04} konnte nicht neu geladen werden: {e}"),
-                    source: "text",
-                });
+            for &index in &report.touched_archives {
+                let id = AssetId {
+                    kind: AssetKind::TextArchive,
+                    index,
+                };
+                // The ROM is built: a failed reload is a warning, not a failed build.
+                if session.store.is_dirty(id) {
+                    problems.push(warning(
+                        index,
+                        format!(
+                            "Textarchiv {index:04} wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
+                        ),
+                    ));
+                } else if let Err(e) = session.store.reload_from_disk(id) {
+                    problems.push(warning(
+                        index,
+                        format!("Textarchiv {index:04} konnte nicht neu geladen werden: {e}"),
+                    ));
+                }
             }
         }
     }
@@ -386,51 +403,75 @@ mod tests {
         assert!(!out.exists());
     }
 
-    #[test]
-    fn build_result_maps_problems_by_origin_and_reloads_touched_archives() {
-        use g4_kernel::text::{Problem, Severity};
-        let (fixture, state) = open_synthetic();
-        let project = Arc::clone(&lock(&state).unwrap().as_ref().unwrap().project);
-        assert_eq!(
-            get_text_archive_impl(&state, 433).unwrap().messages.len(),
-            3
-        );
-        // A compile changed the JSON behind the store's back.
+    /// Rewrites `expanded/textArchives/0433.json` with one more message, as a compile that
+    /// appended a text literal would.
+    fn append_message_to_archive_json(
+        fixture: &g4_kernel::test_support::Synthetic,
+        project: &Project,
+    ) {
         let json = fixture.dir.path().join("expanded/textArchives/0433.json");
         std::fs::create_dir_all(json.parent().unwrap()).unwrap();
-        let doc = g4_kernel::text::TextArchiveDoc::from_member(
+        let mut doc = g4_kernel::text::TextArchiveDoc::from_member(
             &std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
             "en_US",
         )
         .unwrap();
-        let mut doc = doc;
         doc.messages.push(g4_kernel::text::TextMessage {
             id: "msg_00003".into(),
             text: "Neu".into(),
             other: Default::default(),
         });
         std::fs::write(&json, doc.to_json()).unwrap();
+    }
 
-        let warning = |file: &str| Problem {
-            severity: Severity::Warning,
+    fn kernel_warning(file: &str) -> g4_kernel::text::Problem {
+        g4_kernel::text::Problem {
+            severity: g4_kernel::text::Severity::Warning,
             file: file.into(),
             line: 1,
             col: 1,
             message: "w".into(),
-        };
-        let report = BuildReport {
+        }
+    }
+
+    fn report_touching_433(problems: Vec<g4_kernel::text::Problem>) -> BuildReport {
+        BuildReport {
             packed: vec![(AssetKind::Map, 3)],
             rom: "out.nds".into(),
             compiled: vec![0],
             encoded: vec![7],
             touched_archives: vec![433],
-            problems: vec![
-                warning("expanded/scripts/0000.rotom"),
-                warning("expanded/textArchives/0007.json"),
-            ],
-        };
+            problems,
+        }
+    }
+
+    fn archive_texts(state: &AppState) -> Vec<String> {
+        get_text_archive_impl(state, 433)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.text)
+            .collect()
+    }
+
+    fn session_project(state: &AppState) -> Arc<Project> {
+        Arc::clone(&lock(state).unwrap().as_ref().unwrap().project)
+    }
+
+    #[test]
+    fn build_result_maps_problems_by_origin_and_reloads_touched_archives() {
+        let (fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        assert_eq!(archive_texts(&state).len(), 3);
+        // A compile changed the JSON behind the store's back.
+        append_message_to_archive_json(&fixture, &project);
+
+        let report = report_touching_433(vec![
+            kernel_warning("expanded/scripts/0000.rotom"),
+            kernel_warning("expanded/textArchives/0007.json"),
+        ]);
         let pre_save = ProblemDto::from_kernel(
-            &warning("expanded/textArchives/0433.json"),
+            &kernel_warning("expanded/textArchives/0433.json"),
             &project.root,
             "text",
         );
@@ -442,14 +483,102 @@ mod tests {
         let sources: Vec<_> = dto.problems.iter().map(|p| p.source).collect();
         assert_eq!(sources, ["text", "compile", "text"]);
         assert_eq!(dto.packed, [("maps".to_owned(), 3)]);
-        let texts: Vec<_> = get_text_archive_impl(&state, 433)
-            .unwrap()
-            .messages
-            .into_iter()
-            .map(|m| m.text)
-            .collect();
-        assert_eq!(texts.last().map(String::as_str), Some("Neu"));
+        assert_eq!(
+            archive_texts(&state).last().map(String::as_str),
+            Some("Neu")
+        );
         assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_keeps_a_touched_archive_that_was_edited_meanwhile() {
+        let (fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "Meine Änderung".into(),
+            },
+        )
+        .unwrap();
+        append_message_to_archive_json(&fixture, &project);
+
+        let dto = build_dto(
+            &state,
+            &project,
+            report_touching_433(Vec::new()),
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(dto.problems.len(), 1, "{:?}", dto.problems);
+        let problem = &dto.problems[0];
+        assert_eq!(
+            (problem.severity, problem.source, problem.file.as_str()),
+            ("warning", "text", "expanded/textArchives/0433.json")
+        );
+        assert_eq!(
+            problem.message,
+            "Textarchiv 0433 wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
+        );
+        // The edit survived: still dirty, still undoable, the appended message not loaded.
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        assert_eq!(
+            archive_texts(&state),
+            ["Meine Änderung", "Twinleaf Town", "Sandgem Town"]
+        );
+        assert!(undo_impl(&state).unwrap().is_some());
+    }
+
+    #[test]
+    fn build_does_not_reload_into_a_session_opened_meanwhile() {
+        let (fixture_a, state) = open_synthetic();
+        let project_a = session_project(&state);
+        // Loading the archive unpacks its member, which the JSON below is built from.
+        assert_eq!(archive_texts(&state).len(), 3);
+        append_message_to_archive_json(&fixture_a, &project_a);
+
+        // Another project replaces the session while A builds.
+        let fixture_b = g4_kernel::test_support::synthetic_project();
+        open_project_impl(&state, fixture_b.dir.path().to_str().unwrap()).unwrap();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "B bearbeitet".into(),
+            },
+        )
+        .unwrap();
+        crate::commands::save_impl(&state).unwrap();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 1,
+                text: "B ungespeichert".into(),
+            },
+        )
+        .unwrap();
+        let dto = build_dto(
+            &state,
+            &project_a,
+            report_touching_433(Vec::new()),
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+        assert!(dto.problems.is_empty(), "{:?}", dto.problems);
+        // B's archive was neither reloaded nor warned about: edit and undo are intact.
+        assert_eq!(
+            archive_texts(&state)[..2],
+            ["B bearbeitet", "B ungespeichert"]
+        );
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert_eq!(archive_texts(&state)[1], "Twinleaf Town");
     }
 
     fn corrupt_map_member_on_disk(fixture: &g4_kernel::test_support::Synthetic) {

@@ -392,8 +392,8 @@ export interface CmdError {
   code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile";
   message: string;
   asset: AssetId | null;
-  /** The problems behind a "compile" error; empty for every other code. */
-  problems: ProblemDto[];
+  /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
+  problems?: ProblemDto[];
 }
 
 export function isCmdError(e: unknown): e is CmdError {
