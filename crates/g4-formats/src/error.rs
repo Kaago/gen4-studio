@@ -17,4 +17,6 @@ pub enum FormatError {
     },
     #[error("{what} is not valid UTF-8")]
     InvalidUtf8 { what: &'static str },
+    #[error("{what} is not supported")]
+    Unsupported { what: &'static str },
 }

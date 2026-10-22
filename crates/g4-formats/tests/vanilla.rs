@@ -5,6 +5,7 @@ use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::Matrix;
 use g4_formats::narc::Narc;
+use g4_formats::nsbtx::Nsbtx;
 
 pub fn vanilla() -> Option<PathBuf> {
     match std::env::var_os("G4_TEST_PROJECT") {
@@ -208,4 +209,77 @@ fn vanilla_area_data_round_trip_byte_identical() {
         assert_identical(&what, &area.write(), &bytes);
     }
     eprintln!("{} unpacked area data files round-tripped", files.len());
+}
+
+#[test]
+fn vanilla_overworld_sprite_0_decodes() {
+    let Some(root) = vanilla() else { return };
+    let candidates = ["files/data/mmodel/mmodel.narc", "files/a/0/8/1"];
+    let path = candidates
+        .iter()
+        .map(|c| root.join(c))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| panic!("sprite narc not found under {}", root.display()));
+    let narc = Narc::read(&std::fs::read(&path).unwrap()).unwrap();
+    let btx = Nsbtx::read(&narc.members[0]).unwrap();
+    assert!(!btx.textures.is_empty());
+    assert!(!btx.palettes.is_empty());
+    let t = &btx.textures[0];
+    let img = btx.decode(0, 0).unwrap();
+    assert!(img.width * img.height > 0);
+    assert_eq!(img.pixels.len(), (img.width * img.height * 4) as usize);
+    // Forcing index 0 transparent clears exactly the index-0 pixels, so the
+    // sprite must have both opaque pixels and (forced) transparent ones.
+    let forced = btx.decode_with(0, 0, true).unwrap();
+    let texels = forced.pixels.as_chunks::<4>().0;
+    let opaque = texels.iter().filter(|p| p[3] == 255).count();
+    let clear = texels.iter().filter(|p| p[3] == 0).count();
+    eprintln!(
+        "{}: {} textures, {} palettes; texture 0 {:?} {}x{} format {} color0 {}; {opaque} opaque, {clear} transparent",
+        path.display(),
+        btx.textures.len(),
+        btx.palettes.len(),
+        t.name,
+        t.width,
+        t.height,
+        t.format,
+        t.color0_transparent,
+    );
+    assert!(opaque > 0, "no opaque pixels");
+    assert!(clear > 0, "no index-0 pixels");
+}
+
+#[test]
+fn vanilla_all_overworld_sprites_read_and_decode() {
+    let Some(root) = vanilla() else { return };
+    let candidates = ["files/data/mmodel/mmodel.narc", "files/a/0/8/1"];
+    let path = candidates
+        .iter()
+        .map(|c| root.join(c))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| panic!("sprite narc not found under {}", root.display()));
+    let narc = Narc::read(&std::fs::read(&path).unwrap()).unwrap();
+    let (mut read, mut decoded, mut other) = (0, 0, 0);
+    for (i, member) in narc.members.iter().enumerate() {
+        // Not every member is a BTX0 (BMD0 models and other data are mixed in).
+        if !member.starts_with(b"BTX0") {
+            other += 1;
+            continue;
+        }
+        let btx = Nsbtx::read(member).unwrap_or_else(|e| panic!("member {i}: {e}"));
+        read += 1;
+        for t in 0..btx.textures.len() {
+            for p in 0..btx.palettes.len() {
+                match btx.decode(t, p) {
+                    Ok(_) => decoded += 1,
+                    Err(e) => panic!("member {i} texture {t} palette {p}: {e}"),
+                }
+            }
+        }
+    }
+    eprintln!(
+        "{} members: {read} BTX0 read, {decoded} decoded, {other} not BTX0",
+        narc.members.len()
+    );
+    assert!(read > 0);
 }

@@ -4,3 +4,4 @@ pub mod game;
 pub mod map;
 pub mod matrix;
 pub mod narc;
+pub mod nsbtx;
