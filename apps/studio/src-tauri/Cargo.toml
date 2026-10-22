@@ -15,6 +15,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # Dev-only HTTP bridge (`studio-bridge`) that lets an agent drive the UI in a browser.
 dev-bridge = ["dep:tiny_http", "dep:clap"]
 
+[[bin]]
+name = "studio-bridge"
+path = "src/bin/studio-bridge.rs"
+required-features = ["dev-bridge"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

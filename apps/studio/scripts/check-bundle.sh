@@ -10,6 +10,8 @@ DYLIB="$APP/Contents/Frameworks/libnitroarc_ffi.dylib"
 
 test -x "$APP/Contents/MacOS/apicula"
 test -f "$DYLIB"
+# The dev bridge is a dev-only binary and must never ship.
+test ! -e "$APP/Contents/MacOS/studio-bridge"
 otool -l "$BIN" | grep -A2 LC_RPATH | grep -q "@executable_path/../Frameworks"
 "$APP/Contents/MacOS/apicula" --help >/dev/null
 
