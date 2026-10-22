@@ -14,12 +14,12 @@ SAVE = ROMS / "_testkopien" / "_saves" / "CPUD-zimmer.sav"  # shared with other 
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(
-        not (paths.default_core().is_file() and ROM.is_file()), reason="core or ROM missing"
-    ),
+    pytest.mark.skipif(not paths.default_core().is_file(), reason="core missing"),
 ]
+needs_platinum = pytest.mark.skipif(not ROM.is_file(), reason="Platinum DE ROM missing")
 
 
+@needs_platinum
 def test_boot_screenshot_and_clean_stdout(tmp_path):
     proc = subprocess.run(
         [sys.executable, "-m", "g4emu.cli", "run", "--rom", str(ROM), "--out", str(tmp_path),
@@ -34,6 +34,7 @@ def test_boot_screenshot_and_clean_stdout(tmp_path):
     assert (tmp_path / "core.log").stat().st_size > 0
 
 
+@needs_platinum
 @pytest.mark.skipif(not SAVE.is_file(), reason="save CPUD-zimmer.sav missing")
 def test_platinum_continue_and_stairs(tmp_path):
     # Verified with the real core: the save starts in the bedroom (header 415) at x 7, y 4.

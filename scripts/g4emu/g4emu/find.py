@@ -39,7 +39,7 @@ def pointers_to(
     target: int,
     max_back: int = 0x2000,
     lo: int = 0x02000000,
-    hi: int = 0x02110000,
+    hi: int = 0x02120000,
 ) -> list[tuple[int, int]]:
     """Aligned u32 words at addresses in [lo, hi) whose value is `target - k`, 0 <= k <= max_back.
 

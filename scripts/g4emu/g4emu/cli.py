@@ -47,7 +47,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     finder.add_argument("pairs", nargs="+", metavar="VALUE RAM.BIN", help="e.g. 0x3C a.bin 0x3D b.bin")
     finder.add_argument("--max-back", type=lambda t: int(t, 0), default=0x2000, help="largest offset k from a pointer target to the hit")
-    finder.add_argument("--hi", type=lambda t: int(t, 0), default=0x02110000, help="end of the pointer address range (HeartGold's lies above the default)")
+    finder.add_argument("--hi", type=lambda t: int(t, 0), default=0x02120000, help="end of the pointer address range (HeartGold's lies at 0x0211186x)")
     return parser
 
 

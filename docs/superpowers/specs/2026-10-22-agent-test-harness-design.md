@@ -174,7 +174,7 @@ Ausgabe und Rückgabe:
 - Rückgabe: 0 heißt alles ok, 2 heißt ein `expect-map` oder `walk` ist fehlgeschlagen, 1 heißt ein anderer Fehler (ROM fehlt, Kern fehlt).
 - Der Ausgabeordner darf nicht unter `Roms/` außerhalb von `_testkopien` liegen. Die Spielstand-Datei aus `--save` wird nie überschrieben.
 
-Für das Suchen der HG-Adressen gibt es `g4emu find-u16 <wert> <ram.bin> [<wert2> <ram2.bin> …]`. Es druckt alle Adressen, an denen in jedem Abzug der jeweilige Wert steht, dazu je Treffer die Zeiger aus dem festen ARM9-Bereich (`0x02000000–0x02110000`), die auf `treffer − k` mit `k < 0x2000` zeigen. Das ist ein Hilfsmittel und nur leicht getestet.
+Für das Suchen der HG-Adressen gibt es `g4emu find-u16 <wert> <ram.bin> [<wert2> <ram2.bin> …]`. Es druckt alle Adressen, an denen in jedem Abzug der jeweilige Wert steht, dazu je Treffer die Zeiger aus dem festen ARM9-Bereich (`0x02000000–0x02120000`), die auf `treffer − k` mit `k < 0x2000` zeigen. Mit `--hi` und `--max-back` lässt sich die Suche erweitern; der HG-Zeiger liegt bei `0x0211186x`. Das ist ein Hilfsmittel und nur leicht getestet.
 
 ### 4.5 Szenarien
 

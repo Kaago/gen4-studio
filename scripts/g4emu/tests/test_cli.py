@@ -306,11 +306,22 @@ def test_find_u16_usage_errors(capfd, tmp_path):
     capfd.readouterr()
 
 
+def test_find_u16_default_range_covers_heartgold(capfd, tmp_path):
+    # HeartGold's static pointer sits at 0x0211186x, 0x1244 below the record.
+    _dump(
+        tmp_path / "a.bin",
+        [(0x27D43C - 0x1000, "<H", 0x3C), (0x111860, "<I", 0x0227C43C - 0x1000)],
+        size=0x400000,
+    )
+    assert main(["find-u16", "0x3C", str(tmp_path / "a.bin")]) == 0
+    assert capfd.readouterr().out == "0x0227C43C\n  ptr 0x02111860 + 0x1000\n"
+
+
 def test_find_u16_pointer_range_options(capfd, tmp_path):
     # The pointer sits above the default range end and 0x3000 below the hit.
-    _dump(tmp_path / "a.bin", [(0x4000, "<H", 0x3C), (0x3000, "<I", 0x02004000 - 0x3000)], size=0x8000)
+    _dump(tmp_path / "a.bin", [(0x4000, "<H", 0x3C), (0x130000, "<I", 0x02004000 - 0x3000)], size=0x140000)
     args = ["find-u16", "0x3C", str(tmp_path / "a.bin")]
     assert main(args) == 0
     assert capfd.readouterr().out == "0x02004000\n"
-    assert main([*args, "--max-back", "0x3000", "--hi", "0x02005000"]) == 0
-    assert capfd.readouterr().out == "0x02004000\n  ptr 0x02003000 + 0x3000\n"
+    assert main([*args, "--max-back", "0x3000", "--hi", "0x02140000"]) == 0
+    assert capfd.readouterr().out == "0x02004000\n  ptr 0x02130000 + 0x3000\n"

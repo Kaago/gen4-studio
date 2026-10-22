@@ -348,7 +348,7 @@ Expected: Explorer zeigt Orte, Statusleiste zeigt „Browser-Modus (Brücke)“;
 - Produces:
   ```python
   def find_u16(dumps: list[tuple[int, bytes]]) -> list[int]                 # addresses (0x02…) where dump i holds value i
-  def pointers_to(ram: bytes, target: int, max_back: int = 0x2000, lo: int = 0x02000000, hi: int = 0x02110000) -> list[tuple[int, int]]  # (pointer address, k)
+  def pointers_to(ram: bytes, target: int, max_back: int = 0x2000, lo: int = 0x02000000, hi: int = 0x02120000) -> list[tuple[int, int]]  # (pointer address, k)
   ```
   CLI: `g4emu find-u16 <wert> <ram.bin> [<wert> <ram.bin> …]` druckt je Treffer `0x…` und darunter die Zeiger `  ptr 0x… + 0x…`.
 
