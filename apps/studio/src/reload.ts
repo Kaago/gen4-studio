@@ -112,8 +112,27 @@ export async function fetchCurrent<T>(fetch: () => Promise<T>, revision: () => n
   }
 }
 
-/** A request for the scene to refetch one map (overlay and buildings); a new `token` makes a new request. */
-export interface MapRefresh {
-  map: number;
-  token: number;
+/**
+ * Requests to the scene ("refetch this map") as a queue instead of one slot: several requests made
+ * before React runs the scene's effect (two undos in a row, say) are all kept. Every entry has a
+ * running `seq`; the scene remembers the last one it handled and takes what is newer.
+ */
+export interface RefreshQueue<T> {
+  entries: { seq: number; item: T }[];
+}
+
+/** The most requests kept; older ones were handled long ago (a scene looks after every render). */
+export const MAX_QUEUED = 32;
+
+/** `queue` with `item` appended; the one stored in React state, so it is built in the updater. */
+export function enqueue<T>(queue: RefreshQueue<T> | null, item: T): RefreshQueue<T> {
+  const entries = queue?.entries ?? [];
+  const seq = (entries[entries.length - 1]?.seq ?? 0) + 1;
+  return { entries: [...entries, { seq, item }].slice(-MAX_QUEUED) };
+}
+
+/** The requests newer than `after` (the last `seq` the scene handled) and the new last `seq`. */
+export function pendingSince<T>(queue: RefreshQueue<T> | null, after: number): { items: T[]; last: number } {
+  const fresh = (queue?.entries ?? []).filter((e) => e.seq > after);
+  return { items: fresh.map((e) => e.item), last: fresh.length ? fresh[fresh.length - 1].seq : after };
 }

@@ -6,7 +6,7 @@ import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { BuildingRefresh } from "../world/buildings";
-import type { MapRefresh } from "../reload";
+import type { RefreshQueue } from "../reload";
 import { lockedText } from "../world/events";
 import type { EventLock, EventRef, EventRefresh } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
@@ -38,7 +38,7 @@ export interface WorkbenchData {
   /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
   history: { readonly current: number };
   /** A request makes the scene refetch one map (overlay and buildings): that map was restored by undo or redo. */
-  mapRefresh: MapRefresh | null;
+  mapRefresh: RefreshQueue<number> | null;
   onEdited: () => void;
   onError: (e: unknown) => void;
   /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
@@ -73,7 +73,7 @@ export interface WorkbenchData {
   /** Changes whenever buildings may have changed behind the building editor (a drag, undo, redo). */
   buildingRevision: number;
   /** A new request makes the scene read one map's buildings again. */
-  buildingRefresh: BuildingRefresh | null;
+  buildingRefresh: RefreshQueue<BuildingRefresh> | null;
   /** The building editor wrote a field: refresh the scene and the dirty count. */
   onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
   /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */

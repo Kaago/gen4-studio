@@ -36,7 +36,8 @@ import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
 import { tilesetKey } from "./workbench/inspector/areaFields";
 import { afterFailedSceneLoad, fetchCurrent, headerSync, reloadPlan, sceneKey, tilesetReload } from "./reload";
-import type { MapRefresh, ReloadAction } from "./reload";
+import { enqueue } from "./reload";
+import type { RefreshQueue, ReloadAction } from "./reload";
 import { sameLayout } from "./workbench/matrix";
 import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
@@ -72,7 +73,7 @@ export default function App() {
   const [showEvents, setShowEvents] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
-  const [mapRefresh, setMapRefresh] = useState<MapRefresh | null>(null);
+  const [mapRefresh, setMapRefresh] = useState<RefreshQueue<number> | null>(null);
   // Bumped by every undo and redo the moment it returns: a matrix fetch or scene load that was in
   // flight meanwhile fetches again. A ref, because state would only change on the next render.
   const history = useRef(0);
@@ -100,7 +101,7 @@ export default function App() {
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
   const [buildingRevision, setBuildingRevision] = useState(0);
-  const [buildingRefresh, setBuildingRefresh] = useState<BuildingRefresh | null>(null);
+  const [buildingRefresh, setBuildingRefresh] = useState<RefreshQueue<BuildingRefresh> | null>(null);
   const [eventRevision, setEventRevision] = useState(0);
   const [eventRefresh, setEventRefresh] = useState<EventRefresh | null>(null);
   // Whether the shown event file is locked: reported by the scene whenever it reads events, the one
@@ -351,7 +352,7 @@ export default function App() {
     [requestEventRefresh, refreshDirty],
   );
   const requestBuildingRefresh = useCallback((map: number, retryModel: number | null) => {
-    setBuildingRefresh((previous) => ({ map, token: (previous?.token ?? 0) + 1, retryModel }));
+    setBuildingRefresh((previous) => enqueue(previous, { map, retryModel }));
   }, []);
   // The scene wrote a drag: only the building editor (and the dirty count) has to catch up.
   const onBuildingMoved = useCallback(async () => {
@@ -589,7 +590,7 @@ export default function App() {
         setBuildingRevision((r) => r + 1);
         break;
       case "map":
-        setMapRefresh((previous) => ({ map: a.map, token: (previous?.token ?? 0) + 1 }));
+        setMapRefresh((previous) => enqueue(previous, a.map));
         break;
       case "matrixPanel":
         setMatrixRevision((r) => r + 1);

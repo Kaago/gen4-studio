@@ -22,8 +22,8 @@ import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "./load";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "./layout";
 import { BLOCKED, isClick, matrixCellAt, pickCell } from "./paint";
 import { cloneModel, disposeTree, parseGlb } from "./sceneUtil";
-import { fetchCurrent } from "../reload";
-import type { MapRefresh } from "../reload";
+import { fetchCurrent, pendingSince } from "../reload";
+import type { RefreshQueue } from "../reload";
 
 interface Loaded {
   map: MapDto;
@@ -295,7 +295,7 @@ interface Props {
    */
   history: { readonly current: number };
   /** A new request makes the scene refetch one map (overlay colours and buildings of all its cells): undo or redo restored it. */
-  mapRefresh: MapRefresh | null;
+  mapRefresh: RefreshQueue<number> | null;
   /** Called after a tile was changed in the backend. */
   onEdited: () => void;
   onError: (message: string) => void;
@@ -311,7 +311,7 @@ interface Props {
   /** A building was moved by dragging and the move is written. */
   onBuildingMoved: (map: number) => void;
   /** A new request makes the scene read one map's buildings again (they were edited elsewhere). */
-  buildingRefresh: BuildingRefresh | null;
+  buildingRefresh: RefreshQueue<BuildingRefresh> | null;
   /** The selected event (null: none). The scene outlines it and lets it be dragged. */
   selectedEvent: EventRef | null;
   /** A click on an event marker (or null for none). The owner decides what to select and passes it back. */
@@ -759,11 +759,12 @@ function MatrixScene({
         const ids = [...new Set(matrix.maps.filter((m): m is number => m !== null))];
         // Maps and events are fetched together; an undo or redo that lands meanwhile makes them
         // be fetched again. A failure of the events only costs the markers, never the scene.
-        const { loaded, fetchedEvents, mapProblems } = await fetchCurrent(
+        // The names are awaited inside, so no undo can land between the history check and the build.
+        const { loaded, fetchedEvents, mapProblems, names } = await fetchCurrent(
           async () => {
             const loaded = new Map<number, Loaded>();
             const mapProblems: string[] = [];
-            const [fetchedEvents] = await Promise.all([
+            const [fetchedEvents, , names] = await Promise.all([
               fetchEvents(eventFileRef.current),
               Promise.all(
                 ids.map(async (id) => {
@@ -774,13 +775,13 @@ function MatrixScene({
                   }
                 }),
               ),
+              namesPending,
             ]);
-            return { loaded, fetchedEvents, mapProblems };
+            return { loaded, fetchedEvents, mapProblems, names };
           },
           () => history.current,
         );
         problems.maps = mapProblems;
-        const names = await namesPending;
         if (cancelled || handle.current !== h) return;
         const { content, overlay, tiles, bases, buildings } = buildContent(matrix, loaded, names);
         h.scene.remove(h.content);
@@ -864,38 +865,43 @@ function MatrixScene({
     };
   }, [matrix, areaDataId, modelsToken]);
 
-  // Undo or redo restored one map: refetch it and show its overlay colours and buildings in every
-  // cell that shows it. Requests are not cancelled by a newer one (that one may be about another
-  // map); a result is dropped when the scene shows another matrix by then, or when a newer
-  // request for the same map was made.
+  // Undo or redo restored maps: refetch each and show its overlay colours and buildings in every
+  // cell that shows it. The requests are a queue (several can arrive before this runs, for
+  // different maps) and are never cancelled by newer ones; a result is dropped when the scene shows
+  // another matrix by then, or when a newer request for the same map was made.
   const mapRequests = useRef(new Map<number, number>());
+  const mapsSeen = useRef(0);
   useEffect(() => {
+    const { items, last } = pendingSince(mapRefresh, mapsSeen.current);
+    mapsSeen.current = last;
     const h = handle.current;
-    const request = mapRefresh;
-    if (!request || !h?.matrix) return;
+    // A scene that is still loading fetches current maps itself (see `history`).
+    if (!h?.matrix) return;
     // Results are only applied to the matrix they were requested for.
     const matrixAtStart = h.matrix;
-    const seq = (mapRequests.current.get(request.map) ?? 0) + 1;
-    mapRequests.current.set(request.map, seq);
-    (async () => {
-      if (!h.loaded.has(request.map)) return;
-      const map = await getMap(request.map);
-      const data = h.loaded.get(request.map);
-      if (h.disposed || handle.current !== h || h.matrix !== matrixAtStart || mapRequests.current.get(request.map) !== seq || !data) return;
-      // An unchanged building keeps its object, which the layer's slots hold: map data and layer
-      // never point at different objects.
-      const { buildings, changed } = reconcileBuildings(data.map.buildings, map.buildings);
-      data.map = { ...map, buildings };
-      recolourMap(h, request.map);
-      const layer = h.buildings;
-      if (changed) layer?.syncMap(matrixAtStart, request.map, buildings);
-      dropMissingSelection(h, callbacks.current.onSelectBuilding);
-      h.render();
-      h.refreshHover?.();
-      if (layer) await loadMissingBuildingModels(h, layer, areaRef.current, () => h.disposed || handle.current !== h || h.buildings !== layer);
-    })().catch((e) => {
-      if (!h.disposed) callbacks.current.onError(errorText(e));
-    });
+    for (const map of items) {
+      const seq = (mapRequests.current.get(map) ?? 0) + 1;
+      mapRequests.current.set(map, seq);
+      (async () => {
+        if (!h.loaded.has(map)) return;
+        const fresh = await getMap(map);
+        const data = h.loaded.get(map);
+        if (h.disposed || handle.current !== h || h.matrix !== matrixAtStart || mapRequests.current.get(map) !== seq || !data) return;
+        // An unchanged building keeps its object, which the layer's slots hold: map data and layer
+        // never point at different objects.
+        const { buildings, changed } = reconcileBuildings(data.map.buildings, fresh.buildings);
+        data.map = { ...fresh, buildings };
+        recolourMap(h, map);
+        const layer = h.buildings;
+        if (changed) layer?.syncMap(matrixAtStart, map, buildings);
+        dropMissingSelection(h, callbacks.current.onSelectBuilding);
+        h.render();
+        h.refreshHover?.();
+        if (layer) await loadMissingBuildingModels(h, layer, areaRef.current, () => h.disposed || handle.current !== h || h.buildings !== layer);
+      })().catch((e) => {
+        if (!h.disposed) callbacks.current.onError(errorText(e));
+      });
+    }
   }, [mapRefresh]);
 
   // The selection (made by a click, the header list, ...) is outlined; the scene also drags it.
@@ -908,32 +914,40 @@ function MatrixScene({
   }, [selectedMap, selectedBuilding]);
 
   // A building of one map was edited elsewhere (inspector, add, delete): read that map's buildings
-  // again and show them; a model that is new (or asked for again) loads in the background.
+  // again and show them; a model that is new (or asked for again) loads in the background. A queue
+  // like the one above: requests for different maps made in one batch are all handled.
+  const buildingRequests = useRef(new Map<number, number>());
+  const buildingsSeen = useRef(0);
   useEffect(() => {
+    const { items, last } = pendingSince(buildingRefresh, buildingsSeen.current);
+    buildingsSeen.current = last;
     const h = handle.current;
-    const request = buildingRefresh;
-    if (!request || !h?.matrix || !h.buildings) return;
+    if (!items.length || !h?.matrix || !h.buildings) return;
     const layer = h.buildings;
     const matrixAtStart = h.matrix;
-    let cancelled = false;
-    const stale = () => cancelled || handle.current !== h || h.buildings !== layer;
-    (async () => {
-      const data = h.loaded.get(request.map);
-      if (!data) return;
-      const fresh = await getMap(request.map);
-      if (stale() || h.matrix !== matrixAtStart) return;
-      data.map.buildings = fresh.buildings;
-      layer.syncMap(matrixAtStart, request.map, fresh.buildings);
-      if (request.retryModel !== null) layer.retry(request.retryModel);
-      dropMissingSelection(h, callbacks.current.onSelectBuilding);
-      h.render();
-      await loadMissingBuildingModels(h, layer, areaRef.current, stale);
-    })().catch((e) => {
-      if (!cancelled) callbacks.current.onError(errorText(e));
-    });
-    return () => {
-      cancelled = true;
-    };
+    const stale = () => h.disposed || handle.current !== h || h.buildings !== layer;
+    for (const request of items) {
+      const seq = (buildingRequests.current.get(request.map) ?? 0) + 1;
+      buildingRequests.current.set(request.map, seq);
+      (async () => {
+        const data = h.loaded.get(request.map);
+        if (!data) return;
+        const fresh = await getMap(request.map);
+        if (stale() || h.matrix !== matrixAtStart) return;
+        const superseded = buildingRequests.current.get(request.map) !== seq;
+        // A newer request for this map shows the newer buildings; this one's retry still counts.
+        if (!superseded) {
+          data.map.buildings = fresh.buildings;
+          layer.syncMap(matrixAtStart, request.map, fresh.buildings);
+        }
+        if (request.retryModel !== null) layer.retry(request.retryModel);
+        dropMissingSelection(h, callbacks.current.onSelectBuilding);
+        h.render();
+        await loadMissingBuildingModels(h, layer, areaRef.current, stale);
+      })().catch((e) => {
+        if (!stale()) callbacks.current.onError(errorText(e));
+      });
+    }
   }, [buildingRefresh]);
 
   // The selected event (made by a click, the header list, ...) is outlined; the scene also drags it.

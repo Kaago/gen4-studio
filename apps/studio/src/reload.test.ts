@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssetKind, HeaderSummary } from "./api";
-import { afterFailedSceneLoad, fetchCurrent, headerSync, reloadPlan, sceneKey, tilesetReload } from "./reload";
+import { MAX_QUEUED, afterFailedSceneLoad, enqueue, fetchCurrent, headerSync, pendingSince, reloadPlan, sceneKey, tilesetReload } from "./reload";
 import type { SceneState } from "./reload";
 
 const scene: SceneState = { matrix: 3, maps: [10, null, 11, 10], area: 5, eventFile: 7 };
@@ -136,5 +136,35 @@ describe("fetchCurrent", () => {
 
   it("passes a failure on", async () => {
     await expect(fetchCurrent(() => Promise.reject(new Error("no")), () => 0)).rejects.toThrow("no");
+  });
+});
+
+describe("refresh queue", () => {
+  it("keeps the requests of different maps made before the scene looked", () => {
+    // Two undos in one render batch: the second must not replace the first.
+    const queue = enqueue(enqueue(null, 4), 9);
+    expect(pendingSince(queue, 0).items).toEqual([4, 9]);
+  });
+
+  it("hands out each request once: only what is newer than the last one seen", () => {
+    const queue = enqueue(enqueue(null, 4), 9);
+    const first = pendingSince(queue, 0);
+    expect(first.last).toBe(2);
+    expect(pendingSince(queue, first.last).items).toEqual([]);
+    const later = enqueue(queue, 4);
+    expect(pendingSince(later, first.last).items).toEqual([4]);
+  });
+
+  it("returns the position it was given when there is nothing", () => {
+    expect(pendingSince(null, 5)).toEqual({ items: [], last: 5 });
+  });
+
+  it("forgets the oldest requests beyond its bound without renumbering the rest", () => {
+    let queue = enqueue(null, 0);
+    for (let i = 1; i <= MAX_QUEUED + 3; i++) queue = enqueue(queue, i);
+    expect(queue.entries).toHaveLength(MAX_QUEUED);
+    const { items, last } = pendingSince(queue, 0);
+    expect(items[items.length - 1]).toBe(MAX_QUEUED + 3);
+    expect(last).toBe(MAX_QUEUED + 4);
   });
 });

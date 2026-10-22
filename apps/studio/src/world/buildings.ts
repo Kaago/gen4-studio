@@ -54,10 +54,9 @@ export function wantsDelete(e: { key: string; target: { tagName?: string; isCont
   return (e.key === "Delete" || e.key === "Backspace") && !isTypingTarget(e.target);
 }
 
-/** A request to read one map's buildings again: a new `token` makes it a new request. */
+/** A request to read one map's buildings again (queued, see `RefreshQueue`). */
 export interface BuildingRefresh {
   map: number;
-  token: number;
   /** A model whose earlier failure should be forgotten, so that loading it is tried again. */
   retryModel: number | null;
 }
