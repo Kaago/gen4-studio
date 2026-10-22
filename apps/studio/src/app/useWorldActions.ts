@@ -10,7 +10,7 @@ import type { BuildingRef } from "../world/buildingLayer";
 import { deletePrompt, newBuildingPosition } from "../world/buildings";
 import { eventAt, eventDeletePrompt, eventEditGate } from "../world/events";
 import type { EventLock, EventRef } from "../world/events";
-import type { EditBus } from "./editBus";
+import type { EditBus } from "../bus/editBus";
 import type { InspectorState } from "./useInspectorState";
 
 interface WorldActionsParams {

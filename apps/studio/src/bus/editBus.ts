@@ -55,7 +55,7 @@ interface Subscription {
  * is being delivered waits until that delivery is done. A subscriber that unsubscribes gets
  * nothing more, not even the rest of the current delivery; one that subscribes during a delivery
  * starts with the next event. A subscriber that throws is reported to `onError` and does not
- * keep the others from their events.
+ * keep the others from their events; neither does an `onError` that throws itself.
  */
 export function createEditBus(onError: (error: unknown) => void = (e) => console.error(e)): EditBus {
   let subscriptions: Subscription[] = [];
@@ -69,7 +69,12 @@ export function createEditBus(onError: (error: unknown) => void = (e) => console
       try {
         s.fn(event);
       } catch (e) {
-        onError(e);
+        // A throwing error handler must not abort the delivery: the events queued behind this one would be stranded.
+        try {
+          onError(e);
+        } catch {
+          /* nowhere left to report it */
+        }
       }
     }
   }

@@ -103,6 +103,23 @@ describe("edit bus", () => {
     expect(onError).toHaveBeenCalledWith(boom);
   });
 
+  it("does not strand queued events when the error handler itself throws", () => {
+    const bus = createEditBus(() => {
+      throw new Error("handler broke");
+    });
+    bus.subscribe("headerTable", () => {
+      // Queued behind the event being delivered, then a subscriber throws.
+      bus.emit({ topic: "matrixData" });
+      throw new Error("boom");
+    });
+    const { seen } = collect(bus, ["matrixData"]);
+    expect(() => bus.emit({ topic: "headerTable" })).not.toThrow();
+    expect(seen).toHaveLength(1);
+    // Nothing waits for the next emit: a later event arrives once, not together with a leftover.
+    bus.emit({ topic: "matrixData" });
+    expect(seen).toHaveLength(2);
+  });
+
   it("keeps the order for every subscriber when a subscriber emits while it is delivered", () => {
     const bus = createEditBus();
     const a: string[] = [];

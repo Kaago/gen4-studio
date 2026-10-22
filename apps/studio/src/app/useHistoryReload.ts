@@ -3,7 +3,7 @@ import type { AssetId } from "../api";
 import { reloadPlan } from "../reload";
 import type { ReloadAction } from "../reload";
 import { pinAfterHistory } from "../workbench/pin";
-import type { EditBus } from "./editBus";
+import type { EditBus } from "../bus/editBus";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";

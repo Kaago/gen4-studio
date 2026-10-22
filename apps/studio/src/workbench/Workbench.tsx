@@ -6,8 +6,8 @@ import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } f
 import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
-import type { EditBus } from "../app/editBus";
-import { useBusRevision } from "../app/useBusEvent";
+import type { EditBus } from "../bus/editBus";
+import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
 import type { EventLock, EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";

@@ -5,7 +5,7 @@ import Workbench from "./workbench/Workbench";
 import type { WorkbenchData } from "./workbench/Workbench";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
-import { createEditBus } from "./app/editBus";
+import { createEditBus } from "./bus/editBus";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";

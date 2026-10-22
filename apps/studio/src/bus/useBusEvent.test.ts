@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pendingSince } from "../reload";
 import { createEditBus } from "./editBus";
-import type { EditBus, EditEvent } from "./editBus";
+import type { EditBus } from "./editBus";
 import { useBusEvent, useBusQueue, useBusRevision } from "./useBusEvent";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -112,7 +112,7 @@ describe("useBusQueue", () => {
     act(() => {
       bus.emit({ topic: "mapRefetch", map: 4 });
       bus.emit({ topic: "mapRefetch", map: 6 });
-      bus.emit({ topic: "headerTable" } as EditEvent);
+      bus.emit({ topic: "headerTable" });
     });
     expect(pendingSince(queue, 0).items).toEqual([4, 6]);
     act(() => bus.emit({ topic: "mapRefetch", map: 4 }));

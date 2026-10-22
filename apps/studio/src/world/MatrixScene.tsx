@@ -2,8 +2,8 @@ import { memo, useRef, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { EditBus } from "../app/editBus";
-import { useBusQueue, useBusRevision } from "../app/useBusEvent";
+import type { EditBus } from "../bus/editBus";
+import { useBusQueue, useBusRevision } from "../bus/useBusEvent";
 import type { BuildingRef } from "./buildingLayer";
 import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
@@ -92,6 +92,7 @@ function MatrixScene({
   const [eventStatus, setEventStatus] = useState<string | null>(null);
   // Counts the scenes built (maps fetched, content in place): queued building edits are read again then.
   const [sceneBuilt, setSceneBuilt] = useState(0);
+  // The bus subscription hooks must stay declared before useSceneSetup/useSceneLoader (effect order: events queue before the scene reacts).
   // The bus events as the queues the effects below drain (see `useBusQueue`), and the counter that reloads the models.
   const mapRefresh = useBusQueue(bus, "mapRefetch", (e) => e.map);
   const buildingRefresh = useBusQueue(bus, "buildingsRefetch", (e) => ({ map: e.map, retryModel: e.retryModel }));

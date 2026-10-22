@@ -10,7 +10,7 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { EditBus } from "./editBus";
+import type { EditBus } from "../bus/editBus";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
