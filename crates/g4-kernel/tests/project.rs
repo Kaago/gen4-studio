@@ -489,7 +489,8 @@ fn archive_map_knows_every_world_kind() {
         KernelError::InvalidProject(_)
     ));
     assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
-    assert_eq!(p.archives.kinds().count(), 8);
+    // Platinum: the eight world archives plus the Dynamic Headers NARC.
+    assert_eq!(p.archives.kinds().count(), 9);
 }
 
 #[test]
@@ -552,7 +553,8 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
             "mapTextures",
             "buildingTextures",
             "exteriorBuildingModels",
-            "interiorBuildingModels"
+            "interiorBuildingModels",
+            "dynamicHeaders"
         ]
     );
 }
@@ -572,7 +574,8 @@ fn asset_kind_labels() {
             "building texture",
             "building model",
             "interior building model",
-            "header table"
+            "header table",
+            "dynamic headers"
         ]
     );
 }
@@ -632,4 +635,55 @@ fn vanilla_headers_carry_location_names() {
             .count()
             > 100
     );
+}
+
+#[test]
+fn asset_kinds_have_eleven_slots() {
+    assert_eq!(AssetKind::ALL.len(), 11);
+    // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
+    for (i, a) in AssetKind::ALL.iter().enumerate() {
+        for b in &AssetKind::ALL[i + 1..] {
+            assert_ne!(a, b);
+        }
+    }
+    assert_eq!(AssetKind::ALL[10], AssetKind::DynamicHeaders);
+    assert_eq!(AssetKind::DynamicHeaders.label(), "dynamic headers");
+}
+
+#[test]
+fn pt_and_hgss_have_a_dynamic_headers_archive_dp_has_none() {
+    let s = common::synthetic_project();
+    let archive = |code: &str| {
+        std::fs::write(
+            s.dir.path().join("header.yaml"),
+            format!("gamecode: {code}\n"),
+        )
+        .unwrap();
+        let p = Project::open(s.dir.path()).unwrap();
+        (
+            p.archives
+                .packed(AssetKind::DynamicHeaders)
+                .map(Path::to_path_buf),
+            p.archives
+                .unpacked_name(AssetKind::DynamicHeaders)
+                .to_owned(),
+            p.archives.kinds().any(|k| k == AssetKind::DynamicHeaders),
+        )
+    };
+    let (packed, unpacked, listed) = archive("CPUD");
+    assert_eq!(
+        packed.as_deref(),
+        Some(Path::new("files/debug/cb_edit/d_test.narc"))
+    );
+    assert_eq!(unpacked, "dynamicHeaders");
+    assert!(listed);
+    let (packed, unpacked, listed) = archive("IPKE");
+    assert_eq!(packed.as_deref(), Some(Path::new("files/a/0/5/0")));
+    assert_eq!(unpacked, "dynamicHeaders");
+    assert!(listed);
+    let (packed, unpacked, listed) = archive("ADAE");
+    assert_eq!(packed, None);
+    // The folder name is total, also where the archive does not exist.
+    assert_eq!(unpacked, "dynamicHeaders");
+    assert!(!listed);
 }

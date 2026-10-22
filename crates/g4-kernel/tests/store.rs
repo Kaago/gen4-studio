@@ -1269,3 +1269,133 @@ fn duplicate_map_with_clear_buildings_keeps_a_buildings_tail_from_disk() {
     assert_eq!(st.locked(map_id(index)), None);
     assert_eq!(st.locked(map_id(2)), None);
 }
+
+/// A synthetic Platinum project with the Dynamic Headers patch applied: the table now lives
+/// in `unpacked/dynamicHeaders`, one 24-byte file per header.
+fn patched_store() -> (common::Synthetic, Store, std::path::PathBuf) {
+    let s = common::synthetic_project();
+    let project = Arc::new(Project::open(s.dir.path()).unwrap());
+    let headers = Store::new(project.clone()).header_table().unwrap().to_vec();
+    g4_kernel::dynamic_headers::apply(&project, &headers).unwrap();
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    (s, Store::new(project), dir)
+}
+
+#[test]
+fn patched_project_reads_and_saves_headers_from_files() {
+    use g4_kernel::store::MapHeader;
+    let (s, mut st, dir) = patched_store();
+    let arm9_before = std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap();
+    let first_before = std::fs::read(dir.join("0000")).unwrap();
+    assert_eq!(st.header_table().unwrap().len(), 2);
+    st.edit_header(1, "x", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.matrix_id = 7;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let table = AssetId {
+        kind: AssetKind::HeaderTable,
+        index: 0,
+    };
+    assert!(st.is_dirty(table));
+    assert_eq!(st.save().unwrap().written, vec![table]);
+    assert!(!st.is_dirty(table));
+    let second = std::fs::read(dir.join("0001")).unwrap();
+    assert_eq!(second.len(), 24);
+    assert_eq!(&second[2..4], &7u16.to_le_bytes());
+    assert_eq!(std::fs::read(dir.join("0000")).unwrap(), first_before);
+    assert_eq!(
+        std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap(),
+        arm9_before
+    );
+    // A fresh project reads the edit back through the files.
+    let reread = Project::open(s.dir.path()).unwrap();
+    assert_eq!(reread.headers().unwrap()[1].matrix_id, 7);
+    assert_eq!(reread.header_count().unwrap(), 2);
+}
+
+#[test]
+fn patched_header_save_writes_only_the_changed_files() {
+    use g4_kernel::store::MapHeader;
+    let (_s, mut st, dir) = patched_store();
+    st.header_table().unwrap();
+    let unchanged = dir.join("0000");
+    // A rewrite goes through a temp file and a rename, which gives the file a new inode.
+    let inode = |p: &std::path::Path| {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(p).unwrap().ino()
+    };
+    let before = inode(&unchanged);
+    st.edit_header(1, "x", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.matrix_id = 9;
+        }
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    assert_eq!(inode(&unchanged), before, "file 0000 was rewritten");
+}
+
+#[test]
+fn patched_header_save_detects_a_changed_file() {
+    use g4_kernel::store::MapHeader;
+    let (_s, mut st, dir) = patched_store();
+    st.header_table().unwrap();
+    let mut bytes = std::fs::read(dir.join("0000")).unwrap();
+    bytes[0] ^= 1;
+    std::fs::write(dir.join("0000"), &bytes).unwrap();
+    st.edit_header(1, "x", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.matrix_id = 7;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let table = AssetId {
+        kind: AssetKind::HeaderTable,
+        index: 0,
+    };
+    assert!(matches!(
+        st.save().unwrap_err(),
+        KernelError::Stale(id) if id == table
+    ));
+    // Nothing was written: file 0001 still has its original matrix.
+    assert_eq!(
+        &std::fs::read(dir.join("0001")).unwrap()[2..4],
+        &0u16.to_le_bytes()
+    );
+}
+
+#[test]
+fn missing_header_file_is_reported_not_panicked() {
+    let (s, mut st, dir) = patched_store();
+    std::fs::remove_file(dir.join("0001")).unwrap();
+    let message = st.header_table().unwrap_err().to_string();
+    assert!(message.contains("0001"), "{message}");
+    assert!(message.contains("dynamicHeaders"), "{message}");
+    // The listing reports it the same way.
+    let message = Project::open(s.dir.path())
+        .unwrap()
+        .header_listing()
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("0001"), "{message}");
+}
+
+#[test]
+fn dynamic_headers_kind_is_store_only() {
+    let (_s, st, _dir) = patched_store();
+    assert!(
+        st.project()
+            .member_count(AssetKind::DynamicHeaders)
+            .is_err()
+    );
+    assert!(
+        st.project()
+            .ensure_unpacked(AssetKind::DynamicHeaders)
+            .is_err()
+    );
+}

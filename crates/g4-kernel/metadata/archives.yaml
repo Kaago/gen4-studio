@@ -16,6 +16,7 @@ pt:
   map_textures:            { packed: "files/fielddata/areadata/area_map_tex/map_tex_set.narc", unpacked: "mapTextures" }
   building_textures:       { packed: "files/fielddata/areadata/area_build_model/areabm_texset.narc", unpacked: "buildingTextures" }
   building_models:         { packed: "files/fielddata/build_model/build_model.narc", unpacked: "exteriorBuildingModels" }
+  dynamic_headers:         { packed: "files/debug/cb_edit/d_test.narc", unpacked: "dynamicHeaders" }
 hgss:
   maps:                    { packed: "files/a/0/6/5", unpacked: "maps" }
   matrices:                { packed: "files/a/0/4/1", unpacked: "matrices" }
@@ -26,3 +27,4 @@ hgss:
   building_textures:       { packed: "files/a/0/7/0", unpacked: "buildingTextures" }
   building_models:         { packed: "files/a/0/4/0", unpacked: "exteriorBuildingModels" }
   interior_building_models: { packed: "files/a/1/4/8", unpacked: "interiorBuildingModels" }
+  dynamic_headers:         { packed: "files/a/0/5/0", unpacked: "dynamicHeaders" }

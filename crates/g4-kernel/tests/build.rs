@@ -341,3 +341,38 @@ fn extract_rom_creates_openable_project() {
     p.ensure_unpacked(AssetKind::Map).unwrap();
     assert!(!p.headers().unwrap().is_empty());
 }
+
+#[test]
+fn build_packs_dynamic_headers_after_patch() {
+    use std::sync::Arc;
+    let s = common::synthetic_project();
+    let project = Arc::new(Project::open(s.dir.path()).unwrap());
+    let headers = g4_kernel::store::Store::new(project.clone())
+        .header_table()
+        .unwrap()
+        .to_vec();
+    g4_kernel::dynamic_headers::apply(&project, &headers).unwrap();
+    // ds-rom cannot build the synthetic project; packing happens before it fails.
+    let err = build(&project, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)));
+    let packed = std::fs::read(s.dir.path().join("files/debug/cb_edit/d_test.narc")).unwrap();
+    let narc = g4_formats::narc::Narc::read(&packed).unwrap();
+    assert_eq!(narc.members.len(), 2);
+    assert!(narc.members.iter().all(|m| m.len() == 24));
+    assert_eq!(
+        narc.members[1],
+        std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0001")).unwrap()
+    );
+}
+
+#[test]
+fn build_leaves_vanilla_dynamic_headers_narc_untouched() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let narc_path = s.dir.path().join("files/debug/cb_edit/d_test.narc");
+    let before = std::fs::read(&narc_path).unwrap();
+    assert!(!s.dir.path().join("unpacked/dynamicHeaders").exists());
+    let _ = build(&p, &s.dir.path().join("out.nds"));
+    assert_eq!(std::fs::read(&narc_path).unwrap(), before);
+    assert!(!s.dir.path().join("unpacked/dynamicHeaders").exists());
+}

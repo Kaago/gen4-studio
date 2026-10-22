@@ -6,6 +6,7 @@
 //! `docs/formats/dynamic_headers.md`.
 
 use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -174,6 +175,69 @@ fn signature_at(arm9: &[u8], offset: u64) -> Option<u16> {
     Some(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
+/// The header files `0000..count` of `dir`, concatenated. `None`: a file is missing (see
+/// [`missing_file_error`]). A file that is not exactly one header long is an error, since
+/// the concatenation would no longer line up with the header numbers.
+pub(crate) fn read_files(dir: &Path, count: usize) -> Result<Option<Vec<u8>>, KernelError> {
+    let mut bytes = Vec::with_capacity(count * HEADER_SIZE);
+    for i in 0..count {
+        let path = dir.join(format!("{i:04}"));
+        let file = match std::fs::read(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io_at(&path)(e)),
+        };
+        if file.len() != HEADER_SIZE {
+            return Err(KernelError::InvalidProject(format!(
+                "{} is {} bytes, a header file has {HEADER_SIZE}",
+                path.display(),
+                file.len()
+            )));
+        }
+        bytes.extend_from_slice(&file);
+    }
+    Ok(Some(bytes))
+}
+
+/// The error for a table whose `count` names (`mapname.bin`) are not all backed by a header
+/// file: names the first file that is missing.
+pub(crate) fn missing_file_error(dir: &Path, count: usize) -> KernelError {
+    let first = (0..count).find(|i| !dir.join(format!("{i:04}")).is_file());
+    match first {
+        Some(i) => KernelError::InvalidProject(format!(
+            "{} is missing: header table has {count} names but not that file",
+            dir.join(format!("{i:04}")).display()
+        )),
+        None => KernelError::InvalidProject(format!("{} changed while it was read", dir.display())),
+    }
+}
+
+/// Writes the header files of `dir` that differ between `base` (the bytes last read) and
+/// `new` (both the concatenation of the files `0000..`); all of them without a `base`.
+/// Each file is written atomically, the unchanged ones are not touched.
+pub(crate) fn write_changed_files(
+    project_root: &Path,
+    dir: &Path,
+    base: Option<&[u8]>,
+    new: &[u8],
+) -> Result<(), KernelError> {
+    if !new.len().is_multiple_of(HEADER_SIZE) {
+        return Err(KernelError::InvalidProject(format!(
+            "header table is {} bytes, not a multiple of {HEADER_SIZE}",
+            new.len()
+        )));
+    }
+    let base_chunks = base.map(|b| b.chunks(HEADER_SIZE));
+    let mut base_chunks = base_chunks.into_iter().flatten();
+    for (i, chunk) in new.chunks(HEADER_SIZE).enumerate() {
+        if base_chunks.next() == Some(chunk) {
+            continue;
+        }
+        write_atomic(project_root, &dir.join(format!("{i:04}")), chunk)?;
+    }
+    Ok(())
+}
+
 fn read_arm9(project: &Project) -> Result<Vec<u8>, KernelError> {
     let path = project.arm9_path();
     std::fs::read(&path).map_err(io_at(&path))
@@ -185,7 +249,18 @@ pub fn is_applied(project: &Project) -> Result<bool, KernelError> {
     let Some(plan) = plan(project)? else {
         return Ok(false);
     };
-    Ok(signature_at(&read_arm9(project)?, plan.init_offset) == Some(PATCH_SIGNATURE))
+    // Called whenever the header table is located, so read the two bytes, not all of arm9.bin.
+    let path = project.arm9_path();
+    let mut file = std::fs::File::open(&path).map_err(io_at(&path))?;
+    file.seek(SeekFrom::Start(plan.init_offset))
+        .map_err(io_at(&path))?;
+    let mut signature = [0u8; 2];
+    match file.read_exact(&mut signature) {
+        Ok(()) => Ok(u16::from_le_bytes(signature) == PATCH_SIGNATURE),
+        // arm9.bin ends before the routine's offset: not patched.
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(e) => Err(io_at(&path)(e)),
+    }
 }
 
 fn refuse(msg: String) -> KernelError {

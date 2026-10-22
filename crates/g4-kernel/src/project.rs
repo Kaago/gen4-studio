@@ -10,6 +10,7 @@ use serde::Deserialize;
 use uxie::text_bank::game_strings::TextBankIds;
 use uxie::text_bank::read_text_archive_bin;
 
+use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
@@ -35,12 +36,17 @@ pub enum AssetKind {
     /// The map header table, a fixed slice of `arm9/arm9.bin`. Store-only: it has no
     /// archive, so it is never unpacked, packed or built.
     HeaderTable,
+    /// The NARC the Dynamic Headers patch moves the header table into (Platinum and
+    /// HGSS). Store-only like the header table: never editable and never unpacked by the
+    /// store (the header table asset reads and writes its folder), but an archive for
+    /// `build`, which packs the folder when it exists.
+    DynamicHeaders,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed; the store-only
     /// kinds come last.
-    pub const ALL: [AssetKind; 10] = [
+    pub const ALL: [AssetKind; 11] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -51,6 +57,7 @@ impl AssetKind {
         AssetKind::BuildingModel,
         AssetKind::InteriorBuildingModel,
         AssetKind::HeaderTable,
+        AssetKind::DynamicHeaders,
     ];
 
     /// Human-readable name used in error messages.
@@ -66,6 +73,7 @@ impl AssetKind {
             AssetKind::BuildingModel => "building model",
             AssetKind::InteriorBuildingModel => "interior building model",
             AssetKind::HeaderTable => "header table",
+            AssetKind::DynamicHeaders => "dynamic headers",
         }
     }
 
@@ -82,6 +90,7 @@ impl AssetKind {
             AssetKind::BuildingModel => 7,
             AssetKind::InteriorBuildingModel => 8,
             AssetKind::HeaderTable => 9,
+            AssetKind::DynamicHeaders => 10,
         }
     }
 }
@@ -123,11 +132,14 @@ struct FamilyArchives {
     building_models: ArchiveEntry,
     /// Only HGSS has interior building models.
     interior_building_models: Option<ArchiveEntry>,
+    /// Only Platinum and HGSS have the Dynamic Headers NARC.
+    dynamic_headers: Option<ArchiveEntry>,
 }
 
-/// DSPRE folder name of the interior building models. It is also reported for families
+/// DSPRE folder names of the optional archives. They are also reported for families
 /// without that archive, so that `unpacked_name` is total.
 const INTERIOR_UNPACKED_NAME: &str = "interiorBuildingModels";
+const DYNAMIC_HEADERS_UNPACKED_NAME: &str = "dynamicHeaders";
 
 /// Where the bytes of one asset live on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +152,9 @@ pub enum Location {
         offset: u64,
         len: usize,
     },
+    /// `count` files `0000..` of 24 bytes each in `dir` (the header table once the Dynamic
+    /// Headers patch is applied); the asset's bytes are their concatenation.
+    HeaderFiles { dir: PathBuf, count: usize },
 }
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
@@ -147,8 +162,8 @@ pub enum Location {
 #[derive(Debug, Clone)]
 pub struct ArchiveMap {
     /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
-    /// the kind is store-only, like the header table).
-    entries: [Option<(PathBuf, String)>; 10],
+    /// the kind has none, like the header table).
+    entries: [Option<(PathBuf, String)>; 11],
 }
 
 impl ArchiveMap {
@@ -183,6 +198,7 @@ impl ArchiveMap {
                 Some(resolve(archives.building_models)),
                 archives.interior_building_models.map(resolve),
                 None,
+                archives.dynamic_headers.map(resolve),
             ],
         })
     }
@@ -196,17 +212,19 @@ impl ArchiveMap {
     }
 
     /// Folder name below `unpacked/`, for example `maps` or `eventFiles`. Meaningless for
-    /// the store-only header table, which has no folder.
+    /// the header table, which has no folder of its own.
     pub fn unpacked_name(&self, kind: AssetKind) -> &str {
         match &self.entries[kind.slot()] {
             Some((_, name)) => name,
-            // Only the interior building models (and the store-only kinds) can be missing.
+            // Only the optional archives (and the header table) can be missing.
+            None if kind == AssetKind::DynamicHeaders => DYNAMIC_HEADERS_UNPACKED_NAME,
             None => INTERIOR_UNPACKED_NAME,
         }
     }
 
-    /// All kinds that have an archive in this family, in `AssetKind::ALL` order. Store-only
-    /// kinds (the header table) are never listed, so nothing packs or builds them.
+    /// All kinds that have an archive in this family, in `AssetKind::ALL` order. The header
+    /// table has none, so nothing packs or builds it. `DynamicHeaders` is listed for
+    /// Platinum and HGSS, so `build` packs its folder when it exists.
     pub fn kinds(&self) -> impl Iterator<Item = AssetKind> + '_ {
         AssetKind::ALL
             .into_iter()
@@ -243,6 +261,13 @@ fn location_name_index(header: &uxie::MapHeader) -> usize {
         uxie::MapHeader::Pt(h) => usize::from(h.location_name),
         uxie::MapHeader::HGSS(h) => usize::from(h.location_name),
     }
+}
+
+/// The error for asking a store-only kind (one the store never unpacks) for archive data.
+fn store_only(kind: AssetKind) -> KernelError {
+    KernelError::InvalidProject(format!(
+        "{kind} is store-only: it has no member count and is never unpacked"
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -300,10 +325,18 @@ impl Project {
         self.unpacked_dir(kind).join(format!("{index:04}"))
     }
 
+    /// Whether DSPRE's Dynamic Headers patch is applied (`dynamic_headers::is_applied`): the
+    /// header table then lives in `unpacked/dynamicHeaders`. Always false for Diamond/Pearl.
+    pub fn dynamic_headers_applied(&self) -> Result<bool, KernelError> {
+        dynamic_headers::is_applied(self)
+    }
+
     /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files; the
     /// header table is the slice of `arm9/arm9.bin` holding every header (its only asset has
-    /// index 0). Fails with `InvalidProject` for another index or when `arm9.bin` is too
-    /// short for the table, and with `UnknownGame` when the game has no known table offset.
+    /// index 0), or, once the Dynamic Headers patch is applied, the files of
+    /// `unpacked/dynamicHeaders`. Fails with `InvalidProject` for another index, when
+    /// `arm9.bin` is too short for the table or the folder is missing, and with
+    /// `UnknownGame` when the game has no known table offset.
     pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
         if kind != AssetKind::HeaderTable {
             return Ok(Location::Member(self.member_path(kind, index)));
@@ -312,6 +345,19 @@ impl Project {
             return Err(KernelError::InvalidProject(format!(
                 "the header table has one asset, index {index} is out of range"
             )));
+        }
+        if self.dynamic_headers_applied()? {
+            let dir = dynamic_headers::unpacked_dir(self);
+            if !dir.is_dir() {
+                return Err(KernelError::InvalidProject(format!(
+                    "the Dynamic Headers patch is applied but {} is missing",
+                    dir.display()
+                )));
+            }
+            return Ok(Location::HeaderFiles {
+                dir,
+                count: self.mapname_count()?,
+            });
         }
         let (offset, count) = self.header_table_extent()?;
         Ok(Location::Slice {
@@ -335,10 +381,8 @@ impl Project {
             .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))
     }
 
-    /// Offset of the header table in `arm9.bin` and the number of headers (one per
-    /// `mapname.bin` record), checked against the size of `arm9.bin`.
-    fn header_table_extent(&self) -> Result<(u64, usize), KernelError> {
-        let offset = self.header_table_offset()?;
+    /// Number of headers: one per `mapname.bin` record.
+    fn mapname_count(&self) -> Result<usize, KernelError> {
         let names_path = self.root.join("files/fielddata/maptable/mapname.bin");
         let names_len = std::fs::metadata(&names_path)
             .map_err(io_at(&names_path))?
@@ -349,6 +393,14 @@ impl Project {
         if count > usize::from(u16::MAX) + 1 {
             return Err(KernelError::Uxie(format!("too many map headers: {count}")));
         }
+        Ok(count)
+    }
+
+    /// Offset of the (unpatched) header table in `arm9.bin` and the number of headers,
+    /// checked against the size of `arm9.bin`.
+    fn header_table_extent(&self) -> Result<(u64, usize), KernelError> {
+        let offset = self.header_table_offset()?;
+        let count = self.mapname_count()?;
         let arm9_path = self.arm9_path();
         let arm9_len = std::fs::metadata(&arm9_path)
             .map_err(io_at(&arm9_path))?
@@ -402,9 +454,14 @@ impl Project {
     /// Unpacks the archive of `kind` if its unpacked folder is missing and returns the
     /// member count. An existing folder is never touched.
     pub fn ensure_unpacked(&self, kind: AssetKind) -> Result<usize, KernelError> {
-        if kind == AssetKind::HeaderTable {
+        match kind {
             // Store-only: nothing to unpack, the table is one asset.
-            return Ok(1);
+            AssetKind::HeaderTable => return Ok(1),
+            // The folder belongs to the Dynamic Headers patch: it exists once the patch is
+            // applied (and in DSPRE projects, holding the NARC's vanilla members), and
+            // unpacking it would fake that patch.
+            AssetKind::DynamicHeaders => return Err(store_only(kind)),
+            _ => {}
         }
         self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
@@ -452,8 +509,10 @@ impl Project {
 
     /// Member count of the archive of `kind`, without unpacking anything.
     pub fn member_count(&self, kind: AssetKind) -> Result<usize, KernelError> {
-        if kind == AssetKind::HeaderTable {
-            return Ok(1);
+        match kind {
+            AssetKind::HeaderTable => return Ok(1),
+            AssetKind::DynamicHeaders => return Err(store_only(kind)),
+            _ => {}
         }
         self.require_packed(kind)?;
         let dir = self.unpacked_dir(kind);
@@ -589,24 +648,51 @@ impl Project {
             .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
     }
 
-    /// Reads the header table in `arm9/arm9.bin` as it is on disk.
+    /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
+    /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
     fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
-        let (offset, count) = self.header_table_extent()?;
-        let arm9_path = self.arm9_path();
-        let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
-        uxie::map_header::read_map_headers_from_arm9(
-            &mut Cursor::new(arm9),
-            offset,
-            count,
-            self.uxie_family(),
-        )
-        .map_err(|e| KernelError::Uxie(format!("{e}")))
+        match self.asset_location(AssetKind::HeaderTable, 0)? {
+            Location::HeaderFiles { dir, count } => {
+                let bytes = dynamic_headers::read_files(&dir, count)?
+                    .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count))?;
+                bytes
+                    .as_chunks::<MAP_HEADER_SIZE>()
+                    .0
+                    .iter()
+                    .map(|chunk| {
+                        uxie::map_header::read_map_header_from_bytes(chunk, self.uxie_family())
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| KernelError::Uxie(format!("{e}")))
+            }
+            Location::Slice { offset, len, .. } => {
+                let arm9_path = self.arm9_path();
+                let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
+                uxie::map_header::read_map_headers_from_arm9(
+                    &mut Cursor::new(arm9),
+                    offset,
+                    len / MAP_HEADER_SIZE,
+                    self.uxie_family(),
+                )
+                .map_err(|e| KernelError::Uxie(format!("{e}")))
+            }
+            Location::Member(_) => Err(KernelError::InvalidProject(
+                "the header table is not a member file".to_owned(),
+            )),
+        }
     }
 
-    /// Number of map headers: the `mapname.bin` record count, provided `arm9.bin` is large
-    /// enough to hold that many. Parses no header and never reads the text archive.
+    /// Number of map headers: the `mapname.bin` record count, provided the table can hold
+    /// that many (`arm9.bin` is large enough, or `unpacked/dynamicHeaders` exists). Parses
+    /// no header and never reads the text archive.
     pub fn header_count(&self) -> Result<usize, KernelError> {
-        self.header_table_extent().map(|(_, count)| count)
+        match self.asset_location(AssetKind::HeaderTable, 0)? {
+            Location::HeaderFiles { count, .. } => Ok(count),
+            Location::Slice { len, .. } => Ok(len / MAP_HEADER_SIZE),
+            Location::Member(_) => Err(KernelError::InvalidProject(
+                "the header table is not a member file".to_owned(),
+            )),
+        }
     }
 
     /// Lists all map headers with their location names. A failure of the header table is
@@ -676,9 +762,14 @@ mod tests {
             (Family::Hgss, Language::English),
         ] {
             let map = ArchiveMap::for_game(family, language).unwrap();
-            // Only HGSS has interior building models; every other archive kind exists
-            // everywhere. The header table is store-only and never has an archive.
-            let expected = if family == Family::Hgss { 9 } else { 8 };
+            // Only HGSS has interior building models and only Platinum and HGSS the
+            // Dynamic Headers NARC; every other archive kind exists everywhere. The header
+            // table is store-only and never has an archive.
+            let expected = match family {
+                Family::Dp => 8,
+                Family::Pt => 9,
+                Family::Hgss => 10,
+            };
             assert_eq!(map.kinds().count(), expected, "{family:?}");
             for kind in AssetKind::ALL {
                 let exists = map.packed(kind).is_some();
@@ -687,6 +778,7 @@ mod tests {
                     match kind {
                         AssetKind::HeaderTable => false,
                         AssetKind::InteriorBuildingModel => family == Family::Hgss,
+                        AssetKind::DynamicHeaders => family != Family::Dp,
                         _ => true,
                     }
                 );

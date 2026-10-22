@@ -12,6 +12,7 @@ use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
+use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
@@ -98,7 +99,8 @@ impl Loaded {
             | AssetKind::MapTexture
             | AssetKind::BuildingTexture
             | AssetKind::BuildingModel
-            | AssetKind::InteriorBuildingModel => Err(KernelError::NotEditable(kind)),
+            | AssetKind::InteriorBuildingModel
+            | AssetKind::DynamicHeaders => Err(KernelError::NotEditable(kind)),
         }
     }
 
@@ -201,8 +203,8 @@ impl Store {
     }
 
     /// Where `id` lives on disk, with its bytes there: `None` when the member file does not
-    /// exist (or `arm9.bin` is missing or too short for the header table slice). Read-only
-    /// kinds are refused before anything is unpacked.
+    /// exist (or `arm9.bin` is missing or too short for the header table slice, or a header
+    /// file is missing). Read-only kinds are refused before anything is unpacked.
     fn read_disk(&mut self, id: AssetId) -> Result<(Location, Option<Vec<u8>>), KernelError> {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
@@ -224,6 +226,9 @@ impl Store {
                 "{} is missing or too short for the header table",
                 path.display()
             ))),
+            (Location::HeaderFiles { dir, count }, None) => {
+                Err(dynamic_headers::missing_file_error(&dir, count))
+            }
         }
     }
 
@@ -315,7 +320,8 @@ impl Store {
         }
     }
 
-    /// Returns every map header, loading the table from `arm9.bin` on first use. A table
+    /// Returns every map header, loading the table from `arm9.bin` (or, once the Dynamic
+    /// Headers patch is applied, from its header files) on first use. A table
     /// the codec would not write back byte for byte is returned for display but locked.
     pub fn header_table(&mut self) -> Result<&[MapHeader], KernelError> {
         let id = HEADER_TABLE;
@@ -661,8 +667,8 @@ impl Store {
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
-    /// recreated this way (it lives inside `arm9.bin`), so a missing or too short `arm9.bin`
-    /// is an error.
+    /// recreated this way (it lives inside `arm9.bin`, or in header files that must all
+    /// exist), so a missing or too short `arm9.bin` or a missing header file is an error.
     pub fn accept_disk_as_base(&mut self, id: AssetId) -> Result<(), KernelError> {
         if !self.assets.contains_key(&id) {
             return Ok(());
@@ -675,6 +681,9 @@ impl Store {
                     "{} is missing or too short for the header table",
                     path.display()
                 )));
+            }
+            (Location::HeaderFiles { dir, count }, None) => {
+                return Err(dynamic_headers::missing_file_error(&dir, count));
             }
         };
         if let Some(asset) = self.assets.get_mut(&id) {
@@ -759,7 +768,8 @@ impl Store {
     }
 
     /// Writes every dirty asset. First checks that each file (for the header table: its
-    /// slice of `arm9.bin`) still holds the bytes this store last saw; if any does not,
+    /// slice of `arm9.bin`, or the concatenation of its header files) still holds the bytes
+    /// this store last saw; if any does not,
     /// returns [`KernelError::Stale`] and writes nothing. A header table save re-reads
     /// `arm9.bin` right before writing and replaces only the table's bytes in it, so changes
     /// made to the rest of the file meanwhile are kept.
@@ -784,6 +794,18 @@ impl Store {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
                     write_slice(&self.project.root, id, &location, base, &bytes)?;
                 }
+                Location::HeaderFiles { dir, count } => {
+                    if bytes.len() != count * MAP_HEADER_SIZE {
+                        return Err(KernelError::InvalidProject(format!(
+                            "{id} is {} bytes, {count} header files in {} hold {}",
+                            bytes.len(),
+                            dir.display(),
+                            count * MAP_HEADER_SIZE
+                        )));
+                    }
+                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
+                    dynamic_headers::write_changed_files(&self.project.root, dir, base, &bytes)?;
+                }
             }
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.saved_bytes = Some(bytes);
@@ -794,12 +816,13 @@ impl Store {
     }
 }
 
-/// The bytes at `location`. `None`: the file does not exist, or (for a slice) it is too
-/// short to contain it.
+/// The bytes at `location`. `None`: the file does not exist (for header files: one of
+/// them), or (for a slice) it is too short to contain it.
 fn read_location(location: &Location) -> Result<Option<Vec<u8>>, KernelError> {
     let (path, slice) = match location {
         Location::Member(path) => (path, None),
         Location::Slice { path, offset, len } => (path, Some((*offset, *len))),
+        Location::HeaderFiles { dir, count } => return dynamic_headers::read_files(dir, *count),
     };
     let bytes = match std::fs::read(path) {
         Ok(b) => b,

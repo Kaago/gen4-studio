@@ -122,6 +122,9 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
     let mut packed = Vec::new();
     let mut pending = Vec::new();
     // `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family.
+    // That includes `DynamicHeaders` (Platinum, HGSS): its folder holds the header files
+    // once the Dynamic Headers patch is applied, and in a vanilla DSPRE project the NARC's
+    // own members, which pack back byte for byte.
     for kind in project.archives.kinds() {
         let dir = project.unpacked_dir(kind);
         if !dir.is_dir() {

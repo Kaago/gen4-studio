@@ -79,6 +79,18 @@ Schreiben, und jede fehlgeschlagene Prüfung nennt den Offset und schreibt nicht
 Danach: Ordner `unpacked/dynamicHeaders` über einen temporären Nachbarordner ersetzen,
 `arm9.bin.backup` anlegen (nur wenn es fehlt), `arm9.bin` atomar schreiben.
 
+## Lesen, Speichern und Packen
+
+Ist die Signatur gesetzt, liegt die Header-Tabelle (Asset `HeaderTable`, Index 0) in den
+Dateien `0000..count-1` von `unpacked/dynamicHeaders`, jede genau 24 Bytes; `count` ist die
+Zahl der 16-Byte-Namen in `files/fielddata/maptable/mapname.bin`. Der Wert des Assets ist die
+Verkettung der Dateien. Fehlt eine Datei, meldet das Lesen ihren Pfad; eine Datei mit anderer
+Länge als 24 ist ein Fehler. Speichern schreibt nur die Dateien, deren 24 Bytes sich gegenüber
+dem zuletzt gelesenen Stand geändert haben (je Datei atomar), `arm9.bin` bleibt unberührt.
+`build` packt den Ordner in das NARC (`archives.yaml`, `dynamic_headers`), sobald er existiert;
+in einem ungepatchten DSPRE-Projekt enthält er die Vanilla-Member des NARC und packt
+byte-identisch zurück.
+
 ## Verifikation
 
 Nachgeprüft an den Vanilla-Projekten: Platin DE (`CPUD`, diff 0xA4): `18 21 41 43` bei
