@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
@@ -50,7 +50,8 @@ function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boole
   return (m[section] ?? []).some((v) => v !== 0);
 }
 
-export function MatrixPanel({ context }: { context: MatrixPanelContext }) {
+/** Memoised: renders when `context` changes (the owner keeps it, see `MatrixTab`), not for every render of the panel host. */
+export const MatrixPanel = memo(function MatrixPanel({ context }: { context: MatrixPanelContext }) {
   const { info, sceneMatrix, revision, selection, goTo, onEdited, onCountsChanged, onError } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
@@ -183,4 +184,4 @@ export function MatrixPanel({ context }: { context: MatrixPanelContext }) {
       </div>
     </div>
   );
-}
+});

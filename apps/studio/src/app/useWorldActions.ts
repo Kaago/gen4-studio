@@ -72,10 +72,12 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     (ref: EventRef | null) => (ref ? setPinned({ kind: "event", eventFile: ref.file, eventKind: ref.kind, index: ref.index }) : unpinSelection()),
     [setPinned, unpinSelection],
   );
-  // Stable while the same event stays pinned, so the memoised scene is not disturbed by hover updates.
+  // Stable while the same event stays pinned (also when it is pinned again), so the memoised scene is not disturbed.
+  const pinnedEvent = pinned.kind === "event" ? pinned : null;
+  const [eventFile, eventKind, eventIndex] = [pinnedEvent?.eventFile, pinnedEvent?.eventKind, pinnedEvent?.index];
   const selectedEvent = useMemo<EventRef | null>(
-    () => (pinned.kind === "event" ? { file: pinned.eventFile, kind: pinned.eventKind, index: pinned.index } : null),
-    [pinned],
+    () => (eventFile !== undefined && eventKind !== undefined && eventIndex !== undefined ? { file: eventFile, kind: eventKind, index: eventIndex } : null),
+    [eventFile, eventKind, eventIndex],
   );
   // The scene wrote a drag: only the event editor (and the dirty count) has to catch up.
   const onEventMoved = useCallback(async () => {

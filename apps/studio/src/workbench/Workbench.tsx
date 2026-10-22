@@ -1,264 +1,11 @@
-import { createContext, useContext } from "react";
+import { memo } from "react";
 import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
-import { StatusBar } from "../Toolbar";
-import type { Message } from "../Toolbar";
-import type { BuildingRef } from "../world/buildingLayer";
-import type { EditBus } from "../bus/editBus";
-import { useBusRevision } from "../bus/useBusEvent";
-import { lockedText } from "../world/events";
-import type { EventLock, EventRef } from "../world/events";
-import MatrixScene from "../world/MatrixScene";
-import { HeaderList } from "./HeaderList";
-import { AddEvent } from "./inspector/AddEvent";
-import { Inspector } from "./Inspector";
-import { MatrixPanel } from "./MatrixPanel";
-import type { InspectorModel } from "./Inspector";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
-import type { NavTarget } from "./navigation";
-
-/** Everything the panels show. App owns the state; panels read it through this context. */
-export interface WorkbenchData {
-  info: ProjectInfo | null;
-  headers: HeaderSummary[];
-  selected: number | null;
-  onSelect: (h: HeaderSummary) => void;
-  /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */
-  goTo: (target: NavTarget) => void;
-  /** Where the writers announce that data moved: the panels and the scene listen. A stable object. */
-  bus: EditBus;
-  matrix: MatrixDto | null;
-  /** Area data the scene's models are textured with (follows the shown header, set together with `matrix`). */
-  areaDataId: number;
-  showPermissions: boolean;
-  onShowPermissions: (show: boolean) => void;
-  /** Event file of the selected header (null: none selected). */
-  eventFileId: number | null;
-  showEvents: boolean;
-  onShowEvents: (show: boolean) => void;
-  paintEnabled: boolean;
-  /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
-  history: { readonly current: number };
-  onEdited: () => void;
-  onError: (e: unknown) => void;
-  /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
-  onLoadStatus: (message: Message | null) => void;
-  /** What the inspector shows: the scene's hover while the pointer is over a cell, else the selected header. */
-  inspector: InspectorModel;
-  /** The scene reports what is under the pointer (`none` when it left every cell and marker). */
-  onInspect: (model: InspectorModel) => void;
-  memberCounts: MemberCounts;
-  /** A header field was written: refresh list, scene and dirty count. */
-  onHeaderChanged: () => void | Promise<void>;
-  /** An area data field was written: refresh the dirty count and, if the shown models' tileset changed, the scene. */
-  onAreaChanged: () => void | Promise<void>;
-  /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
-  onMatrixEdited: (index: number) => void | Promise<void>;
-  /** A map or matrix member was appended: refresh the member counts. */
-  onCountsChanged: () => void | Promise<void>;
-  /** The building selected in the scene (it is the pinned inspector model); null: none. */
-  selectedBuilding: BuildingRef | null;
-  /** A click in the scene chose a building (null: none). */
-  onSelectBuilding: (ref: BuildingRef | null) => void;
-  /** A drag moved a building and the move is written. */
-  onBuildingMoved: (map: number) => void;
-  /** The building editor wrote a field: refresh the scene and the dirty count. */
-  onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
-  /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
-  onAddBuilding: (fallbackMap: number | null) => void | Promise<void>;
-  /** Asks first, then deletes the building. */
-  onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
-  /** The event selected in the scene (it is the pinned inspector model); null: none. */
-  selectedEvent: EventRef | null;
-  /** A click in the scene chose an event marker (null: none). */
-  onSelectEvent: (ref: EventRef | null) => void;
-  /** A drag moved an event and the move is written. */
-  onEventMoved: (eventFile: number) => void;
-  /** The lock state of the shown event file (null: not locked, or none shown); the scene reports it. */
-  eventLock: EventLock | null;
-  onEventsLocked: (lock: EventLock | null) => void;
-  /** The event editor wrote a field: refresh the scene and the dirty count. */
-  onEventChanged: (eventFile: number) => void | Promise<void>;
-  /** Adds an event on the last hovered tile of the selected header's event file and selects it. */
-  onAddEvent: (kind: EventKind) => void | Promise<void>;
-  /** Asks first, then deletes the event. */
-  onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
-  message: Message | null;
-  onDismissMessage: () => void;
-}
-
-const WorkbenchContext = createContext<WorkbenchData | null>(null);
-
-function useWorkbench(): WorkbenchData {
-  const data = useContext(WorkbenchContext);
-  if (!data) throw new Error("panel rendered outside of the workbench");
-  return data;
-}
-
-const toggleStyle: React.CSSProperties = {
-  color: "#e5e7eb",
-  background: "rgba(0,0,0,0.5)",
-  padding: "4px 8px",
-  borderRadius: 4,
-};
-
-function HeadersPanel() {
-  const d = useWorkbench();
-  // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
-  const revealToken = useBusRevision(d.bus, "headerReveal");
-  return <HeaderList
-      info={d.info}
-      headers={d.headers}
-      selected={d.selected}
-      shownMatrix={d.matrix?.index ?? null}
-      revealToken={revealToken}
-      onSelect={d.onSelect}
-    />;
-}
-
-function WorldPanel() {
-  const d = useWorkbench();
-  return (
-    <div style={{ position: "relative", width: "100%", height: "100%", minWidth: 0, fontFamily: "system-ui, sans-serif" }}>
-      {d.matrix ? (
-        <>
-          <MatrixScene
-            matrix={d.matrix}
-            areaDataId={d.areaDataId}
-            showPermissions={d.showPermissions}
-            eventFileId={d.eventFileId}
-            showEvents={d.showEvents}
-            headers={d.headers}
-            paintEnabled={d.paintEnabled}
-            history={d.history}
-            bus={d.bus}
-            onEdited={d.onEdited}
-            onError={d.onError}
-            onInspect={d.onInspect}
-            onStatus={d.onLoadStatus}
-            selectedMap={d.selectedBuilding?.map ?? null}
-            selectedBuilding={d.selectedBuilding?.index ?? null}
-            onSelectBuilding={d.onSelectBuilding}
-            onBuildingMoved={d.onBuildingMoved}
-            selectedEvent={d.selectedEvent}
-            onSelectEvent={d.onSelectEvent}
-            onEventMoved={d.onEventMoved}
-            onEventsLocked={d.onEventsLocked}
-          />
-          <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
-            <label style={toggleStyle}>
-              <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions
-              anzeigen
-            </label>
-            <label style={toggleStyle}>
-              <input type="checkbox" checked={d.showEvents} onChange={(e) => d.onShowEvents(e.target.checked)} /> Events anzeigen
-            </label>
-            <button
-              onClick={() => void d.onAddBuilding(null)}
-              disabled={!d.paintEnabled}
-              title="Legt ein Gebäude auf der Kachel an, über der die Maus zuletzt war"
-              style={{ ...toggleStyle, border: "none", font: "inherit" }}
-            >
-              Neues Gebäude
-            </button>
-            <AddEvent
-              disabled={!d.paintEnabled || d.eventFileId === null || d.eventLock !== null}
-              title={d.eventLock ? lockedText(d.eventLock.reason) : undefined}
-              onAdd={(kind) => void d.onAddEvent(kind)}
-              style={toggleStyle}
-            />
-          </div>
-        </>
-      ) : (
-        <p style={{ padding: 16 }}>Header wählen, um die Matrix anzuzeigen. Klick setzt Kollision, Shift+Klick löscht sie.</p>
-      )}
-    </div>
-  );
-}
-
-function MatrixTab() {
-  const d = useWorkbench();
-  // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
-  const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const selection = d.inspector.kind === "matrixCell" ? d.inspector : null;
-  return (
-    <MatrixPanel
-      context={{
-        info: d.info,
-        sceneMatrix: d.matrix?.index ?? null,
-        revision: matrixRevision,
-        selection: selection && { matrix: selection.matrix, x: selection.x, y: selection.y },
-        goTo: d.goTo,
-        onEdited: d.onMatrixEdited,
-        onCountsChanged: d.onCountsChanged,
-        onError: d.onError,
-      }}
-    />
-  );
-}
-
-function InspectorPanel() {
-  const d = useWorkbench();
-  // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
-  const headerRevision = useBusRevision(d.bus, "headerTable");
-  const areaRevision = useBusRevision(d.bus, "areaData");
-  const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const buildingRevision = useBusRevision(d.bus, "buildingData");
-  const eventRevision = useBusRevision(d.bus, "eventData");
-  return (
-    <Inspector
-      model={d.inspector}
-      headerEditor={{
-        headers: d.headers,
-        counts: d.memberCounts,
-        revision: headerRevision,
-        onChanged: d.onHeaderChanged,
-        goTo: d.goTo,
-        onError: d.onError,
-      }}
-      areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
-      buildingEditor={{
-        areaDataId: d.areaDataId,
-        counts: d.memberCounts,
-        revision: buildingRevision,
-        onChanged: d.onBuildingChanged,
-        onAdd: d.onAddBuilding,
-        onDelete: d.onDeleteBuilding,
-        onError: d.onError,
-      }}
-      eventEditor={{
-        headers: d.headers,
-        family: d.info?.family ?? null,
-        revision: eventRevision,
-        onChanged: d.onEventChanged,
-        onAdd: d.onAddEvent,
-        onDelete: d.onDeleteEvent,
-        goTo: d.goTo,
-        onError: d.onError,
-      }}
-      matrixEditor={{
-        headerCount: d.headers.length,
-        goTo: d.goTo,
-        counts: d.memberCounts,
-        revision: matrixRevision,
-        onEdited: d.onMatrixEdited,
-        onCountsChanged: d.onCountsChanged,
-        onError: d.onError,
-      }}
-    />
-  );
-}
-
-function StatusPanel() {
-  const d = useWorkbench();
-  return (
-    <div style={{ height: "100%", overflowY: "auto" }}>
-      <StatusBar message={d.message} onDismiss={d.onDismissMessage} />
-    </div>
-  );
-}
+import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldPanel } from "./panels";
+import { WorkbenchProviders } from "./WorkbenchContext";
+import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
 
 /** Must stay a module-level constant: dockview would remount every panel if this object changed. */
 const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
@@ -322,8 +69,8 @@ function initLayout(api: DockviewApi) {
   applyDefaultLayout(api);
 }
 
-/** `apiRef` hands App the dockview api (focusing a panel when a link leads there). */
-export default function Workbench({ data, apiRef }: { data: WorkbenchData; apiRef: MutableRefObject<DockviewApi | null> }) {
+/** The dock, memoised: the providers above it change with every hover, the dock itself must not. */
+const Dock = memo(function Dock({ apiRef }: { apiRef: MutableRefObject<DockviewApi | null> }) {
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
     initLayout(event.api);
@@ -337,10 +84,17 @@ export default function Workbench({ data, apiRef }: { data: WorkbenchData; apiRe
   }
 
   return (
-    <WorkbenchContext.Provider value={data}>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <DockviewReact components={COMPONENTS} onReady={onReady} theme={themeLight} defaultTabComponent={PanelTab} />
-      </div>
-    </WorkbenchContext.Provider>
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <DockviewReact components={COMPONENTS} onReady={onReady} theme={themeLight} defaultTabComponent={PanelTab} />
+    </div>
+  );
+});
+
+/** `apiRef` hands App the dockview api (focusing a panel when a link leads there). `live` is the volatile part (hover, message). */
+export default function Workbench({ data, live, apiRef }: { data: WorkbenchData; live: WorkbenchLive; apiRef: MutableRefObject<DockviewApi | null> }) {
+  return (
+    <WorkbenchProviders data={data} live={live}>
+      <Dock apiRef={apiRef} />
+    </WorkbenchProviders>
   );
 }

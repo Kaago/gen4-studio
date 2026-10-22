@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
-import type { WorkbenchData } from "./workbench/Workbench";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
@@ -12,6 +11,7 @@ import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
 import { useWindowGuards } from "./app/useWindowGuards";
+import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
 
 /** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads. */
@@ -54,49 +54,15 @@ export default function App() {
     world.resetForProject();
   }
 
-  const workbench: WorkbenchData = {
-    info: session.info,
-    headers: scene.headers,
-    selected: scene.selected,
-    onSelect: (h) => void scene.onSelect(h),
-    goTo: scene.goTo,
-    matrix: scene.matrix,
-    areaDataId: scene.sceneArea,
-    showPermissions,
-    onShowPermissions: setShowPermissions,
-    eventFileId: scene.headers.find((h) => h.id === scene.selected)?.event_file_id ?? null,
-    showEvents,
-    onShowEvents: setShowEvents,
-    paintEnabled: !session.busy,
-    history: scene.history,
+  // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
+  const { data, live } = useWorkbenchModel({
     bus,
-    onEdited: session.onEdited,
-    onError: session.fail,
-    onLoadStatus: session.onLoadStatus,
-    inspector: pins.inspector,
-    onInspect: world.onInspect,
-    memberCounts: session.counts,
-    onHeaderChanged: scene.onHeaderChanged,
-    onAreaChanged: scene.onAreaChanged,
-    onMatrixEdited: scene.onMatrixEdited,
-    onCountsChanged: session.onCountsChanged,
-    selectedBuilding: pins.pinned.kind === "building" ? { map: pins.pinned.map, index: pins.pinned.index } : null,
-    onSelectBuilding: world.onSelectBuilding,
-    onBuildingMoved: world.onBuildingMoved,
-    onBuildingChanged: world.onBuildingChanged,
-    onAddBuilding: world.onAddBuilding,
-    onDeleteBuilding: world.onDeleteBuilding,
-    selectedEvent: world.selectedEvent,
-    onSelectEvent: world.onSelectEvent,
-    onEventMoved: world.onEventMoved,
-    eventLock: world.eventLock,
-    onEventsLocked: world.onEventsLocked,
-    onEventChanged: world.onEventChanged,
-    onAddEvent: world.onAddEvent,
-    onDeleteEvent: world.onDeleteEvent,
-    message: session.message,
-    onDismissMessage: () => session.setMessage(null),
-  };
+    session,
+    scene,
+    world,
+    pins,
+    view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
+  });
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -113,7 +79,7 @@ export default function App() {
         onRun={() => void session.onRun()}
         onPickEmulator={() => void session.onPickEmulator()}
       />
-      <Workbench data={workbench} apiRef={dockApi} />
+      <Workbench data={data} live={live} apiRef={dockApi} />
     </main>
   );
 }
