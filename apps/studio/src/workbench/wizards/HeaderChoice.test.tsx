@@ -13,19 +13,21 @@ const header = (id: number, internal: string, location = ""): HeaderSummary => (
 const headers = [header(0, "ZERO"), header(342, "T20", "R201")];
 const existing: HeaderChoiceValue = { header: null, newHeader: null, areaDataId: null, eventFile: "New" };
 const creating: HeaderChoiceValue = { ...existing, newHeader: { template: 342, internalName: "ROUTE_230" } };
-const patch = (change: Partial<HeaderPatchDto>): HeaderPatchDto => ({ supported: true, applied: true, narc: "unpacked/dynamicHeaders", ...change });
+const patch = (change: Partial<HeaderPatchDto>): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
 
 describe("HeaderChoice", () => {
   let container: HTMLElement;
   let root: Root;
   const onChange = vi.fn();
   const onApplyPatch = vi.fn();
+  const onRepairPatch = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     onChange.mockReset();
     onApplyPatch.mockReset().mockResolvedValue(undefined);
+    onRepairPatch.mockReset().mockResolvedValue(undefined);
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -46,6 +48,7 @@ describe("HeaderChoice", () => {
           patchError={state.patchError ?? null}
           patchBusy={state.patchBusy ?? false}
           onApplyPatch={onApplyPatch}
+          onRepairPatch={onRepairPatch}
           template={342}
           defaultName="ROUTE_230"
         />,
@@ -114,6 +117,24 @@ describe("HeaderChoice", () => {
     show(existing, { patch: patch({ applied: false }), patchError: "Die Header-Tabelle hat ungespeicherte Änderungen: erst save" });
     expect(container.textContent).toContain("erst save");
     expect(button("Patch anwenden")?.disabled).toBe(false);
+  });
+
+  it("offers_to_repair_a_patch_whose_routine_calls_a_wrong_function", () => {
+    show(existing, { patch: patch({ repairable: true }) });
+    const text = container.textContent ?? "";
+    expect(text).toContain("fehlerhaft");
+    expect(text).toContain("nach dem Intro");
+    expect(text).toContain("4 Bytes");
+    // No new header goes into a game that does not start.
+    expect(radio("Neuer Header")?.disabled).toBe(true);
+    expect(button("Patch anwenden")).toBeUndefined();
+    act(() => button("Patch reparieren")!.click());
+    expect(onRepairPatch).toHaveBeenCalledOnce();
+    show(existing, { patch: patch({ repairable: true }), patchBusy: true });
+    expect(button("Patch reparieren")?.disabled).toBe(true);
+    show(existing, { patch: patch({}) });
+    expect(button("Patch reparieren")).toBeUndefined();
+    expect(radio("Neuer Header")?.disabled).toBe(false);
   });
 
   it("shows_the_template_and_the_prefilled_internal_name", () => {

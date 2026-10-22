@@ -562,6 +562,8 @@ export const createRoom = (spec: RoomSpec) => invoke<RoomReport>("create_room", 
 export interface HeaderPatchDto {
   supported: boolean;
   applied: boolean;
+  /** The patch is in, but its routine calls a wrong function (the game hangs after the intro): `repairHeaderPatch` fixes it. */
+  repairable: boolean;
   /** The NARC the headers live in once patched (null: no patch for this game). */
   narc: string | null;
 }
@@ -569,3 +571,5 @@ export interface HeaderPatchDto {
 export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_status");
 /** Changes the game's code for good; refuses while the header table has unsaved edits. */
 export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");
+/** Rewrites the 4 bytes of a broken patch's wrong call in arm9.bin; the header table is not touched. */
+export const repairHeaderPatch = () => invoke<HeaderPatchDto>("repair_header_patch");

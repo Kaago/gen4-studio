@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
+import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -38,6 +38,7 @@ vi.mock("./api", async (importOriginal) => ({
   createArea: vi.fn(),
   headerPatchStatus: vi.fn(),
   applyHeaderPatch: vi.fn(),
+  repairHeaderPatch: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
 }));
@@ -78,7 +79,7 @@ describe("App wiring", () => {
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
-    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -136,6 +137,28 @@ describe("App wiring", () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("offers_to_repair_a_broken_header_patch_when_the_project_opens", async () => {
+    expect(live().message).toBeNull();
+    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: true, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(repairHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+    await click("Projekt öffnen");
+    const message = live().message;
+    expect(message?.kind).toBe("error");
+    expect(message?.text).toContain("fehlerhaft");
+    expect(message?.actions?.map((a) => a.label)).toEqual(["Patch reparieren"]);
+    await act(async () => message?.actions?.[0].run());
+    expect(repairHeaderPatch).toHaveBeenCalledOnce();
+    expect(live().message?.kind).toBe("info");
+    expect(live().message?.text).toContain("repariert");
+  });
+
+  it("opens_the_project_when_the_patch_state_cannot_be_read", async () => {
+    vi.mocked(headerPatchStatus).mockRejectedValue(new Error("arm9.bin fehlt"));
+    await click("Projekt öffnen");
+    expect(live().message).toBeNull();
+    expect(data().headers).toEqual(listed);
+  });
+
   describe("new area wizard", () => {
     const summary = (index: number) => ({ index, name: `m${index}`, width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 });
     const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
@@ -165,8 +188,8 @@ describe("App wiring", () => {
     }
 
     it("reads the header table and the header list again after a wizard applied the patch", async () => {
-      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, narc: "unpacked/dynamicHeaders" });
-      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
       await select(listed[0]);
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await press(container.querySelector('[data-cell="0,0"]'));
