@@ -4,9 +4,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use g4_formats::map::Building;
+use g4_kernel::export::apicula_timeout;
 use g4_kernel::project::Project;
 use serde::Deserialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::models::{find_apicula, glb_with_fallback};
 use super::world::{FX_ONE, TILE_RAW};
@@ -185,6 +186,7 @@ pub fn get_building_glb_with(
         &inputs.nsbmd,
         inputs.tileset.as_deref(),
         apicula,
+        apicula_timeout(),
     )
 }
 
@@ -196,14 +198,20 @@ pub fn get_building_glb_impl(
     get_building_glb_with(state, model_id, area_data_id, find_apicula().as_deref())
 }
 
-/// Raw GLB bytes over IPC. `async` keeps the apicula run off the main thread.
-#[tauri::command(async)]
-pub fn get_building_glb(
-    state: State<AppState>,
+/// Raw GLB bytes over IPC. The apicula run happens on a blocking worker like `build_rom`, not
+/// on the async pool.
+#[tauri::command]
+pub async fn get_building_glb(
+    app: tauri::AppHandle,
     model_id: u32,
     area_data_id: u8,
 ) -> Result<tauri::ipc::Response, CmdError> {
-    get_building_glb_impl(&state, model_id, area_data_id).map(tauri::ipc::Response::new)
+    tauri::async_runtime::spawn_blocking(move || {
+        get_building_glb_impl(&app.state::<AppState>(), model_id, area_data_id)
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
+    .map(tauri::ipc::Response::new)
 }
 
 #[tauri::command]
@@ -232,10 +240,13 @@ mod tests {
     use super::super::open_synthetic;
     use super::*;
     use crate::commands::*;
-    use g4_kernel::export::{glb_cache_key, glb_fail_get};
+    use g4_kernel::export::{glb_cache_key, glb_fail_get, remember_tool, tool_fingerprint};
 
     const BMD: &[u8] = b"BMD0\0\0\0\0";
     const BTX: &[u8] = b"BTX0\0\0\0\0";
+    /// Stand-in tool hash for seeding the cache by hand (hits without apicula are looked up
+    /// under the last remembered hash).
+    const TOOL: u64 = 0xabcd;
 
     #[test]
     fn update_building_converts_tiles_and_scale() {
@@ -404,10 +415,11 @@ mod tests {
         let (fixture, state) = open_synthetic();
         let models = fixture.dir.path().join(".g4/models");
         std::fs::create_dir_all(&models).unwrap();
-        let textured = glb_cache_key(BMD, Some(BTX));
-        let plain = glb_cache_key(BMD, None);
+        let textured = glb_cache_key(TOOL, BMD, Some(BTX));
+        let plain = glb_cache_key(TOOL, BMD, None);
         std::fs::write(models.join(format!("{textured}.glb")), b"glTFtextured").unwrap();
         std::fs::write(models.join(format!("{plain}.glb")), b"glTFplain").unwrap();
+        remember_tool(&models, TOOL).unwrap();
         // Area data 0 selects the only building tileset; area data 1 and 200 select none.
         let glb = |area| get_building_glb_with(&state, 0, area, None).unwrap();
         assert_eq!(glb(0), b"glTFtextured");
@@ -452,11 +464,13 @@ mod tests {
         let glb = get_building_glb_with(&state, 0, 0, Some(&tool)).unwrap();
         assert_eq!(glb, crate::commands::fake_glb());
         let models = fixture.dir.path().join(".g4/models");
-        let reason = glb_fail_get(&models, BMD, Some(BTX)).unwrap();
+        let key = tool_fingerprint(&tool).unwrap();
+        let reason = glb_fail_get(&models, key, BMD, Some(BTX)).unwrap();
         assert!(reason.is_some_and(|r| r.contains("bad tileset")));
         // The second load is a cache hit; with the cached model gone the tileset still is not
         // tried again.
-        std::fs::remove_file(models.join(format!("{}.glb", glb_cache_key(BMD, None)))).unwrap();
+        std::fs::remove_file(models.join(format!("{}.glb", glb_cache_key(key, BMD, None))))
+            .unwrap();
         get_building_glb_with(&state, 0, 0, Some(&tool)).unwrap();
         let log = std::fs::read_to_string(&calls).unwrap();
         assert_eq!(

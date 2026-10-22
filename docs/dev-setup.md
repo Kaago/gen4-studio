@@ -31,23 +31,36 @@ G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tauri dev
 ### Modell-Cache
 
 Konvertierte Modelle (Karten und Gebäude) liegen unter `<Projekt>/.g4/models/`. Der Schlüssel ist der xxh3-64-Hash über
-das NSBMD, gefolgt vom NSBTX-Texturset (bei Karten `AreaData[area_data_id].map_tileset`, bei Gebäuden
-`buildings_tileset`), als 16 Hex-Zeichen. Es gibt zwei Dateiarten:
+das Salt `g4glb-v3`, den xxh3-64-Hash der apicula-Binärdatei (Werkzeug-Hash, je Pfad und Prozess einmal berechnet), das
+NSBMD und das NSBTX-Texturset (bei Karten `AreaData[area_data_id].map_tileset`, bei Gebäuden `buildings_tileset`), als
+16 Hex-Zeichen. Es gibt drei Dateiarten:
 
 - `<hash>.glb`: das konvertierte Modell.
 - `<hash>.fail`: Marker einer fehlgeschlagenen *texturierten* Konvertierung, der Inhalt ist der Fehlertext. Wer den Marker
   findet, überspringt den texturierten Versuch und zeigt das Modell ohne Texturen (dafür liegt unter dem Hash des
   untexturierten NSBMD eine `.glb`), statt apicula bei jedem Laden erneut zu starten.
+- `last-tool`: der Werkzeug-Hash (16 Hex-Zeichen) der zuletzt benutzten apicula. Fehlt apicula, werden Treffer unter diesem
+  Hash gesucht, damit bereits konvertierte Modelle und ihre Marker auch ohne apicula sichtbar bleiben.
 
-Ändert sich das Modell oder das Tileset, entsteht ein neuer Schlüssel und damit ein frischer Versuch; alte Einträge bleiben
-liegen. Gibt es den Area-Data- oder Tileset-Eintrag nicht, wird das Modell ohne Texturen konvertiert.
+Ändert sich das Modell, das Tileset oder die apicula-Binärdatei, entsteht ein neuer Schlüssel und damit ein frischer
+Versuch; alte Einträge bleiben liegen. Gibt es den Area-Data- oder Tileset-Eintrag nicht, wird das Modell ohne Texturen
+konvertiert.
 
-Der Schlüssel enthält weder die apicula-Version noch einen Timeout (beides offen, siehe `docs/ROADMAP.md`). Deshalb gilt:
+apicula läuft auf einem Arbeitsthread (`spawn_blocking`) und höchstens `G4_APICULA_TIMEOUT_SECS` Sekunden (Standard 60).
+Danach wird der Prozess samt Kindprozessen beendet und die Meldung `apicula did not finish within <n> s` angezeigt. Eine
+Zeitüberschreitung schreibt keinen `.fail`-Marker und keinen untexturierten Ersatz, der nächste Ladeversuch startet
+apicula erneut:
+
+```sh
+G4_APICULA_TIMEOUT_SECS=120 G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tauri dev
+```
+
+Folgen:
 
 - `.g4/` ist reiner Cache und darf jederzeit gelöscht werden; `.g4/models/` ebenso.
-- Nach einem apicula-Update, oder wenn ein Modell wegen eines behobenen apicula-Problems ohne Texturen erscheint, die
-  `.fail`-Dateien löschen: `rm <Projekt>/.g4/models/*.fail`. Danach wird beim nächsten Laden wieder texturiert versucht.
-  Ein fehlerhaftes `.glb` (zum Beispiel von einem früheren apicula) lässt sich nur durch Löschen der Datei erneuern.
+- Ein apicula-Update entwertet `.glb` und `.fail` automatisch (neuer Werkzeug-Hash), das Löschen der Marker ist
+  dafür nicht mehr nötig. Einen Marker ohne Update loszuwerden geht nur von Hand: `rm <Projekt>/.g4/models/*.fail`.
+  Ein fehlerhaftes `.glb` lässt sich nur durch Löschen der Datei erneuern.
 - Beim Löschen darf die App nicht gerade Modelle laden. Zwischenstände (`apicula-<pid>-<n>`-Ordner) sind harmlos.
 
 ## Tests

@@ -2,11 +2,15 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use g4_kernel::error::KernelError;
-use g4_kernel::export::{glb_cache_get, glb_cached, glb_fail_get, glb_fail_record};
+use g4_kernel::export::{
+    apicula_timeout, glb_cache_get, glb_cached_with_timeout, glb_fail_get, glb_fail_record,
+    last_tool, remember_tool, tool_fingerprint,
+};
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::{lock, session};
 use crate::errors::CmdError;
@@ -111,38 +115,69 @@ fn require_apicula(apicula: Option<&Path>) -> Result<&Path, KernelError> {
     Ok(apicula)
 }
 
+/// The tool hash cache keys are built from. With a usable apicula it is the hash of that binary
+/// (remembered as the cache's last used tool); without one, the last remembered hash, so models
+/// converted earlier stay visible. With neither, no entry can match (0) and the first
+/// conversion reports the missing tool.
+fn resolve_tool(cache_dir: &Path, apicula: Option<&Path>) -> Result<u64, KernelError> {
+    match apicula.filter(|p| p.exists()) {
+        Some(path) => {
+            let tool = tool_fingerprint(path)?;
+            if last_tool(cache_dir) != Some(tool) {
+                // Best effort: without it, cached models are only hidden while apicula is missing.
+                let _ = remember_tool(cache_dir, tool);
+            }
+            Ok(tool)
+        }
+        None => Ok(last_tool(cache_dir).unwrap_or(0)),
+    }
+}
+
 /// GLB bytes of one NSBMD with an optional NSBTX texture set, cached by content hash in
 /// `cache_dir`; shared by the map terrain and the building models. `apicula` is only needed
-/// on a cache miss. A missing tileset, or a textured conversion that fails, falls back to the
-/// untextured model; a failed textured conversion is recorded next to the cache (`<key>.fail`)
-/// so later loads skip it. Runs apicula, so it must be called without the state lock.
+/// on a cache miss, and the cache keys carry its hash, so a different apicula starts afresh
+/// (see `g4_kernel::export::glb_cache_key`). A missing tileset, or a textured conversion that
+/// fails, falls back to the untextured model; a failed textured conversion is recorded next
+/// to the cache (`<key>.fail`) so later loads skip it. apicula gets `timeout`; running out of
+/// it is returned at once, without a marker and without the untextured retry (which would
+/// most likely hang as well). Runs apicula, so it must be called without the state lock.
 pub(super) fn glb_with_fallback(
     cache_dir: &Path,
     nsbmd: &[u8],
     tileset: Option<&[u8]>,
     apicula: Option<&Path>,
+    timeout: Duration,
 ) -> Result<Vec<u8>, CmdError> {
+    let tool = resolve_tool(cache_dir, apicula)?;
     let mut textured_failure = None;
     if let Some(tileset) = tileset {
-        if let Some(bytes) = glb_cache_get(cache_dir, nsbmd, Some(tileset))? {
+        if let Some(bytes) = glb_cache_get(cache_dir, tool, nsbmd, Some(tileset))? {
             return Ok(bytes);
         }
-        if glb_fail_get(cache_dir, nsbmd, Some(tileset))?.is_none() {
+        if glb_fail_get(cache_dir, tool, nsbmd, Some(tileset))?.is_none() {
             let apicula = require_apicula(apicula)?;
-            match glb_cached(cache_dir, apicula, nsbmd, Some(tileset)) {
+            match glb_cached_with_timeout(cache_dir, apicula, tool, nsbmd, Some(tileset), timeout) {
                 Ok(bytes) => return Ok(bytes),
+                Err(e @ KernelError::ToolTimeout { .. }) => return Err(e.into()),
                 Err(e) => textured_failure = Some(e.to_string()),
             }
         }
     }
-    let plain = match glb_cache_get(cache_dir, nsbmd, None)? {
+    let plain = match glb_cache_get(cache_dir, tool, nsbmd, None)? {
         Some(bytes) => bytes,
-        None => glb_cached(cache_dir, require_apicula(apicula)?, nsbmd, None)?,
+        None => glb_cached_with_timeout(
+            cache_dir,
+            require_apicula(apicula)?,
+            tool,
+            nsbmd,
+            None,
+            timeout,
+        )?,
     };
     // Recorded only now: if the untextured conversion fails too, the tileset is not to blame.
     if let (Some(reason), Some(tileset)) = (textured_failure, tileset) {
         // Best effort: without a marker the next load simply tries the tileset again.
-        let _ = glb_fail_record(cache_dir, nsbmd, Some(tileset), &reason);
+        let _ = glb_fail_record(cache_dir, tool, nsbmd, Some(tileset), &reason);
     }
     Ok(plain)
 }
@@ -156,13 +191,25 @@ pub fn get_map_model_glb_with(
     area_data_id: u8,
     apicula: Option<&Path>,
 ) -> Result<Vec<u8>, CmdError> {
+    get_map_model_glb_timed(state, index, area_data_id, apicula, apicula_timeout())
+}
+
+/// [`get_map_model_glb_with`] with an explicit apicula time limit instead of the one from
+/// `G4_APICULA_TIMEOUT_SECS`.
+pub fn get_map_model_glb_timed(
+    state: &AppState,
+    index: u16,
+    area_data_id: u8,
+    apicula: Option<&Path>,
+    timeout: Duration,
+) -> Result<Vec<u8>, CmdError> {
     let ModelInputs {
         cache_dir,
         nsbmd,
         tileset,
         ..
     } = model_inputs(state, index, area_data_id)?;
-    glb_with_fallback(&cache_dir, &nsbmd, tileset.as_deref(), apicula)
+    glb_with_fallback(&cache_dir, &nsbmd, tileset.as_deref(), apicula, timeout)
 }
 
 /// Whether the model of map `index` is shown without textures because of its tileset: the area
@@ -181,8 +228,11 @@ pub fn map_model_texture_status_impl(
     let Some(tileset) = inputs.tileset.as_deref() else {
         return Ok(None);
     };
+    // Markers carry the hash of the apicula that wrote them; the model was requested before,
+    // so that is the last used one, whether or not apicula is still there.
+    let tool = last_tool(&inputs.cache_dir).unwrap_or(0);
     Ok(
-        glb_fail_get(&inputs.cache_dir, &inputs.nsbmd, Some(tileset))?
+        glb_fail_get(&inputs.cache_dir, tool, &inputs.nsbmd, Some(tileset))?
             .map(|reason| issue(inputs.tileset_id, &reason)),
     )
 }
@@ -195,15 +245,20 @@ pub fn get_map_model_glb_impl(
     get_map_model_glb_with(state, index, area_data_id, find_apicula().as_deref())
 }
 
-/// Raw GLB bytes over IPC (no file paths, no asset protocol). `async` keeps the apicula run
-/// off the main thread.
-#[tauri::command(async)]
-pub fn get_map_model_glb(
-    state: State<AppState>,
+/// Raw GLB bytes over IPC (no file paths, no asset protocol). The apicula run (up to its time
+/// limit) happens on a blocking worker like `build_rom`, not on the async pool.
+#[tauri::command]
+pub async fn get_map_model_glb(
+    app: tauri::AppHandle,
     index: u16,
     area_data_id: u8,
 ) -> Result<tauri::ipc::Response, CmdError> {
-    get_map_model_glb_impl(&state, index, area_data_id).map(tauri::ipc::Response::new)
+    tauri::async_runtime::spawn_blocking(move || {
+        get_map_model_glb_impl(&app.state::<AppState>(), index, area_data_id)
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
+    .map(tauri::ipc::Response::new)
 }
 
 /// Why a map's model is untextured because of its tileset, if it is (see
@@ -224,8 +279,12 @@ mod tests {
     use super::*;
     use crate::commands::*;
     use g4_formats::map::MapFile;
-    use g4_kernel::export::glb_cache_key;
+    use g4_kernel::export::{glb_cache_key, remember_tool};
     use g4_kernel::project::{AssetKind, Project};
+
+    /// Stand-in tool hash for tests that seed the cache by hand: without apicula, hits are
+    /// looked up under the last remembered one.
+    const TOOL: u64 = 0xabcd;
 
     #[test]
     fn model_glb_without_apicula_names_the_tool() {
@@ -262,10 +321,11 @@ mod tests {
             .model;
         // Synthetic area data 0 selects the only tileset, area data 1 a missing one.
         let tileset = b"BTX0\0\0\0\0";
-        let textured = glb_cache_key(&model, Some(tileset));
-        let plain = glb_cache_key(&model, None);
+        let textured = glb_cache_key(TOOL, &model, Some(tileset));
+        let plain = glb_cache_key(TOOL, &model, None);
         std::fs::write(models.join(format!("{textured}.glb")), b"glTFtextured").unwrap();
         std::fs::write(models.join(format!("{plain}.glb")), b"glTFplain").unwrap();
+        remember_tool(&models, TOOL).unwrap();
         // Hits are served without apicula.
         assert_eq!(
             get_map_model_glb_with(&state, 0, 0, None).unwrap(),
@@ -287,10 +347,11 @@ mod tests {
         let models = fixture.dir.path().join(".g4/models");
         std::fs::create_dir_all(&models).unwrap();
         let model = synthetic_model();
-        let textured = glb_cache_key(&model, Some(b"BTX0\0\0\0\0"));
-        let plain = glb_cache_key(&model, None);
+        let textured = glb_cache_key(TOOL, &model, Some(b"BTX0\0\0\0\0"));
+        let plain = glb_cache_key(TOOL, &model, None);
         std::fs::write(models.join(format!("{textured}.glb")), b"glTFtextured").unwrap();
         std::fs::write(models.join(format!("{plain}.glb")), b"glTFplain").unwrap();
+        remember_tool(&models, TOOL).unwrap();
         // Area data 1 selects a tileset the archive does not have: untextured.
         assert_eq!(
             get_map_model_glb_with(&state, 0, 1, None).unwrap(),
@@ -314,6 +375,17 @@ mod tests {
         );
     }
 
+    /// Names in the cache directory except the `last-tool` bookkeeping file.
+    fn cache_files(models: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(models)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n != "last-tool")
+            .collect();
+        names.sort();
+        names
+    }
+
     #[cfg(unix)]
     #[test]
     fn model_glb_is_converted_once_and_leaves_no_work_files() {
@@ -333,11 +405,9 @@ mod tests {
         let glb = get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
         assert_eq!(glb, crate::commands::fake_glb());
         let models = fixture.dir.path().join(".g4/models");
-        let names: Vec<_> = std::fs::read_dir(&models)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(names.len(), 1);
+        // Besides the model only the remembered tool hash is left: no work directories.
+        let names = cache_files(&models);
+        assert_eq!(names.len(), 1, "{names:?}");
         assert!(names[0].ends_with(".glb"), "{names:?}");
         // Second call is a cache hit and does not need the tool.
         assert_eq!(
@@ -347,7 +417,8 @@ mod tests {
         // A map with a missing area data entry still converts, just without textures.
         let glb = get_map_model_glb_with(&state, 1, 200, Some(&tool)).unwrap();
         assert_eq!(glb, crate::commands::fake_glb());
-        assert_eq!(std::fs::read_dir(&models).unwrap().count(), 2);
+        assert_eq!(cache_files(&models).len(), 2);
+        assert!(models.join("last-tool").is_file());
     }
 
     #[cfg(unix)]
@@ -517,6 +588,86 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(issue.tileset, Some(0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timeout_records_no_fail_marker() {
+        use std::os::unix::fs::PermissionsExt;
+        let (fixture, state) = open_synthetic();
+        let tool = fixture.dir.path().join("fake-apicula");
+        let slow = fixture.dir.path().join("slow");
+        // Warm-up: see `slow_apicula_times_out_without_fail_marker` in the kernel tests.
+        std::fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\n[ -e '{}' ] || exit 3\nexec sleep 5\n",
+                slow.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(30)).is_err()
+        );
+        std::fs::remove_dir_all(fixture.dir.path().join(".g4/models")).unwrap();
+        std::fs::write(&slow, "").unwrap();
+
+        let started = std::time::Instant::now();
+        // Area data 0 selects the synthetic tileset: the textured attempt is the one that hangs.
+        let err =
+            get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(1)).unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(err.code, "error");
+        assert_eq!(err.message, "apicula did not finish within 1 s");
+        // No marker, no model, no work directory: only the remembered tool hash is left, and
+        // the tileset is not reported as broken.
+        let models = fixture.dir.path().join(".g4/models");
+        assert_eq!(cache_files(&models), Vec::<String>::new());
+        assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
+        // The untextured conversion times out the same way.
+        let err = get_map_model_glb_timed(&state, 1, 200, Some(&tool), Duration::from_secs(1))
+            .unwrap_err();
+        assert_eq!(err.message, "apicula did not finish within 1 s");
+        assert_eq!(cache_files(&models), Vec::<String>::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_different_apicula_binary_starts_with_a_fresh_cache() {
+        let (fixture, state) = open_synthetic();
+        let (tool, calls) =
+            counting_tool(fixture.dir.path(), crate::commands::FAKE_GLB_PRINTF, true);
+        get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
+        // The same binary: model and `.fail` marker are hits.
+        get_map_model_glb_with(&state, 1, 0, Some(&tool)).unwrap();
+        assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
+        // An updated apicula (other bytes at the same path): the tileset is tried afresh. The
+        // tool hash is memoised per path, so the update is a second path here.
+        let updated = fixture.dir.path().join("fake-apicula-2");
+        let script = std::fs::read_to_string(&tool).unwrap();
+        std::fs::write(&updated, format!("{script}# updated\n")).unwrap();
+        std::fs::set_permissions(&updated, std::fs::metadata(&tool).unwrap().permissions())
+            .unwrap();
+        get_map_model_glb_with(&state, 1, 0, Some(&updated)).unwrap();
+        assert_eq!(
+            recorded_calls(&calls),
+            ["textured", "plain", "textured", "plain"]
+        );
+        // Without apicula the cache of the last used one is what is visible.
+        get_map_model_glb_with(&state, 1, 0, None).unwrap();
+        assert_eq!(recorded_calls(&calls).len(), 4);
+        assert_eq!(
+            map_model_texture_status_impl(&state, 1, 0)
+                .unwrap()
+                .map(|i| i.tileset),
+            Some(Some(0))
+        );
     }
 
     /// Timing of the backend part of loading a large matrix, as the frontend drives it: one

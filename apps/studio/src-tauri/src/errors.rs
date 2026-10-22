@@ -100,6 +100,13 @@ mod tests {
         let other = CmdError::from(KernelError::NotEditable(AssetKind::Map));
         assert_eq!(other.code, "error");
         assert!(other.asset.is_none());
+
+        let timeout = CmdError::from(KernelError::ToolTimeout {
+            name: "apicula",
+            secs: 60,
+        });
+        assert_eq!(timeout.code, "error");
+        assert_eq!(timeout.message, "apicula did not finish within 60 s");
     }
 
     #[test]

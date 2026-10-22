@@ -23,6 +23,9 @@ pub enum KernelError {
     Uxie(String),
     #[error("tool {name} unavailable: {reason}")]
     ToolMissing { name: &'static str, reason: String },
+    /// An external tool ran longer than its time limit and was killed.
+    #[error("{name} did not finish within {secs} s")]
+    ToolTimeout { name: &'static str, secs: u64 },
     /// `header.yaml`, `archives.yaml` or `header_tables.yaml` unreadable or inconsistent.
     #[error("invalid project metadata: {0}")]
     InvalidProject(String),

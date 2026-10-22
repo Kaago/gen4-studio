@@ -1336,6 +1336,7 @@ dependencies = [
  "clap",
  "ds-rom",
  "g4-formats",
+ "libc",
  "predicates",
  "serde",
  "serde_json",

@@ -1,9 +1,15 @@
 use std::path::Path;
 
 use g4_kernel::error::KernelError;
+use std::time::{Duration, Instant};
+
 use g4_kernel::export::{
-    embed_images, glb_cache_key, glb_cached, glb_fail_get, glb_fail_record, nsbmd_to_glb,
+    embed_images, glb_cache_key, glb_cached, glb_fail_get, glb_fail_record, last_tool,
+    nsbmd_to_glb, nsbmd_to_glb_with_timeout, remember_tool, tool_fingerprint,
 };
+
+/// A stand-in tool hash for tests that do not run a real apicula.
+const TOOL: u64 = 0x0123_4567_89ab_cdef;
 
 #[test]
 fn missing_apicula_is_tool_missing() {
@@ -21,12 +27,91 @@ fn missing_apicula_is_tool_missing() {
 
 #[test]
 fn cache_key_depends_on_model_and_tileset() {
-    assert_eq!(glb_cache_key(b"BMD0", None).len(), 16);
+    assert_eq!(glb_cache_key(TOOL, b"BMD0", None).len(), 16);
     assert_ne!(
-        glb_cache_key(b"BMD0", None),
-        glb_cache_key(b"BMD0", Some(b"BTX0"))
+        glb_cache_key(TOOL, b"BMD0", None),
+        glb_cache_key(TOOL, b"BMD0", Some(b"BTX0"))
     );
-    assert_eq!(glb_cache_key(b"BMD0", None), glb_cache_key(b"BMD0", None));
+    assert_eq!(
+        glb_cache_key(TOOL, b"BMD0", None),
+        glb_cache_key(TOOL, b"BMD0", None)
+    );
+}
+
+#[test]
+fn cache_key_changes_with_the_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("apicula-a");
+    let b = dir.path().join("apicula-b");
+    let same = dir.path().join("apicula-same-as-a");
+    std::fs::write(&a, b"binary one").unwrap();
+    std::fs::write(&b, b"binary two").unwrap();
+    std::fs::write(&same, b"binary one").unwrap();
+    let (ta, tb, ts) = (
+        tool_fingerprint(&a).unwrap(),
+        tool_fingerprint(&b).unwrap(),
+        tool_fingerprint(&same).unwrap(),
+    );
+    assert_ne!(ta, tb);
+    assert_eq!(ta, ts);
+    assert_ne!(
+        glb_cache_key(ta, b"BMD0", Some(b"BTX0")),
+        glb_cache_key(tb, b"BMD0", Some(b"BTX0"))
+    );
+    assert_eq!(
+        glb_cache_key(ta, b"BMD0", Some(b"BTX0")),
+        glb_cache_key(ts, b"BMD0", Some(b"BTX0"))
+    );
+    // The fingerprint is the xxh3-64 of the file content.
+    assert_eq!(ta, xxhash_rust::xxh3::xxh3_64(b"binary one"));
+    // A missing or unreadable file is a ToolMissing error.
+    let err = tool_fingerprint(&dir.path().join("gone")).unwrap_err();
+    assert!(matches!(err, KernelError::ToolMissing { .. }), "{err}");
+}
+
+#[test]
+fn a_new_tool_hash_invalidates_cached_models_and_fail_markers() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = glb_cache_key(1, b"BMD0", Some(b"BTX0"));
+    std::fs::write(dir.path().join(format!("{old}.glb")), b"glTFold").unwrap();
+    glb_fail_record(dir.path(), 1, b"BMD0", Some(b"BTX0"), "old failure").unwrap();
+    assert!(
+        g4_kernel::export::glb_cache_get(dir.path(), 1, b"BMD0", Some(b"BTX0"))
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        g4_kernel::export::glb_cache_get(dir.path(), 2, b"BMD0", Some(b"BTX0"))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        glb_fail_get(dir.path(), 2, b"BMD0", Some(b"BTX0")).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn last_tool_round_trips() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("models");
+    assert_eq!(last_tool(&cache), None);
+    remember_tool(&cache, TOOL).unwrap();
+    assert_eq!(last_tool(&cache), Some(TOOL));
+    assert_eq!(
+        std::fs::read_to_string(cache.join("last-tool")).unwrap(),
+        "0123456789abcdef"
+    );
+    remember_tool(&cache, 7).unwrap();
+    assert_eq!(last_tool(&cache), Some(7));
+    // No temp file is left behind, and garbage reads as "nothing remembered".
+    let names: Vec<_> = std::fs::read_dir(&cache)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["last-tool"]);
+    std::fs::write(cache.join("last-tool"), "not a hash").unwrap();
+    assert_eq!(last_tool(&cache), None);
 }
 
 /// A GLB made of a JSON chunk (padded with spaces) and, when given, a BIN chunk (padded with
@@ -258,28 +343,38 @@ fn embed_images_rejects_input_that_is_not_a_glb() {
 #[test]
 fn cache_key_is_salted_with_the_format_version() {
     // Pinned: bumping the salt invalidates previously cached GLBs (and .fail markers).
-    assert_eq!(glb_cache_key(b"BMD0", None).len(), 16);
+    assert_eq!(glb_cache_key(TOOL, b"BMD0", None).len(), 16);
     let mut h = xxhash_rust::xxh3::Xxh3::new();
-    h.update(b"g4glb-v2\0");
+    h.update(b"g4glb-v3\0");
+    h.update(&TOOL.to_le_bytes());
     h.update(b"BMD0");
-    assert_eq!(glb_cache_key(b"BMD0", None), format!("{:016x}", h.digest()));
+    assert_eq!(
+        glb_cache_key(TOOL, b"BMD0", None),
+        format!("{:016x}", h.digest())
+    );
 }
 
 #[test]
 fn fail_marker_round_trips_per_model_and_tileset_and_leaves_no_temp_file() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("models");
-    assert_eq!(glb_fail_get(&cache, b"BMD0", Some(b"BTX0")).unwrap(), None);
-    glb_fail_record(&cache, b"BMD0", Some(b"BTX0"), "bad tileset").unwrap();
     assert_eq!(
-        glb_fail_get(&cache, b"BMD0", Some(b"BTX0"))
+        glb_fail_get(&cache, TOOL, b"BMD0", Some(b"BTX0")).unwrap(),
+        None
+    );
+    glb_fail_record(&cache, TOOL, b"BMD0", Some(b"BTX0"), "bad tileset").unwrap();
+    assert_eq!(
+        glb_fail_get(&cache, TOOL, b"BMD0", Some(b"BTX0"))
             .unwrap()
             .as_deref(),
         Some("bad tileset")
     );
     // Other tileset bytes, or none at all, are unaffected.
-    assert_eq!(glb_fail_get(&cache, b"BMD0", Some(b"BTX1")).unwrap(), None);
-    assert_eq!(glb_fail_get(&cache, b"BMD0", None).unwrap(), None);
+    assert_eq!(
+        glb_fail_get(&cache, TOOL, b"BMD0", Some(b"BTX1")).unwrap(),
+        None
+    );
+    assert_eq!(glb_fail_get(&cache, TOOL, b"BMD0", None).unwrap(), None);
     let names: Vec<_> = std::fs::read_dir(&cache)
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
@@ -340,6 +435,99 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#;
         assert_eq!(&std::fs::read(&glb).unwrap()[0..4], b"glTF");
     }
 
+    /// Whether a process with this pid still exists (`kill -0`); a reaped or orphaned-and-
+    /// collected process is gone.
+    fn pid_alive(pid: &str) -> bool {
+        std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    #[test]
+    fn slow_apicula_times_out_without_fail_marker() {
+        let tools = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        // The script and a helper it started both record their pid, then wait, but only once
+        // `slow` exists: a first, fast run warms the new executable up (macOS scans a fresh
+        // file on first exec, which can take a second when many tests spawn at once and
+        // would eat the whole time limit).
+        let pids = tools.path().join("pids");
+        let slow = tools.path().join("slow");
+        let tool = fake(
+            tools.path(),
+            &format!(
+                "[ -e '{slow}' ] || exit 0\necho $$ > '{p}.sh'; sleep 5 & echo $! > '{p}.sleep'; wait",
+                slow = slow.display(),
+                p = pids.display()
+            ),
+        );
+        let _ =
+            nsbmd_to_glb_with_timeout(&tool, b"BMD0", None, out.path(), Duration::from_secs(30));
+        std::fs::write(&slow, "").unwrap();
+        let started = Instant::now();
+        let err =
+            nsbmd_to_glb_with_timeout(&tool, b"BMD0", None, out.path(), Duration::from_secs(1))
+                .unwrap_err();
+        let took = started.elapsed();
+        assert!(
+            matches!(
+                err,
+                KernelError::ToolTimeout {
+                    name: "apicula",
+                    secs: 1
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(took < Duration::from_secs(3), "took {took:?}");
+        assert_eq!(err.to_string(), "apicula did not finish within 1 s");
+        // Neither the script nor the helper it started is left running.
+        for suffix in ["sh", "sleep"] {
+            let pid = std::fs::read_to_string(format!("{}.{suffix}", pids.display())).unwrap();
+            let pid = pid.trim();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while pid_alive(pid) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(!pid_alive(pid), "{suffix} process {pid} is still running");
+        }
+        // glb_cached passes the timeout on, and a timeout leaves nothing in the cache dir
+        // (no .glb, no .fail, no work directory).
+        let cache = tempfile::tempdir().unwrap();
+        let err = g4_kernel::export::glb_cached_with_timeout(
+            cache.path(),
+            &tool,
+            TOOL,
+            b"BMD0",
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert!(matches!(err, KernelError::ToolTimeout { .. }), "{err:?}");
+        assert_eq!(std::fs::read_dir(cache.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_chatty_tool_does_not_block_on_full_pipes() {
+        let tools = tempfile::tempdir().unwrap();
+        let out = tempfile::tempdir().unwrap();
+        // 400 KB on each pipe, far beyond the pipe buffer, then a normal result.
+        let tool = fake(
+            tools.path(),
+            &format!(
+                "{FIND_OUT}\nhead -c 400000 /dev/zero >&2; head -c 400000 /dev/zero; \
+                 mkdir -p \"$out/model\"; printf 'glTFxxxx' > \"$out/model/model.glb\""
+            ),
+        );
+        let glb =
+            nsbmd_to_glb_with_timeout(&tool, b"BMD0", None, out.path(), Duration::from_secs(10))
+                .unwrap();
+        assert_eq!(&std::fs::read(glb).unwrap()[0..4], b"glTF");
+    }
+
     #[test]
     fn non_zero_exit_reports_stderr() {
         let tools = tempfile::tempdir().unwrap();
@@ -396,8 +584,8 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
         let tools = tempfile::tempdir().unwrap();
         let (apicula, counter) = fake_apicula_counting(tools.path());
         let dir = tempfile::tempdir().unwrap();
-        let a = glb_cached(dir.path(), &apicula, b"BMD0one", None).unwrap();
-        let b = glb_cached(dir.path(), &apicula, b"BMD0one", None).unwrap();
+        let a = glb_cached(dir.path(), &apicula, TOOL, b"BMD0one", None).unwrap();
+        let b = glb_cached(dir.path(), &apicula, TOOL, b"BMD0one", None).unwrap();
         assert_eq!(a, b);
         assert_eq!(runs(&counter), 1);
         // Only the cache file remains: no work directories or temp files.
@@ -405,9 +593,12 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names, [format!("{}.glb", glb_cache_key(b"BMD0one", None))]);
+        assert_eq!(
+            names,
+            [format!("{}.glb", glb_cache_key(TOOL, b"BMD0one", None))]
+        );
         // A different tileset is a different cache entry.
-        glb_cached(dir.path(), &apicula, b"BMD0one", Some(b"BTX0")).unwrap();
+        glb_cached(dir.path(), &apicula, TOOL, b"BMD0one", Some(b"BTX0")).unwrap();
         assert_eq!(runs(&counter), 2);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
     }
@@ -426,15 +617,15 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
             ),
         );
         let dir = tempfile::tempdir().unwrap();
-        let glb = glb_cached(dir.path(), &tool, b"BMD0", Some(b"BTX0")).unwrap();
+        let glb = glb_cached(dir.path(), &tool, TOOL, b"BMD0", Some(b"BTX0")).unwrap();
         let (json, bin) = split_glb(&glb);
         assert!(json["images"][0].get("uri").is_none());
         assert_eq!(image_bytes(&json, &bin.unwrap(), 0), b"PNGBYTES");
         // The cached file is the embedded one, and nothing else is left behind.
-        let cached = std::fs::read(
-            dir.path()
-                .join(format!("{}.glb", glb_cache_key(b"BMD0", Some(b"BTX0")))),
-        )
+        let cached = std::fs::read(dir.path().join(format!(
+            "{}.glb",
+            glb_cache_key(TOOL, b"BMD0", Some(b"BTX0"))
+        )))
         .unwrap();
         assert_eq!(cached, glb);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -448,7 +639,7 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
             ),
         );
         let other = tempfile::tempdir().unwrap();
-        let err = glb_cached(other.path(), &broken, b"BMD0", Some(b"BTX0")).unwrap_err();
+        let err = glb_cached(other.path(), &broken, TOOL, b"BMD0", Some(b"BTX0")).unwrap_err();
         assert!(err.to_string().contains("t.png"), "{err}");
         assert_eq!(std::fs::read_dir(other.path()).unwrap().count(), 0);
     }
@@ -456,19 +647,26 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
     #[test]
     fn glb_cached_serves_hits_without_the_tool() {
         let dir = tempfile::tempdir().unwrap();
-        let key = glb_cache_key(b"BMD0", Some(b"BTX0"));
+        let key = glb_cache_key(TOOL, b"BMD0", Some(b"BTX0"));
         std::fs::write(dir.path().join(format!("{key}.glb")), b"glTFcached").unwrap();
         let glb = glb_cached(
             dir.path(),
             Path::new("/nonexistent/apicula"),
+            TOOL,
             b"BMD0",
             Some(b"BTX0"),
         )
         .unwrap();
         assert_eq!(glb, b"glTFcached");
         // A miss needs the tool.
-        let err =
-            glb_cached(dir.path(), Path::new("/nonexistent/apicula"), b"BMD1", None).unwrap_err();
+        let err = glb_cached(
+            dir.path(),
+            Path::new("/nonexistent/apicula"),
+            TOOL,
+            b"BMD1",
+            None,
+        )
+        .unwrap_err();
         assert!(matches!(err, KernelError::ToolMissing { .. }));
     }
 
@@ -477,9 +675,9 @@ mkdir -p "$out/model"; printf 'glTFxxxx' > "$out/model/model.glb""#
         let tools = tempfile::tempdir().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let failing = fake(tools.path(), "echo boom >&2; exit 3");
-        assert!(glb_cached(dir.path(), &failing, b"BMD0", Some(b"BTX0")).is_err());
+        assert!(glb_cached(dir.path(), &failing, TOOL, b"BMD0", Some(b"BTX0")).is_err());
         let none = fake(tools.path(), "exit 0");
-        assert!(glb_cached(dir.path(), &none, b"BMD0", None).is_err());
+        assert!(glb_cached(dir.path(), &none, TOOL, b"BMD0", None).is_err());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }
@@ -629,7 +827,9 @@ mod project_tileset {
         };
         assert!(tex.is_some());
         let cache = tempfile::tempdir().unwrap();
-        let glb = glb_cached(cache.path(), Path::new(&apicula), &model, tex.as_deref()).unwrap();
+        let apicula = Path::new(&apicula);
+        let tool = tool_fingerprint(apicula).unwrap();
+        let glb = glb_cached(cache.path(), apicula, tool, &model, tex.as_deref()).unwrap();
         let images = assert_images_embedded(&glb);
         assert!(images > 0);
         eprintln!("embedded {images} images, {} bytes", glb.len());
@@ -645,7 +845,9 @@ mod project_tileset {
             return;
         };
         let cache = tempfile::tempdir().unwrap();
-        let glb = glb_cached(cache.path(), Path::new(&apicula), &model, None).unwrap();
+        let apicula = Path::new(&apicula);
+        let tool = tool_fingerprint(apicula).unwrap();
+        let glb = glb_cached(cache.path(), apicula, tool, &model, None).unwrap();
         assert_eq!(image_count(&glb), 0);
     }
 }
