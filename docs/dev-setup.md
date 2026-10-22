@@ -113,6 +113,32 @@ Messlauf, nicht Teil des normalen Durchlaufs (`#[ignore]`): `G4_APICULA=... carg
 --nocapture bench_matrix_models` lädt eine große Matrix (Standard: Header 3, Platin Matrix 0) und gibt die Zeiten aus;
 `G4_BENCH_HEADER` wählt einen anderen Header.
 
+## Gate-Skript
+
+Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt sie und ist der Lauf vor einem Merge. Es fährt der Reihe nach:
+
+1. `cargo fmt --check`
+2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+3. `cargo test --workspace --all-features` (ohne ROM-Daten)
+4. `pnpm test` und `pnpm build` in `apps/studio`
+5. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA` und `G4_DSROM_CLI` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+
+```sh
+scripts/gate.sh
+```
+
+Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell), braucht also keinen `export PATH`. Variablen, alle optional:
+
+| Variable | Standard | Bedeutung |
+|---|---|---|
+| `G4_ROMS_DIR` | `../Roms` (neben dem Repository) | Ordner mit den `*_DSPRE_contents`-Projekten |
+| `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests |
+| `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich |
+
+Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA` oder `G4_DSROM_CLI`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
+
+Dauer: bei warmem Build-Cache etwa 20 Minuten (zuletzt 1217 s; die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+
 ## App-Bundle
 
 Ein lauffähiges `.app` (mit `libnitroarc_ffi.dylib` und dem apicula-Sidecar) entsteht mit:

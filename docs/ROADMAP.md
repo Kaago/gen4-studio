@@ -12,7 +12,10 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 1 | Kernel-Fundament und Shell-Spike: Projekt öffnen, Permissions malen, speichern, ROM bauen, im Emulator laufen | Edit-Build-Play-Schleife funktioniert auf einem HGSS- und einem Platin-Projekt |
 | 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
 | 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (in Arbeit, Gate offen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
-| 3b | Daten-Editoren v1 und Kartenimport: Scripts (rotom), Encounter, Trainer, Text, Pokémon-Basisdaten | Ein kleiner Hack (neue Route, neue Trainer, neue Texte, ein Script) komplett im Studio |
+| 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (implementiert, Gate offen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
+| 3b.2 | Skripte und Text: rotom, Monaco, chatot, Text-Editor | Ein Ereignis-Script und neue Texte komplett im Studio |
+| 3b.3 | Daten-Editoren: Encounter, Trainer, Pokémon, Moves, Items | Neue Trainer und Encounter komplett im Studio |
+| 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
 | 5 | Plugin-Host | Ein First-Party-Editor und ein Beispiel-Plugin laufen über dieselbe API |
 | 6 | Kartenerstellung und Weltformat | Karte im Studio malen, zu NSBMD/BDHC bauen, spielen |
@@ -42,8 +45,8 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 - Cmd+Q-Rückfrage prüfen; falls sie fehlt, Exit-Guard auf Rust-Seite (`RunEvent::ExitRequested`).
 - Kernel aufräumen: `Store` entpackt bei Bedarf selbst, Edit-Closures dürfen fehlschlagen, Fehler tragen Pfad und Asset, eigener Fehlertyp für Projekt-Metadaten statt `Build`.
 - `MapFile::validate` lehnt `buildings_tail` ab 48 Bytes ab, bevor Gebäude editierbar werden.
-- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula in `spawn_blocking`. Der apicula-Timeout ist in Phase 3b verschoben.
-- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt. In Phase 3b verschoben (siehe Querschnitt: CI).
+- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes. (Die frühere Angabe, apicula laufe in `spawn_blocking`, stimmte nicht: der Aufruf lief auf dem Async-Pool. Das behebt erst Phase 3b.1, zusammen mit dem Zeitlimit.)
+- Gated Vanilla-Tests gegen mindestens ein Platin- und ein HGSS-Projekt. Ohne CI: seit Phase 3b.1 über `scripts/gate.sh` (erledigt).
 - Matrix-Orientierung bestätigt (Byte 0 = Breite), Test in g4-formats.
 - Orientierung im Welt-Editor: Kachelkoordinaten und Kacheltyp beim Überfahren anzeigen, Warps und Events markieren, Map-Texturen laden. Ohne diese Hilfen ließ sich im GUI-Test die Treppe nicht finden.
 - Header-Liste lesbar machen: Anzeigenamen statt interner Kürzel (T01R0102 ist das Haus des Rivalen, T01R0202 das des Spielers), keine Zeilenumbrüche.
@@ -51,8 +54,8 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 
 
 Lieferumfang:
-- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump). Er ändert bestehende Header; neue Header lassen sich nicht anlegen (siehe Phase 3b).
-- Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen. Der Höhenabschnitt (`altitudes`) ist editierbar, die Szene wertet ihn noch nicht aus.
+- Header-Editor (uxie `MapHeader` lesen und schreiben, Header-Tabelle in `arm9.bin` über Offset-Metadaten je Dump). Er ändert bestehende Header; neue Header gibt es seit Phase 3b.1 per Patch (siehe dort).
+- Matrix-Editor: Karten zuweisen, Header-Zellen, Höhen; neue Matrix anlegen. Der Höhenabschnitt (`altitudes`) ist editierbar; die Szene wertet ihn seit Phase 3b.1 aus.
 - Gebäude: Position, Skalierung, Modellwahl aus dem Gebäude-NARC, Vorschau als GLB. Die Rotation (13 Bytes ab 0x10) wird verbatim erhalten und nur als Hexwert angezeigt, weil das Spiel sie bei Karten-Gebäuden ignoriert.
 - Events: uxie `EventFile` (Objekte, Warps, Koordinaten-Trigger, Hintergrund-Events) platzieren und verschieben in der 3D-Ansicht; Warps per Drag verbinden.
 - Area-Data-Editor.
@@ -61,14 +64,14 @@ Lieferumfang:
 
 Gate: Eine neue Route aus bestehenden Kartendateien in einer neuen Matrix, mit Warps zu einer bestehenden Stadt, ist im Emulator begehbar. Ablauf und Einzelprüfungen: [docs/phase-2-gate.md](phase-2-gate.md). Teil (B) dieses Gates läuft künftig über die Assistenten von Phase 3a.
 
-In Phase 3b verschoben (offene Reste von Phase 2):
-- Höhen (`altitudes`) in der Szene auswerten; die Modelle liegen bisher auf y = 0.
-- Objekt-Sprites für Events (bisher Marker).
-- Neue Header per Patch: die Header-Tabelle liegt fest im ARM9, ein Anlegen braucht einen Patch.
-- Kachelverhalten-Namen je Spielfamilie: `tile_behaviors.yaml` stammt aus pokeplatinum, HGSS soll einen eigenen Satz aus pokeheartgold bekommen.
-- apicula mit Timeout aufrufen (heute ohne Zeitlimit).
-- CI mit den gated Vanilla-Tests gegen mindestens ein Platin- und ein HGSS-Projekt.
-- Modell-Cache-Schlüssel um die apicula-Version erweitern (heute nur Hash über NSBMD und NSBTX); damit werden auch `.fail`-Marker bei einem apicula-Update ungültig.
+Offene Reste von Phase 2, erledigt in Phase 3b.1 (siehe dort):
+- Höhen (`altitudes`) in der Szene auswerten (erledigt: eine Stufe ist eine halbe Kachel).
+- Objekt-Sprites für Events (erledigt: Billboards, gelber Marker als Rückfall).
+- Neue Header per Patch (erledigt: DSPRE-kompatibel über „Dynamic Headers“, angeboten im Assistenten).
+- Kachelverhalten-Namen je Spielfamilie (erledigt: HGSS-Satz aus pokeheartgold).
+- apicula mit Timeout aufrufen und von `spawn_blocking` ausführen (erledigt).
+- Gated Vanilla-Tests statt CI (erledigt: `scripts/gate.sh`; es gibt kein Remote und keine CI).
+- Modell-Cache-Schlüssel um die apicula-Version erweitern, damit auch `.fail`-Marker bei einem apicula-Update ungültig werden (erledigt).
 
 ## Phase 3a: Welt-Explorer, Assistenten, Weltkarte
 
@@ -84,22 +87,53 @@ Lieferumfang:
 
 Gate: Die neue Route aus Phase 2 (B) und ein neuer Raum mit Eingang entstehen per Assistent in unter fünf Minuten, ohne eine Zahl außer der Header-Wahl zu tippen, und sind in melonDS begehbar. Ablauf und Einzelprüfungen: [docs/phase-3a-gate.md](phase-3a-gate.md).
 
-Nicht in 3a: neue Header (Patch), Gelände malen (Phase 6), Höhen und Objekt-Sprites, Verschieben von Karten in der Weltkarte.
+Nicht in 3a: neue Header (Patch, jetzt 3b.1), Gelände malen (Phase 6), Höhen und Objekt-Sprites (jetzt 3b.1), Verschieben von Karten in der Weltkarte.
 
-## Phase 3b: Daten-Editoren v1 und Kartenimport
+## Phase 3b: Daten-Editoren, Skripte, Text, Import
 
-Beginnt, wenn das Gate von Phase 3a bestanden ist.
+Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. Sie beginnt, wenn das Gate von Phase 3a bestanden ist; die Teile bauen aufeinander auf.
+
+### Phase 3b.1: Fundament
+
+Status: implementiert, Gate offen. Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`); die Prüfung von Hand (GUI, melonDS, DSPRE) steht in [docs/phase-3b1-gate.md](phase-3b1-gate.md) und ist noch nicht durchgeführt.
+
+Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b1-foundation-design.md](superpowers/specs/2026-10-22-phase-3b1-foundation-design.md). Plan: [docs/superpowers/plans/2026-10-22-phase-3b1-foundation.md](superpowers/plans/2026-10-22-phase-3b1-foundation.md).
+
+Lieferumfang:
+- Neue Header, DSPRE-kompatibel über den Patch „Dynamic Headers“ (ein Header je Datei in einem NARC); im Schritt „Header“ der Assistenten „Gebiet anlegen“ und „Raum anlegen“ als „Neuer Header“, der Patch wird nach Nachfrage angewendet. Nur Platin und HeartGold/SoulSilver.
+- Höhen (`altitudes`) der Matrix in der 3D-Szene (eine halbe Kachel je Stufe; Modell, Gebäude, Overlay, Marker, Picking und Event-Drag folgen der Oberfläche).
+- Objekt-Sprites als Billboards (Richtung aus dem Event, gelber Marker als Rückfall); NSBTX-Leser und Textur-Dekoder in `g4-formats`.
+- Kachelverhalten-Namen je Spielfamilie (HGSS aus pokeheartgold).
+- apicula mit Zeitlimit (`G4_APICULA_TIMEOUT_SECS`, Standard 60 s) auf einem Arbeitsthread; Modell-Cache-Schlüssel mit apicula-Werkzeug-Hash.
+- Gate-Skript `scripts/gate.sh` statt CI.
+
+Gate: Auf Kopien von Platin DE und HeartGold DE entsteht ein neues Gebiet per Assistent mit einem neuen Header (Patch nach Nachfrage), das ROM baut, das Gebiet ist in melonDS begehbar, und DSPRE öffnet das Projekt, zeigt den Patch als angewendet und den neuen Header in seiner Liste. Eine Matrixzelle mit Höhe 2 liegt in der Szene eine Kachel höher als ihre Nachbarn, samt Gebäude, Overlay und Marker. Personen und Trainer zeigen ihr Sprite in Blickrichtung, ein Objekt ohne Sprite den Marker. Auf HeartGold zeigt der Hover HGSS-Kachelnamen (zum Beispiel `HEADBUTT`). `scripts/gate.sh` läuft grün gegen alle drei Projekte. Ablauf: [docs/phase-3b1-gate.md](phase-3b1-gate.md).
+
+Nicht in 3b.1: Header löschen, DSPREs ARM9-Expansion und andere Patches, die OW-Tabellen-Erweiterung (`OWTBLXPANDV1`), Animation der Sprites, CI auf fremden Rechnern.
+
+### Phase 3b.2: Skripte und Text
 
 Lieferumfang:
 - Scripts: rotom-Projekt (`rotom.toml`, `.rotom/command_database/`) anlegen oder übernehmen; Monaco mit rotom-lsp; Compile beim Build; Decompile beim ersten Öffnen.
 - Text: chatot-Pipeline (JSON im Projekt), Text-Editor mit Suche, Referenzen aus Scripts.
-- Encounter (DPPt und HGSS, eigener Writer in `g4-formats`), Trainer (uxie), Pokémon-Basisdaten, Moves, Items (uxie).
+
+Gate: Ein Ereignis-Script und neue Texte entstehen komplett im Studio und wirken im Spiel.
+
+### Phase 3b.3: Daten-Editoren
+
+Lieferumfang:
+- Encounter (DPPt und HGSS), Trainer (uxie), Pokémon-Basisdaten, Moves, Items (uxie). Für Encounter ist der geplante eigene Writer in `g4-formats` neu zu prüfen: uxie 0.9.7 hat bereits einen Encounter-Writer (`to_binary`).
 - Datenbank-UI nach Pokémon-Studio-Muster; Referenzzähler.
+
+Gate: Zwei neue Trainer und geänderte Encounter entstehen komplett im Studio und sind im Spiel zu sehen.
+
+### Phase 3b.4: Import und Prüfungen
+
+Lieferumfang:
 - Kartenimport: PDSMS `.pdsmap`/`.pdsts`, NSBMD-Dateien, OBJ über apicula-Pfad; Kollisionsimport.
 - Project Checks: kaputte Warps, Scripts ohne Ziel, Trainer ohne Party, Textlängen.
-- Offene Reste aus Phase 2: Höhen in der Szene, Objekt-Sprites, neue Header per Patch, Kachelnamen je Familie für HGSS, apicula-Timeout, CI mit gated Vanilla-Tests, Cache-Schlüssel mit apicula-Version (Details unter Phase 2).
 
-Gate: Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
+Gate (für Phase 3b insgesamt): Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
 
 ## Phase 4: Textprojekt und Build-Graph
 
@@ -134,7 +168,7 @@ Gate: Eine im Studio gemalte Karte wird gebaut, in eine Matrix gesetzt und im Em
 
 ## Querschnitt (laufend ab Phase 1)
 
-- CI: `cargo test`, `cargo clippy -D warnings`, `pnpm test`, Builds für macOS (arm64) und Windows (x64); Linux als Best-Effort.
+- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
 - Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3b.
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

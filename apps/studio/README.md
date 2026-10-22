@@ -17,6 +17,8 @@ Die Workbench (Dockview) hat sechs Panels; das Layout wird gespeichert (`g4.layo
 
 Welt, Raster und Weltkarte sind aus den Orten und Rastern abgeleitet, die der Kernel liefert (`list_matrices`, `list_warps`); die Assistenten rufen `create_area`, `extend_area` und `create_room` auf. Anlegen neuer Karten, Raster und Eventdateien lässt sich nicht rückgängig machen, die anschließenden Header-, Zellen- und Warp-Änderungen schon. Hintergrund: [Spezifikation Phase 3a](../../docs/superpowers/specs/2026-10-22-world-explorer-design.md).
 
+Objekt-Events zeigen ihr Overworld-Sprite als Billboard in Blickrichtung (gelbes Quadrat, solange es lädt oder keines bekannt ist), und die Höhen der Matrix heben ihre Zellen samt Modell, Gebäuden, Markern und Sprites an (eine halbe Kachel je Stufe); Hintergrund: [Spezifikation Phase 3b.1](../../docs/superpowers/specs/2026-10-22-phase-3b1-foundation-design.md).
+
 ## Befehle
 
 ```sh
