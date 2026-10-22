@@ -6,6 +6,7 @@ mod events;
 mod headers;
 mod matrix;
 mod models;
+mod overview;
 mod project;
 mod world;
 
@@ -15,6 +16,7 @@ pub use events::*;
 pub use headers::*;
 pub use matrix::*;
 pub use models::*;
+pub use overview::*;
 pub use project::*;
 pub use world::*;
 
