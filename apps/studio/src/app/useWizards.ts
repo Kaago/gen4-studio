@@ -2,13 +2,19 @@ import { useCallback, useState } from "react";
 import type { WizardRequest } from "../workbench/WorkbenchContext";
 import { useStableCallback } from "./useStable";
 
+/** What a wizard made that the app is to show: the matrix and the header that now has it (null: none was assigned), and the message to leave behind. */
+export interface Created {
+  matrix: number;
+  header: number | null;
+  announcement: string;
+}
+
 interface WizardsParams {
   /**
-   * The project changed under the wizard: read it again, and show `header` when it is not null;
-   * `announcement` is the message once that is done. Called when a wizard was left after it wrote
-   * (with null), and by `created` (with the new header).
+   * The project changed under the wizard: read it again and show `created`. Called when a wizard
+   * was left after it wrote (with null: only read), and by `created`.
    */
-  onCreated: (header: number | null, announcement?: string) => Promise<void>;
+  onCreated: (created: Created | null) => Promise<void>;
 }
 
 /** Which wizard is open (if any) with what it is prefilled with. Only the app's wizard host reads `request`. */
@@ -26,11 +32,11 @@ export function useWizards({ onCreated }: WizardsParams) {
     },
     [refresh],
   );
-  /** "Im Studio zeigen": leaves the wizard, reads the project again and shows `header` (null: only reads), then announces. */
+  /** "Im Studio zeigen": leaves the wizard, reads the project again and shows what it made. */
   const created = useCallback(
-    (header: number | null, announcement?: string) => {
+    (made: Created) => {
       setRequest(null);
-      return refresh(header, announcement);
+      return refresh(made);
     },
     [refresh],
   );

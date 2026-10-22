@@ -49,10 +49,11 @@ describe("NewAreaWizard", () => {
     container.remove();
   });
 
-  async function show(prefill: { matrix?: number } = { matrix: 0 }) {
-    await act(async () =>
-      root.render(<NewAreaWizard headers={headers} matrices={matrices} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />),
-    );
+  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices) => (
+    <NewAreaWizard headers={headers} matrices={listed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onError={onError} />
+  );
+  async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }) {
+    await act(async () => root.render(wizard(prefill)));
     await flush();
   }
   const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
@@ -125,6 +126,27 @@ describe("NewAreaWizard", () => {
     expect(selected()).toEqual([]);
   });
 
+  it("falls_back_to_the_first_matrix_once_the_overview_arrives_when_nothing_is_prefilled", async () => {
+    await act(async () => root.render(wizard(undefined, [])));
+    await flush();
+    expect(getMatrix).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(0);
+    await act(async () => root.render(wizard(undefined)));
+    await flush();
+    expect(getMatrix).toHaveBeenCalledWith(0);
+    expect(container.querySelector<HTMLSelectElement>("select")?.value).toBe("0");
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+  });
+
+  it("keeps_a_prefilled_matrix_when_the_overview_arrives_later", async () => {
+    await act(async () => root.render(wizard({ matrix: 1 }, [])));
+    await act(async () => root.render(wizard({ matrix: 1 })));
+    await flush();
+    expect(container.querySelector<HTMLSelectElement>("select")?.value).toBe("1");
+    expect(getMatrix).toHaveBeenCalledWith(1);
+    expect(getMatrix).not.toHaveBeenCalledWith(0);
+  });
+
   it("adds_maps_typed_by_number_and_reports_the_ones_it_cannot_use", async () => {
     await show();
     const field = container.querySelector<HTMLInputElement>('input[aria-label="Karten per Nummer"]')!;
@@ -154,8 +176,8 @@ describe("NewAreaWizard", () => {
     expect(container.querySelector<HTMLInputElement>('input[aria-label^="Area-Data"]')?.value).toBe("3");
     // Header 0001 is picked from the list; the warp that leads to it is counted.
     await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0001")));
-    expect(container.textContent).toContain("Warps hierher");
-    expect(container.textContent).not.toContain("wirkt unbenutzt");
+    expect(container.textContent).toContain("Warps hierher: 1");
+    expect(container.textContent).not.toContain("nichts führt hierher");
     await click([...container.querySelectorAll("input[type=radio]")].find((r) => r.parentElement?.textContent === "Kopie von 0008"));
     await next();
     expect(container.textContent).toContain("Stellt Header 0001 „NOTHING“ auf das neue Raster um, Area-Data 0003, Eventdatei: Kopie von 0008.");
@@ -163,13 +185,17 @@ describe("NewAreaWizard", () => {
     expect(vi.mocked(createArea).mock.calls[0][0].header).toEqual({ id: 1, area_data_id: 3, event_file: { Copy: 8 } });
   });
 
-  it("marks_a_header_nothing_leads_to_as_unused", async () => {
+  it("counts_the_warps_that_lead_to_each_header_in_the_picker_rows_and_marks_the_unused", async () => {
     await show();
     await click(cell(0, 0));
     await next();
     await next();
+    const row = (id: string) => [...container.querySelectorAll("li")].find((li) => li.textContent?.startsWith(id))?.textContent;
+    expect(row("0000")).toContain("Warps hierher: 0, wirkt unbenutzt");
+    expect(row("0001")).toContain("Warps hierher: 1");
+    expect(row("0001")).not.toContain("wirkt unbenutzt");
     await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0000")));
-    expect(container.textContent).toContain("wirkt unbenutzt");
+    expect(container.textContent).toContain("nichts führt hierher");
   });
 
   it("stays_on_the_summary_and_reports_a_failure_that_created_nothing", async () => {

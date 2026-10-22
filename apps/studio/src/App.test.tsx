@@ -134,17 +134,24 @@ describe("App wiring", () => {
   });
 
   describe("new area wizard", () => {
-    it("reads the project again after it wrote and shows the header that now has the new matrix", async () => {
-      vi.mocked(listMatrices).mockResolvedValue({ matrices: [{ index: 0, name: "m0", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 }], unreadable: [] });
+    const summary = (index: number) => ({ index, name: `m${index}`, width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 });
+    const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
+    const buttons = () => [...container.querySelectorAll("button")];
+    const sourceSelect = () => container.querySelector<HTMLSelectElement>("select");
+
+    beforeEach(async () => {
+      // The project is already open (and its overview empty): the matrices are read again.
+      vi.mocked(listMatrices).mockResolvedValue({ matrices: [summary(0), summary(1)], unreadable: [] });
+      await act(async () => data().bus.emit({ topic: "matrixData" }));
       vi.mocked(createArea).mockImplementation(async () => {
         // The backend now has the matrix and header 1 points at it.
         listed = [header(0, 0), header(1, 5)];
         return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1 };
       });
-      await select(listed[0]);
-      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
-      const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
-      const buttons = () => [...container.querySelectorAll("button")];
+    });
+
+    /** Picks the first cell, header 0001 and creates; the result step shows. */
+    async function create() {
       await press(container.querySelector('[data-cell="0,0"]'));
       await click("Weiter");
       await click("Weiter");
@@ -152,6 +159,12 @@ describe("App wiring", () => {
       await click("Weiter");
       await click("Anlegen");
       expect(createArea).toHaveBeenCalledOnce();
+    }
+
+    it("reads the project again after it wrote and shows the header that now has the new matrix", async () => {
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await create();
       expect(data().selected).toBe(0);
       await click("Im Studio zeigen");
       // Header 1 was selected with its new matrix, not the one the old header list had for it.
@@ -160,6 +173,45 @@ describe("App wiring", () => {
       expect(data().matrix?.index).toBe(5);
       expect(container.querySelector('[role="dialog"]')).toBeNull();
       expect(live().message?.text).toContain("Raster 0005");
+    });
+
+    it("shows the new matrix and the announcement when the header it was given to is already selected", async () => {
+      await select(listed[1]);
+      expect(data().matrix?.index).toBe(1);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await create();
+      await click("Im Studio zeigen");
+      expect(data().selected).toBe(1);
+      expect(data().matrix?.index).toBe(5);
+      expect(live().message?.text).toContain("Raster 0005");
+    });
+
+    it("forgets what to show when the header list could not be read, also for the next project", async () => {
+      await select(listed[0]);
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await create();
+      const read = vi.mocked(listHeaders).getMockImplementation();
+      vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
+      await click("Im Studio zeigen");
+      expect(data().selected).toBe(0);
+      expect(live().message?.kind).toBe("error");
+      expect(live().message?.text).not.toContain("Raster 0005");
+      // Another project: its list names header 1 on matrix 5 (by chance), and nothing selects it.
+      vi.mocked(listHeaders).mockImplementation(read!);
+      vi.mocked(getMatrix).mockClear();
+      await click("Projekt öffnen");
+      expect(data().selected).toBeNull();
+      expect(getMatrix).not.toHaveBeenCalled();
+      expect(live().message?.text ?? "").not.toContain("Raster 0005");
+    });
+
+    it("copies from the matrix of the selected header unless the request names one", async () => {
+      await select(listed[1]);
+      await act(async () => data().onOpenWizard({ kind: "area" }));
+      expect(sourceSelect()?.value).toBe("1");
+      await click("Abbrechen");
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(sourceSelect()?.value).toBe("0");
     });
   });
 

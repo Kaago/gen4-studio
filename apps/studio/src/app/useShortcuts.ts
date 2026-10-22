@@ -13,9 +13,12 @@ interface ShortcutHandlers {
   unpinSelection: () => void;
 }
 
+/** Whether a modal dialog is open: its own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. */
+const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+
 /**
  * Cmd+S, Cmd+Z and Cmd+Shift+Z (see `shortcutAction`), and Delete / Escape on a pinned building or
- * event. Registered once; the handlers of the latest render are called through a ref.
+ * event, none of them while a modal dialog is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
   // Shortcuts always call the handlers of the latest render.
@@ -23,6 +26,8 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
   latest.current = handlers;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A wizard or dialog covers the workbench: Escape must not unpin, Delete must not delete and undo must not run behind it.
+      if (modalOpen()) return;
       const selected = pinnedRef.current;
       if ((selected.kind === "building" || selected.kind === "event") && !e.repeat) {
         // Delete (Backspace on a Mac keyboard) removes the selected building or event after asking;

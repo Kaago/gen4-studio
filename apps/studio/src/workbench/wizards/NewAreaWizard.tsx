@@ -47,14 +47,16 @@ function previewMatrix(form: AreaForm): MatrixDto | null {
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
 export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClose, onCreated, onError }: Props) {
-  const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? matrices[0]?.index ?? null }));
+  const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // The cell a Shift-click spans its rectangle from.
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [rejected, setRejected] = useState<string[]>([]);
-  const matrix = useMatrix(form.sourceMatrix, 0, onError);
+  // Nothing chosen yet: the first matrix, also when the overview arrives after the wizard opened.
+  const sourceMatrix = form.sourceMatrix ?? matrices[0]?.index ?? null;
+  const matrix = useMatrix(sourceMatrix, 0, onError);
 
   const mapMax = counts.Map === undefined ? 0xfffe : Math.max(0, counts.Map - 1);
   const source = matrix ? sourceHeader(matrix, headers, form.selected) : null;
@@ -126,7 +128,7 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
         <div>
           <label style={row}>
             {TERMS.matrix.label}
-            <select aria-label={`${TERMS.matrix.label} der Quelle`} value={form.sourceMatrix ?? ""} onChange={(e) => chooseSource(Number(e.target.value))}>
+            <select aria-label={`${TERMS.matrix.label} der Quelle`} value={sourceMatrix ?? ""} onChange={(e) => chooseSource(Number(e.target.value))}>
               {matrices.map((m) => (
                 <option key={m.index} value={m.index}>
                   {TERMS.matrix.label} {id4(m.index)} {m.name} ({m.width} × {m.height})
@@ -146,7 +148,7 @@ export function NewAreaWizard({ headers, matrices, links, counts, prefill, onClo
                 onCellClick={onCell}
               />
             ) : (
-              <div style={note}>{form.sourceMatrix === null ? `Kein ${TERMS.matrix.label} vorhanden.` : "Lade …"}</div>
+              <div style={note}>{sourceMatrix === null ? `Kein ${TERMS.matrix.label} vorhanden.` : "Lade …"}</div>
             )}
           </div>
           <label style={row}>

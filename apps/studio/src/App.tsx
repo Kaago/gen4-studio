@@ -13,6 +13,7 @@ import { useSceneSync } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
+import type { Created } from "./app/useWizards";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
@@ -45,25 +46,24 @@ export default function App() {
   const overview = useOverview({ bus, projectRoot: session.info?.root ?? null, counts: session.counts, onError: session.fail });
   // A wizard wrote to the project: counts, matrix overview, header list and dirty count catch up, then the new header is shown.
   // `scene.goTo` reads the header list through a ref that only a render updates, so it runs in the effect below, after the render
-  // that carries the list just read (a header that now points at another matrix would be loaded with its old one).
-  const showAfterSync = useRef<{ header: number; announcement?: string } | null>(null);
+  // whose list has the header on the new matrix (a header that now points at another matrix would be loaded with its old one).
+  // A list that does not show that (the read failed) never fires it; another project forgets it.
+  const showAfterSync = useRef<(Created & { header: number }) | null>(null);
   const wizards = useWizards({
-    onCreated: async (header, announcement) => {
+    onCreated: async (made) => {
       await session.onCountsChanged();
       bus.emit({ topic: "matrixData" });
-      showAfterSync.current = header === null ? null : { header, announcement };
+      showAfterSync.current = made && made.header !== null ? { ...made, header: made.header } : null;
       await Promise.all([scene.syncHeaders(), session.refreshDirty()]);
-      if (header === null && announcement) session.setMessage({ kind: "info", text: announcement });
+      if (made && made.header === null) session.setMessage({ kind: "info", text: made.announcement });
     },
   });
   useEffect(() => {
     const show = showAfterSync.current;
-    if (show === null) return;
+    if (show === null || scene.headers.find((h) => h.id === show.header)?.matrix_id !== show.matrix) return;
     showAfterSync.current = null;
     // The message comes after the load: selecting a header clears the message when its matrix arrives.
-    void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => {
-      if (show.announcement) session.setMessage({ kind: "info", text: show.announcement });
-    });
+    void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage({ kind: "info", text: show.announcement }));
   }, [scene.headers]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
   useWindowGuards(session.dirtyRef, session.setMessage);
@@ -77,6 +77,7 @@ export default function App() {
 
   /** Another project was opened: the scene and the world start over with its header list. */
   function resetProject(headers: HeaderSummary[]) {
+    showAfterSync.current = null;
     scene.resetForProject(headers);
     world.resetForProject();
   }
@@ -115,6 +116,7 @@ export default function App() {
         matrices={overview.matrices}
         links={overview.links}
         counts={session.counts}
+        selectedMatrix={scene.headers.find((h) => h.id === scene.selected)?.matrix_id ?? null}
         onError={session.fail}
       />
     </main>

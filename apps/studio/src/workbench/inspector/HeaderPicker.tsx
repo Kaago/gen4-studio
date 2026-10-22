@@ -1,12 +1,22 @@
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type { HeaderSummary } from "../../api";
 import { filterHeaders } from "../headers";
 
 /** The most matches the list shows; a longer list asks for a narrower search. */
 const SHOWN = 40;
 
+interface Props {
+  headers: HeaderSummary[];
+  current: number;
+  disabled?: boolean;
+  onPick: (id: number) => void;
+  /** Something to show at the right end of a header's row (the wizards add the warps that lead there); nothing by default. */
+  renderExtra?: (header: HeaderSummary) => ReactNode;
+}
+
 /** Searchable list of headers; picking one calls `onPick` with its id. */
-export function HeaderPicker({ headers, current, disabled, onPick }: { headers: HeaderSummary[]; current: number; disabled?: boolean; onPick: (id: number) => void }) {
+export function HeaderPicker({ headers, current, disabled, onPick, renderExtra }: Props) {
   const [query, setQuery] = useState("");
   const matches = useMemo(() => filterHeaders(headers, query), [headers, query]);
   return (
@@ -31,6 +41,7 @@ export function HeaderPicker({ headers, current, disabled, onPick }: { headers: 
             >
               <span style={{ fontFamily: "ui-monospace, monospace" }}>{String(h.id).padStart(4, "0")}</span> {h.location_name || h.internal_name}
               {h.location_name ? <span style={{ color: "#6b7280" }}> ({h.internal_name})</span> : null}
+              {renderExtra && <span style={{ float: "right", color: "#6b7280" }}>{renderExtra(h)}</span>}
             </button>
           </li>
         ))}
