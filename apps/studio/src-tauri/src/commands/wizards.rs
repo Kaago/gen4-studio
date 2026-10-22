@@ -1,0 +1,1026 @@
+//! Wizard commands: one backend call each for a new area, an extension of an area and a new
+//! room with its entrance. Every call checks everything first, then creates the new members
+//! (not undoable), then makes the undoable edits.
+
+use std::collections::HashSet;
+
+use g4_formats::matrix::{MATRIX_EMPTY, resize_matrix as resized};
+use g4_kernel::error::KernelError;
+use g4_kernel::project::{AssetId, AssetKind};
+use g4_kernel::store::{MapHeader, Store, WarpEvent};
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use super::{lock, session};
+use crate::errors::CmdError;
+use crate::state::{AppState, Session};
+
+/// Where the event file of an assigned header comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum EventFileChoice {
+    /// The header keeps the event file it has.
+    Keep,
+    /// An empty new event file.
+    New,
+    /// A copy of event file `n`.
+    Copy(u16),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AreaCell {
+    pub x: u8,
+    pub y: u8,
+    pub source_map: u16,
+    pub clear_buildings: bool,
+}
+
+/// The header that is pointed at the new matrix.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssignHeader {
+    pub id: u16,
+    pub area_data_id: Option<u8>,
+    pub event_file: EventFileChoice,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AreaSpec {
+    pub name: String,
+    pub width: u8,
+    pub height: u8,
+    pub cells: Vec<AreaCell>,
+    pub with_headers: bool,
+    pub header: Option<AssignHeader>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AreaReport {
+    pub matrix: u16,
+    pub maps: Vec<(u8, u8, u16)>,
+    pub event_file: Option<u16>,
+    pub header: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtendSpec {
+    pub matrix: u16,
+    pub x: u8,
+    pub y: u8,
+    pub source_map: u16,
+    pub clear_buildings: bool,
+    pub header_cell: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtendReport {
+    pub map: u16,
+    pub width: u8,
+    pub height: u8,
+}
+
+/// The door between the outside and the room: the outside warp stands at (`x`, `z`) of the
+/// outside header's map, the room warp at (`inside_x`, `inside_z`) of the room.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Entrance {
+    pub outside_header: u16,
+    pub x: u16,
+    pub z: u16,
+    pub inside_x: u16,
+    pub inside_z: u16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoomSpec {
+    pub name: String,
+    pub source_map: u16,
+    pub clear_buildings: bool,
+    pub header: AssignHeader,
+    pub entrance: Option<Entrance>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RoomReport {
+    pub matrix: u16,
+    pub map: u16,
+    pub event_file: Option<u16>,
+    pub outside_warp: Option<u16>,
+    pub inside_warp: Option<u16>,
+}
+
+/// The members a run created so far (they stay, whatever happens next).
+#[derive(Debug, Default)]
+pub(crate) struct Created {
+    pub matrices: Vec<u16>,
+    pub maps: Vec<u16>,
+    pub event_files: Vec<u16>,
+}
+
+/// Names the created members, e.g. "matrix 0001 and maps 0003, 0004 were created".
+pub(crate) fn created_text(created: &Created) -> String {
+    fn part(one: &str, many: &str, ids: &[u16]) -> Option<String> {
+        let list = ids
+            .iter()
+            .map(|i| format!("{i:04}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        match ids.len() {
+            0 => None,
+            1 => Some(format!("{one} {list}")),
+            _ => Some(format!("{many} {list}")),
+        }
+    }
+    let parts: Vec<String> = [
+        part("matrix", "matrices", &created.matrices),
+        part("map", "maps", &created.maps),
+        part("event file", "event files", &created.event_files),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let total = created.matrices.len() + created.maps.len() + created.event_files.len();
+    let verb = if total == 1 { "was" } else { "were" };
+    match parts.as_slice() {
+        [] => "nothing was created".to_owned(),
+        [only] => format!("{only} {verb} created"),
+        [rest @ .., last] => format!("{} and {last} {verb} created", rest.join(", ")),
+    }
+}
+
+/// The error of a step that failed after members were created: says what stays behind.
+fn late(created: &Created, step: &str, e: impl std::fmt::Display) -> CmdError {
+    format!("{}; {step} failed: {e}", created_text(created)).into()
+}
+
+fn id(kind: AssetKind, index: u16) -> AssetId {
+    AssetId { kind, index }
+}
+
+/// A matrix name must fit the file format's length byte.
+fn check_name(name: &str) -> Result<(), CmdError> {
+    if name.len() > usize::from(u8::MAX) {
+        return Err(format!("the name is {} bytes long, at most 255 fit", name.len()).into());
+    }
+    Ok(())
+}
+
+fn check_member(store: &Store, kind: AssetKind, index: u16, what: &str) -> Result<(), CmdError> {
+    let count = store.member_count(kind)?;
+    if usize::from(index) >= count {
+        return Err(format!("{what} {index} does not exist (the game has {count})").into());
+    }
+    Ok(())
+}
+
+fn check_header_id(session: &Session, header: u16) -> Result<(), CmdError> {
+    let count = session.project.header_count()?;
+    if usize::from(header) >= count {
+        return Err(format!("header {header} does not exist (the game has {count})").into());
+    }
+    Ok(())
+}
+
+/// Refuses a loaded asset the codec would not write back byte for byte.
+fn check_writable(store: &Store, asset: AssetId) -> Result<(), CmdError> {
+    match store.locked(asset) {
+        Some(reason) => Err(KernelError::ReadOnly {
+            asset,
+            reason: reason.to_owned(),
+        }
+        .into()),
+        None => Ok(()),
+    }
+}
+
+/// Event file `index` exists, can be loaded and is editable.
+fn check_event_file_writable(store: &mut Store, index: u16) -> Result<(), CmdError> {
+    check_member(store, AssetKind::Event, index, "event file")?;
+    store.event(index)?;
+    check_writable(store, id(AssetKind::Event, index))
+}
+
+/// Everything about the header assignment that can be known without writing: the header
+/// exists and the table can be edited, the area data and the event file to copy exist.
+fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdError> {
+    check_header_id(session, assign.id)?;
+    let store = &mut session.store;
+    store.header_table()?;
+    check_writable(store, id(AssetKind::HeaderTable, 0))?;
+    if let Some(area_data) = assign.area_data_id {
+        check_member(
+            store,
+            AssetKind::AreaData,
+            u16::from(area_data),
+            "area data",
+        )?;
+    }
+    if let EventFileChoice::Copy(source) = assign.event_file {
+        check_member(store, AssetKind::Event, source, "event file")?;
+    }
+    Ok(())
+}
+
+/// Creates the event file the choice asks for (`Keep` creates none).
+fn provide_event_file(
+    store: &mut Store,
+    choice: EventFileChoice,
+    created: &mut Created,
+) -> Result<Option<u16>, CmdError> {
+    let file = match choice {
+        EventFileChoice::Keep => return Ok(None),
+        EventFileChoice::New => store.create_event_file(),
+        EventFileChoice::Copy(source) => store.duplicate_event_file(source),
+    }
+    .map_err(|e| late(created, "event file", e))?;
+    created.event_files.push(file);
+    Ok(Some(file))
+}
+
+/// Points header `assign.id` at `matrix` (and at the new area data and event file, if given).
+fn assign_header(
+    store: &mut Store,
+    assign: &AssignHeader,
+    matrix: u16,
+    event_file: Option<u16>,
+) -> Result<(), KernelError> {
+    let label = format!("assign header {:04} to matrix {matrix:04}", assign.id);
+    store.edit_header(assign.id, &label, |header| {
+        match header {
+            MapHeader::DP(h) => {
+                h.matrix_id = matrix;
+                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+                h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            }
+            MapHeader::Pt(h) => {
+                h.matrix_id = matrix;
+                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+                h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            }
+            MapHeader::HGSS(h) => {
+                h.matrix_id = matrix;
+                h.area_data_id = assign.area_data_id.unwrap_or(h.area_data_id);
+                h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            }
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+fn cell_index(width: u8, x: u8, y: u8) -> usize {
+    usize::from(y) * usize::from(width) + usize::from(x)
+}
+
+fn check_area(session: &mut Session, spec: &AreaSpec) -> Result<(), CmdError> {
+    if spec.width == 0 || spec.height == 0 {
+        return Err("an area needs at least one cell".into());
+    }
+    check_name(&spec.name)?;
+    let mut seen = HashSet::new();
+    for c in &spec.cells {
+        if c.x >= spec.width || c.y >= spec.height {
+            return Err(format!(
+                "cell ({}, {}) is outside the {} x {} area",
+                c.x, c.y, spec.width, spec.height
+            )
+            .into());
+        }
+        if !seen.insert((c.x, c.y)) {
+            return Err(format!("cell ({}, {}) is given twice", c.x, c.y).into());
+        }
+        check_member(&session.store, AssetKind::Map, c.source_map, "map")?;
+    }
+    if let Some(assign) = &spec.header {
+        check_assign(session, assign)?;
+    }
+    Ok(())
+}
+
+/// Creates a matrix of `width` x `height` from copies of maps and, if asked, points a header at
+/// it. Checks everything before it writes; the copies, the matrix and the event file are new
+/// members that stay when a later edit fails, the edits (matrix, then header) are undoable.
+pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    check_area(session, &spec)?;
+    let store = &mut session.store;
+
+    let mut created = Created::default();
+    let mut maps = Vec::with_capacity(spec.cells.len());
+    for c in &spec.cells {
+        let map = store
+            .duplicate_map_with(c.source_map, c.clear_buildings)
+            .map_err(|e| late(&created, "map copy", e))?;
+        created.maps.push(map);
+        maps.push((c.x, c.y, map));
+    }
+    let matrix = store
+        .create_matrix(&spec.name)
+        .map_err(|e| late(&created, "matrix creation", e))?;
+    created.matrices.push(matrix);
+    let event_file = match &spec.header {
+        Some(assign) => provide_event_file(store, assign.event_file, &mut created)?,
+        None => None,
+    };
+
+    let header_id = spec.header.as_ref().map(|a| a.id);
+    store
+        .edit_matrix(matrix, "build area", |m| {
+            *m = resized(m, spec.width, spec.height);
+            let cells = usize::from(spec.width) * usize::from(spec.height);
+            if spec.with_headers && m.headers.is_none() {
+                m.headers = Some(vec![0; cells]);
+            }
+            for &(x, y, map) in &maps {
+                let i = cell_index(spec.width, x, y);
+                m.maps[i] = map;
+                if let (Some(header), Some(headers)) = (header_id, m.headers.as_mut()) {
+                    headers[i] = header;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|e| late(&created, "matrix edit", e))?;
+    if let Some(assign) = &spec.header {
+        assign_header(store, assign, matrix, event_file)
+            .map_err(|e| late(&created, "header edit", e))?;
+    }
+    Ok(AreaReport {
+        matrix,
+        maps,
+        event_file,
+        header: header_id,
+    })
+}
+
+/// Copies a map into the empty cell (`x`, `y`) of a matrix, growing the matrix if the cell lies
+/// outside it, and optionally sets the cell's header. One undoable matrix edit.
+pub fn extend_area_impl(state: &AppState, spec: ExtendSpec) -> Result<ExtendReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    let (width, height) = {
+        let m = session.store.matrix(spec.matrix)?;
+        let width = u8::try_from(u16::from(spec.x) + 1)
+            .map(|w| w.max(m.width))
+            .map_err(|_| CmdError::from("the area would be wider than 255 cells"))?;
+        let height = u8::try_from(u16::from(spec.y) + 1)
+            .map(|h| h.max(m.height))
+            .map_err(|_| CmdError::from("the area would be taller than 255 cells"))?;
+        let inside = spec.x < m.width && spec.y < m.height;
+        if inside && m.maps[cell_index(m.width, spec.x, spec.y)] != MATRIX_EMPTY {
+            return Err(format!("cell ({}, {}) is not empty", spec.x, spec.y).into());
+        }
+        if spec.header_cell.is_some() && m.headers.is_none() {
+            return Err("the matrix has no header section".into());
+        }
+        (width, height)
+    };
+    check_writable(&session.store, id(AssetKind::Matrix, spec.matrix))?;
+    check_member(&session.store, AssetKind::Map, spec.source_map, "map")?;
+    if let Some(header) = spec.header_cell {
+        check_header_id(session, header)?;
+    }
+    let store = &mut session.store;
+
+    let mut created = Created::default();
+    let map = store
+        .duplicate_map_with(spec.source_map, spec.clear_buildings)
+        .map_err(|e| late(&created, "map copy", e))?;
+    created.maps.push(map);
+    store
+        .edit_matrix(spec.matrix, "extend area", |m| {
+            *m = resized(m, width, height);
+            let i = cell_index(width, spec.x, spec.y);
+            m.maps[i] = map;
+            if let (Some(header), Some(headers)) = (spec.header_cell, m.headers.as_mut()) {
+                headers[i] = header;
+            }
+            Ok(())
+        })
+        .map_err(|e| late(&created, "matrix edit", e))?;
+    Ok(ExtendReport { map, width, height })
+}
+
+/// Number of warps in event file `index` as a warp index.
+fn warp_count(store: &mut Store, index: u16) -> Result<u16, CmdError> {
+    let count = store.event(index)?.warp_events.len();
+    u16::try_from(count)
+        .map_err(|_| CmdError::from(format!("event file {index:04} has too many warps")))
+}
+
+fn push_warp(
+    store: &mut Store,
+    file: u16,
+    warp: WarpEvent,
+    created: &Created,
+) -> Result<(), CmdError> {
+    let label = format!("connect warp to header {:04}", warp.dest_header_id);
+    store
+        .edit_event(file, &label, |f| {
+            f.warp_events.push(warp);
+            Ok(())
+        })
+        .map_err(|e| late(created, "warp edit", e))?;
+    Ok(())
+}
+
+/// The event file `header` has now.
+fn header_event_file(store: &mut Store, header: u16) -> Result<u16, CmdError> {
+    store
+        .header_table()?
+        .get(usize::from(header))
+        .map(MapHeader::event_file_id)
+        .ok_or_else(|| format!("header {header} does not exist").into())
+}
+
+/// Creates a 1 x 1 matrix with a copy of a map, points a header at it and, with an entrance,
+/// links a warp outside with a warp inside. Order of the undoable edits: matrix, header,
+/// outside warp, room warp. When the outside header and the room header share the event file
+/// (`Keep`), the room warp is appended right after the outside warp in that one file.
+pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    check_name(&spec.name)?;
+    check_member(&session.store, AssetKind::Map, spec.source_map, "map")?;
+    check_assign(session, &spec.header)?;
+    if let Some(entrance) = &spec.entrance {
+        check_header_id(session, entrance.outside_header)?;
+    }
+    let store = &mut session.store;
+    // With an entrance, both event files that get a warp must be editable; the outside file is
+    // the one the outside header has now.
+    let mut outside_file = None;
+    if let Some(entrance) = &spec.entrance {
+        if entrance.outside_header == spec.header.id {
+            return Err("the room's header cannot also be the header outside".into());
+        }
+        let file = header_event_file(store, entrance.outside_header)?;
+        check_event_file_writable(store, file)?;
+        outside_file = Some(file);
+        match spec.header.event_file {
+            EventFileChoice::Keep => {
+                let own = header_event_file(store, spec.header.id)?;
+                check_event_file_writable(store, own)?;
+            }
+            EventFileChoice::Copy(source) => check_event_file_writable(store, source)?,
+            EventFileChoice::New => {}
+        }
+    }
+    let kept_file = header_event_file(store, spec.header.id)?;
+
+    let mut created = Created::default();
+    let map = store
+        .duplicate_map_with(spec.source_map, spec.clear_buildings)
+        .map_err(|e| late(&created, "map copy", e))?;
+    created.maps.push(map);
+    let matrix = store
+        .create_matrix(&spec.name)
+        .map_err(|e| late(&created, "matrix creation", e))?;
+    created.matrices.push(matrix);
+    let event_file = provide_event_file(store, spec.header.event_file, &mut created)?;
+    let room_file = event_file.unwrap_or(kept_file);
+
+    store
+        .edit_matrix(matrix, "build room", |m| {
+            m.maps[0] = map;
+            Ok(())
+        })
+        .map_err(|e| late(&created, "matrix edit", e))?;
+    assign_header(store, &spec.header, matrix, event_file)
+        .map_err(|e| late(&created, "header edit", e))?;
+
+    let (mut outside_warp, mut inside_warp) = (None, None);
+    if let (Some(entrance), Some(outside_file)) = (&spec.entrance, outside_file) {
+        let shared = outside_file == room_file;
+        let late_err = |e: CmdError| late(&created, "warp edit", e.message);
+        let outside_index = warp_count(store, outside_file).map_err(late_err)?;
+        // With one shared file the room warp comes right after the outside warp.
+        let room_index = if shared {
+            outside_index.saturating_add(1)
+        } else {
+            warp_count(store, room_file).map_err(late_err)?
+        };
+        let warp = |x, z, dest_header_id, dest_warp_id| WarpEvent {
+            x,
+            z,
+            dest_header_id,
+            dest_warp_id,
+            height: 0,
+        };
+        push_warp(
+            store,
+            outside_file,
+            warp(entrance.x, entrance.z, spec.header.id, room_index),
+            &created,
+        )?;
+        push_warp(
+            store,
+            room_file,
+            warp(
+                entrance.inside_x,
+                entrance.inside_z,
+                entrance.outside_header,
+                outside_index,
+            ),
+            &created,
+        )?;
+        (outside_warp, inside_warp) = (Some(outside_index), Some(room_index));
+    }
+    Ok(RoomReport {
+        matrix,
+        map,
+        event_file,
+        outside_warp,
+        inside_warp,
+    })
+}
+
+#[tauri::command]
+pub fn create_area(state: State<AppState>, spec: AreaSpec) -> Result<AreaReport, CmdError> {
+    create_area_impl(&state, spec)
+}
+
+#[tauri::command]
+pub fn extend_area(state: State<AppState>, spec: ExtendSpec) -> Result<ExtendReport, CmdError> {
+    extend_area_impl(&state, spec)
+}
+
+#[tauri::command]
+pub fn create_room(state: State<AppState>, spec: RoomSpec) -> Result<RoomReport, CmdError> {
+    create_room_impl(&state, spec)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::open_synthetic;
+    use super::super::{
+        dirty_impl, get_events_impl, get_header_impl, get_map_impl, get_matrix_impl,
+        member_counts_impl, reload_asset_impl, set_header_impl, set_matrix_sections_impl,
+        undo_impl,
+    };
+    use super::*;
+    use g4_kernel::store::MapHeader;
+    use std::collections::HashMap;
+
+    fn counts(state: &AppState) -> HashMap<AssetKind, usize> {
+        member_counts_impl(state).unwrap()
+    }
+
+    fn asset(kind: AssetKind, index: u16) -> AssetId {
+        AssetId { kind, index }
+    }
+
+    fn cell(x: u8, y: u8, source_map: u16, clear_buildings: bool) -> AreaCell {
+        AreaCell {
+            x,
+            y,
+            source_map,
+            clear_buildings,
+        }
+    }
+
+    fn area_spec() -> AreaSpec {
+        AreaSpec {
+            name: "Route 230".into(),
+            width: 2,
+            height: 1,
+            cells: vec![cell(0, 0, 1, true), cell(1, 0, 0, false)],
+            with_headers: true,
+            header: Some(AssignHeader {
+                id: 1,
+                area_data_id: None,
+                event_file: EventFileChoice::New,
+            }),
+        }
+    }
+
+    /// Points header `id` at event file `file`.
+    fn set_event_file(state: &AppState, id: u16, file: u16) {
+        let mut h = get_header_impl(state, id).unwrap();
+        if let MapHeader::Pt(p) = &mut h {
+            p.event_file_id = file;
+        }
+        set_header_impl(state, id, h, "edit header").unwrap();
+    }
+
+    #[test]
+    fn create_area_copies_maps_builds_the_matrix_and_assigns_the_header() {
+        let (_f, state) = open_synthetic();
+        let report = create_area_impl(&state, area_spec()).unwrap();
+        assert_eq!(report.matrix, 1);
+        assert_eq!(report.maps, vec![(0, 0, 3), (1, 0, 4)]);
+        assert_eq!((report.event_file, report.header), (Some(2), Some(1)));
+
+        let m = get_matrix_impl(&state, 1).unwrap();
+        assert_eq!(m.maps, vec![Some(3), Some(4)]);
+        assert_eq!(m.headers, Some(vec![1, 1]));
+        assert_eq!(m.name, "Route 230");
+        let h = get_header_impl(&state, 1).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (1, 2));
+        assert!(get_map_impl(&state, 3).unwrap().buildings.is_empty());
+        assert_eq!(get_map_impl(&state, 4).unwrap().buildings.len(), 1);
+        assert_eq!(
+            dirty_impl(&state).unwrap(),
+            vec![
+                asset(AssetKind::Matrix, 1),
+                asset(AssetKind::HeaderTable, 0)
+            ]
+        );
+
+        // Two edits (matrix, header) are undone; the new members stay.
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert_eq!(get_header_impl(&state, 1).unwrap().matrix_id(), 0);
+        let m = get_matrix_impl(&state, 1).unwrap();
+        assert_eq!((m.width, m.height, m.maps), (1, 1, vec![None]));
+        let counts = counts(&state);
+        assert_eq!(counts[&AssetKind::Map], 5);
+        assert_eq!(counts[&AssetKind::Matrix], 2);
+        assert_eq!(counts[&AssetKind::Event], 3);
+    }
+
+    #[test]
+    fn create_area_without_a_header_only_builds_the_matrix() {
+        let (_f, state) = open_synthetic();
+        let spec = AreaSpec {
+            with_headers: false,
+            header: None,
+            ..area_spec()
+        };
+        let report = create_area_impl(&state, spec).unwrap();
+        assert_eq!((report.event_file, report.header), (None, None));
+        let m = get_matrix_impl(&state, 1).unwrap();
+        assert_eq!((m.maps, m.headers), (vec![Some(3), Some(4)], None));
+        assert_eq!(
+            dirty_impl(&state).unwrap(),
+            vec![asset(AssetKind::Matrix, 1)]
+        );
+    }
+
+    #[test]
+    fn create_area_refuses_bad_specs_without_creating_members() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let bad: Vec<AreaSpec> = vec![
+            AreaSpec {
+                header: Some(AssignHeader {
+                    id: 5,
+                    area_data_id: None,
+                    event_file: EventFileChoice::Keep,
+                }),
+                ..area_spec()
+            },
+            AreaSpec {
+                cells: vec![cell(2, 0, 0, false)],
+                ..area_spec()
+            },
+            AreaSpec {
+                cells: vec![cell(0, 0, 0, false), cell(0, 0, 1, false)],
+                ..area_spec()
+            },
+            AreaSpec {
+                width: 0,
+                ..area_spec()
+            },
+            AreaSpec {
+                cells: vec![cell(0, 0, 9, false)],
+                ..area_spec()
+            },
+            AreaSpec {
+                header: Some(AssignHeader {
+                    id: 1,
+                    area_data_id: None,
+                    event_file: EventFileChoice::Copy(9),
+                }),
+                ..area_spec()
+            },
+            AreaSpec {
+                name: "x".repeat(256),
+                ..area_spec()
+            },
+        ];
+        for spec in bad {
+            assert!(create_area_impl(&state, spec.clone()).is_err(), "{spec:?}");
+            assert_eq!(counts(&state), before);
+            assert!(dirty_impl(&state).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn an_unknown_area_data_is_refused_up_front() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 1,
+                area_data_id: Some(200),
+                event_file: EventFileChoice::Keep,
+            }),
+            ..area_spec()
+        };
+        assert!(create_area_impl(&state, spec).is_err());
+        assert_eq!(counts(&state), before);
+        assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    fn extend_spec() -> ExtendSpec {
+        ExtendSpec {
+            matrix: 0,
+            x: 2,
+            y: 0,
+            source_map: 2,
+            clear_buildings: false,
+            header_cell: None,
+        }
+    }
+
+    #[test]
+    fn extend_area_grows_the_matrix_and_places_the_copy() {
+        let (_f, state) = open_synthetic();
+        let report = extend_area_impl(&state, extend_spec()).unwrap();
+        assert_eq!((report.map, report.width, report.height), (3, 3, 1));
+        assert_eq!(
+            get_matrix_impl(&state, 0).unwrap().maps,
+            vec![Some(0), Some(1), Some(3)]
+        );
+
+        // The cell (0, 0) is taken: refused, and no map is copied for it.
+        let maps = counts(&state)[&AssetKind::Map];
+        let taken = ExtendSpec {
+            x: 0,
+            ..extend_spec()
+        };
+        assert!(extend_area_impl(&state, taken).is_err());
+        assert_eq!(counts(&state)[&AssetKind::Map], maps);
+    }
+
+    #[test]
+    fn extend_area_can_set_the_header_of_the_new_cell() {
+        let (_f, state) = open_synthetic();
+        set_matrix_sections_impl(&state, 0, true, false).unwrap();
+        let spec = ExtendSpec {
+            clear_buildings: true,
+            header_cell: Some(1),
+            ..extend_spec()
+        };
+        extend_area_impl(&state, spec).unwrap();
+        assert_eq!(
+            get_matrix_impl(&state, 0).unwrap().headers,
+            Some(vec![0, 0, 1])
+        );
+    }
+
+    #[test]
+    fn extend_area_refuses_what_cannot_work_before_copying_the_map() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let bad = [
+            // The matrix has no header section; unknown map and matrix; the grid would grow
+            // past 255 cells.
+            ExtendSpec {
+                header_cell: Some(1),
+                ..extend_spec()
+            },
+            ExtendSpec {
+                source_map: 9,
+                ..extend_spec()
+            },
+            ExtendSpec {
+                matrix: 7,
+                ..extend_spec()
+            },
+            ExtendSpec {
+                x: 255,
+                ..extend_spec()
+            },
+        ];
+        for spec in bad {
+            assert!(extend_area_impl(&state, spec.clone()).is_err(), "{spec:?}");
+            assert_eq!(counts(&state), before);
+            assert!(dirty_impl(&state).unwrap().is_empty());
+        }
+        // With the section, a header the game does not have is still refused.
+        set_matrix_sections_impl(&state, 0, true, false).unwrap();
+        let spec = ExtendSpec {
+            header_cell: Some(5),
+            ..extend_spec()
+        };
+        assert!(extend_area_impl(&state, spec).is_err());
+        assert_eq!(counts(&state), before);
+    }
+
+    fn room_spec(event_file: EventFileChoice) -> RoomSpec {
+        RoomSpec {
+            name: "Haus".into(),
+            source_map: 2,
+            clear_buildings: true,
+            header: AssignHeader {
+                id: 1,
+                area_data_id: None,
+                event_file,
+            },
+            entrance: Some(Entrance {
+                outside_header: 0,
+                x: 5,
+                z: 6,
+                inside_x: 16,
+                inside_z: 30,
+            }),
+        }
+    }
+
+    #[test]
+    fn create_room_with_entrance_links_both_warps() {
+        let (_f, state) = open_synthetic();
+        set_event_file(&state, 1, 1);
+        let report = create_room_impl(&state, room_spec(EventFileChoice::Copy(1))).unwrap();
+        assert_eq!(
+            (
+                report.matrix,
+                report.map,
+                report.event_file,
+                report.outside_warp,
+                report.inside_warp
+            ),
+            (1, 3, Some(2), Some(0), Some(0))
+        );
+        let outside = get_events_impl(&state, 0).unwrap().warps;
+        let w = &outside[0];
+        assert_eq!(
+            (w.x, w.z, w.dest_header_id, w.dest_warp_id, w.height),
+            (5, 6, 1, 0, 0)
+        );
+        let inside = get_events_impl(&state, 2).unwrap().warps;
+        let w = &inside[0];
+        assert_eq!(
+            (w.x, w.z, w.dest_header_id, w.dest_warp_id, w.height),
+            (16, 30, 0, 0, 0)
+        );
+        let h = get_header_impl(&state, 1).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (1, 2));
+        let m = get_matrix_impl(&state, 1).unwrap();
+        assert_eq!((m.name.as_str(), m.maps), ("Haus", vec![Some(3)]));
+        assert!(get_map_impl(&state, 3).unwrap().buildings.is_empty());
+
+        // The two warps and the header change are three undo steps (the matrix edit is a
+        // fourth).
+        for _ in 0..3 {
+            assert!(undo_impl(&state).unwrap().is_some());
+        }
+        assert!(get_events_impl(&state, 0).unwrap().warps.is_empty());
+        assert!(get_events_impl(&state, 2).unwrap().warps.is_empty());
+        let h = get_header_impl(&state, 1).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (0, 1));
+    }
+
+    #[test]
+    fn create_room_with_shared_event_file_cross_links_both_warps() {
+        let (_f, state) = open_synthetic();
+        let report = create_room_impl(&state, room_spec(EventFileChoice::Keep)).unwrap();
+        assert_eq!(report.event_file, None);
+        assert_eq!(
+            (report.outside_warp, report.inside_warp),
+            (Some(0), Some(1))
+        );
+        let warps = get_events_impl(&state, 0).unwrap().warps;
+        assert_eq!(warps.len(), 2);
+        assert_eq!((warps[0].dest_header_id, warps[0].dest_warp_id), (1, 1));
+        assert_eq!((warps[1].dest_header_id, warps[1].dest_warp_id), (0, 0));
+        assert_eq!((warps[1].x, warps[1].z), (16, 30));
+    }
+
+    #[test]
+    fn create_room_without_entrance_makes_no_warps() {
+        let (_f, state) = open_synthetic();
+        let spec = RoomSpec {
+            entrance: None,
+            ..room_spec(EventFileChoice::New)
+        };
+        let report = create_room_impl(&state, spec).unwrap();
+        assert_eq!(
+            (report.event_file, report.outside_warp, report.inside_warp),
+            (Some(2), None, None)
+        );
+        assert!(get_events_impl(&state, 0).unwrap().warps.is_empty());
+    }
+
+    /// Unpacks the event archive and fills event file 1 with 17 zero bytes (read-only: the
+    /// codec would write 16 back).
+    fn lock_event_file_1(fixture: &g4_kernel::test_support::Synthetic, state: &AppState) {
+        reload_asset_impl(state, AssetKind::Event, 0).unwrap();
+        std::fs::write(
+            fixture.dir.path().join("unpacked/eventFiles/0001"),
+            [0u8; 17],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn create_room_refuses_a_locked_outside_file_before_creating_anything() {
+        let (fixture, state) = open_synthetic();
+        lock_event_file_1(&fixture, &state);
+        set_event_file(&state, 0, 1);
+        let before = counts(&state);
+        let err = create_room_impl(&state, room_spec(EventFileChoice::New)).unwrap_err();
+        assert!(err.message.contains("read-only"), "{}", err.message);
+        assert_eq!(counts(&state), before);
+        // Only the header edit of the test's own setup is pending.
+        assert_eq!(
+            dirty_impl(&state).unwrap(),
+            vec![asset(AssetKind::HeaderTable, 0)]
+        );
+    }
+
+    #[test]
+    fn create_room_refuses_a_locked_room_file_before_creating_anything() {
+        let (fixture, state) = open_synthetic();
+        lock_event_file_1(&fixture, &state);
+        let before = counts(&state);
+        // Copy: the file to copy from is the locked one.
+        let err = create_room_impl(&state, room_spec(EventFileChoice::Copy(1))).unwrap_err();
+        assert!(err.message.contains("read-only"), "{}", err.message);
+        // Keep: the room header's own file is the locked one.
+        set_event_file(&state, 1, 1);
+        let err = create_room_impl(&state, room_spec(EventFileChoice::Keep)).unwrap_err();
+        assert!(err.message.contains("read-only"), "{}", err.message);
+        assert_eq!(counts(&state), before);
+        // Without an entrance no event file is written to, so the same room is fine.
+        let spec = RoomSpec {
+            entrance: None,
+            ..room_spec(EventFileChoice::Keep)
+        };
+        assert!(create_room_impl(&state, spec).is_ok());
+    }
+
+    #[test]
+    fn create_room_refuses_bad_specs_without_creating_members() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let with_outside = |outside_header: u16| {
+            let mut spec = room_spec(EventFileChoice::New);
+            spec.entrance.as_mut().unwrap().outside_header = outside_header;
+            spec
+        };
+        let bad = [
+            RoomSpec {
+                source_map: 9,
+                ..room_spec(EventFileChoice::New)
+            },
+            RoomSpec {
+                name: "x".repeat(256),
+                ..room_spec(EventFileChoice::New)
+            },
+            room_spec(EventFileChoice::Copy(9)),
+            with_outside(9),
+            // The room's header cannot be its own outside header.
+            with_outside(1),
+        ];
+        for spec in bad {
+            assert!(create_room_impl(&state, spec.clone()).is_err(), "{spec:?}");
+            assert_eq!(counts(&state), before);
+            assert!(dirty_impl(&state).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn created_text_names_the_members_of_a_partial_run() {
+        let created = Created {
+            matrices: vec![1],
+            maps: vec![3, 4],
+            event_files: vec![],
+        };
+        assert_eq!(
+            created_text(&created),
+            "matrix 0001 and maps 0003, 0004 were created"
+        );
+        assert_eq!(created_text(&Created::default()), "nothing was created");
+        let created = Created {
+            matrices: vec![1],
+            maps: vec![3],
+            event_files: vec![2],
+        };
+        assert_eq!(
+            created_text(&created),
+            "matrix 0001, map 0003 and event file 0002 were created"
+        );
+        let created = Created {
+            maps: vec![3],
+            ..Created::default()
+        };
+        assert_eq!(created_text(&created), "map 0003 was created");
+    }
+
+    #[test]
+    fn event_file_choices_deserialize_externally_tagged() {
+        let keep: EventFileChoice = serde_json::from_str(r#""Keep""#).unwrap();
+        let new: EventFileChoice = serde_json::from_str(r#""New""#).unwrap();
+        let copy: EventFileChoice = serde_json::from_str(r#"{"Copy":5}"#).unwrap();
+        assert_eq!(
+            (keep, new, copy),
+            (
+                EventFileChoice::Keep,
+                EventFileChoice::New,
+                EventFileChoice::Copy(5)
+            )
+        );
+    }
+}

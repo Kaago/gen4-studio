@@ -8,6 +8,7 @@ mod matrix;
 mod models;
 mod overview;
 mod project;
+mod wizards;
 mod world;
 
 pub use area::*;
@@ -18,6 +19,7 @@ pub use matrix::*;
 pub use models::*;
 pub use overview::*;
 pub use project::*;
+pub use wizards::*;
 pub use world::*;
 
 use std::sync::MutexGuard;
