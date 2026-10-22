@@ -1,13 +1,14 @@
 //! Map terrain models (GLB through apicula) and their texture status.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use g4_kernel::error::KernelError;
 use g4_kernel::export::{
-    apicula_timeout, glb_cache_get, glb_cached_with_timeout, glb_fail_get, glb_fail_record,
-    last_tool, remember_tool, tool_fingerprint,
+    apicula_timeout, glb_cache_get, glb_cache_key, glb_cached_with_timeout, glb_fail_get,
+    glb_fail_record, last_tool, remember_tool, tool_fingerprint,
 };
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -115,6 +116,15 @@ fn require_apicula(apicula: Option<&Path>) -> Result<&Path, KernelError> {
     Ok(apicula)
 }
 
+/// Textured cache keys whose conversion timed out in this process. A timeout leaves no `.fail`
+/// marker (apicula may only have been slow), but retrying a hanging tileset on every load would
+/// cost the full time limit each time, so for the rest of the process such a model goes straight
+/// to its untextured version.
+fn timed_out_keys() -> &'static Mutex<HashSet<String>> {
+    static KEYS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    KEYS.get_or_init(Default::default)
+}
+
 /// The tool hash cache keys are built from. With a usable apicula it is the hash of that binary
 /// (remembered as the cache's last used tool); without one, the last remembered hash, so models
 /// converted earlier stay visible. With neither, no entry can match (0) and the first
@@ -138,9 +148,11 @@ fn resolve_tool(cache_dir: &Path, apicula: Option<&Path>) -> Result<u64, KernelE
 /// on a cache miss, and the cache keys carry its hash, so a different apicula starts afresh
 /// (see `g4_kernel::export::glb_cache_key`). A missing tileset, or a textured conversion that
 /// fails, falls back to the untextured model; a failed textured conversion is recorded next
-/// to the cache (`<key>.fail`) so later loads skip it. apicula gets `timeout`; running out of
-/// it is returned at once, without a marker and without the untextured retry (which would
-/// most likely hang as well). Runs apicula, so it must be called without the state lock.
+/// to the cache (`<key>.fail`) so later loads skip it. apicula gets `timeout` per run; a
+/// textured run that exceeds it writes no marker but also falls back to the untextured model,
+/// and the textured attempt is skipped for the rest of the process (`timed_out_keys`). Only
+/// when the untextured run times out as well is `ToolTimeout` returned. Runs apicula, so it
+/// must be called without the state lock.
 pub(super) fn glb_with_fallback(
     cache_dir: &Path,
     nsbmd: &[u8],
@@ -154,11 +166,22 @@ pub(super) fn glb_with_fallback(
         if let Some(bytes) = glb_cache_get(cache_dir, tool, nsbmd, Some(tileset))? {
             return Ok(bytes);
         }
-        if glb_fail_get(cache_dir, tool, nsbmd, Some(tileset))?.is_none() {
+        let key = glb_cache_key(tool, nsbmd, Some(tileset));
+        let timed_out = timed_out_keys()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&key);
+        if !timed_out && glb_fail_get(cache_dir, tool, nsbmd, Some(tileset))?.is_none() {
             let apicula = require_apicula(apicula)?;
             match glb_cached_with_timeout(cache_dir, apicula, tool, nsbmd, Some(tileset), timeout) {
                 Ok(bytes) => return Ok(bytes),
-                Err(e @ KernelError::ToolTimeout { .. }) => return Err(e.into()),
+                // No marker: apicula may only have been slow. Show the untextured model.
+                Err(KernelError::ToolTimeout { .. }) => {
+                    timed_out_keys()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(key);
+                }
                 Err(e) => textured_failure = Some(e.to_string()),
             }
         }
@@ -590,46 +613,109 @@ mod tests {
         assert_eq!(issue.tileset, Some(0));
     }
 
+    /// A fake apicula that logs "plain" or "textured" per run to a counter file and, once the
+    /// `slow` marker exists, hangs on the given kind of run (`"textured"`, or `"any"`); a
+    /// textured run without the marker fails fast. The script embeds the temp paths, so its
+    /// hash is unique to the test. Returns tool, counter and marker paths; the tool has been
+    /// run once already (macOS scans a fresh executable on first exec, which can take a second
+    /// under load and would eat the whole time limit).
     #[cfg(unix)]
-    #[test]
-    fn timeout_records_no_fail_marker() {
+    fn hanging_tool(dir: &Path, hang_on: &str) -> (PathBuf, PathBuf, PathBuf) {
         use std::os::unix::fs::PermissionsExt;
-        let (fixture, state) = open_synthetic();
-        let tool = fixture.dir.path().join("fake-apicula");
-        let slow = fixture.dir.path().join("slow");
-        // Warm-up: see `slow_apicula_times_out_without_fail_marker` in the kernel tests.
+        let tool = dir.join("fake-apicula");
+        let calls = dir.join("apicula-calls");
+        let slow = dir.join("slow");
+        let hang = if hang_on == "any" {
+            "[ -e '{slow}' ] && exec sleep 5\n"
+        } else {
+            ""
+        };
+        // argv: convert -f=glb <nsbmd> [<nsbtx>] -o <dir>.
         std::fs::write(
             &tool,
             format!(
-                "#!/bin/sh\n[ -e '{}' ] || exit 3\nexec sleep 5\n",
-                slow.display()
+                "#!/bin/sh\nif [ \"$4\" = \"-o\" ]; then echo plain >> '{calls}'; kind=plain; \
+                 else echo textured >> '{calls}'; kind=textured; fi\n{hang}\
+                 if [ \"$kind\" = textured ]; then [ -e '{slow}' ] && exec sleep 5; \
+                 echo 'bad tileset' >&2; exit 2; fi\n\
+                 while [ $# -gt 0 ]; do [ \"$1\" = \"-o\" ] && out=\"$2\"; shift; done\n\
+                 mkdir -p \"$out\"; printf '{glb}' > \"$out/m.glb\"\n",
+                calls = calls.display(),
+                slow = slow.display(),
+                glb = crate::commands::FAKE_GLB_PRINTF,
+                hang = hang.replace("{slow}", &slow.display().to_string()),
             ),
         )
         .unwrap();
         std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(
-            get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(30)).is_err()
-        );
-        std::fs::remove_dir_all(fixture.dir.path().join(".g4/models")).unwrap();
+        // Warm-up run (a textured one, which fails fast without the marker), then reset.
+        let _ = std::process::Command::new(&tool)
+            .args(["convert", "-f=glb", "a", "b", "-o", "c"])
+            .output();
+        std::fs::remove_file(&calls).unwrap();
         std::fs::write(&slow, "").unwrap();
+        (tool, calls, slow)
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_hanging_tileset_falls_back_to_untextured_without_marker_and_is_not_retried() {
+        let (fixture, state) = open_synthetic();
+        let (tool, calls, _slow) = hanging_tool(fixture.dir.path(), "textured");
+        let models = fixture.dir.path().join(".g4/models");
+
+        // Area data 0 selects the synthetic tileset: the textured run hangs and is killed,
+        // the untextured one yields the model. No `.fail` marker is written.
         let started = std::time::Instant::now();
-        // Area data 0 selects the synthetic tileset: the textured attempt is the one that hangs.
+        let glb =
+            get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(1)).unwrap();
+        assert_eq!(glb, crate::commands::fake_glb());
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
+        let names = cache_files(&models);
+        assert_eq!(names.len(), 1, "{names:?}");
+        assert!(names[0].ends_with(".glb"), "{names:?}");
+        assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
+
+        // Later loads skip the textured attempt, also when the untextured model must be
+        // converted again.
+        get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(1)).unwrap();
+        std::fs::remove_file(models.join(&names[0])).unwrap();
+        let glb =
+            get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(1)).unwrap();
+        assert_eq!(glb, crate::commands::fake_glb());
+        assert_eq!(recorded_calls(&calls), ["textured", "plain", "plain"]);
+        assert!(cache_files(&models).iter().all(|n| !n.ends_with(".fail")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timeout_records_no_fail_marker() {
+        let (fixture, state) = open_synthetic();
+        let (tool, calls, _slow) = hanging_tool(fixture.dir.path(), "any");
+
+        // Textured and untextured run both hang: the error is the timeout.
+        let started = std::time::Instant::now();
         let err =
             get_map_model_glb_timed(&state, 1, 0, Some(&tool), Duration::from_secs(1)).unwrap_err();
         assert!(
-            started.elapsed() < Duration::from_secs(3),
+            started.elapsed() < Duration::from_secs(5),
             "{:?}",
             started.elapsed()
         );
         assert_eq!(err.code, "error");
         assert_eq!(err.message, "apicula did not finish within 1 s");
+        assert_eq!(recorded_calls(&calls), ["textured", "plain"]);
         // No marker, no model, no work directory: only the remembered tool hash is left, and
         // the tileset is not reported as broken.
         let models = fixture.dir.path().join(".g4/models");
         assert_eq!(cache_files(&models), Vec::<String>::new());
         assert_eq!(map_model_texture_status_impl(&state, 1, 0).unwrap(), None);
-        // The untextured conversion times out the same way.
+        // Without tileset the untextured conversion times out the same way.
         let err = get_map_model_glb_timed(&state, 1, 200, Some(&tool), Duration::from_secs(1))
             .unwrap_err();
         assert_eq!(err.message, "apicula did not finish within 1 s");

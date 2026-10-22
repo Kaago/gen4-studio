@@ -46,10 +46,11 @@ NSBMD und das NSBTX-Texturset (bei Karten `AreaData[area_data_id].map_tileset`, 
 Versuch; alte Einträge bleiben liegen. Gibt es den Area-Data- oder Tileset-Eintrag nicht, wird das Modell ohne Texturen
 konvertiert.
 
-apicula läuft auf einem Arbeitsthread (`spawn_blocking`) und höchstens `G4_APICULA_TIMEOUT_SECS` Sekunden (Standard 60).
-Danach wird der Prozess samt Kindprozessen beendet und die Meldung `apicula did not finish within <n> s` angezeigt. Eine
-Zeitüberschreitung schreibt keinen `.fail`-Marker und keinen untexturierten Ersatz, der nächste Ladeversuch startet
-apicula erneut:
+apicula läuft auf einem Arbeitsthread (`spawn_blocking`) und höchstens `G4_APICULA_TIMEOUT_SECS` Sekunden je Aufruf
+(Standard 60). Danach wird der Prozess samt Kindprozessen beendet. Hängt der texturierte Versuch, schreibt das keinen
+`.fail`-Marker (apicula war vielleicht nur langsam), das Modell erscheint ohne Texturen, und bis zum Programmende wird
+dieses Tileset nicht erneut versucht (nur im Speicher gemerkt; nach einem Neustart gibt es einen frischen Versuch). Nur
+wenn auch die Konvertierung ohne Texturen ins Zeitlimit läuft, erscheint die Meldung `apicula did not finish within <n> s`:
 
 ```sh
 G4_APICULA_TIMEOUT_SECS=120 G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tauri dev
