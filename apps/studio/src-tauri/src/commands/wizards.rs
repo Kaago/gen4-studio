@@ -34,12 +34,32 @@ pub struct AreaCell {
     pub clear_buildings: bool,
 }
 
+/// A header to create first (needs the Dynamic Headers patch): a copy of header `template`,
+/// named `internal_name` in `mapname.bin`. It gets the id the game's header count says, which
+/// the assignment must name as `id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewHeader {
+    pub template: u16,
+    pub internal_name: String,
+}
+
 /// The header that is pointed at the new matrix.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssignHeader {
     pub id: u16,
     pub area_data_id: Option<u8>,
     pub event_file: EventFileChoice,
+    /// Create the header (as the next id) instead of using an existing one.
+    #[serde(default)]
+    pub new_header: Option<NewHeader>,
+}
+
+impl AssignHeader {
+    /// The header whose fields the assigned header starts from: the template of a new
+    /// header, else the header itself.
+    fn source_header(&self) -> u16 {
+        self.new_header.as_ref().map_or(self.id, |n| n.template)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -109,6 +129,7 @@ pub struct RoomReport {
 /// The members a run created so far (they stay, whatever happens next).
 #[derive(Debug, Default)]
 pub(crate) struct Created {
+    pub headers: Vec<u16>,
     pub matrices: Vec<u16>,
     pub maps: Vec<u16>,
     pub event_files: Vec<u16>,
@@ -116,7 +137,10 @@ pub(crate) struct Created {
 
 impl Created {
     fn is_empty(&self) -> bool {
-        self.matrices.is_empty() && self.maps.is_empty() && self.event_files.is_empty()
+        self.headers.is_empty()
+            && self.matrices.is_empty()
+            && self.maps.is_empty()
+            && self.event_files.is_empty()
     }
 }
 
@@ -135,6 +159,7 @@ pub(crate) fn created_text(created: &Created) -> String {
         }
     }
     let parts: Vec<String> = [
+        part("header", "headers", &created.headers),
         part("matrix", "matrices", &created.matrices),
         part("map", "maps", &created.maps),
         part("event file", "event files", &created.event_files),
@@ -142,7 +167,10 @@ pub(crate) fn created_text(created: &Created) -> String {
     .into_iter()
     .flatten()
     .collect();
-    let total = created.matrices.len() + created.maps.len() + created.event_files.len();
+    let total = created.headers.len()
+        + created.matrices.len()
+        + created.maps.len()
+        + created.event_files.len();
     let verb = if total == 1 { "was" } else { "were" };
     match parts.as_slice() {
         [] => "nothing was created".to_owned(),
@@ -213,7 +241,25 @@ fn check_event_file_writable(store: &mut Store, index: u16) -> Result<(), CmdErr
 /// Everything about the header assignment that can be known without writing: the header
 /// exists and the table can be edited, the area data and the event file to copy exist.
 fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdError> {
-    check_header_id(session, assign.id)?;
+    match &assign.new_header {
+        None => check_header_id(session, assign.id)?,
+        Some(new) => {
+            let store = &mut session.store;
+            if !store.dynamic_headers_applied()? {
+                return Err(
+                    "new headers need the dynamic headers patch, apply the patch first".into(),
+                );
+            }
+            // The store's view: the count includes headers created earlier in this session.
+            let count = store.header_table()?.len();
+            if usize::from(assign.id) != count {
+                return Err(
+                    format!("a new header gets id {count:04}, not {:04}", assign.id).into(),
+                );
+            }
+            check_header_id(session, new.template)?;
+        }
+    }
     let store = &mut session.store;
     store.header_table()?;
     check_writable(store, id(AssetKind::HeaderTable, 0))?;
@@ -229,6 +275,21 @@ fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdE
         check_member(store, AssetKind::Event, source, "event file")?;
     }
     check_header_fits(store, assign)
+}
+
+/// Creates the new header of an assignment, if it asks for one: the first step of a run.
+fn provide_header(
+    store: &mut Store,
+    assign: &AssignHeader,
+    created: &mut Created,
+) -> Result<(), CmdError> {
+    if let Some(new) = &assign.new_header {
+        let header = store
+            .create_header(new.template, &new.internal_name)
+            .map_err(|e| late(created, "header creation", e))?;
+        created.headers.push(header);
+    }
+    Ok(())
 }
 
 /// Creates the event file the choice asks for (`Keep` creates none).
@@ -304,11 +365,13 @@ fn check_header_fits(store: &mut Store, assign: &AssignHeader) -> Result<(), Cmd
         EventFileChoice::Keep => None,
         EventFileChoice::New | EventFileChoice::Copy(_) => Some(next(AssetKind::Event)?),
     };
+    // A new header starts as a copy of its template.
+    let source = assign.source_header();
     let mut header = store
         .header_table()?
-        .get(usize::from(assign.id))
+        .get(usize::from(source))
         .cloned()
-        .ok_or_else(|| CmdError::from(format!("header {} does not exist", assign.id)))?;
+        .ok_or_else(|| CmdError::from(format!("header {source} does not exist")))?;
     apply_assign(&mut header, assign, matrix, event_file);
     if !store.header_fits(&header) {
         return Err(format!(
@@ -360,6 +423,9 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
     let store = &mut session.store;
 
     let mut created = Created::default();
+    if let Some(assign) = &spec.header {
+        provide_header(store, assign, &mut created)?;
+    }
     let mut maps = Vec::with_capacity(spec.cells.len());
     for c in &spec.cells {
         let map = store
@@ -513,16 +579,18 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         outside_file = Some(file);
         match spec.header.event_file {
             EventFileChoice::Keep => {
-                let own = header_event_file(store, spec.header.id)?;
+                let own = header_event_file(store, spec.header.source_header())?;
                 check_event_file_writable(store, own)?;
             }
             EventFileChoice::Copy(source) => check_event_file_writable(store, source)?,
             EventFileChoice::New => {}
         }
     }
-    let kept_file = header_event_file(store, spec.header.id)?;
+    // A new header starts with its template's event file.
+    let kept_file = header_event_file(store, spec.header.source_header())?;
 
     let mut created = Created::default();
+    provide_header(store, &spec.header, &mut created)?;
     let map = store
         .duplicate_map_with(spec.source_map, spec.clear_buildings)
         .map_err(|e| late(&created, "map copy", e))?;
@@ -609,9 +677,9 @@ pub fn create_room(state: State<AppState>, spec: RoomSpec) -> Result<RoomReport,
 mod tests {
     use super::super::open_synthetic;
     use super::super::{
-        EventKind, add_event_impl, dirty_impl, get_events_impl, get_header_impl, get_map_impl,
-        get_matrix_impl, member_counts_impl, reload_asset_impl, set_header_impl,
-        set_matrix_sections_impl, undo_impl,
+        EventKind, add_event_impl, apply_header_patch_impl, dirty_impl, get_events_impl,
+        get_header_impl, get_map_impl, get_matrix_impl, list_headers_impl, member_counts_impl,
+        reload_asset_impl, set_header_impl, set_matrix_sections_impl, undo_impl,
     };
     use super::*;
     use g4_kernel::store::MapHeader;
@@ -645,6 +713,7 @@ mod tests {
                 id: 1,
                 area_data_id: None,
                 event_file: EventFileChoice::New,
+                new_header: None,
             }),
         }
     }
@@ -722,6 +791,7 @@ mod tests {
                     id: 5,
                     area_data_id: None,
                     event_file: EventFileChoice::Keep,
+                    new_header: None,
                 }),
                 ..area_spec()
             },
@@ -746,6 +816,7 @@ mod tests {
                     id: 1,
                     area_data_id: None,
                     event_file: EventFileChoice::Copy(9),
+                    new_header: None,
                 }),
                 ..area_spec()
             },
@@ -770,6 +841,7 @@ mod tests {
                 id: 1,
                 area_data_id: Some(200),
                 event_file: EventFileChoice::Keep,
+                new_header: None,
             }),
             ..area_spec()
         };
@@ -873,6 +945,7 @@ mod tests {
                 id: 1,
                 area_data_id: None,
                 event_file,
+                new_header: None,
             },
             entrance: Some(Entrance {
                 outside_header: 0,
@@ -1094,7 +1167,7 @@ mod tests {
         let created = Created {
             matrices: vec![1],
             maps: vec![3, 4],
-            event_files: vec![],
+            ..Created::default()
         };
         assert_eq!(
             created_text(&created),
@@ -1105,6 +1178,7 @@ mod tests {
             matrices: vec![1],
             maps: vec![3],
             event_files: vec![2],
+            ..Created::default()
         };
         assert_eq!(
             created_text(&created),
@@ -1115,6 +1189,200 @@ mod tests {
             ..Created::default()
         };
         assert_eq!(created_text(&created), "map 0003 was created");
+        let created = Created {
+            headers: vec![470],
+            ..Created::default()
+        };
+        assert_eq!(created_text(&created), "header 0470 was created");
+        let created = Created {
+            headers: vec![470],
+            matrices: vec![1],
+            maps: vec![3, 4],
+            event_files: vec![2],
+        };
+        assert_eq!(
+            created_text(&created),
+            "header 0470, matrix 0001, maps 0003, 0004 and event file 0002 were created"
+        );
+    }
+
+    /// The patched fixture with 2 headers; a new header would get id 2.
+    fn patched() -> (g4_kernel::test_support::Synthetic, AppState) {
+        let (f, state) = open_synthetic();
+        apply_header_patch_impl(&state).unwrap();
+        (f, state)
+    }
+
+    fn new_header(template: u16) -> Option<NewHeader> {
+        Some(NewHeader {
+            template,
+            internal_name: "T_NEW".into(),
+        })
+    }
+
+    fn header_count(state: &AppState) -> usize {
+        list_headers_impl(state).unwrap().headers.len()
+    }
+
+    #[test]
+    fn new_header_deserializes_when_absent() {
+        let a: AssignHeader =
+            serde_json::from_str(r#"{"id":1,"area_data_id":null,"event_file":"Keep"}"#).unwrap();
+        assert!(a.new_header.is_none());
+        let a: AssignHeader = serde_json::from_str(
+            r#"{"id":2,"area_data_id":null,"event_file":"New",
+                "new_header":{"template":1,"internal_name":"T_NEW"}}"#,
+        )
+        .unwrap();
+        let n = a.new_header.unwrap();
+        assert_eq!((n.template, n.internal_name.as_str()), (1, "T_NEW"));
+    }
+
+    #[test]
+    fn check_assign_refuses_new_header_with_wrong_id() {
+        let (_f, state) = patched();
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 5,
+                new_header: new_header(1),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        let err = create_area_impl(&state, spec).unwrap_err();
+        assert!(err.message.contains("0002"), "{}", err.message);
+        assert_eq!(header_count(&state), 2);
+    }
+
+    #[test]
+    fn check_assign_refuses_new_header_without_patch() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 2,
+                new_header: new_header(1),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        let err = create_area_impl(&state, spec).unwrap_err();
+        assert!(err.message.contains("patch"), "{}", err.message);
+        assert_eq!(counts(&state), before);
+        assert_eq!(header_count(&state), 2);
+    }
+
+    #[test]
+    fn check_assign_refuses_a_template_the_game_lacks() {
+        let (_f, state) = patched();
+        let before = counts(&state);
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 2,
+                new_header: new_header(7),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        let err = create_area_impl(&state, spec).unwrap_err();
+        assert!(err.message.contains("header 7"), "{}", err.message);
+        assert_eq!(counts(&state), before);
+        assert_eq!(header_count(&state), 2);
+    }
+
+    #[test]
+    fn create_area_with_new_header_creates_it_first() {
+        let (f, state) = patched();
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 2,
+                new_header: new_header(1),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        let report = create_area_impl(&state, spec).unwrap();
+        assert_eq!((report.header, report.matrix), (Some(2), 1));
+        assert_eq!(header_count(&state), 3);
+        let h = get_header_impl(&state, 2).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (1, 2));
+        let m = get_matrix_impl(&state, 1).unwrap();
+        assert_eq!(m.headers, Some(vec![2, 2]));
+        // The record in mapname.bin is the name, NUL padded.
+        let names =
+            std::fs::read(f.dir.path().join("files/fielddata/maptable/mapname.bin")).unwrap();
+        assert_eq!(names.len(), 3 * 16);
+        assert_eq!(&names[32..37], b"T_NEW");
+        // The new header is not undoable, the two edits (matrix, header) are.
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert_eq!(header_count(&state), 3);
+        assert_eq!(get_header_impl(&state, 2).unwrap().matrix_id(), 0);
+    }
+
+    #[test]
+    fn create_room_with_new_header_uses_the_template_event_file_on_keep() {
+        let (_f, state) = patched();
+        set_event_file(&state, 1, 1);
+        let mut spec = room_spec(EventFileChoice::Keep);
+        spec.header.id = 2;
+        spec.header.new_header = new_header(1);
+        let report = create_room_impl(&state, spec).unwrap();
+        assert_eq!(header_count(&state), 3);
+        let h = get_header_impl(&state, 2).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (report.matrix, 1));
+        assert_eq!(report.event_file, None);
+        assert!(report.outside_warp.is_some());
+    }
+
+    #[test]
+    fn a_failure_after_the_new_header_is_partial_and_names_it_first() {
+        let created = Created {
+            headers: vec![2],
+            ..Created::default()
+        };
+        let err = late(&created, "map copy", "boom");
+        assert_eq!(err.code, "partial");
+        assert_eq!(
+            err.message,
+            "header 0002 was created; map copy failed: boom"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_real_failure_after_the_new_header_leaves_it_and_says_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let (f, state) = patched();
+        // Unpack the map archive, then make it read-only: the map copy right after the
+        // header creation cannot write.
+        reload_asset_impl(&state, AssetKind::Map, 0).unwrap();
+        let maps = f.dir.path().join("unpacked/maps");
+        std::fs::set_permissions(&maps, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = maps.join("probe");
+        if std::fs::write(&probe, b"").is_ok() {
+            // Running as a user the mode does not bind (root): the failure cannot be made.
+            std::fs::remove_file(probe).unwrap();
+            return;
+        }
+        let spec = AreaSpec {
+            header: Some(AssignHeader {
+                id: 2,
+                new_header: new_header(1),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        let err = create_area_impl(&state, spec).unwrap_err();
+        std::fs::set_permissions(&maps, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(err.code, "partial");
+        assert!(
+            err.message
+                .starts_with("header 0002 was created; map copy failed"),
+            "{}",
+            err.message
+        );
+        assert_eq!(header_count(&state), 3);
     }
 
     #[test]
