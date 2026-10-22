@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { BgDto, CoordDto, ObjectDto, WarpDto } from "../api";
+import type { BgDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
 import { eventDetails, eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 import type { TileInfo } from "../world/hover";
@@ -7,6 +7,8 @@ import { AreaEditor } from "./inspector/AreaEditor";
 import type { AreaEditorContext } from "./inspector/AreaEditor";
 import { BuildingEditor } from "./inspector/BuildingEditor";
 import type { BuildingEditorContext } from "./inspector/BuildingEditor";
+import { EventEditor } from "./inspector/EventEditor";
+import type { EventEditorContext } from "./inspector/EventEditor";
 import { HeaderEditor } from "./inspector/HeaderEditor";
 import type { HeaderEditorContext } from "./inspector/HeaderEditor";
 import { MatrixCellEditor } from "./inspector/MatrixCellEditor";
@@ -23,9 +25,13 @@ export type InspectorModel =
   | { kind: "building"; map: number; index: number }
   /** A cell of a matrix selected in the matrix panel, shown as an editable form. */
   | { kind: "matrixCell"; matrix: number; x: number; y: number }
+  /** An event selected in the scene, shown as an editable form. Bound by event file, class and index. */
+  | { kind: "event"; eventFile: number; eventKind: EventKind; index: number }
+  /** A read-only summary of the event marker under the pointer. */
   | {
-      kind: "event";
-      eventKind: "warp" | "object" | "coord" | "bg";
+      kind: "eventHover";
+      eventFile: number;
+      eventKind: EventKind;
       index: number;
       data: WarpDto | ObjectDto | CoordDto | BgDto;
       /** Warps: location name (or internal name) of the destination header. */
@@ -51,12 +57,14 @@ export function Inspector({
   matrixEditor,
   areaEditor,
   buildingEditor,
+  eventEditor,
 }: {
   model: InspectorModel;
   headerEditor: HeaderEditorContext;
   matrixEditor: MatrixCellContext;
   areaEditor: AreaEditorContext;
   buildingEditor: BuildingEditorContext;
+  eventEditor: EventEditorContext;
 }) {
   switch (model.kind) {
     case "header":
@@ -65,11 +73,13 @@ export function Inspector({
       return <AreaEditor key={model.id} id={model.id} context={areaEditor} />;
     case "building":
       return <BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} />;
+    case "event":
+      return <EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} />;
     case "matrixCell":
       return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} />;
     case "none":
       return <div style={box}>Nichts ausgewählt. Mit der Maus über ein Tile fahren oder einen Marker anklicken.</div>;
-    case "event":
+    case "eventHover":
       return (
         <div style={box}>
           <div style={{ color: "#111827" }}>{eventTitle(model.eventKind, model.data, model.destName)}</div>

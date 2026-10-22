@@ -2,6 +2,7 @@
 
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
+use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::EventFile;
 use g4_kernel::tiles::TileBehavior;
 use serde::Serialize;
@@ -145,6 +146,9 @@ pub struct CoordDto {
 #[derive(Serialize)]
 pub struct EventsDto {
     pub event_file_id: u16,
+    /// Why the file cannot be edited (the codec would not write it back byte for byte); the
+    /// event commands refuse it. `None` when it is editable.
+    pub locked: Option<String>,
     pub bg: Vec<BgDto>,
     pub objects: Vec<ObjectDto>,
     pub warps: Vec<WarpDto>,
@@ -158,7 +162,11 @@ fn event_index(i: usize) -> u16 {
 }
 
 impl EventsDto {
-    pub fn from_file(event_file_id: u16, file: &EventFile) -> Result<EventsDto, CmdError> {
+    pub fn from_file(
+        event_file_id: u16,
+        file: &EventFile,
+        locked: Option<String>,
+    ) -> Result<EventsDto, CmdError> {
         let counts = [
             file.bg_events.len(),
             file.object_events.len(),
@@ -170,6 +178,7 @@ impl EventsDto {
         }
         Ok(EventsDto {
             event_file_id,
+            locked,
             bg: file
                 .bg_events
                 .iter()
@@ -250,7 +259,16 @@ pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let file = session.store.event(event_file_id).map_err(CmdError::from)?;
-    EventsDto::from_file(event_file_id, file)
+    // The dto is built from the borrowed file first; then the store is asked why it is locked.
+    let dto = EventsDto::from_file(event_file_id, file, None)?;
+    let id = AssetId {
+        kind: AssetKind::Event,
+        index: event_file_id,
+    };
+    Ok(EventsDto {
+        locked: session.store.locked(id).map(str::to_owned),
+        ..dto
+    })
 }
 
 /// Tiles per map edge; permission coordinates must stay below this.

@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+import type { CoordDto, EventPatch, EventsDto, WarpDto } from "../../api";
+import type { EventData } from "../../world/events";
+import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs, eventPatch } from "./eventFields";
+import { EditSession } from "./headerCommit";
+
+const warp = (over: Partial<WarpDto> = {}): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0, ...over });
+const coord = (over: Partial<CoordDto> = {}): CoordDto => ({ index: 0, script: 9000, x: 3, z: 5, width: 2, length: 1, ...over });
+
+describe("eventFieldSpecs", () => {
+  const keys = (kind: Parameters<typeof eventFieldSpecs>[0], family: string | null = "Pt") => eventFieldSpecs(kind, family).map((s) => s.key);
+
+  it("offers the fields each kind has, the destination header aside", () => {
+    expect(keys("warp")).toEqual(["x", "z", "dest_warp_id"]);
+    expect(keys("object")).toEqual(["x", "z", "local_id", "graphics_id", "movement_type", "script"]);
+    expect(keys("coord")).toEqual(["x", "z", "width", "length", "script"]);
+    expect(keys("bg")).toEqual(["x", "z", "event_type", "script"]);
+  });
+
+  it("offers the warp height only where the game stores one", () => {
+    expect(keys("warp", "Hgss")).toEqual(["x", "z", "dest_warp_id", "height"]);
+    expect(keys("warp", "Dp")).not.toContain("height");
+    expect(keys("warp", null)).not.toContain("height");
+  });
+
+  it("limits x and z to the type the kind stores", () => {
+    const range = (kind: Parameters<typeof eventFieldSpecs>[0]) => {
+      const x = eventFieldSpecs(kind, null)[0];
+      return [x.min, x.max];
+    };
+    expect(range("warp")).toEqual([0, 65535]);
+    expect(range("object")).toEqual([0, 65535]);
+    expect(range("coord")).toEqual([-32768, 32767]);
+    expect(range("bg")).toEqual([-2147483648, 2147483647]);
+  });
+});
+
+describe("clampEventValue", () => {
+  it("rounds to a whole number and keeps it in range", () => {
+    const x = { min: 0, max: 65535 };
+    expect(clampEventValue(x, 3.6)).toBe(4);
+    expect(clampEventValue(x, -4)).toBe(0);
+    expect(clampEventValue(x, 70000)).toBe(65535);
+  });
+});
+
+describe("event fields", () => {
+  it("reads and sets numeric fields without touching the rest", () => {
+    const w = warp();
+    expect(EVENT_FIELDS.value(w, "dest_header_id")).toBe(414);
+    expect(EVENT_FIELDS.with(w, "x", 9)).toEqual(warp({ x: 9 }));
+    expect(w.x).toBe(8);
+  });
+
+  it("sends only the fields that changed", () => {
+    expect(eventPatch(warp(), warp({ x: 9, dest_header_id: 1 }))).toEqual({ x: 9, dest_header_id: 1 });
+    expect(eventPatch(warp(), warp())).toEqual({});
+    // The index is no field; a field the kind lacks never shows up.
+    expect(eventPatch(warp(), warp({ index: 4 }))).toEqual({});
+    expect(eventPatch(coord(), coord({ width: 5 }))).toEqual({ width: 5 });
+  });
+});
+
+describe("EditSession over one event", () => {
+  const dto = (warps: WarpDto[], locked: string | null = null): EventsDto => ({ event_file_id: 1, locked, bg: [], objects: [], warps, coords: [] });
+
+  it("reads the event it is bound to and writes a patch with the changed field to its file and class", async () => {
+    const updates: { file: number; kind: string; index: number; patch: EventPatch }[] = [];
+    const seen: EventsDto[] = [];
+    const backend = eventBackend(1, "warp", {
+      getEvents: async () => structuredClone(dto([warp(), warp({ index: 1, x: 20 })], "17 bytes read")),
+      update: async (file, kind, index, patch) => void updates.push({ file, kind, index, patch }),
+      onEvents: (e) => seen.push(e),
+    });
+    const states: EventData[] = [];
+    const session = new EditSession<EventData>(1, backend, EVENT_FIELDS, {
+      onState: (e) => states.push(e),
+      onRefused: () => {},
+      onChanged: () => {},
+      onError: (e) => {
+        throw e;
+      },
+    });
+    await session.load();
+    expect(states[0]).toEqual(warp({ index: 1, x: 20 }));
+    expect(seen[0].locked).toBe("17 bytes read");
+    await session.commit("x", "x", 21);
+    await session.commit("x", "x", 21);
+    expect(updates).toEqual([{ file: 1, kind: "warp", index: 1, patch: { x: 21 } }]);
+  });
+
+  it("fails to load an event that is gone, naming it", async () => {
+    const backend = eventBackend(3, "warp", { getEvents: async () => dto([]), update: async () => {} });
+    await expect(backend.get(2)).rejects.toThrow("Warp 2 existiert in Event-Datei 3 nicht (mehr)");
+  });
+});

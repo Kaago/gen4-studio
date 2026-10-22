@@ -191,8 +191,13 @@ export interface CoordDto {
   length: number;
 }
 
+/** The four classes of events in an event file. */
+export type EventKind = "warp" | "object" | "coord" | "bg";
+
 export interface EventsDto {
   event_file_id: number;
+  /** Why the file cannot be edited (the English reason from the backend); null when it is editable. */
+  locked: string | null;
   bg: BgDto[];
   objects: ObjectDto[];
   warps: WarpDto[];
@@ -291,6 +296,32 @@ export const getMapModelGlb = (index: number, areaDataId: number) =>
 export const getBuildingGlb = shareInflight((modelId: number, areaDataId: number) =>
   invoke<ArrayBuffer>("get_building_glb", { modelId, areaDataId }),
 );
+/**
+ * The fields of an event that can be changed; missing ones stay as they are and fields the kind
+ * does not have are ignored. `x` and `z` must fit the kind's field (0..65535 for warps and
+ * objects, -32768..32767 for coordinate triggers), else the call is refused.
+ */
+export interface EventPatch {
+  x?: number;
+  z?: number;
+  script?: number;
+  event_type?: number;
+  graphics_id?: number;
+  movement_type?: number;
+  local_id?: number;
+  dest_header_id?: number;
+  dest_warp_id?: number;
+  height?: number;
+  width?: number;
+  length?: number;
+}
+/** Changes fields of event `index` of class `kind` in an event file (one undoable change). */
+export const updateEvent = (eventFile: number, kind: EventKind, index: number, patch: EventPatch) =>
+  invoke<void>("update_event", { eventFile, kind, index, patch });
+/** Appends an event of class `kind` on absolute matrix tile (x, z) and resolves to its index within the class (one undoable change). */
+export const addEvent = (eventFile: number, kind: EventKind, x: number, z: number) => invoke<number>("add_event", { eventFile, kind, x, z });
+/** Removes an event; the ones of its class after it move up by one (one undoable change). */
+export const deleteEvent = (eventFile: number, kind: EventKind, index: number) => invoke<void>("delete_event", { eventFile, kind, index });
 /** Changes fields of building `index` of map `map` (one undoable change). */
 export const updateBuilding = (map: number, index: number, patch: BuildingPatch) => invoke<void>("update_building", { map, index, patch });
 /** Appends a building (model 0, map centre, scale 1.0) to a map and resolves to its index (one undoable change). */

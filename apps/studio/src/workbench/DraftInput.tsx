@@ -13,6 +13,7 @@ interface Props {
   step?: number;
   placeholder?: string;
   label: string;
+  disabled?: boolean;
   style?: CSSProperties;
 }
 
@@ -22,7 +23,7 @@ interface Props {
  * lingers). Text still being typed when the field unmounts (the inspector swaps its content on
  * hover without blurring) is committed instead of lost.
  */
-export function DraftInput({ value, onCommit, type = "text", min, max, step, placeholder, label, style }: Props) {
+export function DraftInput({ value, onCommit, type = "text", min, max, step, placeholder, label, disabled, style }: Props) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
 
@@ -52,6 +53,7 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, pla
       value={draft}
       placeholder={placeholder}
       aria-label={label}
+      disabled={disabled}
       title={label}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}

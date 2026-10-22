@@ -27,7 +27,7 @@ class FakeTarget {
     // Capture listeners first, as at a target in current browsers; stopImmediatePropagation ends the walk.
     const mine = this.listeners.filter((l) => l.type === type);
     for (const l of [...mine.filter((x) => x.capture), ...mine.filter((x) => !x.capture)]) {
-      if ((e as FakePointer).immediateStopped) return;
+      if ((e as { immediateStopped: boolean }).immediateStopped) return;
       l.fn(e as Event);
     }
   }
@@ -54,10 +54,27 @@ class FakePointer implements PointerLike {
   }
 }
 
+class FakeKey {
+  stopped = false;
+  immediateStopped = false;
+  prevented = false;
+  constructor(public key: string) {}
+  stopPropagation() {
+    this.stopped = true;
+  }
+  stopImmediatePropagation() {
+    this.immediateStopped = true;
+  }
+  preventDefault() {
+    this.prevented = true;
+  }
+}
+
 /** One pixel is one tile on the plane; the subject starts at (10, 10) and can be grabbed anywhere. */
-function setup(grab = true) {
+function setup(grab = true, clamp?: DragHooks<string, "ground">["clamp"]) {
   const host = new FakeTarget();
   const canvas = new FakeTarget();
+  const keys = new FakeTarget();
   const calls: string[] = [];
   const hooks: DragHooks<string, "ground"> = {
     begin: () => (grab ? { subject: "thing", plane: "ground", origin: { x: 10, z: 10 } } : null),
@@ -65,8 +82,9 @@ function setup(grab = true) {
     move: (_s, at) => calls.push(`move ${at.x},${at.z}`),
     commit: (_s, at) => calls.push(`commit ${at.x},${at.z}`),
     cancel: () => calls.push("cancel"),
+    clamp,
   };
-  const surface: DragSurface = { host, canvas };
+  const surface: DragSurface = { host, canvas, keys };
   const controller = new DragController(surface, 1, hooks);
   const detach = controller.attach();
   const press = (x: number, y: number, button = 0) => {
@@ -80,7 +98,12 @@ function setup(grab = true) {
     canvas.emit("pointerup", e);
     return e;
   };
-  return { host, canvas, calls, controller, detach, press, moveTo, release };
+  const escape = () => {
+    const e = new FakeKey("Escape");
+    keys.emit("keydown", e);
+    return e;
+  };
+  return { host, canvas, keys, escape, calls, controller, detach, press, moveTo, release };
 }
 
 describe("DragController", () => {
@@ -154,10 +177,52 @@ describe("DragController", () => {
     expect(t.calls).toEqual(["move 20,10", "cancel"]);
   });
 
+  it("cancels on Escape without a write, keeps that key from everyone else, and the release that follows is nobody's click", () => {
+    const t = setup();
+    t.press(100, 100);
+    t.moveTo(110, 100);
+    const key = t.escape();
+    expect(t.calls).toEqual(["move 20,10", "cancel"]);
+    expect(key.stopped && key.prevented).toBe(true);
+    expect(t.canvas.hasPointerCapture(1)).toBe(false);
+    expect(t.controller.dragging).toBe(false);
+    // The pointer is still down: moving on and releasing writes nothing.
+    t.moveTo(120, 100);
+    t.release(120, 100);
+    expect(t.calls).toEqual(["move 20,10", "cancel"]);
+  });
+
+  it("cancels on Escape before the pointer moved too", () => {
+    const t = setup();
+    t.press(100, 100);
+    t.escape();
+    expect(t.calls).toEqual(["cancel"]);
+  });
+
+  it("leaves Escape alone when nothing is being dragged, and other keys during a drag", () => {
+    const t = setup();
+    expect(t.escape().stopped).toBe(false);
+    t.press(100, 100);
+    const other = new FakeKey("a");
+    t.keys.emit("keydown", other);
+    expect(other.stopped).toBe(false);
+    expect(t.controller.dragging).toBe(true);
+  });
+
+  it("keeps the subject where the owner lets it be", () => {
+    // Tiles 0 to 12 only: dragging beyond stops at the edge, and the commit is for the edge.
+    const t = setup(true, (at) => ({ x: Math.min(at.x, 12), z: at.z }));
+    t.press(100, 100);
+    t.moveTo(120, 100);
+    t.release(120, 100);
+    expect(t.calls).toEqual(["move 12,10", "commit 12,10"]);
+  });
+
   it("stops listening when detached", () => {
     const t = setup();
     t.detach();
     expect(t.host.listeners).toEqual([]);
     expect(t.canvas.listeners).toEqual([]);
+    expect(t.keys.listeners).toEqual([]);
   });
 });

@@ -32,11 +32,13 @@ export interface DragHooks<S, P> {
   begin(e: PointerLike): DragStart<S, P> | null;
   /** The point of `plane` under a pointer position, or null when the view ray never reaches it. */
   pointOn(clientX: number, clientY: number, plane: P): Point | null;
+  /** Optional: where the subject may be at all. `at` (snapped) is turned into the nearest allowed position before it is previewed or committed. */
+  clamp?(at: Point): Point;
   /** The subject is dragged to `at` (snapped, scene units): preview it there. */
   move(subject: S, at: Point): void;
   /** The pointer was released after the subject was moved to `at`: write it. Not called for a drag that ends where it began. */
   commit(subject: S, at: Point): void;
-  /** The drag ended without a change (no movement, back at the start, the pointer was taken away): show the subject as it was. */
+  /** The drag ended without a change (no movement, back at the start, Escape, the pointer was taken away): show the subject as it was. */
   cancel(subject: S): void;
 }
 
@@ -54,6 +56,8 @@ export interface DragSurface {
     hasPointerCapture(id: number): boolean;
     releasePointerCapture(id: number): void;
   };
+  /** Where the Escape key that cancels a drag is heard (the window). */
+  keys: Listenable;
 }
 
 interface Active<S, P> {
@@ -73,7 +77,7 @@ interface Active<S, P> {
  * is captured, and nothing counts as a drag until the pointer has travelled a few pixels (a press
  * that does not is still a click). The subject follows the pointer in steps of `snap` tiles
  * (previewed through `move`); on release one `commit` reports the final position. A drag that
- * ends where it began or loses its pointer capture is `cancel`led.
+ * ends where it began, is cancelled with Escape, or loses its pointer capture is `cancel`led.
  */
 export class DragController<S, P> {
   private active: Active<S, P> | null = null;
@@ -91,21 +95,25 @@ export class DragController<S, P> {
 
   /** Starts listening; the returned function stops it (an unfinished drag is dropped without a word). */
   attach(): () => void {
-    const { host, canvas } = this.surface;
+    const { host, canvas, keys } = this.surface;
     const down = (e: Event) => this.onDown(e as PointerEvent);
     const move = (e: Event) => this.onMove(e as PointerEvent);
     const up = (e: Event) => this.onUp(e as PointerEvent);
     const lost = () => this.abort();
+    const key = (e: Event) => this.onKey(e as KeyboardEvent);
     host.addEventListener("pointerdown", down, true);
     canvas.addEventListener("pointermove", move);
     // Capture phase: the release that ends a drag is never also a click for the listeners after this one.
     canvas.addEventListener("pointerup", up, true);
     canvas.addEventListener("lostpointercapture", lost);
+    // Capture phase: Escape is heard here before the app's own handlers, which this key press must not reach.
+    keys.addEventListener("keydown", key, true);
     return () => {
       host.removeEventListener("pointerdown", down, true);
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", up, true);
       canvas.removeEventListener("lostpointercapture", lost);
+      keys.removeEventListener("keydown", key, true);
       // The scene is going away: there is nothing left to show the subject in.
       this.active = null;
     };
@@ -148,7 +156,8 @@ export class DragController<S, P> {
     const at = this.hooks.pointOn(e.clientX, e.clientY, d.plane);
     if (!at) return;
     d.moved = true;
-    d.latest = planeDrag(d.start, at, d.origin, this.snap);
+    const snapped = planeDrag(d.start, at, d.origin, this.snap);
+    d.latest = this.hooks.clamp ? this.hooks.clamp(snapped) : snapped;
     this.hooks.move(d.subject, d.latest);
   }
 
@@ -168,5 +177,13 @@ export class DragController<S, P> {
     if (!d) return;
     this.active = null;
     this.hooks.cancel(d.subject);
+  }
+
+  private onKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || !this.active) return;
+    // The drag is what Escape ends; nothing else (a pin, a field) reacts to this press.
+    e.stopPropagation();
+    e.preventDefault();
+    this.cancel();
   }
 }

@@ -3,12 +3,12 @@ mod errors;
 mod state;
 
 use commands::{
-    accept_disk, add_building, build_rom, create_matrix, delete_building, dirty, duplicate_map,
-    force_quit, get_area_data, get_building_glb, get_events, get_header, get_map,
-    get_map_model_glb, get_matrix, list_headers, map_model_texture_status, member_counts,
+    accept_disk, add_building, add_event, build_rom, create_matrix, delete_building, delete_event,
+    dirty, duplicate_map, force_quit, get_area_data, get_building_glb, get_events, get_header,
+    get_map, get_map_model_glb, get_matrix, list_headers, map_model_texture_status, member_counts,
     open_project, redo, reload_asset, rename_matrix, resize_matrix, run_rom, save, set_area_data,
     set_header, set_matrix_cell, set_matrix_sections, set_permission, tile_behaviors, undo,
-    update_building,
+    update_building, update_event,
 };
 use state::{AppState, exit_is_blocked};
 use std::sync::atomic::Ordering;
@@ -40,6 +40,9 @@ pub fn run() {
             add_building,
             update_building,
             delete_building,
+            update_event,
+            add_event,
+            delete_event,
             get_map_model_glb,
             map_model_texture_status,
             tile_behaviors,

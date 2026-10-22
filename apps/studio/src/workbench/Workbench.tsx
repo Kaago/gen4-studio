@@ -1,13 +1,15 @@
 import { createContext, useContext } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
+import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { BuildingRefresh } from "../world/buildings";
+import type { EventRef, EventRefresh } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
+import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { InspectorModel } from "./Inspector";
@@ -73,6 +75,22 @@ export interface WorkbenchData {
   onAddBuilding: (fallbackMap: number | null) => void | Promise<void>;
   /** Asks first, then deletes the building. */
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
+  /** The event selected in the scene (it is the pinned inspector model); null: none. */
+  selectedEvent: EventRef | null;
+  /** A click in the scene chose an event marker (null: none). */
+  onSelectEvent: (ref: EventRef | null) => void;
+  /** A drag moved an event and the move is written. */
+  onEventMoved: (eventFile: number) => void;
+  /** A new request makes the scene read one event file's events again. */
+  eventRefresh: EventRefresh | null;
+  /** Changes whenever events may have changed behind the event editor (a drag, undo, redo, add, delete). */
+  eventRevision: number;
+  /** The event editor wrote a field: refresh the scene and the dirty count. */
+  onEventChanged: (eventFile: number) => void | Promise<void>;
+  /** Adds an event on the last hovered tile of the selected header's event file and selects it. */
+  onAddEvent: (kind: EventKind) => void | Promise<void>;
+  /** Asks first, then deletes the event. */
+  onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   message: Message | null;
   onDismissMessage: () => void;
 }
@@ -122,6 +140,10 @@ function WorldPanel() {
             onSelectBuilding={d.onSelectBuilding}
             onBuildingMoved={d.onBuildingMoved}
             buildingRefresh={d.buildingRefresh}
+            selectedEvent={d.selectedEvent}
+            onSelectEvent={d.onSelectEvent}
+            onEventMoved={d.onEventMoved}
+            eventRefresh={d.eventRefresh}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
             <label style={toggleStyle}>
@@ -139,6 +161,7 @@ function WorldPanel() {
             >
               Neues Gebäude
             </button>
+            <AddEvent disabled={!d.paintEnabled || d.eventFileId === null} onAdd={(kind) => void d.onAddEvent(kind)} style={toggleStyle} />
           </div>
         </>
       ) : (
@@ -188,6 +211,16 @@ function InspectorPanel() {
         onChanged: d.onBuildingChanged,
         onAdd: d.onAddBuilding,
         onDelete: d.onDeleteBuilding,
+        onError: d.onError,
+      }}
+      eventEditor={{
+        headers: d.headers,
+        family: d.info?.family ?? null,
+        revision: d.eventRevision,
+        onChanged: d.onEventChanged,
+        onAdd: d.onAddEvent,
+        onDelete: d.onDeleteEvent,
+        onOpenHeader: d.onSelect,
         onError: d.onError,
       }}
       matrixEditor={{

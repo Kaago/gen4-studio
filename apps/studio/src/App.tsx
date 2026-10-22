@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,11 +6,14 @@ import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   acceptDisk,
   addBuilding,
+  addEvent,
   buildRom,
   deleteBuilding,
+  deleteEvent,
   dirty,
   errorText,
   getAreaData,
+  getEvents,
   getMap,
   getMatrix,
   isCmdError,
@@ -24,7 +27,7 @@ import {
   undo,
   updateBuilding,
 } from "./api";
-import type { AssetId, HeaderListing, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "./api";
+import type { AssetId, EventKind, HeaderListing, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "./api";
 import { staleText } from "./assets";
 import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
@@ -33,10 +36,12 @@ import type { WorkbenchData } from "./workbench/Workbench";
 import type { InspectorModel } from "./workbench/Inspector";
 import { tilesetKey } from "./workbench/inspector/areaFields";
 import { sameLayout } from "./workbench/matrix";
-import { pinAfterHistory } from "./workbench/pin";
+import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
 import { deletePrompt, isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
 import type { BuildingRefresh } from "./world/buildings";
+import { eventAt, eventDeletePrompt, eventReadOnlyReason, lockedText } from "./world/events";
+import type { EventRef, EventRefresh } from "./world/events";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -80,19 +85,27 @@ export default function App() {
   // pointer is over a cell or marker.
   const [pinned, setPinned] = useState<InspectorModel>({ kind: "none" });
   const [hover, setHover] = useState<InspectorModel | null>(null);
-  // A selected building stays in the inspector while the pointer is over the scene (it is being dragged
-  // there); event markers still take over.
-  const inspector = pinned.kind === "building" && hover?.kind === "tile" ? pinned : (hover ?? pinned);
+  // A selected building or event stays in the inspector while the pointer is over the scene (it is
+  // being dragged there); other event markers still take over.
+  const inspector = shownInspector(pinned, hover);
   // The tile the pointer was last over: where "Neues Gebäude" puts a building.
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
+  // The same tile as a position in the whole matrix, where "Hinzufügen" puts an event. Unlike the
+  // one above it is forgotten when the scene gets another matrix (the position is only valid in one).
+  const lastMatrixTile = useRef<{ x: number; z: number } | null>(null);
   const onInspect = useCallback((model: InspectorModel) => {
-    if (model.kind === "tile") lastTile.current = { map: model.map, x: model.x, y: model.y };
+    if (model.kind === "tile") {
+      lastTile.current = { map: model.map, x: model.x, y: model.y };
+      lastMatrixTile.current = { x: model.absX, z: model.absZ };
+    }
     setHover(model.kind === "none" ? null : model);
   }, []);
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
   const [buildingRevision, setBuildingRevision] = useState(0);
   const [buildingRefresh, setBuildingRefresh] = useState<BuildingRefresh | null>(null);
+  const [eventRevision, setEventRevision] = useState(0);
+  const [eventRefresh, setEventRefresh] = useState<EventRefresh | null>(null);
   const [counts, setCounts] = useState<MemberCounts>({});
   const [headerRevision, setHeaderRevision] = useState(0);
   const [matrixRevision, setMatrixRevision] = useState(0);
@@ -197,7 +210,8 @@ export default function App() {
         setMatrixRevision((r) => r + 1);
         setAreaRevision((r) => r + 1);
         setBuildingRevision((r) => r + 1);
-        // The reload may have re-ordered the buildings: a pinned one is bound by index, so let go of it.
+        setEventRevision((r) => r + 1);
+        // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
         setPinned((p) => pinAfterHistory(p, selectedRef.current));
         await syncHeaders();
         await noteSceneTileset(true);
@@ -231,6 +245,11 @@ export default function App() {
   matrixIndexRef.current = matrix?.index ?? null;
   const matrixRef = useRef<MatrixDto | null>(null);
   matrixRef.current = matrix;
+  const headersRef = useRef(headers);
+  headersRef.current = headers;
+  useEffect(() => {
+    lastMatrixTile.current = null;
+  }, [matrix]);
 
   /**
    * Reads the scene's matrix again and replaces it when it now places other maps (a new object
@@ -247,6 +266,12 @@ export default function App() {
 
   const fail = useCallback(
     (e: unknown) => {
+      // A locked event file says why it cannot be changed, in the words the inspector uses.
+      const locked = eventReadOnlyReason(e);
+      if (locked !== null) {
+        setMessage({ kind: "error", text: lockedText(locked) });
+        return;
+      }
       if (isCmdError(e) && e.code === "stale" && e.asset) {
         const asset: AssetId = e.asset;
         const resolve = (action: (a: AssetId) => Promise<void>, done: string) => async () => {
@@ -273,13 +298,38 @@ export default function App() {
     [refreshAfterStale],
   );
 
-  /** Shows the header again in the inspector when a building was pinned (it was deselected or deleted). */
-  const unpinBuilding = useCallback(() => {
+  /** Shows the header again in the inspector when a building or event was pinned (it was deselected or deleted). */
+  const unpinSelection = useCallback(() => {
     setPinned((p) => pinAfterHistory(p, selectedRef.current));
   }, []);
   const onSelectBuilding = useCallback(
-    (ref: BuildingRef | null) => (ref ? setPinned({ kind: "building", map: ref.map, index: ref.index }) : unpinBuilding()),
-    [unpinBuilding],
+    (ref: BuildingRef | null) => (ref ? setPinned({ kind: "building", map: ref.map, index: ref.index }) : unpinSelection()),
+    [unpinSelection],
+  );
+  const onSelectEvent = useCallback(
+    (ref: EventRef | null) => (ref ? setPinned({ kind: "event", eventFile: ref.file, eventKind: ref.kind, index: ref.index }) : unpinSelection()),
+    [unpinSelection],
+  );
+  // Stable while the same event stays pinned, so the memoised scene is not disturbed by hover updates.
+  const selectedEvent = useMemo<EventRef | null>(
+    () => (pinned.kind === "event" ? { file: pinned.eventFile, kind: pinned.eventKind, index: pinned.index } : null),
+    [pinned],
+  );
+  const requestEventRefresh = useCallback((file: number) => {
+    setEventRefresh((previous) => ({ file, token: (previous?.token ?? 0) + 1 }));
+  }, []);
+  // The scene wrote a drag: only the event editor (and the dirty count) has to catch up.
+  const onEventMoved = useCallback(async () => {
+    setEventRevision((r) => r + 1);
+    await refreshDirty();
+  }, [refreshDirty]);
+  // The event editor wrote a field: the scene reads that file's events again.
+  const onEventChanged = useCallback(
+    async (file: number) => {
+      requestEventRefresh(file);
+      await refreshDirty();
+    },
+    [requestEventRefresh, refreshDirty],
   );
   const requestBuildingRefresh = useCallback((map: number, retryModel: number | null) => {
     setBuildingRefresh((previous) => ({ map, token: (previous?.token ?? 0) + 1, retryModel }));
@@ -338,12 +388,56 @@ export default function App() {
         fail(e);
       }
       // The ones after a deleted building move up by one: nothing stays selected.
-      unpinBuilding();
+      unpinSelection();
       requestBuildingRefresh(map, null);
       setBuildingRevision((r) => r + 1);
       await refreshDirty();
     },
-    [fail, unpinBuilding, requestBuildingRefresh, refreshDirty],
+    [fail, unpinSelection, requestBuildingRefresh, refreshDirty],
+  );
+
+  // A new event goes on the tile the pointer was last over, in the event file of the selected header;
+  // it is selected afterwards.
+  const onAddEvent = useCallback(
+    async (kind: EventKind) => {
+      const shown = matrixRef.current;
+      const file = headersRef.current.find((h) => h.id === selectedRef.current)?.event_file_id ?? null;
+      if (!shown || file === null) return;
+      const tile = lastMatrixTile.current;
+      if (!tile) {
+        setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
+        return;
+      }
+      try {
+        const index = await addEvent(file, kind, tile.x, tile.z);
+        setPinned({ kind: "event", eventFile: file, eventKind: kind, index });
+      } catch (e) {
+        fail(e);
+      }
+      requestEventRefresh(file);
+      setEventRevision((r) => r + 1);
+      await refreshDirty();
+    },
+    [fail, requestEventRefresh, refreshDirty],
+  );
+
+  const onDeleteEvent = useCallback(
+    async (file: number, kind: EventKind, index: number) => {
+      try {
+        // The event is named by class, index and position, not only by an index that shifts.
+        const event = await getEvents(file).then((events) => eventAt(events, kind, index), () => undefined);
+        if (!(await ask(eventDeletePrompt(kind, index, event), { kind: "warning" }))) return;
+        await deleteEvent(file, kind, index);
+      } catch (e) {
+        fail(e);
+      }
+      // The ones of its class after a deleted event move up by one: nothing stays selected.
+      unpinSelection();
+      requestEventRefresh(file);
+      setEventRevision((r) => r + 1);
+      await refreshDirty();
+    },
+    [fail, unpinSelection, requestEventRefresh, refreshDirty],
   );
 
   const onMatrixEdited = useCallback(
@@ -413,7 +507,9 @@ export default function App() {
       setPinned({ kind: "none" });
       setHover(null);
       lastTile.current = null;
+      lastMatrixTile.current = null;
       setBuildingRefresh(null);
+      setEventRefresh(null);
       setMatrix(null);
       setLastRom(null);
       if (listError !== null) fail(listError);
@@ -451,10 +547,11 @@ export default function App() {
     try {
       if (await action()) {
         // Undo and redo can shift building indexes (undoing a delete re-inserts one in front), so
-        // a pinned building would silently become another one: let go of it.
+        // a pinned building or event would silently become another one: let go of it.
         setPinned((p) => pinAfterHistory(p, selectedRef.current));
         setReloadToken((t) => t + 1);
         setBuildingRevision((r) => r + 1);
+        setEventRevision((r) => r + 1);
         // An undone header edit changes the list, the header editor and possibly the scene.
         setHeaderRevision((r) => r + 1);
         // An undone matrix edit changes the matrix panel and the scene's matrix.
@@ -582,21 +679,22 @@ export default function App() {
   }, []);
 
   // Shortcuts always call the handlers of the latest render.
-  const latest = useRef({ onSave, step, onDeleteBuilding, unpinBuilding });
-  latest.current = { onSave, step, onDeleteBuilding, unpinBuilding };
+  const latest = useRef({ onSave, step, onDeleteBuilding, onDeleteEvent, unpinSelection });
+  latest.current = { onSave, step, onDeleteBuilding, onDeleteEvent, unpinSelection };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const selected = pinnedRef.current;
-      if (selected.kind === "building" && !e.repeat) {
-        // Delete (Backspace on a Mac keyboard) removes the selected building after asking; neither it
-        // nor Escape touches a form field that is being typed in.
+      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat) {
+        // Delete (Backspace on a Mac keyboard) removes the selected building or event after asking;
+        // neither it nor Escape touches a form field that is being typed in.
         if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey })) {
           e.preventDefault();
-          void latest.current.onDeleteBuilding(selected.map, selected.index);
+          if (selected.kind === "building") void latest.current.onDeleteBuilding(selected.map, selected.index);
+          else void latest.current.onDeleteEvent(selected.eventFile, selected.eventKind, selected.index);
           return;
         }
         if (e.key === "Escape" && !isTypingTarget(e.target as HTMLElement | null)) {
-          latest.current.unpinBuilding();
+          latest.current.unpinSelection();
           return;
         }
       }
@@ -651,6 +749,14 @@ export default function App() {
     onBuildingChanged,
     onAddBuilding,
     onDeleteBuilding,
+    selectedEvent,
+    onSelectEvent,
+    onEventMoved,
+    eventRefresh,
+    eventRevision,
+    onEventChanged,
+    onAddEvent,
+    onDeleteEvent,
     message,
     onDismissMessage: () => setMessage(null),
   };
