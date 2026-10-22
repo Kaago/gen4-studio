@@ -4,7 +4,6 @@ import { drainWhenReady, pendingSince } from "../../reload";
 import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
-import type { EventRefresh } from "../events";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
 import { recolourMap } from "./content";
 import { refreshEvents } from "./eventFetch";
@@ -95,12 +94,18 @@ export function useBuildingRefresh(refs: SceneRefs, buildingRefresh: RefreshQueu
   }, [buildingRefresh, sceneBuilt]);
 }
 
-/** Events of one file were edited elsewhere (inspector, add, delete): show them again. */
-export function useEventRefresh(refs: SceneRefs, eventRefresh: EventRefresh | null, report: ReportEvents) {
+/** Events of one file were edited elsewhere (inspector, add, delete): show them again. The requests are the file numbers, queued like the ones above. */
+export function useEventRefresh(refs: SceneRefs, eventRefresh: RefreshQueue<number> | null, report: ReportEvents) {
+  const eventsSeen = useRef(0);
   useEffect(() => {
+    const { items, last } = pendingSince(eventRefresh, eventsSeen.current);
+    eventsSeen.current = last;
     const h = refs.handle.current;
-    const request = eventRefresh;
-    if (!request || !h?.matrix || refs.eventFile.current !== request.file) return;
-    refreshEvents(h, request.file, refs.showEvents.current, () => refs.handle.current === h && refs.eventFile.current === request.file, report).catch((e) => refs.callbacks.current.onError(e));
+    if (!h?.matrix) return;
+    // The requests of one batch are a queue (a request for another file does not replace one for the shown file); a file is read once however often it was asked for.
+    for (const file of new Set(items)) {
+      if (refs.eventFile.current !== file) continue;
+      refreshEvents(h, file, refs.showEvents.current, () => refs.handle.current === h && refs.eventFile.current === file, report).catch((e) => refs.callbacks.current.onError(e));
+    }
   }, [eventRefresh]);
 }

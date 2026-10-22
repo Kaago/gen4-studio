@@ -4,18 +4,17 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, updateBuilding } from "../api";
 import type { EventKind, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
-import { enqueue } from "../reload";
-import type { RefreshQueue } from "../reload";
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
 import type { BuildingRef } from "../world/buildingLayer";
 import { deletePrompt, newBuildingPosition } from "../world/buildings";
-import type { BuildingRefresh } from "../world/buildings";
 import { eventAt, eventDeletePrompt, eventEditGate } from "../world/events";
-import type { EventLock, EventRef, EventRefresh } from "../world/events";
+import type { EventLock, EventRef } from "../world/events";
+import type { EditBus } from "./editBus";
 import type { InspectorState } from "./useInspectorState";
 
 interface WorldActionsParams {
+  bus: EditBus;
   pins: InspectorState;
   matrix: MatrixDto | null;
   matrixRef: MutableRefObject<MatrixDto | null>;
@@ -28,10 +27,10 @@ interface WorldActionsParams {
 
 /**
  * Buildings and events of the scene: adding (on the tile the pointer was last over), deleting
- * after asking, pinning the selection in the inspector, and the requests and revisions that make
- * the scene and the editors read their data again after a write.
+ * after asking, pinning the selection in the inspector, and the bus events that make the scene
+ * and the editors read their data again after a write.
  */
-export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedRef, setMessage, fail, refreshDirty }: WorldActionsParams) {
+export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, selectedRef, setMessage, fail, refreshDirty }: WorldActionsParams) {
   const { pinned, setPinned, setHover } = pins;
   // The tile the pointer was last over: where "Neues Gebäude" puts a building.
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
@@ -52,10 +51,6 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
     [setHover],
   );
 
-  const [buildingRevision, setBuildingRevision] = useState(0);
-  const [buildingRefresh, setBuildingRefresh] = useState<RefreshQueue<BuildingRefresh> | null>(null);
-  const [eventRevision, setEventRevision] = useState(0);
-  const [eventRefresh, setEventRefresh] = useState<EventRefresh | null>(null);
   // Whether the shown event file is locked: reported by the scene whenever it reads events, the one
   // source for every place that disables adding, deleting or dragging.
   const [eventLock, setEventLock] = useState<EventLock | null>(null);
@@ -82,37 +77,31 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
     () => (pinned.kind === "event" ? { file: pinned.eventFile, kind: pinned.eventKind, index: pinned.index } : null),
     [pinned],
   );
-  const requestEventRefresh = useCallback((file: number) => {
-    setEventRefresh((previous) => ({ file, token: (previous?.token ?? 0) + 1 }));
-  }, []);
   // The scene wrote a drag: only the event editor (and the dirty count) has to catch up.
   const onEventMoved = useCallback(async () => {
-    setEventRevision((r) => r + 1);
+    bus.emit({ topic: "eventData" });
     await refreshDirty();
-  }, [refreshDirty]);
+  }, [bus, refreshDirty]);
   // The event editor wrote a field: the scene reads that file's events again.
   const onEventChanged = useCallback(
     async (file: number) => {
-      requestEventRefresh(file);
+      bus.emit({ topic: "eventsRefetch", file });
       await refreshDirty();
     },
-    [requestEventRefresh, refreshDirty],
+    [bus, refreshDirty],
   );
-  const requestBuildingRefresh = useCallback((map: number, retryModel: number | null) => {
-    setBuildingRefresh((previous) => enqueue(previous, { map, retryModel }));
-  }, []);
   // The scene wrote a drag: only the building editor (and the dirty count) has to catch up.
   const onBuildingMoved = useCallback(async () => {
-    setBuildingRevision((r) => r + 1);
+    bus.emit({ topic: "buildingData" });
     await refreshDirty();
-  }, [refreshDirty]);
+  }, [bus, refreshDirty]);
   // The building editor wrote a field: the scene reads that map's buildings again.
   const onBuildingChanged = useCallback(
     async (map: number, retryModel: number | null) => {
-      requestBuildingRefresh(map, retryModel);
+      bus.emit({ topic: "buildingsRefetch", map, retryModel });
       await refreshDirty();
     },
-    [requestBuildingRefresh, refreshDirty],
+    [bus, refreshDirty],
   );
   // A new building goes on the tile the pointer was last over (the map centre of `fallbackMap` when
   // that is unknown); it is selected afterwards. Adding and moving are two undoable changes.
@@ -137,11 +126,11 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
         fail(e);
       }
       if (added !== null) setPinned({ kind: "building", map, index: added });
-      requestBuildingRefresh(map, null);
-      setBuildingRevision((r) => r + 1);
+      bus.emit({ topic: "buildingsRefetch", map, retryModel: null });
+      bus.emit({ topic: "buildingData" });
       await refreshDirty();
     },
-    [matrixRef, setMessage, setPinned, fail, requestBuildingRefresh, refreshDirty],
+    [bus, matrixRef, setMessage, setPinned, fail, refreshDirty],
   );
 
   const onDeleteBuilding = useCallback(
@@ -156,11 +145,11 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
       }
       // The ones after a deleted building move up by one: nothing stays selected.
       unpinSelection();
-      requestBuildingRefresh(map, null);
-      setBuildingRevision((r) => r + 1);
+      bus.emit({ topic: "buildingsRefetch", map, retryModel: null });
+      bus.emit({ topic: "buildingData" });
       await refreshDirty();
     },
-    [fail, unpinSelection, requestBuildingRefresh, refreshDirty],
+    [bus, fail, unpinSelection, refreshDirty],
   );
 
   // A new event goes on the tile the pointer was last over, in the event file of the selected header;
@@ -186,11 +175,11 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
       } catch (e) {
         fail(e);
       }
-      requestEventRefresh(file);
-      setEventRevision((r) => r + 1);
+      bus.emit({ topic: "eventsRefetch", file });
+      bus.emit({ topic: "eventData" });
       await refreshDirty();
     },
-    [matrixRef, headersRef, selectedRef, setMessage, setPinned, fail, requestEventRefresh, refreshDirty],
+    [bus, matrixRef, headersRef, selectedRef, setMessage, setPinned, fail, refreshDirty],
   );
 
   const onDeleteEvent = useCallback(
@@ -211,29 +200,23 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
       }
       // The ones of its class after a deleted event move up by one: nothing stays selected.
       unpinSelection();
-      requestEventRefresh(file);
-      setEventRevision((r) => r + 1);
+      bus.emit({ topic: "eventsRefetch", file });
+      bus.emit({ topic: "eventData" });
       await refreshDirty();
     },
-    [setMessage, fail, unpinSelection, requestEventRefresh, refreshDirty],
+    [bus, setMessage, fail, unpinSelection, refreshDirty],
   );
 
-  /** Another project was opened: nothing of the old one stays pinned, hovered, locked or queued. */
+  /** Another project was opened: nothing of the old one stays pinned, hovered or locked. */
   function resetForProject() {
     setPinned({ kind: "none" });
     setHover(null);
     lastTile.current = null;
     lastMatrixTile.current = null;
-    setBuildingRefresh(null);
-    setEventRefresh(null);
     setEventLock(null);
   }
 
   return {
-    buildingRevision,
-    buildingRefresh,
-    eventRevision,
-    eventRefresh,
     eventLock,
     selectedEvent,
     onInspect,
@@ -249,9 +232,6 @@ export function useWorldActions({ pins, matrix, matrixRef, headersRef, selectedR
     onDeleteBuilding,
     onAddEvent,
     onDeleteEvent,
-    requestEventRefresh,
-    bumpBuildings: () => setBuildingRevision((r) => r + 1),
-    bumpEvents: () => setEventRevision((r) => r + 1),
     resetForProject,
   };
 }

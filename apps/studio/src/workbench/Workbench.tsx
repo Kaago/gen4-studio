@@ -6,10 +6,10 @@ import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } f
 import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
-import type { BuildingRefresh } from "../world/buildings";
-import type { RefreshQueue } from "../reload";
+import type { EditBus } from "../app/editBus";
+import { useBusRevision } from "../app/useBusEvent";
 import { lockedText } from "../world/events";
-import type { EventLock, EventRef, EventRefresh } from "../world/events";
+import type { EventLock, EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
 import { AddEvent } from "./inspector/AddEvent";
@@ -27,13 +27,11 @@ export interface WorkbenchData {
   onSelect: (h: HeaderSummary) => void;
   /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */
   goTo: (target: NavTarget) => void;
-  /** Bumped by every link to a header: the list scrolls to the selection again. */
-  revealToken: number;
+  /** Where the writers announce that data moved: the panels and the scene listen. A stable object. */
+  bus: EditBus;
   matrix: MatrixDto | null;
   /** Area data the scene's models are textured with (follows the shown header, set together with `matrix`). */
   areaDataId: number;
-  /** Incremented when the textures of the shown area data changed: the scene reloads its models. */
-  modelsToken: number;
   showPermissions: boolean;
   onShowPermissions: (show: boolean) => void;
   /** Event file of the selected header (null: none selected). */
@@ -43,8 +41,6 @@ export interface WorkbenchData {
   paintEnabled: boolean;
   /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
   history: { readonly current: number };
-  /** A request makes the scene refetch one map (overlay and buildings): that map was restored by undo or redo. */
-  mapRefresh: RefreshQueue<number> | null;
   onEdited: () => void;
   onError: (e: unknown) => void;
   /** Load progress / failure summary of the scene; null clears it (only if it is still the shown message). */
@@ -54,16 +50,10 @@ export interface WorkbenchData {
   /** The scene reports what is under the pointer (`none` when it left every cell and marker). */
   onInspect: (model: InspectorModel) => void;
   memberCounts: MemberCounts;
-  /** Bumped when the header table changed behind the header editor's back (undo, redo, reload). */
-  headerRevision: number;
   /** A header field was written: refresh list, scene and dirty count. */
   onHeaderChanged: () => void | Promise<void>;
-  /** Changes whenever area data may have changed behind the area editor (undo, redo, reload). */
-  areaRevision: number;
   /** An area data field was written: refresh the dirty count and, if the shown models' tileset changed, the scene. */
   onAreaChanged: () => void | Promise<void>;
-  /** Changes whenever matrix data may have changed behind the matrix panel and the cell editor (edit, undo, redo, reload). */
-  matrixRevision: number;
   /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
   onMatrixEdited: (index: number) => void | Promise<void>;
   /** A map or matrix member was appended: refresh the member counts. */
@@ -74,10 +64,6 @@ export interface WorkbenchData {
   onSelectBuilding: (ref: BuildingRef | null) => void;
   /** A drag moved a building and the move is written. */
   onBuildingMoved: (map: number) => void;
-  /** Changes whenever buildings may have changed behind the building editor (a drag, undo, redo). */
-  buildingRevision: number;
-  /** A new request makes the scene read one map's buildings again. */
-  buildingRefresh: RefreshQueue<BuildingRefresh> | null;
   /** The building editor wrote a field: refresh the scene and the dirty count. */
   onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
   /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
@@ -90,10 +76,6 @@ export interface WorkbenchData {
   onSelectEvent: (ref: EventRef | null) => void;
   /** A drag moved an event and the move is written. */
   onEventMoved: (eventFile: number) => void;
-  /** A new request makes the scene read one event file's events again. */
-  eventRefresh: EventRefresh | null;
-  /** Changes whenever events may have changed behind the event editor (a drag, undo, redo, add, delete). */
-  eventRevision: number;
   /** The lock state of the shown event file (null: not locked, or none shown); the scene reports it. */
   eventLock: EventLock | null;
   onEventsLocked: (lock: EventLock | null) => void;
@@ -124,12 +106,14 @@ const toggleStyle: React.CSSProperties = {
 
 function HeadersPanel() {
   const d = useWorkbench();
+  // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
+  const revealToken = useBusRevision(d.bus, "headerReveal");
   return <HeaderList
       info={d.info}
       headers={d.headers}
       selected={d.selected}
       shownMatrix={d.matrix?.index ?? null}
-      revealToken={d.revealToken}
+      revealToken={revealToken}
       onSelect={d.onSelect}
     />;
 }
@@ -143,14 +127,13 @@ function WorldPanel() {
           <MatrixScene
             matrix={d.matrix}
             areaDataId={d.areaDataId}
-            modelsToken={d.modelsToken}
             showPermissions={d.showPermissions}
             eventFileId={d.eventFileId}
             showEvents={d.showEvents}
             headers={d.headers}
             paintEnabled={d.paintEnabled}
             history={d.history}
-            mapRefresh={d.mapRefresh}
+            bus={d.bus}
             onEdited={d.onEdited}
             onError={d.onError}
             onInspect={d.onInspect}
@@ -159,11 +142,9 @@ function WorldPanel() {
             selectedBuilding={d.selectedBuilding?.index ?? null}
             onSelectBuilding={d.onSelectBuilding}
             onBuildingMoved={d.onBuildingMoved}
-            buildingRefresh={d.buildingRefresh}
             selectedEvent={d.selectedEvent}
             onSelectEvent={d.onSelectEvent}
             onEventMoved={d.onEventMoved}
-            eventRefresh={d.eventRefresh}
             onEventsLocked={d.onEventsLocked}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
@@ -199,13 +180,15 @@ function WorldPanel() {
 
 function MatrixTab() {
   const d = useWorkbench();
+  // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
+  const matrixRevision = useBusRevision(d.bus, "matrixData");
   const selection = d.inspector.kind === "matrixCell" ? d.inspector : null;
   return (
     <MatrixPanel
       context={{
         info: d.info,
         sceneMatrix: d.matrix?.index ?? null,
-        revision: d.matrixRevision,
+        revision: matrixRevision,
         selection: selection && { matrix: selection.matrix, x: selection.x, y: selection.y },
         goTo: d.goTo,
         onEdited: d.onMatrixEdited,
@@ -218,22 +201,28 @@ function MatrixTab() {
 
 function InspectorPanel() {
   const d = useWorkbench();
+  // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
+  const headerRevision = useBusRevision(d.bus, "headerTable");
+  const areaRevision = useBusRevision(d.bus, "areaData");
+  const matrixRevision = useBusRevision(d.bus, "matrixData");
+  const buildingRevision = useBusRevision(d.bus, "buildingData");
+  const eventRevision = useBusRevision(d.bus, "eventData");
   return (
     <Inspector
       model={d.inspector}
       headerEditor={{
         headers: d.headers,
         counts: d.memberCounts,
-        revision: d.headerRevision,
+        revision: headerRevision,
         onChanged: d.onHeaderChanged,
         goTo: d.goTo,
         onError: d.onError,
       }}
-      areaEditor={{ counts: d.memberCounts, revision: d.areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
+      areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
       buildingEditor={{
         areaDataId: d.areaDataId,
         counts: d.memberCounts,
-        revision: d.buildingRevision,
+        revision: buildingRevision,
         onChanged: d.onBuildingChanged,
         onAdd: d.onAddBuilding,
         onDelete: d.onDeleteBuilding,
@@ -242,7 +231,7 @@ function InspectorPanel() {
       eventEditor={{
         headers: d.headers,
         family: d.info?.family ?? null,
-        revision: d.eventRevision,
+        revision: eventRevision,
         onChanged: d.onEventChanged,
         onAdd: d.onAddEvent,
         onDelete: d.onDeleteEvent,
@@ -253,7 +242,7 @@ function InspectorPanel() {
         headerCount: d.headers.length,
         goTo: d.goTo,
         counts: d.memberCounts,
-        revision: d.matrixRevision,
+        revision: matrixRevision,
         onEdited: d.onMatrixEdited,
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,

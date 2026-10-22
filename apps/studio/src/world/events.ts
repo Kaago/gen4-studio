@@ -135,12 +135,6 @@ export interface EventRef {
   index: number;
 }
 
-/** A request to read one event file's events again: a new `token` makes it a new request. */
-export interface EventRefresh {
-  file: number;
-  token: number;
-}
-
 /** The shown event file and why it is locked (read-only). */
 export interface EventLock {
   file: number;

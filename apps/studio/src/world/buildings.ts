@@ -70,7 +70,7 @@ export function wantsDelete(e: { key: string; target: { tagName?: string; isCont
   return (e.key === "Delete" || e.key === "Backspace") && !isTypingTarget(e.target);
 }
 
-/** A request to read one map's buildings again (queued, see `RefreshQueue`). */
+/** A request to read one map's buildings again (queued by the scene, see `RefreshQueue`). */
 export interface BuildingRefresh {
   map: number;
   /** A model whose earlier failure should be forgotten, so that loading it is tried again. */

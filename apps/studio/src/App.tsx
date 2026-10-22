@@ -5,6 +5,7 @@ import Workbench from "./workbench/Workbench";
 import type { WorkbenchData } from "./workbench/Workbench";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
+import { createEditBus } from "./app/editBus";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
@@ -20,10 +21,14 @@ export default function App() {
   // The dockview api of the workbench: a link focuses the panel that shows its target.
   const dockApi = useRef<DockviewApi | null>(null);
 
+  // The one edit bus of the app: a stable object, created once, that every writer emits to.
+  const [bus] = useState(() => createEditBus());
+
   const session = useProjectSession();
   const pins = useInspectorState();
-  const scene = useSceneSync({ setMessage: session.setMessage, fail: session.fail, refreshDirty: session.refreshDirty, setPinned: pins.setPinned, dockApi });
+  const scene = useSceneSync({ bus, setMessage: session.setMessage, fail: session.fail, refreshDirty: session.refreshDirty, setPinned: pins.setPinned, dockApi });
   const world = useWorldActions({
+    bus,
     pins,
     matrix: scene.matrix,
     matrixRef: scene.matrixRef,
@@ -33,7 +38,7 @@ export default function App() {
     fail: session.fail,
     refreshDirty: session.refreshDirty,
   });
-  const { step } = useHistoryReload({ session, scene, world, pins });
+  const { step } = useHistoryReload({ bus, session, scene, pins });
   useWindowGuards(session.dirtyRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
@@ -55,10 +60,8 @@ export default function App() {
     selected: scene.selected,
     onSelect: (h) => void scene.onSelect(h),
     goTo: scene.goTo,
-    revealToken: scene.revealToken,
     matrix: scene.matrix,
     areaDataId: scene.sceneArea,
-    modelsToken: scene.modelsToken,
     showPermissions,
     onShowPermissions: setShowPermissions,
     eventFileId: scene.headers.find((h) => h.id === scene.selected)?.event_file_id ?? null,
@@ -66,35 +69,28 @@ export default function App() {
     onShowEvents: setShowEvents,
     paintEnabled: !session.busy,
     history: scene.history,
-    mapRefresh: scene.mapRefresh,
+    bus,
     onEdited: session.onEdited,
     onError: session.fail,
     onLoadStatus: session.onLoadStatus,
     inspector: pins.inspector,
     onInspect: world.onInspect,
     memberCounts: session.counts,
-    headerRevision: scene.headerRevision,
     onHeaderChanged: scene.onHeaderChanged,
-    areaRevision: scene.areaRevision,
     onAreaChanged: scene.onAreaChanged,
-    matrixRevision: scene.matrixRevision,
     onMatrixEdited: scene.onMatrixEdited,
     onCountsChanged: session.onCountsChanged,
     selectedBuilding: pins.pinned.kind === "building" ? { map: pins.pinned.map, index: pins.pinned.index } : null,
     onSelectBuilding: world.onSelectBuilding,
     onBuildingMoved: world.onBuildingMoved,
-    buildingRevision: world.buildingRevision,
-    buildingRefresh: world.buildingRefresh,
     onBuildingChanged: world.onBuildingChanged,
     onAddBuilding: world.onAddBuilding,
     onDeleteBuilding: world.onDeleteBuilding,
     selectedEvent: world.selectedEvent,
     onSelectEvent: world.onSelectEvent,
     onEventMoved: world.onEventMoved,
-    eventRefresh: world.eventRefresh,
     eventLock: world.eventLock,
     onEventsLocked: world.onEventsLocked,
-    eventRevision: world.eventRevision,
     onEventChanged: world.onEventChanged,
     onAddEvent: world.onAddEvent,
     onDeleteEvent: world.onDeleteEvent,

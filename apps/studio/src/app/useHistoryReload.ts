@@ -3,15 +3,15 @@ import type { AssetId } from "../api";
 import { reloadPlan } from "../reload";
 import type { ReloadAction } from "../reload";
 import { pinAfterHistory } from "../workbench/pin";
+import type { EditBus } from "./editBus";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";
-import type { WorldActions } from "./useWorldActions";
 
 interface HistoryReloadParams {
+  bus: EditBus;
   session: ProjectSession;
   scene: SceneSync;
-  world: WorldActions;
   pins: InspectorState;
 }
 
@@ -19,7 +19,7 @@ interface HistoryReloadParams {
  * Undo and redo, and everything that has to be reloaded after the backend restored an asset (see
  * `reloadPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
  */
-export function useHistoryReload({ session, scene, world, pins }: HistoryReloadParams) {
+export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadParams) {
   const { setPinned } = pins;
   const { fail, refreshDirty } = session;
 
@@ -27,11 +27,11 @@ export function useHistoryReload({ session, scene, world, pins }: HistoryReloadP
   async function refreshAfterStale(matrixIndex: number | null) {
     try {
       if (matrixIndex !== null) scene.setMatrix(await getMatrix(matrixIndex));
-      scene.bumpHeaders();
-      scene.bumpMatrix();
-      scene.bumpArea();
-      world.bumpBuildings();
-      world.bumpEvents();
+      bus.emit({ topic: "headerTable" });
+      bus.emit({ topic: "matrixData" });
+      bus.emit({ topic: "areaData" });
+      bus.emit({ topic: "buildingData" });
+      bus.emit({ topic: "eventData" });
       // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
       setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
       await scene.syncHeaders();
@@ -53,31 +53,31 @@ export function useHistoryReload({ session, scene, world, pins }: HistoryReloadP
         setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
         break;
       case "buildings":
-        world.bumpBuildings();
+        bus.emit({ topic: "buildingData" });
         break;
       case "map":
-        scene.requestMapRefresh(a.map);
+        bus.emit({ topic: "mapRefetch", map: a.map });
         break;
       case "matrixPanel":
-        scene.bumpMatrix();
+        bus.emit({ topic: "matrixData" });
         break;
       case "matrix":
         await scene.refreshSceneMatrix(scene.matrixRef.current?.index);
         break;
       case "eventsPanel":
-        world.bumpEvents();
+        bus.emit({ topic: "eventData" });
         break;
       case "events":
-        world.requestEventRefresh(a.file);
+        bus.emit({ topic: "eventsRefetch", file: a.file });
         break;
       case "areaPanel":
-        scene.bumpArea();
+        bus.emit({ topic: "areaData" });
         break;
       case "models":
         await scene.noteSceneTileset(true);
         break;
       case "headers":
-        scene.bumpHeaders();
+        bus.emit({ topic: "headerTable" });
         await scene.syncHeaders();
         break;
     }

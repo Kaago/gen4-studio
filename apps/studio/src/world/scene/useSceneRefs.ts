@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useRef, useState } from "react";
 import type { HeaderSummary } from "../../api";
 import type { SceneHost } from "./SceneHost";
 import type { SceneCallbacks, SceneRefs } from "./types";
@@ -16,5 +16,7 @@ export function useSceneRefs(latest: { showPermissions: boolean; showEvents: boo
   area.current = latest.areaDataId;
   const callbacks = useRef(latest.callbacks);
   callbacks.current = latest.callbacks;
-  return useMemo(() => ({ handle, callbacks, showPermissions, showEvents, eventFile, headers, area }), []);
+  // Created once (a lazy state initialiser, not a memo that React may recompute): the scene effects capture this object.
+  const [refs] = useState(() => ({ handle, callbacks, showPermissions, showEvents, eventFile, headers, area }));
+  return refs;
 }

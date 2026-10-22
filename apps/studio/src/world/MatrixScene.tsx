@@ -2,10 +2,10 @@ import { memo, useRef, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { RefreshQueue } from "../reload";
+import type { EditBus } from "../app/editBus";
+import { useBusQueue, useBusRevision } from "../app/useBusEvent";
 import type { BuildingRef } from "./buildingLayer";
-import type { BuildingRefresh } from "./buildings";
-import type { EventLock, EventRef, EventRefresh } from "./events";
+import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
 import type { ReportEvents } from "./scene/types";
 import { useBuildingRefresh, useEventRefresh, useMapRefresh } from "./scene/useRefreshQueues";
@@ -19,11 +19,15 @@ interface Props {
   /**
    * Area data of the shown header; selects the map texture set for every map of the matrix. It
    * belongs to `matrix` (App changes both in one update when another header is shown). Changed
-   * alone, or with a changed `modelsToken`, only the models reload, not the maps and markers.
+   * alone, or on a `modelsReload` event, only the models reload, not the maps and markers.
    */
   areaDataId: number;
-  /** Increment to reload the models alone (the shown area data's tilesets were edited). */
-  modelsToken: number;
+  /**
+   * Where the scene hears that its data was edited elsewhere (undo, redo, the editors): maps,
+   * buildings and event files to read again, and the models to reload. A stable object, so the
+   * scene stays memoised. Every event is kept, in order, until the scene has handled it.
+   */
+  bus: EditBus;
   showPermissions: boolean;
   /** Event file of the selected header; its events are shown as markers (null: none). */
   eventFileId: number | null;
@@ -37,8 +41,6 @@ interface Props {
    * map phase meanwhile fetches again, so it never shows the state from before the undo.
    */
   history: { readonly current: number };
-  /** A new request makes the scene refetch one map (overlay colours and buildings of all its cells): undo or redo restored it. */
-  mapRefresh: RefreshQueue<number> | null;
   /** Called after a tile was changed in the backend. */
   onEdited: () => void;
   onError: (message: string) => void;
@@ -53,16 +55,12 @@ interface Props {
   onSelectBuilding: (ref: BuildingRef | null) => void;
   /** A building was moved by dragging and the move is written. */
   onBuildingMoved: (map: number) => void;
-  /** A new request makes the scene read one map's buildings again (they were edited elsewhere). */
-  buildingRefresh: RefreshQueue<BuildingRefresh> | null;
   /** The selected event (null: none). The scene outlines it and lets it be dragged. */
   selectedEvent: EventRef | null;
   /** A click on an event marker (or null for none). The owner decides what to select and passes it back. */
   onSelectEvent: (ref: EventRef | null) => void;
   /** An event was moved by dragging and the move is written. */
   onEventMoved: (eventFile: number) => void;
-  /** A new request makes the scene read one event file's events again (they were edited elsewhere). */
-  eventRefresh: EventRefresh | null;
   /** The shown event file's lock state, reported whenever its events were read (null: not locked, or none shown). */
   onEventsLocked: (lock: EventLock | null) => void;
 }
@@ -70,14 +68,13 @@ interface Props {
 function MatrixScene({
   matrix,
   areaDataId,
-  modelsToken,
+  bus,
   showPermissions,
   eventFileId,
   showEvents,
   headers,
   paintEnabled,
   history,
-  mapRefresh,
   onEdited,
   onError,
   onInspect,
@@ -86,17 +83,20 @@ function MatrixScene({
   selectedBuilding,
   onSelectBuilding,
   onBuildingMoved,
-  buildingRefresh,
   selectedEvent,
   onSelectEvent,
   onEventMoved,
-  eventRefresh,
   onEventsLocked,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
   // Counts the scenes built (maps fetched, content in place): queued building edits are read again then.
   const [sceneBuilt, setSceneBuilt] = useState(0);
+  // The bus events as the queues the effects below drain (see `useBusQueue`), and the counter that reloads the models.
+  const mapRefresh = useBusQueue(bus, "mapRefetch", (e) => e.map);
+  const buildingRefresh = useBusQueue(bus, "buildingsRefetch", (e) => ({ map: e.map, retryModel: e.retryModel }));
+  const eventRefresh = useBusQueue(bus, "eventsRefetch", (e) => e.file);
+  const modelsToken = useBusRevision(bus, "modelsReload");
   const refs = useSceneRefs({
     showPermissions,
     showEvents,

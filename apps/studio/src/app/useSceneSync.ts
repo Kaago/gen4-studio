@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { DockviewApi } from "dockview-react";
 import { errorText, getAreaData, getMatrix, listHeaders } from "../api";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
-import { fetchCurrent, enqueue } from "../reload";
-import type { RefreshQueue } from "../reload";
+import { fetchCurrent } from "../reload";
 import { tilesetKey } from "../workbench/inspector/areaFields";
 import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
+import type { EditBus } from "./editBus";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
 interface SceneSyncParams {
+  bus: EditBus;
   setMessage: (message: Message | null) => void;
   fail: (e: unknown) => void;
   refreshDirty: () => Promise<void>;
@@ -26,23 +27,15 @@ interface SceneSyncParams {
 /**
  * The header list, the selected header and the matrix the scene shows, kept consistent by the
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
- * and comparing tilesets. Also the revision counters that tell the editors their data moved.
+ * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockApi }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
-  const [mapRefresh, setMapRefresh] = useState<RefreshQueue<number> | null>(null);
-  const [headerRevision, setHeaderRevision] = useState(0);
-  const [matrixRevision, setMatrixRevision] = useState(0);
-  const [areaRevision, setAreaRevision] = useState(0);
   // The area data of the shown scene. It changes together with `matrix` (another header) or alone
   // (the header now uses another area data); alone, the scene reloads only its models.
   const [sceneArea, setSceneArea] = useState(0);
-  // Incremented when the tilesets of the shown area data changed: the scene reloads its models.
-  const [modelsToken, setModelsToken] = useState(0);
-  // Bumped by every link that leads to a header: the header list scrolls to the selection.
-  const [revealToken, setRevealToken] = useState(0);
 
   // The decisions' state lives in a ref: they must see what the previous one did at once, not on
   // the next render. Every change goes through the pure `sceneSync`.
@@ -54,14 +47,12 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
   }, []);
   // Bumped by every undo and redo the moment it returns: a matrix fetch or scene load that was in
   // flight meanwhile fetches again. Read like a ref, because state would only change on the next render.
-  const history = useMemo(
-    () => ({
-      get current() {
-        return sync.current.history;
-      },
-    }),
-    [],
-  );
+  // The object is created once (it is passed on as the scene's identity), not recomputed like a memo.
+  const [history] = useState(() => ({
+    get current() {
+      return sync.current.history;
+    },
+  }));
   const noteHistoryMoved = useCallback(() => void dispatch({ type: "historyMoved" }), [dispatch]);
 
   const selectedRef = useRef<number | null>(null);
@@ -87,12 +78,12 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
       const area = sync.current.area;
       try {
         const key = tilesetKey(await getAreaData(area));
-        if (dispatch({ type: "tilesetRead", area, key, reload }).kind === "models") setModelsToken((t) => t + 1);
+        if (dispatch({ type: "tilesetRead", area, key, reload }).kind === "models") bus.emit({ topic: "modelsReload" });
       } catch (e) {
         if (dispatch({ type: "tilesetFailed", area }).kind === "report") setMessage({ kind: "error", text: `Area-Daten ${area} nicht lesbar: ${errorText(e)}` });
       }
     },
-    [dispatch, setMessage],
+    [bus, dispatch, setMessage],
   );
 
   /** The matrix of `header`, fetched again while undo or redo lands during the fetch. */
@@ -156,7 +147,7 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
 
   const onMatrixEdited = useCallback(
     async (index: number) => {
-      setMatrixRevision((r) => r + 1);
+      bus.emit({ topic: "matrixData" });
       try {
         await refreshSceneMatrix(index);
       } catch (e) {
@@ -164,7 +155,7 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
       }
       await refreshDirty();
     },
-    [refreshSceneMatrix, refreshDirty, setMessage],
+    [bus, refreshSceneMatrix, refreshDirty, setMessage],
   );
 
   const onAreaChanged = useCallback(async () => {
@@ -219,7 +210,7 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
       if (target.kind === "header") setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
       return;
     }
-    if (next.panel === "headers") setRevealToken((t) => t + 1);
+    if (next.panel === "headers") bus.emit({ topic: "headerReveal" });
     // A header already selected has its matrix loaded: it is only pinned again below.
     if (next.selectedHeader !== selectedRef.current) {
       const header = headersRef.current.find((h) => h.id === next.selectedHeader);
@@ -242,7 +233,6 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
     setSceneArea(0);
     setHeaders(listed);
     setSelected(null);
-    setMapRefresh(null);
     setMatrix(null);
   }
 
@@ -251,12 +241,6 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
     selected,
     matrix,
     sceneArea,
-    modelsToken,
-    revealToken,
-    mapRefresh,
-    headerRevision,
-    matrixRevision,
-    areaRevision,
     history,
     selectedRef,
     matrixRef,
@@ -273,10 +257,6 @@ export function useSceneSync({ setMessage, fail, refreshDirty, setPinned, dockAp
     onSelect,
     goTo,
     resetForProject,
-    requestMapRefresh: (map: number) => setMapRefresh((previous) => enqueue(previous, map)),
-    bumpHeaders: () => setHeaderRevision((r) => r + 1),
-    bumpMatrix: () => setMatrixRevision((r) => r + 1),
-    bumpArea: () => setAreaRevision((r) => r + 1),
   };
 }
 
