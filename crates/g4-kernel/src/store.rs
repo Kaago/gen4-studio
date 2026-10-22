@@ -645,14 +645,24 @@ impl Store {
     /// Applies the Dynamic Headers patch (see [`dynamic_headers::apply`]) with the header
     /// table as it is on disk and loads the table from the new header files. Refuses with
     /// [`KernelError::InvalidProject`] while the table has unsaved changes, and when the game
-    /// has no patch or has it already. The table's undo and redo entries are dropped (there
-    /// are none: only a clean table is accepted).
+    /// has no patch or has it already. Like [`Store::save`] it returns
+    /// [`KernelError::Stale`] and writes nothing when the table in `arm9.bin` is no longer
+    /// the one this store loaded (the patch would otherwise bake the old table over the
+    /// newer one). A table that was not loaded yet is read fresh. The table's undo and redo
+    /// entries are dropped: only a clean table is accepted, but earlier edits that were
+    /// saved leave their changesets behind.
     pub fn apply_dynamic_headers(&mut self) -> Result<(), KernelError> {
         if self.dirty().contains(&HEADER_TABLE) {
             return Err(KernelError::InvalidProject(
                 "the header table has unsaved changes, save them before applying the patch"
                     .to_owned(),
             ));
+        }
+        if let Some(asset) = self.assets.get(&HEADER_TABLE) {
+            let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
+            if read_location(&location)? != asset.saved_bytes {
+                return Err(KernelError::Stale(HEADER_TABLE));
+            }
         }
         let headers = self.header_table()?.to_vec();
         dynamic_headers::apply(&self.project, &headers)?;

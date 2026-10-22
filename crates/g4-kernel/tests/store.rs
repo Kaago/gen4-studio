@@ -1440,6 +1440,34 @@ fn apply_dynamic_headers_refuses_a_dirty_table() {
 }
 
 #[test]
+fn apply_dynamic_headers_refuses_a_table_that_is_behind_the_disk() {
+    use g4_kernel::project::Location;
+    let (s, mut st) = unpatched_store();
+    st.header_table().unwrap();
+    // Another tool (DSPRE) edits a header in arm9.bin while the store holds the old table.
+    let Location::Slice { offset, .. } = st
+        .project()
+        .asset_location(AssetKind::HeaderTable, 0)
+        .unwrap()
+    else {
+        panic!("the header table is a slice of arm9.bin before the patch");
+    };
+    let arm9_path = s.dir.path().join("arm9/arm9.bin");
+    let mut arm9 = std::fs::read(&arm9_path).unwrap();
+    arm9[offset as usize + 2] ^= 0x5A;
+    std::fs::write(&arm9_path, &arm9).unwrap();
+
+    assert!(matches!(
+        st.apply_dynamic_headers().unwrap_err(),
+        KernelError::Stale(id) if id == header_table_id()
+    ));
+    assert_eq!(std::fs::read(&arm9_path).unwrap(), arm9, "arm9.bin changed");
+    assert!(!s.dir.path().join("unpacked/dynamicHeaders").exists());
+    assert!(!s.dir.path().join("arm9/arm9.bin.backup").exists());
+    assert!(!st.dynamic_headers_applied().unwrap());
+}
+
+#[test]
 fn apply_dynamic_headers_reloads_the_table() {
     let (_s, mut st) = unpatched_store();
     let before = st.header_table().unwrap().to_vec();

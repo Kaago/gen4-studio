@@ -129,8 +129,9 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
   }, [dispatch, fetchMatrix, setMessage]);
 
   /**
-   * Reads the scene's matrix again and replaces it when it now places other maps (a new object
-   * makes the scene refetch all its maps, so name, header and altitude edits leave it alone).
+   * Reads the scene's matrix again and replaces it when it now places other maps or other
+   * altitudes (`sameLayout` compares both; a new object makes the scene refetch all its maps,
+   * so name and header edits leave it alone).
    * A newer selection or scene load that began meanwhile wins.
    */
   const refreshSceneMatrix = useCallback(async (index?: number) => {

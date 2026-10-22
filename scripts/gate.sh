@@ -86,7 +86,9 @@ run_step() { # run_step <step label> <project label> <command...>
 run_step "cargo fmt --check" "" cargo fmt --check
 run_step "cargo clippy (-D warnings)" "" \
   cargo clippy --workspace --all-targets --all-features -- -D warnings
+# Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
+  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA \
   cargo test --workspace --all-features
 run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "pnpm build" "" bash -c 'cd apps/studio && pnpm build'

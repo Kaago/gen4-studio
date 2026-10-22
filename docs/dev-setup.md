@@ -119,7 +119,7 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo test --workspace --all-features` (ohne ROM-Daten)
+3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI` und `G4_APICULA` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
 4. `pnpm test` und `pnpm build` in `apps/studio`
 5. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA` und `G4_DSROM_CLI` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
 

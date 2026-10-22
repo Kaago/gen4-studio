@@ -64,7 +64,8 @@ pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>,
         let mut guard = lock(state)?;
         Arc::clone(&session(&mut guard)?.project)
     };
-    // `member_count` fails exactly for kinds without an archive in this family.
+    // `member_count` fails for kinds without an archive in this family and for the store-only
+    // `DynamicHeaders` kind (its files exist only once the patch is applied), so both are left out.
     Ok(AssetKind::ALL
         .into_iter()
         .filter_map(|kind| Some((kind, project.member_count(kind).ok()?)))
@@ -239,6 +240,7 @@ mod tests {
         assert_eq!(counts[&AssetKind::Event], 2);
         assert_eq!(counts[&AssetKind::TextArchive], 434);
         assert_eq!(counts[&AssetKind::HeaderTable], 1);
+        assert!(!counts.contains_key(&AssetKind::DynamicHeaders));
         // Serialized for the frontend as an object keyed by the kind name.
         let json = serde_json::to_value(&counts).unwrap();
         assert_eq!(json["AreaData"], 2);

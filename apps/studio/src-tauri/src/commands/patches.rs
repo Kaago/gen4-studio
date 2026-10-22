@@ -35,7 +35,7 @@ pub fn header_patch_status_impl(state: &AppState) -> Result<HeaderPatchDto, CmdE
 
 /// Applies the patch and reports the new state. Runs under the state lock: it writes a few
 /// small files and the header files, which is quick. The kernel refuses a header table with
-/// unsaved changes.
+/// unsaved changes and one that is behind `arm9.bin` on disk (code `stale`).
 pub fn apply_header_patch_impl(state: &AppState) -> Result<HeaderPatchDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -100,6 +100,30 @@ mod tests {
         assert!(after.applied);
         // Applying twice is refused by the kernel.
         assert!(apply_header_patch_impl(&state).is_err());
+    }
+
+    #[test]
+    fn apply_reports_a_table_that_changed_on_disk_as_stale() {
+        use g4_kernel::project::{AssetKind, Location, Project};
+        let (f, state) = open_synthetic();
+        // Load the table, then let another tool edit it in arm9.bin.
+        super::super::get_header_impl(&state, 0).unwrap();
+        let Location::Slice { offset, .. } = Project::open(f.dir.path())
+            .unwrap()
+            .asset_location(AssetKind::HeaderTable, 0)
+            .unwrap()
+        else {
+            panic!("the header table is a slice of arm9.bin before the patch");
+        };
+        let arm9 = f.dir.path().join("arm9/arm9.bin");
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        bytes[offset as usize + 2] ^= 0x5A;
+        std::fs::write(&arm9, &bytes).unwrap();
+        let err = apply_header_patch_impl(&state).unwrap_err();
+        assert_eq!(err.code, "stale");
+        assert_eq!(err.asset.map(|a| a.kind), Some(AssetKind::HeaderTable));
+        assert!(!header_patch_status_impl(&state).unwrap().applied);
+        assert_eq!(std::fs::read(&arm9).unwrap(), bytes);
     }
 
     #[test]
