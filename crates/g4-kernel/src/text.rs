@@ -424,8 +424,22 @@ fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
 pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
     let dir = project.expanded_dir(AssetKind::TextArchive);
     let lang = project.language.locale_key();
-    let mut encoded = Vec::new();
+    let relative = |path: &Path| {
+        path.strip_prefix(&project.root)
+            .unwrap_or(path)
+            .to_path_buf()
+    };
+    let error = |json: &Path, message: String| Problem {
+        severity: Severity::Error,
+        file: relative(json),
+        line: 1,
+        col: 1,
+        message,
+    };
     let mut problems = Vec::new();
+    // First decide every winner: unpacking the member folder gives all members a fresh
+    // mtime, which would make every JSON decided afterwards lose.
+    let mut stale = Vec::new();
     for n in numbered_files(&dir, Some("json"))? {
         let json = dir.join(format!("{n:04}.json"));
         let member = project.member_path(AssetKind::TextArchive, n);
@@ -433,35 +447,30 @@ pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), Kerne
             continue;
         }
         let bytes = std::fs::read(&json).map_err(io_at(&json))?;
-        let doc = match TextArchiveDoc::from_json(&bytes, lang) {
-            Ok(doc) => doc,
-            Err(e) => {
-                problems.push(Problem {
-                    severity: Severity::Error,
-                    file: json
-                        .strip_prefix(&project.root)
-                        .unwrap_or(&json)
-                        .to_path_buf(),
-                    line: 1,
-                    col: 1,
-                    message: e.to_string(),
-                });
-                continue;
-            }
-        };
-        if member_is_current(&member, &doc) {
-            continue;
+        match TextArchiveDoc::from_json(&bytes, lang) {
+            Ok(doc) if member_is_current(&member, &doc) => {}
+            Ok(doc) => stale.push((n, json, member, doc)),
+            Err(e) => problems.push(error(&json, e.to_string())),
         }
+    }
+    let mut encoded = Vec::new();
+    if !stale.is_empty() {
         // The member folder must be complete before one member lands in it.
         project.ensure_unpacked(AssetKind::TextArchive)?;
-        for mut problem in write_archive(&project.root, &json, &member, &doc)? {
-            problem.file = json
-                .strip_prefix(&project.root)
-                .unwrap_or(&json)
-                .to_path_buf();
-            problems.push(problem);
+    }
+    for (n, json, member, doc) in stale {
+        match write_archive(&project.root, &json, &member, &doc) {
+            Ok(warnings) => {
+                for mut problem in warnings {
+                    problem.file = relative(&json);
+                    problems.push(problem);
+                }
+                encoded.push(n);
+            }
+            // chatot refused the text (unknown glyph, bad command); the member is untouched.
+            Err(KernelError::InvalidProject(message)) => problems.push(error(&json, message)),
+            Err(e) => return Err(e),
         }
-        encoded.push(n);
     }
     Ok((encoded, problems))
 }

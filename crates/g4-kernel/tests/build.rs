@@ -420,6 +420,17 @@ fn write_text_json(p: &Project, index: u16, text: &str) {
     .unwrap();
 }
 
+/// A JSON we parse but chatot refuses: a foreign-language key that is not text.
+fn write_text_json_chatot_refuses(p: &Project, index: u16) {
+    let dir = p.expanded_dir(AssetKind::TextArchive);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{index:04}.json")),
+        r#"{"key": 0, "messages": [{"id": "msg_00000", "en_US": "x", "de_DE": 5}]}"#,
+    )
+    .unwrap();
+}
+
 fn member_texts(p: &Project, index: u16) -> Vec<String> {
     let bytes = std::fs::read(p.member_path(AssetKind::TextArchive, index)).unwrap();
     TextArchiveDoc::from_member(&bytes, "en_US")
@@ -555,6 +566,55 @@ fn undecodable_text_json_aborts_the_build_with_a_problem() {
 }
 
 #[test]
+fn encode_stale_encodes_every_edited_json_when_members_are_not_unpacked() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    // No ensure_unpacked: unpacking after the first JSON would give the members a newer
+    // mtime than the second JSON.
+    assert!(!p.unpacked_dir(AssetKind::TextArchive).exists());
+    write_text_json(&p, 433, "Eins");
+    write_text_json(&p, 5, "Zwei");
+    let (encoded, problems) = text::encode_stale(&p).unwrap();
+    assert_eq!(encoded, [5, 433]);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(member_texts(&p, 433), ["Eins"]);
+    assert_eq!(member_texts(&p, 5), ["Zwei"]);
+}
+
+#[test]
+fn text_chatot_refuses_is_a_problem_and_the_other_archives_are_still_encoded() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    let before = std::fs::read(p.member_path(AssetKind::TextArchive, 5)).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write_text_json_chatot_refuses(&p, 5);
+    write_text_json(&p, 433, "Gut");
+    let (encoded, problems) = text::encode_stale(&p).unwrap();
+    assert_eq!(encoded, [433]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].severity, Severity::Error);
+    assert_eq!(
+        problems[0].file,
+        Path::new("expanded/textArchives/0005.json")
+    );
+    assert_eq!(
+        std::fs::read(p.member_path(AssetKind::TextArchive, 5)).unwrap(),
+        before
+    );
+    assert_eq!(member_texts(&p, 433), ["Gut"]);
+
+    // Through build: Compile with the full list, nothing packed.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write_text_json_chatot_refuses(&p, 5);
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Compile(ps) if ps.len() == 1 && ps[0].file == Path::new("expanded/textArchives/0005.json")),
+        "{err}"
+    );
+}
+
+#[test]
 fn encode_stale_leaves_members_that_won_and_up_to_date_json_alone() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
@@ -582,8 +642,8 @@ fn encode_stale_leaves_members_that_won_and_up_to_date_json_alone() {
 }
 
 /// Like `vanilla_rebuild_matches_dsrom_cli`, but the scripts are adopted first: the sources
-/// compile back to the unchanged members, so the ROM stays byte-identical. A member that
-/// does not round-trip is named by `adopt` and `compile` tests, not overwritten.
+/// compile back to the unchanged members, so nothing is compiled or encoded and the ROM
+/// stays byte-identical.
 #[test]
 fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
     let Some(cli) = std::env::var_os("G4_DSROM_CLI").map(PathBuf::from) else {
@@ -609,11 +669,9 @@ fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
     scripts::adopt(&p, &mut |_| {}).unwrap();
     let ours = out_dir.path().join("ours.nds");
     let report = build(&p, &ours).unwrap();
-    eprintln!(
-        "compiled {:?}, encoded {:?}, problems {:?}",
-        report.compiled, report.encoded, report.problems
-    );
     assert!(report.compiled.is_empty(), "{:?}", report.compiled);
+    assert!(report.encoded.is_empty(), "{:?}", report.encoded);
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
     let a = std::fs::read(&reference).unwrap();
     let b = std::fs::read(&ours).unwrap();
     assert_eq!(a.len(), b.len());
