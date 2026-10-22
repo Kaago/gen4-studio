@@ -15,6 +15,10 @@ pub struct HeaderPatchDto {
     pub supported: bool,
     /// The patch is in the game: headers live in one file each.
     pub applied: bool,
+    /// The patch is in, but its routine calls a wrong function (the game hangs after the
+    /// intro) and `repair_header_patch` can fix it: what DSPRE and Studio before the fix
+    /// wrote for Platinum DE/FR/IT/ES.
+    pub repairable: bool,
     /// The NARC that holds the headers once patched, relative to the project root.
     pub narc: Option<String>,
 }
@@ -24,6 +28,7 @@ fn status(session: &crate::state::Session) -> Result<HeaderPatchDto, CmdError> {
     Ok(HeaderPatchDto {
         supported: plan.is_some(),
         applied: session.store.dynamic_headers_applied()?,
+        repairable: dynamic_headers::needs_repair(&session.project)?,
         narc: plan.map(|p| p.narc.to_string_lossy().into_owned()),
     })
 }
@@ -43,6 +48,16 @@ pub fn apply_header_patch_impl(state: &AppState) -> Result<HeaderPatchDto, CmdEr
     status(session)
 }
 
+/// Repairs a patch whose routine calls a wrong function and reports the new state. Only
+/// bytes of `arm9.bin` inside the routine's two calls change; the header table is not
+/// involved, so unsaved edits stay as they are.
+pub fn repair_header_patch_impl(state: &AppState) -> Result<HeaderPatchDto, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    dynamic_headers::repair(&session.project)?;
+    status(session)
+}
+
 #[tauri::command]
 pub fn header_patch_status(state: State<AppState>) -> Result<HeaderPatchDto, CmdError> {
     header_patch_status_impl(&state)
@@ -51,6 +66,11 @@ pub fn header_patch_status(state: State<AppState>) -> Result<HeaderPatchDto, Cmd
 #[tauri::command]
 pub fn apply_header_patch(state: State<AppState>) -> Result<HeaderPatchDto, CmdError> {
     apply_header_patch_impl(&state)
+}
+
+#[tauri::command]
+pub fn repair_header_patch(state: State<AppState>) -> Result<HeaderPatchDto, CmdError> {
+    repair_header_patch_impl(&state)
 }
 
 #[cfg(test)]
@@ -97,9 +117,29 @@ mod tests {
             Some("files/debug/cb_edit/d_test.narc")
         );
         let after = header_patch_status_impl(&state).unwrap();
-        assert!(after.applied);
-        // Applying twice is refused by the kernel.
+        assert!(after.applied && !after.repairable);
+        // Applying twice is refused by the kernel, and so is repairing an intact patch.
         assert!(apply_header_patch_impl(&state).is_err());
+        assert!(repair_header_patch_impl(&state).is_err());
+    }
+
+    #[test]
+    fn a_patch_with_a_wrong_call_is_reported_and_repaired() {
+        let (f, state) = open_synthetic();
+        assert!(!header_patch_status_impl(&state).unwrap().repairable);
+        apply_header_patch_impl(&state).unwrap();
+        // The routine's free call (byte 14 of the routine at 0x3A024) lands two bytes short.
+        let arm9 = f.dir.path().join("arm9/arm9.bin");
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        let good = bytes[0x3A032..0x3A036].to_vec();
+        bytes[0x3A034] -= 1;
+        std::fs::write(&arm9, &bytes).unwrap();
+
+        let broken = header_patch_status_impl(&state).unwrap();
+        assert!(broken.applied && broken.repairable);
+        let repaired = repair_header_patch_impl(&state).unwrap();
+        assert!(repaired.applied && !repaired.repairable);
+        assert_eq!(std::fs::read(&arm9).unwrap()[0x3A032..0x3A036], good);
     }
 
     #[test]

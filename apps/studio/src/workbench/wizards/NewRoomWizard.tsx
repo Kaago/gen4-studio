@@ -299,6 +299,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
           patchError={patch.error}
           patchBusy={patch.busy}
           onApplyPatch={patch.apply}
+          onRepairPatch={patch.repair}
           template={form.template ?? 0}
           defaultName={internalName(form.name)}
         />

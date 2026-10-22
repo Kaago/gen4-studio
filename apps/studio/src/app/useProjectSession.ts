@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { acceptDisk, buildRom, dirty, errorText, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, runRom, save } from "../api";
+import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import type { Message } from "../Toolbar";
@@ -140,10 +140,38 @@ export function useProjectSession() {
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
+      await offerPatchRepair();
       await refreshDirty();
     } catch (e) {
       fail(e);
     }
+  }
+
+  /**
+   * A project whose Dynamic Headers patch calls a wrong function builds a ROM that hangs after the intro: say so when
+   * it opens and offer the repair. A state that cannot be read says nothing here (the wizard's header step shows it).
+   */
+  async function offerPatchRepair() {
+    let status;
+    try {
+      status = await headerPatchStatus();
+    } catch {
+      return;
+    }
+    if (!status?.repairable) return;
+    const repair = async () => {
+      try {
+        await repairHeaderPatch();
+        setMessage({ kind: "info", text: "Patch „Dynamische Header“ repariert: arm9.bin geändert, bitte ROM neu bauen." });
+      } catch (e) {
+        setMessage({ kind: "error", text: errorText(e) });
+      }
+    };
+    setMessage({
+      kind: "error",
+      text: "Patch „Dynamische Header“ fehlerhaft: das Spiel bleibt nach dem Intro schwarz (falscher Funktionsaufruf, wie ihn DSPRE für Platin DE/FR/IT/ES schreibt).",
+      actions: [{ label: "Patch reparieren", run: () => void repair() }],
+    });
   }
 
   async function onSave() {

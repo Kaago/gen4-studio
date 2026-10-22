@@ -25,6 +25,8 @@ interface Props {
   patchBusy: boolean;
   /** Applies the patch; it reports its failure through `patchError`. */
   onApplyPatch: () => Promise<void>;
+  /** Repairs a patch whose routine calls a wrong function (`patch.repairable`); reports through `patchError`. */
+  onRepairPatch: () => Promise<void>;
   /** The header a new header is copied from. */
   template: number;
   /** The internal name a new header gets unless one is typed. */
@@ -38,7 +40,7 @@ const muted: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 const NAME_PATTERN = "[A-Z0-9_]*";
 
 /** The step "Header wählen": which header the new matrix is given to, with its area data and event file. */
-export function HeaderChoice({ headers, links, counts, value, copySource, onChange, patch, patchError, patchBusy, onApplyPatch, template, defaultName }: Props) {
+export function HeaderChoice({ headers, links, counts, value, copySource, onChange, patch, patchError, patchBusy, onApplyPatch, onRepairPatch, template, defaultName }: Props) {
   const chosen = value.header === null ? null : (headers.find((h) => h.id === value.header) ?? null);
   const creating = value.newHeader !== null;
   const templateHeader = headers.find((h) => h.id === template);
@@ -56,7 +58,8 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
   const eventFile = (choice: EventFileChoice) => set({ eventFile: choice });
   const isCopy = typeof value.eventFile === "object";
 
-  const canCreate = patch !== null && patch.supported && patch.applied;
+  // A patch that keeps the game from starting is repaired first.
+  const canCreate = patch !== null && patch.supported && patch.applied && !patch.repairable;
 
   return (
     <div>
@@ -94,6 +97,20 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
             Patch anwenden
           </button>
           {patchBusy && <span style={{ marginLeft: 8, color: "#6b7280" }}>Wende an …</span>}
+          {patchError !== null && <div style={{ color: "#b91c1c", marginTop: 6 }}>{patchError}</div>}
+        </div>
+      )}
+      {patch?.applied === true && patch.repairable && (
+        <div style={{ ...box, borderColor: "#b91c1c", background: "#fef2f2" }}>
+          <div style={heading}>{TERMS.patch.label} „Dynamische Header“ fehlerhaft</div>
+          <p style={{ margin: "4px 0" }}>
+            Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. So haben ihn DSPRE und ältere Studio-Versionen für Platin (deutsch, französisch,
+            italienisch, spanisch) geschrieben. Die Reparatur ändert 4 Bytes in arm9.bin; die {TERMS.header.plural} bleiben, wie sie sind.
+          </p>
+          <button type="button" disabled={patchBusy} onClick={() => void onRepairPatch()}>
+            Patch reparieren
+          </button>
+          {patchBusy && <span style={{ marginLeft: 8, color: "#6b7280" }}>Repariere …</span>}
           {patchError !== null && <div style={{ color: "#b91c1c", marginTop: 6 }}>{patchError}</div>}
         </div>
       )}

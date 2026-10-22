@@ -250,6 +250,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
           patchError={patch.error}
           patchBusy={patch.busy}
           onApplyPatch={patch.apply}
+          onRepairPatch={patch.repair}
           template={template}
           defaultName={internalName(form.name)}
         />
