@@ -122,6 +122,18 @@ describe("areaSummary", () => {
     expect(areaSummary({ ...spec, header: { id: 2, area_data_id: null, event_file: "Keep" } }, headers)[2]).toContain("Eventdatei: behalten");
     expect(areaSummary({ ...spec, header: null }, headers)[2]).toBe("Stellt keinen Header um.");
   });
+
+  it("warns_when_the_header_is_in_use", () => {
+    const link = (dest: number, index: number) => ({ event_file: 5, index, x: 0, z: 0, dest_header_id: dest, dest_warp_id: 0 });
+    const used = areaSummary(spec, headers, [link(1, 0), link(1, 1), link(2, 2)]);
+    expect(used).toContain(`Achtung: Header 0001 wird benutzt (2 Warps führen hierher); er verliert sein bisheriges Raster ${String(headers[1].matrix_id).padStart(4, "0")}.`);
+    expect(used[used.length - 1]).toBe("Anlegen lässt sich nicht rückgängig machen.");
+    expect(areaSummary(spec, headers, [link(2, 0)]).some((l) => l.startsWith("Achtung"))).toBe(false);
+    expect(areaSummary({ ...spec, header: null }, headers, [link(1, 0)]).some((l) => l.startsWith("Achtung"))).toBe(false);
+    expect(roomSummary({ name: "Haus", source_map: 1, clear_buildings: false, header: { id: 2, area_data_id: null, event_file: "New" }, entrance: null }, headers, undefined, [link(2, 0)])).toContain(
+      `Achtung: Header 0002 wird benutzt (1 Warp führt hierher); er verliert sein bisheriges Raster ${String(headers[2].matrix_id).padStart(4, "0")}.`,
+    );
+  });
 });
 
 describe("areaResult", () => {

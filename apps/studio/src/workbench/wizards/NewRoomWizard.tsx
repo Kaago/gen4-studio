@@ -341,7 +341,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       content: (
         <div>
           {"spec" in built ? (
-            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined).map((line) => (
+            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links).map((line) => (
               <p key={line} style={{ margin: "6px 0" }}>
                 {line}
               </p>

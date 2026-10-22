@@ -241,7 +241,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       content: (
         <div>
           {"spec" in built ? (
-            areaSummary(built.spec, headers).map((line) => (
+            areaSummary(built.spec, headers, links).map((line) => (
               <p key={line} style={{ margin: "6px 0" }}>
                 {line}
               </p>

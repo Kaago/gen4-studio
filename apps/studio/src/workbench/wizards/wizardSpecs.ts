@@ -1,4 +1,4 @@
-import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
@@ -104,14 +104,29 @@ function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): st
   return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
 }
 
+/**
+ * A warning when the header to be reassigned looks in use (warps lead to it): it loses the raster it shows today.
+ * Null when no warp leads there, or its raster stays the same.
+ */
+function inUseLine(assign: AssignHeader, headers: readonly HeaderSummary[], links: readonly WarpLink[]): string | null {
+  const incoming = links.filter((l) => l.dest_header_id === assign.id).length;
+  const assigned = headers.find((h) => h.id === assign.id);
+  if (incoming === 0 || !assigned) return null;
+  // The technical word, as in the header choice's "Warps hierher".
+  const warps = incoming === 1 ? `1 ${TERMS.warp.tech} führt` : `${incoming} ${TERMS.warp.tech}s führen`;
+  return `Achtung: ${TERMS.header.label} ${id4(assign.id)} wird benutzt (${warps} hierher); er verliert sein bisheriges ${TERMS.matrix.label} ${id4(assigned.matrix_id)}.`;
+}
+
 const NOT_UNDOABLE = "Anlegen lässt sich nicht rückgängig machen.";
 
 /** What "Anlegen" will do, one sentence per line, for the last step. */
-export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[]): string[] {
+export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], links: readonly WarpLink[] = []): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
   const copies = spec.cells.map((c) => `${TERMS.map.label} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
   lines.push(`Kopiert ${copies}, ${spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden"}.`);
   lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers));
+  const warning = spec.header === null ? null : inUseLine(spec.header, headers, links);
+  if (warning) lines.push(warning);
   lines.push(NOT_UNDOABLE);
   return lines;
 }
@@ -276,13 +291,15 @@ export function roomSpec(form: RoomForm, outsideMatrix?: { width: number; height
 }
 
 /** What "Anlegen" will do, one sentence per line, for the last step. */
-export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string): string[] {
+export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string, links: readonly WarpLink[] = []): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ mit einer Kopie von ${TERMS.map.label} ${id4(spec.source_map)} an, ${spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden"}.`];
   lines.push(assignLine(spec.header, headers));
+  const warning = inUseLine(spec.header, headers, links);
+  if (warning) lines.push(warning);
   const entrance = spec.entrance;
   if (entrance === null) {
     const why = notConnected ? ` (${notConnected})` : "";
-    lines.push(`Legt keinen Eingang an${why}: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „Ausgänge“ setzen.`);
+    lines.push(`Legt keinen Eingang an${why}: ${TERMS.warp.label} später im ${TERMS.header.label}-Editor unter „${TERMS.warp.plural}“ setzen.`);
   } else {
     const outside = headers.find((h) => h.id === entrance.outside_header);
     const name = outside ? ` ${headerLabel(outside)}` : "";
