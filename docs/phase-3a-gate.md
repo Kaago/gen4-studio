@@ -20,37 +20,39 @@ Namen in der Oberfläche: linkes Panel "Welt" (Umschalter "Baum | Liste", Knopf 
 ## Vorbereitung
 
 1. Kopien der Projekte anlegen (Platin DE, HeartGold US), zum Beispiel:
-   `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" /tmp/pt-test`
-   `cp -R "../Roms/Pokemon - HeartGold Version (USA)_DSPRE_contents" /tmp/hg-test`
+   `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-3a`
+   `cp -R "../Roms/Pokemon - HeartGold Version (USA)_DSPRE_contents" ../Roms/_testkopien/hg-3a`
    Für jeden Durchlauf eine frische Kopie nehmen: das Anlegen neuer Karten, Raster und Eventdateien lässt sich nicht rückgängig machen und liegt sofort auf Platte.
 2. Gebündelte App bauen: `cd apps/studio && pnpm bundle && bash scripts/check-bundle.sh` (Ausgabe `bundle ok`, siehe `docs/release.md`). Gestartet wird `target/release/bundle/macos/Gen4 Studio.app`, `G4_APICULA` darf nicht gesetzt sein. Beim ersten Start verlangt Gatekeeper eine Freigabe (siehe `docs/release.md`).
 3. Für Prüfungen, wo es ausdrücklich dasteht, geht auch `pnpm tauri dev` mit `G4_APICULA` (siehe `docs/dev-setup.md`).
 4. melonDS (die .app) bereithalten und eine Stoppuhr für (A).
 
-Bekannte Fakten zu Platin DE, die der Ablauf braucht: Header 0001 ist "NOTHING" und frei für Tests; Route 201 ist Header 0008; Zweiblattdorf hat die Header 0411 bis 0417 (außen 0411, Spielerzimmer 0415 mit Karte 187); das Haus des Rivalen trägt die Kürzel T01R01xx, das des Spielers T01R02xx. Bei HeartGold US ist New Bark Town Header 0060 (T20).
+Bekannte Fakten zu Platin DE, die der Ablauf braucht: Header 0001 ist "NOTHING" und frei für Tests; Route 201 ist Header 0342 (R201) und liegt auf Raster 0000 (30 × 30), Header 0008 ist dagegen "Pokétch Ges." (1 × 1); Header 0002 ist "UG" (Raster 0002, 15 × 15) und damit nicht wirklich frei; Zweiblattdorf hat den Außen-Header 0411 und sechs Räume 0412 bis 0417 (Rivalenhaus T01R0101 und T01R0102, Spielerhaus T01R0201 und das Spielerzimmer T01R0202 = 0415 mit Karte 187, dazu 0416 und 0417). Bei HeartGold US ist New Bark Town Header 0060 (T20).
 
 ## (A) Assistenten-Lauf auf Platin DE
 
-Ziel: unter fünf Minuten, ohne eine Zahl zu tippen außer der Header-Wahl. Zeit von "+ Neu" bis zum Schritt "Im Studio zeigen" des Raum-Assistenten messen und unten eintragen.
+Ziel: unter fünf Minuten, ohne eine Zahl zu tippen außer der Header-Wahl. Die Stoppuhr läuft von "+ Neu" bis zum Klick auf "Im Studio zeigen" im Ergebnis-Schritt des Raum-Assistenten (dem letzten Assistenten); bauen und melonDS zählen nicht mit. Jede getippte Zahl (Kachelkoordinaten, ein von Hand gesetzter Warp) kommt in die Spalte "Zahlen getippt" der Zeitentabelle unten.
 
 Auf einer Kopie von Platin DE, mit der gebündelten App:
 
-- [ ] 1. Stoppuhr starten. "+ Neu" → "Gebiet anlegen…". Schritt Quelle: Raster von Route 201 wählen (Header 0008 zeigt es: zwei Zellen), beide Zellen im Gitter anklicken (oder Umschalt-Klick für das Rechteck).
-- [ ] 2. Schritt Anordnung: Name "Route 230", Breite 2 und Höhe 1 sind vorbelegt, die Vorschau zeigt zwei Zellen. "ohne Gebäude" bleibt aus.
-- [ ] 3. Schritt Header: Header 0001 ("NOTHING") wählen (die Spalte "Warps hierher: 0, wirkt unbenutzt" erscheint), Area-Data ist mit der von Route 201 vorbelegt, Eventdatei "neu, leer". Das ist die einzige Zahl, die gewählt werden muss.
+- [ ] 1. Stoppuhr starten. "+ Neu" → "Gebiet anlegen…". Schritt Quelle: im Feld Raster "Raster 0000" wählen (Route 201 liegt auf Raster 0000, Header 0342), im Gitter zwei nebeneinanderliegende Zellen anklicken, deren Header-ID oben rechts 0342 zeigt (oder Umschalt-Klick für das Rechteck).
+- [ ] 2. Schritt Anordnung: Name "Route 230" eintragen. Es gibt keine Felder für Breite und Höhe, die Größe folgt aus der Auswahl; die Vorschau zeigt 2 × 1. "ohne Gebäude" bleibt aus, "Header-Abschnitt anlegen" bleibt an (Vorgabe).
+- [ ] 3. Schritt Header: Header 0001 ("NOTHING") wählen; die Zeile zeigt "Warps hierher: 0, wirkt unbenutzt" (Text je Zeile). Area-Data ist mit der des ersten Quell-Headers (0342) vorbelegt. Eventdatei ausdrücklich "neu, leer" wählen; die Vorgabe ist "behalten", dann behielte Header 0001 seine alte Eventdatei. Das ist die einzige Auswahl, die nötig ist; getippt wird keine Zahl.
 - [ ] 4. Schritt Zusammenfassung: der Text nennt das Raster "Route 230" 2 × 1, die zwei kopierten Karten und die Umstellung von Header 0001. "Anlegen" drücken. Der Ergebnis-Schritt listet Raster, Karten und Eventdatei; "Im Studio zeigen" wählt Header 0001, die Szene zeigt beide Karten, der Explorer klappt den Ort auf.
-- [ ] 5. "+ Neu" → "Raum anlegen…". Schritt Vorlage: das Spielerzimmer (Header 0415, Karte 187) wählen, Karte mit Bild sichtbar.
-- [ ] 6. Schritt Header: Header 0002 wählen (frei, "wirkt unbenutzt"), Area-Data der Vorlage vorbelegt, Eventdatei Kopie der Vorlage.
-- [ ] 7. Schritt Eingang: Außen-Header Zweiblattdorf (0411) wählen, die Kachel vor dem Haus des Rivalen (T01R01xx) als Außen-Kachel eintragen oder aus der Szene übernehmen (Maus zuletzt über dieser Kachel); die Tür innen ist mit dem ersten Warp der Vorlage vorbelegt.
-- [ ] 8. Schritt Zusammenfassung prüfen, "Anlegen", Ergebnis-Schritt, "Im Studio zeigen". Stoppuhr anhalten. Zeit notieren (Ziel: unter fünf Minuten).
-- [ ] 9. Inspector bei Header 0411: der Abschnitt "Eingänge / Ausgänge" zeigt den neuen Warp mit Ziel "0002", "Zum Ziel" springt dorthin; im Raum 0002 zeigt der Abschnitt den Rück-Warp nach 0411.
-- [ ] 10. Speichern, bauen, melonDS: in Zweiblattdorf auf die Kachel laufen, im neuen Raum ankommen, hinauslaufen, wieder in Zweiblattdorf. Danach (im Spiel erreichbar über die Karte, oder über einen von Hand gesetzten Warp von Route 201 oder Zweiblattdorf nach Header 0001, falls kein Weg dorthin führt) die neue Route 230 begehen: beide Karten sind begehbar.
+- [ ] 5. Header 0411 (Zweiblattdorf) im Explorer öffnen und in der 3D-Ansicht die Maus auf die Kachel vor dem Rivalenhaus (Header 0412 und 0413, T01R0101 und T01R0102) stellen, damit der Assistent diese Kachel später aus der Szene übernimmt. Werden die Kachelnummern stattdessen von Hand getippt, zählen sie in "Zahlen getippt".
+- [ ] 6. "+ Neu" → "Raum anlegen…". Schritt Vorlage: das Spielerzimmer (Header 0415, Karte 187) wählen, Karte mit Bild sichtbar.
+- [ ] 7. Schritt Header: Header 0002 wählen. Er heißt "UG" und liegt auf Raster 0002; "wirkt unbenutzt" ist nur eine Heuristik (nichts führt per Warp hierher) und auf einer Kopie unbedenklich. Wer das vermeiden will, wählt einen Header, den die Liste mit "Warps hierher: 0" zeigt. Area-Data ist mit der der Vorlage vorbelegt. Eventdatei ausdrücklich "Kopie von …" wählen; die Vorgabe ist "neu, leer", das Wählen der Vorlage schaltet nicht um.
+- [ ] 8. Schritt Eingang: Außen-Header Zweiblattdorf (0411) wählen; die Außen-Kachel ist aus der Szene übernommen (Hinweis "Kachel zuletzt in der Szene gewählt"); die Tür innen ist mit dem ersten Warp der Vorlage vorbelegt.
+- [ ] 9. Schritt Zusammenfassung prüfen, "Anlegen", Ergebnis-Schritt, "Im Studio zeigen". Stoppuhr anhalten. Zeit und die Zahl der getippten Zahlen notieren (Ziel: unter fünf Minuten, keine Zahl außer der Header-Wahl).
+- [ ] 10. Inspector bei Header 0411: der Abschnitt "Eingänge / Ausgänge" zeigt den neuen Warp mit Ziel "0002", "Zum Ziel" springt dorthin; im Raum 0002 zeigt der Abschnitt den Rück-Warp nach 0411.
+- [ ] 11. Speichern, bauen, melonDS: in Zweiblattdorf auf die Kachel laufen, im neuen Raum ankommen, hinauslaufen, wieder in Zweiblattdorf.
+- [ ] 12. Die neue Route 230 ist nur über Header 0001 erreichbar. Damit sie sich im Spiel begehen lässt, nach dem Lauf einen Warp von Hand setzen: im Header-Editor von Zweiblattdorf (0411) "Warp hinzufügen", Ziel Header 0001, Warp 0 (die getippten Zahlen kommen in "Zahlen getippt", gehören aber nicht zur gemessenen Zeit). Speichern, bauen, melonDS: durch den Warp in Route 230, beide Karten sind begehbar.
 
 ## (B) Explorer
 
 Auf derselben Kopie von Platin DE:
 
-- [ ] 1. Suche "Zweiblatt" im Panel "Welt" zeigt den Ort Zweiblattdorf mit Außen (0411) und seinen drei Räumen (jede Zeile: Name, Header-ID und Kürzel in Grau, bei Räumen die Kartenzahl).
+- [ ] 1. Suche "Zweiblatt" im Panel "Welt" zeigt den Ort Zweiblattdorf mit Außen (0411) und seinen sechs Räumen (0412 bis 0417) (jede Zeile: Name, Header-ID und Kürzel in Grau, bei Räumen die Kartenzahl).
 - [ ] 2. Umschalter "Baum | Liste": die Liste zeigt wie in Phase 2 alle Header, Suche nach "Zweiblatt" findet 0411 bis 0417; zurück auf "Baum" bleibt die Auswahl erhalten.
 - [ ] 3. Popover "Begriffe": das Glossar nennt Ort, Header, Außen, Raum, Raster, Karte, Eingang / Ausgang, Eventdatei und Area-Data mit Erklärung.
 - [ ] 4. Header ohne Ortsnamen stehen unter "Ohne Ortsnamen". Ein im Inspector, in der Weltkarte oder per Warp gewählter Header klappt seinen Ort im Baum auf und scrollt ins Bild.
@@ -60,7 +62,7 @@ Auf derselben Kopie von Platin DE:
 - [ ] 1. Tab "Raster" bei Zweiblattdorf (Header 0411): Kartenbilder in jeder Zelle, unten die Karten-ID, oben rechts die Header-ID der Zelle; Doppelklick auf eine Zelle öffnet ihren Header.
 - [ ] 2. Header 0003 (Jubelstadt, Matrix 0, 30 × 30): die Kartenbilder erscheinen nach und nach, ohne dass die Oberfläche hängt; Zellen ohne Bild zeigen eine Fläche in Ortsfarbe mit der Karten-ID.
 - [ ] 3. Route 230 (nach (A)): die gestrichelte "+"-Zelle rechts oder unten öffnet den Dialog "Karte bei x …, y … anlegen"; "Kopie von Karte … (Nachbarzelle)" wählen, "Anlegen": das Raster wächst um eine Zelle, die Szene zeigt die neue Karte.
-- [ ] 4. Das Anlegen im Dialog warnt, dass es sich nicht rückgängig machen lässt, und eine belegte Zielzelle wird abgelehnt.
+- [ ] 4. Das Anlegen im Dialog warnt, dass es sich nicht rückgängig machen lässt,.
 
 ## (D) Weltkarte
 

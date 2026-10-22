@@ -36,7 +36,7 @@ Hinweis: Dieser Teil läuft künftig über die Assistenten von Phase 3a, siehe [
 
 Auf einer Kopie von Platin DE:
 
-- [ ] 1. Zwei Karten duplizieren (zum Beispiel die beiden Karten von Route 201; Header 0008 "Route 201" zeigt die Matrix-Zellen), neue Matrix 2 × 1 mit den Kopien anlegen.
+- [ ] 1. Zwei Karten duplizieren (zum Beispiel die beiden Karten von Route 201; Header 0342 "Route 201" liegt auf Matrix 0; seine Zellen tragen im Raster die Header-ID 0342), neue Matrix 2 × 1 mit den Kopien anlegen.
 - [ ] 2. Header 0001 ("NOTHING") auf die neue Matrix, die Area-Data von Route 201 und ein freies Event-File umstellen. Die Namen bleiben (keine neuen Header, die Header-Tabelle liegt fest im ARM9).
 - [ ] 3. In Zweiblattdorf (Header 0411) einen Warp hinzufügen, Ziel Header 0001, Warp 0. In der neuen Route einen Warp zurück nach 0411.
 - [ ] 4. Speichern, bauen, in melonDS: durch den Warp in die neue Route laufen, beide Karten sind begehbar, zurückwarpen.
