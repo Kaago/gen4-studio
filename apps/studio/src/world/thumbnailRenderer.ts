@@ -1,7 +1,11 @@
 import * as THREE from "three";
 import { MAP_SIZE, MODEL_UNITS_PER_TILE } from "./layout";
 import { disposeTree, drawDoubleSided, parseGlb } from "./sceneUtil";
+import { TransientRenderError } from "./thumbnails";
 import type { ThumbnailRender } from "./thumbnails";
+
+/** How often a lost WebGL context is replaced before pictures fail for good. */
+const MAX_CONTEXTS = 3;
 
 /** Half the picture's width in model units: a map is `MAP_SIZE` tiles wide, so it fills the picture. */
 const HALF_WIDTH = (MAP_SIZE * MODEL_UNITS_PER_TILE) / 2;
@@ -10,9 +14,12 @@ const HALF_WIDTH = (MAP_SIZE * MODEL_UNITS_PER_TILE) / 2;
  * A renderer that draws a map's terrain model from straight above into a `size` x `size` picture (north up).
  * One `WebGLRenderer` on a detached canvas serves every call; it is created on the first one.
  * Calls must not overlap (drawing is synchronous once the model is parsed, and the cache runs few at a time).
+ * A lost context would draw blank pictures: the call that meets one throws a `TransientRenderError` (the cache then
+ * forgets the request) and the next call creates a new context, up to `MAX_CONTEXTS` in all.
  */
 export function createTopDownRenderer(size = 64): ThumbnailRender {
   let gl: THREE.WebGLRenderer | null = null;
+  let contexts = 0;
   const scene = new THREE.Scene();
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
   const sun = new THREE.DirectionalLight(0xffffff, 0.6);
@@ -26,6 +33,8 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
     drawDoubleSided(model);
     try {
       if (!gl) {
+        if (contexts >= MAX_CONTEXTS) throw new Error(`WebGL-Kontext ${MAX_CONTEXTS}-mal verloren, keine Kartenbilder mehr`);
+        contexts++;
         gl = new THREE.WebGLRenderer({
           canvas: document.createElement("canvas"),
           antialias: true,
@@ -45,6 +54,11 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
       camera.updateProjectionMatrix();
       scene.add(model);
       gl.render(scene, camera);
+      if (gl.getContext().isContextLost()) {
+        gl.dispose();
+        gl = null;
+        throw new TransientRenderError("WebGL-Kontext verloren");
+      }
       return gl.domElement.toDataURL("image/png");
     } finally {
       scene.remove(model);

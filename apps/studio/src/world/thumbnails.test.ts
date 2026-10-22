@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HeaderSummary } from "../api";
-import { ThumbnailCache, thumbnailArea, thumbnailKey } from "./thumbnails";
+import { ThumbnailCache, TransientRenderError, thumbnailArea, thumbnailKey } from "./thumbnails";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -104,6 +104,44 @@ describe("ThumbnailCache", () => {
     await flush();
     expect(cache.get(1, 1)).toBeNull();
     expect(cache.failure(1, 1)).toBe("Error: no webgl");
+  });
+
+  it("reports_a_missing_tool_once_until_the_cache_is_cleared", async () => {
+    const { cache, calls } = setup({ concurrency: 3 });
+    const reported: string[] = [];
+    cache.onToolMissing((e) => reported.push(e.message));
+    const missing = { code: "tool_missing", message: "apicula missing", asset: null };
+    for (const map of [1, 2, 3]) cache.request(map, 0);
+    calls[0].bytes.reject(missing);
+    calls[1].bytes.reject(missing);
+    calls[2].bytes.reject({ code: "error", message: "boom", asset: null });
+    await flush();
+    expect(reported).toEqual(["apicula missing"]);
+    cache.clear();
+    cache.request(1, 0);
+    calls[3].bytes.reject(missing);
+    await flush();
+    expect(reported).toEqual(["apicula missing", "apicula missing"]);
+  });
+
+  it("forgets_a_transient_render_failure_so_the_picture_can_be_asked_for_again", async () => {
+    const { cache, glb, render, calls } = setup();
+    const seen: string[] = [];
+    cache.subscribe((key) => seen.push(key));
+    render.mockRejectedValueOnce(new TransientRenderError("WebGL-Kontext verloren"));
+    cache.request(4, 1);
+    calls[0].bytes.resolve(new ArrayBuffer(3));
+    await flush();
+    // Neither a picture nor a failure: a blank picture is never cached, and nothing is pending.
+    expect(cache.get(4, 1)).toBeUndefined();
+    expect(cache.failure(4, 1)).toBeNull();
+    expect(cache.pending()).toBe(0);
+    expect(seen).toEqual(["4:1"]);
+    cache.request(4, 1);
+    expect(glb).toHaveBeenCalledTimes(2);
+    calls[1].bytes.resolve(new ArrayBuffer(3));
+    await flush();
+    expect(cache.get(4, 1)).toBe("data:image/png;base64,3");
   });
 
   it("evicts_the_oldest_entry_beyond_capacity", async () => {

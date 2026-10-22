@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
 import { ThumbnailCache } from "../world/thumbnails";
-import { useThumbnailReset } from "./useThumbnailReset";
+import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -54,5 +54,26 @@ describe("useThumbnailReset", () => {
     expect(cache.get(1, 1)).toBe("data:x");
     act(() => root.render(<Probe projectRoot="/b" />));
     expect(cache.get(1, 1)).toBeUndefined();
+  });
+
+  it("reports_a_missing_tool_through_on_error_once_and_stops_after_unmount", async () => {
+    const missing = { code: "tool_missing", message: "apicula missing", asset: null };
+    const tool = new ThumbnailCache({ glb: () => Promise.reject(missing) }, async () => "data:x");
+    const onError = vi.fn();
+    function Reporter() {
+      useThumbnailToolReport(tool, onError);
+      return null;
+    }
+    act(() => root.render(<Reporter />));
+    tool.request(1, 1);
+    tool.request(2, 1);
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(missing);
+    act(() => root.render(<></>));
+    tool.clear();
+    tool.request(3, 1);
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 });

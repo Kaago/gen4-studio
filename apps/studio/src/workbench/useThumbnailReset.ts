@@ -17,3 +17,10 @@ export function useThumbnailReset(bus: EditBus, root: string | null, cache: Thum
   }, [root, cache]);
   useBusEvent(bus, "modelsReload", () => cache.clear());
 }
+
+/** Reports once (per project, per tileset change: until the cache is cleared) that pictures cannot be made because the conversion tool is missing. */
+export function useThumbnailToolReport(cache: ThumbnailCache, onError: (e: unknown) => void) {
+  const report = useRef(onError);
+  report.current = onError;
+  useEffect(() => cache.onToolMissing((e) => report.current(e)), [cache]);
+}

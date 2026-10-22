@@ -1,5 +1,5 @@
-import { errorText } from "../api";
-import type { HeaderSummary } from "../api";
+import { errorText, isCmdError } from "../api";
+import type { CmdError, HeaderSummary } from "../api";
 
 /** Draws a map's terrain model (GLB bytes) from above and returns the picture as a Data-URL. */
 export type ThumbnailRender = (glb: ArrayBuffer) => Promise<string>;
@@ -10,6 +10,12 @@ export interface ThumbnailSource {
 
 export const thumbnailKey = (map: number, area: number) => `${map}:${area}`;
 
+/**
+ * A render that failed for a passing reason (the WebGL context was lost): the cache forgets the request instead of
+ * remembering a failure, so a cell that still wants the picture asks again.
+ */
+export class TransientRenderError extends Error {}
+
 interface Job {
   key: string;
   map: number;
@@ -19,7 +25,7 @@ interface Job {
 /**
  * Map pictures keyed by map and tileset. Each picture is produced once (concurrent requests share the work, at most
  * `concurrency` run at a time, in request order); the least recently used are dropped beyond `capacity`; a failure is
- * remembered and never retried until `clear()`. Whenever an entry disappears (eviction, `clear()`) subscribers are told,
+ * remembered and never retried until `clear()`, except a `TransientRenderError`, which is forgotten. Whenever an entry disappears (eviction, `clear()`) subscribers are told,
  * so a mounted user can ask again.
  */
 export class ThumbnailCache {
@@ -35,6 +41,9 @@ export class ThumbnailCache {
   /** Bumped by `clear()`; work started before it is dropped when it finishes. */
   private generation = 0;
   private readonly listeners = new Set<(key: string) => void>();
+  private readonly toolListeners = new Set<(e: CmdError) => void>();
+  /** Whether a missing conversion tool was reported since the last `clear()` (it is reported once). */
+  private toolReported = false;
 
   constructor(
     private readonly source: ThumbnailSource,
@@ -96,9 +105,18 @@ export class ThumbnailCache {
     };
   }
 
+  /** `fn` runs once (until the next `clear()`) when a picture failed because the conversion tool is missing. */
+  onToolMissing(fn: (e: CmdError) => void): () => void {
+    this.toolListeners.add(fn);
+    return () => {
+      this.toolListeners.delete(fn);
+    };
+  }
+
   clear(): void {
     const keys = [...this.done.keys(), ...this.failures.keys(), ...this.open];
     this.generation++;
+    this.toolReported = false;
     this.done.clear();
     this.failures.clear();
     this.queue.length = 0;
@@ -123,16 +141,22 @@ export class ThumbnailCache {
   private async run(job: Job, generation: number): Promise<void> {
     let url: string | null = null;
     let error = "";
+    let transient = false;
+    let toolMissing: CmdError | null = null;
     try {
       url = await this.render(await this.source.glb(job.map, job.area));
     } catch (e) {
       error = errorText(e);
+      transient = e instanceof TransientRenderError;
+      if (isCmdError(e) && e.code === "tool_missing") toolMissing = e;
     }
     if (generation !== this.generation) return;
     this.running--;
     this.open.delete(job.key);
     const evicted: string[] = [];
-    if (url !== null) {
+    if (transient) {
+      // Neither done nor failed: the key is free again for a user that still wants it.
+    } else if (url !== null) {
       this.done.set(job.key, url);
       while (this.done.size > this.capacity) {
         const oldest = this.done.keys().next().value;
@@ -144,6 +168,10 @@ export class ThumbnailCache {
       this.failures.set(job.key, error);
     }
     this.pump();
+    if (toolMissing && !this.toolReported) {
+      this.toolReported = true;
+      for (const fn of [...this.toolListeners]) fn(toolMissing);
+    }
     this.notify(job.key);
     for (const key of evicted) this.notify(key);
   }

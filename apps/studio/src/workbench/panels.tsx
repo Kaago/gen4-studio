@@ -8,7 +8,7 @@ import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
-import { useThumbnailReset } from "./useThumbnailReset";
+import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
@@ -118,6 +118,8 @@ export function MatrixTab() {
   const { goTo, onMatrixEdited, onCountsChanged, onError, headers, areaDataId, memberCounts, bus } = d;
   // The pictures of the grid come from the app-wide cache; it must not show another project's or tileset's.
   useThumbnailReset(bus, info?.root ?? null, thumbnails);
+  // A missing apicula shows once in the status strip (spec §4.4), not as a placeholder tooltip alone.
+  useThumbnailToolReport(thumbnails, onError);
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<MatrixPanelContext>(
     () => ({
