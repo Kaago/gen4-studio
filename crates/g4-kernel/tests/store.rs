@@ -1160,3 +1160,86 @@ fn duplicate_map_copies_unsaved_edits_of_the_source() {
     // The source on disk is untouched until saved.
     assert!(st.is_dirty(map_id(1)));
 }
+
+#[test]
+fn create_and_duplicate_event_files_append_members() {
+    let (s, mut st) = store();
+    let n = st.member_count(AssetKind::Event).unwrap();
+    let empty = st.create_event_file().unwrap();
+    assert_eq!(usize::from(empty), n);
+    assert_eq!(
+        std::fs::read(s.dir.path().join(format!("unpacked/eventFiles/{empty:04}"))).unwrap(),
+        [0u8; 16]
+    );
+    assert!(st.event(empty).unwrap().warp_events.is_empty());
+    assert_eq!(st.locked(event_id(empty)), None);
+
+    // A copy of a file that was never loaded is the file on disk; one of a loaded, edited
+    // file holds the unsaved edit.
+    let plain = st.duplicate_event_file(0).unwrap();
+    assert_eq!(
+        std::fs::read(s.dir.path().join(format!("unpacked/eventFiles/{plain:04}"))).unwrap(),
+        std::fs::read(s.dir.path().join("unpacked/eventFiles/0000")).unwrap()
+    );
+    st.edit_event(0, "warp", |e| {
+        e.warp_events.push(WarpEvent {
+            x: 1,
+            z: 2,
+            dest_header_id: 1,
+            dest_warp_id: 0,
+            height: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    let edited = st.duplicate_event_file(0).unwrap();
+    assert_eq!(st.event(edited).unwrap().warp_events.len(), 1);
+    assert_eq!(st.member_count(AssetKind::Event).unwrap(), n + 3);
+    assert!(st.duplicate_event_file(99).is_err());
+    // The new files leave nothing dirty beyond the edited source and are not undoable.
+    assert_eq!(st.dirty(), vec![event_id(0)]);
+}
+
+#[test]
+fn duplicate_map_with_clear_buildings_keeps_everything_else() {
+    let (s, mut st) = store();
+    let source = std::fs::read(s.dir.path().join("unpacked/maps/0001")).unwrap();
+    let source_map = MapFile::read(&source, Family::Pt).unwrap();
+    assert!(!source_map.buildings.is_empty());
+
+    // Never loaded: parsed from disk.
+    let cleared = st.duplicate_map_with(1, true).unwrap();
+    let read = |i: u16| {
+        MapFile::read(
+            &std::fs::read(s.dir.path().join(format!("unpacked/maps/{i:04}"))).unwrap(),
+            Family::Pt,
+        )
+        .unwrap()
+    };
+    let copy = read(cleared);
+    assert!(copy.buildings.is_empty());
+    assert_eq!(copy.permissions, source_map.permissions);
+    assert_eq!(copy.model, source_map.model);
+    assert_eq!(copy.bdhc, source_map.bdhc);
+    assert_eq!(copy.buildings_tail, source_map.buildings_tail);
+
+    // Loaded with an unsaved edit: the copy has the edit and no buildings.
+    st.edit_map(1, "block", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 7,
+                collision: 0x80,
+            },
+        )
+    })
+    .unwrap();
+    let edited = read(st.duplicate_map_with(1, true).unwrap());
+    assert_eq!(edited.cell(0, 0).unwrap().kind, 7);
+    assert!(edited.buildings.is_empty());
+    // Without the flag, `duplicate_map_with` copies the buildings, like `duplicate_map`.
+    let full = read(st.duplicate_map_with(1, false).unwrap());
+    assert_eq!(full.buildings.len(), source_map.buildings.len());
+    assert!(st.duplicate_map_with(99, true).is_err());
+}

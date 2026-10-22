@@ -140,10 +140,17 @@ pub fn create_matrix_impl(state: &AppState, name: &str) -> Result<u16, CmdError>
     Ok(session(&mut guard)?.store.create_matrix(name)?)
 }
 
-/// Appends a copy of map `source` and returns its index. Written to disk at once, not undoable.
-pub fn duplicate_map_impl(state: &AppState, source: u16) -> Result<u16, CmdError> {
+/// Appends a copy of map `source` (without its buildings if `clear_buildings`) and returns its
+/// index. Written to disk at once, not undoable.
+pub fn duplicate_map_impl(
+    state: &AppState,
+    source: u16,
+    clear_buildings: bool,
+) -> Result<u16, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.duplicate_map(source)?)
+    Ok(session(&mut guard)?
+        .store
+        .duplicate_map_with(source, clear_buildings)?)
 }
 
 #[tauri::command]
@@ -190,15 +197,21 @@ pub fn create_matrix(state: State<AppState>, name: String) -> Result<u16, CmdErr
 }
 
 #[tauri::command]
-pub fn duplicate_map(state: State<AppState>, source: u16) -> Result<u16, CmdError> {
-    duplicate_map_impl(&state, source)
+pub fn duplicate_map(
+    state: State<AppState>,
+    source: u16,
+    clear_buildings: Option<bool>,
+) -> Result<u16, CmdError> {
+    duplicate_map_impl(&state, source, clear_buildings.unwrap_or(false))
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::open_synthetic;
-    use super::super::{dirty_impl, get_matrix_impl, member_counts_impl, save_impl, undo_impl};
+    use super::super::{
+        dirty_impl, get_map_impl, get_matrix_impl, member_counts_impl, save_impl, undo_impl,
+    };
     use super::*;
 
     #[test]
@@ -319,7 +332,7 @@ mod tests {
         let (fixture, state) = open_synthetic();
         let before = member_counts_impl(&state).unwrap();
         let matrix = create_matrix_impl(&state, "neu").unwrap();
-        let map = duplicate_map_impl(&state, 1).unwrap();
+        let map = duplicate_map_impl(&state, 1, false).unwrap();
         assert_eq!(usize::from(matrix), before[&AssetKind::Matrix]);
         assert_eq!(usize::from(map), before[&AssetKind::Map]);
         let after = member_counts_impl(&state).unwrap();
@@ -343,6 +356,21 @@ mod tests {
         assert!(undo_impl(&state).unwrap().is_some());
         assert!(undo_impl(&state).unwrap().is_none());
         assert_eq!(get_matrix_impl(&state, matrix).unwrap().maps, vec![None]);
-        assert!(duplicate_map_impl(&state, 99).is_err());
+        assert!(duplicate_map_impl(&state, 99, false).is_err());
+    }
+
+    #[test]
+    fn duplicate_map_without_buildings_keeps_the_rest() {
+        let (_s, state) = open_synthetic();
+        assert_eq!(duplicate_map_impl(&state, 1, true).unwrap(), 3);
+        let copy = get_map_impl(&state, 3).unwrap();
+        assert!(copy.buildings.is_empty());
+        assert_eq!(
+            copy.permissions,
+            get_map_impl(&state, 1).unwrap().permissions
+        );
+        // Without the flag the source's building comes along.
+        assert_eq!(duplicate_map_impl(&state, 1, false).unwrap(), 4);
+        assert_eq!(get_map_impl(&state, 4).unwrap().buildings.len(), 1);
     }
 }

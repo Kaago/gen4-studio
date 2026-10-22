@@ -476,7 +476,7 @@ impl Store {
     }
 
     /// Member count of the archive of `kind`: the members of the project, which includes every
-    /// member [`Store::create_matrix`] and [`Store::duplicate_map`] added, as those are written
+    /// member [`Store::create_matrix`], [`Store::duplicate_map`] and the event file functions added, as those are written
     /// to the unpacked folder at once.
     pub fn member_count(&self, kind: AssetKind) -> Result<usize, KernelError> {
         self.project.member_count(kind)
@@ -541,16 +541,82 @@ impl Store {
     /// edits included (a read-only map is copied as it is on disk); the source itself is not
     /// changed. Not undoable.
     pub fn duplicate_map(&mut self, source: u16) -> Result<u16, KernelError> {
+        self.duplicate_map_with(source, false)
+    }
+
+    /// Like [`Store::duplicate_map`]; with `clear_buildings` the copy has no buildings (its
+    /// `buildings_tail` is kept). A read-only source is read from disk, parsed, cleared and
+    /// written again.
+    pub fn duplicate_map_with(
+        &mut self,
+        source: u16,
+        clear_buildings: bool,
+    ) -> Result<u16, KernelError> {
         let id = AssetId {
             kind: AssetKind::Map,
             index: source,
         };
         let family = self.project.family;
-        let bytes = match self.assets.get(&id) {
-            Some(a) if a.locked.is_none() => a.current.to_bytes(family)?,
-            _ => self.read_member(id)?,
+        let bytes = if clear_buildings {
+            let mut map = match self.assets.get(&id) {
+                Some(Asset {
+                    current: Loaded::Map(m),
+                    locked: None,
+                    ..
+                }) => m.clone(),
+                _ => MapFile::read(&self.read_member(id)?, family)?,
+            };
+            map.buildings.clear();
+            map.validate()?;
+            map.write(family)
+        } else {
+            self.member_bytes(id)?
         };
         self.append_member(AssetKind::Map, &bytes)
+    }
+
+    /// Appends an empty event file (no events) as the last member of the event archive,
+    /// writes it at once and loads it. Returns its index. Not undoable.
+    pub fn create_event_file(&mut self) -> Result<u16, KernelError> {
+        // Four u32 counters (background, object, warp, coordinate events), all 0.
+        let family = self.project.family;
+        let current = Loaded::from_bytes(AssetKind::Event, &[0; 16], family)?;
+        let bytes = current.to_bytes(family)?;
+        let index = self.append_member(AssetKind::Event, &bytes)?;
+        self.assets.insert(
+            AssetId {
+                kind: AssetKind::Event,
+                index,
+            },
+            Asset {
+                saved_bytes: Some(bytes),
+                current,
+                locked: None,
+            },
+        );
+        Ok(index)
+    }
+
+    /// Appends a copy of event file `source` as the last member of the event archive, writes
+    /// it at once and returns its index. The copy holds the file as the editor shows it,
+    /// unsaved edits included (a read-only file is copied as it is on disk). Not undoable.
+    pub fn duplicate_event_file(&mut self, source: u16) -> Result<u16, KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Event,
+            index: source,
+        };
+        let bytes = self.member_bytes(id)?;
+        self.append_member(AssetKind::Event, &bytes)
+    }
+
+    /// The bytes of `id` as the editor shows them: the store's value when it is loaded and
+    /// writable, else the file on disk.
+    fn member_bytes(&mut self, id: AssetId) -> Result<Vec<u8>, KernelError> {
+        let family = self.project.family;
+        match self.assets.get(&id) {
+            Some(a) if a.locked.is_none() => a.current.to_bytes(family),
+            _ => self.read_member(id),
+        }
     }
 
     /// Drops the store's own changes to `id` and loads the member from disk again. The

@@ -354,6 +354,19 @@ pub fn delete_event_impl(
     Ok(())
 }
 
+/// Appends an empty event file and returns its index. Written to disk at once, not undoable.
+pub fn create_event_file_impl(state: &AppState) -> Result<u16, CmdError> {
+    let mut guard = lock(state)?;
+    Ok(session(&mut guard)?.store.create_event_file()?)
+}
+
+/// Appends a copy of event file `source` and returns its index. Written to disk at once, not
+/// undoable.
+pub fn duplicate_event_file_impl(state: &AppState, source: u16) -> Result<u16, CmdError> {
+    let mut guard = lock(state)?;
+    Ok(session(&mut guard)?.store.duplicate_event_file(source)?)
+}
+
 #[tauri::command]
 pub fn update_event(
     state: State<AppState>,
@@ -386,12 +399,23 @@ pub fn delete_event(
     delete_event_impl(&state, event_file, kind, index)
 }
 
+#[tauri::command]
+pub fn create_event_file(state: State<AppState>) -> Result<u16, CmdError> {
+    create_event_file_impl(&state)
+}
+
+#[tauri::command]
+pub fn duplicate_event_file(state: State<AppState>, source: u16) -> Result<u16, CmdError> {
+    duplicate_event_file_impl(&state, source)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::open_synthetic;
     use super::*;
     use crate::commands::*;
+    use g4_kernel::project::AssetKind;
 
     #[test]
     fn event_commands_add_update_delete() {
@@ -725,5 +749,22 @@ mod tests {
         );
         assert_eq!(get_events_impl(&state, 0).unwrap().warps[0].x, 8);
         assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn new_and_copied_event_files_extend_the_archive() {
+        let (_s, state) = open_synthetic();
+        assert_eq!(create_event_file_impl(&state).unwrap(), 2);
+        let empty = get_events_impl(&state, 2).unwrap();
+        assert!(empty.bg.is_empty() && empty.objects.is_empty());
+        assert!(empty.warps.is_empty() && empty.coords.is_empty());
+        assert_eq!(empty.locked, None);
+
+        // The copy holds the store state of the source, unsaved edits included.
+        add_event_impl(&state, 0, EventKind::Warp, 1, 2).unwrap();
+        assert_eq!(duplicate_event_file_impl(&state, 0).unwrap(), 3);
+        assert_eq!(get_events_impl(&state, 3).unwrap().warps.len(), 1);
+        assert_eq!(member_counts_impl(&state).unwrap()[&AssetKind::Event], 4);
+        assert!(duplicate_event_file_impl(&state, 99).is_err());
     }
 }
