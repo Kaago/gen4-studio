@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
-import { clampField, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
+import type { FieldSpec } from "./fields";
+import { clampField, draftToValue, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
 
 const pt: MapHeaderPt = {
   area_data_id: 1,
@@ -100,5 +101,26 @@ describe("fieldValue and withField", () => {
     const header: MapHeader = { HGSS: hgss };
     expect(fieldValue(header, "kanto_flag")).toBe(0);
     expect(withField(header, "kanto_flag", 1)).toEqual({ HGSS: { kanto_flag: true } });
+  });
+});
+
+describe("draftToValue", () => {
+  const u16: FieldSpec = { key: "matrix_id", label: "", kind: "u16" };
+
+  it("treats a blank or non-numeric draft as no change", () => {
+    expect(draftToValue("", u16)).toBeNull();
+    expect(draftToValue("   ", u16)).toBeNull();
+    expect(draftToValue("abc", u16)).toBeNull();
+  });
+
+  it("clamps a typed number like clampField", () => {
+    expect(draftToValue("70000", u16)).toBe(65535);
+    expect(draftToValue(" 3.7 ", u16)).toBe(4);
+    expect(draftToValue("-4", u16)).toBe(0);
+    expect(draftToValue("9", u16, 2)).toBe(2);
+  });
+
+  it("keeps an explicit zero", () => {
+    expect(draftToValue("0", u16)).toBe(0);
   });
 });

@@ -127,6 +127,16 @@ export function clampField(spec: FieldSpec, value: number, max?: number): number
   return Math.min(upper, Math.max(0, Math.round(value)));
 }
 
+/**
+ * What a typed field draft means: the clamped number, or null for a blank or non-numeric draft,
+ * which stands for "no change" (the field then shows its stored value again).
+ */
+export function draftToValue(draft: string, spec: FieldSpec, max?: number): number | null {
+  if (draft.trim() === "") return null;
+  const n = Number(draft);
+  return Number.isNaN(n) ? null : clampField(spec, n, max);
+}
+
 const PICK_ASSET: Partial<Record<PickKind, AssetKind>> = {
   matrix: "Matrix",
   areaData: "AreaData",

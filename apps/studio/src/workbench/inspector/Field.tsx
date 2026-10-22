@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { clampField } from "./fields";
+import { draftToValue } from "./fields";
 import type { FieldSpec } from "./fields";
 
 const row: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 96px", alignItems: "center", columnGap: 8, padding: "2px 0" };
@@ -23,14 +23,14 @@ export function Field({ spec, value, max, onCommit }: FieldProps) {
 
   const pending = () => {
     const { draft, spec, max } = latest.current;
-    return clampField(spec, draft.trim() === "" ? Number.NaN : Number(draft), max);
+    return draftToValue(draft, spec, max);
   };
 
   const commit = () => {
     const next = pending();
-    // Show what will be stored (clamped), also when nothing changes.
-    setDraft(String(next));
-    if (next !== value) onCommit(spec, next);
+    // A blank or non-numeric draft changes nothing; otherwise show what will be stored (clamped).
+    setDraft(String(next ?? value));
+    if (next !== null && next !== value) onCommit(spec, next);
   };
 
   // The inspector can swap the form for tile info while a field is still being typed in (hover
@@ -41,7 +41,7 @@ export function Field({ spec, value, max, onCommit }: FieldProps) {
       if (spec.kind === "bool" || spec.kind === "select") return;
       const next = pending();
       const { value, spec: s, onCommit } = latest.current;
-      if (next !== value) onCommit(s, next);
+      if (next !== null && next !== value) onCommit(s, next);
     },
     [],
   );
