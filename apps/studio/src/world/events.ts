@@ -134,3 +134,17 @@ export interface EventRefresh {
   file: number;
   token: number;
 }
+
+/** The shown event file and why it is locked (read-only). */
+export interface EventLock {
+  file: number;
+  reason: string;
+}
+
+/**
+ * Whether events of `file` may be added, deleted or moved, given the lock state of the shown event
+ * file (null: it is not locked, or none is shown). A refusal carries the text to show.
+ */
+export function eventEditGate(lock: EventLock | null, file: number): { allowed: true } | { allowed: false; text: string } {
+  return lock !== null && lock.file === file ? { allowed: false, text: lockedText(lock.reason) } : { allowed: true };
+}

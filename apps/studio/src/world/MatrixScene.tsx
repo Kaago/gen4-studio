@@ -14,7 +14,7 @@ import type { BuildingRefresh } from "./buildings";
 import { permissionColor } from "./colors";
 import { DragController } from "./dragController";
 import { clampToMatrix, lockedText } from "./events";
-import type { EventRef, EventRefresh } from "./events";
+import type { EventLock, EventRef, EventRefresh } from "./events";
 import { describeTile } from "./hover";
 import { MARKER_Y, buildMarkers, disposeMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
 import type { MarkerSet } from "./markers";
@@ -246,12 +246,12 @@ async function fetchEvents(eventFileId: number | null): Promise<{ events: Events
  * Reads one event file's events again and shows them (their markers are rebuilt). Dropped when
  * `current()` turned false meanwhile (another matrix or event file is shown now).
  */
-async function refreshEvents(h: SceneHandle, file: number, visible: boolean, current: () => boolean, setNote: (note: string | null) => void) {
+async function refreshEvents(h: SceneHandle, file: number, visible: boolean, current: () => boolean, report: (fetched: { events: EventsDto | null; error: string | null }) => void) {
   const matrixAtStart = h.matrix;
   const fetched = await fetchEvents(file);
   if (h.disposed || h.matrix !== matrixAtStart || !current()) return;
   setMarkers(h, fetched.events, visible);
-  setNote(eventsNote(fetched));
+  report(fetched);
   h.render();
   h.refreshHover?.();
 }
@@ -313,6 +313,8 @@ interface Props {
   onEventMoved: (eventFile: number) => void;
   /** A new request makes the scene read one event file's events again (they were edited elsewhere). */
   eventRefresh: EventRefresh | null;
+  /** The shown event file's lock state, reported whenever its events were read (null: not locked, or none shown). */
+  onEventsLocked: (lock: EventLock | null) => void;
 }
 
 function MatrixScene({
@@ -338,6 +340,7 @@ function MatrixScene({
   onSelectEvent,
   onEventMoved,
   eventRefresh,
+  onEventsLocked,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<SceneHandle | null>(null);
@@ -352,8 +355,14 @@ function MatrixScene({
   // Like the area data, the one the buildings are textured with is read when models are requested.
   const areaRef = useRef(areaDataId);
   areaRef.current = areaDataId;
-  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved });
-  callbacks.current = { paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved };
+  const callbacks = useRef({ paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked });
+  callbacks.current = { paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked };
+  /** Shows (and reports upwards) what reading an event file gave: the note over the scene and its lock state. */
+  const reportEvents = (fetched: { events: EventsDto | null; error: string | null }) => {
+    setEventStatus(eventsNote(fetched));
+    const events = fetched.events;
+    callbacks.current.onEventsLocked(events?.locked ? { file: events.event_file_id, reason: events.locked } : null);
+  };
 
   // Renderer, camera and controls live as long as the component.
   useEffect(() => {
@@ -617,7 +626,7 @@ function MatrixScene({
         updateEvent(d.file, d.kind, d.data.index, { x: at.x, z: at.z }).then(
           async () => {
             callbacks.current.onEventMoved(d.file);
-            await refreshEvents(h, d.file, showEventsRef.current, () => eventFileRef.current === d.file, setEventStatus);
+            await refreshEvents(h, d.file, showEventsRef.current, () => eventFileRef.current === d.file, reportEvents);
           },
           (err) => {
             restoreEvent(d);
@@ -772,7 +781,7 @@ function MatrixScene({
         overlay.visible = showRef.current;
         h.scene.add(content);
         setMarkers(h, fetchedEvents.events, showEventsRef.current);
-        setEventStatus(eventsNote(fetchedEvents));
+        reportEvents(fetchedEvents);
 
         const w = matrix.width * MAP_SIZE;
         const d = matrix.height * MAP_SIZE;
@@ -848,7 +857,7 @@ function MatrixScene({
       const [fresh, fetchedEvents] = await Promise.all([Promise.all(ids.map((id) => getMap(id))), fetchEvents(eventFileRef.current)]);
       if (cancelled || handle.current !== h || h.matrix !== matrixAtStart) return;
       setMarkers(h, fetchedEvents.events, showEventsRef.current);
-      setEventStatus(eventsNote(fetchedEvents));
+      reportEvents(fetchedEvents);
       const layer = h.buildings;
       fresh.forEach((map, i) => {
         const data = h.loaded.get(ids[i]);
@@ -925,7 +934,7 @@ function MatrixScene({
     const h = handle.current;
     const request = eventRefresh;
     if (!request || !h?.matrix || eventFileRef.current !== request.file) return;
-    refreshEvents(h, request.file, showEventsRef.current, () => handle.current === h && eventFileRef.current === request.file, setEventStatus).catch((e) => callbacks.current.onError(e));
+    refreshEvents(h, request.file, showEventsRef.current, () => handle.current === h && eventFileRef.current === request.file, reportEvents).catch((e) => callbacks.current.onError(e));
   }, [eventRefresh]);
 
   useEffect(() => {

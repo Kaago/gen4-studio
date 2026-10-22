@@ -6,7 +6,8 @@ import { StatusBar } from "../Toolbar";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { BuildingRefresh } from "../world/buildings";
-import type { EventRef, EventRefresh } from "../world/events";
+import { lockedText } from "../world/events";
+import type { EventLock, EventRef, EventRefresh } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { HeaderList } from "./HeaderList";
 import { AddEvent } from "./inspector/AddEvent";
@@ -85,6 +86,9 @@ export interface WorkbenchData {
   eventRefresh: EventRefresh | null;
   /** Changes whenever events may have changed behind the event editor (a drag, undo, redo, add, delete). */
   eventRevision: number;
+  /** The lock state of the shown event file (null: not locked, or none shown); the scene reports it. */
+  eventLock: EventLock | null;
+  onEventsLocked: (lock: EventLock | null) => void;
   /** The event editor wrote a field: refresh the scene and the dirty count. */
   onEventChanged: (eventFile: number) => void | Promise<void>;
   /** Adds an event on the last hovered tile of the selected header's event file and selects it. */
@@ -144,6 +148,7 @@ function WorldPanel() {
             onSelectEvent={d.onSelectEvent}
             onEventMoved={d.onEventMoved}
             eventRefresh={d.eventRefresh}
+            onEventsLocked={d.onEventsLocked}
           />
           <div style={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 8 }}>
             <label style={toggleStyle}>
@@ -161,7 +166,12 @@ function WorldPanel() {
             >
               Neues Gebäude
             </button>
-            <AddEvent disabled={!d.paintEnabled || d.eventFileId === null} onAdd={(kind) => void d.onAddEvent(kind)} style={toggleStyle} />
+            <AddEvent
+              disabled={!d.paintEnabled || d.eventFileId === null || d.eventLock !== null}
+              title={d.eventLock ? lockedText(d.eventLock.reason) : undefined}
+              onAdd={(kind) => void d.onAddEvent(kind)}
+              style={toggleStyle}
+            />
           </div>
         </>
       ) : (

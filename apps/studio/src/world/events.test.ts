@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventsDto } from "../api";
-import { MARKER_COLORS, clampToMatrix, eventAt, eventDeletePrompt, eventDetails, eventReadOnlyReason, eventTitle, lockedText, markerPosition, warpDestinationLabel } from "./events";
+import { MARKER_COLORS, clampToMatrix, eventAt, eventDeletePrompt, eventEditGate, eventDetails, eventReadOnlyReason, eventTitle, lockedText, markerPosition, warpDestinationLabel } from "./events";
 
 const m = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
 
@@ -108,5 +108,19 @@ describe("event identity helpers", () => {
     expect(clampToMatrix({ x: 70, z: -3 }, m)).toEqual({ x: 63, z: 0 });
     expect(clampToMatrix({ x: 5, z: 40 }, m)).toEqual({ x: 5, z: 31 });
     expect(clampToMatrix({ x: 12, z: 7 }, m)).toEqual({ x: 12, z: 7 });
+  });
+});
+
+describe("eventEditGate", () => {
+  it("allows editing a file that is not locked, or when nothing is known about it", () => {
+    expect(eventEditGate(null, 1)).toEqual({ allowed: true });
+    expect(eventEditGate({ file: 2, reason: "x" }, 1)).toEqual({ allowed: true });
+  });
+
+  it("refuses a locked file with the text the inspector shows", () => {
+    expect(eventEditGate({ file: 1, reason: "17 bytes read, 16 would be written" }, 1)).toEqual({
+      allowed: false,
+      text: "schreibgeschützt: 17 bytes read, 16 would be written",
+    });
   });
 });

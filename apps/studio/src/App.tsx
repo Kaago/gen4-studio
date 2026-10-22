@@ -40,8 +40,8 @@ import { pinAfterHistory, shownInspector } from "./workbench/pin";
 import type { BuildingRef } from "./world/buildingLayer";
 import { deletePrompt, isTypingTarget, newBuildingPosition, wantsDelete } from "./world/buildings";
 import type { BuildingRefresh } from "./world/buildings";
-import { eventAt, eventDeletePrompt, eventReadOnlyReason, lockedText } from "./world/events";
-import type { EventRef, EventRefresh } from "./world/events";
+import { eventAt, eventDeletePrompt, eventEditGate, eventReadOnlyReason, lockedText } from "./world/events";
+import type { EventLock, EventRef, EventRefresh } from "./world/events";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -106,6 +106,14 @@ export default function App() {
   const [buildingRefresh, setBuildingRefresh] = useState<BuildingRefresh | null>(null);
   const [eventRevision, setEventRevision] = useState(0);
   const [eventRefresh, setEventRefresh] = useState<EventRefresh | null>(null);
+  // Whether the shown event file is locked: reported by the scene whenever it reads events, the one
+  // source for every place that disables adding, deleting or dragging.
+  const [eventLock, setEventLock] = useState<EventLock | null>(null);
+  const eventLockRef = useRef(eventLock);
+  eventLockRef.current = eventLock;
+  const onEventsLocked = useCallback((lock: EventLock | null) => {
+    setEventLock((previous) => (previous?.file === lock?.file && previous?.reason === lock?.reason ? previous : lock));
+  }, []);
   const [counts, setCounts] = useState<MemberCounts>({});
   const [headerRevision, setHeaderRevision] = useState(0);
   const [matrixRevision, setMatrixRevision] = useState(0);
@@ -403,6 +411,11 @@ export default function App() {
       const shown = matrixRef.current;
       const file = headersRef.current.find((h) => h.id === selectedRef.current)?.event_file_id ?? null;
       if (!shown || file === null) return;
+      const gate = eventEditGate(eventLockRef.current, file);
+      if (!gate.allowed) {
+        setMessage({ kind: "error", text: gate.text });
+        return;
+      }
       const tile = lastMatrixTile.current;
       if (!tile) {
         setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
@@ -423,6 +436,12 @@ export default function App() {
 
   const onDeleteEvent = useCallback(
     async (file: number, kind: EventKind, index: number) => {
+      // A locked file cannot lose events: no question, just the reason.
+      const gate = eventEditGate(eventLockRef.current, file);
+      if (!gate.allowed) {
+        setMessage({ kind: "error", text: gate.text });
+        return;
+      }
       try {
         // The event is named by class, index and position, not only by an index that shifts.
         const event = await getEvents(file).then((events) => eventAt(events, kind, index), () => undefined);
@@ -510,6 +529,7 @@ export default function App() {
       lastMatrixTile.current = null;
       setBuildingRefresh(null);
       setEventRefresh(null);
+      setEventLock(null);
       setMatrix(null);
       setLastRom(null);
       if (listError !== null) fail(listError);
@@ -753,6 +773,8 @@ export default function App() {
     onSelectEvent,
     onEventMoved,
     eventRefresh,
+    eventLock,
+    onEventsLocked,
     eventRevision,
     onEventChanged,
     onAddEvent,
