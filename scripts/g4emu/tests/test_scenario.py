@@ -185,7 +185,7 @@ def test_summary_collects_headers_and_shots(tmp_path, roms, monkeypatch, capsys)
     monkeypatch.setenv("G4_BRIDGE_BIN", str(bridge))
     lines = [
         {"step": "continue", "ok": True, "header": 415, "warp": -1, "x": 7, "y": 4},
-        {"step": "walk-to", "ok": True, "header": 415, "x": 8, "y": 4},
+        {"step": "walk-to", "ok": True, "header": 999, "x": 8, "y": 4},
         {"step": "expect-map", "ok": True, "header": 412, "x": 3, "y": 4},
         {"step": "shot", "ok": True, "file": "/o/a.png"},
         {"step": "where", "ok": True, "header": 412},
@@ -199,7 +199,7 @@ def test_summary_collects_headers_and_shots(tmp_path, roms, monkeypatch, capsys)
     )
     assert code == 0
     summary = json.loads(capsys.readouterr().out.splitlines()[-1])
-    # only where/expect-map/continue count, consecutive duplicates collapse
+    # only continue/where/expect-map count (walk-to's 999 does not), consecutive duplicates collapse
     assert summary["headers"] == [415, 412, 411]
     assert summary["shots"] == ["/o/a.png"]
 
@@ -262,3 +262,70 @@ def test_cli_rejects_malformed_set(tmp_path, roms, capsys):
     )
     assert code == 1
     assert "NAME=WERT" in capsys.readouterr().err
+
+
+def test_missing_cargo_is_reported_with_a_summary(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.delenv("G4_BRIDGE_BIN", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # no ~/.rustup fallback either
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    code = run_scenario(
+        simple_scenario(), roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves"
+    )
+    captured = capsys.readouterr()
+    assert code == 1 and played == []
+    assert "cargo nicht gefunden" in captured.err and "G4_BRIDGE_BIN" in captured.err
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_bridge_command_falls_back_to_the_rustup_toolchain(tmp_path, monkeypatch):
+    monkeypatch.delenv("G4_BRIDGE_BIN", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    bin_dir = tmp_path / ".rustup" / "toolchains" / "stable-aarch64-apple-darwin" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "cargo").write_text("")
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        class R:
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(scenario.subprocess, "run", fake_run)
+    bridge_command(tmp_path)
+    assert seen["env"]["PATH"].startswith(str(bin_dir))
+
+
+def test_missing_project_is_reported_as_not_found(tmp_path, roms, capsys):
+    code = run_scenario(
+        simple_scenario(), roms / "_testkopien" / "gibtsnicht", tmp_path / "out", tmp_path, tmp_path / "saves"
+    )
+    assert code == 1
+    assert "Projekt nicht gefunden" in capsys.readouterr().err
+
+
+def test_saves_folder_and_its_children_are_not_projects(tmp_path, roms, monkeypatch, capsys):
+    marker = tmp_path / "called"
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, f"touch {marker}\n")))
+    (roms / "_testkopien" / "_saves" / "sub").mkdir(parents=True)
+    for p in (roms / "_testkopien" / "_saves", roms / "_testkopien" / "_saves" / "sub"):
+        code = run_scenario(simple_scenario(), p, tmp_path / "out", tmp_path, tmp_path / "saves")
+        assert code == 1
+        assert "unter _testkopien" in capsys.readouterr().err
+    assert not marker.exists()
+
+
+def test_symlink_and_dotdot_out_of_testkopien_are_refused(tmp_path, roms, monkeypatch, capsys):
+    marker = tmp_path / "called"
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, f"touch {marker}\n")))
+    link = roms / "_testkopien" / "link"
+    link.symlink_to(roms / "outside")
+    dotdot = roms / "_testkopien" / "proj" / ".." / ".." / "outside"
+    for p in (link, dotdot):
+        code = run_scenario(simple_scenario(), p, tmp_path / "out", tmp_path, tmp_path / "saves")
+        assert code == 1
+        assert "unter _testkopien" in capsys.readouterr().err
+    assert not marker.exists()

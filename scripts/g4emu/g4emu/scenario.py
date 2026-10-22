@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from g4emu import paths
 from g4emu.games import load_games
 
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_HEADER_STEPS = ("continue", "where", "expect-map")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
 
 
@@ -81,10 +83,20 @@ def bridge_command(repo: Path) -> list[str]:
     env = os.environ.get("G4_BRIDGE_BIN")
     if env:
         return [env]
-    result = subprocess.run(
-        ["cargo", "build", "-p", "studio", "--features", "dev-bridge", "--bin", "studio-bridge"],
-        cwd=repo,
-    )
+    env = dict(os.environ)
+    toolchain = Path.home() / ".rustup" / "toolchains" / "stable-aarch64-apple-darwin" / "bin"
+    if shutil.which("cargo", path=env.get("PATH")) is None and (toolchain / "cargo").is_file():
+        env["PATH"] = f"{toolchain}{os.pathsep}{env.get('PATH', '')}"  # same fallback as scripts/gate.sh
+    try:
+        result = subprocess.run(
+            ["cargo", "build", "-p", "studio", "--features", "dev-bridge", "--bin", "studio-bridge"],
+            cwd=repo, env=env,
+        )
+    except OSError as e:
+        raise RuntimeError(
+            f"cargo nicht gefunden ({e}): G4_BRIDGE_BIN setzen oder die Rust-Toolchain in den PATH "
+            f"aufnehmen ({toolchain})"
+        ) from e
     if result.returncode != 0:
         raise RuntimeError("cargo build für studio-bridge fehlgeschlagen")
     return [str(repo / "target" / "debug" / "studio-bridge")]
@@ -111,7 +123,7 @@ def _summary(scenario: Scenario, ok: bool, lines: list[dict]) -> None:
     shots: list[str] = []
     for line in lines:
         header = line.get("header")
-        if isinstance(header, int) and (not headers or headers[-1] != header):
+        if line.get("step") in _HEADER_STEPS and isinstance(header, int) and (not headers or headers[-1] != header):
             headers.append(header)
         if line.get("step") == "shot" and line.get("file"):
             shots.append(line["file"])
@@ -130,7 +142,10 @@ def run_scenario(
     """Edit + build the project copy through studio-bridge, then play it. Exit code 0/1/2 like `run`."""
     testkopien = (paths.roms_dir() / "_testkopien").resolve()
     project = Path(project).resolve()
-    if testkopien not in project.parents or not project.is_dir():
+    if not project.is_dir():
+        return _fail(scenario, f"Projekt nicht gefunden: {project}")
+    saves_folder = testkopien / "_saves"  # holds the input saves, never a project
+    if testkopien not in project.parents or project == saves_folder or saves_folder in project.parents:
         return _fail(scenario, f"Projekt muss unter _testkopien liegen ({testkopien}): {project}")
     games = load_games()
     game = games.get(scenario.game)
