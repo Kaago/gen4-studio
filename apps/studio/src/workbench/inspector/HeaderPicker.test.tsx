@@ -8,7 +8,7 @@ import { HeaderPicker } from "./HeaderPicker";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const header = (id: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0 });
+const header = (id: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 
 describe("HeaderPicker", () => {
   let container: HTMLElement;

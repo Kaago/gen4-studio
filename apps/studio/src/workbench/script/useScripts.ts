@@ -35,8 +35,13 @@ export interface ScriptsApi {
   close(file: number): void;
   /** Decompiles the project into rotom sources; the status says `adopted` afterwards. Rejects with the backend error. */
   adopt(onProgress?: (progress: AdoptProgressDto) => void): Promise<AdoptReportDto>;
-  /** Appends an empty script to the file (saving it first when it is dirty) and shows it. Failures go to `onError`. */
-  add(file: number): Promise<void>;
+  /** Appends an empty script to the file (saving it first when it is dirty) and shows it. Resolves to the new script's number; a failure goes to `onError` and resolves to null. */
+  add(file: number): Promise<number | null>;
+  /**
+   * The level-script form saved `doc` as file `file` (not the editor): the problems and archives are handled like those of a
+   * save, and an open document without unsaved text shows the new JSON. Ignored when `project` is not the open one any more.
+   */
+  onLevelScriptSaved(project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto): void;
   /** The editor changed the text of the document: renders again when that makes it dirty or clean. */
   onChange(file: number): void;
 }
@@ -97,8 +102,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
 
-  const latest = useRef({ documents, saving: owned.saving, problems, bus, onError });
-  latest.current = { documents, saving: owned.saving, problems, bus, onError };
+  const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError });
+  latest.current = { info, documents, saving: owned.saving, problems, bus, onError };
   const dirtyKey = useRef("");
 
   useEffect(() => {
@@ -181,15 +186,15 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   }, []);
 
   const add = useCallback(
-    async (file: number) => {
+    async (file: number): Promise<number | null> => {
       const docs = latest.current.documents;
       try {
         const doc = docs.get(file);
         if (doc && lf(doc.text) !== doc.savedText) await save(file);
-        await addScript(file);
+        const n = await addScript(file);
         // The source on disk has the new script now: show it, with the cursor at its end.
         const source = await readScript(file);
-        if (latest.current.documents !== docs) return;
+        if (latest.current.documents !== docs) return null;
         if (source.kind === "script") {
           const text = lf(source.text);
           const shown = docs.open(file, "script", text);
@@ -201,12 +206,30 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
         }
         // The compile that made the script may have appended to text archives.
         latest.current.bus.emit({ topic: "textData", archive: null });
+        return n;
       } catch (e) {
         latest.current.onError(e);
+        return null;
       }
     },
     [save],
   );
+
+  const onLevelScriptSaved = useCallback((project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => {
+    const { info: shown, documents: docs, problems, bus } = latest.current;
+    // Another project was opened while the form's save ran: its problems and archives are not this project's.
+    if (shown !== project) return;
+    problems.applyReport(dto.problems, { files: [scriptPath(file, "levelScript")] });
+    for (const archive of dto.touched_archives) bus.emit({ topic: "textData", archive });
+    const open = docs.get(file);
+    // A document with unsaved text keeps it: the editor's own save decides then.
+    if (open && open.kind === "levelScript" && lf(open.text) === open.savedText) {
+      const text = lf(levelScriptText(doc));
+      open.text = text;
+      open.savedText = text;
+      bump();
+    }
+  }, []);
 
   const onChange = useCallback(() => {
     const key = latest.current.documents.dirty().join(",");
@@ -220,8 +243,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   const dirtyCount = documents.dirty().length;
 
   const api = useMemo<ScriptsApi>(
-    () => ({ status, documents, active, revision, open, save, close, adopt, add, onChange }),
-    [status, documents, active, revision, open, save, close, adopt, add, onChange],
+    () => ({ status, documents, active, revision, open, save, close, adopt, add, onLevelScriptSaved, onChange }),
+    [status, documents, active, revision, open, save, close, adopt, add, onLevelScriptSaved, onChange],
   );
   const bridge = useMemo<ScriptBridge>(() => ({ dirtyFiles: () => latest.current.documents.dirty(), save }), [save]);
   return { api, bridge, dirtyCount };

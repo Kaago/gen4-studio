@@ -251,6 +251,8 @@ fn headers_on_synthetic_project() {
     assert_eq!(h[1].matrix_id, 0);
     assert_eq!(h[0].area_data_id, 0);
     assert_eq!(h[1].area_data_id, 1);
+    // Header 0 uses script file 0 and level script 1 (the fixture's script archive).
+    assert_eq!((h[0].script_file_id, h[0].level_script_id), (0, 1));
 }
 
 #[test]

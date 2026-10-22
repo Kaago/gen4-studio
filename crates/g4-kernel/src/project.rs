@@ -257,6 +257,10 @@ pub struct HeaderSummary {
     pub event_file_id: u16,
     /// Text archive with this header's messages (the text panel lists which headers use an archive).
     pub text_archive_id: u16,
+    /// Member of the script archive with this header's scripts (the world explorer lists it under the header).
+    pub script_file_id: u16,
+    /// Member of the script archive with this header's level script (0: none).
+    pub level_script_id: u16,
 }
 
 /// The header list plus the reason why location names are missing, if they are.
@@ -824,6 +828,8 @@ impl Project {
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),
                     text_archive_id: header.text_archive_id(),
+                    script_file_id: header.script_file_id(),
+                    level_script_id: header.level_script_id(),
                 }
             })
             .collect();

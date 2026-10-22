@@ -28,6 +28,8 @@ const header = (id: number, text_archive_id: number): HeaderSummary => ({
   area_data_id: 0,
   event_file_id: 0,
   text_archive_id,
+  script_file_id: 0,
+  level_script_id: 0,
 });
 
 const archive = (index: number, texts: string[]): TextArchiveDto => ({

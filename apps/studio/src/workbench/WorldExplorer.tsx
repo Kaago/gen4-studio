@@ -1,10 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { HeaderSummary, MatrixSummary, ProjectInfo } from "../api";
+import { errorText, listScriptFiles, searchScripts } from "../api";
+import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
 import { HeaderList } from "./HeaderList";
 import { showsMatrix } from "./headers";
-import { buildPlaces, filterPlaces, mapsText, placeColor, placeOf } from "./places";
+import { buildPlaces, filterPlaces, mapsText, placeColor, placeOf, scriptChildren } from "./places";
 import type { PlaceHeader } from "./places";
+import { ADOPT_HINT } from "./inspector/scriptNav";
 import { TERMS, id4, techLabel } from "./terms";
 import { TermsPopover } from "./TermsPopover";
 import { popoverStyle, useDismiss } from "./useDismiss";
@@ -25,6 +27,10 @@ export interface WorldExplorerProps {
   revealToken: number;
   onSelect: (h: HeaderSummary) => void;
   onOpenWizard: (request: WizardRequest) => void;
+  /** Whether rotom has taken the scripts over; without it the script entries only show a hint. */
+  scriptsAdopted: boolean;
+  /** Opens a script file in the script panel (at a 1-based line). Must keep its identity (the tree is memoised). */
+  onOpenScript: (file: number, line?: number) => void;
 }
 
 type Mode = "tree" | "list";
@@ -48,6 +54,8 @@ function writeMode(mode: Mode): void {
 
 const ellipsis: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 const GREY = "#6b7280";
+/** A row that only opens something (a script entry): looks like text, takes the cursor. */
+const linkButton: CSSProperties = { all: "unset", boxSizing: "border-box", display: "block", width: "100%", cursor: "pointer", lineHeight: 1.6, ...ellipsis };
 
 /**
  * One header of a place. The place already carries the location name, so a room is named by its
@@ -55,34 +63,78 @@ const GREY = "#6b7280";
  * outside and room are not told apart yet); the grey part has the id, the code (when it is not the name) and the room's maps.
  * Memoised: a selection change renders the rows whose props changed, not all of them.
  */
-const HeaderRow = memo(function HeaderRow({ entry, selected, marked, showRooms, onSelect }: { entry: PlaceHeader; selected: boolean; marked: boolean; showRooms: boolean; onSelect: (h: HeaderSummary) => void }) {
+const HeaderRow = memo(function HeaderRow({
+  entry,
+  selected,
+  marked,
+  showRooms,
+  expanded,
+  adopted,
+  onSelect,
+  onToggle,
+  onOpenScript,
+}: {
+  entry: PlaceHeader;
+  selected: boolean;
+  marked: boolean;
+  showRooms: boolean;
+  /** The header's script entries are shown below it. */
+  expanded: boolean;
+  adopted: boolean;
+  onSelect: (h: HeaderSummary) => void;
+  onToggle: (id: number) => void;
+  onOpenScript: (file: number, line?: number) => void;
+}) {
   const h = entry.header;
   const name = entry.kind === "outside" || !showRooms ? h.location_name || h.internal_name : h.internal_name;
   const grey = [id4(h.id), h.internal_name !== name ? h.internal_name : null, showRooms && entry.kind === "inside" ? mapsText(entry) : null].filter((part) => part !== null);
   return (
     <li>
-      <button
-        data-header-id={h.id}
-        onClick={() => onSelect(h)}
-        aria-current={selected ? "true" : undefined}
-        title={`${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
-        style={{
-          all: "unset",
-          boxSizing: "border-box",
-          display: "flex",
-          alignItems: "baseline",
-          columnGap: 8,
-          width: "100%",
-          cursor: "pointer",
-          lineHeight: 1.6,
-          fontWeight: selected ? 700 : 400,
-          background: marked ? "#eff6ff" : "transparent",
-          boxShadow: marked ? "inset 3px 0 0 #2563eb" : "none",
-        }}
-      >
-        <span style={{ ...ellipsis, flex: "1 1 auto", minWidth: 0, paddingLeft: 4 }}>{name}</span>
-        <span style={{ ...ellipsis, flex: "0 1 auto", color: GREY, fontSize: 12, fontWeight: 400, minWidth: 0 }}>{grey.join(" · ")}</span>
-      </button>
+      <div style={{ display: "flex", alignItems: "baseline" }}>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${TERMS.script.plural} von ${name} ${expanded ? "ausblenden" : "anzeigen"}`}
+          onClick={() => onToggle(h.id)}
+          style={{ all: "unset", cursor: "pointer", width: 14, flex: "0 0 auto", textAlign: "center", color: GREY, fontSize: 10 }}
+        >
+          {expanded ? "▾" : "▸"}
+        </button>
+        <button
+          data-header-id={h.id}
+          onClick={() => onSelect(h)}
+          aria-current={selected ? "true" : undefined}
+          title={`${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
+          style={{
+            all: "unset",
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "baseline",
+            columnGap: 8,
+            flex: "1 1 auto",
+            minWidth: 0,
+            cursor: "pointer",
+            lineHeight: 1.6,
+            fontWeight: selected ? 700 : 400,
+            background: marked ? "#eff6ff" : "transparent",
+            boxShadow: marked ? "inset 3px 0 0 #2563eb" : "none",
+          }}
+        >
+          <span style={{ ...ellipsis, flex: "1 1 auto", minWidth: 0, paddingLeft: 4 }}>{name}</span>
+          <span style={{ ...ellipsis, flex: "0 1 auto", color: GREY, fontSize: 12, fontWeight: 400, minWidth: 0 }}>{grey.join(" · ")}</span>
+        </button>
+      </div>
+      {expanded && (
+        <ul style={{ listStyle: "none", margin: 0, padding: "0 0 2px 22px" }}>
+          {scriptChildren(h).map((child) => (
+            <li key={child.kind}>
+              <button type="button" data-script-file={child.file} disabled={!adopted} title={adopted ? undefined : ADOPT_HINT} onClick={() => onOpenScript(child.file)} style={adopted ? linkButton : { ...linkButton, opacity: 0.5, cursor: "default" }}>
+                {child.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 });
@@ -150,10 +202,155 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
   );
 }
 
+
+const SEARCH_DELAY_MS = 300;
+const SEARCH_LIMIT = 100;
+
+/** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it. */
+function fileDetails(f: ScriptFileDto): string {
+  const users = f.headers.length === 0 ? "ohne Header" : `${TERMS.header.plural} ${f.headers.map(id4).join(", ")}`;
+  return [f.kind === "binary" ? "binär" : null, `${f.size} Byte`, users].filter((part) => part !== null).join(" · ");
+}
+
+const ScriptFileRow = memo(function ScriptFileRow({ file, onOpenScript }: { file: ScriptFileDto; onOpenScript: (file: number, line?: number) => void }) {
+  const name = `${file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label} ${id4(file.file)}`;
+  return (
+    <li>
+      <button type="button" data-script-file={file.file} onClick={() => onOpenScript(file.file)} title={`${name}, ${fileDetails(file)}`} style={{ ...linkButton, display: "flex", columnGap: 8 }}>
+        <span style={{ ...ellipsis, flex: "0 0 auto" }}>{name}</span>
+        <span style={{ ...ellipsis, flex: "1 1 auto", minWidth: 0, color: GREY, fontSize: 12 }}>{fileDetails(file)}</span>
+      </button>
+    </li>
+  );
+});
+
+const HitRow = memo(function HitRow({ hit, onOpenScript }: { hit: ScriptHitDto; onOpenScript: (file: number, line?: number) => void }) {
+  return (
+    <li>
+      <button type="button" onClick={() => onOpenScript(hit.file, hit.line)} style={linkButton}>
+        {TERMS.scriptFile.label} {id4(hit.file)} · Zeile {hit.line} · {hit.excerpt}
+      </button>
+    </li>
+  );
+});
+
+/**
+ * The root node "Scripts": every script file of the project and a search over their sources. The list is read when the
+ * node is opened (not with the project), each time it is opened, so files made since then show. The search waits for a
+ * pause in typing. Nothing is asked of the backend while rotom has not taken the scripts over.
+ */
+function ScriptsNode({ info, adopted, onOpenScript }: { info: ProjectInfo | null; adopted: boolean; onOpenScript: (file: number, line?: number) => void }) {
+  const [open, setOpen] = useState(false);
+  // Bumped with every opening: the list is read again.
+  const [opened, setOpened] = useState(0);
+  // Answers carry the project and the query they belong to, so a late one for another project or text is not shown.
+  const [files, setFiles] = useState<{ info: ProjectInfo | null; list: ScriptFileDto[] } | { info: ProjectInfo | null; error: string } | null>(null);
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<{ info: ProjectInfo | null; query: string; hits: ScriptHitDto[] } | { info: ProjectInfo | null; query: string; error: string } | null>(null);
+  const text = query.trim();
+
+  useEffect(() => {
+    if (!open || !adopted) return;
+    let current = true;
+    listScriptFiles().then(
+      (list) => current && setFiles({ info, list }),
+      (e: unknown) => current && setFiles({ info, error: errorText(e) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [open, opened, adopted, info]);
+
+  useEffect(() => {
+    if (!open || !adopted || text === "") return;
+    let current = true;
+    const timer = setTimeout(() => {
+      searchScripts(text, SEARCH_LIMIT).then(
+        (hits) => current && setFound({ info, query: text, hits }),
+        (e: unknown) => current && setFound({ info, query: text, error: errorText(e) }),
+      );
+    }, SEARCH_DELAY_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [open, adopted, text, info]);
+
+  const list = files !== null && files.info === info ? files : null;
+  const answer = found !== null && found.info === info && found.query === text ? found : null;
+  const count = list !== null && "list" in list ? list.list.length : null;
+  return (
+    <details
+      data-scripts-root=""
+      open={open}
+      onToggle={(e) => {
+        const now = e.currentTarget.open;
+        if (now && !open) setOpened((n) => n + 1);
+        setOpen(now);
+      }}
+    >
+      <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
+        {TERMS.script.plural}
+        {count !== null && (
+          <span aria-hidden="true" style={{ float: "right", color: GREY, fontSize: 12 }}>
+            {count}
+          </span>
+        )}
+      </summary>
+      {open &&
+        (!adopted ? (
+          <p role="note" style={{ margin: "2px 0 4px 16px", color: GREY }}>
+            {ADOPT_HINT}
+          </p>
+        ) : (
+          <div style={{ padding: "0 0 4px 16px" }}>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Nummer oder Text suchen"
+              aria-label="Scripts durchsuchen"
+              style={{ width: "100%", boxSizing: "border-box", padding: "2px 6px", marginBottom: 4 }}
+            />
+            {text !== "" ? (
+              answer === null ? (
+                <p style={{ margin: 0, color: GREY }}>Suche …</p>
+              ) : "error" in answer ? (
+                <p role="alert" style={{ margin: 0, color: "#b91c1c" }}>
+                  {answer.error}
+                </p>
+              ) : answer.hits.length === 0 ? (
+                <p style={{ margin: 0, color: GREY }}>Keine Treffer.</p>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {answer.hits.map((hit) => (
+                    <HitRow key={`${hit.file}:${hit.line}`} hit={hit} onOpenScript={onOpenScript} />
+                  ))}
+                </ul>
+              )
+            ) : list === null ? (
+              <p style={{ margin: 0, color: GREY }}>Lade …</p>
+            ) : "error" in list ? (
+              <p role="alert" style={{ margin: 0, color: "#b91c1c" }}>
+                {list.error}
+              </p>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {list.list.map((file) => (
+                  <ScriptFileRow key={file.file} file={file} onOpenScript={onOpenScript} />
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+    </details>
+  );
+}
+
 type TreeProps = Omit<WorldExplorerProps, "onOpenWizard">;
 
 /** The places as one `details` each. Its state (search, opened places) lasts only while the tree mode shows. */
-function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, onSelect }: TreeProps) {
+function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, onSelect, scriptsAdopted, onOpenScript }: TreeProps) {
   const [query, setQuery] = useState("");
   // Without the overview every header would count as a room: the places then keep plain id order. The warps are not needed here, so a new warp list renders nothing.
   const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : []), [headers, matrices, matricesLoaded]);
@@ -163,6 +360,17 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
     const place = selected === null ? undefined : placeOf(places, selected);
     return new Set(place ? [place.key] : []);
   });
+  // The headers whose script entries are shown below them.
+  const [expandedHeaders, setExpandedHeaders] = useState<ReadonlySet<number>>(new Set());
+  const toggleHeader = useCallback(
+    (id: number) =>
+      setExpandedHeaders((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      }),
+    [],
+  );
   const tree = useRef<HTMLDivElement>(null);
   // The selection and token last scrolled to, so a search that hides the selection later does not pull it back.
   const revealed = useRef<string | null>(null);
@@ -223,6 +431,7 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
         />
       </div>
       <div ref={tree} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 16px" }}>
+        <ScriptsNode info={info} adopted={scriptsAdopted} onOpenScript={onOpenScript} />
         {shown.map((place) => (
           <details key={place.key} data-place-key={place.key} open={query !== "" || openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
             <summary style={{ cursor: "pointer", lineHeight: 1.6 }} aria-label={`${place.name}, ${place.headers.length} ${place.headers.length === 1 ? TERMS.header.label : TERMS.header.plural}`}>
@@ -234,7 +443,18 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
             </summary>
             <ul style={{ listStyle: "none", margin: 0, padding: "0 0 4px 16px" }}>
               {place.headers.map((entry) => (
-                <HeaderRow key={entry.header.id} entry={entry} selected={entry.header.id === selected} marked={showsMatrix(entry.header, shownMatrix)} showRooms={matricesLoaded} onSelect={onSelect} />
+                <HeaderRow
+                  key={entry.header.id}
+                  entry={entry}
+                  selected={entry.header.id === selected}
+                  marked={showsMatrix(entry.header, shownMatrix)}
+                  showRooms={matricesLoaded}
+                  expanded={expandedHeaders.has(entry.header.id)}
+                  adopted={scriptsAdopted}
+                  onSelect={onSelect}
+                  onToggle={toggleHeader}
+                  onOpenScript={onOpenScript}
+                />
               ))}
             </ul>
           </details>

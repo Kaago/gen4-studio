@@ -97,3 +97,21 @@ export function mapsText({ mapCount, size }: PlaceHeader): string | null {
   const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
   return size ? `${maps} (${size})` : maps;
 }
+
+/** A script file a header uses, as the world explorer lists it below the header. */
+export interface ScriptChild {
+  kind: "script" | "levelScript";
+  file: number;
+  /** "Scriptdatei 0042" / "Level-Script 0042". */
+  label: string;
+}
+
+/**
+ * The children of a header in the tree: its script file (file 0 is a file like any other) and, when it has one, its level
+ * script (0 means none).
+ */
+export function scriptChildren(header: Pick<HeaderSummary, "script_file_id" | "level_script_id">): ScriptChild[] {
+  const children: ScriptChild[] = [{ kind: "script", file: header.script_file_id, label: `${TERMS.scriptFile.label} ${id4(header.script_file_id)}` }];
+  if (header.level_script_id !== 0) children.push({ kind: "levelScript", file: header.level_script_id, label: `${TERMS.levelScript.label} ${id4(header.level_script_id)}` });
+  return children;
+}

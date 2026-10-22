@@ -61,6 +61,8 @@ const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({
   area_data_id: 5,
   event_file_id: 7,
   text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
   ...over,
 });
 

@@ -1,4 +1,5 @@
-import { Suspense, lazy, useMemo, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useMemo, useSyncExternalStore } from "react";
+import type { LevelScriptDoc, SaveScriptDto } from "../api";
 import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
@@ -40,6 +41,9 @@ export function HeadersPanel() {
   const d = useWorkbench();
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
   const revealToken = useBusRevision(d.bus, "headerReveal");
+  // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
+  const goTo = d.goTo;
+  const onOpenScript = useCallback((file: number, line?: number) => goTo({ kind: "script", file, line }), [goTo]);
   return (
     <WorldExplorer
       info={d.info}
@@ -52,6 +56,8 @@ export function HeadersPanel() {
       revealToken={revealToken}
       onSelect={d.onSelect}
       onOpenWizard={d.onOpenWizard}
+      scriptsAdopted={d.scripts.status?.adopted === true}
+      onOpenScript={onOpenScript}
     />
   );
 }
@@ -201,6 +207,11 @@ export function InspectorPanel() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const buildingRevision = useBusRevision(d.bus, "buildingData");
   const eventRevision = useBusRevision(d.bus, "eventData");
+  // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
+  const goTo = d.goTo;
+  const openScript = (file: number, line?: number) => goTo({ kind: "script", file, line });
+  const { scripts, info } = d;
+  const onLevelScriptSaved = (file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => scripts.onLevelScriptSaved(info, file, doc, dto);
   return (
     <Inspector
       model={inspector}
@@ -213,6 +224,12 @@ export function InspectorPanel() {
         eventRevision,
         onOpenWizard: d.onOpenWizard,
         onAddWarp: () => void d.onAddEvent("warp"),
+        info: d.info,
+        scriptsAdopted: d.scripts.status?.adopted === true,
+        scriptsRevision: d.scripts.revision,
+        onOpenScript: openScript,
+        onLevelScriptSaved,
+        onCountsChanged: d.onCountsChanged,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
@@ -233,6 +250,10 @@ export function InspectorPanel() {
         onAdd: d.onAddEvent,
         onDelete: d.onDeleteEvent,
         goTo: d.goTo,
+        selected: d.selected,
+        scriptsAdopted: d.scripts.status?.adopted === true,
+        onOpenScript: openScript,
+        onAddScript: d.scripts.add,
         onError: d.onError,
       }}
       matrixEditor={{

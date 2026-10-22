@@ -12,6 +12,8 @@ const header = (id: number, matrix: number, area: number, events = id): HeaderSu
   area_data_id: area,
   event_file_id: events,
   text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
 });
 
 /** Runs actions in order the way the hook does and keeps the latest state. */

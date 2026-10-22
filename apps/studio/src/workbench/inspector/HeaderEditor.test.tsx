@@ -1,0 +1,182 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
+import type { EventsDto, HeaderSummary, MapHeader, MapHeaderPt } from "../../api";
+import { HeaderEditor } from "./HeaderEditor";
+import type { HeaderEditorContext } from "./HeaderEditor";
+
+vi.mock("../../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api")>()),
+  getHeader: vi.fn(),
+  setHeader: vi.fn(),
+  getEvents: vi.fn(),
+  newScriptFile: vi.fn(),
+  readScript: vi.fn(),
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+const pt = (over: Partial<MapHeaderPt> = {}): MapHeader => ({
+  Pt: {
+    area_data_id: 1,
+    unknown1: 0,
+    matrix_id: 2,
+    script_file_id: 40,
+    level_script_id: 41,
+    text_archive_id: 5,
+    music_day_id: 6,
+    music_night_id: 7,
+    wild_pokemon: 8,
+    event_file_id: 9,
+    location_name: 10,
+    area_icon: 11,
+    weather_id: 12,
+    camera_angle_id: 13,
+    location_specifier: 14,
+    battle_background: 15,
+    flags: 1,
+    ...over,
+  },
+});
+const summary: HeaderSummary = { id: 411, internal_name: "T01", location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
+const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [], warps: [], coords: [] };
+
+describe("HeaderEditor scripts", () => {
+  let container: HTMLElement;
+  let root: Root;
+  const onOpenScript = vi.fn();
+  const onChanged = vi.fn();
+  const onCountsChanged = vi.fn();
+  const onError = vi.fn();
+  const onLevelScriptSaved = vi.fn();
+  const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
+    headers: [summary],
+    counts: { Script: 800 },
+    revision: 0,
+    onChanged,
+    goTo: vi.fn(),
+    eventRevision: 0,
+    onOpenWizard: vi.fn(),
+    onAddWarp: vi.fn(),
+    info: null,
+    scriptsAdopted: true,
+    scriptsRevision: 0,
+    onOpenScript,
+    onLevelScriptSaved,
+    onCountsChanged,
+    onError,
+    ...over,
+  });
+  async function show(ctx = context()) {
+    await act(async () => root.render(<HeaderEditor id={411} context={ctx} />));
+    await flush();
+  }
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    vi.mocked(getHeader).mockReset().mockResolvedValue(pt());
+    vi.mocked(setHeader).mockReset().mockResolvedValue(undefined);
+    vi.mocked(getEvents).mockReset().mockResolvedValue(noEvents);
+    vi.mocked(newScriptFile).mockReset();
+    vi.mocked(readScript).mockReset().mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+    for (const fn of [onOpenScript, onChanged, onCountsChanged, onError, onLevelScriptSaved]) fn.mockReset();
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  const button = (label: string) => [...container.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label || b.textContent === label) as HTMLButtonElement | undefined;
+  const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
+
+  it("limits_both_pickers_by_the_member_count_of_the_script_archive", async () => {
+    await show();
+    const titles = [...container.querySelectorAll("label")].map((l) => l.getAttribute("title"));
+    expect(titles).toContain("script_file_id (0 bis 799)");
+    expect(titles).toContain("level_script_id (0 bis 799)");
+  });
+
+  it("opens_the_script_file_and_the_level_script_of_the_header", async () => {
+    await show();
+    await click(button("Scriptdatei öffnen"));
+    expect(onOpenScript).toHaveBeenLastCalledWith(40);
+    await click(button("Level-Script öffnen"));
+    expect(onOpenScript).toHaveBeenLastCalledWith(41);
+  });
+
+  it("has_nothing_to_open_for_a_header_without_a_level_script", async () => {
+    vi.mocked(getHeader).mockResolvedValue(pt({ level_script_id: 0 }));
+    await show();
+    expect(button("Level-Script öffnen")!.disabled).toBe(true);
+    expect(button("Scriptdatei öffnen")!.disabled).toBe(false);
+  });
+
+  it("writes_the_number_of_a_new_script_file_into_the_header_and_opens_the_file", async () => {
+    vi.mocked(newScriptFile).mockResolvedValue(812);
+    await show();
+    await click(button("Neue Scriptdatei anlegen"));
+    await flush();
+    expect(newScriptFile).toHaveBeenCalledWith("script");
+    // Through the edit path (an undoable header write with the field's name), then list, scene and counts follow.
+    expect(setHeader).toHaveBeenCalledTimes(1);
+    expect(setHeader).toHaveBeenCalledWith(411, pt({ script_file_id: 812 }), "Scriptdatei");
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(onCountsChanged).toHaveBeenCalledTimes(1);
+    expect(onOpenScript).toHaveBeenCalledWith(812);
+  });
+
+  it("writes_the_number_of_a_new_level_script_into_the_header_without_opening_it", async () => {
+    vi.mocked(newScriptFile).mockResolvedValue(813);
+    await show();
+    await click(button("Neues Level-Script anlegen"));
+    await flush();
+    expect(newScriptFile).toHaveBeenCalledWith("levelScript");
+    expect(setHeader).toHaveBeenCalledWith(411, pt({ level_script_id: 813 }), "Level-Script");
+    expect(onOpenScript).not.toHaveBeenCalled();
+  });
+
+  it("creates_the_level_script_from_the_form_when_the_header_has_none", async () => {
+    vi.mocked(getHeader).mockResolvedValue(pt({ level_script_id: 0 }));
+    vi.mocked(newScriptFile).mockResolvedValue(30);
+    await show();
+    expect(container.textContent).toContain("Kein Level-Script — Anlegen");
+    await click([...container.querySelectorAll("section button")].find((b) => b.textContent === "Anlegen"));
+    await flush();
+    expect(newScriptFile).toHaveBeenCalledWith("levelScript");
+    expect(setHeader).toHaveBeenCalledWith(411, pt({ level_script_id: 30 }), "Level-Script");
+    // The header now names the file: the form reads it.
+    expect(readScript).toHaveBeenCalledWith(30);
+  });
+
+  it("reports_a_refused_new_file_and_writes_nothing", async () => {
+    vi.mocked(newScriptFile).mockRejectedValue({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    await show();
+    await click(button("Neue Scriptdatei anlegen"));
+    await flush();
+    expect(onError).toHaveBeenCalledWith({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    expect(setHeader).not.toHaveBeenCalled();
+  });
+
+  it("shows_the_form_of_the_level_script", async () => {
+    vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [{ type: "on_load", script_id: 3 }], var_conditions: [] } });
+    await show();
+    expect(readScript).toHaveBeenCalledWith(41);
+    expect(container.querySelector('section[aria-label="Level-Script"] table')).not.toBeNull();
+  });
+
+  it("asks_for_the_adoption_and_calls_no_command_while_scripts_are_not_adopted", async () => {
+    await show(context({ scriptsAdopted: false }));
+    expect(container.textContent).toContain("Erst Scripts übernehmen (Panel „Script“)");
+    for (const label of ["Scriptdatei öffnen", "Level-Script öffnen", "Neue Scriptdatei anlegen", "Neues Level-Script anlegen"]) {
+      expect(button(label)!.disabled).toBe(true);
+      await click(button(label));
+    }
+    expect(onOpenScript).not.toHaveBeenCalled();
+    expect(newScriptFile).not.toHaveBeenCalled();
+    expect(readScript).not.toHaveBeenCalled();
+  });
+});

@@ -18,6 +18,10 @@ export interface HeaderSummary {
   event_file_id: number;
   /** Text archive with the header's messages (the text panel lists which headers use an archive). */
   text_archive_id: number;
+  /** Script file (member of the script archive) with the header's scripts. */
+  script_file_id: number;
+  /** Level script file of the header (0: none). */
+  level_script_id: number;
 }
 
 export interface HeaderListing {
@@ -716,3 +720,23 @@ export const newScriptFile = (kind: "script" | "levelScript") => invoke<number>(
 /** Appends an empty script to the script file and resolves to its number. Same refusal as `saveScript`. */
 export const addScript = (file: number) => invoke<number>("add_script", { file });
 export const resolveScript = (header: number, n: number) => invoke<ScriptTargetDto>("resolve_script", { header, n });
+
+/** One script file in the project (`kind` "binary": rotom could not decompile it). */
+export interface ScriptFileDto {
+  file: number;
+  kind: "script" | "levelScript" | "binary";
+  size: number;
+  /** Ids of the headers that use the file as their script file (level script for a level script; a binary file counts for both). */
+  headers: number[];
+}
+
+/** A line of a script source that contains the search text (line is 1-based). */
+export interface ScriptHitDto {
+  file: number;
+  line: number;
+  excerpt: string;
+}
+
+export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files");
+/** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
+export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });

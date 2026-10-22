@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { getEvents, updateEvent } from "../../api";
 import type { BgDto, EventKind, HeaderSummary, ObjectDto, WarpDto } from "../../api";
@@ -10,8 +10,10 @@ import { AddEvent } from "./AddEvent";
 import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs } from "./eventFields";
 import type { EventFieldSpec } from "./eventFields";
 import type { NavTarget } from "../navigation";
+import { TERMS, id4 } from "../terms";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
+import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
@@ -28,6 +30,14 @@ export interface EventEditorContext {
   onDelete: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   /** Follows a link (a warp's destination header). */
   goTo: (target: NavTarget) => void;
+  /** The selected header: when several headers share the event file, its script file is the one the event's scripts are looked up in. */
+  selected: number | null;
+  /** Whether rotom has taken the scripts over; without it the script buttons only show a hint. */
+  scriptsAdopted: boolean;
+  /** Opens a script file in the script panel, at a 1-based line. */
+  onOpenScript: (file: number, line?: number) => void;
+  /** Appends an empty script to the script file and resolves to its number (null: it failed and was reported). */
+  onAddScript: (file: number) => Promise<number | null>;
   onError: (e: unknown) => void;
 }
 
@@ -42,7 +52,7 @@ const muted: CSSProperties = { fontSize: 12, color: "#6b7280" };
  * (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context }: { file: number; kind: EventKind; index: number; context: EventEditorContext }) {
-  const { headers, family, revision, onChanged, onAdd, onDelete, goTo, onError } = context;
+  const { headers, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
@@ -73,6 +83,22 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
     if (v !== null) commit(spec.key, spec.label, clampEventValue(spec, v));
   };
 
+  // The header whose script file the event's scripts live in (headers may share an event file).
+  const owner = headerOfEventFile(headers, file, selected);
+  const openScript = () => {
+    if (event === null) return;
+    if (!owner) return onError(`Kein Header nutzt Eventdatei ${id4(file)}`);
+    void openScriptNumber(owner.id, EVENT_FIELDS.value(event, "script"), onOpenScript, onError);
+  };
+  const newScript = async () => {
+    if (!owner) return onError(`Kein Header nutzt Eventdatei ${id4(file)}`);
+    const n = await onAddScript(owner.script_file_id);
+    if (n === null) return;
+    // The number goes through the edit path like a typed one: undoable, and the event is dirty.
+    await session.current?.commit("script", TERMS.script.label, n);
+    onOpenScript(owner.script_file_id);
+  };
+
   const title = `${KIND_LABELS[kind]} ${index} · Event-Datei ${String(file).padStart(4, "0")}`;
   if (event === null) return <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>{title}</div>;
   const readOnly = locked !== null;
@@ -91,19 +117,36 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
       )}
       <div key={refused} style={{ marginTop: 8 }}>
         {eventFieldSpecs(kind, family).map((spec) => (
-          <label key={spec.key} style={row}>
-            <span>{spec.label}</span>
-            <DraftInput
-              label={spec.label}
-              type="number"
-              min={spec.min}
-              max={spec.max}
-              value={String(EVENT_FIELDS.value(event, spec.key))}
-              onCommit={commitSpec(spec)}
-              disabled={readOnly}
-              style={input}
-            />
-          </label>
+          <Fragment key={spec.key}>
+            <label style={row}>
+              <span>{spec.label}</span>
+              <DraftInput
+                label={spec.label}
+                type="number"
+                min={spec.min}
+                max={spec.max}
+                value={String(EVENT_FIELDS.value(event, spec.key))}
+                onCommit={commitSpec(spec)}
+                disabled={readOnly}
+                style={input}
+              />
+            </label>
+            {spec.key === "script" && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "2px 0" }}>
+                {!scriptsAdopted && (
+                  <span role="note" style={{ ...muted, marginRight: "auto" }}>
+                    {ADOPT_HINT}
+                  </span>
+                )}
+                <button type="button" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
+                  Öffnen
+                </button>
+                <button type="button" disabled={!scriptsAdopted || readOnly} onClick={() => void newScript()} title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}>
+                  Neues Script
+                </button>
+              </div>
+            )}
+          </Fragment>
         ))}
         {(kind === "object" || kind === "bg") && (
           <div style={row} title="Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">

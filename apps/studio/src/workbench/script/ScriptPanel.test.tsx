@@ -6,7 +6,7 @@ import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectInfo, ScriptsStatusDto } from "../../api";
+import type { ProjectInfo, SaveScriptDto, ScriptsStatusDto } from "../../api";
 import { addScript, adoptScripts, lspSend, lspStart, lspStop, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
 import { createEditBus } from "../../bus/editBus";
 import type { EditBus, EditEvent } from "../../bus/editBus";
@@ -314,6 +314,60 @@ describe("ScriptPanel", () => {
     expect(view().state.selection.main.head).toBe(view().state.doc.length);
     expect(api.documents.dirty()).toEqual([]);
     expect(events).toContainEqual({ topic: "textData", archive: null });
+  });
+
+  it("resolves_add_to_the_new_scripts_number_and_to_null_when_it_failed", async () => {
+    vi.mocked(addScript).mockResolvedValueOnce(5).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    await render();
+    await settle();
+    let added: number | null | undefined;
+    await act(async () => void (added = await api.add(42)));
+    expect(added).toBe(5);
+    await act(async () => void (added = await api.add(42)));
+    expect(added).toBeNull();
+    expect(onError).toHaveBeenCalledWith({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+  });
+
+  describe("a level script saved by the form", () => {
+    const LEVEL = "expanded/scripts/0007.json";
+    const doc = { header_entries: [{ type: "on_load", script_id: 3 }], var_conditions: [] };
+    const dto = (over: Partial<SaveScriptDto> = {}): SaveScriptDto => ({ problems: [], touched_archives: [], ...over });
+
+    it("puts_its_problems_into_the_store_per_file_and_tells_the_text_panel_about_touched_archives", async () => {
+      await render();
+      await settle();
+      act(() => api.onLevelScriptSaved(projectA, 7, doc, dto({ problems: [{ severity: "error", file: LEVEL, line: 1, col: 1, message: "var darf nicht 0 sein", source: "compile" }], touched_archives: [199] })));
+      expect(problems.list().map((p) => [p.file, p.message, p.source])).toEqual([[LEVEL, "var darf nicht 0 sein", "compile"]]);
+      expect(events.filter((e) => e.topic === "textData")).toEqual([{ topic: "textData", archive: 199 }]);
+      // A later clean save clears the file.
+      act(() => api.onLevelScriptSaved(projectA, 7, doc, dto()));
+      expect(problems.list()).toEqual([]);
+    });
+
+    it("shows_the_new_json_in_a_clean_open_document_and_leaves_a_dirty_one_alone", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await render();
+      await settle();
+      await open(7);
+      act(() => api.onLevelScriptSaved(projectA, 7, doc, dto()));
+      expect(JSON.parse(view().state.doc.toString())).toEqual(doc);
+      expect(api.documents.dirty()).toEqual([]);
+      // Text typed in the editor is the user's: the form's save does not replace it.
+      typeAt(0, " ");
+      const typed = view().state.doc.toString();
+      act(() => api.onLevelScriptSaved(projectA, 7, { header_entries: [], var_conditions: [] }, dto()));
+      expect(view().state.doc.toString()).toBe(typed);
+    });
+
+    it("is_ignored_once_another_project_is_open", async () => {
+      await render(projectA);
+      await settle();
+      await render(projectB);
+      await settle();
+      act(() => api.onLevelScriptSaved(projectA, 7, doc, dto({ problems: [{ severity: "error", file: LEVEL, line: 1, col: 1, message: "alt", source: "compile" }], touched_archives: [1] })));
+      expect(problems.list()).toEqual([]);
+      expect(events.filter((e) => e.topic === "textData")).toEqual([]);
+    });
   });
 
   it("reports_a_binary_file_and_opens_nothing", async () => {

@@ -49,8 +49,8 @@ describe("event texts", () => {
 
 describe("warpDestinationLabel", () => {
   const hs = [
-    { id: 414, internal_name: "T01R0201", location_name: "Zweiblattdorf", matrix_id: 126, area_data_id: 20, event_file_id: 1, text_archive_id: 0 },
-    { id: 7, internal_name: "D99", location_name: "", matrix_id: 1, area_data_id: 1, event_file_id: 2, text_archive_id: 0 },
+    { id: 414, internal_name: "T01R0201", location_name: "Zweiblattdorf", matrix_id: 126, area_data_id: 20, event_file_id: 1, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
+    { id: 7, internal_name: "D99", location_name: "", matrix_id: 1, area_data_id: 1, event_file_id: 2, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
   ];
 
   it("labels warp destinations and flags unknown headers", () => {

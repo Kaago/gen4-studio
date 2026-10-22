@@ -11,6 +11,8 @@ const header = (id: number, matrix_id: number, event_file_id: number): HeaderSum
   area_data_id: 0,
   event_file_id,
   text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
 });
 
 const headers = [header(3, 0, 10), header(4, 0, 11), header(415, 7, 12)];
