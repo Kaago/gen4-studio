@@ -1,6 +1,6 @@
-export const LAYOUT_KEY = "g4.layout.v2";
+export const LAYOUT_KEY = "g4.layout.v3";
 
-export type PanelId = "headers" | "world" | "matrix" | "inspector" | "status";
+export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "inspector" | "status";
 
 export interface PanelSpec {
   id: PanelId;
@@ -11,13 +11,14 @@ export interface PanelSpec {
 }
 
 /**
- * Order matters: `world` is the anchor the other panels are placed around; `matrix` is a tab
- * of the world's group. The key is versioned: a layout stored by an older panel set is not read.
+ * Order matters: `world` is the anchor the other panels are placed around; `matrix` and `worldmap`
+ * are tabs of the world's group. The explorer (`headers`, titled "Welt") is the left panel. The key is versioned: a layout stored by an older panel set is not read.
  */
 export const DEFAULT_PANELS: readonly PanelSpec[] = [
-  { id: "world", title: "Welt", position: { direction: "within" } },
-  { id: "matrix", title: "Matrix", position: { direction: "within", referencePanel: "world" } },
-  { id: "headers", title: "Header", position: { direction: "left", referencePanel: "world" }, size: 280 },
+  { id: "world", title: "3D", position: { direction: "within" } },
+  { id: "matrix", title: "Raster", position: { direction: "within", referencePanel: "world" } },
+  { id: "worldmap", title: "Weltkarte", position: { direction: "within", referencePanel: "world" } },
+  { id: "headers", title: "Welt", position: { direction: "left", referencePanel: "world" }, size: 300 },
   { id: "inspector", title: "Inspector", position: { direction: "right", referencePanel: "world" }, size: 320 },
   { id: "status", title: "Status", position: { direction: "below", referencePanel: "world" }, size: 40 },
 ];

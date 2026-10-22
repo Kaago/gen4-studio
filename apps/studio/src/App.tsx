@@ -6,6 +6,7 @@ import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { useOverview } from "./app/useOverview";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
@@ -13,6 +14,9 @@ import { useShortcuts } from "./app/useShortcuts";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
+
+/** Until the wizards are connected, "+ Neu" opens nothing. Module-level: the explorer is memoised on its identity. */
+const openWizard = () => {};
 
 /** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads. */
 export default function App() {
@@ -38,6 +42,8 @@ export default function App() {
     fail: session.fail,
     refreshDirty: session.refreshDirty,
   });
+  // The matrix and warp overviews behind the world explorer; read again when the member counts change.
+  const overview = useOverview({ bus, projectRoot: session.info?.root ?? null, counts: session.counts, onError: session.fail });
   const { step } = useHistoryReload({ bus, session, scene, pins });
   useWindowGuards(session.dirtyRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
@@ -61,6 +67,8 @@ export default function App() {
     scene,
     world,
     pins,
+    overview,
+    onOpenWizard: openWizard,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
   });
 

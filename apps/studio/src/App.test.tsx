@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dirty, getAreaData, getMatrix, listHeaders, memberCounts, openProject, undo } from "./api";
+import { dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, memberCounts, openProject, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -33,6 +33,8 @@ vi.mock("./api", async (importOriginal) => ({
   dirty: vi.fn(),
   getMatrix: vi.fn(),
   getAreaData: vi.fn(),
+  listMatrices: vi.fn(),
+  listWarps: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
 }));
@@ -67,6 +69,8 @@ describe("App wiring", () => {
     vi.mocked(dirty).mockResolvedValue([]);
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
+    vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
+    vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -104,6 +108,19 @@ describe("App wiring", () => {
     expect(shown.renders).toBeGreaterThanOrEqual(rendersBefore + 5);
     // ... and the data object stayed the same.
     expect(data()).toBe(before);
+  });
+
+  it("hands the workbench the matrix and warp overviews of the open project, and a wizard opener that keeps its identity", async () => {
+    // beforeEach opened the project, and the overview read both lists on the way.
+    expect(listMatrices).toHaveBeenCalled();
+    expect(listWarps).toHaveBeenCalled();
+    expect(data().matricesLoaded).toBe(true);
+    expect(data().matrices).toEqual([]);
+    expect(data().warpLinks).toEqual([]);
+    const opener = data().onOpenWizard;
+    expect(() => opener({ kind: "area" })).not.toThrow();
+    await select(listed[0]);
+    expect(data().onOpenWizard).toBe(opener);
   });
 
   describe("undo", () => {

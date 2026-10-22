@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, MatrixDto, ProjectInfo } from "../api";
+import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo } from "../api";
 import type { Message } from "../Toolbar";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -41,6 +41,12 @@ const headers: HeaderSummary[] = [0, 1].map((id) => {
   Object.defineProperty(h, "location_name", { enumerable: true, get: () => (bodies.rows++, `Ort ${id}`) });
   return h;
 });
+/** What the explorer takes from the overview: matrix 0 has a header section (outside), matrix 1 does not (a room). */
+const summaries: MatrixSummary[] = [
+  { index: 0, name: "m0", width: 30, height: 30, has_headers: true, has_altitudes: false, filled: 900 },
+  { index: 1, name: "m1", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
+];
+const overview = { matrices: summaries, links: [], loaded: true };
 const matrix: MatrixDto = { index: 1, name: "m", width: 2, height: 2, maps: [1, 2, 3, 4] };
 const shown: MatrixDto = { ...matrix };
 Object.defineProperty(shown, "name", { enumerable: true, get: () => (bodies.matrix++, "m") });
@@ -79,16 +85,19 @@ interface Volatile {
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
+  matrices?: MatrixSummary[];
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, matrices = summaries, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
     scene: { ...scene },
     world: { ...world },
     pins: { pinned: pin, inspector: shownInspector(pin, hover) },
+    overview: matrices === summaries ? overview : { ...overview, matrices },
+    onOpenWizard: noop,
     view: { ...view, showEvents },
   });
   onModel(model);
@@ -152,17 +161,22 @@ describe("workbench model", () => {
     return show;
   }
 
-  it("does not render the header list panel for a hover or a message", async () => {
+  it("does not render the world explorer for a hover or a message", async () => {
     const show = await mountPanel("headers");
     await show({ hover: tile(1), message: null });
     await show({ hover: tile(2), message: null });
     await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
     expect(reads.data).toBe(0);
     expect(bodies.rows).toBe(0);
-    // Control: the panel does render for a change it shows, but the memoised list and its rows stay out of that.
+    // Control: the panel does render for a change it shows, but the memoised explorer and its places stay out of that.
     await show({ hover: null, message: null, showEvents: false });
     expect(reads.data).toBe(1);
     expect(bodies.rows).toBe(0);
+    // Control: the explorer does render (and read the headers' names) for a new overview.
+    await show({ hover: null, message: null, matrices: [...summaries] });
+    expect(reads.data).toBe(2);
+    expect(bodies.rows).toBeGreaterThan(0);
+    expect(container.textContent).toContain("Ort 0");
   });
 
   it("does not render the matrix tab for a hover or a message", async () => {

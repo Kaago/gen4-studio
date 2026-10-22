@@ -122,6 +122,46 @@ describe("useOverview", () => {
     expect(latest?.links).toEqual([link]);
   });
 
+  it("is loaded once the first matrix listing of the project arrived, and not again until the next project's", async () => {
+    const first = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(first.promise);
+    await render("/a");
+    expect(latest?.loaded).toBe(false);
+    await act(async () => first.resolve(emptyMatrices));
+    expect(latest?.loaded).toBe(true);
+    // A later read does not unload it ...
+    const again = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(again.promise);
+    await act(async () => bus.emit({ topic: "matrixData" }));
+    expect(latest?.loaded).toBe(true);
+    await act(async () => again.resolve(emptyMatrices));
+    // ... another project does, until its own listing arrives.
+    const next = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(next.promise);
+    await render("/b");
+    expect(latest?.loaded).toBe(false);
+    await act(async () => next.resolve(emptyMatrices));
+    expect(latest?.loaded).toBe(true);
+  });
+
+  it("is not loaded when the matrix listing failed", async () => {
+    vi.mocked(listMatrices).mockRejectedValueOnce(new Error("boom"));
+    await render();
+    expect(latest?.loaded).toBe(false);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("is not loaded by the result of an older project", async () => {
+    const old = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(old.promise);
+    await render("/a");
+    const next = deferred<MatrixListing>();
+    vi.mocked(listMatrices).mockReturnValueOnce(next.promise);
+    await render("/b");
+    await act(async () => old.resolve(emptyMatrices));
+    expect(latest?.loaded).toBe(false);
+  });
+
   it("drops the result of an older project", async () => {
     const old = deferred<MatrixListing>();
     vi.mocked(listMatrices).mockReturnValueOnce(old.promise);

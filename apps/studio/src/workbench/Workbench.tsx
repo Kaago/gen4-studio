@@ -7,11 +7,17 @@ import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldPanel } from
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
 
+/** Stands in for the world map until it exists. */
+function WorldMapPlaceholder() {
+  return <p style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>Weltkarte folgt</p>;
+}
+
 /** Must stay a module-level constant: dockview would remount every panel if this object changed. */
 const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   headers: HeadersPanel,
   world: WorldPanel,
   matrix: MatrixTab,
+  worldmap: WorldMapPlaceholder,
   inspector: InspectorPanel,
   status: StatusPanel,
 };
@@ -35,7 +41,7 @@ function applyDefaultLayout(api: DockviewApi) {
       initialHeight: p.position.direction === "below" ? p.size : undefined,
     });
   }
-  // The matrix tab was added last into the world's group and took focus; the scene is what opens.
+  // The raster and world map tabs were added last into the world's group and took focus; the scene is what opens.
   api.getPanel("world")?.api.setActive();
 }
 

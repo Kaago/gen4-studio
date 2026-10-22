@@ -4,12 +4,12 @@ import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
-import { HeaderList } from "./HeaderList";
 import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { useThumbnailReset } from "./useThumbnailReset";
+import { WorldExplorer } from "./WorldExplorer";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
 
 const toggleStyle: React.CSSProperties = {
@@ -30,14 +30,20 @@ export function HeadersPanel() {
   const d = useWorkbench();
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
   const revealToken = useBusRevision(d.bus, "headerReveal");
-  return <HeaderList
+  return (
+    <WorldExplorer
       info={d.info}
       headers={d.headers}
+      matrices={d.matrices}
+      matricesLoaded={d.matricesLoaded}
+      links={d.warpLinks}
       selected={d.selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}
       onSelect={d.onSelect}
-    />;
+      onOpenWizard={d.onOpenWizard}
+    />
+  );
 }
 
 export function WorldPanel() {

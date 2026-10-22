@@ -1,12 +1,15 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { EventKind, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
+import type { EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../Toolbar";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
+
+/** What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in. */
+export type WizardRequest = { kind: "area"; prefill?: { matrix?: number } } | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } };
 
 /**
  * The data the panels show that changes rarely: the header list, the selection, the matrix, the
@@ -17,6 +20,13 @@ import type { NavTarget } from "./navigation";
 export interface WorkbenchData {
   info: ProjectInfo | null;
   headers: HeaderSummary[];
+  /** One summary per matrix and every warp of the project (the overview behind the world explorer). */
+  matrices: MatrixSummary[];
+  warpLinks: WarpLink[];
+  /** False until the first matrix listing of the project arrived: `matrices` is empty then, which says nothing about the project. */
+  matricesLoaded: boolean;
+  /** Opens the wizard for a new area or room. */
+  onOpenWizard: (request: WizardRequest) => void;
   selected: number | null;
   onSelect: (h: HeaderSummary) => void;
   /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */

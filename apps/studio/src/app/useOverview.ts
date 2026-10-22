@@ -8,6 +8,8 @@ import { TERMS, id4 } from "../workbench/terms";
 export interface Overview {
   matrices: MatrixSummary[];
   links: WarpLink[];
+  /** True once the first matrix listing of the current project arrived (false again for the next project): until then `matrices` is empty because nothing was read, not because there are none. */
+  loaded: boolean;
   /** Reads both lists again; resolves when they are read (and any read queued behind them). */
   refresh: () => Promise<void>;
 }
@@ -41,6 +43,7 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
   const { bus, projectRoot, counts, onError } = params;
   const [matrices, setMatrices] = useState<MatrixSummary[]>([]);
   const [links, setLinks] = useState<WarpLink[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const slots = useRef<Record<Kind, Slot>>({
     matrices: { busy: false, queued: false, waiters: [] },
     warps: { busy: false, queued: false, waiters: [] },
@@ -61,6 +64,7 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
         const listing = await listMatrices();
         if (gen !== generation.current || !mounted.current) return;
         setMatrices(listing.matrices);
+        setLoaded(true);
         unreadable = listing.unreadable;
       } else {
         const listing = await listWarps();
@@ -120,6 +124,7 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
       reported.current.clear();
       setMatrices([]);
       setLinks([]);
+      setLoaded(false);
     }
     void read("matrices");
     void read("warps");
@@ -132,5 +137,5 @@ export function useOverview(params: { bus: EditBus; projectRoot: string | null; 
     await Promise.all([read("matrices"), read("warps")]);
   }, [read]);
 
-  return useMemo(() => ({ matrices, links, refresh }), [matrices, links, refresh]);
+  return useMemo(() => ({ matrices, links, loaded, refresh }), [matrices, links, loaded, refresh]);
 }
