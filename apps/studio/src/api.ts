@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface ProjectInfo {
   root: string;
@@ -642,3 +642,23 @@ export const createTextArchive = () => invoke<number>("create_text_archive");
 export const searchText = (query: string, limit: number) => invoke<TextHit[]>("search_text", { query, limit });
 /** Warnings for one message text (line 1 is its first line), for example "wider than the text box". */
 export const validateText = (text: string) => invoke<ProblemDto[]>("validate_text", { text });
+
+/**
+ * Starts rotom-lsp for the open project; every message of the server (one JSON-RPC body, no framing) goes to
+ * `onMessage`. Rejects with code "tool_missing" when the binary is not there. A new `Channel` per call: the
+ * backend replaces a running server, and the old channel stops receiving.
+ */
+export async function lspStart(onMessage: (body: string) => void): Promise<void> {
+  const channel = new Channel<string>();
+  channel.onmessage = onMessage;
+  await invoke("lsp_start", { channel });
+}
+
+/**
+ * Sends one JSON-RPC body to the server (the backend frames it). Rejects when the queue is full or the server is
+ * dead and not restarted. A server that was restarted since the last send has lost the client's state: the
+ * client has to initialize and open its documents again, and nothing tells it so.
+ */
+export const lspSend = (body: string) => invoke<void>("lsp_send", { body });
+
+export const lspStop = () => invoke<void>("lsp_stop");

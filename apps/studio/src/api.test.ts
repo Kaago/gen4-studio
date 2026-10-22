@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke,
+  Channel: class {
+    onmessage: (m: unknown) => void = () => {};
+  },
+}));
 
 import {
   addBuilding,
@@ -15,6 +20,9 @@ import {
   memberCounts,
   headerFields,
   isCmdError,
+  lspSend,
+  lspStart,
+  lspStop,
   searchText,
   setHeader,
   updateBuilding,
@@ -191,5 +199,37 @@ describe("text archive commands", () => {
     expect(invoke).toHaveBeenLastCalledWith("search_text", { query: "hallo", limit: 50 });
     await validateText("Hi");
     expect(invoke).toHaveBeenLastCalledWith("validate_text", { text: "Hi" });
+  });
+});
+
+describe("language server commands", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("lspStart_hands_the_backend_a_fresh_channel_that_feeds_the_callback", async () => {
+    invoke.mockResolvedValue(undefined);
+    const first = vi.fn();
+    const second = vi.fn();
+    await lspStart(first);
+    await lspStart(second);
+    const [cmd, args] = invoke.mock.calls[0]!;
+    expect(cmd).toBe("lsp_start");
+    args.channel.onmessage('{"id":1}');
+    expect(first).toHaveBeenCalledWith('{"id":1}');
+    expect(invoke.mock.calls[1]![1].channel).not.toBe(args.channel);
+  });
+
+  it("lspStart_rejects_with_the_backend_error", async () => {
+    const missing = { code: "tool_missing", message: "rotom-lsp fehlt — Completion und Diagnosen aus", asset: null };
+    invoke.mockRejectedValue(missing);
+    await expect(lspStart(vi.fn())).rejects.toBe(missing);
+  });
+
+  it("lspSend_and_lspStop_call_their_commands", async () => {
+    invoke.mockResolvedValue(undefined);
+    await lspSend("{}");
+    await lspStop();
+    expect(invoke.mock.calls).toEqual([["lsp_send", { body: "{}" }], ["lsp_stop"]]);
   });
 });
