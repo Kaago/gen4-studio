@@ -43,10 +43,15 @@ describe("area record access", () => {
     expect(withAreaField(dppt, "unknown", 7)).toEqual({ ...dppt, unknown: 7 });
   });
 
-  it("keys the models' tileset by map and buildings tileset only", () => {
+  it("keys the models' tileset by map and buildings tileset, and by the HGSS area type", () => {
     expect(tilesetKey(dppt)).toBe("2:1");
     expect(tilesetKey({ ...dppt, light_type: 9, unknown: 1 })).toBe(tilesetKey(dppt));
     expect(tilesetKey({ ...dppt, map_tileset: 3 })).not.toBe(tilesetKey(dppt));
     expect(tilesetKey({ ...dppt, buildings_tileset: 0 })).not.toBe(tilesetKey(dppt));
+    // HGSS: the area type picks the interior or exterior building archive, so it reloads the models.
+    expect(tilesetKey(hgss)).toBe("2:1:1");
+    expect(tilesetKey({ ...hgss, area_type: 0 })).not.toBe(tilesetKey(hgss));
+    // Fields that do not affect the models stay out of the key.
+    expect(tilesetKey({ ...hgss, light_type: 0, dynamic_texture_type: 0 })).toBe(tilesetKey(hgss));
   });
 });

@@ -41,7 +41,11 @@ export function withAreaField(area: AreaDataDto, key: string, value: number): Ar
 
 export const AREA_FIELDS: RecordFields<AreaDataDto> = { value: areaValue, with: withAreaField };
 
-/** What the scene's models depend on; a change of it re-textures them. */
+/**
+ * What the scene's models depend on; a change of it reloads them. Besides the two tilesets, the
+ * HGSS area type does: it switches the building models between the interior and exterior archives.
+ */
 export function tilesetKey(area: AreaDataDto): string {
-  return `${area.map_tileset}:${area.buildings_tileset}`;
+  const key = `${area.map_tileset}:${area.buildings_tileset}`;
+  return area.family === "Hgss" ? `${key}:${area.area_type}` : key;
 }
