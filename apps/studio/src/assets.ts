@@ -11,6 +11,7 @@ const KIND_LABELS: Record<AssetKind, string> = {
   BuildingModel: "Gebäudemodell",
   InteriorBuildingModel: "Innen-Gebäudemodell",
   HeaderTable: "Header-Tabelle",
+  Script: "Scriptdatei",
 };
 
 /** German display name of an asset kind. */

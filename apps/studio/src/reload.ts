@@ -67,6 +67,9 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
       return [{ kind: "textPanel", archive: asset.index }];
     case "HeaderTable":
       return [{ kind: "unpin" }, { kind: "headers" }];
+    case "Script":
+      // Scripts are not editable through the store, so undo never restores one.
+      return [];
     default:
       return [];
   }

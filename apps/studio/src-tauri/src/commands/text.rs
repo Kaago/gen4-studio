@@ -195,14 +195,18 @@ mod tests {
         assert_eq!(before.messages[1].id, "msg_00001");
         assert_eq!(before.index, ARCHIVE);
         assert!(!before.lang.is_empty());
-        assert!(before.users.is_empty());
+        // The fixture's header 0 uses the archive; header 1 does not.
+        assert_eq!(before.users, [0]);
 
         let mut header = super::super::get_header_impl(&state, 1).unwrap();
         if let MapHeader::Pt(h) = &mut header {
             h.text_archive_id = ARCHIVE;
         }
         set_header_impl(&state, 1, header, "use text").unwrap();
-        assert_eq!(get_text_archive_impl(&state, ARCHIVE).unwrap().users, [1]);
+        assert_eq!(
+            get_text_archive_impl(&state, ARCHIVE).unwrap().users,
+            [0, 1]
+        );
         // A garbage archive is an error, not a panic.
         assert!(get_text_archive_impl(&state, 0).is_err());
         assert!(get_text_archive_impl(&AppState::default(), ARCHIVE).is_err());

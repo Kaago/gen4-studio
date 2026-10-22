@@ -47,7 +47,7 @@ describe("reloadPlan", () => {
   });
 
   it("has nothing to reload for assets the editors cannot change", () => {
-    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel"] as const) {
+    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script"] as const) {
       expect(plan(kind, 0)).toEqual([]);
     }
   });

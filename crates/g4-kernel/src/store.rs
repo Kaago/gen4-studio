@@ -123,7 +123,8 @@ impl Loaded {
             | AssetKind::BuildingTexture
             | AssetKind::BuildingModel
             | AssetKind::InteriorBuildingModel
-            | AssetKind::DynamicHeaders => Err(KernelError::NotEditable(kind)),
+            | AssetKind::DynamicHeaders
+            | AssetKind::Script => Err(KernelError::NotEditable(kind)),
         }
     }
 

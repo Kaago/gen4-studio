@@ -136,6 +136,12 @@ pub fn synthetic_project() -> Synthetic {
     // Platinum header byte 18 = location_name: header 0 names "Twinleaf Town", header 1
     // points past the end of the bank.
     arm9[PT_HEADER_TABLE_CPUE + 18] = 1;
+    // Header 0: script file 0, level script 1, text archive 433 (uxie 0.9.7 `MapHeaderPtRaw`:
+    // bytes 4, 6 and 8, little endian).
+    for (offset, value) in [(4, 0u16), (6, 1), (8, 433)] {
+        arm9[PT_HEADER_TABLE_CPUE + offset..PT_HEADER_TABLE_CPUE + offset + 2]
+            .copy_from_slice(&value.to_le_bytes());
+    }
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 18] = 200;
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE] = 1; // header 1: area_data_id 1
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 2..PT_HEADER_TABLE_CPUE + HEADER_SIZE + 4]
@@ -160,7 +166,38 @@ pub fn synthetic_project() -> Synthetic {
         &[vec![1, 2, 3, 4], vec![5, 6]],
     );
 
+    // Script archive: member 0 is compiled from rotom source, member 1 is the level script
+    // `[0,0,0,0]`, member 2 is empty.
+    write_narc(
+        root,
+        "files/fielddata/script/scr_seq.narc",
+        &[compile_script(SCRIPT_SOURCE), vec![0, 0, 0, 0], Vec::new()],
+    );
+
     Synthetic { dir }
+}
+
+/// The source of the fixture's script member 0.
+pub const SCRIPT_SOURCE: &str =
+    "script Main #1:\n    Message 1\n    End\nscript Second #2:\n    End\n";
+
+/// Compiles rotom source against the bundled Platinum command database.
+fn compile_script(source: &str) -> Vec<u8> {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("platinum_v2.json");
+    std::fs::write(
+        &db_path,
+        include_str!("../metadata/scrcmd/platinum_v2.json"),
+    )
+    .unwrap();
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(&db_path).unwrap();
+    // rotom v0.7.0: src/database.rs ConstantDb::new (the empty constant set)
+    let constants = rotom::ConstantDb::new();
+    // rotom v0.7.0: src/lib.rs compile; src/compile_state.rs BinaryQuirk (Default: no quirks)
+    rotom::compile(source, &db, &constants, rotom::BinaryQuirk::default())
+        .unwrap()
+        .bytes
 }
 
 /// A binary text archive (chatot format, key 0) with the given messages, encoded by uxie.

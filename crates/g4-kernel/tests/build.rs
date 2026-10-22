@@ -113,6 +113,29 @@ fn build_packs_every_unpacked_kind() {
 }
 
 #[test]
+fn build_packs_scripts_folder() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let packed_path = s.dir.path().join("files/fielddata/script/scr_seq.narc");
+    let before = std::fs::read(&packed_path).unwrap();
+    assert_eq!(p.ensure_unpacked(AssetKind::Script).unwrap(), 3);
+    for i in 0..3u16 {
+        assert!(p.member_path(AssetKind::Script, i).is_file(), "{i}");
+    }
+    assert!(s.dir.path().join("unpacked/scripts/0002").is_file());
+    // ds-rom fails on the synthetic project; only packing is checked here.
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)));
+    assert_eq!(std::fs::read(&packed_path).unwrap(), before);
+    // An edited member reaches the packed file.
+    std::fs::write(p.member_path(AssetKind::Script, 2), [1, 2]).unwrap();
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)));
+    let narc = g4_formats::narc::Narc::read(&std::fs::read(&packed_path).unwrap()).unwrap();
+    assert_eq!(narc.members[2], vec![1, 2]);
+}
+
+#[test]
 fn build_leaves_unchanged_packed_files_untouched() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();

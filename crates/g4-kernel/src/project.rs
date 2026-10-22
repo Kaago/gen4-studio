@@ -41,12 +41,16 @@ pub enum AssetKind {
     /// store (the header table asset reads and writes its folder), but an archive for
     /// `build`, which packs the folder when it exists.
     DynamicHeaders,
+    /// The script archive: one member per script file (level scripts included). The store
+    /// does not edit it (scripts are rotom sources, see the `scripts` module); `build` packs
+    /// `unpacked/scripts`.
+    Script,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed; the store-only
     /// kinds come last.
-    pub const ALL: [AssetKind; 11] = [
+    pub const ALL: [AssetKind; 12] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -58,6 +62,7 @@ impl AssetKind {
         AssetKind::InteriorBuildingModel,
         AssetKind::HeaderTable,
         AssetKind::DynamicHeaders,
+        AssetKind::Script,
     ];
 
     /// Human-readable name used in error messages.
@@ -74,6 +79,7 @@ impl AssetKind {
             AssetKind::InteriorBuildingModel => "interior building model",
             AssetKind::HeaderTable => "header table",
             AssetKind::DynamicHeaders => "dynamic headers",
+            AssetKind::Script => "script file",
         }
     }
 
@@ -91,6 +97,7 @@ impl AssetKind {
             AssetKind::InteriorBuildingModel => 8,
             AssetKind::HeaderTable => 9,
             AssetKind::DynamicHeaders => 10,
+            AssetKind::Script => 11,
         }
     }
 }
@@ -134,6 +141,7 @@ struct FamilyArchives {
     interior_building_models: Option<ArchiveEntry>,
     /// Only Platinum and HGSS have the Dynamic Headers NARC.
     dynamic_headers: Option<ArchiveEntry>,
+    scripts: ArchiveEntry,
 }
 
 /// DSPRE folder names of the optional archives. They are also reported for families
@@ -166,7 +174,7 @@ pub enum Location {
 pub struct ArchiveMap {
     /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
     /// the kind has none, like the header table).
-    entries: [Option<(PathBuf, String)>; 11],
+    entries: [Option<(PathBuf, String)>; 12],
 }
 
 impl ArchiveMap {
@@ -202,6 +210,7 @@ impl ArchiveMap {
                 archives.interior_building_models.map(resolve),
                 None,
                 archives.dynamic_headers.map(resolve),
+                Some(resolve(archives.scripts)),
             ],
         })
     }
@@ -847,9 +856,9 @@ mod tests {
             // Dynamic Headers NARC; every other archive kind exists everywhere. The header
             // table is store-only and never has an archive.
             let expected = match family {
-                Family::Dp => 8,
-                Family::Pt => 9,
-                Family::Hgss => 10,
+                Family::Dp => 9,
+                Family::Pt => 10,
+                Family::Hgss => 11,
             };
             assert_eq!(map.kinds().count(), expected, "{family:?}");
             for kind in AssetKind::ALL {

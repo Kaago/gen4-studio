@@ -372,7 +372,8 @@ export type AssetKind =
   | "BuildingTexture"
   | "BuildingModel"
   | "InteriorBuildingModel"
-  | "HeaderTable";
+  | "HeaderTable"
+  | "Script";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
