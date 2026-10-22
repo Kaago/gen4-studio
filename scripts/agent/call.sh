@@ -25,7 +25,7 @@ out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
 
 # The token header is read from stdin (-H @-) so it never shows up in the process list.
-meta="$(printf 'X-G4-Bridge-Token: %s\n' "$(cat "$TOKEN_FILE")" | curl -sS -o "$out" -w '%{http_code} %{content_type}' -X POST \
+meta="$(printf 'X-G4-Bridge-Token: %s\n' "$(cat "$TOKEN_FILE")" | curl -sS --noproxy '*' -o "$out" -w '%{http_code} %{content_type}' -X POST \
   -H "Content-Type: application/json" -H @- \
   --data-raw "$body" "http://127.0.0.1:1431/invoke/$cmd")" || {
   echo "Brücke nicht erreichbar (127.0.0.1:1431) - läuft scripts/agent/studio-web.sh?" >&2

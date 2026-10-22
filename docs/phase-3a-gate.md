@@ -19,6 +19,8 @@ Namen in der Oberfläche: linkes Panel "Welt" (Umschalter "Baum | Liste", Knopf 
 
 ## Vorbereitung
 
+Ein Claude-Agent kann den größten Teil dieses Gates selbst abarbeiten (Browser-Fenster, Emulator, Prüfungen auf der Platte); welche Punkte er übernimmt und welche beim Nutzer bleiben, steht in [docs/agent-gate.md](agent-gate.md). Die Spalte "Wer" in der Ergebnistabelle hält fest, wer den Teil geprüft hat (Agent, Hand oder Agent + Blick).
+
 1. Kopien der Projekte anlegen (Platin DE, HeartGold US), zum Beispiel:
    `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-3a`
    `cp -R "../Roms/Pokemon - HeartGold Version (USA)_DSPRE_contents" ../Roms/_testkopien/hg-3a`
@@ -113,14 +115,14 @@ Gesammelt aus den Task-Reviews. Die Punkte sind Dinge, die kein automatischer Te
 
 Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, HeartGold US), App (gebündelt oder `tauri dev`), bestanden oder nicht, Auffälligkeiten.
 
-| Teil | Datum | Projekt | Ergebnis | Auffälligkeiten |
-|---|---|---|---|---|
-| (A) Assistenten-Lauf | | | | |
-| (B) Explorer | | | | |
-| (C) Raster | | | | |
-| (D) Weltkarte | | | | |
-| (E) Automatik | | | | |
-| (F) Einzelprüfungen | | | | |
+| Teil | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|---|
+| (A) Assistenten-Lauf | | | | | |
+| (B) Explorer | | | | | |
+| (C) Raster | | | | | |
+| (D) Weltkarte | | | | | |
+| (E) Automatik | | | | | |
+| (F) Einzelprüfungen | | | | | |
 
 Gemessene Zeit für (A) (Ziel: unter fünf Minuten, keine Zahl außer der Header-Wahl getippt):
 

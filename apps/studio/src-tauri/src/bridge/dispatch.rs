@@ -540,6 +540,10 @@ mod tests {
             match dispatch(&state, &roots, name, args) {
                 Ok(Reply::Bytes(_)) => {}
                 Err(DispatchError::Cmd(e)) if e.code == "tool_missing" => {}
+                // A debug build finds tools/apicula/bin/apicula on its own; it rejects the
+                // synthetic placeholder model, which still proves the command was dispatched.
+                Err(DispatchError::Cmd(e))
+                    if e.code == "error" && e.message.contains("apicula") => {}
                 other => panic!("{name}: {other:?}"),
             }
         }

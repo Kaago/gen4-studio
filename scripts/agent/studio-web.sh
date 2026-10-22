@@ -97,7 +97,7 @@ for _ in $(seq 1 60); do
     exit 1
   fi
   # The token goes in via stdin so it never shows up in the process list.
-  if printf 'X-G4-Bridge-Token: %s\n' "$TOKEN" | curl -sf -o /dev/null -H @- "http://127.0.0.1:$BRIDGE_PORT/health"; then
+  if printf 'X-G4-Bridge-Token: %s\n' "$TOKEN" | curl -sf --noproxy '*' -o /dev/null -H @- "http://127.0.0.1:$BRIDGE_PORT/health"; then
     ready=1
     break
   fi

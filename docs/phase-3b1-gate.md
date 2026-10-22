@@ -17,6 +17,8 @@ Namen in der Oberfläche: Der Assistent "Gebiet anlegen…" (Knopf "+ Neu" im Pa
 
 ## Vorbereitung
 
+Ein Claude-Agent kann den größten Teil dieses Gates selbst abarbeiten (Browser-Fenster, Emulator, Prüfungen auf der Platte); welche Punkte er übernimmt und welche beim Nutzer bleiben, steht in [docs/agent-gate.md](agent-gate.md). Die Spalte "Wer" in der Ergebnistabelle hält fest, wer den Teil geprüft hat (Agent, Hand oder Agent + Blick).
+
 1. Kopien der Projekte anlegen (Platin DE, HeartGold DE), zum Beispiel:
    `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-3b1`
    `cp -R "../Roms/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents" ../Roms/_testkopien/hg-3b1`
@@ -106,15 +108,15 @@ Auf einer frischen Kopie von HeartGold DE (`hg-3b1`), mit der gebündelten App:
 
 Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, HeartGold DE), App (gebündelt oder `tauri dev`), bestanden oder nicht, Auffälligkeiten.
 
-| Teil | Datum | Projekt | Ergebnis | Auffälligkeiten |
-|---|---|---|---|---|
-| (A) Neuer Header per Assistent | | | | |
-| (A) DSPRE-Gegenprobe | | | | |
-| (B) Höhen | | | | |
-| (C) Sprites | | | | |
-| (D) Kachelnamen HGSS | | | | |
-| (E) Automatik (`scripts/gate.sh`) | | | | |
-| (F) apicula-Zeitlimit | | | | |
+| Teil | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|---|
+| (A) Neuer Header per Assistent | | | | | |
+| (A) DSPRE-Gegenprobe | | | | | |
+| (B) Höhen | | | | | |
+| (C) Sprites | | | | | |
+| (D) Kachelnamen HGSS | | | | | |
+| (E) Automatik (`scripts/gate.sh`) | | | | | |
+| (F) apicula-Zeitlimit | | | | | |
 
 Ergebnis von `scripts/gate.sh` (Tabelle aus der Ausgabe einfügen):
 

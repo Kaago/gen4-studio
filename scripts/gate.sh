@@ -6,6 +6,8 @@
 #   G4_ROMS_DIR    folder with the *_DSPRE_contents test projects (default: ../Roms)
 #   G4_APICULA     apicula binary (default: tools/apicula/bin/apicula)
 #   G4_DSROM_CLI   ds-rom reference CLI (default: $G4_ROMS_DIR/_tools/dsrom)
+# The g4emu integration step also needs the emulator core (bash scripts/g4emu/setup.sh) and
+# $G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav; without them it is recorded as skipped.
 #
 # The projects are only read; writing tests work on copies (vanilla_copy()).
 # Stops at the first failure and prints the result table either way.
@@ -94,6 +96,17 @@ run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "pnpm build" "" bash -c 'cd apps/studio && pnpm build'
 # The dev bridge client is dev-only: nothing of it may reach the production bundle.
 run_step "dist has no bridge" "" bash -c '! grep -rq "__bridge" apps/studio/dist'
+
+# g4emu (scripts/g4emu): unit tests always, the emulator tests only when core and save game exist.
+run_step "g4emu unit" "" bash -c 'cd scripts/g4emu && uv run pytest -m "not integration" -q'
+G4EMU_CORE_FILE="${G4EMU_CORE:-$ROOT/tools/g4emu/core/melondsds_libretro.dylib}"
+if [ -f "$G4EMU_CORE_FILE" ] && [ -f "$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav" ]; then
+  run_step "g4emu integration" "" \
+    env G4EMU_CORE="$G4EMU_CORE_FILE" G4_ROMS_DIR="$G4_ROMS_DIR" \
+    bash -c 'cd scripts/g4emu && uv run pytest -m integration -q'
+else
+  record "g4emu integration" "-" "skipped (kein Kern/Spielstand)" 0
+fi
 
 # Gated tests need the tools; without them the tests would only print "skipped".
 missing=0
