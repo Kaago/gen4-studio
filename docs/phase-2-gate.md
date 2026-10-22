@@ -47,8 +47,7 @@ Gesammelt aus den Task-Reviews. Die Unterpunkte sind Dinge, die kein automatisch
 
 ### Laden und Texturen
 
-- [ ] Texturierte Karten werden in der App wirklich angezeigt (CSP `blob:`-Fix ist nur per Test abgesichert).
-- [ ] Platin-Karte zeigt Texturen in der App (nicht nur Geometrie).
+- [ ] Texturierte Karten werden in der App wirklich angezeigt, auch eine Platin-Karte (Texturen, nicht nur Geometrie); der CSP-`blob:`-Fix ist nur per Test abgesichert.
 - [ ] Kalter gegen warmen Cache: Öffnen derselben Karte, Zeiten notieren.
 - [ ] Platin Header 0003 (Matrix 0): Overlay in unter 5 s, Modelle strömen mit sichtbarem Fortschritt nach, kalt unter 3 min, warm unter 15 s.
 - [ ] Schnelles Umschalten zwischen Headern während des Ladens bleibt stabil (keine Reste des vorigen Headers in der Szene).
@@ -102,7 +101,7 @@ Gesammelt aus den Task-Reviews. Die Unterpunkte sind Dinge, die kein automatisch
 ### Gebäude
 
 - [ ] Auswählen, ziehen, rückgängig machen.
-- [ ] Hinzufügen und Löschen; Entf (Backspace auf dem Mac) fragt vor dem Löschen nach und löscht nicht, solange in ein Feld getippt wird oder Cmd gedrückt ist.
+- [ ] Hinzufügen und Löschen; Entf (Backspace auf dem Mac) fragt vor dem Löschen nach und löscht nicht, solange in ein Feld getippt wird oder eine Modifier-Taste (Cmd, Ctrl, Alt) gedrückt ist.
 - [ ] Unbekanntes Modell: es erscheint eine Box statt Modell, die Szene bricht nicht ab.
 - [ ] HGSS: Modelle von Innenräumen (Interior-Archiv) erscheinen richtig.
 - [ ] Gebäude-Höhe (y) gegenüber dem Gelände, zum Beispiel Platin Header 0411.
@@ -110,6 +109,8 @@ Gesammelt aus den Task-Reviews. Die Unterpunkte sind Dinge, die kein automatisch
 ### Events
 
 - [ ] Anklicken, ziehen, bearbeiten, hinzufügen, löschen (Objekte, Warps, Trigger, Hintergrund-Events).
+- [ ] Entf (Backspace auf dem Mac) fragt auch bei Events vor dem Löschen nach und löscht nicht, solange in ein Feld getippt wird oder eine Modifier-Taste gedrückt ist. Beim Löschen eines Warps warnt die Rückfrage, dass Warp-Ziele anderer Events auf spätere Warps dieser Datei nicht angepasst werden.
+- [ ] Cmd+Z im Eingabefeld macht den Text des Feldes rückgängig, nicht die Änderung des Assets.
 - [ ] Warp-Ziel wählen über den Picker; "Zum Ziel" springt zum Zielheader.
 - [ ] Gesperrte Event-Datei (Lock) ist schreibgeschützt und ändert sich nicht.
 - [ ] Escape bricht ein laufendes Ziehen ab, bei Events und bei Gebäuden; die Position springt zurück.

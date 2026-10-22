@@ -51,7 +51,8 @@ pub struct BuildDto {
 }
 
 /// Member count of every asset kind the project has an archive for (the header table counts
-/// as one asset). Kinds the game lacks are left out. Counting reads archive headers, so it
+/// as one asset). Kinds the game lacks are left out. Counting is I/O only (it counts the
+/// unpacked members, or parses the whole NARC of a kind that is not unpacked yet), so it
 /// runs without the state lock.
 pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>, CmdError> {
     let project = {

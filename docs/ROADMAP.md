@@ -41,8 +41,8 @@ Eingangskriterien aus dem Abschluss-Review von Phase 1:
 - Cmd+Q-Rückfrage prüfen; falls sie fehlt, Exit-Guard auf Rust-Seite (`RunEvent::ExitRequested`).
 - Kernel aufräumen: `Store` entpackt bei Bedarf selbst, Edit-Closures dürfen fehlschlagen, Fehler tragen Pfad und Asset, eigener Fehlertyp für Projekt-Metadaten statt `Build`.
 - `MapFile::validate` lehnt `buildings_tail` ab 48 Bytes ab, bevor Gebäude editierbar werden.
-- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula mit Timeout und in `spawn_blocking`.
-- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt.
+- Model-Cache über einen Hash der NSBMD-Bytes statt über mtimes; apicula in `spawn_blocking`. Der apicula-Timeout ist in Phase 3 verschoben.
+- Gated Vanilla-Tests in CI gegen mindestens ein Platin- und ein HGSS-Projekt. In Phase 3 verschoben (siehe Querschnitt: CI).
 - Matrix-Orientierung bestätigt (Byte 0 = Breite), Test in g4-formats.
 - Orientierung im Welt-Editor: Kachelkoordinaten und Kacheltyp beim Überfahren anzeigen, Warps und Events markieren, Map-Texturen laden. Ohne diese Hilfen ließ sich im GUI-Test die Treppe nicht finden.
 - Header-Liste lesbar machen: Anzeigenamen statt interner Kürzel (T01R0102 ist das Haus des Rivalen, T01R0202 das des Spielers), keine Zeilenumbrüche.
@@ -66,6 +66,7 @@ In Phase 3 verschoben (offene Reste von Phase 2):
 - Neue Header per Patch: die Header-Tabelle liegt fest im ARM9, ein Anlegen braucht einen Patch.
 - Kachelverhalten-Namen je Spielfamilie: `tile_behaviors.yaml` stammt aus pokeplatinum, HGSS soll einen eigenen Satz aus pokeheartgold bekommen.
 - apicula mit Timeout aufrufen (heute ohne Zeitlimit).
+- CI mit den gated Vanilla-Tests gegen mindestens ein Platin- und ein HGSS-Projekt.
 - Modell-Cache-Schlüssel um die apicula-Version erweitern (heute nur Hash über NSBMD und NSBTX); damit werden auch `.fail`-Marker bei einem apicula-Update ungültig.
 
 ## Phase 3: Daten-Editoren v1 und Kartenimport
@@ -77,7 +78,7 @@ Lieferumfang:
 - Datenbank-UI nach Pokémon-Studio-Muster; Referenzzähler.
 - Kartenimport: PDSMS `.pdsmap`/`.pdsts`, NSBMD-Dateien, OBJ über apicula-Pfad; Kollisionsimport.
 - Project Checks: kaputte Warps, Scripts ohne Ziel, Trainer ohne Party, Textlängen.
-- Offene Reste aus Phase 2: Höhen in der Szene, Objekt-Sprites, neue Header per Patch, Kachelnamen je Familie für HGSS, apicula-Timeout, Cache-Schlüssel mit apicula-Version (Details unter Phase 2).
+- Offene Reste aus Phase 2: Höhen in der Szene, Objekt-Sprites, neue Header per Patch, Kachelnamen je Familie für HGSS, apicula-Timeout, CI mit gated Vanilla-Tests, Cache-Schlüssel mit apicula-Version (Details unter Phase 2).
 
 Gate: Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
 
