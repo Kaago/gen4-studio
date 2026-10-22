@@ -4,8 +4,8 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,16 @@ use crate::state::AppState;
 /// A dead server is restarted by the next `lsp_send` only when this long has passed since its
 /// last start; a faster death is a crash loop and the server stays off until `lsp_start`.
 const RESTART_AFTER: Duration = Duration::from_secs(60);
+
+/// Longest body accepted from the server. A larger `Content-Length` is a protocol error.
+const MAX_BODY: usize = 64 * 1024 * 1024;
+
+/// How long `stop` waits for each helper thread. They end at once after the kill; the bound only
+/// matters when a process outside the killed group still holds a pipe open.
+const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Frames queued for the writer thread before `send` gives up (a server that does not read).
+const WRITE_QUEUE: usize = 256;
 
 /// Shown when the binary is missing; the editor works without language services.
 const MISSING: &str = "rotom-lsp fehlt — Completion und Diagnosen aus";
@@ -63,21 +73,25 @@ pub fn frame(body: &str) -> Vec<u8> {
 
 /// Removes every complete frame from the front of `buf` and returns the bodies. A partial frame
 /// stays in `buf` for the next read. Headers other than `Content-Length` are ignored and header
-/// names are case-insensitive; a header block without a length is dropped. A body that is not
-/// valid UTF-8 is converted lossily (JSON-RPC bodies are UTF-8).
+/// names are case-insensitive; a header block without a length, or with one above 64 MiB, is
+/// dropped (a protocol error; reading goes on after it). A body that is not valid UTF-8 is converted lossily (JSON-RPC bodies are UTF-8).
 pub fn parse_frames(buf: &mut Vec<u8>) -> Vec<String> {
     let mut bodies = Vec::new();
     while let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
         let body_start = end + 4;
-        let Some(len) = content_length(&buf[..end]) else {
+        let Some(len) = content_length(&buf[..end]).filter(|&len| len <= MAX_BODY) else {
             buf.drain(..body_start);
             continue;
         };
-        if buf.len() < body_start + len {
+        let Some(frame_end) = body_start.checked_add(len) else {
+            buf.drain(..body_start);
+            continue;
+        };
+        if buf.len() < frame_end {
             break;
         }
-        bodies.push(String::from_utf8_lossy(&buf[body_start..body_start + len]).into_owned());
-        buf.drain(..body_start + len);
+        bodies.push(String::from_utf8_lossy(&buf[body_start..frame_end]).into_owned());
+        buf.drain(..frame_end);
     }
     bodies
 }
@@ -91,15 +105,44 @@ fn content_length(header: &[u8]) -> Option<usize> {
     })
 }
 
-/// A running `rotom-lsp`: the child (leader of its own process group), its stdin and the
-/// thread that turns its stdout into channel messages.
+/// A helper thread that can be waited for with a time limit.
+struct Worker {
+    handle: JoinHandle<()>,
+    done: Receiver<()>,
+}
+
+impl Worker {
+    fn spawn(work: impl FnOnce() + Send + 'static) -> Worker {
+        let (done_tx, done) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            work();
+            let _ = done_tx.send(());
+        });
+        Worker { handle, done }
+    }
+
+    /// Joins the thread when it ends within `timeout`; otherwise lets it go (it ends on its own
+    /// once its pipe closes) so the caller never hangs.
+    fn join(self, timeout: Duration) {
+        // A disconnected `done` means the thread ended (or panicked): joining is immediate.
+        if self.done.recv_timeout(timeout) != Err(mpsc::RecvTimeoutError::Timeout) {
+            let _ = self.handle.join();
+        }
+    }
+}
+
+/// A running `rotom-lsp`: the child (leader of its own process group), a writer thread that owns
+/// its stdin (`send` only queues, so a server that does not read never blocks the caller) and
+/// the reader thread that turns its stdout into channel messages.
 pub struct LspProcess {
     binary: PathBuf,
     root: PathBuf,
     sink: Channel<String>,
     child: Child,
-    stdin: Mutex<ChildStdin>,
-    reader: Option<JoinHandle<()>>,
+    /// Frames for the writer thread; `None` once stopped.
+    queue: Option<SyncSender<Vec<u8>>>,
+    reader: Option<Worker>,
+    writer: Option<Worker>,
     /// Automatic restarts since `start`; only the tests read it.
     #[cfg_attr(not(test), allow(dead_code))]
     restarts: u8,
@@ -108,7 +151,12 @@ pub struct LspProcess {
     stopped: bool,
 }
 
-type Spawned = (Child, ChildStdin, JoinHandle<()>);
+struct Spawned {
+    child: Child,
+    queue: SyncSender<Vec<u8>>,
+    reader: Worker,
+    writer: Worker,
+}
 
 fn spawn(binary: &Path, root: &Path, sink: Channel<String>) -> Result<Spawned, KernelError> {
     let mut command = Command::new(binary);
@@ -131,11 +179,11 @@ fn spawn(binary: &Path, root: &Path, sink: Channel<String>) -> Result<Spawned, K
     let mut child = command
         .spawn()
         .map_err(|e| missing(format!("cannot run {}: {e}", binary.display())))?;
-    let (Some(stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
+    let (Some(mut stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
         kill_tree(&mut child);
         return Err(missing("stdio pipes missing".into()));
     };
-    let reader = std::thread::spawn(move || {
+    let reader = Worker::spawn(move || {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 8192];
         loop {
@@ -153,7 +201,26 @@ fn spawn(binary: &Path, root: &Path, sink: Channel<String>) -> Result<Spawned, K
             }
         }
     });
-    Ok((child, stdin, reader))
+    let (queue, frames) = mpsc::sync_channel::<Vec<u8>>(WRITE_QUEUE);
+    let writer = Worker::spawn(move || {
+        // Ends when `stop` drops the queue, or when a write fails because the pipe is closed
+        // (the process died or was killed, which also unblocks a write stuck on a full pipe).
+        while let Ok(bytes) = frames.recv() {
+            if stdin
+                .write_all(&bytes)
+                .and_then(|()| stdin.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    Ok(Spawned {
+        child,
+        queue,
+        reader,
+        writer,
+    })
 }
 
 impl LspProcess {
@@ -167,14 +234,15 @@ impl LspProcess {
         root: &Path,
         sink: Channel<String>,
     ) -> Result<LspProcess, KernelError> {
-        let (child, stdin, reader) = spawn(binary, root, sink.clone())?;
+        let spawned = spawn(binary, root, sink.clone())?;
         Ok(LspProcess {
             binary: binary.to_path_buf(),
             root: root.to_path_buf(),
             sink,
-            child,
-            stdin: Mutex::new(stdin),
-            reader: Some(reader),
+            child: spawned.child,
+            queue: Some(spawned.queue),
+            reader: Some(spawned.reader),
+            writer: Some(spawned.writer),
             restarts: 0,
             last_start: Instant::now(),
             restart_after: RESTART_AFTER,
@@ -182,33 +250,43 @@ impl LspProcess {
         })
     }
 
-    /// Writes `body` as one frame to the server's stdin.
+    /// Queues `body` as one frame for the server's stdin. Never blocks: when the server does not
+    /// read and the queue is full, the frame is refused.
     pub fn send(&self, body: &str) -> Result<(), KernelError> {
-        if self.stopped {
-            return Err(std::io::Error::new(
+        let io = |kind, msg: &str| KernelError::Io(std::io::Error::new(kind, msg.to_owned()));
+        let Some(queue) = &self.queue else {
+            return Err(io(
                 std::io::ErrorKind::BrokenPipe,
                 "rotom-lsp is not running",
-            )
-            .into());
-        }
-        // A poisoned lock only means another writer panicked; the pipe itself is fine.
-        let mut stdin = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
-        stdin.write_all(&frame(body))?;
-        stdin.flush()?;
-        Ok(())
+            ));
+        };
+        queue.try_send(frame(body)).map_err(|e| match e {
+            TrySendError::Full(_) => io(
+                std::io::ErrorKind::WouldBlock,
+                "rotom-lsp reads its input too slowly",
+            ),
+            TrySendError::Disconnected(_) => {
+                io(std::io::ErrorKind::BrokenPipe, "rotom-lsp is not running")
+            }
+        })
     }
 
-    /// Kills the server and everything it started (process group), then ends the reader thread.
-    /// Harmless on a process that is already stopped.
+    /// Kills the server and everything it started (process group), then ends the helper threads
+    /// (each waited for at most [`JOIN_TIMEOUT`]). Harmless on a process that is already stopped.
     pub fn stop(&mut self) {
         if self.stopped {
             return;
         }
         self.stopped = true;
+        // Dropping the queue ends a writer that is waiting for frames.
+        self.queue = None;
         kill_tree(&mut self.child);
-        // The kill closes every copy of the stdout pipe, so the reader sees EOF and ends.
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+        // The kill closes the pipes: the reader sees EOF and a writer stuck on a full pipe fails.
+        for worker in [self.reader.take(), self.writer.take()]
+            .into_iter()
+            .flatten()
+        {
+            worker.join(JOIN_TIMEOUT);
         }
     }
 
@@ -247,10 +325,11 @@ impl LspProcess {
         // Counted before the attempt, so a binary that cannot start is not retried at once.
         self.restarts = self.restarts.saturating_add(1);
         self.last_start = Instant::now();
-        let (child, stdin, reader) = spawn(&self.binary, &self.root, self.sink.clone())?;
-        self.child = child;
-        self.stdin = Mutex::new(stdin);
-        self.reader = Some(reader);
+        let spawned = spawn(&self.binary, &self.root, self.sink.clone())?;
+        self.child = spawned.child;
+        self.queue = Some(spawned.queue);
+        self.reader = Some(spawned.reader);
+        self.writer = Some(spawned.writer);
         self.stopped = false;
         Ok(())
     }
@@ -679,5 +758,97 @@ while :; do sleep 1; done
         assert!(pid_alive(pid));
         open_project_impl(&state, project).unwrap();
         assert!(!pid_alive(pid), "open_project left the old server running");
+    }
+
+    #[test]
+    fn absurd_content_length_is_dropped_and_reading_goes_on() {
+        // usize::MAX would overflow `body_start + len`; one byte over the cap is refused too;
+        // a number that does not even fit a usize has no length at all.
+        for len in [
+            usize::MAX.to_string(),
+            (MAX_BODY + 1).to_string(),
+            "99999999999999999999999999".to_owned(),
+        ] {
+            let mut buf = format!("Content-Length: {len}\r\n\r\n").into_bytes();
+            buf.extend(frame("{\"ok\":true}"));
+            assert_eq!(parse_frames(&mut buf), ["{\"ok\":true}"], "length {len}");
+            assert!(buf.is_empty());
+        }
+        // A length at the cap is legal and just waits for its body.
+        let mut buf = format!("Content-Length: {MAX_BODY}\r\n\r\nabc").into_bytes();
+        assert!(parse_frames(&mut buf).is_empty());
+        assert!(!buf.is_empty());
+    }
+
+    /// Never reads its stdin.
+    const DEAF_LSP: &str = "#!/bin/sh\ntrap '' HUP\nwhile :; do sleep 1; done\n";
+
+    #[test]
+    fn a_server_that_never_reads_cannot_block_the_app() {
+        use crate::commands::open_project_impl;
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let dir = Scratch::new("deaf");
+        let fake = dir.script("rotom-lsp", DEAF_LSP);
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let (sink, _rx) = channel();
+        lsp_start_impl(&state, Some(fake), sink).unwrap();
+
+        // Far more than a pipe holds (64 KiB): the writer thread gets stuck, the queue fills
+        // up, and every send still returns at once, finally with an error.
+        let big = "x".repeat(70 * 1024);
+        let started = Instant::now();
+        let mut refused = false;
+        for _ in 0..(WRITE_QUEUE + 20) {
+            if lsp_send_impl(&state, &big).is_err() {
+                refused = true;
+                break;
+            }
+        }
+        assert!(refused, "the queue never filled up");
+        assert!(started.elapsed() < Duration::from_secs(5), "send blocked");
+
+        // The state lock is free: other commands answer promptly, and stop ends the stuck writer.
+        let started = Instant::now();
+        drop(state.session.lock().unwrap());
+        lsp_stop_impl(&state).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5), "stop hung");
+        assert!(
+            state
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .lsp
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn stop_does_not_hang_when_a_process_outside_the_group_keeps_stdout_open() {
+        let dir = Scratch::new("escape");
+        let pid_file = dir.0.join("escaped.pid");
+        // perl is on every macOS; setsid puts the sleeper into its own session and group, so
+        // the group kill misses it while it keeps the inherited stdout pipe open.
+        let script = format!(
+            "#!/bin/sh\ntrap '' HUP\nperl -e 'use POSIX; setsid(); open F, \">$ARGV[0]\"; print F $$; close F; exec \"sleep\", \"300\"' '{}' </dev/null 2>/dev/null &\nwhile :; do sleep 1; done\n",
+            pid_file.display()
+        );
+        let fake = dir.script("rotom-lsp", &script);
+        let (sink, _rx) = channel();
+        let mut lsp = LspProcess::start(&fake, &dir.0, sink).unwrap();
+        let escaped = wait_for_pid(&pid_file);
+        let started = Instant::now();
+        lsp.stop();
+        let took = started.elapsed();
+        assert!(
+            took < JOIN_TIMEOUT * 3,
+            "stop waited {took:?} for a reader that cannot end"
+        );
+        assert!(!lsp.alive());
+        // The escapee is outside our reach by design; clean it up.
+        // SAFETY: plain syscall on the pid the test itself started.
+        unsafe { libc_kill(escaped, 9) };
     }
 }
