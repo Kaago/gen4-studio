@@ -3,11 +3,13 @@ import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
+import { thumbnails } from "../world/thumbnailStore";
 import { HeaderList } from "./HeaderList";
 import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
+import { useThumbnailReset } from "./useThumbnailReset";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
 
 const toggleStyle: React.CSSProperties = {
@@ -105,11 +107,25 @@ export function MatrixTab() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const info = d.info;
   const sceneMatrix = d.matrix?.index ?? null;
-  const { goTo, onMatrixEdited, onCountsChanged, onError } = d;
+  const { goTo, onMatrixEdited, onCountsChanged, onError, headers, areaDataId, memberCounts, bus } = d;
+  // The pictures of the grid come from the app-wide cache; it must not show another project's or tileset's.
+  useThumbnailReset(bus, info?.root ?? null, thumbnails);
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<MatrixPanelContext>(
-    () => ({ info, sceneMatrix, revision: matrixRevision, selection, goTo, onEdited: onMatrixEdited, onCountsChanged, onError }),
-    [info, sceneMatrix, matrixRevision, selection, goTo, onMatrixEdited, onCountsChanged, onError],
+    () => ({
+      info,
+      headers,
+      areaDataId,
+      counts: memberCounts,
+      sceneMatrix,
+      revision: matrixRevision,
+      selection,
+      goTo,
+      onEdited: onMatrixEdited,
+      onCountsChanged,
+      onError,
+    }),
+    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, goTo, onMatrixEdited, onCountsChanged, onError],
   );
   return <MatrixPanel context={context} />;
 }

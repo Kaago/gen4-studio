@@ -1,16 +1,25 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
-import type { MatrixDto, ProjectInfo } from "../api";
+import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
+import { AreaGrid, cellKey } from "./AreaGrid";
 import { DraftInput } from "./DraftInput";
-import { cellLabel, parseCellField, resizePreview } from "./matrix";
+import { ExtendAreaDialog } from "./ExtendAreaDialog";
+import { parseCellField, resizePreview } from "./matrix";
 import type { NavTarget } from "./navigation";
+import { buildPlaces, placeColor, placeOf } from "./places";
+import { TERMS } from "./terms";
 import { useMatrix } from "./useMatrix";
 
 /** What the matrix panel needs from App. */
 export interface MatrixPanelContext {
   info: ProjectInfo | null;
+  /** The header list: the pictures of cells with a header use that header's tileset, the cells are tinted by its place. */
+  headers: HeaderSummary[];
+  /** Area data of the scene: the tileset of cells without a header of their own. */
+  areaDataId: number;
+  counts: MemberCounts;
   /** Matrix of the scene (the selected header's); null while no header is selected. */
   sceneMatrix: number | null;
   /** Changes whenever matrix data may have changed behind the panel (edits, undo, redo, reload). */
@@ -30,35 +39,35 @@ const bar: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "cen
 const note: CSSProperties = { margin: 0, padding: "0 12px 8px", fontSize: 12, color: "#6b7280" };
 const dim: CSSProperties = { width: 56, textAlign: "right", fontFamily: "ui-monospace, monospace" };
 
-const cellStyle = (selected: boolean, empty: boolean): CSSProperties => ({
-  all: "unset",
-  boxSizing: "border-box",
-  minWidth: 84,
-  padding: "3px 6px",
-  textAlign: "center",
-  cursor: "pointer",
-  fontFamily: "ui-monospace, monospace",
-  fontSize: 12,
-  whiteSpace: "nowrap",
-  color: empty ? "#9ca3af" : "#111827",
-  background: selected ? "#dbeafe" : "transparent",
-  outline: selected ? "2px solid #2563eb" : "1px solid #e5e7eb",
-  outlineOffset: -1,
-});
-
 function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boolean {
   return (m[section] ?? []).some((v) => v !== 0);
 }
 
 /** Memoised: renders when `context` changes (the owner keeps it, see `MatrixTab`), not for every render of the panel host. */
 export const MatrixPanel = memo(function MatrixPanel({ context }: { context: MatrixPanelContext }) {
-  const { info, sceneMatrix, revision, selection, goTo, onEdited, onCountsChanged, onError } = context;
+  const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, goTo, onEdited, onCountsChanged, onError } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
   useEffect(() => setCreated(null), [sceneMatrix, info?.root]);
   const index = created ?? sceneMatrix;
   const matrix = useMatrix(index, revision, onError);
+  const [extendAt, setExtendAt] = useState<{ x: number; y: number } | null>(null);
+  // The dialog belongs to the cell it was opened for: another matrix or project ends it.
+  useEffect(() => setExtendAt(null), [index, info?.root]);
+  const places = useMemo(() => buildPlaces(headers, []), [headers]);
+  const colorOf = useMemo(
+    () => (header: number | null) => {
+      if (header === null) return null;
+      const place = placeOf(places, header);
+      return place ? placeColor(place.key) : null;
+    },
+    [places],
+  );
+  const selected = useMemo(
+    () => (matrix && selection?.matrix === matrix.index ? new Set([cellKey(selection.x, selection.y)]) : undefined),
+    [matrix, selection],
+  );
 
   /** Runs one edit of the shown matrix; the panel reloads through the new revision. */
   async function edit(index: number, op: () => Promise<unknown>) {
@@ -79,6 +88,15 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
       goTo({ kind: "matrixCell", matrix: made, x: 0, y: 0 });
     } catch (e) {
       onError(e);
+    }
+  }
+
+  /** The extend dialog is done: a created copy shows in the counts and the matrix; a failed attempt may have left a copy behind, so it refreshes the same. */
+  async function afterExtend(m: MatrixDto) {
+    try {
+      await onCountsChanged();
+    } finally {
+      await onEdited(m.index);
     }
   }
 
@@ -113,7 +131,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
   const sizer = matrix ? size(matrix, (w, h) => void onResize(matrix, w, h)) : null;
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={bar}>
+      <div style={bar} title={TERMS.matrix.short}>
         {matrix && sizer ? (
           <>
             <span style={{ fontFamily: "ui-monospace, monospace" }}>{String(matrix.index).padStart(4, "0")}</span>
@@ -154,34 +172,39 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
       )}
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 12px 12px" }}>
         {matrix && (
-          <table style={{ borderCollapse: "collapse" }} aria-label={`Matrix ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}>
-            <tbody>
-              {Array.from({ length: matrix.height }, (_, y) => (
-                <tr key={y}>
-                  {Array.from({ length: matrix.width }, (_, x) => {
-                    const i = y * matrix.width + x;
-                    const map = matrix.maps[i] ?? null;
-                    const header = matrix.headers && map !== null ? (matrix.headers[i] ?? null) : null;
-                    const selected = selection?.matrix === matrix.index && selection.x === x && selection.y === y;
-                    return (
-                      <td key={x} style={{ padding: 0 }}>
-                        <button
-                          onClick={() => goTo({ kind: "matrixCell", matrix: matrix.index, x, y })}
-                          onDoubleClick={() => header !== null && goTo({ kind: "matrixCell", matrix: matrix.index, x, y, header })}
-                          title={`x ${x}, y ${y}${matrix.altitudes ? `, Höhe ${matrix.altitudes[i]}` : ""}${header !== null ? ", Doppelklick öffnet den Header" : ""}`}
-                          style={cellStyle(selected, map === null)}
-                        >
-                          {cellLabel(map, matrix.headers ? (matrix.headers[i] ?? null) : null)}
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <AreaGrid
+            matrix={matrix}
+            headers={headers}
+            areaFallback={areaDataId}
+            cellSize={matrix.width > 12 ? 32 : 64}
+            selected={selected}
+            colorOf={colorOf}
+            onCellClick={(x, y) => goTo({ kind: "matrixCell", matrix: matrix.index, x, y })}
+            onCellDoubleClick={(x, y) => {
+              const header = matrix.headers?.[y * matrix.width + x];
+              if (header !== undefined && matrix.maps[y * matrix.width + x] !== null) goTo({ kind: "matrixCell", matrix: matrix.index, x, y, header });
+            }}
+            onExtend={(x, y) => setExtendAt({ x, y })}
+          />
         )}
       </div>
+      {matrix && extendAt && (
+        <ExtendAreaDialog
+          matrix={matrix}
+          x={extendAt.x}
+          y={extendAt.y}
+          headers={headers}
+          counts={counts}
+          onDone={(report) => {
+            setExtendAt(null);
+            if (report) void afterExtend(matrix);
+          }}
+          onError={(e) => {
+            onError(e);
+            void afterExtend(matrix);
+          }}
+        />
+      )}
     </div>
   );
 });

@@ -211,7 +211,7 @@ describe("workbench model", () => {
 
   it("renders the matrix tab when the shown matrix cell changes (pin, hover over a tile)", async () => {
     const show = await mountPanel("matrix");
-    const selectedCells = () => [...container.querySelectorAll<HTMLElement>("table button")].filter((b) => b.style.background !== "transparent").map((b) => b.title);
+    const selectedCells = () => [...container.querySelectorAll<HTMLElement>('[data-cell][aria-pressed="true"]')].map((b) => b.title);
     expect(selectedCells()).toEqual([]);
     const cell = (x: number, y: number): InspectorModel => ({ kind: "matrixCell", matrix: 1, x, y });
     await show({ pin: cell(1, 0), hover: null, message: null });
