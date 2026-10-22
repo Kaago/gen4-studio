@@ -20,8 +20,9 @@ describe("workbench layout persistence", () => {
     expect(loadLayout()).toBeNull();
   });
 
-  it("default layout has the six panels once, the raster and the world map as tabs of the world", () => {
-    expect(DEFAULT_PANELS.map((p) => p.id).sort()).toEqual(["headers", "inspector", "matrix", "status", "world", "worldmap"]);
+  it("default layout has the seven panels once, the raster, the world map and the text as tabs of the world", () => {
+    expect(DEFAULT_PANELS.map((p) => p.id).sort()).toEqual(["headers", "inspector", "matrix", "status", "text", "world", "worldmap"]);
+    expect(DEFAULT_PANELS.find((p) => p.id === "text")).toMatchObject({ title: "Text", position: { direction: "within", referencePanel: "world" } });
     expect(DEFAULT_PANELS.find((p) => p.id === "matrix")?.position).toEqual({ direction: "within", referencePanel: "world" });
     expect(DEFAULT_PANELS.find((p) => p.id === "worldmap")?.position).toEqual({ direction: "within", referencePanel: "world" });
   });
@@ -32,17 +33,20 @@ describe("workbench layout persistence", () => {
     expect(DEFAULT_PANELS.find((p) => p.id === "headers")).toMatchObject({ position: { direction: "left", referencePanel: "world" }, size: 300 });
   });
 
-  it("does not read layouts of the five-panel version", () => {
-    expect(LAYOUT_KEY).toBe("g4.layout.v3");
+  it("does not read layouts of the six-panel version", () => {
+    expect(LAYOUT_KEY).toBe("g4.layout.v4");
+    // A layout stored under the old key is simply not there for this version.
+    localStorage.setItem("g4.layout.v3", JSON.stringify({ a: 1 }));
+    expect(loadLayout()).toBeNull();
   });
 
   describe("isSaneLayout", () => {
     const leaf = (...views: string[]) => ({ type: "leaf", data: { views, activeView: views[0], id: views.join("+") }, size: 100 });
-    const layout = (leaves: object[], panelIds: string[] = ["headers", "world", "matrix", "worldmap", "inspector", "status"]) => ({
+    const layout = (leaves: object[], panelIds: string[] = ["headers", "world", "matrix", "worldmap", "text", "inspector", "status"]) => ({
       grid: { root: { type: "branch", data: leaves }, width: 1000, height: 800, orientation: "HORIZONTAL" },
       panels: Object.fromEntries(panelIds.map((id) => [id, { id }])),
     });
-    const defaults = () => layout([leaf("headers"), { type: "branch", data: [leaf("world", "matrix", "worldmap"), leaf("status")] }, leaf("inspector")]);
+    const defaults = () => layout([leaf("headers"), { type: "branch", data: [leaf("world", "matrix", "worldmap", "text"), leaf("status")] }, leaf("inspector")]);
 
     it("accepts the default arrangement", () => {
       expect(isSaneLayout(defaults())).toBe(true);
@@ -62,9 +66,14 @@ describe("workbench layout persistence", () => {
       expect(isSaneLayout(v2)).toBe(false);
     });
 
+    it("rejects a layout of the six-panel version, which has no text panel", () => {
+      const v3 = layout([leaf("headers"), leaf("world", "matrix", "worldmap"), leaf("status"), leaf("inspector")], ["headers", "world", "matrix", "worldmap", "inspector", "status"]);
+      expect(isSaneLayout(v3)).toBe(false);
+    });
+
     it("rejects a layout with a missing panel or no groups", () => {
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix"), leaf("status")], ["headers", "world", "matrix", "worldmap", "status"]))).toBe(false);
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "inspector"), leaf("status")], ["headers", "world", "inspector", "worldmap", "status"]))).toBe(false);
+      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix"), leaf("status")], ["headers", "world", "matrix", "worldmap", "text", "status"]))).toBe(false);
+      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "inspector"), leaf("status")], ["headers", "world", "inspector", "worldmap", "text", "status"]))).toBe(false);
       expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix"), leaf("inspector")]))).toBe(false);
       expect(isSaneLayout({})).toBe(false);
       expect(isSaneLayout({ panels: null })).toBe(false);

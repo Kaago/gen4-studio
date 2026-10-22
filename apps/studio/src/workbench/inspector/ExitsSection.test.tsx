@@ -13,7 +13,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-const header = (id: number, internal: string, location: string, event: number): HeaderSummary => ({ id, internal_name: internal, location_name: location, matrix_id: 0, area_data_id: 0, event_file_id: event });
+const header = (id: number, internal: string, location: string, event: number): HeaderSummary => ({ id, internal_name: internal, location_name: location, matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0 });
 const headers = [header(411, "T01", "Zweiblattdorf", 5), header(414, "T01R0201", "Zweiblattdorf", 8)];
 const warp = (index: number, x: number, z: number, dest: number): WarpDto => ({ index, x, z, dest_header_id: dest, dest_warp_id: 0, height: 0 });
 const events = (warps: WarpDto[], locked: string | null = null): EventsDto => ({ event_file_id: 5, locked, bg: [], objects: [], coords: [], warps });

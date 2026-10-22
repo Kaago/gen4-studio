@@ -246,6 +246,8 @@ pub struct HeaderSummary {
     pub area_data_id: u8,
     /// Member of the event archive with this header's warps, NPCs, triggers and signs.
     pub event_file_id: u16,
+    /// Text archive with this header's messages (the text panel lists which headers use an archive).
+    pub text_archive_id: u16,
 }
 
 /// The header list plus the reason why location names are missing, if they are.
@@ -812,6 +814,7 @@ impl Project {
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),
+                    text_archive_id: header.text_archive_id(),
                 }
             })
             .collect();

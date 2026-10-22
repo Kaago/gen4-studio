@@ -8,6 +8,8 @@ import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
+import { TextPanel } from "./text/TextPanel";
+import type { TextPanelContext } from "./text/TextPanel";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
@@ -151,6 +153,19 @@ export function WorldMapTab() {
     [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus],
   );
   return <WorldMapPanel context={context} />;
+}
+
+export function TextTab() {
+  const d = useWorkbench();
+  // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
+  const textRevision = useBusRevision(d.bus, "textData");
+  const { headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
+  // Memoised with the memoised panel: it renders again only when one of these changes.
+  const context = useMemo<TextPanelContext>(
+    () => ({ headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
+    [headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
+  );
+  return <TextPanel context={context} />;
 }
 
 export function InspectorPanel() {

@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
-import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldMapTab, WorldPanel } from "./panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, TextTab, WorldMapTab, WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
 
@@ -13,6 +13,7 @@ const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> =
   world: WorldPanel,
   matrix: MatrixTab,
   worldmap: WorldMapTab,
+  text: TextTab,
   inspector: InspectorPanel,
   status: StatusPanel,
 };

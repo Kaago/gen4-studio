@@ -11,7 +11,9 @@ export type NavTarget =
   | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null }
   | { kind: "area"; id: number }
   | { kind: "building"; map: number; index: number; header?: number | null }
-  | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null };
+  | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null }
+  /** A text archive, with one of its messages (omitted: the first). */
+  | { kind: "textArchive"; index: number; message?: number };
 
 /** What `nextSelection` needs to know about the current selection and the scene. */
 export interface NavState {
@@ -28,10 +30,12 @@ export interface NavState {
 
 export interface NavResult {
   selectedHeader: number | null;
-  /** What to pin in the inspector; null when the target does not exist (nothing changes). */
+  /** What to pin in the inspector; null when the target does not exist or leaves the pin alone (a text archive). */
   pinned: InspectorModel | null;
   /** The panel that shows the target; null when nothing changes. */
   panel: PanelId | null;
+  /** Set for a text archive: what the text panel opens (`message` null: the first one). */
+  text?: { index: number; message: number | null };
 }
 
 /**
@@ -48,6 +52,9 @@ export function nextSelection(state: NavState, target: NavTarget): NavResult {
   const switchTo = (id: number | null | undefined): number | null => (known(id) && id !== state.selectedHeader ? id : null);
 
   switch (target.kind) {
+    case "textArchive":
+      // Neither the selection nor the pin changes: the text panel is not about a header.
+      return { selectedHeader: state.selectedHeader, pinned: null, panel: "text", text: { index: target.index, message: target.message ?? null } };
     case "header":
       return known(target.id) ? toHeader(target.id) : { selectedHeader: state.selectedHeader, pinned: null, panel: null };
     case "matrixCell":

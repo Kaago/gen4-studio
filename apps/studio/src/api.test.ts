@@ -5,15 +5,20 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import {
   addBuilding,
+  createTextArchive,
   deleteBuilding,
+  editTextArchive,
   getBuildingGlb,
+  getTextArchive,
   getHeader,
   headerFamily,
   memberCounts,
   headerFields,
   isCmdError,
+  searchText,
   setHeader,
   updateBuilding,
+  validateText,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
@@ -152,5 +157,31 @@ describe("building commands", () => {
     await expect(getBuildingGlb(9, 0)).rejects.toMatchObject({ message: "building model 9 does not exist" });
     invoke.mockResolvedValue(new ArrayBuffer(1));
     await expect(getBuildingGlb(9, 0)).resolves.toBeInstanceOf(ArrayBuffer);
+  });
+});
+
+describe("text archive commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("passes the edit as the backend's externally tagged enum", async () => {
+    invoke.mockResolvedValue(7);
+    await editTextArchive(433, { Set: { index: 1, text: "Neu" } });
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: { Set: { index: 1, text: "Neu" } } });
+    await editTextArchive(433, "Append");
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: "Append" });
+    await editTextArchive(433, "RemoveLast");
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: "RemoveLast" });
+  });
+
+  it("calls the read, create, search and check commands with their argument names", async () => {
+    invoke.mockResolvedValue(null);
+    await getTextArchive(5);
+    expect(invoke).toHaveBeenLastCalledWith("get_text_archive", { index: 5 });
+    await createTextArchive();
+    expect(invoke).toHaveBeenLastCalledWith("create_text_archive");
+    await searchText("hallo", 50);
+    expect(invoke).toHaveBeenLastCalledWith("search_text", { query: "hallo", limit: 50 });
+    await validateText("Hi");
+    expect(invoke).toHaveBeenLastCalledWith("validate_text", { text: "Hi" });
   });
 });

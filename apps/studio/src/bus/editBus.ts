@@ -21,6 +21,8 @@ export type EditEvent =
   | { topic: "eventsRefetch"; file: number }
   /** The scene reloads its models (the tilesets of the shown area data changed). */
   | { topic: "modelsReload" }
+  /** A text archive may have changed behind the text panel (undo, redo, reload); `archive` null: any of them (a reload after a stale file). */
+  | { topic: "textData"; archive: number | null }
   /** The header list scrolls to the selection (a link led to a header). */
   | { topic: "headerReveal" };
 

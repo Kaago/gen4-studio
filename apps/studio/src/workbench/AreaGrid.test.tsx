@@ -13,7 +13,7 @@ import type { AreaGridProps } from "./AreaGrid";
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
 const matrix: MatrixDto = { index: 3, name: "m", width: 3, height: 2, maps: [521, 522, null, 523, null, 524], headers: [415, 416, 0, 417, 0, 0], altitudes: [0, 0, 0, 0, 0, 2] };
-const header = (id: number, area: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 3, area_data_id: area, event_file_id: 0 });
+const header = (id: number, area: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 3, area_data_id: area, event_file_id: 0, text_archive_id: 0 });
 const headers = [header(415, 7), header(416, 7), header(417, 8)];
 
 describe("AreaGrid", () => {

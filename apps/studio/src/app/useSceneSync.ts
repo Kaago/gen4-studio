@@ -10,6 +10,7 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
+import type { PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
@@ -22,6 +23,8 @@ interface SceneSyncParams {
   setPinned: (pinned: InspectorModel) => void;
   /** The dockview api of the workbench: a link focuses the panel that shows its target. */
   dockApi: MutableRefObject<DockviewApi | null>;
+  /** Tells the text panel which archive and message to open (a link to a text archive). */
+  onOpenText: (index: number, message?: number) => void;
 }
 
 /**
@@ -29,7 +32,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, onOpenText }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -189,6 +192,15 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
   }
 
+  function focusPanel(panel: PanelId | null) {
+    if (panel === null) return;
+    try {
+      dockApi.current?.getPanel(panel)?.focus();
+    } catch {
+      /* the workbench is going away */
+    }
+  }
+
   /**
    * Follows a link (see `nextSelection`): a header goes through the same path as a click in the
    * list (its matrix loads under the selection guards), the inspector is pinned to the target and
@@ -208,7 +220,13 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
       target,
     );
     if (next.pinned === null) {
-      if (target.kind === "header") setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
+      // A text archive changes neither the selection nor the pin: the text panel opens it and takes the focus.
+      if (next.text) {
+        onOpenText(next.text.index, next.text.message ?? undefined);
+        focusPanel(next.panel);
+      } else if (target.kind === "header") {
+        setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
+      }
       return;
     }
     if (next.panel === "headers") bus.emit({ topic: "headerReveal" });
@@ -220,13 +238,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
-    if (next.panel !== null) {
-      try {
-        dockApi.current?.getPanel(next.panel)?.focus();
-      } catch {
-        /* the workbench is going away */
-      }
-    }
+    focusPanel(next.panel);
     return loading;
   }
 

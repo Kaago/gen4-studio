@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
+import type { TextTarget } from "./workbench/text/textModel";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
@@ -32,9 +33,13 @@ export default function App() {
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
 
+  // The archive and message the text panel is asked to open: a new object per request, so the same one can be asked for twice.
+  const [textTarget, setTextTarget] = useState<TextTarget | null>(null);
+  const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
+
   const session = useProjectSession();
   const pins = useInspectorState();
-  const scene = useSceneSync({ bus, setMessage: session.setMessage, fail: session.fail, refreshDirty: session.refreshDirty, setPinned: pins.setPinned, dockApi });
+  const scene = useSceneSync({ bus, setMessage: session.setMessage, fail: session.fail, refreshDirty: session.refreshDirty, setPinned: pins.setPinned, dockApi, onOpenText });
   const world = useWorldActions({
     bus,
     pins,
@@ -113,6 +118,7 @@ export default function App() {
     pins,
     overview,
     onOpenWizard: wizards.open,
+    text: { target: textTarget, onOpen: onOpenText },
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
   });
 

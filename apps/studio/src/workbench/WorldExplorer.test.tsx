@@ -18,6 +18,7 @@ const header = (id: number, location_name: string, matrix_id: number, internal_n
   matrix_id,
   area_data_id: 0,
   event_file_id: id,
+  text_archive_id: 0,
 });
 
 const matrix = (index: number, width: number, height: number, has_headers = false): MatrixSummary => ({

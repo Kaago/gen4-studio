@@ -16,6 +16,8 @@ export interface HeaderSummary {
   matrix_id: number;
   area_data_id: number;
   event_file_id: number;
+  /** Text archive with the header's messages (the text panel lists which headers use an archive). */
+  text_archive_id: number;
 }
 
 export interface HeaderListing {
@@ -400,8 +402,20 @@ export function isCmdError(e: unknown): e is CmdError {
   );
 }
 
+/** A problem of the last save or build, or of one text (see `validateText`). Lines and columns are 1-based. */
+export interface ProblemDto {
+  severity: "error" | "warning";
+  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet. */
+  file: string;
+  line: number;
+  col: number;
+  message: string;
+  source: "compile" | "text";
+}
+
 export interface SaveReport {
   written: AssetId[];
+  problems: ProblemDto[];
 }
 
 export interface BuildReport {
@@ -573,3 +587,42 @@ export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_stat
 export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");
 /** Rewrites the 4 bytes of a broken patch's wrong call in arm9.bin; the header table is not touched. */
 export const repairHeaderPatch = () => invoke<HeaderPatchDto>("repair_header_patch");
+
+/** One message of a text archive: its id in the JSON source and its text (control codes stay as text). */
+export interface TextMessageDto {
+  id: string;
+  text: string;
+}
+
+export interface TextArchiveDto {
+  index: number;
+  key: number;
+  lang: string;
+  messages: TextMessageDto[];
+  /** Ids of the map headers that use this archive. */
+  users: number[];
+}
+
+/** One edit of an archive's message list (the backend's serde enum). */
+export type TextEdit = { Set: { index: number; text: string } } | "Append" | "RemoveLast";
+
+/** One search hit: message `index` of archive `archive`, with an excerpt around the match. */
+export interface TextHit {
+  archive: number;
+  index: number;
+  excerpt: string;
+}
+
+/** Archive `index` including unsaved edits; rejects for an archive that cannot be decoded. */
+export const getTextArchive = (index: number) => invoke<TextArchiveDto>("get_text_archive", { index });
+/**
+ * Applies one edit to an archive (one undoable change). Resolves to null when it left the archive as it was; rejects
+ * (code "error") for a message that does not exist or when the last message would be removed.
+ */
+export const editTextArchive = (index: number, edit: TextEdit) => invoke<number | null>("edit_text_archive", { index, edit });
+/** Appends an archive with one message and resolves to its index. Written at once; not undoable. */
+export const createTextArchive = () => invoke<number>("create_text_archive");
+/** Case-insensitive search over the messages of all archives; at most `limit` hits. */
+export const searchText = (query: string, limit: number) => invoke<TextHit[]>("search_text", { query, limit });
+/** Warnings for one message text (line 1 is its first line), for example "wider than the text box". */
+export const validateText = (text: string) => invoke<ProblemDto[]>("validate_text", { text });

@@ -1291,6 +1291,7 @@ fn patched_project_reads_and_saves_headers_from_files() {
     st.edit_header(1, "x", |h| {
         if let MapHeader::Pt(h) = h {
             h.matrix_id = 7;
+            h.text_archive_id = 433;
         }
         Ok(())
     })
@@ -1313,6 +1314,8 @@ fn patched_project_reads_and_saves_headers_from_files() {
     // A fresh project reads the edit back through the files.
     let reread = Project::open(s.dir.path()).unwrap();
     assert_eq!(reread.headers().unwrap()[1].matrix_id, 7);
+    // The listing carries the archive a header reads its messages from.
+    assert_eq!(reread.headers().unwrap()[1].text_archive_id, 433);
     assert_eq!(reread.header_count().unwrap(), 2);
 }
 

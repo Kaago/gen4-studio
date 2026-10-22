@@ -32,6 +32,7 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
       bus.emit({ topic: "areaData" });
       bus.emit({ topic: "buildingData" });
       bus.emit({ topic: "eventData" });
+      bus.emit({ topic: "textData", archive: null });
       // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
       setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
       await scene.syncHeaders();
@@ -75,6 +76,9 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         break;
       case "models":
         await scene.noteSceneTileset(true);
+        break;
+      case "textPanel":
+        bus.emit({ topic: "textData", archive: a.archive });
         break;
       case "headers":
         bus.emit({ topic: "headerTable" });

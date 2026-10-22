@@ -1,5 +1,5 @@
 /** The words of the world explorer: every panel takes label and explanation from here (spec §3). */
-export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData" | "patch";
+export type TermKey = "place" | "header" | "outside" | "room" | "matrix" | "map" | "warp" | "eventFile" | "areaData" | "patch" | "textArchive" | "message";
 
 export const TERMS: Record<TermKey, { label: string; plural: string; tech: string | null; short: string }> = {
   place: {
@@ -31,6 +31,12 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
     short: "Warps, Objekte, Trigger und Hintergrund-Events eines Headers.",
   },
   areaData: { label: "Area-Data", plural: "Area-Data", tech: "AreaData", short: "Welche Texturen (Tilesets) ein Header benutzt." },
+  textArchive: {
+    label: "Textarchiv", plural: "Textarchive",
+    tech: "TextArchive",
+    short: "Die Nachrichten eines Headers; Scripts zeigen sie über die Nummer.",
+  },
+  message: { label: "Nachricht", plural: "Nachrichten", tech: null, short: "Ein Text eines Textarchivs; Scripts rufen ihn über seine Nummer ab." },
   patch: {
     label: "ROM-Patch", plural: "ROM-Patches",
     tech: null,

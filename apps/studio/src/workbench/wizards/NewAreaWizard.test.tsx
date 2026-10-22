@@ -17,7 +17,7 @@ vi.mock("../../world/thumbnailStore", () => ({
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event });
+const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0 });
 const headers = [header(0, "ZERO"), header(1, "NOTHING", 0, 3, 8)];
 const summary = (index: number, width: number, height: number, hasHeaders = false): MatrixSummary => ({ index, name: `m${index}`, width, height, has_headers: hasHeaders, has_altitudes: false, filled: width * height });
 const matrices = [summary(0, 2, 1), summary(1, 3, 2, true)];

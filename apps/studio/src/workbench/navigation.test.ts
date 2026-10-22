@@ -10,6 +10,7 @@ const header = (id: number, matrix_id: number, event_file_id: number): HeaderSum
   matrix_id,
   area_data_id: 0,
   event_file_id,
+  text_archive_id: 0,
 });
 
 const headers = [header(3, 0, 10), header(4, 0, 11), header(415, 7, 12)];
@@ -37,6 +38,16 @@ describe("nextSelection", () => {
 
   it("an unknown header changes nothing", () => {
     expect(nextSelection(state, { kind: "header", id: 999 })).toEqual({ selectedHeader: 3, pinned: null, panel: null });
+  });
+
+  it("a text archive leads to the text panel and leaves the selection and the pin alone", () => {
+    expect(nextSelection(state, { kind: "textArchive", index: 433, message: 2 })).toEqual({
+      selectedHeader: 3,
+      pinned: null,
+      panel: "text",
+      text: { index: 433, message: 2 },
+    });
+    expect(nextSelection(state, { kind: "textArchive", index: 5 })).toMatchObject({ panel: "text", text: { index: 5, message: null } });
   });
 
   it("area pins the area data and keeps the selected header", () => {

@@ -9,6 +9,7 @@ const header = (id: number, internal_name: string, location_name: string): Heade
   matrix_id: 0,
   area_data_id: 0,
   event_file_id: 0,
+  text_archive_id: 0,
 });
 
 const headers = [header(411, "T01", "Zweiblattdorf"), header(412, "T01R0101", "Zweiblattdorf"), header(413, "C01", "Jubelstadt"), header(0, "EVERYWHERE", "")];

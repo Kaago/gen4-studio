@@ -7,6 +7,7 @@ import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
+import type { TextTarget } from "./text/textModel";
 
 /** What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in. */
 export type WizardRequest = { kind: "area"; prefill?: { matrix?: number } } | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } };
@@ -89,6 +90,10 @@ export interface WorkbenchData {
   onAddEvent: (kind: EventKind) => void | Promise<void>;
   /** Asks first, then deletes the event. */
   onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
+  /** The archive and message a link to the text panel asked for; a new object with every request, so the same one can be asked for again. Null: none yet. */
+  textTarget: TextTarget | null;
+  /** Opens a text archive (and one of its messages) in the text panel. */
+  onOpenText: (index: number, message?: number) => void;
   onDismissMessage: () => void;
 }
 

@@ -20,6 +20,7 @@ const header = (id: number, location_name: string, matrix_id: number, event_file
   matrix_id,
   area_data_id: 0,
   event_file_id,
+  text_archive_id: 0,
 });
 
 const warp = (event_file: number, index: number, dest_header_id: number, dest_warp_id: number, x = 0, z = 0): WarpLink => ({ event_file, index, x, z, dest_header_id, dest_warp_id });

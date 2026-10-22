@@ -16,6 +16,12 @@ describe("terms", () => {
     expect(TERMS.outside.short).toContain("Region");
   });
 
+  it("names the text archive and its message", () => {
+    expect(TERMS.textArchive).toMatchObject({ label: "Textarchiv", tech: "TextArchive" });
+    expect(TERMS.message.label).toBe("Nachricht");
+    expect(techLabel("textArchive", 199)).toBe("TextArchive 0199");
+  });
+
   it("has a plural for every term, the nouns the explorer counts with", () => {
     for (const term of Object.values(TERMS)) expect(term.plural).not.toBe("");
     expect([TERMS.place.plural, TERMS.header.plural, TERMS.map.plural, TERMS.room.plural]).toEqual(["Orte", "Header", "Karten", "Räume"]);

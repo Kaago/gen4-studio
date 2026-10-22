@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { HeaderSummary } from "../api";
 import type { EditBus } from "../bus/editBus";
+import type { TextTarget } from "../workbench/text/textModel";
 import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
 import type { Overview } from "./useOverview";
 import type { InspectorState } from "./useInspectorState";
@@ -35,6 +36,8 @@ interface WorkbenchModelParams {
   overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
   /** Opens a wizard; must keep its identity (it is handed to memoised panels). */
   onOpenWizard: (request: WizardRequest) => void;
+  /** The text panel's target and the way to set it (must keep its identity), owned by App. */
+  text: { target: TextTarget | null; onOpen: (index: number, message?: number) => void };
   /** The scene's switches, owned by App. */
   view: { showPermissions: boolean; setShowPermissions: (show: boolean) => void; showEvents: boolean; setShowEvents: (show: boolean) => void };
 }
@@ -45,7 +48,7 @@ interface WorkbenchModelParams {
  * rendered again by a hover or a message. `live` is the volatile part (the inspector's hover,
  * the cell it selects, the message), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, text, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -102,6 +105,8 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     onEventChanged: world.onEventChanged,
     onAddEvent: world.onAddEvent,
     onDeleteEvent: world.onDeleteEvent,
+    textTarget: text.target,
+    onOpenText: text.onOpen,
     onDismissMessage,
   });
 
