@@ -2,13 +2,13 @@ import * as THREE from "three";
 import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { BuildingLayer } from "../buildingLayer";
 import { permissionColor } from "../colors";
-import { MAP_SIZE, MODEL_SCALE, cellOrigin } from "../layout";
+import { MAP_SIZE, MODEL_SCALE, cellOrigin, cellY } from "../layout";
 import { buildMarkers, disposeMarkers, selectMarker } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
-/** Height of the overlay plane; clicks are intersected with the same plane. */
+/** Height of the overlay plane of a cell on the ground (a raised cell adds its `cellY`); clicks are intersected with the same planes. */
 export const OVERLAY_Y = 0.05;
 
 const colorCache = new Map<string, THREE.Color>();
@@ -24,11 +24,13 @@ export function addModel(h: SceneHost, matrix: MatrixDto, mapId: number, model: 
   let used = false;
   matrix.maps.forEach((id, i) => {
     if (id !== mapId) return;
-    const origin = cellOrigin(i % matrix.width, Math.floor(i / matrix.width));
+    const col = i % matrix.width;
+    const row = Math.floor(i / matrix.width);
+    const origin = cellOrigin(col, row);
     const instance = cloneModel(model);
     // The model is centred on the map centre.
     instance.scale.setScalar(MODEL_SCALE);
-    instance.position.set(origin.x + MAP_SIZE / 2, 0, origin.z + MAP_SIZE / 2);
+    instance.position.set(origin.x + MAP_SIZE / 2, cellY(matrix, col, row), origin.z + MAP_SIZE / 2);
     h.content.add(instance);
     h.models.push(instance);
     used = true;
@@ -73,12 +75,13 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
   let n = 0;
   for (const { col, row, data } of cells) {
     const origin = cellOrigin(col, row);
+    const y = OVERLAY_Y + cellY(matrix, col, row);
     const list = bases.get(data.map.index) ?? [];
     list.push(n);
     bases.set(data.map.index, list);
     for (let i = 0; i < perCell; i++) {
       const [kind, collision] = data.map.permissions[i] ?? [0, 0];
-      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, OVERLAY_Y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
+      m4.setPosition(origin.x + (i % MAP_SIZE) + 0.5, y, origin.z + Math.floor(i / MAP_SIZE) + 0.5);
       tiles.setMatrixAt(n, m4);
       tiles.setColorAt(n, overlayColor(kind, collision, names));
       n++;

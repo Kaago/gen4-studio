@@ -6,13 +6,13 @@ import { MAP_SIZE, MODEL_SCALE } from "./layout";
 export type BuildingPose = Pick<BuildingDto, "x" | "y" | "z" | "sx" | "sy" | "sz"> & Partial<BuildingDto>;
 
 /**
- * Scene transform of a building's model in the matrix cell whose origin is `cell`. Positions are
+ * Scene transform of a building's model in the matrix cell whose origin is `cell` (`y`: the height of the cell). Positions are
  * tiles from the map centre; the GLB is in 1/16 tile units like the map models, so its scale is
  * the building's own scale times the map model scale. Rotation is not applied: the game ignores it.
  */
-export function buildingTransform(b: BuildingPose, cell: { x: number; z: number }): { position: [number, number, number]; scale: [number, number, number] } {
+export function buildingTransform(b: BuildingPose, cell: { x: number; y?: number; z: number }): { position: [number, number, number]; scale: [number, number, number] } {
   return {
-    position: [cell.x + MAP_SIZE / 2 + b.x, b.y, cell.z + MAP_SIZE / 2 + b.z],
+    position: [cell.x + MAP_SIZE / 2 + b.x, (cell.y ?? 0) + b.y, cell.z + MAP_SIZE / 2 + b.z],
     scale: [b.sx * MODEL_SCALE, b.sy * MODEL_SCALE, b.sz * MODEL_SCALE],
   };
 }

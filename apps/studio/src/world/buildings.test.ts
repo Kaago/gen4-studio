@@ -24,6 +24,11 @@ describe("buildings", () => {
     expect(t.scale).toEqual([2 / 16, 1 / 16, 3 / 16]);
   });
 
+  it("adds the height of the cell to the building's own y", () => {
+    expect(buildingTransform({ model_id: 1, x: 0, y: 0.5, z: 0, sx: 1, sy: 1, sz: 1 }, { x: 0, y: 1, z: 0 }).position[1]).toBe(1.5);
+    expect(buildingTransform({ model_id: 1, x: 0, y: 0.5, z: 0, sx: 1, sy: 1, sz: 1 }, { x: 0, z: 0 }).position[1]).toBe(0.5);
+  });
+
   it("lifts the placeholder box by half its height, sized by the scale factors", () => {
     expect(buildingFallbackBox({ x: 0, y: 2, z: 0, sx: 2, sy: 1, sz: 3 })).toEqual({ offsetY: 0.5, size: [2, 1, 3] });
   });

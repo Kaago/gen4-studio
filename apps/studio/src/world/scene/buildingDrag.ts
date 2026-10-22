@@ -18,7 +18,7 @@ export interface BuildingDrag {
 }
 
 /**
- * Dragging the selected building moves it on the ground plane (buildings snap to half tiles). A
+ * Dragging the selected building moves it on the plane of its own cell's height (buildings snap to half tiles). A
  * press only starts a drag on the selected building itself, when painting is enabled and no event
  * marker is over it; one `update_building` is written when the pointer is released.
  */
@@ -59,7 +59,7 @@ export function createBuildingDrag(h: SceneHost, picker: Picker, surface: DragSu
       const centre = { x: hit.cell.x + MAP_SIZE / 2, z: hit.cell.z + MAP_SIZE / 2 };
       return {
         subject: { ref: hit.ref, building: hit.building, centre },
-        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.building.y),
+        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(hit.cell.y + hit.building.y)),
         origin: { x: centre.x + hit.building.x, z: centre.z + hit.building.z },
       };
     },

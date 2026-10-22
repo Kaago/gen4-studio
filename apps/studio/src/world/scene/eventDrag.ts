@@ -4,6 +4,7 @@ import { DragController } from "../dragController";
 import type { DragSurface } from "../dragController";
 import { clampToMatrix } from "../events";
 import type { EventRef } from "../events";
+import { cellYAtTile } from "../layout";
 import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { refreshEvents } from "./eventFetch";
@@ -20,7 +21,7 @@ export interface EventDrag {
 }
 
 /**
- * Dragging the selected event marker moves it on the ground plane in whole tiles (`origin` is the
+ * Dragging the selected event marker moves it on the plane of its cell's height in whole tiles (`origin` is the
  * event's tile, so the snapped positions are tiles too). A locked event file cannot be dragged. A
  * press only starts a drag on the selected marker itself; one `update_event` is written when the
  * pointer is released.
@@ -43,7 +44,7 @@ export function createEventDrag(h: SceneHost, picker: Picker, surface: DragSurfa
       if (!hit || hit.kind !== selected.kind || hit.data.index !== selected.index) return null;
       return {
         subject: { set: h.markers, file: events.event_file_id, kind: hit.kind, data: { index: hit.data.index, x: hit.data.x, z: hit.data.z } },
-        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -MARKER_Y),
+        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(MARKER_Y + (h.matrix ? cellYAtTile(h.matrix, hit.data.x, hit.data.z) : 0))),
         origin: { x: hit.data.x, z: hit.data.z },
       };
     },

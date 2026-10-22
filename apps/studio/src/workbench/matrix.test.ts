@@ -26,9 +26,15 @@ describe("matrix helpers", () => {
     expect(resizePreview(1, 1, { ...m, headers: [0, 0], altitudes: [0, 2] })).toEqual({ lostCells: 1 });
   });
 
-  it("compares layouts by grid and maps only", () => {
+  it("compares layouts by grid, maps and altitudes", () => {
     const m = { index: 1, name: "a", width: 2, height: 1, maps: [1, null] };
-    expect(sameLayout(m, { ...m, name: "b", headers: [1, 2], altitudes: [0, 3] })).toBe(true);
+    expect(sameLayout(m, { ...m, name: "b", headers: [1, 2] })).toBe(true);
+    expect(sameLayout(m, { ...m, altitudes: [0, 3] })).toBe(false);
+    expect(sameLayout({ ...m, altitudes: [0, 3] }, { ...m, altitudes: [0, 4] })).toBe(false);
+    expect(sameLayout({ ...m, altitudes: [0, 3] }, { ...m, name: "b", altitudes: [0, 3] })).toBe(true);
+    // No altitude section and all-zero altitudes look the same in the scene.
+    expect(sameLayout(m, { ...m, altitudes: [0, 0] })).toBe(true);
+    expect(sameLayout({ ...m, altitudes: null }, m)).toBe(true);
     expect(sameLayout(m, { ...m, maps: [1, 2] })).toBe(false);
     expect(sameLayout(m, { ...m, width: 1, maps: [1] })).toBe(false);
     expect(sameLayout(m, { ...m, index: 2 })).toBe(false);

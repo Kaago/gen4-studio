@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { BuildingDto, MapDto, MatrixDto } from "../api";
 import { buildingFallbackBox, buildingKey, buildingModelIds, buildingTransform } from "./buildings";
-import { cellOrigin } from "./layout";
+import { cellOrigin, cellY } from "./layout";
 import { cloneModel, disposeClone, disposeTree } from "./sceneUtil";
 
 export interface BuildingRef {
@@ -9,10 +9,10 @@ export interface BuildingRef {
   index: number;
 }
 
-/** One building as it stands in one matrix cell (a map shown in several cells has one slot per cell). */
+/** One building as it stands in one matrix cell (`cell`: its scene origin and height) (a map shown in several cells has one slot per cell). */
 interface Slot {
   ref: BuildingRef;
-  cell: { x: number; z: number };
+  cell: { x: number; y: number; z: number };
   building: BuildingDto;
   group: THREE.Group;
   box: THREE.Mesh;
@@ -50,7 +50,9 @@ export class BuildingLayer {
     }
     matrix.maps.forEach((id, i) => {
       if (id !== mapId) return;
-      const cell = cellOrigin(i % matrix.width, Math.floor(i / matrix.width));
+      const col = i % matrix.width;
+      const row = Math.floor(i / matrix.width);
+      const cell = { ...cellOrigin(col, row), y: cellY(matrix, col, row) };
       buildings.forEach((building, index) => this.addSlot({ map: mapId, index }, cell, building));
     });
     // The outline follows the rebuilt slots; a selection that no longer exists is dropped by the caller.
@@ -111,7 +113,7 @@ export class BuildingLayer {
   }
 
   /** The building under a ray, nearest first, or null. */
-  pick(raycaster: THREE.Raycaster): { ref: BuildingRef; cell: { x: number; z: number }; building: BuildingDto } | null {
+  pick(raycaster: THREE.Raycaster): { ref: BuildingRef; cell: { x: number; y: number; z: number }; building: BuildingDto } | null {
     for (const hit of raycaster.intersectObjects(this.slotGroup.children, true)) {
       let obj: THREE.Object3D | null = hit.object;
       while (obj && !obj.userData.slot) obj = obj.parent;
@@ -164,7 +166,7 @@ export class BuildingLayer {
     this.slots.clear();
   }
 
-  private addSlot(ref: BuildingRef, cell: { x: number; z: number }, building: BuildingDto) {
+  private addSlot(ref: BuildingRef, cell: { x: number; y: number; z: number }, building: BuildingDto) {
     const box = new THREE.Mesh(boxGeometry, boxMaterial);
     const group = new THREE.Group();
     group.add(box);

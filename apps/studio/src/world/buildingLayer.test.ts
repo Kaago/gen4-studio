@@ -80,6 +80,14 @@ describe("BuildingLayer", () => {
     expect(layer.root.children[0].children.every((g) => g.children.length === 1 && g.children[0].type === "Mesh")).toBe(true);
   });
 
+  it("stands the buildings of a raised cell on the height of that cell", () => {
+    const layer = new BuildingLayer();
+    layer.build({ ...matrix, altitudes: [0, 2, 4] }, loaded());
+    const ys = layer.root.children[0].children.map((g) => g.position.y);
+    // Map 5 in cells 0 (altitude 0) and 2 (altitude 4), map 6 in cell 1 (altitude 2); buildings stand at y 0.
+    expect(ys.sort()).toEqual([0, 0, 1, 2, 2]);
+  });
+
   it("picks the building under a ray, also through its placeholder box", () => {
     const layer = new BuildingLayer();
     layer.build(matrix, loaded());
@@ -87,7 +95,7 @@ describe("BuildingLayer", () => {
     // Building 0 of map 5 in cell 2 stands at (84, 14) with a unit box.
     const hit = layer.pick(ray(84, 14));
     expect(hit?.ref).toEqual({ map: 5, index: 0 });
-    expect(hit?.cell).toEqual({ x: 64, z: 0 });
+    expect(hit?.cell).toEqual({ x: 64, y: 0, z: 0 });
     expect(layer.pick(ray(70, 5))).toBeNull();
     layer.setTemplate(7, model());
     layer.root.updateMatrixWorld(true);

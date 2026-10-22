@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { EventsDto, MatrixDto } from "../api";
 import { MARKER_COLORS, markerPosition } from "./events";
+import { cellYAtTile } from "./layout";
 import type { EventData, EventKind } from "./events";
 import { disposeTree } from "./sceneUtil";
 
@@ -9,6 +10,9 @@ export const MARKER_Y = 0.3;
 const BEACON_HEIGHT = 1.2;
 /** Height of the flat plane that shows the area of a coordinate trigger (above the permission overlay). */
 const AREA_Y = 0.08;
+
+/** Height of each marker mesh above the ground of its cell (the flat marker and the beacon differ). */
+const meshBase = new WeakMap<THREE.InstancedMesh, number>();
 
 /** An event by class and index within the class (the identity the editor binds to). */
 export interface MarkerRef {
@@ -38,9 +42,9 @@ export interface MarkerHit {
 
 const sameRef = (a: MarkerRef | null, b: MarkerRef | null) => a !== null && b !== null && a.kind === b.kind && a.index === b.index;
 
-/** The instance matrix of an area plane covering `width x length` tiles from tile (x, z). */
-function areaMatrix(x: number, z: number, width: number, length: number, into: THREE.Matrix4): THREE.Matrix4 {
-  return into.compose(new THREE.Vector3(x + width / 2, AREA_Y, z + length / 2), new THREE.Quaternion(), new THREE.Vector3(Math.max(width, 0), 1, Math.max(length, 0)));
+/** The instance matrix of an area plane at height `y` covering `width x length` tiles from tile (x, z). */
+function areaMatrix(x: number, y: number, z: number, width: number, length: number, into: THREE.Matrix4): THREE.Matrix4 {
+  return into.compose(new THREE.Vector3(x + width / 2, y, z + length / 2), new THREE.Quaternion(), new THREE.Vector3(Math.max(width, 0), 1, Math.max(length, 0)));
 }
 
 /** Builds the marker meshes of `events`; events outside the matrix get no marker. */
@@ -67,10 +71,12 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
     const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
     geometries.forEach((geometry, g) => {
       const mesh = new THREE.InstancedMesh(geometry, material, placed.length);
+      const base = g === 0 ? MARKER_Y : BEACON_HEIGHT / 2;
+      meshBase.set(mesh, base);
       mesh.renderOrder = 11;
       mesh.frustumCulled = false;
-      placed.forEach(({ at }, i) => {
-        m4.setPosition(at.wx, g === 0 ? MARKER_Y : BEACON_HEIGHT / 2, at.wz);
+      placed.forEach(({ data, at }, i) => {
+        m4.setPosition(at.wx, base + cellYAtTile(matrix, data.x, data.z), at.wz);
         mesh.setMatrixAt(i, m4);
       });
       group.add(mesh);
@@ -85,7 +91,7 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
       area = new THREE.InstancedMesh(plane, areaMaterial, areaData.length);
       area.renderOrder = 10.5;
       area.frustumCulled = false;
-      areaData.forEach((c, i) => area?.setMatrixAt(i, areaMatrix(c.x, c.z, c.width, c.length, m4)));
+      areaData.forEach((c, i) => area?.setMatrixAt(i, areaMatrix(c.x, AREA_Y + cellYAtTile(matrix, c.x, c.z), c.z, c.width, c.length, m4)));
       group.add(area);
     }
   }
@@ -148,19 +154,19 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
 function placeOutline(set: MarkerSet, x: number, z: number) {
   if (!set.outline || !set.selected) return;
   const height = set.selected.kind === "warp" ? BEACON_HEIGHT : 0.4;
-  set.outline.position.set(x + 0.5, set.selected.kind === "warp" ? height / 2 : MARKER_Y, z + 0.5);
+  set.outline.position.set(x + 0.5, (set.selected.kind === "warp" ? height / 2 : MARKER_Y) + cellYAtTile(set.matrix, x, z), z + 0.5);
 }
 
 /**
  * Shows event `ref` on tile (`x`, `z`) (absolute over the matrix), whatever its data says: a drag
- * in progress, or the committed position again. Its area plane and outline follow.
+ * in progress, or the committed position again. Its height follows the cell of that tile; its
+ * area plane and outline follow.
  */
 export function moveMarker(set: MarkerSet, ref: MarkerRef, tile: { x: number; z: number }) {
   const m4 = new THREE.Matrix4();
   for (const { mesh, i } of instancesOf(set, ref)) {
     mesh.getMatrixAt(i, m4);
-    const y = m4.elements[13];
-    m4.setPosition(tile.x + 0.5, y, tile.z + 0.5);
+    m4.setPosition(tile.x + 0.5, (meshBase.get(mesh) ?? MARKER_Y) + cellYAtTile(set.matrix, tile.x, tile.z), tile.z + 0.5);
     mesh.setMatrixAt(i, m4);
     mesh.instanceMatrix.needsUpdate = true;
     // Raycasts reject by the cached bounds of all instances, which must grow or shrink with the move.
@@ -170,7 +176,7 @@ export function moveMarker(set: MarkerSet, ref: MarkerRef, tile: { x: number; z:
     const i = set.areaData.findIndex((c) => c.index === ref.index);
     const c = set.areaData[i];
     if (c) {
-      set.area.setMatrixAt(i, areaMatrix(tile.x, tile.z, c.width, c.length, m4));
+      set.area.setMatrixAt(i, areaMatrix(tile.x, AREA_Y + cellYAtTile(set.matrix, tile.x, tile.z), tile.z, c.width, c.length, m4));
       set.area.instanceMatrix.needsUpdate = true;
     }
   }

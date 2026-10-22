@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, updateEvent } from "../../api";
 import type { EventsDto, MatrixDto } from "../../api";
 import type { EventRef } from "../events";
-import { moveMarker, pickMarker } from "../markers";
+import { MARKER_Y, moveMarker, pickMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { createEventDrag } from "./eventDrag";
 import { fakePicker, fakeRefs, settle, surfaceKit } from "./dragTestKit.testkit";
@@ -23,13 +23,13 @@ const set = {} as MarkerSet;
 const selected: EventRef = { file: 1, kind: "warp", index: 2 };
 const hitOn = (index: number) => ({ kind: "warp", data: { index, x: 10, z: 10 } }) as never;
 
-function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean } = {}) {
+function setup(options: { locked?: string | null; select?: EventRef | null; paintEnabled?: boolean; altitudes?: number[] } = {}) {
   const events = { event_file_id: 1, locked: options.locked ?? null } as EventsDto;
   const h = {
     selectedEvent: options.select === undefined ? selected : options.select,
     events,
     markers: set,
-    matrix,
+    matrix: options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix,
     scene: { add: vi.fn(), remove: vi.fn() },
     render: vi.fn(),
     refreshHover: vi.fn(),
@@ -38,9 +38,11 @@ function setup(options: { locked?: string | null; select?: EventRef | null; pain
   const { refs, callbacks } = fakeRefs({ paintEnabled: options.paintEnabled ?? true });
   const report = vi.fn();
   const kit = surfaceKit();
-  const drag = createEventDrag(h, fakePicker(), kit.surface, refs, report);
+  const picker = fakePicker();
+  const planePoint = vi.spyOn(picker, "planePoint");
+  const drag = createEventDrag(h, picker, kit.surface, refs, report);
   drag.attach();
-  return { h, callbacks, report, drag, ...kit };
+  return { h, callbacks, report, drag, planePoint, ...kit };
 }
 
 beforeEach(() => {
@@ -91,6 +93,16 @@ describe("createEventDrag", () => {
     // The events are read again and shown (the markers are rebuilt from what the backend holds).
     expect(getEvents).toHaveBeenCalledWith(1);
     expect(t.report).toHaveBeenCalledTimes(1);
+  });
+
+  it("drags on the plane of the height of the cell the marker stands in", () => {
+    // The marker is on tile (10, 10) of cell (0, 0); cell (0, 0) has altitude 4 (two tiles up).
+    const raised = setup({ altitudes: [4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    raised.press(100, 100);
+    expect(raised.planePoint.mock.calls[0][2].constant).toBeCloseTo(-(MARKER_Y + 2), 5);
+    const flat = setup();
+    flat.press(100, 100);
+    expect(flat.planePoint.mock.calls[0][2].constant).toBeCloseTo(-MARKER_Y, 5);
   });
 
   it("puts the marker back on Escape and writes nothing", () => {

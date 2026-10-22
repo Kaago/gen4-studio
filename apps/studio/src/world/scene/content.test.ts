@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { MAP_SIZE, MODEL_SCALE } from "../layout";
-import { addModel, buildContent, recolourMap, removeModels, setMarkers } from "./content";
+import { OVERLAY_Y, addModel, buildContent, recolourMap, removeModels, setMarkers } from "./content";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -41,6 +41,12 @@ describe("addModel", () => {
     expect(h.models[0].position.z).toBe(MAP_SIZE / 2);
   });
 
+  it("stands the model of a raised cell on the height of that cell", () => {
+    const h = handle();
+    addModel(h, { ...matrix, altitudes: [0, 4] }, 1, model());
+    expect(h.models.map((m) => m.position.y)).toEqual([0, 2]);
+  });
+
   it("disposes a model that no cell shows", () => {
     const h = handle();
     const m = model();
@@ -73,6 +79,19 @@ describe("buildContent / recolourMap", () => {
     expect(built.bases.get(1)).toEqual([0, MAP_SIZE * MAP_SIZE]);
     expect(built.content.children).toContain(built.overlay);
     expect(built.content.children).toContain(built.buildings.root);
+    built.buildings.dispose();
+  });
+
+  it("lifts the overlay tiles of a raised cell by the height of that cell", () => {
+    const loaded = new Map([[1, loadedMap(1)]]);
+    const built = buildContent({ ...matrix, altitudes: [0, 2] }, loaded, names);
+    const y = (i: number) => {
+      const m = new THREE.Matrix4();
+      built.tiles.getMatrixAt(i, m);
+      return new THREE.Vector3().setFromMatrixPosition(m).y;
+    };
+    expect(y(0)).toBeCloseTo(OVERLAY_Y, 5);
+    expect(y(MAP_SIZE * MAP_SIZE)).toBeCloseTo(OVERLAY_Y + 1, 5);
     built.buildings.dispose();
   });
 

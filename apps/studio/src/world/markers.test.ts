@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { EventsDto } from "../api";
-import { buildMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
+import { MARKER_Y, buildMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
 
 const matrix = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
 
@@ -54,6 +54,54 @@ describe("buildMarkers", () => {
     const set = buildMarkers(matrix, events());
     const warps = [...set.entries.values()].find((e) => e.kind === "warp");
     expect(warps?.data.map((d) => d.index)).toEqual([0]);
+  });
+});
+
+describe("altitude", () => {
+  // Cell (1, 0) has altitude 2 (one tile up), cell (0, 0) none.
+  const raised = { ...matrix, altitudes: [0, 2] };
+  const at = (set: ReturnType<typeof buildMarkers>, kind: string) => {
+    const [mesh] = [...set.entries.entries()].find(([, e]) => e.kind === kind) ?? [];
+    return mesh as THREE.InstancedMesh;
+  };
+
+  it("lifts a marker by the height of the cell of its tile", () => {
+    const set = buildMarkers(raised, { ...events(), objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, x: 40, z: 3, y: 0 }] });
+    expect(instancePosition(at(set, "object"), 0)).toEqual([40.5, MARKER_Y + 1, 3.5]);
+    // An event in the flat cell stays down.
+    expect(instancePosition(at(set, "bg"), 0)[1]).toBe(MARKER_Y);
+  });
+
+  it("lifts the beacon, the area plane and the outline too", () => {
+    const e = { ...events(), warps: [{ index: 0, x: 40, z: 3, dest_header_id: 1, dest_warp_id: 0, height: 0 }], coords: [{ index: 0, script: 9000, x: 40, z: 5, width: 4, length: 2 }] };
+    const set = buildMarkers(raised, e);
+    const warpMeshes = [...set.entries.entries()].filter(([, en]) => en.kind === "warp").map(([m]) => m);
+    expect(warpMeshes.map((m) => instancePosition(m, 0)[1])).toEqual([MARKER_Y + 1, 0.6 + 1]);
+    expect(instancePosition(set.area as THREE.InstancedMesh, 0)[1]).toBeCloseTo(0.08 + 1, 5);
+    selectMarker(set, { kind: "warp", index: 0 });
+    expect(set.outline?.position.y).toBe(0.6 + 1);
+  });
+
+  it("moves the marker to the height of the cell it is dragged into, and back", () => {
+    const set = buildMarkers(raised, events());
+    selectMarker(set, { kind: "object", index: 0 });
+    moveMarker(set, { kind: "object", index: 0 }, { x: 40, z: 3 });
+    expect(instancePosition(at(set, "object"), 0)).toEqual([40.5, MARKER_Y + 1, 3.5]);
+    expect(set.outline?.position.y).toBe(MARKER_Y + 1);
+    moveMarker(set, { kind: "object", index: 0 }, { x: 12, z: 13 });
+    expect(instancePosition(at(set, "object"), 0)).toEqual([12.5, MARKER_Y, 13.5]);
+    expect(set.outline?.position.y).toBe(MARKER_Y);
+  });
+
+  it("keeps the beacon and the area plane at their own height above the cell when moved", () => {
+    const set = buildMarkers(raised, events());
+    moveMarker(set, { kind: "warp", index: 0 }, { x: 40, z: 4 });
+    const warpMeshes = [...set.entries.entries()].filter(([, en]) => en.kind === "warp").map(([m]) => m);
+    expect(warpMeshes.map((m) => instancePosition(m, 0)[1])).toEqual([MARKER_Y + 1, 0.6 + 1]);
+    moveMarker(set, { kind: "coord", index: 0 }, { x: 40, z: 10 });
+    expect(instancePosition(set.area as THREE.InstancedMesh, 0)[1]).toBeCloseTo(0.08 + 1, 5);
+    moveMarker(set, { kind: "coord", index: 0 }, { x: 3, z: 5 });
+    expect(instancePosition(set.area as THREE.InstancedMesh, 0)[1]).toBeCloseTo(0.08, 5);
   });
 });
 

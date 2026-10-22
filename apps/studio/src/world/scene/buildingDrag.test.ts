@@ -12,26 +12,27 @@ const building: BuildingDto = { model_id: 1, x: 4, y: 0, z: 6, sx: 1, sy: 1, sz:
 const selected: BuildingRef = { map: 3, index: 0 };
 
 /** A scene whose building layer "hits" the given building under the pointer. */
-function scene(hit: { ref: BuildingRef } | null) {
+function scene(hit: { ref: BuildingRef } | null, cellHeight = 0) {
   const show = vi.fn();
   const h = {
     selection: selected,
     loaded: new Map([[3, { map: { index: 3, permissions: [], buildings: [building] } }]]),
-    buildings: { pick: () => (hit ? { ref: hit.ref, cell: { x: 0, z: 0 }, building } : null), show },
+    buildings: { pick: () => (hit ? { ref: hit.ref, cell: { x: 0, y: cellHeight, z: 0 }, building } : null), show },
     render: vi.fn(),
     refreshHover: vi.fn(),
   } as unknown as SceneHost;
   return { h, show };
 }
 
-function setup(hit: { ref: BuildingRef } | null, paintEnabled = true) {
-  const { h, show } = scene(hit);
+function setup(hit: { ref: BuildingRef } | null, paintEnabled = true, cellHeight = 0) {
+  const { h, show } = scene(hit, cellHeight);
   const { refs, callbacks } = fakeRefs({ paintEnabled });
   const picker = fakePicker();
+  const planePoint = vi.spyOn(picker, "planePoint");
   const kit = surfaceKit();
   const drag = createBuildingDrag(h, picker, kit.surface, refs);
   drag.attach();
-  return { h, show, callbacks, picker, drag, ...kit };
+  return { h, show, callbacks, picker, drag, planePoint, ...kit };
 }
 
 beforeEach(() => {
@@ -75,6 +76,16 @@ describe("createBuildingDrag", () => {
     expect(updateBuilding).toHaveBeenCalledTimes(1);
     await settle();
     expect(t.callbacks.onBuildingMoved).toHaveBeenCalledWith(3);
+  });
+
+  it("drags on the plane of its own cell's height", () => {
+    const raised = setup({ ref: selected }, true, 1.5);
+    raised.press(100, 100);
+    // The building itself stands at y 0 over a cell raised by 1.5.
+    expect(raised.planePoint.mock.calls[0][2].constant).toBeCloseTo(-1.5, 5);
+    const flat = setup({ ref: selected });
+    flat.press(100, 100);
+    expect(flat.planePoint.mock.calls[0][2].constant).toBeCloseTo(-0, 5);
   });
 
   it("puts the building back on Escape and writes nothing", () => {

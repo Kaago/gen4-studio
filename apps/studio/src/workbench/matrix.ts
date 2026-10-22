@@ -36,7 +36,13 @@ export function parseCellField(draft: string, max: number, allowEmpty: boolean):
   return Math.min(max, Math.max(0, Math.round(n)));
 }
 
-/** Whether two matrices place the same maps on the same grid (what the 3D scene shows). */
+/** Whether two matrices place the same maps at the same heights on the same grid (what the 3D scene shows; no altitude section is all zeros). */
 export function sameLayout(a: MatrixDto, b: MatrixDto): boolean {
-  return a.index === b.index && a.width === b.width && a.height === b.height && a.maps.length === b.maps.length && a.maps.every((m, i) => m === b.maps[i]);
+  return (
+    a.index === b.index &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.maps.length === b.maps.length &&
+    a.maps.every((m, i) => m === b.maps[i] && (a.altitudes?.[i] ?? 0) === (b.altitudes?.[i] ?? 0))
+  );
 }
