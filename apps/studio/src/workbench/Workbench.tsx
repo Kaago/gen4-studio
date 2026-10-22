@@ -3,21 +3,16 @@ import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
-import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldPanel } from "./panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldMapTab, WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
-
-/** Stands in for the world map until it exists. */
-function WorldMapPlaceholder() {
-  return <p style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>Weltkarte folgt</p>;
-}
 
 /** Must stay a module-level constant: dockview would remount every panel if this object changed. */
 const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   headers: HeadersPanel,
   world: WorldPanel,
   matrix: MatrixTab,
-  worldmap: WorldMapPlaceholder,
+  worldmap: WorldMapTab,
   inspector: InspectorPanel,
   status: StatusPanel,
 };

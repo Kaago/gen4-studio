@@ -1,0 +1,405 @@
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
+import type { Message } from "../Toolbar";
+import { thumbnails } from "../world/thumbnailStore";
+import type { ThumbnailCache } from "../world/thumbnails";
+import { AreaGrid, cellKey } from "./AreaGrid";
+import type { NavTarget } from "./navigation";
+import { buildPlaces, placeColor } from "./places";
+import type { PlaceHeader } from "./places";
+import { TERMS, id4 } from "./terms";
+import { useMatrix } from "./useMatrix";
+import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinks } from "./worldMap";
+import type { RoomLink } from "./worldMap";
+import { mapsText } from "./WorldExplorer";
+
+/** What the world map needs from App. */
+export interface WorldMapContext {
+  headers: HeaderSummary[];
+  matrices: MatrixSummary[];
+  warpLinks: WarpLink[];
+  matricesLoaded: boolean;
+  matricesFailed: boolean;
+  /** The selected header: its place is open in the list and its cell is marked. */
+  selected: number | null;
+  /** Tileset of cells without a header of their own. */
+  areaDataId: number;
+  /** Changes whenever matrix data may have changed behind the panel (edits, undo, redo, reload). */
+  revision: number;
+  goTo: (target: NavTarget) => void;
+  onError: (e: unknown) => void;
+  onLoadStatus: (message: Message | null) => void;
+  /** Default: the app-wide cache. */
+  cache?: ThumbnailCache;
+}
+
+const CELL_SIZE = 32;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 3;
+/** The status line "Kartenbilder n/m" shows only for a queue longer than this. */
+const PROGRESS_THRESHOLD = 50;
+const PROGRESS_INTERVAL_MS = 200;
+const GREY = "#6b7280";
+const LINE_COLOR = "#2563eb";
+
+interface View {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+interface Line {
+  header: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** The end points lie outside what is shown (scrolled or panned away). */
+  hidden: boolean;
+}
+
+/**
+ * Reports "Kartenbilder n/m" through `onLoadStatus` while more than 50 pictures of the shared cache are queued
+ * (m = the longest queue since the line appeared), and clears the line when the queue is empty and on unmount.
+ * Polls: the cache only announces finished pictures, and the first one may take a while.
+ */
+function useCacheProgress(cache: ThumbnailCache, onLoadStatus: (message: Message | null) => void) {
+  const report = useRef(onLoadStatus);
+  report.current = onLoadStatus;
+  useEffect(() => {
+    let peak = 0;
+    let shown: string | null = null;
+    const check = () => {
+      const pending = cache.pending();
+      if (shown === null && pending <= PROGRESS_THRESHOLD) return;
+      peak = Math.max(peak, pending);
+      if (pending === 0) {
+        report.current(null);
+        shown = null;
+        peak = 0;
+        return;
+      }
+      const text = `Kartenbilder ${peak - pending}/${peak}`;
+      if (text === shown) return;
+      shown = text;
+      report.current({ kind: "info", text });
+    };
+    const timer = setInterval(check, PROGRESS_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+      if (shown !== null) report.current(null);
+    };
+  }, [cache]);
+}
+
+const clampScale = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+
+const sameLines = (a: Line[], b: Line[]) =>
+  a.length === b.length && a.every((l, i) => l.header === b[i].header && l.hidden === b[i].hidden && l.x1 === b[i].x1 && l.y1 === b[i].y1 && l.x2 === b[i].x2 && l.y2 === b[i].y2);
+
+const card: CSSProperties = {
+  all: "unset",
+  boxSizing: "border-box",
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
+  padding: "4px 8px",
+  cursor: "pointer",
+  border: "1px solid #d1d5db",
+  borderRadius: 4,
+  background: "#fff",
+  fontSize: 12,
+};
+
+function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
+  const h = entry.header;
+  const grey = [id4(h.id), mapsText(entry)].filter((part) => part !== null).join(" · ");
+  const unplaced = link !== undefined && link.cell === null;
+  return (
+    <button
+      type="button"
+      data-room-id={h.id}
+      aria-current={selected ? "true" : undefined}
+      title={unplaced ? `Kein Eintrag in der Region: ${link.reason}` : undefined}
+      onClick={() => onOpen(h.id)}
+      style={{ ...card, fontWeight: selected ? 700 : 400, color: unplaced ? GREY : "#111827", background: unplaced ? "#f3f4f6" : "#fff", boxShadow: selected ? "inset 3px 0 0 #2563eb" : "none" }}
+    >
+      <span>{h.internal_name}</span>
+      <span style={{ color: GREY, fontWeight: 400 }}>{grey}</span>
+      {unplaced && <span style={{ color: GREY, fontWeight: 400 }}>{link.reason}</span>}
+    </button>
+  );
+}
+
+/**
+ * The world map: the region as a raster of map pictures (cells tinted by place, place names on top, wheel to zoom, drag to
+ * pan) next to the list of places with a card per room; dashed lines run from the cards of the open places to the cell
+ * of each room's entrance. Memoised: it renders when `context` changes (the owner keeps it, see `WorldMapTab`), never for
+ * a hover of the scene.
+ */
+export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context: WorldMapContext }) {
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails } = context;
+  useCacheProgress(cache, onLoadStatus);
+
+  // Without the overview every header would count as a room.
+  const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : [], matricesLoaded ? warpLinks : []), [headers, matrices, warpLinks, matricesLoaded]);
+  const regionIndex = useMemo(() => (matricesLoaded ? (regionMatrix(matrices)?.index ?? null) : null), [matrices, matricesLoaded]);
+  const region = useMatrix(regionIndex, revision, onError);
+  const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
+  const links = useMemo(() => {
+    const byPlace = new Map<string, RoomLink[]>();
+    if (region) for (const place of places) byPlace.set(place.key, roomLinks(place, headers, warpLinks, region));
+    return byPlace;
+  }, [region, places, headers, warpLinks]);
+
+  const colorByHeader = useMemo(() => new Map(places.flatMap((place) => place.headers.map(({ header }) => [header.id, placeColor(place.key)] as const))), [places]);
+  const colorOf = useCallback((header: number | null) => (header === null ? null : (colorByHeader.get(header) ?? null)), [colorByHeader]);
+  const marked = useMemo(() => {
+    const keys = new Set<string>();
+    if (region?.headers && selected !== null) {
+      region.headers.forEach((h, i) => {
+        if (h === selected && region.maps[i] !== null) keys.add(cellKey(i % region.width, Math.floor(i / region.width)));
+      });
+    }
+    return keys;
+  }, [region, selected]);
+  const onCellClick = useCallback(
+    (x: number, y: number) => {
+      if (!region?.headers) return;
+      const i = y * region.width + x;
+      if (region.maps[i] !== null) goTo({ kind: "header", id: region.headers[i] });
+    },
+    [region, goTo],
+  );
+  // Stable between pans and zooms: the grid is the expensive part, a view change must not render its cells again.
+  const grid = useMemo(
+    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} />,
+    [region, headers, areaDataId, marked, colorOf, onCellClick, cache],
+  );
+
+  const [view, setView] = useState<View>({ scale: 1, x: 12, y: 12 });
+  const viewport = useRef<HTMLDivElement>(null);
+  const gridBox = useRef<HTMLDivElement>(null);
+  const dragged = useRef(false);
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []);
+
+  // React registers wheel listeners as passive, which cannot keep the page from scrolling: a native one does.
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      // Zoom around the pointer: the point under it stays where it is.
+      setView((v) => {
+        const scale = clampScale(v.scale * factor);
+        const k = scale / v.scale;
+        return { scale, x: px - (px - v.x) * k, y: py - (py - v.y) * k };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    dragged.current = false;
+    const start = { px: e.clientX, py: e.clientY, x: view.x, y: view.y };
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - start.px;
+      const dy = ev.clientY - start.py;
+      if (!dragged.current && Math.hypot(dx, dy) < 4) return;
+      dragged.current = true;
+      setView((v) => ({ ...v, x: start.x + dx, y: start.y + dy }));
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      stopDrag.current = null;
+    };
+    stopDrag.current?.();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    stopDrag.current = end;
+  };
+  // The click that ends a drag must not open the cell under the pointer.
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (!dragged.current) return;
+    dragged.current = false;
+    e.stopPropagation();
+    e.preventDefault();
+  };
+
+  // The place of the selected header is open; the user opens and closes the others.
+  const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(new Set());
+  const selectedPlace = useMemo(() => (selected === null ? undefined : places.find((p) => p.headers.some((h) => h.header.id === selected))?.key), [places, selected]);
+  useEffect(() => {
+    if (selectedPlace !== undefined) setOpenKeys((prev) => (prev.has(selectedPlace) ? prev : new Set(prev).add(selectedPlace)));
+  }, [selectedPlace]);
+  const onToggle = (key: string, open: boolean) =>
+    setOpenKeys((prev) => {
+      if (prev.has(key) === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+
+  // Lines from the room cards of the open places to the cells of their entrances; positions are measured, not computed.
+  const rootBox = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [lines, setLines] = useState<Line[]>([]);
+  const measure = useCallback(() => {
+    const rootEl = rootBox.current;
+    const viewportEl = viewport.current;
+    const gridEl = gridBox.current;
+    const listEl = list.current;
+    if (!rootEl || !viewportEl || !gridEl || !listEl) {
+      setLines((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    const origin = rootEl.getBoundingClientRect();
+    const shown = viewportEl.getBoundingClientRect();
+    const listRect = listEl.getBoundingClientRect();
+    const gridRect = gridEl.getBoundingClientRect();
+    const next: Line[] = [];
+    for (const key of openKeys) {
+      for (const link of links.get(key) ?? []) {
+        if (link.cell === null) continue;
+        const cardEl = rootEl.querySelector(`[data-room-id="${link.header}"]`);
+        if (!cardEl) continue;
+        const rect = cardEl.getBoundingClientRect();
+        const l = lineBetween(rect, link.cell, CELL_SIZE, { x: gridRect.left, y: gridRect.top }, view.scale);
+        const hidden =
+          rect.height === 0 ||
+          rect.top < listRect.top ||
+          rect.bottom > listRect.bottom ||
+          l.x2 < shown.left ||
+          l.x2 > shown.right ||
+          l.y2 < shown.top ||
+          l.y2 > shown.bottom;
+        next.push({ header: link.header, x1: l.x1 - origin.left, y1: l.y1 - origin.top, x2: l.x2 - origin.left, y2: l.y2 - origin.top, hidden });
+      }
+    }
+    setLines((prev) => (sameLines(prev, next) ? prev : next));
+  }, [openKeys, links, view.scale]);
+  // After every render that may have moved a card or the grid: pan, zoom, selection, opened places, new data.
+  useLayoutEffect(measure);
+  const measureRef = useRef(measure);
+  measureRef.current = measure;
+  useEffect(() => {
+    const rootEl = rootBox.current;
+    const listEl = list.current;
+    if (!rootEl) return;
+    const again = () => measureRef.current();
+    listEl?.addEventListener("scroll", again);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(again);
+    observer?.observe(rootEl);
+    return () => {
+      listEl?.removeEventListener("scroll", again);
+      observer?.disconnect();
+    };
+  }, []);
+
+  const pitch = CELL_SIZE + GRID_GAP;
+  const openRoom = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
+
+  return (
+    <div ref={rootBox} style={{ position: "relative", display: "flex", height: "100%", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
+      <div
+        ref={viewport}
+        data-world-viewport=""
+        onPointerDown={onPointerDown}
+        onClickCapture={onClickCapture}
+        style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "none", cursor: "grab", background: "#f9fafb" }}
+      >
+        {region ? (
+          <div
+            ref={gridBox}
+            data-world-grid=""
+            style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+          >
+            {grid}
+            {cellsOfPlaces.map((place) => (
+              <span
+                key={place.key}
+                data-place-label={place.key}
+                style={{
+                  position: "absolute",
+                  left: place.center.x * pitch + CELL_SIZE / 2,
+                  top: place.center.y * pitch + CELL_SIZE / 2,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  // Counter-scaled: the text keeps its size on screen while the map zooms.
+                  fontSize: 12 / view.scale,
+                  fontWeight: 700,
+                  padding: `0 ${4 / view.scale}px`,
+                  borderRadius: 3 / view.scale,
+                  background: "rgba(255,255,255,0.8)",
+                }}
+              >
+                {place.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p style={{ margin: 0, padding: 16 }}>{regionIndex === null ? noRegion : "Lade Region …"}</p>
+        )}
+      </div>
+      <div ref={list} style={{ width: 300, flex: "none", overflowY: "auto", boxSizing: "border-box", padding: "8px 12px", borderLeft: "1px solid #e5e7eb" }}>
+        {places.map((place) => (
+          <details key={place.key} data-place-key={place.key} open={openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
+            <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 6, background: placeColor(place.key) }} />
+              {place.name}
+            </summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px 0 8px 16px" }}>
+              {place.headers.map((entry) =>
+                entry.kind === "inside" ? (
+                  <RoomCard key={entry.header.id} entry={entry} link={links.get(place.key)?.find((l) => l.header === entry.header.id)} selected={entry.header.id === selected} onOpen={openRoom} />
+                ) : (
+                  <button
+                    key={entry.header.id}
+                    type="button"
+                    data-header-id={entry.header.id}
+                    aria-current={entry.header.id === selected ? "true" : undefined}
+                    title={TERMS.outside.short}
+                    onClick={() => openRoom(entry.header.id)}
+                    style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: entry.header.id === selected ? 700 : 400 }}
+                  >
+                    {TERMS.outside.label} · {id4(entry.header.id)}
+                  </button>
+                ),
+              )}
+            </div>
+          </details>
+        ))}
+      </div>
+      <svg aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+        {lines.map((l) => (
+          <line
+            key={l.header}
+            data-room-id={l.header}
+            x1={l.x1}
+            y1={l.y1}
+            x2={l.x2}
+            y2={l.y2}
+            stroke={LINE_COLOR}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            visibility={l.hidden ? "hidden" : "visible"}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+});

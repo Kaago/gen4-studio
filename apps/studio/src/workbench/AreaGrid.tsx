@@ -6,6 +6,7 @@ import { thumbnailArea } from "../world/thumbnails";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
 import { id4 } from "./terms";
+import { GRID_GAP } from "./worldMap";
 
 export const cellKey = (x: number, y: number) => `${x},${y}`;
 
@@ -170,7 +171,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
     <div
       role="group"
       aria-label={`Matrix ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
-      style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: 2, width: "max-content" }}
+      style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP, width: "max-content" }}
     >
       {cells}
     </div>

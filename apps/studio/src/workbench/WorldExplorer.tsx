@@ -50,7 +50,7 @@ const ellipsis: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", text
 const GREY = "#6b7280";
 
 /** "1 Karte", "4 Karten (2 × 2)"; null when the overview does not know the room's matrix. */
-function mapsText({ mapCount, size }: PlaceHeader): string | null {
+export function mapsText({ mapCount, size }: PlaceHeader): string | null {
   if (mapCount === 0) return null;
   const maps = `${mapCount} ${mapCount === 1 ? TERMS.map.label : TERMS.map.plural}`;
   return size ? `${maps} (${size})` : maps;

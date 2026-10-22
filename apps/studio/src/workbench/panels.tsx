@@ -10,6 +10,8 @@ import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { useThumbnailReset } from "./useThumbnailReset";
 import { WorldExplorer } from "./WorldExplorer";
+import { WorldMapPanel } from "./WorldMapPanel";
+import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
 
 const toggleStyle: React.CSSProperties = {
@@ -134,6 +136,19 @@ export function MatrixTab() {
     [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, goTo, onMatrixEdited, onCountsChanged, onError],
   );
   return <MatrixPanel context={context} />;
+}
+
+export function WorldMapTab() {
+  const d = useWorkbench();
+  // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
+  const matrixRevision = useBusRevision(d.bus, "matrixData");
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus } = d;
+  // Memoised with the memoised panel: it renders again only when one of these changes.
+  const context = useMemo<WorldMapContext>(
+    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus }),
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus],
+  );
+  return <WorldMapPanel context={context} />;
 }
 
 export function InspectorPanel() {
