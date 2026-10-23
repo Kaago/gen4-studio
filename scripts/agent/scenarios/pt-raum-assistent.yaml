@@ -44,7 +44,9 @@ play:
   - wait 150
   - shot draussen
   - where
-  - walk up 1
+  # Arriving on the door the player steps east off it; pushing west into the door warps (a door is
+  # walked into, not onto: `walk` would report the warp's first frame as an unexpected position).
+  - press left:30
   - expect-map "${NEUER_HEADER}"
   - wait 150
   - shot wieder-drin

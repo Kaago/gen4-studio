@@ -76,6 +76,7 @@ uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
 
 - `pt-treppe-warp.yaml`: Treppe des Spielerzimmers auf ein anderes Haus umbiegen, hin und durch die Tür wieder hinaus. Erwartete Header-Folge 415, 412, 411.
 - `pt-neuer-header.yaml`: Patch anwenden, Gebiet mit **neuem** Header anlegen, die Treppe dorthin umbiegen, hin und zurück (`NEUER_HEADER` ist die Zahl der Header vorher, 593 bei Platin DE; `NEUE_EVENTDATEI` 534).
+- `pt-raum-assistent.yaml`: Raum-Assistent als ein Aufruf (neuer Header als Kopie des Spielerzimmers, Eventdatei „Kopie von 0394“, Tür außen auf einer freien Kachel von Zweiblattdorf, Tür-Kacheln an), hinein, über die kopierte Treppe hinaus nach 0411 und durch die neue Tür wieder hinein. Erwartete Header-Folge 415, 593, 411, 593 (`--set NEUER_HEADER=593 --set TUER_X=105 --set TUER_Y=876`).
 - Die Kopie muss direkt unter `_testkopien` liegen. Das Szenario baut `out.nds` in die Kopie und braucht dafür `cargo`; es arbeitet auf dem Spielstand aus `games.yaml`.
 
 ## Hinweise aus dem Handdurchlauf
