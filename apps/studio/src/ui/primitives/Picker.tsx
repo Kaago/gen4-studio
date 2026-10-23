@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icon";
+import { Kbd } from "./Kbd";
 import { areaIcon } from "./Reference";
 import { Segmented } from "./Segmented";
 import { filterItems } from "./pickerFilter";
@@ -28,6 +29,19 @@ export type PickerProps = {
   footer?: ReactNode;
   /** Shown instead of the list when nothing matches. */
   emptyText?: string;
+  /**
+   * `dialog` (default) is the centred picker. `palette` is the command palette: anchored near the top, 640 wide, title for
+   * screen readers only, no close button, the typed text marked in each row, a footer with the key hints and the hit
+   * count; `onPick` is then called on the tick after the close request, so the focus return of the dialog cannot run
+   * into whatever the pick opens.
+   */
+  variant?: "dialog" | "palette";
+  /** At most this many rows per group, cut after filtering; the hit count in the palette footer is taken before the cut. */
+  limitPerGroup?: number;
+  /** Groups in this order first; groups not named follow in order of first appearance. */
+  groupOrder?: readonly string[];
+  /** With an empty search only these groups are listed (e.g. the commands); typing searches all groups. */
+  emptyQueryGroups?: readonly string[];
 };
 
 type Group = { value: string; items: PickerItem[] };
@@ -44,27 +58,93 @@ function groupItems(items: readonly PickerItem[]): Group[] {
   return [...groups].map(([value, list]) => ({ value, items: list }));
 }
 
-function PickerRow({ item }: { item: PickerItem }) {
+/** Groups named in `order` first, in that order; the others after them, order kept. */
+function orderGroups(groups: Group[], order: readonly string[]): Group[] {
+  const rank = (g: Group) => {
+    const at = order.indexOf(g.value);
+    return at === -1 ? order.length : at;
+  };
+  // Array.prototype.sort is stable: groups with the same rank keep their order of first appearance.
+  return [...groups].sort((a, b) => rank(a) - rank(b));
+}
+
+/** `text` with the first occurrence of `query` (ignoring case) wrapped in `<mark>`. */
+function highlight(text: string, query: string): ReactNode {
+  const q = query.trim().toLowerCase();
+  if (q === "") return text;
+  const lower = text.toLowerCase();
+  const at = lower.length === text.length ? lower.indexOf(q) : -1;
+  if (at === -1) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className={styles.mark}>{text.slice(at, at + q.length)}</mark>
+      {text.slice(at + q.length)}
+    </>
+  );
+}
+
+function PickerRow({ item, query }: { item: PickerItem; query: string | null }) {
+  const icon = item.icon ?? (item.area ? areaIcon[item.area] : undefined);
+  const mark = (text: string) => (query === null ? text : highlight(text, query));
   return (
     <Combobox.Item value={item} className={styles.row}>
       {item.preview && <span className={styles.preview}>{item.preview}</span>}
-      <span className={`${styles.area} ${styles[item.area]}`}>
-        <Icon name={areaIcon[item.area]} />
-      </span>
-      <span className={styles.label}>{item.label}</span>
+      {icon && (
+        <span className={item.area ? `${styles.area} ${styles[item.area]}` : styles.area}>
+          <Icon name={icon} />
+        </span>
+      )}
+      {item.description ? (
+        <span className={styles.text}>
+          <span className={styles.label}>{mark(item.label)}</span>
+          <span className={styles.description}>{mark(item.description)}</span>
+        </span>
+      ) : (
+        <span className={styles.label}>{mark(item.label)}</span>
+      )}
       {item.tech && <span className={styles.tech}>{item.tech}</span>}
       {item.count && <span className={styles.count}>{item.count}</span>}
+      {item.shortcut && (
+        <span className={styles.shortcut}>
+          <Kbd keys={item.shortcut} />
+        </span>
+      )}
     </Combobox.Item>
   );
 }
 
 /** Mounted only while the dialog is open, so the query and the highlight start fresh every time. */
-function PickerBody({ onOpenChange, items, onPick, filters, filter, onFilter, placeholder, footer, emptyText }: Omit<PickerProps, "open" | "title">) {
+function PickerBody({
+  onOpenChange,
+  items,
+  onPick,
+  filters,
+  filter,
+  onFilter,
+  placeholder,
+  footer,
+  emptyText,
+  variant = "dialog",
+  limitPerGroup,
+  groupOrder,
+  emptyQueryGroups,
+}: Omit<PickerProps, "open" | "title">) {
+  const palette = variant === "palette";
   const [query, setQuery] = useState("");
-  const groups = useMemo(() => groupItems(filterItems(items, query)), [items, query]);
+  const { groups, total } = useMemo(() => {
+    let found = filterItems(items, query);
+    if (emptyQueryGroups && query.trim() === "") found = found.filter((item) => emptyQueryGroups.includes(item.group ?? ""));
+    let shown = groupItems(found);
+    if (groupOrder) shown = orderGroups(shown, groupOrder);
+    // The count is taken before the cut: "12 Treffer" even when only two per group are listed.
+    if (limitPerGroup !== undefined) shown = shown.map((g) => ({ ...g, items: g.items.slice(0, limitPerGroup) }));
+    return { groups: shown, total: found.length };
+  }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup]);
   const grouped = groups.some((g) => g.value !== "");
+  const rowQuery = palette ? query : null;
   return (
-    <div className={styles.picker}>
+    <div className={palette ? `${styles.picker} ${styles.paletteBody}` : styles.picker}>
       <Combobox.Root<PickerItem>
         inline
         open
@@ -79,6 +159,11 @@ function PickerBody({ onOpenChange, items, onPick, filters, filter, onFilter, pl
         }}
         onValueChange={(item) => {
           if (!item) return;
+          if (palette) {
+            onOpenChange(false);
+            setTimeout(() => onPick(item), 0);
+            return;
+          }
           onPick(item);
           onOpenChange(false);
         }}
@@ -100,14 +185,21 @@ function PickerBody({ onOpenChange, items, onPick, filters, filter, onFilter, pl
             ? (group: Group) => (
                 <Combobox.Group key={group.value} items={group.items} className={styles.group}>
                   {group.value !== "" && <Combobox.GroupLabel className={styles.groupLabel}>{group.value}</Combobox.GroupLabel>}
-                  <Combobox.Collection>{(item: PickerItem) => <PickerRow key={item.id} item={item} />}</Combobox.Collection>
+                  <Combobox.Collection>{(item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}</Combobox.Collection>
                 </Combobox.Group>
               )
-            : (item: PickerItem) => <PickerRow key={item.id} item={item} />}
+            : (item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}
         </Combobox.List>
         <Combobox.Empty className={styles.empty}>{emptyText ?? "Nichts gefunden. Ändere die Suche oder den Filter."}</Combobox.Empty>
       </Combobox.Root>
-      {footer && <div className={styles.footer}>{footer}</div>}
+      {palette && (
+        <div className={`${styles.footer} ${styles.paletteFooter}`}>
+          <span>↑↓ wählen, ↵ ausführen</span>
+          <span>{total} Treffer</span>
+          {footer}
+        </div>
+      )}
+      {!palette && footer && <div className={styles.footer}>{footer}</div>}
     </div>
   );
 }
@@ -118,7 +210,7 @@ function PickerBody({ onOpenChange, items, onPick, filters, filter, onFilter, pl
  */
 export function Picker({ open, onOpenChange, title, ...body }: PickerProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={title}>
+    <Dialog open={open} onOpenChange={onOpenChange} title={title} variant={body.variant}>
       <PickerBody onOpenChange={onOpenChange} {...body} />
     </Dialog>
   );

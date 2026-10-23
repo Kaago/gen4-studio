@@ -17,10 +17,16 @@ export type DialogProps = {
   /** Buttons at the foot, in order; the last one is the one the eye expects to be primary. */
   actions?: readonly DialogAction[];
   children?: ReactNode;
+  /**
+   * `palette` anchors the dialog near the top, widens it, keeps the title for screen readers only and drops the close
+   * button (Escape closes). Default `dialog`.
+   */
+  variant?: "dialog" | "palette";
 };
 
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
-export function Dialog({ open, onOpenChange, title, description, actions, children }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog" }: DialogProps) {
+  const palette = variant === "palette";
   return (
     <BaseDialog.Root
       open={open}
@@ -35,8 +41,8 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
     >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className={styles.backdrop} />
-        <BaseDialog.Popup className={styles.popup} aria-modal="true">
-          <BaseDialog.Title className={styles.title}>{title}</BaseDialog.Title>
+        <BaseDialog.Popup className={palette ? `${styles.popup} ${styles.palette}` : styles.popup} aria-modal="true">
+          <BaseDialog.Title className={palette ? styles.titleHidden : styles.title}>{title}</BaseDialog.Title>
           {description && <BaseDialog.Description className={styles.description}>{description}</BaseDialog.Description>}
           {children && <div className={styles.body}>{children}</div>}
           {actions && actions.length > 0 && (
@@ -49,9 +55,11 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
             </div>
           )}
           {/* After the content in the DOM so the first Tab stop is content, not the cross; placed top right by CSS. */}
-          <BaseDialog.Close className={styles.close} aria-label="Schließen">
-            <Icon name="close" />
-          </BaseDialog.Close>
+          {!palette && (
+            <BaseDialog.Close className={styles.close} aria-label="Schließen">
+              <Icon name="close" />
+            </BaseDialog.Close>
+          )}
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>

@@ -22,6 +22,21 @@ const texts: PickerItem[] = [
   { id: 427, label: "Route 201", tech: "Textarchiv 0427", area: "texte" },
 ];
 
+const commands: PickerItem[] = [
+  { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open", shortcut: "⌘O" },
+  { id: "cmd-save", label: "Speichern", group: "Befehle", icon: "save", shortcut: "⌘S", description: "Schreibt alle Änderungen ins Projekt" },
+  { id: "cmd-build", label: "Bauen", group: "Befehle", icon: "build", shortcut: "⌘B" },
+  { id: "cmd-play", label: "Hier spielen", group: "Befehle", icon: "play", shortcut: "⌘R" },
+  { id: "cmd-theme", label: "Thema wechseln", group: "Befehle", icon: "moon" },
+  { id: "cmd-density", label: "Dichte wechseln", group: "Befehle", icon: "settings" },
+];
+
+const paletteItems: PickerItem[] = [
+  ...commands,
+  ...places.map((p) => ({ ...p, preview: undefined, count: undefined })),
+  ...texts.map((t) => ({ ...t, id: `text-${t.id}`, group: "Textarchive" })),
+];
+
 const kinds = [
   { value: "alle", label: "Alle" },
   { value: "Städte", label: "Städte" },
@@ -29,7 +44,7 @@ const kinds = [
 ];
 
 export function PickerPage() {
-  const [which, setWhich] = useState<"closed" | "places" | "texts" | "empty">("closed");
+  const [which, setWhich] = useState<"closed" | "places" | "texts" | "empty" | "palette">("closed");
   const [filter, setFilter] = useState("alle");
   const [picked, setPicked] = useState<PickerItem | null>(null);
   const shown = useMemo(() => (filter === "alle" ? places : places.filter((p) => p.group === filter)), [filter]);
@@ -41,16 +56,22 @@ export function PickerPage() {
         <h2 className={styles.blockTitle}>Picker</h2>
         <p className={styles.note}>
           Tippen filtert sofort über Name und Kennung, eine Zahl findet auch „0411“ als 411. Der erste Treffer ist markiert, Pfeiltasten bewegen, Enter wählt,
-          Escape schließt ohne zu wählen.
+          Escape schließt ohne zu wählen. Die Befehlspalette ist die Variante „palette“: oben verankert, höchstens drei Treffer je Gruppe, ohne Eingabe nur
+          Befehle, der Suchtext ist im Treffer markiert.
         </p>
         <div className={styles.row}>
           <Button kind="secondary" onClick={() => setWhich("places")}>Header wählen …</Button>
           <Button kind="secondary" onClick={() => setWhich("texts")}>Textarchiv wählen …</Button>
           <Button kind="secondary" onClick={() => setWhich("empty")}>Leere Liste …</Button>
+          <Button kind="secondary" shortcut="⌘K" onClick={() => setWhich("palette")}>Befehlspalette</Button>
         </div>
         <div className={styles.row}>
           <span className={styles.note}>Gewählt:</span>
-          {picked ? <Reference area={picked.area} label={picked.label} tech={picked.tech} onOpen={() => {}} /> : <span className={styles.note}>Noch nichts.</span>}
+          {picked?.area ? (
+            <Reference area={picked.area} label={picked.label} tech={picked.tech} onOpen={() => {}} />
+          ) : (
+            <span className={styles.note}>{picked ? picked.label : "Noch nichts."}</span>
+          )}
         </div>
       </section>
 
@@ -65,6 +86,18 @@ export function PickerPage() {
         onPick={setPicked}
         placeholder="Name oder Kennung …"
         footer="Vorschauen sind Platzhalter; in der App kommen sie aus dem geöffneten Projekt."
+      />
+      <Picker
+        open={which === "palette"}
+        onOpenChange={close}
+        title="Befehlspalette"
+        variant="palette"
+        items={paletteItems}
+        limitPerGroup={3}
+        groupOrder={["Befehle", "Städte", "Routen", "Höhlen und Wälder", "Textarchive"]}
+        emptyQueryGroups={["Befehle"]}
+        onPick={setPicked}
+        placeholder="Suchen oder Befehl eingeben …"
       />
       <Picker open={which === "texts"} onOpenChange={close} title="Textarchiv wählen" items={texts} onPick={setPicked} />
       <Picker
