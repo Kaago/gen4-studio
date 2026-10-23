@@ -41,10 +41,28 @@ describe("Badge", () => {
       error: "Fehler",
       live: "Live",
       info: "Info",
+      success: "Erledigt",
+      warning: "Warnung",
+      code: "Code",
+      neutral: "Hinweis",
     } as const;
     for (const [kind, text] of Object.entries(expected)) {
       act(() => root.render(<Badge kind={kind as keyof typeof expected} />));
       expect(container.textContent).toBe(text);
+    }
+  });
+
+  it("renders_the_code_kind_as_plain_text_with_a_title_and_without_a_symbol", () => {
+    act(() => root.render(<Badge kind="code" title={"\\x0123"}>{"{COLOR, 0, 5}"}</Badge>));
+    expect(container.textContent).toBe("{COLOR, 0, 5}");
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("\\x0123");
+  });
+
+  it("shows_a_symbol_for_success_and_warning", () => {
+    for (const kind of ["success", "warning"] as const) {
+      act(() => root.render(<Badge kind={kind} />));
+      expect(container.querySelector("svg")).not.toBeNull();
     }
   });
 });

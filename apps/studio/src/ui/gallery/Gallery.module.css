@@ -151,6 +151,14 @@
   background: var(--g4-flaeche-welt);
 }
 
+/* Stands in for a map picture behind the DS screen. */
+.mapStub {
+  width: 100%;
+  height: 100%;
+  background: var(--g4-flaeche-welt);
+  opacity: 0.4;
+}
+
 .dialogRow {
   display: flex;
   align-items: flex-end;

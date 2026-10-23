@@ -1,0 +1,89 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  align-items: stretch;
+  gap: var(--g4-raum-2);
+  padding: 0 var(--g4-raum-4);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  background: var(--g4-flaeche-deck);
+  overflow-x: auto;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-2);
+  padding-right: var(--g4-raum-4);
+  border-radius: var(--g4-radius-taste) var(--g4-radius-taste) 0 0;
+  color: var(--g4-text-sekundaer);
+  /* The active tab sits on the line below: its bottom edge covers the border of the list. */
+  margin-bottom: calc(-1 * var(--g4-strich-standard));
+  border-bottom: var(--g4-strich-standard) solid transparent;
+}
+
+.item[data-active] {
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  border-bottom-color: var(--g4-akzent-grund);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  min-height: max(24px, var(--g4-dichte-steuer));
+  padding: 0 var(--g4-raum-4) 0 var(--g4-dichte-zeile-innen);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: var(--g4-font-text-s-betont);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.item:hover:not([data-active]) {
+  background: var(--g4-flaeche-taste);
+  color: var(--g4-text-primaer);
+}
+
+.count {
+  padding: 0 var(--g4-raum-6);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.item[data-active] .count {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+/* Same footprint as the close button so the tab does not change width. */
+.dot {
+  display: inline-flex;
+  width: var(--g4-dichte-steuer);
+  height: var(--g4-dichte-steuer);
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.dot::before {
+  content: "";
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+.panel {
+  min-height: 0;
+  flex: 1;
+}

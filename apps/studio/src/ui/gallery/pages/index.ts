@@ -5,6 +5,7 @@ import { ContentPage } from "./ContentPage";
 import { InputsPage } from "./InputsPage";
 import { OverlayPage } from "./OverlayPage";
 import { PickerPage } from "./PickerPage";
+import { ScreenPage } from "./ScreenPage";
 
 export type GalleryPage = { id: string; title: string; element: ReactNode };
 
@@ -15,4 +16,5 @@ export const pages: GalleryPage[] = [
   { id: "content", title: "Inhalt und Status", element: createElement(ContentPage) },
   { id: "overlay", title: "Schwebendes", element: createElement(OverlayPage) },
   { id: "picker", title: "Auswahl", element: createElement(PickerPage) },
+  { id: "screen", title: "Bildschirm", element: createElement(ScreenPage) },
 ];
