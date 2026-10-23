@@ -38,8 +38,8 @@ describe("BuildingEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(ctx = context()) {
-    await act(async () => root.render(<BuildingEditor map={12} index={2} context={ctx} />));
+  async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
+    await act(async () => root.render(<BuildingEditor map={12} index={2} context={ctx} depth={depth} />));
     await flush();
   }
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -109,5 +109,18 @@ describe("BuildingEditor", () => {
     vi.mocked(getBuildingGlb).mockRejectedValue(new Error("apicula fehlt"));
     await show();
     expect(container.textContent).toContain("Modell nicht geladen, die 3D-Ansicht zeigt eine Box");
+  });
+
+  it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {
+    const technical = () => [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Technisch");
+    const hexSwitch = () => [...container.querySelectorAll("button")].some((b) => b.textContent === "Hex");
+    await show(context(), "bauen");
+    expect(technical()).toBeUndefined();
+    expect(hexSwitch()).toBe(false);
+    await show(context(), "tuefteln");
+    expect(technical()?.getAttribute("aria-expanded")).toBe("false");
+    expect(hexSwitch()).toBe(true);
+    await act(async () => void technical()?.click());
+    expect(container.textContent).toContain("Karte 0012, Gebäude 2");
   });
 });

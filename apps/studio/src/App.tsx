@@ -308,7 +308,7 @@ function AppBody() {
     text: { target: textTarget },
     scripts: scripts.api,
     problems,
-    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, tool: shell.tool, onTool, onTileClick },
+    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
   });
 
   // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.

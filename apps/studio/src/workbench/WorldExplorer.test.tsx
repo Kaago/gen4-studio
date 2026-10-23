@@ -78,6 +78,8 @@ describe("WorldExplorer", () => {
     selected: null,
     shownMatrix: null,
     revealToken: 0,
+    // The existing assertions read the rows with their identifiers: Tüfteln.
+    depth: "tuefteln",
     onSelect: () => {},
     onOpenWizard: () => {},
     scriptsAdopted: true,
@@ -151,6 +153,22 @@ describe("WorldExplorer", () => {
     expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
     expect(row(2)?.textContent).toBe("T01R01020002 · 4 Karten (2 × 2)");
     expect(row(4)?.textContent).toBe("D010004 · 1 Karte");
+  });
+
+  it("leaves_the_id_and_the_code_to_the_tooltip_in_bauen_and_keeps_the_rooms_maps", () => {
+    render(props({ selected: 1, depth: "bauen" }));
+    toggle(places()[2]);
+    expect(row(0)?.textContent).toBe("Zweiblattdorf");
+    expect(row(1)?.textContent).toBe("T01R01011 Karte");
+    expect(row(4)?.textContent).toBe("D011 Karte");
+    expect(row(0)?.getAttribute("title")).toContain("Header 0000 T01");
+  });
+
+  it("shows_the_id_and_the_code_in_every_row_when_the_depth_switches_to_tuefteln", () => {
+    render(props({ selected: 1, depth: "bauen" }));
+    expect(row(0)?.textContent).not.toContain("0000");
+    render(props({ selected: 1, depth: "tuefteln" }));
+    expect(row(0)?.textContent).toBe("Zweiblattdorf0000 · T01");
   });
 
   it("shows 'Lade Übersicht …' and no room details until the overview is loaded", () => {

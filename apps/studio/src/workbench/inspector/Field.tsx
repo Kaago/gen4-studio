@@ -23,6 +23,8 @@ export interface FieldProps {
   open?: { run: () => void; disabled?: boolean };
   /** More controls after the field (the buttons next to a script number). */
   extra?: ReactNode;
+  /** A number field shows the Dez | Hex switch (the depth Tüfteln). */
+  showBase?: boolean;
 }
 
 const NO_HEADERS: readonly HeaderSummary[] = [];
@@ -33,7 +35,7 @@ const NO_HEADERS: readonly HeaderSummary[] = [];
  * commit on the change. A `pick` field is a reference to the record the number names plus "Ändern…", which opens a picker
  * over 0 to `max`; while `max` is unknown it is a plain number field.
  */
-export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADERS, goTo, open, extra }: FieldProps) {
+export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADERS, goTo, open, extra, showBase }: FieldProps) {
   const [picking, setPicking] = useState(false);
   const items = useMemo(() => (picking && max !== undefined ? pickerItems(spec, max, headers) : []), [picking, spec, max, headers]);
 
@@ -90,7 +92,7 @@ export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADE
     <InspectorRow label={spec.label}>
       <div className={styles.inline}>
         <div className={styles.grow}>
-          <NumberField label={spec.label} value={value} bits={fieldBits(spec)} max={spec.kind === "pick" ? max : undefined} onCommit={(n) => onCommit(spec, n)} disabled={disabled} />
+          <NumberField label={spec.label} value={value} bits={fieldBits(spec)} max={spec.kind === "pick" ? max : undefined} onCommit={(n) => onCommit(spec, n)} disabled={disabled} showBase={showBase} />
         </div>
         {extra}
       </div>

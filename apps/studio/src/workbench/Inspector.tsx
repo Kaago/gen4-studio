@@ -1,4 +1,5 @@
 import type { BgDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { EmptyState } from "../ui/primitives";
 import { eventDetails, eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
@@ -60,6 +61,7 @@ export function Inspector({
   areaEditor,
   buildingEditor,
   eventEditor,
+  depth,
 }: {
   model: InspectorModel;
   headerEditor: HeaderEditorContext;
@@ -67,18 +69,20 @@ export function Inspector({
   areaEditor: AreaEditorContext;
   buildingEditor: BuildingEditorContext;
   eventEditor: EventEditorContext;
+  /** Bauen, or Tüfteln: the section "Technisch" and the Dez | Hex switch of the number fields. */
+  depth: Depth;
 }) {
   switch (model.kind) {
     case "header":
-      return <HeaderEditor key={model.id} id={model.id} context={headerEditor} />;
+      return <HeaderEditor key={model.id} id={model.id} context={headerEditor} depth={depth} />;
     case "area":
-      return <AreaEditor key={model.id} id={model.id} context={areaEditor} />;
+      return <AreaEditor key={model.id} id={model.id} context={areaEditor} depth={depth} />;
     case "building":
-      return <BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} />;
+      return <BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} depth={depth} />;
     case "event":
-      return <EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} />;
+      return <EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} depth={depth} />;
     case "matrixCell":
-      return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} />;
+      return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} depth={depth} />;
     case "none":
       return (
         <div className={styles.panel}>

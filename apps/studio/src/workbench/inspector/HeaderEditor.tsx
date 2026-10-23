@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import { Button, Section } from "../../ui/primitives";
+import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
@@ -17,6 +18,7 @@ import type { HeaderSectionId } from "./headerSections";
 import { InspectorHead } from "./InspectorHead";
 import { LevelScriptSection } from "./LevelScriptSection";
 import { ADOPT_HINT } from "./scriptNav";
+import { TechnicalSection } from "./TechnicalSection";
 
 /** What the header editor needs from App besides the header id. */
 export interface HeaderEditorContext {
@@ -58,7 +60,7 @@ const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id
  * Editable form of one map header; every committed field is one undoable change. Render it with
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
-export function HeaderEditor({ id, context }: { id: number; context: HeaderEditorContext }) {
+export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
   const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
@@ -125,6 +127,7 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
         value={value}
         max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined}
         onCommit={commit}
+        showBase={depth === "tuefteln"}
         headers={headers}
         goTo={goTo}
         open={script === undefined ? undefined : { run: () => onOpenScript(value), disabled: !scriptsAdopted || (script === "levelScript" && value === 0) }}
@@ -184,6 +187,7 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
             onError={onError}
           />
         )}
+        {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
         <p className={styles.note}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
       </div>
     </div>

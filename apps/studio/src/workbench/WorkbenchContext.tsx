@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
-import type { Tool } from "../ui/frame/shellState";
+import type { Depth, Tool } from "../ui/frame/shellState";
 import type { MapBuildings, TileClick } from "../world/scene/types";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
@@ -51,6 +51,8 @@ export interface WorkbenchData {
   onShowEvents: (show: boolean) => void;
   /** Edits in the scene (painting, adding, dragging) are allowed; false while a build runs. */
   paintEnabled: boolean;
+  /** The depth of the whole app: Tüfteln adds the technical section, the Dez | Hex switches and the identifiers in the explorer. It changes rarely. */
+  depth: Depth;
   /** The active tool of the palette. */
   tool: Tool;
   /** Switches the tool; switching to painting also shows the terrain layer. */

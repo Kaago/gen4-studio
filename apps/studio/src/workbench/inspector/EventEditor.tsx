@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
@@ -16,6 +17,7 @@ import { HeaderPicker } from "./HeaderPicker";
 import { InspectorHead } from "./InspectorHead";
 import { referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
+import { TechnicalSection } from "./TechnicalSection";
 
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
@@ -53,7 +55,7 @@ const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", 
  * reads and writes of an instance belong to that one event (see `EditSession`). A locked event file is shown with
  * its reason and cannot be changed.
  */
-export function EventEditor({ file, kind, index, context }: { file: number; kind: EventKind; index: number; context: EventEditorContext }) {
+export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
   const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -139,7 +141,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
                 ) : (
                   <div className={styles.inline}>
                     <div className={styles.grow}>
-                      <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} />
+                      <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depth === "tuefteln"} />
                     </div>
                     {spec.key === "script" && (
                       <>
@@ -188,6 +190,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
           </InspectorRow>
         )}
         {warp && <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={(id) => commit("dest_header_id", "Zielheader", id)} />}
+        {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
           <Button kind="danger" size="s" disabled={readOnly} onClick={() => void onDelete(file, kind, index)}>

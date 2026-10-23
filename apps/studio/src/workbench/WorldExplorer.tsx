@@ -3,6 +3,7 @@ import { errorText, listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
 import { gameLabel } from "../app/gameLabel";
 import { ListPane } from "../ui/frame/ListPane";
+import type { Depth } from "../ui/frame/shellState";
 import { Icon, Menu, Notice, Segmented, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import { HeaderList } from "./HeaderList";
 import { showsMatrix } from "./headers";
@@ -27,6 +28,8 @@ export interface WorldExplorerProps {
   shownMatrix: number | null;
   /** Bumped by every link to a header: the tree scrolls to the selection again, also when it was selected already. */
   revealToken: number;
+  /** Tüfteln writes the identifiers (id, code) into every header row; Bauen leaves them to the tooltip. */
+  depth: Depth;
   onSelect: (h: HeaderSummary) => void;
   onOpenWizard: (request: WizardRequest) => void;
   /** Whether rotom has taken the scripts over; without it the script entries only show a hint. */
@@ -60,7 +63,7 @@ function writeMode(mode: Mode): void {
 /**
  * One header of a place. The place already carries the location name, so a room is named by its
  * internal name (as long as the overview is not known, every row is named by the location name:
- * outside and room are not told apart yet); the grey part has the id, the code (when it is not the name) and the room's maps.
+ * outside and room are not told apart yet); the grey part has the room's maps and, in Tüfteln, the id and the code (when it is not the name).
  * Memoised: a selection change renders the rows whose props changed, not all of them.
  */
 const HeaderRow = memo(function HeaderRow({
@@ -68,6 +71,7 @@ const HeaderRow = memo(function HeaderRow({
   selected,
   marked,
   showRooms,
+  tinker,
   expanded,
   adopted,
   onSelect,
@@ -78,6 +82,8 @@ const HeaderRow = memo(function HeaderRow({
   selected: boolean;
   marked: boolean;
   showRooms: boolean;
+  /** Depth Tüfteln: the identifiers show. */
+  tinker: boolean;
   /** The header's script entries are shown below it. */
   expanded: boolean;
   adopted: boolean;
@@ -87,7 +93,7 @@ const HeaderRow = memo(function HeaderRow({
 }) {
   const h = entry.header;
   const name = entry.kind === "outside" || !showRooms ? h.location_name || h.internal_name : h.internal_name;
-  const grey = [id4(h.id), h.internal_name !== name ? h.internal_name : null, showRooms && entry.kind === "inside" ? mapsText(entry) : null].filter((part) => part !== null);
+  const grey = [tinker ? id4(h.id) : null, tinker && h.internal_name !== name ? h.internal_name : null, showRooms && entry.kind === "inside" ? mapsText(entry) : null].filter((part) => part !== null);
   return (
     <>
       <TreeRow
@@ -254,7 +260,7 @@ function ScriptsNode({ info, adopted, onOpenScript }: { info: ProjectInfo | null
 type TreeProps = Omit<WorldExplorerProps, "onOpenWizard" | "listOpen" | "onToggleList">;
 
 /** The places as tree rows with their headers below. Its state (search, opened places) lasts only while the tree mode shows. */
-function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, onSelect, scriptsAdopted, onOpenScript }: TreeProps) {
+function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, depth, onSelect, scriptsAdopted, onOpenScript }: TreeProps) {
   const [query, setQuery] = useState("");
   // Without the overview every header would count as a room: the places then keep plain id order. The warps are not needed here, so a new warp list renders nothing.
   const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : []), [headers, matrices, matricesLoaded]);
@@ -355,6 +361,7 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
                     selected={entry.header.id === selected}
                     marked={showsMatrix(entry.header, shownMatrix)}
                     showRooms={matricesLoaded}
+                    tinker={depth === "tuefteln"}
                     expanded={expandedHeaders.has(entry.header.id)}
                     adopted={scriptsAdopted}
                     onSelect={onSelect}
@@ -408,7 +415,7 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, listOpe
   return (
     <ListPane title="Orte" subtitle={tree.info ? gameLabel(tree.info) : undefined} actions={actions} open={listOpen} onToggle={onToggleList}>
       {mode === "list" ? (
-        <HeaderList info={tree.info} headers={tree.headers} selected={tree.selected} shownMatrix={tree.shownMatrix} revealToken={tree.revealToken} onSelect={tree.onSelect} />
+        <HeaderList info={tree.info} headers={tree.headers} selected={tree.selected} shownMatrix={tree.shownMatrix} revealToken={tree.revealToken} depth={tree.depth} onSelect={tree.onSelect} />
       ) : (
         <WorldTree {...tree} />
       )}

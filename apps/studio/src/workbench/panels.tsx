@@ -54,6 +54,7 @@ export function ExplorerPane() {
       selected={d.selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}
+      depth={d.depth}
       onSelect={d.onSelect}
       onOpenWizard={d.onOpenWizard}
       scriptsAdopted={d.scripts.status?.adopted === true}
@@ -246,6 +247,7 @@ export function InspectorPanel() {
   return (
     <Inspector
       model={inspector}
+      depth={d.depth}
       headerEditor={{
         headers: d.headers,
         counts: d.memberCounts,

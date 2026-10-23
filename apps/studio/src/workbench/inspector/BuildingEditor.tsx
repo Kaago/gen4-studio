@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
 import type { AssetId, BuildingDto, MemberCounts } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
 import { BUILDING_FIELDS, BUILDING_POSITION_FIELDS, BUILDING_SCALE_FIELDS, buildingBackend, parseNumberField } from "./buildingFields";
@@ -9,6 +10,7 @@ import styles from "./Editor.module.css";
 import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { InspectorHead } from "./InspectorHead";
+import { TechnicalSection } from "./TechnicalSection";
 
 /** What the building editor needs from App besides the building's map and index. */
 export interface BuildingEditorContext {
@@ -64,7 +66,7 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
  * is). Render it with `key` per (map, index): all reads and writes of an instance belong to that
  * one building (see `EditSession`).
  */
-export function BuildingEditor({ map, index, context }: { map: number; index: number; context: BuildingEditorContext }) {
+export function BuildingEditor({ map, index, context, depth }: { map: number; index: number; context: BuildingEditorContext; depth: Depth }) {
   const { areaDataId, counts, dirty, revision, onChanged, onAdd, onDelete, onError } = context;
   const [building, setBuilding] = useState<BuildingDto | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
@@ -151,7 +153,7 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
       <div className={styles.body}>
         <div key={refused}>
           <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>
-            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} />
+            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} showBase={depth === "tuefteln"} />
           </InspectorRow>
           <div className={styles.actions}>
             <Button kind="quiet" size="s" onClick={() => void Promise.resolve(onChanged(map, building.model_id)).then(() => check(building.model_id))} disabled={preview?.state === "loading"}>
@@ -165,6 +167,7 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
             <span className={styles.mono}>{building.rotation.join(" ")}</span>
           </InspectorRow>
         </div>
+        {depth === "tuefteln" && <TechnicalSection model={{ kind: "building", map, index }} source={{ kind: "building", building }} />}
         <div className={styles.actions}>
           <Button kind="secondary" onClick={() => void onAdd(map)}>
             Neues Gebäude

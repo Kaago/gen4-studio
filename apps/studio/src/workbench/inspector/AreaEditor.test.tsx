@@ -33,8 +33,8 @@ describe("AreaEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(counts = {}, dirty: AssetId[] = []) {
-    await act(async () => root.render(<AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} />));
+  async function show(counts = {}, dirty: AssetId[] = [], depth: "bauen" | "tuefteln" = "bauen") {
+    await act(async () => root.render(<AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} depth={depth} />));
     await flush();
   }
   const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -81,5 +81,18 @@ describe("AreaEditor", () => {
     await act(async () => void options[3]!.click());
     await flush();
     expect(setAreaData).toHaveBeenCalledWith(7, { ...area, map_tileset: 3 }, "Karten-Tileset");
+  });
+
+  it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {
+    const technical = () => [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Technisch");
+    const hexSwitch = () => [...container.querySelectorAll("button")].some((b) => b.textContent === "Hex");
+    await show({}, [], "bauen");
+    expect(technical()).toBeUndefined();
+    expect(hexSwitch()).toBe(false);
+    await show({}, [], "tuefteln");
+    expect(technical()?.getAttribute("aria-expanded")).toBe("false");
+    expect(hexSwitch()).toBe(true);
+    await act(async () => void technical()?.click());
+    expect(container.textContent).toContain("Area-Data 0007");
   });
 });

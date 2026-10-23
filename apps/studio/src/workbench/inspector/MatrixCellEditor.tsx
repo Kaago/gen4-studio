@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, MemberCounts } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
@@ -9,6 +10,7 @@ import { useMatrix } from "../useMatrix";
 import styles from "./Editor.module.css";
 import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
+import { TechnicalSection } from "./TechnicalSection";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
@@ -52,7 +54,7 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
 }
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
-export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: number; x: number; y: number; context: MatrixCellContext }) {
+export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
   const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
@@ -126,7 +128,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: num
           <InspectorRow label="Header" hint={`0 bis ${headerMax}`}>
             <div className={styles.inline}>
               <div className={styles.grow}>
-                <NumberField label="Header" value={header} max={headerMax} bits={16} onCommit={commitHeader} />
+                <NumberField label="Header" value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depth === "tuefteln"} />
               </div>
               {map !== null && header < headerCount && <Reference area="welt" label="Header" tech={id4(header)} onOpen={() => goTo({ kind: "header", id: header })} />}
             </div>
@@ -136,11 +138,12 @@ export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: num
         )}
         {altitude !== null ? (
           <InspectorRow label="Höhe" hint="0 bis 255">
-            <NumberField label="Höhe" value={altitude} max={255} bits={8} onCommit={commitAltitude} />
+            <NumberField label="Höhe" value={altitude} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
           </InspectorRow>
         ) : (
           <p className={styles.note}>Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar).</p>
         )}
+        {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <div className={styles.actions}>
           <Button kind="secondary" disabled={map === null || working} onClick={() => map !== null && void duplicate(map)}>
             Karte duplizieren und hier eintragen

@@ -55,8 +55,8 @@ describe("EventEditor scripts", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(ctx = context(), kind: EventKind = "object", index = 2) {
-    await act(async () => root.render(<EventEditor file={8} kind={kind} index={index} context={ctx} />));
+  async function show(ctx = context(), kind: EventKind = "object", index = 2, depth: "bauen" | "tuefteln" = "bauen") {
+    await act(async () => root.render(<EventEditor file={8} kind={kind} index={index} context={ctx} depth={depth} />));
     await flush();
   }
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -235,5 +235,18 @@ describe("EventEditor scripts", () => {
       expect(container.textContent).toContain("Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür.");
       expect(button("unbekannt (9999)")).toBeUndefined();
     });
+  });
+
+  it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {
+    const technical = () => [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Technisch");
+    const hexSwitch = () => [...container.querySelectorAll("button")].some((b) => b.textContent === "Hex");
+    await show(context(), "object", 2, "bauen");
+    expect(technical()).toBeUndefined();
+    expect(hexSwitch()).toBe(false);
+    await show(context(), "object", 2, "tuefteln");
+    expect(technical()?.getAttribute("aria-expanded")).toBe("false");
+    expect(hexSwitch()).toBe(true);
+    await act(async () => void technical()?.click());
+    expect(container.textContent).toContain("Eventdatei 0008, Index 2");
   });
 });

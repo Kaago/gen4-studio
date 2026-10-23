@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { HeaderList } from "./HeaderList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -50,6 +51,7 @@ describe("HeaderList", () => {
     selected: null,
     shownMatrix: null,
     revealToken: 0,
+    depth: "bauen" as Depth,
     onSelect: () => {},
     ...over,
   });
@@ -80,9 +82,18 @@ describe("HeaderList", () => {
     expect(reads() - before).toBe(headers.filter((h) => h.matrix_id === 2).length * perRow);
   });
 
+  it("leaves_the_id_and_the_internal_name_to_the_tooltip_in_bauen", () => {
+    const { headers } = countedHeaders(2);
+    act(() => root.render(<HeaderList {...props(headers)} />));
+    const row = container.querySelector<HTMLElement>('[data-header-id="1"]')!;
+    expect(row.textContent).toBe("Ort 1M1");
+    expect(row.getAttribute("title")).toContain("Header 0001");
+    expect(row.getAttribute("title")).toContain("H1");
+  });
+
   it("names a row by its location name, with the id and the internal name as its grey part, and marks it for the shown matrix", () => {
     const { headers } = countedHeaders(2);
-    act(() => root.render(<HeaderList {...props(headers, { selected: 1, shownMatrix: 1 })} />));
+    act(() => root.render(<HeaderList {...props(headers, { selected: 1, shownMatrix: 1, depth: "tuefteln" })} />));
     const row = container.querySelector<HTMLElement>('[data-header-id="1"]')!;
     expect(row.getAttribute("role")).toBe("option");
     expect(row.getAttribute("aria-selected")).toBe("true");

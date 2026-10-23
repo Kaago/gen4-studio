@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { HeaderSummary } from "../api";
-import type { Tool } from "../ui/frame/shellState";
+import type { Depth, Tool } from "../ui/frame/shellState";
 import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
@@ -53,6 +53,8 @@ interface WorkbenchModelParams {
     setShowPermissions: (show: boolean) => void;
     showEvents: boolean;
     setShowEvents: (show: boolean) => void;
+    /** The depth of the app (the shell's). */
+    depth: Depth;
     /** The active tool, the way to switch it, and the answer to a click with an adding tool; the two callbacks must keep their identity. */
     tool: Tool;
     onTool: (tool: Tool) => void;
@@ -97,6 +99,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     showEvents: view.showEvents,
     onShowEvents: view.setShowEvents,
     paintEnabled: !session.busy,
+    depth: view.depth,
     tool: view.tool,
     onTool: view.onTool,
     onTileClick: view.onTileClick,

@@ -87,7 +87,7 @@ const text = { target: null };
 /** The scripts as App's hook hands them over: the same object until its revision changes. */
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();
-const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, tool: "select" as const, onTool: noop, onTileClick: noop };
+const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
 
@@ -98,6 +98,7 @@ interface Volatile {
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
+  depth?: "bauen" | "tuefteln";
   /** Another scripts object, as after a document was opened (its revision moved). */
   scripts?: ScriptsApi;
   matrices?: MatrixSummary[];
@@ -105,7 +106,7 @@ interface Volatile {
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen", scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
@@ -117,7 +118,7 @@ function Model({ pin = pinned, hover, message, showEvents = true, scripts: scrip
     text,
     scripts: scriptsApi,
     problems,
-    view: { ...view, showEvents },
+    view: { ...view, showEvents, depth },
   });
   onModel(model);
   return <WorkbenchProviders data={model.data} live={model.live}>{children}</WorkbenchProviders>;
@@ -163,6 +164,15 @@ describe("workbench model", () => {
     show({ hover: null, message: null, showEvents: false });
     expect(models[1].data).not.toBe(models[0].data);
     expect(models[1].data.showEvents).toBe(false);
+  });
+
+  it("gives a new data object when the depth changes", () => {
+    const models: Array<{ data: WorkbenchData }> = [];
+    const show = (v: Volatile) => act(() => root.render(<Model {...v} onModel={(m) => models.push(m)} />));
+    show({ hover: null, message: null });
+    show({ hover: null, message: null, depth: "tuefteln" });
+    expect(models[1].data).not.toBe(models[0].data);
+    expect(models[1].data.depth).toBe("tuefteln");
   });
 
   const panels = { headers: ExplorerPane, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };

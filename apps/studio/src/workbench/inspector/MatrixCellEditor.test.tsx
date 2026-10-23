@@ -39,8 +39,8 @@ describe("MatrixCellEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(x = 1, y = 0) {
-    await act(async () => root.render(<MatrixCellEditor matrix={3} x={x} y={y} context={context()} />));
+  async function show(x = 1, y = 0, depth: "bauen" | "tuefteln" = "bauen") {
+    await act(async () => root.render(<MatrixCellEditor matrix={3} x={x} y={y} context={context()} depth={depth} />));
     await flush();
   }
   const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -125,5 +125,18 @@ describe("MatrixCellEditor", () => {
   it("says_a_cell_outside_the_matrix_is_outside", async () => {
     await show(5, 0);
     expect(container.textContent).toContain("außerhalb des Rasters (2 × 1)");
+  });
+
+  it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {
+    const technical = () => [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Technisch");
+    const hexSwitch = () => [...container.querySelectorAll("button")].some((b) => b.textContent === "Hex");
+    await show(1, 0, "bauen");
+    expect(technical()).toBeUndefined();
+    expect(hexSwitch()).toBe(false);
+    await show(1, 0, "tuefteln");
+    expect(technical()?.getAttribute("aria-expanded")).toBe("false");
+    expect(hexSwitch()).toBe(true);
+    await act(async () => void technical()?.click());
+    expect(container.textContent).toContain("Raster 0003, Zelle 1, 0");
   });
 });

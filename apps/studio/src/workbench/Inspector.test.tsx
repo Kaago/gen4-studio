@@ -25,7 +25,7 @@ describe("Inspector read-only views", () => {
   });
   // The hover views and the empty state read no context.
   const show = (model: InspectorModel) =>
-    act(() => root.render(<Inspector model={model} headerEditor={undefined as never} matrixEditor={undefined as never} areaEditor={undefined as never} buildingEditor={undefined as never} eventEditor={undefined as never} />));
+    act(() => root.render(<Inspector model={model} headerEditor={undefined as never} matrixEditor={undefined as never} areaEditor={undefined as never} buildingEditor={undefined as never} eventEditor={undefined as never} depth="bauen" />));
   const text = () => container.textContent ?? "";
 
   it("says_what_to_do_when_nothing_is_selected", () => {
