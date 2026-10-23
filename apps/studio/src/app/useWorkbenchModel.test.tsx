@@ -8,11 +8,12 @@ import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } f
 import type { Message } from "../app/message";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab } from "../workbench/panels";
+import { ExplorerPane, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab } from "../workbench/panels";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import { shownInspector } from "../workbench/pin";
+import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
 import { useWorkbenchModel } from "./useWorkbenchModel";
@@ -159,7 +160,7 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
+  const panels = { headers: ExplorerPane, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -167,7 +168,15 @@ describe("workbench model", () => {
     vi.mocked(getMatrix).mockResolvedValue(shown);
     const Panel = panels[name];
     // One element for all renders, as in dockview: the panel renders again only through the contexts it reads.
-    const element = <Panel />;
+    // The explorer reads the shell's state of the folded list, so it needs the shell around it.
+    const element =
+      name === "headers" ? (
+        <ShellProvider>
+          <Panel />
+        </ShellProvider>
+      ) : (
+        <Panel />
+      );
     const show = (v: Volatile) => act(async () => root.render(<Model {...base} {...v} onModel={noop}>{element}</Model>));
     await show({ hover: null, message: null });
     for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;

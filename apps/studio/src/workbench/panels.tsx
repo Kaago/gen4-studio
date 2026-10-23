@@ -1,7 +1,9 @@
 import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
 import type { ProjectInfo } from "../api";
+import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import type { DockComponents } from "../ui/frame/Deck";
+import { useShell } from "../ui/frame/ShellContext";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
@@ -37,9 +39,12 @@ const toggleStyle: React.CSSProperties = {
 
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
 
-/** The explorer: no dock panel any more but the shell's list column (it keeps its old look until the list is restyled). */
-export function HeadersPanel() {
+/** The explorer: no dock panel but the shell's list column; whether it is folded is the shell's state of the world area. */
+export function ExplorerPane() {
   const d = useWorkbench();
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.welt;
+  const onToggleList = useStableCallback(() => setListOpen("welt", !listOpen));
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
   const revealToken = useBusRevision(d.bus, "headerReveal");
   // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
@@ -59,6 +64,8 @@ export function HeadersPanel() {
       onOpenWizard={d.onOpenWizard}
       scriptsAdopted={d.scripts.status?.adopted === true}
       onOpenScript={onOpenScript}
+      listOpen={listOpen}
+      onToggleList={onToggleList}
     />
   );
 }

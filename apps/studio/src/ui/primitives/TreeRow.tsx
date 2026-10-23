@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { Icon } from "./Icon";
-import { selectOnKey } from "./ListRow";
+import { rowClass, selectOnKey } from "./ListRow";
 import type { ListRowProps } from "./ListRow";
 import listStyles from "./ListRow.module.css";
 import styles from "./TreeRow.module.css";
@@ -14,7 +14,7 @@ export type TreeRowProps = ListRowProps & {
 };
 
 /** One row of a tree: indent by depth, a caret for branches, Right opens and Left closes a branch. */
-export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs, depth, expanded, onToggle }: TreeRowProps) {
+export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, depth, expanded, onToggle }: TreeRowProps) {
   const branch = expanded !== undefined;
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target === event.currentTarget && onToggle && branch) {
@@ -26,7 +26,7 @@ export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataA
         return;
       }
     }
-    selectOnKey(event, onSelect);
+    if (!disabled) selectOnKey(event, onSelect);
   };
   return (
     <div
@@ -35,10 +35,13 @@ export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataA
       aria-level={depth + 1}
       aria-selected={selected}
       aria-expanded={expanded}
+      aria-label={ariaLabel}
+      aria-disabled={disabled ? true : undefined}
+      title={title}
       data-roving=""
-      className={`${listStyles.row} ${selected ? listStyles.selected : ""}`}
+      className={rowClass(selected, disabled)}
       style={{ paddingLeft: `calc(var(--g4-dichte-zeile-innen) + ${depth} * var(--g4-raum-16))` }} /* dyn */
-      onClick={onSelect}
+      onClick={disabled ? undefined : onSelect}
       onKeyDown={onKeyDown}
     >
       <span

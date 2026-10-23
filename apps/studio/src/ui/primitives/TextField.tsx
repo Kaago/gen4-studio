@@ -8,6 +8,11 @@ export type TextFieldProps = {
   value: string;
   /** Called with the typed text on blur or Enter when it differs from `value`; never per keystroke. */
   onCommit: (value: string) => void;
+  /**
+   * Called with the text on every keystroke, for a search that filters while typing. It does not replace `onCommit`
+   * (the owner still gets the commit on Enter or blur); a search field passes its setter to both.
+   */
+  onChange?: (value: string) => void;
   type?: "text" | "search";
   /** A sentence that says what is wrong and the way out; marks the field invalid. */
   error?: string;
@@ -23,7 +28,7 @@ export type TextFieldProps = {
  * A text field that writes on blur or Enter, like `DraftInput`: Escape takes the typed text back (and uses the key, so a
  * dialog around the field stays open), and `data-draft` marks the field for `escapeCloses`.
  */
-export function TextField({ label, value, onCommit, type = "text", error, hint, disabled, placeholder, multiline, showLabel }: TextFieldProps) {
+export function TextField({ label, value, onCommit, onChange, type = "text", error, hint, disabled, placeholder, multiline, showLabel }: TextFieldProps) {
   const draft = useDraft(value, onCommit);
   const cls = multiline ? `${styles.control} ${styles.multiline}` : styles.control;
   return (
@@ -38,7 +43,10 @@ export function TextField({ label, value, onCommit, type = "text", error, hint, 
         disabled={disabled}
         spellCheck={false}
         data-draft=""
-        onChange={(e) => draft.change(e.currentTarget.value)}
+        onChange={(e) => {
+          draft.change(e.currentTarget.value);
+          onChange?.(e.currentTarget.value);
+        }}
         onBlur={draft.flush}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {

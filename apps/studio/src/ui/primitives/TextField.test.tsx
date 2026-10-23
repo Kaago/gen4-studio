@@ -142,4 +142,38 @@ describe("TextField", () => {
     act(() => container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(commits.mock.calls).toEqual([["b"]]);
   });
+
+  it("tells_a_live_listener_about_every_keystroke_and_still_commits_only_on_enter_or_blur", () => {
+    const changes = vi.fn();
+    function Search() {
+      const [value, setValue] = useState("");
+      return (
+        <TextField
+          label="Suchen"
+          type="search"
+          value={value}
+          onChange={(t) => {
+            changes(t);
+            setValue(t);
+          }}
+          onCommit={commits}
+        />
+      );
+    }
+    act(() => root.render(<Search />));
+    act(() => field().focus());
+    typeInto(field(), "Ro");
+    typeInto(field(), "Route");
+    expect(changes.mock.calls).toEqual([["Ro"], ["Route"]]);
+    expect(field().value).toBe("Route");
+    // The owner already holds the text, so leaving the field commits nothing more.
+    act(() => field().blur());
+    expect(commits).not.toHaveBeenCalled();
+  });
+
+  it("does_not_call_a_live_listener_for_a_field_that_has_none", () => {
+    act(() => root.render(<Owner />));
+    typeInto(field(), "Route 5");
+    expect(commits).not.toHaveBeenCalled();
+  });
 });

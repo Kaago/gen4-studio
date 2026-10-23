@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
-import { HAND_COMPONENTS, HeadersPanel, SCHAU_COMPONENTS } from "./workbench/panels";
+import { ExplorerPane, HAND_COMPONENTS, SCHAU_COMPONENTS } from "./workbench/panels";
 import { buildPlaces } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
@@ -9,6 +9,7 @@ import { crumbsFor } from "./workbench/breadcrumb";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
 import { Deck } from "./ui/frame/Deck";
+import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
@@ -262,7 +263,8 @@ function AppBody() {
     forget(path);
     setMissing((before) => new Set([...before].filter((p) => p !== path)));
   }
-  const onHelp = useCallback(() => toast.info("Die Hilfe folgt in Kürze."), []);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const onHelp = useCallback(() => setHelpOpen(true), []);
 
   // The dev bridge: the status line says whether it answers. It does until the transport says it does not; any info after that means it does again.
   const [bridgeLost, setBridgeLost] = useState(false);
@@ -355,8 +357,8 @@ function AppBody() {
               onToggleTheme={shell.toggleTheme}
             />
           }
-          atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} />}
-          list={deckBuilt.current ? <HeadersPanel /> : undefined}
+          atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
+          list={deckBuilt.current ? <ExplorerPane /> : undefined}
           deck={
             deckBuilt.current ? (
               <Deck
@@ -419,6 +421,7 @@ function AppBody() {
         }}
         onError={session.fail}
       />
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       {!inTauri() && <WebDialogHost />}
     </>
   );

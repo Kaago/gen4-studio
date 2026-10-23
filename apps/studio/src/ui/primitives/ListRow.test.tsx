@@ -91,4 +91,30 @@ describe("ListRow and TreeRow", () => {
     expect(onToggle).toHaveBeenCalledTimes(2);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it("rows_carry_an_explicit_name_and_a_hover_hint_when_given", () => {
+    act(() => root.render(<ListRow label="Zweiblattdorf" ariaLabel="Zweiblattdorf, 3 Header" title="Drei Header" selected={false} onSelect={() => {}} />));
+    const row = container.querySelector("[role=option]")!;
+    expect(row.getAttribute("aria-label")).toBe("Zweiblattdorf, 3 Header");
+    expect(row.getAttribute("title")).toBe("Drei Header");
+    act(() => root.render(<TreeRow label="Ort" ariaLabel="Ort, 3 Header" title="Hinweis" depth={0} selected={false} onSelect={() => {}} />));
+    const item = container.querySelector("[role=treeitem]")!;
+    expect(item.getAttribute("aria-label")).toBe("Ort, 3 Header");
+    expect(item.getAttribute("title")).toBe("Hinweis");
+  });
+
+  it("a_disabled_row_is_aria_disabled_and_does_not_select", () => {
+    const onSelect = vi.fn();
+    act(() => root.render(<ListRow label="Gesperrt" selected={false} onSelect={onSelect} disabled />));
+    const row = container.querySelector<HTMLElement>("[role=option]")!;
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    act(() => row.click());
+    pressKey(row, "Enter");
+    act(() => root.render(<TreeRow label="Gesperrt" depth={1} selected={false} onSelect={onSelect} disabled />));
+    const item = container.querySelector<HTMLElement>("[role=treeitem]")!;
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    act(() => item.click());
+    pressKey(item, " ");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
 });

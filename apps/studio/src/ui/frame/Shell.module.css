@@ -2,9 +2,15 @@
   display: grid;
   height: 100vh;
   grid-template-rows: 40px 1fr 28px;
-  grid-template-columns: 88px auto 1fr;
+  --shell-atlas: 88px;
+  grid-template-columns: var(--shell-atlas) auto 1fr;
   background: var(--g4-flaeche-gehaeuse);
   color: var(--g4-text-primaer);
+}
+
+/* The atlas shows symbols only in the compact density and narrows to match. */
+:global(:root[data-dichte="kompakt"]) .shell {
+  --shell-atlas: 56px;
 }
 
 .title {
@@ -22,13 +28,10 @@
 .list {
   grid-column: 2;
   grid-row: 2;
-  /* The explorer in its old look needs a width of its own; the restyled list column sets 272 px. */
-  width: 300px;
+  /* The width is the list pane's own: 272 px, or its 8 px grip when folded. */
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-right: var(--g4-strich-standard) solid var(--g4-linie-leise);
-  background: var(--g4-flaeche-blatt);
 }
 
 .deck {

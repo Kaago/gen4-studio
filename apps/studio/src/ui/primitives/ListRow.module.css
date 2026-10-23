@@ -27,6 +27,13 @@
   box-shadow: inset var(--g4-strich-fokus) 0 0 var(--g4-auswahl-kante);
 }
 
+.disabled,
+.disabled:hover {
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
 .label {
   min-width: 0;
   overflow: hidden;
@@ -35,7 +42,12 @@
 }
 
 .tech {
-  flex: none;
+  min-width: 0;
+  /* In a narrow row the technical part gives way first: the name is what the row is for. */
+  flex: 0 10 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-code-s);
   font-size: var(--g4-schrift-groesse-xs);

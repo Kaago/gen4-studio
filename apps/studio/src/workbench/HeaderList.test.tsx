@@ -58,7 +58,7 @@ describe("HeaderList", () => {
     const { headers, reads } = countedHeaders(600);
     const base = props(headers);
     act(() => root.render(<HeaderList {...base} />));
-    expect(container.querySelectorAll("li")).toHaveLength(600);
+    expect(container.querySelectorAll("[role=option]")).toHaveLength(600);
     // Reads of one row render (all rows render alike on the first pass).
     const perRow = reads() / 600;
     expect(perRow).toBeGreaterThan(0);
@@ -80,12 +80,15 @@ describe("HeaderList", () => {
     expect(reads() - before).toBe(headers.filter((h) => h.matrix_id === 2).length * perRow);
   });
 
-  it("gives the location name priority over the internal name in a narrow panel", () => {
+  it("names a row by its location name, with the id and the internal name as its grey part, and marks it for the shown matrix", () => {
     const { headers } = countedHeaders(2);
-    act(() => root.render(<HeaderList {...props(headers)} />));
-    const row = container.querySelector<HTMLElement>("[data-header-id]")!;
-    // Location: at least 72px, the larger share; internal name: the smaller share, shrinks to nothing.
-    expect(row.style.gridTemplateColumns).toBe("40px minmax(72px, 3fr) minmax(0, 2fr) 40px");
+    act(() => root.render(<HeaderList {...props(headers, { selected: 1, shownMatrix: 1 })} />));
+    const row = container.querySelector<HTMLElement>('[data-header-id="1"]')!;
+    expect(row.getAttribute("role")).toBe("option");
+    expect(row.getAttribute("aria-selected")).toBe("true");
+    expect(row.textContent).toBe("Ort 10001 · H1M1");
+    expect(row.querySelector('[aria-label="Raster wird angezeigt"]')).not.toBeNull();
+    expect(container.querySelector('[data-header-id="0"]')?.querySelector('[aria-label="Raster wird angezeigt"]')).toBeNull();
   });
 
   it("scrolls the selected row into view by its id, again for a new reveal token, and calls onSelect with the header", () => {
@@ -99,7 +102,7 @@ describe("HeaderList", () => {
     act(() => root.render(<HeaderList {...base} selected={12} revealToken={1} />));
     expect(scrolled).toEqual(["12", "12"]);
 
-    const button = container.querySelector<HTMLButtonElement>('[data-header-id="30"]');
+    const button = container.querySelector<HTMLElement>('[data-header-id="30"]');
     act(() => button?.click());
     expect(onSelect).toHaveBeenCalledWith(headers[30]);
   });
@@ -114,9 +117,9 @@ describe("HeaderList", () => {
       setValue.call(input, "Ort 1");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.querySelectorAll("li").length).toBeLessThan(20);
+    expect(container.querySelectorAll("[role=option]").length).toBeLessThan(20);
     act(() => root.render(<HeaderList {...base} selected={4} />));
-    expect(container.querySelectorAll("li")).toHaveLength(20);
+    expect(container.querySelectorAll("[role=option]")).toHaveLength(20);
     expect(scrolled).toEqual(["4"]);
   });
 });

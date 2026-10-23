@@ -29,7 +29,7 @@ vi.mock("./workbench/Workbench", () => ({
     return children;
   },
 }));
-vi.mock("./workbench/panels", () => ({ HeadersPanel: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
+vi.mock("./workbench/panels", () => ({ ExplorerPane: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
 vi.mock("./ui/frame/Deck", async () => {
   const { useEffect } = await import("react");
   type Ref = { current: unknown };

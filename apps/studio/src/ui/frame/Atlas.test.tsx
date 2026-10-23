@@ -22,9 +22,9 @@ const HINTS: Partial<Record<AreaId, string>> = {
 describe("Atlas", () => {
   let container: HTMLElement;
   let root: Root;
-  const props = (over: Partial<AtlasProps> = {}): AtlasProps => ({ area: "welt", onArea: vi.fn(), onHelp: vi.fn(), locked: LOCKED, lockedHint: HINTS, ...over });
+  const props = (over: Partial<AtlasProps> = {}): AtlasProps => ({ area: "welt", onArea: vi.fn(), onHelp: vi.fn(), locked: LOCKED, lockedHint: HINTS, density: "komfort", ...over });
   const show = (p: AtlasProps) => act(() => root.render(<Atlas {...p} />));
-  const entry = (name: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === name) as HTMLButtonElement;
+  const entry = (name: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
 
   beforeEach(() => {
     container = document.createElement("div");
@@ -91,5 +91,39 @@ describe("Atlas", () => {
     act(() => entry("Hilfe").click());
     expect(p.onHelp).toHaveBeenCalledOnce();
     expect(p.onArea).not.toHaveBeenCalled();
+  });
+
+  it("shows_symbols_only_in_the_compact_density_but_keeps_every_name_for_assistive_technology", () => {
+    show(props({ density: "kompakt" }));
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons).toHaveLength(9);
+    for (const b of buttons) {
+      expect(b.textContent).toBe("");
+      expect(b.querySelector("svg")).not.toBeNull();
+    }
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Start", "Welt", "Geschichten", "Pokémon", "Gegenstände", "Texte", "Technik", "Hilfe", "Einstellungen"]);
+    // The behaviour does not change with the density.
+    expect(entry("Welt").getAttribute("aria-current")).toBe("page");
+    expect(entry("Technik").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("shows_the_labels_again_in_the_comfortable_density", () => {
+    show(props({ density: "kompakt" }));
+    show(props({ density: "komfort" }));
+    expect(entry("Welt").textContent).toBe("Welt");
+    expect(entry("Hilfe").textContent).toBe("Hilfe");
+  });
+
+  it("keeps_the_hint_of_a_locked_area_as_its_tooltip_in_the_compact_density", async () => {
+    vi.useFakeTimers();
+    show(props({ density: "kompakt" }));
+    await act(async () => {
+      const b = entry("Texte");
+      b.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      b.dispatchEvent(new MouseEvent("mouseenter"));
+      b.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Kommt mit 3c.2");
   });
 });

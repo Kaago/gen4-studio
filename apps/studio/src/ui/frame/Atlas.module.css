@@ -95,3 +95,8 @@
   color: var(--g4-text-deaktiviert);
   cursor: not-allowed;
 }
+
+/* Symbols only: the shell's column is 56 px then (Shell.module.css). */
+.atlas[data-dichte="kompakt"] .entry {
+  padding: 0;
+}

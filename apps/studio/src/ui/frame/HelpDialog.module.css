@@ -1,0 +1,27 @@
+.terms {
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.term {
+  margin: 0;
+}
+
+.name {
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.tech {
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.short {
+  margin: var(--g4-raum-2) 0 0;
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-sekundaer);
+}

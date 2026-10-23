@@ -15,6 +15,12 @@ export type ListRowProps = {
   onSelect: () => void;
   trailing?: ReactNode;
   dataAttrs?: RowDataAttrs;
+  /** The accessible name when the visible parts (label, tech, trailing) would read badly run together. */
+  ariaLabel?: string;
+  /** A hover hint with more than the row has room for. */
+  title?: string;
+  /** Not selectable (`aria-disabled`, no click, skipped by the arrow keys); `title` can say why. */
+  disabled?: boolean;
 };
 
 /** Enter and Space select, but only when the row itself has focus (not a control inside `trailing`). */
@@ -25,17 +31,25 @@ export function selectOnKey(event: KeyboardEvent<HTMLElement>, onSelect: () => v
   onSelect();
 }
 
+/** The classes of a row: selected and disabled are looks of their own. */
+export function rowClass(selected: boolean, disabled: boolean | undefined): string {
+  return [styles.row, selected ? styles.selected : "", disabled ? styles.disabled : ""].filter(Boolean).join(" ");
+}
+
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs }: ListRowProps) {
+export function ListRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
   return (
     <div
       {...dataAttrs}
       role="option"
       aria-selected={selected}
+      aria-label={ariaLabel}
+      aria-disabled={disabled ? true : undefined}
+      title={title}
       data-roving=""
-      className={`${styles.row} ${selected ? styles.selected : ""}`}
-      onClick={onSelect}
-      onKeyDown={(e) => selectOnKey(e, onSelect)}
+      className={rowClass(selected, disabled)}
+      onClick={disabled ? undefined : onSelect}
+      onKeyDown={disabled ? undefined : (e) => selectOnKey(e, onSelect)}
     >
       {icon && <Icon name={icon} />}
       <span className={styles.label}>{label}</span>
