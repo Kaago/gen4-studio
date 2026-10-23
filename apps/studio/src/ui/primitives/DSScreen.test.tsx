@@ -80,6 +80,17 @@ describe("DSScreen", () => {
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("3");
   });
 
+  it("clamps_the_page_into_range_and_treats_no_pages_as_one_empty_page", () => {
+    act(() => root.render(<DSScreen variant="textbox" pages={three} page={5} scale={1} />));
+    expect(group()?.getAttribute("aria-label")).toBe("DS-Bildschirm, Seite 3 von 3");
+    expect(group()?.textContent).toContain("Und die dritte.");
+    act(() => root.render(<DSScreen variant="textbox" pages={three} page={-2} scale={1} />));
+    expect(group()?.getAttribute("aria-label")).toBe("DS-Bildschirm, Seite 1 von 3");
+    act(() => root.render(<DSScreen variant="textbox" pages={[]} page={0} scale={1} />));
+    expect(group()?.getAttribute("aria-label")).toBe("DS-Bildschirm, Seite 1 von 1");
+    expect(group()?.textContent).toBe("");
+  });
+
   it("falls_back_to_scale_one_when_none_is_given_and_ResizeObserver_is_missing", () => {
     act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} />));
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("1");

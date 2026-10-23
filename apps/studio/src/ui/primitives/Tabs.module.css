@@ -9,9 +9,11 @@
   align-items: stretch;
   gap: var(--g4-raum-2);
   padding: 0 var(--g4-raum-4);
-  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-standard);
   background: var(--g4-flaeche-deck);
+  /* The base line is drawn inside the box, so the strip never grows beyond its content. */
+  box-shadow: inset 0 calc(-1 * var(--g4-strich-standard)) 0 var(--g4-linie-standard);
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .item {
@@ -21,9 +23,8 @@
   padding-right: var(--g4-raum-4);
   border-radius: var(--g4-radius-taste) var(--g4-radius-taste) 0 0;
   color: var(--g4-text-sekundaer);
-  /* The active tab sits on the line below: its bottom edge covers the border of the list. */
-  margin-bottom: calc(-1 * var(--g4-strich-standard));
-  border-bottom: var(--g4-strich-standard) solid transparent;
+  /* The accent line of the active tab is the item's own bottom border, fully inside the strip. */
+  border-bottom: var(--g4-strich-fokus) solid transparent;
 }
 
 .item[data-active] {
@@ -64,7 +65,16 @@
   color: var(--g4-akzent-text);
 }
 
-/* Same footprint as the close button so the tab does not change width. */
+/* Dot and close button share one cell, so the tab does not change width when they swap. */
+.slot {
+  display: grid;
+  place-items: center;
+}
+
+.slot > * {
+  grid-area: 1 / 1;
+}
+
 .dot {
   display: inline-flex;
   width: var(--g4-dichte-steuer);
@@ -73,6 +83,29 @@
   min-height: 24px;
   align-items: center;
   justify-content: center;
+}
+
+/* An unsaved tab with a close button shows the dot at rest and the button on hover or focus (it stays reachable by keyboard). */
+.swapDot {
+  transition: opacity var(--g4-dauer-kurz);
+}
+
+.swapClose {
+  display: inline-flex;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--g4-dauer-kurz);
+}
+
+.item:hover .swapDot,
+.item:focus-within .swapDot {
+  opacity: 0;
+}
+
+.item:hover .swapClose,
+.item:focus-within .swapClose {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .dot::before {

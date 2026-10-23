@@ -82,11 +82,20 @@ describe("Tabs", () => {
     expect(tabs()[1].textContent).toBe("Beta");
   });
 
-  it("shows_a_dot_instead_of_the_close_button_for_an_unsaved_tab", () => {
-    act(() => root.render(<Harness onClose={() => {}} />));
+  it("marks_an_unsaved_tab_with_a_dot_and_keeps_it_closable_by_mouse", () => {
+    const onClose = vi.fn();
+    act(() => root.render(<Harness onClose={onClose} />));
+    expect(container.querySelectorAll("[aria-label=ungespeichert]")).toHaveLength(1);
+    const close = container.querySelector<HTMLElement>("[aria-label='Gamma schließen']");
+    expect(close?.tagName).toBe("BUTTON");
+    act(() => close?.click());
+    expect(onClose).toHaveBeenCalledExactlyOnceWith("c");
+  });
+
+  it("shows_only_the_dot_for_an_unsaved_tab_without_a_close_handler", () => {
+    act(() => root.render(<Harness />));
     expect(container.querySelector("[aria-label=ungespeichert]")).not.toBeNull();
     expect(container.querySelector("[aria-label='Gamma schließen']")).toBeNull();
-    expect(container.querySelector("[aria-label='Alpha schließen']")).not.toBeNull();
   });
 
   it("keeps_the_close_button_beside_the_tab_not_inside_it", () => {

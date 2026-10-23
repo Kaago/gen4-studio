@@ -44,7 +44,14 @@ export function Tabs({ items, value, onChange, onClose, ariaLabel, children }: T
               {item.count !== undefined && <span className={styles.count}>{item.count}</span>}
             </BaseTabs.Tab>
             {item.unsaved ? (
-              <span className={styles.dot} role="img" aria-label="ungespeichert" />
+              <span className={styles.slot}>
+                <span className={`${styles.dot} ${onClose ? styles.swapDot : ""}`} role="img" aria-label="ungespeichert" />
+                {onClose && (
+                  <span className={styles.swapClose}>
+                    <IconButton label={item.closeLabel ?? `${item.label} schließen`} icon="close" onClick={() => onClose(item.id)} />
+                  </span>
+                )}
+              </span>
             ) : (
               onClose && <IconButton label={item.closeLabel ?? `${item.label} schließen`} icon="close" onClick={() => onClose(item.id)} />
             )}

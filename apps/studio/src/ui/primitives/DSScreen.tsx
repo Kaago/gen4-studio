@@ -53,8 +53,11 @@ function Part({ segment }: { segment: Segment }) {
 
 export function DSScreen({ variant, pages, page, scale: given, background }: DSScreenProps) {
   const { frame, scale } = useScale(given);
-  const shown = pages[page];
-  const label = variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${page + 1} von ${pages.length}`;
+  // No pages count as one empty page; a page index outside the list is clamped.
+  const total = Math.max(1, pages.length);
+  const index = Math.min(Math.max(0, Math.trunc(page)), total - 1);
+  const shown = pages[index];
+  const label = variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`;
   return (
     <div ref={frame} className={styles.frame}>
       <div role="group" aria-label={label} className={styles.screen} style={{ "--ds-scale": scale } as CSSProperties /* dyn */}>
