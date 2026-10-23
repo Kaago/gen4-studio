@@ -51,6 +51,29 @@ describe("useShortcuts", () => {
     expect(handlers.onSave).toHaveBeenCalledOnce();
   });
 
+  it("neither_deletes_nor_unpins_the_selection_of_the_hidden_world_on_another_area", async () => {
+    // Texte, Technik, Start: the building or event stays pinned in the hidden world, but Delete and Escape there are not its keys.
+    handlers.toolsActive = false;
+    await press({ key: "Delete" });
+    await press({ key: "Backspace" });
+    await press({ key: "Escape" });
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.onDeleteEvent).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+  });
+
+  it("leaves_a_delete_or_escape_that_something_else_already_handled", async () => {
+    // A document tab in "Offene Scripts" closes on Delete (and prevents the default): the pinned event must not be deleted as well.
+    for (const key of ["Delete", "Backspace", "Escape"]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      event.preventDefault();
+      await act(async () => void document.body.dispatchEvent(event));
+    }
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.onDeleteEvent).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+  });
+
   it("ignores_every_shortcut_while_a_modal_dialog_is_open_wherever_the_key_goes", async () => {
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");

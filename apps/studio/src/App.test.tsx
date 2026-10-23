@@ -625,6 +625,20 @@ describe("App wiring", () => {
       await act(async () => data().onInspect(tile(4)));
       expect(statusLine()).toContain("Kachel x 4, y 0");
     });
+
+    it("leaves_the_middle_of_the_status_line_empty_on_start_and_technik", async () => {
+      // The world's context (header, tile) belongs to the world: the panes without a deck do not show it.
+      await select(listed[1]);
+      expect(statusLine()).toContain("Ort 1, Raster 1");
+      for (const name of ["Start", "Technik"]) {
+        await act(async () => atlasEntry(name)!.click());
+        expect(atlasEntry(name)?.getAttribute("aria-current")).toBe("page");
+        expect(statusLine()).not.toContain("Ort 1");
+        expect(statusLine()).not.toContain("Raster 1");
+      }
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(statusLine()).toContain("Ort 1, Raster 1");
+    });
   });
 
   describe("deck and hinge", () => {
@@ -1261,27 +1275,38 @@ describe("App wiring", () => {
 
     it("does not bring the problems forward while a wizard is open", async () => {
       vi.mocked(savePath).mockResolvedValue("/out.nds");
-      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] });
+      // The build starts before the wizard opens (the title bar's "Bauen" is locked while one is open) and fails while it is.
+      let fail: (reason: unknown) => void = () => {};
+      vi.mocked(buildRom).mockImplementation(() => new Promise((_, reject) => (fail = reject)));
       writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, welt: true } });
       await renderFresh();
       await click("Projekt öffnen");
+      await click("Bauen");
+      expect(buildRom).toHaveBeenCalledOnce();
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       shown.focused = [];
-      await click("Bauen");
+      await act(async () => fail({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] }));
       await click("Probleme zeigen");
       expect(shown.focused).toEqual([]);
       expect(readShellState().handCollapsed.welt).toBe(true);
       expect(barSlot().hidden).toBe(false);
     });
 
-    it("closes the wizard when another project is opened", async () => {
+    it("locks open, save and build in the title bar while a wizard is open, and opens no other project under it", async () => {
+      // Spec §5.5: while a wizard works on the project nothing else may change it (a project opened under it would close it).
+      const titleButton = (label: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`)!;
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       expect(container.querySelector("[data-wizard]")).not.toBeNull();
-      vi.mocked(openProject).mockImplementation(async () => ({ root: "/q", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 }));
-      await click("Projekt öffnen");
-      expect(container.querySelector("[data-wizard]")).toBeNull();
-      expect(barSlot().hidden).toBe(true);
-      expect(handDock().hidden).toBe(false);
+      for (const label of ["Projekt öffnen", "Speichern", "Bauen"]) expect(titleButton(label).disabled).toBe(true);
+      vi.mocked(openProject).mockClear();
+      vi.mocked(openPath).mockClear();
+      await act(async () => titleButton("Projekt öffnen").click());
+      expect(openPath).not.toHaveBeenCalled();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      expect(barSlot().hidden).toBe(false);
+      await click("Abbrechen");
+      for (const label of ["Projekt öffnen", "Bauen"]) expect(titleButton(label).disabled).toBe(false);
     });
 
     it("leaves the hand of the world alone while a wizard holds it", async () => {

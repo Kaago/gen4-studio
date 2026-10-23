@@ -53,7 +53,9 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       // A wizard or dialog covers the workbench: Escape must not unpin, Delete must not delete and undo must not run behind it.
       if (modalOpen()) return;
       const selected = pinnedRef.current;
-      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat) {
+      // Only while the world is shown (on another area the selection stays pinned in the hidden world, the keys are not its), and not
+      // when something else already handled the key (a document tab in "Offene Scripts" closes on Delete).
+      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat && latest.current.toolsActive && !e.defaultPrevented) {
         // Delete (Backspace on a Mac keyboard) removes the selected building or event after asking;
         // neither it nor Escape touches a form field that is being typed in.
         if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey })) {

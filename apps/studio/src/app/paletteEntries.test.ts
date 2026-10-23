@@ -116,6 +116,8 @@ describe("paletteEntries", () => {
 
   it("names_the_commands_shortcuts_and_locks_the_project_commands_while_busy", () => {
     expect(byId("cmd-open")).toMatchObject({ shortcut: "⌘O", icon: "open", disabled: false });
+    // The density has its own icon (rows), not the map legend's.
+    expect(byId("cmd-density")).toMatchObject({ label: "Dichte wechseln", icon: "density" });
     expect(byId("cmd-save")).toMatchObject({ shortcut: "⌘S", disabled: false, run: { kind: "command", command: "save" } });
     // ⌘R plays only inside the app.
     expect(byId("cmd-play")?.shortcut).toBeUndefined();

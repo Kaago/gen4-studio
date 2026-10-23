@@ -114,7 +114,7 @@ function PickerRow({ item, query }: { item: PickerItem; query: string | null }) 
   );
 }
 
-/** Mounted only while the dialog is open, so the query and the highlight start fresh every time. */
+/** Mounted anew for every opening (keyed on it by `Picker`), so the query and the highlight start fresh every time. */
 function PickerBody({
   onOpenChange,
   items,
@@ -132,8 +132,9 @@ function PickerBody({
 }: Omit<PickerProps, "open" | "title">) {
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
-  // The body is mounted anew for every opening, so this guard resets with it. Base UI keeps the popup (and the focused
-  // input) mounted while it closes; a second Enter or a key repeat in that time must not queue a second pick.
+  // The body is mounted anew for every opening, so this guard resets with it (also when the palette is reopened while it
+  // still closes). Base UI keeps the popup (and the focused input) mounted while it closes; a second Enter or a key repeat
+  // in that time must not queue a second pick.
   const picked = useRef(false);
   const { groups, total } = useMemo(() => {
     let found = filterItems(items, query);
@@ -214,9 +215,17 @@ function PickerBody({
  * highlighted, the arrow keys move, Enter picks it, Escape closes without picking.
  */
 export function Picker({ open, onOpenChange, title, ...body }: PickerProps) {
+  // Base UI keeps the popup mounted while it closes; reopened within that time the body would keep its query and its
+  // one-shot pick guard. Counting the openings and keying the body on the count mounts it anew for every opening.
+  const [wasOpen, setWasOpen] = useState(open);
+  const [opening, setOpening] = useState(0);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setOpening((n) => n + 1);
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={title} variant={body.variant}>
-      <PickerBody onOpenChange={onOpenChange} {...body} />
+      <PickerBody key={opening} onOpenChange={onOpenChange} {...body} />
     </Dialog>
   );
 }

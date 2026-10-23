@@ -82,7 +82,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "list", label: "Liste ein/aus", icon: "list", locked: hasList ? null : NO_LIST },
     { command: "layout", label: "Layout zurücksetzen", icon: "layers", description: `Schau und Hand von ${DECK_NAME[deck]} wie beim ersten Start` },
     { command: "theme", label: "Thema wechseln", icon: "sun" },
-    { command: "density", label: "Dichte wechseln", icon: "legend" },
+    { command: "density", label: "Dichte wechseln", icon: "density" },
     { command: "terms", label: "Begriffe", icon: "help" },
     { command: "settings", label: "Einstellungen", icon: "settings" },
     { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },

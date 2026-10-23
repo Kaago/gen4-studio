@@ -299,6 +299,35 @@ describe("Picker", () => {
       expect(onPick).toHaveBeenCalledTimes(2);
     });
 
+    it("a_palette_reopened_while_it_still_closes_starts_with_an_empty_search_and_picks_again", async () => {
+      // Base UI keeps the popup (and the body in it) mounted until its exit animation has finished. An animation that never
+      // finishes stands for reopening the palette within that time.
+      const proto = Element.prototype;
+      const own = Object.getOwnPropertyDescriptor(proto, "getAnimations");
+      Object.defineProperty(proto, "getAnimations", { configurable: true, writable: true, value: () => [{ finished: new Promise(() => {}) }] });
+      try {
+        const { onPick } = renderPalette();
+        type("sand");
+        pressKey(input(), "Enter");
+        await tick();
+        expect(onPick).toHaveBeenCalledTimes(1);
+        const before = input();
+        act(() => root.render(<Picker open={false} onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+        // Still closing: the same search field is there.
+        expect(input()).toBe(before);
+        act(() => root.render(<Picker open onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+        expect(input().value).toBe("");
+        expect(labels().filter((t) => t.includes("Sandgemme"))).toHaveLength(1);
+        type("sand");
+        pressKey(input(), "Enter");
+        await tick();
+        expect(onPick).toHaveBeenCalledTimes(2);
+      } finally {
+        if (own) Object.defineProperty(proto, "getAnimations", own);
+        else Reflect.deleteProperty(proto, "getAnimations");
+      }
+    });
+
     it("a_disabled_item_is_listed_and_marked_but_never_picked", async () => {
       const locked: PickerItem[] = [
         { id: "cmd-area", label: "Gebiet anlegen…", group: "Befehle", icon: "plus", disabled: true, description: "Erst ein Projekt öffnen" },

@@ -343,9 +343,12 @@ function AppBody() {
   }, [session.info, remember, setArea]);
   // Recent projects that could not be opened this time (their folder is gone, or it is not a project any more).
   const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
-  /** Asks for a project and opens it; not while a build or save runs (the title bar's button is disabled then too). */
+  /**
+   * Asks for a project and opens it; not while a build or save runs, nor while a wizard works on the open project (the title bar's
+   * button is disabled then too).
+   */
   function openProject() {
-    if (!session.busy) void session.onOpen(resetProject);
+    if (!session.busy && wizards.request === null) void session.onOpen(resetProject);
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.
@@ -623,8 +626,9 @@ function AppBody() {
                 projectName={info ? projectName(info.root) : null}
                 game={info ? gameLabel(info) : null}
                 dirtyCount={session.dirtyCount + scripts.dirtyCount}
-                busy={session.busy}
-                onOpen={() => void session.onOpen(resetProject)}
+                // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
+                busy={session.busy || showsWizard}
+                onOpen={openProject}
                 onSave={() => void session.onSave()}
                 onBuild={() => void session.onBuild()}
                 onHelp={onHelp}
@@ -653,7 +657,7 @@ function AppBody() {
               <StatusLine
                 left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
                 middle={
-                  showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : area === "einstellungen" ? "Änderungen gelten sofort und für alle Projekte" : context
+                  showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : area === "einstellungen" ? "Änderungen gelten sofort und für alle Projekte" : area === "welt" ? context : null
                 }
                 right={<ProblemCount store={problems} />}
                 bridge={bridge}

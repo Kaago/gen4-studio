@@ -46,6 +46,7 @@ import {
   Play,
   Plus,
   Question,
+  Rows,
   Signpost,
   Stack,
   Sun,
@@ -118,6 +119,7 @@ export const icons = {
   system: Monitor,
   patch: Bandaids,
   tools: Toolbox,
+  density: Rows,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;
