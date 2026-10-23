@@ -135,3 +135,5 @@ Offene Punkte aus dem Durchlauf:
 - Hand: Stoppuhr-Lauf (A) durch einen Menschen; kurzer Durchgang mit der gebündelten App.
 - Agent + Blick: Ausrichtung der Kartenbilder gegen die 3D-Ansicht von oben.
 - Befunde: Raum-Assistent lässt den kopierten Warp auf der Rückweg-Kachel stehen (Rückweg führt ins Ziel der Vorlage); Eingang auf freier Kachel löst nicht aus; Header „UG“ gilt als „wirkt unbenutzt“, ist aber nicht nutzbar; Außen-Kachel außerhalb wird begrenzt statt abgelehnt; Popover „Begriffe“ im schmalen Panel abgeschnitten.
+
+Nachtrag Handprüfung 2026-10-23 (Nutzer, `pnpm tauri dev -- --bin studio`, Kopie `pt-hand`): Ausrichtung der Kartenbilder gegen die 3D-Ansicht von oben ok. Stoppuhr-Lauf (A) vom Nutzer mit „passt“ bestätigt (Kopie `pt-uhr`; Zeit nicht notiert, auf der Platte war danach kein angelegtes Gebiet zu finden). DSPRE und der Durchgang mit der gepackten App wurden auf Wunsch des Nutzers nicht mehr durchgeführt.

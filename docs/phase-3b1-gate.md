@@ -139,3 +139,5 @@ Offene Punkte aus dem Durchlauf:
 - Hand: DSPRE-Gegenprobe (A) 12–15; kurzer Durchgang mit der gebündelten App.
 - Agent + Blick: (B) Aussehen der erhöhten Zelle, Hover und Ziehen; (C) Billboards in 3D und Richtungswechsel ohne Neuladen.
 - Befunde (Liste beim Gate-Lauf): Warp auf freier Kachel löst im Spiel nicht aus und die App warnt nicht; Assistenten-Textfelder verlieren den Wert, wenn direkt nach dem Tippen „Weiter“ geklickt wird; Vorlage eines neuen Headers ist Header 0, wenn die erste gewählte Zelle eine Füllfläche ist; Ergebnis-Schritt nennt den neuen Header nicht als neu; (F) Zeitlimit-Rückfall nicht ausgelöst.
+
+Nachtrag Handprüfung 2026-10-23 (Nutzer, `pnpm tauri dev -- --bin studio`, Kopie `pt-hand`): (B) erhöhte Zelle (Route 201, x 4, y 26, Höhe 2) in 3D sichtbar höher, Hover zeigt die Kachel unter dem Zeiger, Undo ok; (C) Sprites aufrecht, nicht gespiegelt, Richtung 0 bis 3 wechselt sichtbar. Beide Blick-Punkte bestanden. DSPRE-Gegenprobe auf Wunsch des Nutzers nicht durchgeführt.
