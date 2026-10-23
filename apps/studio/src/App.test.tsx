@@ -551,11 +551,11 @@ describe("App wiring", () => {
 
     it("counts_the_undo_steps_after_a_write_and_lists_their_labels_newest_first", async () => {
       expect(hingeButton(/^Verlauf/)?.textContent).toContain("0");
-      vi.mocked(history).mockResolvedValue({ undo: ["edit header", "move event", ""], redo: [] });
+      vi.mocked(history).mockResolvedValue({ undo: ["Name geändert", "move event", ""], redo: [] });
       await act(async () => data().onEdited());
       await tick(150);
       expect(hingeButton(/^Verlauf/)?.textContent).toContain("3");
-      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Event verschoben", "Header geändert"]);
+      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Event verschoben", "Name geändert"]);
     });
 
     it("goes_back_as_many_undo_steps_as_the_clicked_entry_is_deep", async () => {
@@ -570,7 +570,7 @@ describe("App wiring", () => {
 
     it("redoes_from_the_hinge_when_there_is_something_to_redo", async () => {
       expect(hingeButton("Wiederholen")?.disabled).toBe(true);
-      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["move event"] });
+      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["Tür verschoben"] });
       await act(async () => data().onEdited());
       await tick(150);
       expect(hingeButton("Wiederholen")?.disabled).toBe(false);
@@ -772,12 +772,15 @@ describe("App wiring", () => {
       expect(handState().collapsed).toBe(true);
       const field = document.createElement("input");
       document.body.append(field);
-      field.focus();
-      await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
-      // The field keeps the keyboard, so the tab stays where it is and the hand stays closed.
-      expect(shown.focused).toEqual([]);
-      expect(handState().collapsed).toBe(true);
-      field.remove();
+      try {
+        field.focus();
+        await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+        // The field keeps the keyboard, so the tab stays where it is and the hand stays closed.
+        expect(shown.focused).toEqual([]);
+        expect(handState().collapsed).toBe(true);
+      } finally {
+        field.remove();
+      }
       await act(async () => data().onSelectBuilding({ map: 0, index: 2 }));
       expect(shown.focused).toEqual(["inspector"]);
       expect(handState().collapsed).toBe(false);

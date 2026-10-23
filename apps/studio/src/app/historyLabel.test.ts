@@ -35,6 +35,12 @@ describe("historyLabel", () => {
     expect(historyLabel(label)).toBe(german);
   });
 
+  it("passes_a_german_label_of_the_frontend_through_unchanged", () => {
+    expect(historyLabel("Wetter")).toBe("Wetter");
+    expect(historyLabel("Skript")).toBe("Skript");
+    expect(historyLabel("Tür verschoben")).toBe("Tür verschoben");
+  });
+
   it("reads_Aenderung_for_an_empty_or_unknown_label", () => {
     expect(historyLabel("")).toBe("Änderung");
     expect(historyLabel("something new")).toBe("Änderung");

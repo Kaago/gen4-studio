@@ -33,7 +33,13 @@ const PATTERNS: readonly [RegExp, (match: RegExpMatchArray) => string][] = [
   [/^connect warp to header (\d+)$/, (m) => `Warp mit Header ${m[1]} verbinden`],
 ];
 
-/** The German name of one undo step; a label this table does not know (or an empty one) reads "Änderung". */
+/** What the kernel and the commands write: lowercase ASCII words. Anything else was named by the frontend (a German field label) already. */
+const DEVELOPER_STRING = /^[a-z0-9 ]+$/;
+
+/**
+ * The German name of one undo step. Known kernel labels are translated; a label that is not a lowercase ASCII developer string
+ * (the editors commit with a German field label such as "Wetter") passes through; an empty or unknown developer label reads "Änderung".
+ */
 export function historyLabel(label: string): string {
   const known = KNOWN[label];
   if (known !== undefined) return known;
@@ -41,7 +47,7 @@ export function historyLabel(label: string): string {
     const match = pattern.exec(label);
     if (match !== null) return text(match);
   }
-  return "Änderung";
+  return label !== "" && !DEVELOPER_STRING.test(label) ? label : "Änderung";
 }
 
 export const germanHistory = (history: HistoryDto): HistoryDto => ({ undo: history.undo.map(historyLabel), redo: history.redo.map(historyLabel) });
