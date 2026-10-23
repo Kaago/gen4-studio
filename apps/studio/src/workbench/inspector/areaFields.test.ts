@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AreaDataDto } from "../../api";
 import { areaFieldSpecs, areaValue, tilesetKey, withAreaField } from "./areaFields";
-import { clampField, pickMax } from "./fields";
+import { pickMax } from "./fields";
 
 const dppt: AreaDataDto = { family: "Dppt", buildings_tileset: 1, map_tileset: 2, unknown: 3, light_type: 4 };
 const hgss: AreaDataDto = { family: "Hgss", buildings_tileset: 1, map_tileset: 2, dynamic_texture_type: 3, area_type: 1, light_type: 9 };
@@ -23,14 +23,6 @@ describe("areaFieldSpecs", () => {
     const counts = { MapTexture: 5, BuildingTexture: 3 };
     expect(pickMax(map.pick!, counts)).toBe(4);
     expect(pickMax(buildings.pick!, counts)).toBe(2);
-    expect(clampField(map, 99, 4)).toBe(4);
-    expect(clampField(map, -3, 4)).toBe(0);
-    // Without counts only the storage width limits it.
-    expect(clampField(map, 70000, undefined)).toBe(0xffff);
-    // 8-bit fields of HGSS.
-    const light = areaFieldSpecs("Hgss").find((f) => f.key === "light_type")!;
-    expect(clampField(light, 300)).toBe(0xff);
-    expect(clampField(areaFieldSpecs("Hgss").find((f) => f.key === "area_type")!, 300)).toBe(0xff);
   });
 });
 

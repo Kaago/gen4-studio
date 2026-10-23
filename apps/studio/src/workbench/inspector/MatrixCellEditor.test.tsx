@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MATRIX_EMPTY, duplicateMap, getMatrix, setMatrixCell } from "../../api";
-import type { MatrixDto } from "../../api";
+import type { AssetId, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
@@ -23,7 +23,8 @@ describe("MatrixCellEditor", () => {
   const onEdited = vi.fn();
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
-  const context = (): MatrixCellContext => ({ headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError });
+  let dirty: AssetId[] = [];
+  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -32,6 +33,7 @@ describe("MatrixCellEditor", () => {
     vi.mocked(setMatrixCell).mockReset().mockResolvedValue(undefined);
     vi.mocked(duplicateMap).mockReset().mockResolvedValue(77);
     for (const fn of [goTo, onEdited, onCountsChanged, onError]) fn.mockReset();
+    dirty = [];
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -57,6 +59,15 @@ describe("MatrixCellEditor", () => {
     expect(input("Karte").value).toBe("11");
     expect(input("Header").value).toBe("412");
     expect(input("Höhe").value).toBe("2");
+  });
+
+  it("says_Ungespeichert_while_the_matrix_has_unsaved_changes_and_not_for_another_matrix", async () => {
+    dirty = [{ kind: "Matrix", index: 4 }, { kind: "Map", index: 3 }];
+    await show();
+    expect(container.textContent).not.toContain("Ungespeichert");
+    dirty = [{ kind: "Matrix", index: 3 }];
+    await show();
+    expect(container.textContent).toContain("Ungespeichert");
   });
 
   it("writes_a_changed_map_and_an_emptied_map_as_the_empty_marker", async () => {

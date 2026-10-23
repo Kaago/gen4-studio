@@ -62,7 +62,8 @@ const pinned: InspectorModel = { kind: "header", id: 1 };
 type Inputs = Parameters<typeof useWorkbenchModel>[0];
 
 /** The pieces App's hooks hand over: every callback has the identity it has in the real hooks (stable). Their results are not used here. */
-const session = { info, busy: false, counts, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop } as unknown as Omit<Inputs["session"], "message">;
+const dirtyList = [{ kind: "Event", index: 8 }] as const;
+const session = { info, busy: false, counts, dirtyAssets: dirtyList, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop } as unknown as Omit<Inputs["session"], "message">;
 const scene = { headers, selected: 1, matrix, sceneArea: 0, history, onSelect: noop, goTo: noop, onHeaderChanged: noop, onAreaChanged: noop, onMatrixEdited: noop } as unknown as Inputs["scene"];
 const world = {
   eventLock: null,
@@ -146,6 +147,8 @@ describe("workbench model", () => {
     show({ hover: tile(2), message: { kind: "info", text: "Modelle 3/900" } });
     show({ hover: null, message: { kind: "info", text: "Modelle 4/900" } });
     expect(new Set(models.map((m) => m.data)).size).toBe(1);
+    // The data carries the session's dirty assets (the inspector's "Ungespeichert"), and hover/message did not change them.
+    expect(models[0].data.dirtyAssets).toBe(dirtyList);
     // ... while the volatile part does follow.
     expect(models[2].live.inspector).toMatchObject({ kind: "tile", x: 2 });
     expect(models[3].live.message?.text).toBe("Modelle 3/900");

@@ -24,7 +24,7 @@ describe("BuildingEditor", () => {
   const onAdd = vi.fn();
   const onDelete = vi.fn();
   const onError = vi.fn();
-  const context = (over: Partial<BuildingEditorContext> = {}): BuildingEditorContext => ({ areaDataId: 3, counts: { BuildingModel: 50 }, revision: 0, onChanged, onAdd, onDelete, onError, ...over });
+  const context = (over: Partial<BuildingEditorContext> = {}): BuildingEditorContext => ({ areaDataId: 3, counts: { BuildingModel: 50 }, dirty: [], revision: 0, onChanged, onAdd, onDelete, onError, ...over });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -56,6 +56,13 @@ describe("BuildingEditor", () => {
     await show();
     expect(container.querySelector("h2")?.textContent).toBe("Gebäude 3 von 3");
     expect(container.textContent).toContain("Karte 0012");
+  });
+
+  it("says_Ungespeichert_while_the_map_has_unsaved_changes_and_not_for_another_map", async () => {
+    await show(context({ dirty: [{ kind: "Map", index: 13 }, { kind: "Event", index: 12 }] }));
+    expect(container.textContent).not.toContain("Ungespeichert");
+    await show(context({ dirty: [{ kind: "Map", index: 12 }] }));
+    expect(container.textContent).toContain("Ungespeichert");
   });
 
   it("shows_the_fields_and_the_rotation_as_read_only_hex", async () => {

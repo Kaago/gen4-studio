@@ -264,10 +264,11 @@ export function InspectorPanel() {
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,
       }}
-      areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
+      areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
       buildingEditor={{
         areaDataId: d.areaDataId,
         counts: d.memberCounts,
+        dirty: d.dirtyAssets,
         revision: buildingRevision,
         onChanged: d.onBuildingChanged,
         onAdd: d.onAddBuilding,
@@ -276,6 +277,7 @@ export function InspectorPanel() {
       }}
       eventEditor={{
         headers: d.headers,
+        dirty: d.dirtyAssets,
         family: d.info?.family ?? null,
         revision: eventRevision,
         onChanged: d.onEventChanged,
@@ -289,6 +291,7 @@ export function InspectorPanel() {
         onError: d.onError,
       }}
       matrixEditor={{
+        dirty: d.dirtyAssets,
         headerCount: d.headers.length,
         goTo: d.goTo,
         counts: d.memberCounts,

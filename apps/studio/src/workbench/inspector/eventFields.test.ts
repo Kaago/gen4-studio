@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoordDto, EventPatch, EventsDto, WarpDto } from "../../api";
 import type { EventData } from "../../world/events";
-import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs, eventPatch, eventSubtitle } from "./eventFields";
+import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventPatch, eventSubtitle } from "./eventFields";
 import { EditSession } from "./headerCommit";
 
 const warp = (over: Partial<WarpDto> = {}): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0, ...over });
@@ -44,15 +44,6 @@ describe("eventFieldSpecs", () => {
     expect(range("object")).toEqual([0, 65535]);
     expect(range("coord")).toEqual([-32768, 32767]);
     expect(range("bg")).toEqual([-2147483648, 2147483647]);
-  });
-});
-
-describe("clampEventValue", () => {
-  it("rounds to a whole number and keeps it in range", () => {
-    const x = { min: 0, max: 65535 };
-    expect(clampEventValue(x, 3.6)).toBe(4);
-    expect(clampEventValue(x, -4)).toBe(0);
-    expect(clampEventValue(x, 70000)).toBe(65535);
   });
 });
 

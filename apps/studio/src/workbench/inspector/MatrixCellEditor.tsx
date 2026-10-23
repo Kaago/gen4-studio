@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
-import type { MemberCounts } from "../../api";
+import type { AssetId, MemberCounts } from "../../api";
 import { Button, InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
 import { useMatrix } from "../useMatrix";
 import styles from "./Editor.module.css";
+import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
 
 /** What the cell editor needs from App. */
 export interface MatrixCellContext {
+  /** The assets with unsaved changes: the head says "Ungespeichert" while the matrix is one. */
+  dirty: readonly AssetId[];
   /** Number of map headers (the largest header id plus one). */
   headerCount: number;
   /** Follows a link (the cell's header). */
@@ -50,23 +53,24 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: number; x: number; y: number; context: MatrixCellContext }) {
-  const { headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError } = context;
+  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
 
   const title = `Zelle ${x}, ${y}`;
   const matrixName = `${TERMS.matrix.label} ${id4(index)}`;
+  const unsaved = isDirty(dirty, "Matrix", index);
   if (!matrix) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={matrixName} />
+        <InspectorHead title={title} subtitle={matrixName} unsaved={unsaved} />
       </div>
     );
   }
   if (x >= matrix.width || y >= matrix.height) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={matrixName} />
+        <InspectorHead title={title} subtitle={matrixName} unsaved={unsaved} />
         <p className={styles.note}>
           Die Zelle liegt außerhalb des Rasters ({matrix.width} × {matrix.height}).
         </p>
@@ -113,7 +117,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context }: { matrix: num
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={title} subtitle={`${matrixName} · ${cellLabel(map, header)}`} />
+      <InspectorHead title={title} subtitle={`${matrixName} · ${cellLabel(map, header)}`} unsaved={unsaved} />
       <div className={styles.body}>
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />

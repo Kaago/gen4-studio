@@ -16,7 +16,7 @@ import type { WorldActions } from "./useWorldActions";
 
 interface WorkbenchModelParams {
   bus: EditBus;
-  session: Pick<ProjectSession, "info" | "message" | "busy" | "counts" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
+  session: Pick<ProjectSession, "info" | "message" | "busy" | "counts" | "dirtyAssets" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
   scene: Pick<SceneSync, "headers" | "selected" | "matrix" | "sceneArea" | "history" | "onSelect" | "goTo" | "onHeaderChanged" | "onAreaChanged" | "onMatrixEdited">;
   world: Pick<
     WorldActions,
@@ -108,6 +108,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     onLoadStatus: session.onLoadStatus,
     onInspect: world.onInspect,
     memberCounts: session.counts,
+    dirtyAssets: session.dirtyAssets,
     onHeaderChanged: scene.onHeaderChanged,
     onAreaChanged: scene.onAreaChanged,
     onMatrixEdited: scene.onMatrixEdited,

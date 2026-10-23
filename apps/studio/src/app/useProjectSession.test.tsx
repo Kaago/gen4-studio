@@ -89,6 +89,23 @@ describe("useProjectSession with open scripts", () => {
     container.remove();
   });
 
+  it("keeps_the_list_of_dirty_assets_next_to_the_count_and_the_same_list_while_it_does_not_change", async () => {
+    expect(session.dirtyAssets).toEqual([]);
+    vi.mocked(dirty).mockResolvedValue([{ kind: "Event", index: 8 }]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyCount).toBe(1);
+    expect(session.dirtyAssets).toEqual([{ kind: "Event", index: 8 }]);
+    // Another read with the same assets (a fresh array from the backend) leaves the list as it was.
+    const before = session.dirtyAssets;
+    vi.mocked(dirty).mockResolvedValue([{ kind: "Event", index: 8 }]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyAssets).toBe(before);
+    // A save empties it.
+    vi.mocked(dirty).mockResolvedValue([]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyAssets).toEqual([]);
+  });
+
   it("build_saves_open_scripts_first_and_stops_on_failure", async () => {
     await openDirty(3, 4);
     await build();

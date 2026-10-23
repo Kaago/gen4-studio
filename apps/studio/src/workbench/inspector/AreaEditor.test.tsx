@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAreaData, setAreaData } from "../../api";
-import type { AreaDataDto } from "../../api";
+import type { AreaDataDto, AssetId } from "../../api";
 import { openSelect, typeInto } from "../../ui/primitives/testUtils";
 import { AreaEditor } from "./AreaEditor";
 
@@ -33,8 +33,8 @@ describe("AreaEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(counts = {}) {
-    await act(async () => root.render(<AreaEditor id={7} context={{ counts, revision: 0, onChanged, onError }} />));
+  async function show(counts = {}, dirty: AssetId[] = []) {
+    await act(async () => root.render(<AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} />));
     await flush();
   }
   const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -46,6 +46,13 @@ describe("AreaEditor", () => {
     expect(input("Dynamische Textur").value).toBe("0");
     expect(input("Lichttyp").value).toBe("4");
     expect(select("Gebietstyp").textContent).toContain("Außen (1)");
+  });
+
+  it("says_Ungespeichert_while_this_area_data_has_unsaved_changes_and_not_for_another_one", async () => {
+    await show({}, [{ kind: "AreaData", index: 8 }, { kind: "Matrix", index: 7 }]);
+    expect(container.textContent).not.toContain("Ungespeichert");
+    await show({}, [{ kind: "AreaData", index: 7 }]);
+    expect(container.textContent).toContain("Ungespeichert");
   });
 
   it("writes_a_changed_area_type_chosen_in_the_select_as_one_undoable_edit", async () => {

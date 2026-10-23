@@ -81,11 +81,6 @@ export function eventSubtitle(kind: EventKind, index: number, total: number | nu
   return `${KIND_SINGULAR[kind]} ${index + 1}${total === null ? "" : ` von ${total}`}${place ? ` in ${place}` : ""}`;
 }
 
-/** `n` rounded to a whole number inside the range of `spec`. */
-export function clampEventValue(spec: Pick<EventFieldSpec, "min" | "max">, n: number): number {
-  return Math.min(spec.max, Math.max(spec.min, Math.round(n)));
-}
-
 const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length"];
 
 function value(e: EventData, key: string): number {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
-import type { BuildingDto, MemberCounts } from "../../api";
+import type { AssetId, BuildingDto, MemberCounts } from "../../api";
 import { Button, InspectorRow, NumberField, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
 import { BUILDING_FIELDS, BUILDING_POSITION_FIELDS, BUILDING_SCALE_FIELDS, buildingBackend, parseNumberField } from "./buildingFields";
 import type { BuildingFieldSpec } from "./buildingFields";
 import styles from "./Editor.module.css";
+import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { InspectorHead } from "./InspectorHead";
 
@@ -14,6 +15,8 @@ export interface BuildingEditorContext {
   /** Area data of the shown scene; it selects the building texture set (and, on HGSS, interior or exterior models). */
   areaDataId: number;
   counts: MemberCounts;
+  /** The assets with unsaved changes: the head says "Ungespeichert" while the building's map is one. */
+  dirty: readonly AssetId[];
   /** Changes whenever buildings may have changed behind the editor's back (a drag, undo, redo). */
   revision: number;
   /** A field was written: the scene reads the map's buildings again (and tries `retryModel` once more). */
@@ -62,7 +65,7 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
  * one building (see `EditSession`).
  */
 export function BuildingEditor({ map, index, context }: { map: number; index: number; context: BuildingEditorContext }) {
-  const { areaDataId, counts, revision, onChanged, onAdd, onDelete, onError } = context;
+  const { areaDataId, counts, dirty, revision, onChanged, onAdd, onDelete, onError } = context;
   const [building, setBuilding] = useState<BuildingDto | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -122,7 +125,7 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
   if (building === null) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={subtitle} />
+        <InspectorHead title={title} subtitle={subtitle} unsaved={isDirty(dirty, "Map", map)} />
       </div>
     );
   }
@@ -144,7 +147,7 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={title} subtitle={subtitle} />
+      <InspectorHead title={title} subtitle={subtitle} unsaved={isDirty(dirty, "Map", map)} />
       <div className={styles.body}>
         <div key={refused}>
           <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>

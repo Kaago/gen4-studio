@@ -28,6 +28,7 @@ describe("EventEditor scripts", () => {
   const context = (over: Partial<EventEditorContext> = {}): EventEditorContext => ({
     // Header 3 (script file 40) and 9 (script file 77) share event file 8.
     headers: [header(3, 8, 40), header(9, 8, 77), header(1, 2, 5)],
+    dirty: [],
     family: "Pt",
     revision: 0,
     onChanged,
@@ -157,6 +158,13 @@ describe("EventEditor scripts", () => {
     await show();
     expect((button("Neues Script") as HTMLButtonElement).disabled).toBe(true);
     expect((button("Öffnen") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says_Ungespeichert_while_the_event_file_has_unsaved_changes_and_not_for_another_file", async () => {
+    await show(context({ dirty: [{ kind: "Event", index: 9 }, { kind: "Map", index: 8 }] }));
+    expect(container.textContent).not.toContain("Ungespeichert");
+    await show(context({ dirty: [{ kind: "Event", index: 8 }] }));
+    expect(container.textContent).toContain("Ungespeichert");
   });
 
   it("names_the_event_by_its_title_and_its_place_among_the_events_of_its_class", async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
-import type { BgDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import type { AssetId, BgDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
@@ -10,6 +10,7 @@ import { TERMS, id4 } from "../terms";
 import { AddEvent } from "./AddEvent";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventSubtitle } from "./eventFields";
+import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
 import { InspectorHead } from "./InspectorHead";
@@ -19,6 +20,8 @@ import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
   headers: HeaderSummary[];
+  /** The assets with unsaved changes: the head says "Ungespeichert" while the event file is one. */
+  dirty: readonly AssetId[];
   /** Game family of the project ("Dp", "Pt", "Hgss"): decides which fields exist. */
   family: string | null;
   /** Changes whenever events may have changed behind the editor's back (a drag, undo, redo, add, delete). */
@@ -51,7 +54,7 @@ const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", 
  * its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context }: { file: number; kind: EventKind; index: number; context: EventEditorContext }) {
-  const { headers, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
+  const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   // How many events of this class the file has, for "Figur 3 von 5".
@@ -105,7 +108,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
   if (event === null) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={`${KIND_LABELS[kind]} ${index}`} subtitle={subtitle} />
+        <InspectorHead title={`${KIND_LABELS[kind]} ${index}`} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} />
       </div>
     );
   }
@@ -117,7 +120,7 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name)} subtitle={subtitle} locked={readOnly} />
+      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
       <div className={styles.body}>
         {locked !== null && (
           <div className={styles.pad}>

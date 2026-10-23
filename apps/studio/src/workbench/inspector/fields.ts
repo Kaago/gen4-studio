@@ -122,27 +122,6 @@ export function fieldBits(spec: FieldSpec): 8 | 16 {
   return typeMax(spec) === 0xff ? 8 : 16;
 }
 
-/**
- * Rounds `value` to a whole number inside the field's storage range. `max` (a picker's
- * member count minus one) lowers the upper limit further; the backend still rejects values
- * that do not fit the game's narrower bit fields.
- */
-export function clampField(spec: FieldSpec, value: number, max?: number): number {
-  if (Number.isNaN(value)) return 0;
-  const upper = Math.max(0, Math.min(typeMax(spec), max ?? Infinity));
-  return Math.min(upper, Math.max(0, Math.round(value)));
-}
-
-/**
- * What a typed field draft means: the clamped number, or null for a blank or non-numeric draft,
- * which stands for "no change" (the field then shows its stored value again).
- */
-export function draftToValue(draft: string, spec: FieldSpec, max?: number): number | null {
-  if (draft.trim() === "") return null;
-  const n = Number(draft);
-  return Number.isNaN(n) ? null : clampField(spec, n, max);
-}
-
 const PICK_ASSET: Partial<Record<PickKind, AssetKind>> = {
   matrix: "Matrix",
   areaData: "AreaData",

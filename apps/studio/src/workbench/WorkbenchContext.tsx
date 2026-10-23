@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
+import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
 import type { MapBuildings, TileClick } from "../world/scene/types";
@@ -70,6 +70,8 @@ export interface WorkbenchData {
   /** The scene reports what is under the pointer (`none` when it left every cell and marker). */
   onInspect: (model: InspectorModel) => void;
   memberCounts: MemberCounts;
+  /** The assets with unsaved changes; it changes only when a write or a save moved them. */
+  dirtyAssets: readonly AssetId[];
   /** A header field was written: refresh list, scene and dirty count. */
   onHeaderChanged: () => void | Promise<void>;
   /** An area data field was written: refresh the dirty count and, if the shown models' tileset changed, the scene. */

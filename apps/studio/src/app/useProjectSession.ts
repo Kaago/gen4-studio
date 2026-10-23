@@ -50,6 +50,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
+  // The assets with unsaved changes (the inspector badges the record it shows); the same array while the list did not change.
+  const [dirtyAssets, setDirtyAssets] = useState<readonly AssetId[]>([]);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
@@ -66,7 +68,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   const refreshDirty = useCallback(async () => {
     try {
-      setDirtyCount((await dirty()).length);
+      const assets = await dirty();
+      setDirtyCount(assets.length);
+      setDirtyAssets((before) => (before.length === assets.length && before.every((a, i) => a.kind === assets[i]!.kind && a.index === assets[i]!.index) ? before : assets));
       setDirtyRevision((r) => r + 1);
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
@@ -320,6 +324,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     message,
     setMessage,
     dirtyCount,
+    dirtyAssets,
     dirtyRef,
     busy,
     lastRom,
