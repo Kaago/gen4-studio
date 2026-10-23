@@ -1,6 +1,6 @@
 # Phase 3b.1: Gate prüfen
 
-Stand: noch nicht durchgeführt.
+Stand: 2026-10-23 vom Agenten durchlaufen (Browser-Modus mit `studio-bridge`, Emulator `g4emu`, main 3b86440); offen sind die Punkte mit „Hand“ und „Agent + Blick“, siehe unten.
 
 Phase 3b.1 (Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript) ist implementiert und automatisch getestet. Das Gate braucht das GUI, melonDS und DSPRE und wird von Hand durchgeführt; die Automatik läuft über `scripts/gate.sh`. Die Ergebnisse stehen unten im Abschnitt "Ergebnis". Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b1-foundation-design.md](superpowers/specs/2026-10-22-phase-3b1-foundation-design.md).
 
@@ -110,20 +110,32 @@ Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, Hea
 
 | Teil | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
 |---|---|---|---|---|---|
-| (A) Neuer Header per Assistent | | | | | |
-| (A) DSPRE-Gegenprobe | | | | | |
-| (B) Höhen | | | | | |
-| (C) Sprites | | | | | |
-| (D) Kachelnamen HGSS | | | | | |
-| (E) Automatik (`scripts/gate.sh`) | | | | | |
-| (F) apicula-Zeitlimit | | | | | |
+| (A) Neuer Header per Assistent | Agent | 2026-10-23 | Platin DE (`pt-gate`), HeartGold DE (`hg-3b1`), Platin DE (`pt-3b1-rep`) | bestanden (1–11, 16, 18) | Browser-Modus statt gebündelter App. Platin: Patch schreibt jetzt `DE F7 AD F8`, Header 0593 `R231`, 0594 mit Eventdatei 328 (= 0342). Gang in `g4emu`: Spielerzimmer 0415 → Treppe → 0593 → Tür → 0411; NARC mit 595 Einträgen im ROM. HeartGold: Header 0540 `HG_TEST`, Gang 0064 → 0540 → 0060, `a/0/5/0` mit 541 Einträgen im ROM. (A) 18: Meldung und „Patch reparieren“ erscheinen, Reparatur ändert genau 3 Bytes, Spiel läuft; `pt-gate` zeigt keine Meldung. Warps im Spiel brauchen eine Tür-Kachel (Verhalten 0x69 **und** Kollision 0x80), auf freier Kachel passiert nichts. Eingetippter Name fiel bei „Weiter“ direkt nach dem Tippen auf die Vorgabe zurück (nur bei Klick ohne vorheriges Verlassen des Feldes beobachtet). (A) 17 entfällt (kein Diamant/Perl-Projekt). |
+| (A) DSPRE-Gegenprobe | Hand | | | offen | DSPRE läuft nur unter Windows. Der von DSPRE geschriebene Patch für Platin DE ist fehlerhaft (siehe (A) 18). |
+| (B) Höhen | Agent + Blick | 2026-10-23 | Platin DE (`pt-gate`) | Daten bestanden, Blick offen | Zelle (4, 26) von Raster 0000 über Inspector „Höhe“ = 2, Nachbar 0, Rückgängig → 0, `dirty` leer. Aussehen in 3D, Hover und Ziehen auf der erhöhten Zelle konnte der Agent nicht gezielt prüfen. |
+| (C) Sprites | Agent + Blick | 2026-10-23 | Platin DE, HeartGold DE | Daten bestanden, Blick offen | Sprites je Grafik und Richtung als Bild gerendert (`target/agent/gate-2026-10-23/sprites-pt.png`, `sprites-hg.png`): 0 Rücken, 1 Gesicht, 2 links, 3 rechts, aufrecht, nicht gespiegelt. Grafik 60000 und HG 101 ohne Sprite (Platzhalter). Billboard in 3D und Wechsel ohne Neuladen: Blick offen. |
+| (D) Kachelnamen HGSS | Agent | 2026-10-23 | HeartGold DE (`hg-3b1`), Platin DE | bestanden | Hover zeigt „Typ 0x06 HEADBUTT“ (Route 29, Karten 0007 und 0053); Platin kennt 0x06 nicht; Projektwechsel ohne Neustart wechselt den Satz. 0x00 hat in HGSS bewusst keinen Namen. |
+| (E) Automatik (`scripts/gate.sh`) | Agent | 2026-10-23 | Platin DE, HeartGold DE, HeartGold US | bestanden | 1393 s, keine Zeile „skipped“. |
+| (F) apicula-Zeitlimit | Agent | 2026-10-23 | Platin DE (`pt-api-timeout`, frisch) | teilweise | Mit `G4_APICULA_TIMEOUT_SECS=1` schaffte apicula jedes Modell (Jubelstadt, Spielerzimmer) in unter 1 s, der Rückfall auf untexturiert wurde also nicht ausgelöst. Keine `.fail`-Datei, `last-tool` = `1001effb87a42dbf`, Oberfläche blieb bedienbar. |
 
 Ergebnis von `scripts/gate.sh` (Tabelle aus der Ausgabe einfügen):
 
 | Step | Project | Result |
 |---|---|---|
-| | | |
+| cargo fmt --check | - | ok |
+| cargo clippy (-D warnings) | - | ok |
+| cargo test (no ROM data) | - | ok |
+| pnpm test | - | ok |
+| pnpm build | - | ok |
+| dist has no bridge | - | ok |
+| g4emu unit | - | ok |
+| g4emu integration | - | ok |
+| gated tests (cargo test) | Pokemon - Goldene Edition HeartGold (Germany) | ok |
+| gated tests (cargo test) | Pokemon - HeartGold Version (USA) | ok |
+| gated tests (cargo test) | Pokemon - Platin-Edition (Germany) | ok |
 
 Offene Punkte aus dem Durchlauf:
 
--
+- Hand: DSPRE-Gegenprobe (A) 12–15; kurzer Durchgang mit der gebündelten App.
+- Agent + Blick: (B) Aussehen der erhöhten Zelle, Hover und Ziehen; (C) Billboards in 3D und Richtungswechsel ohne Neuladen.
+- Befunde (Liste beim Gate-Lauf): Warp auf freier Kachel löst im Spiel nicht aus und die App warnt nicht; Assistenten-Textfelder verlieren den Wert, wenn direkt nach dem Tippen „Weiter“ geklickt wird; Vorlage eines neuen Headers ist Header 0, wenn die erste gewählte Zelle eine Füllfläche ist; Ergebnis-Schritt nennt den neuen Header nicht als neu; (F) Zeitlimit-Rückfall nicht ausgelöst.

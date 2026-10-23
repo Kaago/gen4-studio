@@ -1,6 +1,6 @@
 # Phase 3a: Gate prüfen
 
-Stand: noch nicht durchgeführt.
+Stand: 2026-10-23 vom Agenten durchlaufen (Browser-Modus mit `studio-bridge`, Emulator `g4emu`, main 3b86440); offen sind die Punkte mit „Hand“ und „Agent + Blick“, siehe unten.
 
 Phase 3a (Welt-Explorer, Assistenten, Weltkarte) ist implementiert und automatisch getestet. Das Gate braucht das GUI und melonDS und wird von Hand durchgeführt. Die Ergebnisse stehen unten im Abschnitt "Ergebnis". Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-22-world-explorer-design.md](superpowers/specs/2026-10-22-world-explorer-design.md).
 
@@ -117,19 +117,21 @@ Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, Hea
 
 | Teil | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
 |---|---|---|---|---|---|
-| (A) Assistenten-Lauf | | | | | |
-| (B) Explorer | | | | | |
-| (C) Raster | | | | | |
-| (D) Weltkarte | | | | | |
-| (E) Automatik | | | | | |
-| (F) Einzelprüfungen | | | | | |
+| (A) Assistenten-Lauf | Agent | 2026-10-23 | Platin DE (`pt-3a`) | teilweise | Browser-Modus statt gebündelter App. 1–4 bestanden (zwei R201-Zellen vorgewählt, 0001 „Warps hierher: 0, wirkt unbenutzt“, Area-Data 6). 5–10 bestanden in der Oberfläche (Vorlage 0415 mit Bild, Header 0002, Area-Data 20, „Kopie von 0394“, Tür innen 8, 4 vorbelegt; Außen-Kachel getippt, weil der Agent in der 3D-Szene von Raster 0000 nicht gezielt zeigen kann). 12 im Spiel (`g4emu`) **nicht bestanden**: (a) der Eingang auf der freien Kachel 105, 876 löst nicht aus, erst als Tür-Kachel; (b) Header 0002 „UG“ behält Level-Skript und Kartentyp des Untergrunds, der Raum bleibt schwarz und die Figur hängt; (c) mit „Kopie von 0394“ liegt der kopierte Warp 0 (→ 0414) auf derselben Kachel wie der neue Rückweg (Warp 1), das Spiel nimmt Warp 0: aus dem neuen Raum kommt man ins Spielerhaus statt nach Zweiblattdorf (bestätigt mit einem zweiten Raum, neuer Header 0593). Route 230 (11–12) mit Tür-Kacheln bestanden: hin über 0411 Warp 5, zurück über die Tür in 0001. |
+| (B) Explorer | Agent | 2026-10-23 | Platin DE | bestanden | Suche, Liste, Glossar, „Zum Ziel“ klappt den Ort auf und scrollt ihn ins Bild. „Ohne Ortsnamen“ entfällt auf Platin DE und HeartGold US (jeder Header hat einen Ortsnamen). Im Browser scrollt beim Aufklappen die ganze Seite mit. |
+| (C) Raster | Agent | 2026-10-23 | Platin DE | bestanden | Bilder laden nach und nach (anfangs 100 von 1700 Zellen), Doppelklick öffnet den Header, „+“-Zelle mit Warnung, Route 230 wächst auf 3 × 1. |
+| (D) Weltkarte | Agent | 2026-10-23 | Platin DE, HeartGold US (`hg-us-gate`) | bestanden | Zellenklick springt zum Header; fünf Linien von 0412, 0414, 0416, 0417 und dem neuen Raum 0593 zur Zelle von Zweiblattdorf; 0413/0415 „ohne Eingang“. HeartGold US: New Bark Town = 0060 (T20). Mausrad und Ziehen nicht geprüft. |
+| (E) Automatik | Agent | 2026-10-23 | Platin DE, HeartGold DE, HeartGold US | bestanden | `scripts/gate.sh` grün, siehe Gate 3b.1 (E). |
+| (F) Einzelprüfungen | Agent | 2026-10-23 | Platin DE (`pt-3a-f`, `pt-api-ohne`) | teilweise | Bestanden: Tastatur während eines Assistenten, „Raum hier anbinden…“, falsches Raster (Großmoor 0504 auf Raster 0240), gesperrte Eventdatei, später Fehler, Cmd+Z der Assistenten-Änderungen, Liste und „+ Neu“ im 300-px-Panel, Layout nach Neuladen, Kartenbilder ohne apicula. Nicht bestanden: Popover „Begriffe“ im 300-px-Panel links abgeschnitten; Außen-Kachel x 999 wird still auf 959 begrenzt und der Eingang in einer Zelle ohne Karte angelegt. Header 0002 „UG“ wird im Schritt Eingang nicht als Außen-Header angeboten (Rezept angepasst auf 0504). Ausrichtung der Kartenbilder: Blick offen. |
 
 Gemessene Zeit für (A) (Ziel: unter fünf Minuten, keine Zahl außer der Header-Wahl getippt):
 
 | Lauf | Zeit | Zahlen getippt |
 |---|---|---|
-| 1 | | |
+| 1 (Agent) | nicht aussagekräftig | 2 (Außen-Kachel 105, 876) |
 
 Offene Punkte aus dem Durchlauf:
 
--
+- Hand: Stoppuhr-Lauf (A) durch einen Menschen; kurzer Durchgang mit der gebündelten App.
+- Agent + Blick: Ausrichtung der Kartenbilder gegen die 3D-Ansicht von oben.
+- Befunde: Raum-Assistent lässt den kopierten Warp auf der Rückweg-Kachel stehen (Rückweg führt ins Ziel der Vorlage); Eingang auf freier Kachel löst nicht aus; Header „UG“ gilt als „wirkt unbenutzt“, ist aber nicht nutzbar; Außen-Kachel außerhalb wird begrenzt statt abgelehnt; Popover „Begriffe“ im schmalen Panel abgeschnitten.
