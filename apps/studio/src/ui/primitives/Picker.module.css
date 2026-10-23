@@ -1,0 +1,174 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.search {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-6);
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-sekundaer);
+  font-size: var(--g4-dichte-symbol);
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.search:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.search svg {
+  flex: none;
+}
+
+.input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.input::placeholder {
+  color: var(--g4-text-sekundaer);
+}
+
+/* The focus ring sits on the whole search box, not on the bare input inside it. */
+.input:focus-visible {
+  outline: none;
+}
+
+.search:has(.input:focus-visible) {
+  outline: 2px solid var(--g4-fokus-ring);
+  outline-offset: 1px;
+}
+
+.filters {
+  display: flex;
+}
+
+.list {
+  display: flex;
+  max-height: min(360px, 50vh);
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupLabel {
+  padding: var(--g4-raum-8) var(--g4-dichte-zeile-innen) var(--g4-raum-4);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.row {
+  display: flex;
+  min-height: var(--g4-dichte-zeile);
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-2) var(--g4-dichte-zeile-innen);
+  border-radius: var(--g4-radius-feld);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  cursor: pointer;
+  user-select: none;
+}
+
+.row[data-highlighted] {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+  outline: none;
+}
+
+.preview {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.area {
+  display: inline-flex;
+  flex: none;
+  font-size: var(--g4-dichte-symbol);
+}
+
+.welt {
+  color: var(--g4-bereich-welt);
+}
+
+.geschichten {
+  color: var(--g4-bereich-geschichten);
+}
+
+.pokemon {
+  color: var(--g4-bereich-pokemon);
+}
+
+.gegenstaende {
+  color: var(--g4-bereich-gegenstaende);
+}
+
+.texte {
+  color: var(--g4-bereich-texte);
+}
+
+.technik {
+  color: var(--g4-bereich-technik);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tech {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.row[data-highlighted] .tech,
+.row[data-highlighted] .count {
+  color: inherit;
+}
+
+.count {
+  flex: none;
+  margin-left: auto;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.empty {
+  padding: var(--g4-raum-16) var(--g4-dichte-zeile-innen);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+  text-align: center;
+}
+
+.empty:empty {
+  display: none;
+}
+
+.footer {
+  padding-top: var(--g4-raum-4);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

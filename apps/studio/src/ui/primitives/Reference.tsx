@@ -9,7 +9,7 @@ import styles from "./Reference.module.css";
 
 export type Area = "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik";
 
-const areaIcon: Record<Area, IconName> = {
+export const areaIcon: Record<Area, IconName> = {
   welt: "world",
   geschichten: "stories",
   pokemon: "pokemon",

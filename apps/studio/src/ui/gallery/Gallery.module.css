@@ -136,6 +136,16 @@
   background: var(--g4-flaeche-blatt);
 }
 
+/* Stands in for a map thumbnail; the gallery never ships images from the game. */
+.placeholder {
+  display: block;
+  width: 48px;
+  height: 32px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-welt);
+}
+
 .dialogRow {
   display: flex;
   align-items: flex-end;
