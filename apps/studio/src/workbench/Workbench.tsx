@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { MutableRefObject } from "react";
-import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
+import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
 import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab, WorldMapTab, WorldPanel } from "./panels";
@@ -89,7 +89,7 @@ const Dock = memo(function Dock({ apiRef }: { apiRef: MutableRefObject<DockviewA
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <DockviewReact components={COMPONENTS} onReady={onReady} theme={themeLight} defaultTabComponent={PanelTab} />
+      <DockviewReact components={COMPONENTS} onReady={onReady} className="dockview-theme-g4" defaultTabComponent={PanelTab} />
     </div>
   );
 });

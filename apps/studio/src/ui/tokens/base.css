@@ -1,0 +1,50 @@
+/* Base stylesheet: reset, document font, focus ring, reduced motion, forced colors. Tokens come from tokens.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+  background: var(--g4-flaeche-gehaeuse);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--g4-fokus-ring);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --g4-dauer-kurz: 0ms;
+    --g4-dauer-mittel: 0ms;
+    --g4-dauer-scharnier: 0ms;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --g4-fokus-ring: Highlight;
+    --g4-akzent-grund: Highlight;
+    --g4-akzent-auf: HighlightText;
+  }
+}
