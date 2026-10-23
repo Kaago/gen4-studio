@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import type { RefObject } from "react";
 
 /**
- * Whether Escape should close a modal dialog. Not when something already used the key (a `DraftInput` taking back
- * what was typed calls `preventDefault`), not in a select or text area, and not in a text field that still holds
- * text (a search field clears itself first). An unedited `DraftInput` (marked `data-draft`) lets the dialog close.
+ * Whether Escape should close a modal dialog. Not when something already used the key (a `TextField` or `NumberField`
+ * taking back what was typed calls `preventDefault`), not in a select or text area, and not in a text field that still
+ * holds text (a search field clears itself first). An unedited draft field (marked `data-draft`) lets the dialog close.
  */
 export function escapeCloses(e: KeyboardEvent): boolean {
   if (e.key !== "Escape" || e.defaultPrevented) return false;

@@ -1,0 +1,13 @@
+/* The source grid scrolls inside its column; the caption below keeps its line even when empty. */
+.scroll {
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--g4-raum-2);
+}
+
+.caption {
+  min-height: var(--g4-schrift-zeile-s);
+  margin: var(--g4-raum-6) 0 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

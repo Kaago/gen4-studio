@@ -65,6 +65,12 @@ describe("HeaderPicker", () => {
     expect(options().map((o) => o.textContent)).toEqual(["Zweiblattdorf0411 · T01", "T01R02010414", "Route 2010500 · R201"]);
   });
 
+  it("adds_what_describe_says_about_a_header_to_its_row", async () => {
+    await act(async () => root.render(<HeaderPicker open onOpenChange={onOpenChange} headers={headers} onPick={onPick} cache={cache} describe={(h) => `Warps hierher: ${h.id % 7}`} />));
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["ZweiblattdorfWarps hierher: 50411 · T01", "T01R0201Warps hierher: 10414", "Route 201Warps hierher: 30500 · R201"]);
+  });
+
   it("narrows_by_location_internal_name_and_number", async () => {
     await show();
     type("route");

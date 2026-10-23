@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyHeaderPatch, createArea, getMatrix, headerPatchStatus } from "../../api";
 import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
+import { openSelect, pressKey } from "../../ui/primitives/testUtils";
 import { NewAreaWizard } from "./NewAreaWizard";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
@@ -66,6 +67,20 @@ describe("NewAreaWizard", () => {
   const click = (el: Element | null | undefined, init: MouseEventInit = {}) => act(async () => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true, ...init })));
   const next = () => click(button("Weiter"));
   const selected = () => [...container.querySelectorAll("[data-cell][aria-pressed=true]")].map((e) => e.getAttribute("data-cell"));
+  /** The source select (a Base UI select: a button with the role combobox). */
+  const source = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Raster der Quelle"]');
+  /** The rows of the header picker (a dialog outside the container). */
+  const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
+  async function openPicker() {
+    await click(button("Header wählen…"));
+    await flush();
+  }
+  /** Picks the header with this number in the header picker. */
+  async function pickHeader(id: string) {
+    await openPicker();
+    await click(options().find((o) => o.textContent?.includes(id)));
+    await flush();
+  }
 
   it("creates_the_area_from_two_clicked_cells_and_shows_the_result", async () => {
     await show();
@@ -118,15 +133,13 @@ describe("NewAreaWizard", () => {
 
   it("starts_from_the_prefilled_matrix_and_switches_the_source_with_the_select", async () => {
     await show({ matrix: 1 });
-    expect(container.querySelector<HTMLSelectElement>("select")?.value).toBe("1");
+    expect(source()?.textContent).toContain("Raster 0001 m1 (3 × 2)");
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(6);
     await click(cell(0, 0));
-    await act(async () => {
-      const select = container.querySelector<HTMLSelectElement>("select")!;
-      select.value = "0";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    openSelect(source()!);
+    await act(async () => options().find((o) => o.textContent?.startsWith("Raster 0000"))!.click());
     await flush();
+    expect(source()?.textContent).toContain("Raster 0000 m0 (2 × 1)");
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
     expect(selected()).toEqual([]);
   });
@@ -217,7 +230,7 @@ describe("NewAreaWizard", () => {
     await click(cell(0, 0));
     await next();
     await next();
-    await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0001")));
+    await pickHeader("0001");
     await next();
     expect(container.textContent).toContain("Eventdatei: neu, leer.");
     await click(button("Anlegen"));
@@ -245,7 +258,7 @@ describe("NewAreaWizard", () => {
     await act(async () => root.render(wizard(undefined)));
     await flush();
     expect(getMatrix).toHaveBeenCalledWith(0);
-    expect(container.querySelector<HTMLSelectElement>("select")?.value).toBe("0");
+    expect(source()?.textContent).toContain("Raster 0000");
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
   });
 
@@ -253,7 +266,7 @@ describe("NewAreaWizard", () => {
     await act(async () => root.render(wizard({ matrix: 1 }, [])));
     await act(async () => root.render(wizard({ matrix: 1 })));
     await flush();
-    expect(container.querySelector<HTMLSelectElement>("select")?.value).toBe("1");
+    expect(source()?.textContent).toContain("Raster 0001");
     expect(getMatrix).toHaveBeenCalledWith(1);
     expect(getMatrix).not.toHaveBeenCalledWith(0);
   });
@@ -285,11 +298,12 @@ describe("NewAreaWizard", () => {
     await next();
     await next();
     expect(container.querySelector<HTMLInputElement>('input[aria-label^="Area-Data"]')?.value).toBe("3");
-    // Header 0001 is picked from the list; the warp that leads to it is counted.
-    await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0001")));
+    // Header 0001 is picked in the picker; the warp that leads to it is counted.
+    await pickHeader("0001");
+    expect(container.querySelector('[data-header="1"]')?.textContent).toContain("NOTHING");
     expect(container.textContent).toContain("Warps hierher: 1");
     expect(container.textContent).not.toContain("nichts führt hierher");
-    await click([...container.querySelectorAll("input[type=radio]")].find((r) => r.parentElement?.textContent === "Kopie von 0008"));
+    await click(button("Kopie von 0008"));
     await next();
     expect(container.textContent).toContain("Stellt Header 0001 „NOTHING“ auf das neue Raster um, Area-Data 0003, Eventdatei: Kopie von 0008.");
     await click(button("Anlegen"));
@@ -301,13 +315,15 @@ describe("NewAreaWizard", () => {
     await click(cell(0, 0));
     await next();
     await next();
-    const row = (id: string) => [...container.querySelectorAll("li")].find((li) => li.textContent?.startsWith(id))?.textContent;
+    await openPicker();
+    const row = (id: string) => options().find((o) => o.textContent?.includes(id))?.textContent;
     // Header 0 is the default of every cell without one: no warp leads there, and still it is not free.
     expect(row("0000")).toContain("Warps hierher: 0, Sonder-Header, nicht frei");
     expect(row("0000")).not.toContain("wirkt unbenutzt");
     expect(row("0001")).toContain("Warps hierher: 1");
     expect(row("0001")).not.toContain("wirkt unbenutzt");
-    await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0000")));
+    await click(options().find((o) => o.textContent?.includes("0000")));
+    await flush();
     expect(container.textContent).toContain("Sonder-Header: Vorgabe-Header aller Zellen ohne eigenen");
     expect(container.textContent).not.toContain("nichts führt hierher");
   });
@@ -366,7 +382,8 @@ describe("NewAreaWizard", () => {
       await next();
       await next();
     }
-    const radio = (label: string) => [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.parentElement?.textContent?.startsWith(label));
+    /** An option of a `Segmented` by its text. */
+    const radio = (label: string) => button(label) as HTMLButtonElement | undefined;
     const nameField = () => container.querySelector<HTMLInputElement>('input[aria-label="Interner Name"]');
     async function typeInto(input: HTMLInputElement, text: string) {
       await act(async () => input.focus());
@@ -409,7 +426,7 @@ describe("NewAreaWizard", () => {
     it("says_that_keeping_the_event_file_shares_the_templates", async () => {
       await toHeaderStep();
       await click(radio("Neuer Header"));
-      await click(radio("behalten"));
+      await click(radio("Behalten"));
       await next();
       expect(container.textContent).toContain("Eventdatei: behalten (geteilt mit Header 0001)");
       await click(button("Anlegen"));
@@ -454,6 +471,14 @@ describe("NewAreaWizard", () => {
       expect(container.textContent).toContain("unknown game code XXXX");
       expect(onError).not.toHaveBeenCalled();
     });
+  });
+
+  it("closes_with_escape_from_its_first_control_the_source_select", async () => {
+    // 3c.2 review of Task 5a: the native select took the first Escape.
+    await show();
+    expect(document.activeElement).toBe(source());
+    pressKey(source()!, "Escape");
+    expect(onClose).toHaveBeenCalledWith(false);
   });
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {

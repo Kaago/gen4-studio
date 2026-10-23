@@ -1,0 +1,7 @@
+/* The preview of the new area scrolls inside its column. */
+.preview {
+  max-width: 100%;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--g4-raum-2);
+}

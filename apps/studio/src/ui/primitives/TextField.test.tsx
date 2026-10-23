@@ -154,6 +154,42 @@ describe("TextField", () => {
     expect(commits.mock.calls).toEqual([["b"]]);
   });
 
+  it("does_not_commit_again_when_it_unmounts_right_after_the_blur", () => {
+    // Gate 3b.1 (A) 6 (from the former DraftInput): "Weiter" right after typing; blur and click land before the field
+    // shows the new value, and the unmount committed a draft that was no longer the typed text.
+    function Step() {
+      const [value, setValue] = useState("Neues Gebiet");
+      const [shown, setShown] = useState(true);
+      return (
+        <div>
+          {shown && (
+            <TextField
+              label="Name"
+              value={value}
+              onCommit={(t) => {
+                commits(t);
+                setValue(t);
+              }}
+            />
+          )}
+          <span data-value>{value}</span>
+          <button type="button" onClick={() => setShown(false)}>
+            Weiter
+          </button>
+        </div>
+      );
+    }
+    act(() => root.render(<Step />));
+    act(() => field().focus());
+    typeInto(field(), "Route 231");
+    act(() => {
+      field().blur();
+      container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(commits.mock.calls).toEqual([["Route 231"]]);
+    expect(container.querySelector("[data-value]")?.textContent).toBe("Route 231");
+  });
+
   it("tells_a_live_listener_about_every_keystroke_and_still_commits_only_on_enter_or_blur", () => {
     const changes = vi.fn();
     function Search() {

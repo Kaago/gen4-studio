@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { createArea, errorText } from "../../api";
 import type { AreaReport, AreaSpec, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
+import { Checkbox, Notice, SelectField, TextField } from "../../ui/primitives";
 import { AreaGrid, cellKey } from "../AreaGrid";
 import { buildPlaces, placeColor } from "../places";
-import { DraftInput } from "../DraftInput";
 import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import { useStableCallback } from "../../app/useStable";
@@ -17,6 +16,8 @@ import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
 import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
+import parts from "./WizardStep.module.css";
+import styles from "./NewAreaWizard.module.css";
 
 interface Props {
   headers: HeaderSummary[];
@@ -43,9 +44,6 @@ type Outcome = { kind: "done"; report: AreaReport; spec: AreaSpec } | { kind: "p
 
 /** Above this many cells the preview is left out (a 255 × 255 grid would be 65,025 buttons). */
 const PREVIEW_CELLS = 1024;
-
-const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
-const note: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 
 /**
  * Builds the matrix the preview grid shows: the layout's maps only. It has no header section on purpose: the grid
@@ -169,50 +167,55 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, template), areaDataId: form.areaDataId, eventFile: form.eventFile };
   const pickedCount = form.selected.length + form.manualMaps.length;
 
+  const matrixOptions = useMemo(() => matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` })), [matrices]);
+  const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links) : null;
+
   const steps: WizardStep[] = [
     {
       id: "source",
       title: "Quelle",
       canNext: pickedCount > 0,
       content: (
-        <div>
-          <label style={row}>
-            {TERMS.matrix.label}
-            <select aria-label={`${TERMS.matrix.label} der Quelle`} value={sourceMatrix ?? ""} onChange={(e) => chooseSource(Number(e.target.value))}>
-              {matrices.map((m) => (
-                <option key={m.index} value={m.index}>
-                  {TERMS.matrix.label} {id4(m.index)} {m.name} ({m.width} × {m.height})
-                </option>
-              ))}
-            </select>
-          </label>
-          <div style={note}>{TERMS.map.plural} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</div>
-          {matrix ? (
-            <PickGrid
-              matrix={matrix}
-              headers={headers}
-              areaFallback={headers.find((h) => h.matrix_id === matrix.index)?.area_data_id ?? 0}
-              selected={selectedKeys}
-              places={headerPlaces}
-              last={anchor}
-              onCellClick={onCell}
-            />
-          ) : (
-            <div style={note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? `Kein ${TERMS.matrix.label} vorhanden.`) : "Lade …"}</div>
-          )}
-          <label style={row}>
-            {TERMS.map.plural} per Nummer:
-            <DraftInput label={`${TERMS.map.plural} per Nummer`} value={form.manualMaps.join(", ")} onCommit={setManual} placeholder="z. B. 12, 13" style={{ flex: 1 }} />
-          </label>
-          {rejected.length > 0 && (
-            <div style={{ color: "#b91c1c" }}>
-              Nicht übernommen (keine {TERMS.map.label} von 0 bis {mapMax}): {rejected.join(", ")}
+        <>
+          <section className={`${parts.column} ${parts.wide}`}>
+            <h3 className={parts.heading}>{TERMS.map.plural} aus einem {TERMS.matrix.label}</h3>
+            {matrices.length > 0 && sourceMatrix !== null && (
+              <div className={parts.field}>
+                <SelectField label={`${TERMS.matrix.label} der Quelle`} showLabel value={sourceMatrix} options={matrixOptions} onChange={chooseSource} />
+              </div>
+            )}
+            <p className={parts.note}>{TERMS.map.plural} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</p>
+            {matrix ? (
+              <PickGrid
+                matrix={matrix}
+                headers={headers}
+                areaFallback={headers.find((h) => h.matrix_id === matrix.index)?.area_data_id ?? 0}
+                selected={selectedKeys}
+                places={headerPlaces}
+                last={anchor}
+                onCellClick={onCell}
+              />
+            ) : (
+              <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? `Kein ${TERMS.matrix.label} vorhanden.`) : "Lade …"}</p>
+            )}
+          </section>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Dazu per Nummer</h3>
+            <div className={parts.field}>
+              <TextField
+                label={`${TERMS.map.plural} per Nummer`}
+                showLabel
+                value={form.manualMaps.join(", ")}
+                onCommit={setManual}
+                placeholder="z. B. 12, 13"
+                error={rejected.length > 0 ? `Nicht übernommen (keine ${TERMS.map.label} von 0 bis ${mapMax}): ${rejected.join(", ")}` : undefined}
+              />
             </div>
-          )}
-          <div style={note}>
-            {pickedCount} {pickedCount === 1 ? TERMS.map.label : TERMS.map.plural} gewählt.
-          </div>
-        </div>
+            <p className={parts.text}>
+              {pickedCount} {pickedCount === 1 ? TERMS.map.label : TERMS.map.plural} gewählt.
+            </p>
+          </section>
+        </>
       ),
     },
     {
@@ -220,28 +223,27 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       title: "Anordnung",
       canNext: "spec" in built,
       content: (
-        <div>
-          <label style={row}>
-            Name
-            <DraftInput label="Name des neuen Gebiets" value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} style={{ flex: 1 }} />
-          </label>
-          <label style={row}>
-            <input type="checkbox" checked={form.clearBuildings} onChange={(e) => setForm((f) => ({ ...f, clearBuildings: e.target.checked }))} />
-            ohne Gebäude
-          </label>
-          <label style={row}>
-            <input type="checkbox" checked={form.withHeaders} onChange={(e) => setForm((f) => ({ ...f, withHeaders: e.target.checked }))} />
-            {TERMS.header.label}-Abschnitt anlegen
-          </label>
-          {"error" in built && <div style={{ color: "#b91c1c" }}>{built.error}</div>}
-          <div style={{ maxHeight: 320, overflow: "auto", padding: 2, marginTop: 8 }}>
+        <>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Das neue Gebiet</h3>
+            <div className={parts.field}>
+              <TextField label="Name des neuen Gebiets" showLabel value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} />
+            </div>
+            <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
+            <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />
+            {"error" in built && <Notice kind="error">{built.error}</Notice>}
+          </section>
+          <section className={`${parts.column} ${parts.wide}`}>
+            <h3 className={parts.heading}>Vorschau</h3>
             {preview ? (
-              <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} />
+              <div className={styles.preview}>
+                <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} />
+              </div>
             ) : (
-              "spec" in built && <div style={note}>Die Vorschau entfällt bei so vielen Zellen.</div>
+              "spec" in built && <p className={parts.note}>Die Vorschau entfällt bei so vielen Zellen.</p>
             )}
-          </div>
-        </div>
+          </section>
+        </>
       ),
     },
     {
@@ -271,17 +273,19 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       title: "Zusammenfassung",
       canNext: "spec" in built,
       content: (
-        <div>
-          {"spec" in built ? (
-            areaSummary(built.spec, headers, links).map((line) => (
-              <p key={line} style={{ margin: "6px 0" }}>
-                {line}
-              </p>
-            ))
+        <section className={parts.column}>
+          {summaryLines ? (
+            <Notice kind="info">
+              <div className={parts.lines}>
+                {summaryLines.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            </Notice>
           ) : (
-            <p style={{ color: "#b91c1c" }}>{built.error}</p>
+            "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
-        </div>
+        </section>
       ),
     },
   ];
@@ -316,7 +320,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       busy={busy || patch.busy}
       result={result}
       error={refusal}
-      summary={"spec" in built ? areaSummary(built.spec, headers, links)[0] : undefined}
+      summary={summaryLines?.[0]}
       irreversible
     />
   );

@@ -25,7 +25,7 @@ export type TextFieldProps = {
 };
 
 /**
- * A text field that writes on blur or Enter, like `DraftInput`: Escape takes the typed text back (and uses the key, so a
+ * A text field that writes on blur or Enter, never per keystroke: Escape takes the typed text back (and uses the key, so a
  * dialog around the field stays open), and `data-draft` marks the field for `escapeCloses`.
  */
 export function TextField({ label, value, onCommit, onChange, type = "text", error, hint, disabled, placeholder, multiline, showLabel }: TextFieldProps) {

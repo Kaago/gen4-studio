@@ -982,7 +982,8 @@ describe("App wiring", () => {
     const summary = (index: number) => ({ index, name: `m${index}`, width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 });
     const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
     const buttons = () => [...container.querySelectorAll("button")];
-    const sourceSelect = () => container.querySelector<HTMLSelectElement>("select");
+    /** The source select of the area wizard (a Base UI select: a button with the role combobox). */
+    const sourceSelect = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Raster der Quelle"]');
 
     beforeEach(async () => {
       // The project is already open (and its overview empty): the matrices are read again.
@@ -1000,7 +1001,10 @@ describe("App wiring", () => {
       await press(container.querySelector('[data-cell="0,0"]'));
       await click("Weiter");
       await click("Weiter");
-      await press(buttons().find((b) => b.textContent?.startsWith("0001")));
+      // Header 0001 is chosen in the header picker (a dialog in the document, outside the deck).
+      await click("Header wählen…");
+      await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+      await press([...document.querySelectorAll("[role=option]")].find((o) => o.textContent?.includes("0001")));
       await click("Weiter");
       await click("Anlegen");
       expect(createArea).toHaveBeenCalledOnce();
@@ -1103,10 +1107,10 @@ describe("App wiring", () => {
     it("copies from the matrix of the selected header unless the request names one", async () => {
       await select(listed[1]);
       await act(async () => data().onOpenWizard({ kind: "area" }));
-      expect(sourceSelect()?.value).toBe("1");
+      expect(sourceSelect()?.textContent).toContain("Raster 0001");
       await click("Abbrechen");
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
-      expect(sourceSelect()?.value).toBe("0");
+      expect(sourceSelect()?.textContent).toContain("Raster 0000");
     });
   });
 

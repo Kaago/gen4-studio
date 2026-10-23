@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixDto } from "../../api";
 import { AreaGrid } from "../AreaGrid";
 import { TERMS, id4 } from "../terms";
+import styles from "./PickGrid.module.css";
 
 /** The place and colour of a header, as the matrix tab tints its cells. */
 export type HeaderPlaces = ReadonlyMap<number, { name: string; color: string }>;
@@ -17,8 +17,6 @@ interface Props {
   last: { x: number; y: number } | null;
   onCellClick: (x: number, y: number, modifiers: { shift: boolean }) => void;
 }
-
-const caption: CSSProperties = { margin: "6px 0 0", minHeight: 18, color: "#374151" };
 
 /** "Route 201 · Header 0342 · Karte 0521": which place a cell belongs to (a 32 px cell has room for no number). */
 export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, y: number): string | null {
@@ -53,7 +51,7 @@ export function PickGrid({ matrix, headers, areaFallback, selected, places, last
   return (
     <div>
       <div
-        style={{ maxHeight: 320, overflow: "auto", padding: 2 }}
+        className={styles.scroll}
         onMouseOver={(e) => {
           const key = e.target instanceof Element ? e.target.closest("[data-cell]")?.getAttribute("data-cell") : null;
           const [x, y] = key ? key.split(",").map(Number) : [];
@@ -63,7 +61,7 @@ export function PickGrid({ matrix, headers, areaFallback, selected, places, last
       >
         {grid}
       </div>
-      <div style={caption} data-caption="">
+      <div className={styles.caption} data-caption="">
         {(shown && cellCaption(matrix, places, shown.x, shown.y)) ?? ""}
       </div>
     </div>

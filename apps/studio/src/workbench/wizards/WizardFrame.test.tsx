@@ -3,8 +3,8 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NumberField } from "../../ui/primitives";
 import { pressKey, typeInto } from "../../ui/primitives/testUtils";
-import { DraftInput } from "../DraftInput";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardFrameProps } from "./WizardFrame";
 import { wizardStatus } from "./wizardStatus";
@@ -35,7 +35,7 @@ describe("WizardFrame", () => {
   function Harness(props: Partial<WizardFrameProps> & { start?: number }) {
     const { start = 0, ...rest } = props;
     const [step, setStep] = useState(start);
-    const [x, setX] = useState("5");
+    const [x, setX] = useState(5);
     const steps = [
       {
         id: "a",
@@ -43,7 +43,7 @@ describe("WizardFrame", () => {
         canNext: true,
         content: (
           <div>
-            <DraftInput label="Kachel x" type="number" value={x} onCommit={setX} />
+            <NumberField label="Kachel x" value={x} onCommit={setX} />
             <textarea aria-label="Notiz" />
             <span data-x>{x}</span>
           </div>

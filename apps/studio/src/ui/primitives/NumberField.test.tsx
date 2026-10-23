@@ -160,6 +160,56 @@ describe("NumberField", () => {
     expect(text()).toContain("ganze Zahl");
   });
 
+  /** An owner whose value may be missing (a door tile not chosen yet, area data that stays as it is). */
+  function Optional(props: { start: number | null; clearable?: boolean }) {
+    const [value, setValue] = useState<number | null>(props.start);
+    return (
+      <NumberField
+        label="Modell"
+        value={value}
+        max={31}
+        onCommit={(n) => {
+          commits(n);
+          setValue(n);
+        }}
+        onClear={
+          props.clearable
+            ? () => {
+                commits(null);
+                setValue(null);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+
+  it("shows_a_missing_value_as_an_empty_field_and_takes_a_typed_one", () => {
+    act(() => root.render(<Optional start={null} />));
+    expect(input().value).toBe("");
+    typeAndBlur("");
+    expect(commits).not.toHaveBeenCalled();
+    typeAndBlur("40");
+    expect(commits).not.toHaveBeenCalled();
+    expect(text()).toContain("höchstens 31");
+    expect(input().value).toBe("");
+    typeAndEnter("12");
+    expect(commits.mock.calls).toEqual([[12]]);
+    expect(input().value).toBe("12");
+    // Without `onClear` an emptied field is refused.
+    typeAndBlur("");
+    expect(text()).toContain("Gib eine Zahl ein");
+    expect(input().value).toBe("12");
+  });
+
+  it("hands_an_emptied_field_to_onClear_when_the_owner_takes_one", () => {
+    act(() => root.render(<Optional start={3} clearable />));
+    typeAndBlur("");
+    expect(commits.mock.calls).toEqual([[null]]);
+    expect(input().value).toBe("");
+    expect(text()).not.toContain("Gib eine Zahl ein");
+  });
+
   it("takes_the_smaller_of_max_and_the_bit_width_as_the_ceiling", () => {
     act(() => root.render(<Owner bits={8} max={300} />));
     typeAndEnter("256");
