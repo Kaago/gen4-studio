@@ -10,13 +10,15 @@ import "./ui/tokens/base.css";
 import "dockview/dist/styles/dockview.css";
 import "./ui/tokens/dockview-theme.css";
 import { applyDensity, applyTheme, readDensity, readTheme } from "./ui/tokens/theme";
+import { inTauri } from "./platform/transport";
+import { Gallery } from "./ui/gallery/Gallery";
 import App from "./App";
 
 applyTheme(readTheme());
 applyDensity(readDensity());
 
+const showGallery = !inTauri() && new URLSearchParams(location.search).has("gallery");
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{showGallery ? <Gallery /> : <App />}</React.StrictMode>,
 );

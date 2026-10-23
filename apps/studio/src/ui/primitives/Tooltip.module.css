@@ -1,0 +1,24 @@
+.positioner {
+  z-index: 1000;
+}
+
+.popup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  max-width: 280px;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  /* Floating surfaces carry the only shadow; the tokens define no shadow color, so the overlay color serves. */
+  box-shadow: 0 var(--g4-raum-4) var(--g4-raum-12) var(--g4-flaeche-ueberlagerung);
+  transition: opacity var(--g4-dauer-kurz);
+}
+
+.popup[data-starting-style],
+.popup[data-ending-style] {
+  opacity: 0;
+}
