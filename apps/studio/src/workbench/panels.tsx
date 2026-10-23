@@ -190,8 +190,8 @@ export function ScriptTab() {
 }
 
 export function ProblemsTab() {
-  const { problems, goTo } = useWorkbench();
-  const context = useMemo<ProblemsPanelContext>(() => ({ problems, goTo }), [problems, goTo]);
+  const { problems, depth, goTo } = useWorkbench();
+  const context = useMemo<ProblemsPanelContext>(() => ({ problems, depth, goTo }), [problems, depth, goTo]);
   return <ProblemsPanel context={context} />;
 }
 

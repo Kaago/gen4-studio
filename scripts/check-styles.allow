@@ -2,7 +2,6 @@
 # Plan 3c.2 moves these to CSS Modules and empties this list.
 apps/studio/src/workbench/text/*
 apps/studio/src/workbench/script/*
-apps/studio/src/workbench/problems/*
 apps/studio/src/workbench/wizards/*
 apps/studio/src/app/WizardHost.tsx
 apps/studio/src/platform/WebDialogHost.tsx
