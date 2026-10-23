@@ -325,6 +325,32 @@ describe("NewRoomWizard", () => {
     expect(templateRow(4)).not.toBeNull();
   });
 
+  it("clears_a_filled_template_search_with_the_first_escape_and_cancels_with_the_second", async () => {
+    await show();
+    const search = field("Vorlage suchen");
+    const escape = () => act(async () => void search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await act(async () => search.focus());
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "nachbar");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(templateRow(2)).toBeNull();
+    await escape();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(search.value).toBe("");
+    expect(templateRow(2)).not.toBeNull();
+    await escape();
+    expect(onClose).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps_the_notes_of_the_template_list_outside_the_listbox", async () => {
+    await show();
+    await type(field("Vorlage suchen"), "gibtsnicht");
+    expect(container.textContent).toContain("Kein Raum gefunden");
+    expect(container.querySelector('[role="listbox"]')?.textContent).not.toContain("Kein Raum gefunden");
+    expect([...(container.querySelector('[role="listbox"]')?.children ?? [])].every((c) => c.getAttribute("role") === "group")).toBe(true);
+  });
+
   it("gates_weiter_on_the_template_and_on_the_header", async () => {
     await show();
     expect(button("Weiter")?.disabled).toBe(true);

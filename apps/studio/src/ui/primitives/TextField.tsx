@@ -25,7 +25,8 @@ export type TextFieldProps = {
 };
 
 /**
- * A text field that writes on blur or Enter, never per keystroke: Escape takes the typed text back (and uses the key, so a
+ * A text field that writes on blur or Enter, never per keystroke (a search field that still holds text is cleared by
+ * Escape before the key goes on): Escape takes the typed text back (and uses the key, so a
  * dialog around the field stays open), and `data-draft` marks the field for `escapeCloses`.
  */
 export function TextField({ label, value, onCommit, onChange, type = "text", error, hint, disabled, placeholder, multiline, showLabel }: TextFieldProps) {
@@ -57,6 +58,11 @@ export function TextField({ label, value, onCommit, onChange, type = "text", err
             // Taking back the typed text uses the key: a dialog around the field must not close as well.
             e.preventDefault();
             draft.revert();
+          } else if (e.key === "Escape" && type === "search" && draft.text !== "") {
+            // A search that filters while typing holds no draft; Escape clears it first and uses the key, the next one closes.
+            e.preventDefault();
+            onChange?.("");
+            onCommit("");
           }
         }}
       />

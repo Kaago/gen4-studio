@@ -14,6 +14,11 @@
   background: var(--g4-flaeche-blatt);
 }
 
+.options {
+  display: flex;
+  flex-direction: column;
+}
+
 .place {
   padding: var(--g4-raum-8) var(--g4-dichte-zeile-innen) var(--g4-raum-4);
   color: var(--g4-text-sekundaer);

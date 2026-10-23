@@ -243,26 +243,29 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
             <div className={styles.search}>
               <TextField type="search" label="Vorlage suchen" placeholder="Ort oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
             </div>
-            <div ref={templateList} role="listbox" aria-label="Vorlagen" className={styles.list}>
+            {/* The notes stand beside the listbox, inside the same scroll box: a listbox holds only its groups of options. */}
+            <div className={styles.list}>
               {waiting !== null && <p className={styles.empty}>{waiting}</p>}
-              {waiting === null &&
-                templates.map((place) => (
-                  <div key={place.key} role="group" aria-label={place.name}>
-                    <div className={styles.place} aria-hidden="true">
-                      {place.name}
+              <div ref={templateList} role="listbox" aria-label="Vorlagen" className={styles.options}>
+                {waiting === null &&
+                  templates.map((place) => (
+                    <div key={place.key} role="group" aria-label={place.name}>
+                      <div className={styles.place} aria-hidden="true">
+                        {place.name}
+                      </div>
+                      {place.headers.map(({ header }) => (
+                        <ListRow
+                          key={header.id}
+                          label={headerLabel(header)}
+                          tech={header.location_name ? `${id4(header.id)} ${header.internal_name}` : id4(header.id)}
+                          selected={header.id === form.template}
+                          onSelect={() => chooseTemplate(header)}
+                          dataAttrs={{ "data-header": header.id }}
+                        />
+                      ))}
                     </div>
-                    {place.headers.map(({ header }) => (
-                      <ListRow
-                        key={header.id}
-                        label={headerLabel(header)}
-                        tech={header.location_name ? `${id4(header.id)} ${header.internal_name}` : id4(header.id)}
-                        selected={header.id === form.template}
-                        onSelect={() => chooseTemplate(header)}
-                        dataAttrs={{ "data-header": header.id }}
-                      />
-                    ))}
-                  </div>
-                ))}
+                  ))}
+              </div>
               {waiting === null && templateCount === 0 && <p className={styles.empty}>Kein {TERMS.room.label} gefunden</p>}
               {waiting === null && templateCount > SHOWN && <p className={styles.empty}>{templateCount - SHOWN} weitere, Suche eingrenzen</p>}
             </div>

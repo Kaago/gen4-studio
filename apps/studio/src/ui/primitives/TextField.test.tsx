@@ -101,6 +101,27 @@ describe("TextField", () => {
     expect(commits).not.toHaveBeenCalled();
   });
 
+  it("clears_a_filled_search_on_escape_and_uses_the_key_then_leaves_it_alone", () => {
+    const changes = vi.fn();
+    function Search() {
+      const [value, setValue] = useState("");
+      const set = (t: string) => {
+        changes(t);
+        setValue(t);
+      };
+      return <TextField label="Suche" type="search" value={value} onChange={set} onCommit={set} />;
+    }
+    act(() => root.render(<Search />));
+    act(() => field().focus());
+    typeInto(field(), "nachbar");
+    expect(field().value).toBe("nachbar");
+    expect(pressKey(field(), "Escape").defaultPrevented).toBe(true);
+    expect(field().value).toBe("");
+    expect(changes).toHaveBeenLastCalledWith("");
+    // Empty now: the next Escape belongs to whatever is around the field.
+    expect(pressKey(field(), "Escape").defaultPrevented).toBe(false);
+  });
+
   it("leaves_escape_alone_when_nothing_was_typed", () => {
     act(() => root.render(<Owner />));
     expect(pressKey(field(), "Escape").defaultPrevented).toBe(false);
