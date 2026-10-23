@@ -552,13 +552,40 @@ describe("App wiring", () => {
     });
 
     it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
-      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Technik"]) {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände"]) {
         expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
         await act(async () => atlasEntry(name)!.click());
       }
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
-      expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).not.toBe("true");
-      expect(atlasEntry("Einstellungen")?.getAttribute("aria-disabled")).not.toBe("true");
+      for (const name of ["Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    it("opens_technik_with_its_list_and_surface_and_its_patch_entry_reads_the_patch_state", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
+      await act(async () => atlasEntry("Technik")!.click());
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      const list = container.querySelector('[role=listbox][aria-label="Technik"]');
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(4);
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
+      const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
+      await act(async () => patches.click());
+      await act(async () => {});
+      expect(container.querySelector("[data-patch]")?.textContent).toBe("Verfügbar");
+      // The world stays mounted behind the surface.
+      expect(shown.mounts).toBe(1);
+    });
+
+    it("technik_and_einstellungen_show_the_emulator_the_session_picked", async () => {
+      vi.mocked(openPath).mockResolvedValue("/Applications/melonDS.app");
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      expect(container.textContent).toContain("Kein Emulator gewählt");
+      await click("Emulator wählen");
+      expect(container.textContent).toContain("/Applications/melonDS.app");
+      await act(async () => atlasEntry("Technik")!.click());
+      const emulator = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Emulator"))!;
+      expect(emulator.textContent).toContain("/Applications/melonDS.app");
+      localStorage.removeItem("g4.emulatorPath");
     });
 
     it("opens_the_texts_with_their_own_list_and_deck_and_keeps_the_world_mounted_behind_them", async () => {

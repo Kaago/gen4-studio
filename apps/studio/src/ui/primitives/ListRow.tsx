@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
@@ -11,6 +12,8 @@ export type ListRowProps = {
   /** Technical name or number, shown in mono and grey after the label. */
   tech?: string;
   icon?: IconName;
+  /** A second line below the label (a state, "gebaut vor 4 Minuten"); it describes the row, the label names it. */
+  subtitle?: string;
   selected: boolean;
   onSelect: () => void;
   trailing?: ReactNode;
@@ -37,13 +40,19 @@ export function rowClass(selected: boolean, disabled: boolean | undefined): stri
 }
 
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
+export function ListRow({ label, tech, icon, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const subtitleId = `${id}-subtitle`;
+  const named = subtitle !== undefined && ariaLabel === undefined;
   return (
     <div
       {...dataAttrs}
       role="option"
       aria-selected={selected}
       aria-label={ariaLabel}
+      aria-labelledby={named ? labelId : undefined}
+      aria-describedby={subtitle !== undefined ? subtitleId : undefined}
       aria-disabled={disabled ? true : undefined}
       title={title}
       data-roving=""
@@ -52,7 +61,18 @@ export function ListRow({ label, tech, icon, selected, onSelect, trailing, dataA
       onKeyDown={disabled ? undefined : (e) => selectOnKey(e, onSelect)}
     >
       {icon && <Icon name={icon} />}
-      <span className={styles.label}>{label}</span>
+      {subtitle !== undefined ? (
+        <span className={styles.text}>
+          <span id={labelId} className={styles.label}>
+            {label}
+          </span>
+          <span id={subtitleId} className={styles.subtitle}>
+            {subtitle}
+          </span>
+        </span>
+      ) : (
+        <span className={styles.label}>{label}</span>
+      )}
       {tech && <span className={styles.tech}>{tech}</span>}
       {trailing && <span className={styles.trailing}>{trailing}</span>}
     </div>

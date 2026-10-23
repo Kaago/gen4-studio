@@ -19,7 +19,7 @@
   flex: 1;
 }
 
-/* A long note of the language server (a missing tool) wraps inside its badge rather than widening the head. */
+/* The badge says the language server's state in two words (the whole note is its tooltip): it stays on one line. */
 .lsp {
   display: inline-flex;
   min-width: 0;
@@ -27,7 +27,7 @@
 }
 
 .lsp > * {
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .note {

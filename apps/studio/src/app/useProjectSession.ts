@@ -64,6 +64,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
+  /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
+  const [emulatorPath, setEmulatorPath] = useState<string | null>(() => storedEmulator());
   const [counts, setCounts] = useState<MemberCounts>({});
   /** Bumped whenever the dirty count was read again, i.e. after every write the app makes: the hinge reads the undo history then. */
   const [dirtyRevision, setDirtyRevision] = useState(0);
@@ -302,6 +304,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     const chosen = await openPath({ directory: false, title: "Emulator wählen (z. B. melonDS)" });
     if (chosen === null) return null;
     storeEmulator(chosen);
+    setEmulatorPath(chosen);
     return chosen;
   }
 
@@ -325,6 +328,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       } catch (e) {
         // A wrong choice cannot be undone anywhere else in the UI: forget it, so the next start asks again.
         forgetEmulator();
+        setEmulatorPath(null);
         const why = errorText(e);
         setMessage({ kind: "error", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Beim nächsten Start fragt das Studio erneut nach dem Emulator.` });
         return;
@@ -345,6 +349,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     busy,
     lastRom,
     lastBuiltAt,
+    emulatorPath,
     counts,
     dirtyRevision,
     staleRefresh,

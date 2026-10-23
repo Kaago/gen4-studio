@@ -18,6 +18,9 @@ import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
 import { SettingsArea } from "./einstellungen/SettingsArea";
+import { TechnikArea } from "./technik/TechnikArea";
+import type { TechnikEntry } from "./technik/TechnikArea";
+import { toolStatus } from "./app/toolStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
@@ -64,12 +67,11 @@ import { inTauri } from "./platform/transport";
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "technik"];
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   geschichten: "Kommt mit Phase 3b.3",
   pokemon: "Kommt mit Phase 3b.3",
   gegenstaende: "Kommt mit Phase 3b.3",
-  technik: "Kommt mit 3c.2",
 };
 
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
@@ -351,6 +353,13 @@ function AppBody() {
   }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
+  // The entry Technik shows; kept while another area shows.
+  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
+  const onHeaderPatch = useStableCallback(async () => {
+    bus.emit({ topic: "headerTable" });
+    await scene.syncHeaders();
+  });
 
   // The dev bridge: the status line says whether it answers. It does until the transport says it does not; any info after that means it does again.
   const [bridgeLost, setBridgeLost] = useState(false);
@@ -440,12 +449,33 @@ function AppBody() {
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+    ) : area === "technik" ? (
+      <TechnikArea
+        project={info?.root ?? null}
+        entry={technikEntry}
+        onEntry={setTechnikEntry}
+        listOpen={shell.state.listOpen.technik}
+        onToggleList={() => shell.setListOpen("technik", !shell.state.listOpen.technik)}
+        problems={problems}
+        depth={shell.state.depth}
+        goTo={data.goTo}
+        busy={session.busy}
+        lastBuiltAt={session.lastBuiltAt}
+        lastRom={session.lastRom}
+        onBuild={() => void session.onBuild()}
+        onRun={() => void session.onRun()}
+        canRun={inTauri()}
+        onOpenProject={openProject}
+        emulatorPath={session.emulatorPath}
+        onPickEmulator={() => void session.onPickEmulator()}
+        tools={toolStatus}
+        onHeaderPatch={onHeaderPatch}
+      />
     ) : area === "einstellungen" ? (
-      // The emulator path comes with the session's own copy of it (3c.2, Technik); until then the row says none is chosen.
       <SettingsArea
         theme={shell.themeSetting}
         density={shell.density}
-        emulatorPath={undefined}
+        emulatorPath={session.emulatorPath}
         onTheme={shell.setTheme}
         onDensity={shell.setDensity}
         onPickEmulator={() => void session.onPickEmulator()}
@@ -547,11 +577,7 @@ function AppBody() {
         selected={selectedHeader}
         shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
-        onHeaderPatch={async () => {
-          // The header table now lives in files: the header editor reads it again, and so does the list.
-          bus.emit({ topic: "headerTable" });
-          await scene.syncHeaders();
-        }}
+        onHeaderPatch={onHeaderPatch}
         onError={session.fail}
         onPlay={() => void onPlay()}
       />

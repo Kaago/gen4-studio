@@ -2,6 +2,8 @@ import type { Diagnostic } from "@codemirror/lint";
 import { ask } from "../../platform/dialogs";
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectInfo } from "../../api";
+import { toolStatus } from "../../app/toolStatus";
+import type { LspToolState } from "../../app/toolStatus";
 import { useStableCallback } from "../../app/useStable";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, EmptyState, Menu, PanelHead, Tabs } from "../../ui/primitives";
@@ -92,6 +94,10 @@ function Outline({ lsp, uri, onJump }: { lsp: LspStatus; uri: string; onJump: (l
 }
 
 const LSP_BADGE: Record<LspState, BadgeKind> = { starting: "neutral", running: "success", missing: "warning", stopped: "error" };
+/** The badge's short words; the whole note is its tooltip (a long note would wrap the panel head in a narrow hand). */
+const LSP_SHORT: Record<LspState, string> = { starting: "rotom-lsp startet", running: "rotom-lsp läuft", missing: "rotom-lsp fehlt", stopped: "rotom-lsp gestoppt" };
+/** The panel's states in the words of Technik's tool status. */
+const LSP_TOOL: Record<LspState, LspToolState> = { starting: "startet", running: "bereit", missing: "fehlt", stopped: "fehler" };
 
 function lspText(lsp: LspStatus): string {
   switch (lsp.state) {
@@ -110,6 +116,13 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
   const { status, documents, active, open, save, close, add, adopt, onChange } = scripts;
   const adopted = status?.adopted === true;
   const lsp = useLsp(project, adopted, bus);
+  // Technik › Werkzeuge shows the server's state and restarts it through the panel. Without an adopted project it does not run.
+  const serving = project !== null && adopted;
+  useEffect(() => {
+    toolStatus.set({ lsp: serving ? { state: LSP_TOOL[lsp.state], note: lsp.note ?? undefined, restart: lsp.restart } : { state: "aus" } });
+  }, [serving, lsp.state, lsp.note, lsp.restart]);
+  // The panel's server ends with the panel.
+  useEffect(() => () => toolStatus.set({ lsp: { state: "aus" } }), []);
   const theme = useSyncExternalStore(onThemeChange, effectiveTheme);
   // The box stays after the adoption until its report was read.
   const [reading, setReading] = useState(false);
@@ -201,7 +214,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
             )}
             <span className={styles.lsp} data-lsp={lsp.state}>
               <Badge kind={LSP_BADGE[lsp.state]} title={lspNote}>
-                {lspNote}
+                {LSP_SHORT[lsp.state]}
               </Badge>
             </span>
             {lsp.state === "stopped" && (

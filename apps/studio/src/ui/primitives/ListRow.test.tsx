@@ -51,6 +51,15 @@ describe("ListRow and TreeRow", () => {
     expect(row.getAttribute("data-archive")).toBe("412");
   });
 
+  it("list_row_shows_a_subtitle_below_the_label_and_describes_itself_with_it", () => {
+    act(() => root.render(<ListRow label="Patches" subtitle="Dynamische Header verfügbar" icon="tinker" selected={false} onSelect={() => {}} />));
+    const row = container.querySelector("[role=option]")!;
+    expect(row.textContent).toBe("PatchesDynamische Header verfügbar");
+    // Named by the label, described by the subtitle.
+    expect(document.getElementById(row.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("Patches");
+    expect(document.getElementById(row.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Dynamische Header verfügbar");
+  });
+
   it("list_row_selects_on_click_enter_and_space", () => {
     const onSelect = vi.fn();
     act(() => root.render(<ListRow label="Route 201" selected={false} onSelect={onSelect} />));

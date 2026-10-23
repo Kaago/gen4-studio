@@ -6,6 +6,7 @@ import {
   ArrowsHorizontal,
   ArrowSquareOut,
   Backpack,
+  Bandaids,
   CaretDown,
   CaretRight,
   ChatsCircle,
@@ -49,6 +50,7 @@ import {
   Stack,
   Sun,
   TextAa,
+  Toolbox,
   TreeStructure,
   Warning,
   Wrench,
@@ -114,6 +116,8 @@ export const icons = {
   game: GameController,
   more: DotsThree,
   system: Monitor,
+  patch: Bandaids,
+  tools: Toolbox,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

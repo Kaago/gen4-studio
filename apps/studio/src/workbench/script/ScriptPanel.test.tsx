@@ -13,6 +13,7 @@ import type { EditBus, EditEvent } from "../../bus/editBus";
 import type { Depth } from "../../ui/frame/shellState";
 import { ProblemsStore } from "../problems/problems";
 import { ScriptPanel } from "./ScriptPanel";
+import { toolStatus } from "../../app/toolStatus";
 import { scriptDirtyStore } from "./scriptDirtyStore";
 import { useScripts } from "./useScripts";
 import type { ScriptsApi } from "./useScripts";
@@ -91,6 +92,7 @@ describe("ScriptPanel", () => {
   const title = () => container.querySelector("h2")?.textContent;
   const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
   const open = (file: number, line?: number) => act(async () => api.open(file, line));
+  const lspBadge = () => container.querySelector("[data-lsp] > span");
 
   it("shows_the_adoption_box_until_adopted_then_the_report_and_then_the_editor", async () => {
     vi.mocked(scriptsStatus).mockResolvedValueOnce({ adopted: false, file_count: 12 });
@@ -273,7 +275,9 @@ describe("ScriptPanel", () => {
     await open(42);
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("missing");
-    expect(container.textContent).toContain("rotom-lsp fehlt — Completion und Diagnosen aus");
+    // The badge says the short state; the backend's whole note is its tooltip.
+    expect(lspBadge()?.textContent).toBe("rotom-lsp fehlt");
+    expect(lspBadge()?.getAttribute("title")).toBe("rotom-lsp fehlt — Completion und Diagnosen aus");
     typeAt(0, "// ");
     click(button("Speichern"));
     await settle();
@@ -638,10 +642,45 @@ describe("ScriptPanel", () => {
     await render();
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("stopped");
-    expect(container.textContent).toContain("rotom-lsp beendet sich wiederholt");
+    expect(lspBadge()?.textContent).toBe("rotom-lsp gestoppt");
+    expect(lspBadge()?.getAttribute("title")).toBe("rotom-lsp beendet sich wiederholt");
     vi.mocked(lspStart).mockResolvedValue(undefined);
     click(button("Neu starten"));
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("running");
+  });
+
+  describe("tool status", () => {
+    beforeEach(() => toolStatus.set({ lsp: null }));
+
+    it("writes_the_language_server_state_and_its_restart_into_the_tool_status", async () => {
+      expect(toolStatus.get().lsp).toBeNull();
+      vi.mocked(lspStart).mockRejectedValueOnce({ code: "error", message: "rotom-lsp beendet sich wiederholt", asset: null });
+      await render();
+      await settle();
+      expect(toolStatus.get().lsp).toMatchObject({ state: "fehler", note: "rotom-lsp beendet sich wiederholt" });
+      // Technik's "Neu starten" restarts the panel's server.
+      vi.mocked(lspStart).mockResolvedValue(undefined);
+      await act(async () => toolStatus.get().lsp?.restart?.());
+      await settle();
+      expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("running");
+      expect(toolStatus.get().lsp?.state).toBe("bereit");
+    });
+
+    it("says_missing_for_a_missing_server_and_off_without_adoption_or_once_the_panel_is_gone", async () => {
+      await render();
+      await settle();
+      expect(toolStatus.get().lsp).toMatchObject({ state: "fehlt", note: "rotom-lsp fehlt — Completion und Diagnosen aus" });
+      vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
+      await render(projectB);
+      await settle();
+      expect(toolStatus.get().lsp?.state).toBe("aus");
+      vi.mocked(scriptsStatus).mockResolvedValue(ADOPTED);
+      await render(projectA);
+      await settle();
+      expect(toolStatus.get().lsp?.state).toBe("fehlt");
+      act(() => root.render(<></>));
+      expect(toolStatus.get().lsp?.state).toBe("aus");
+    });
   });
 });
