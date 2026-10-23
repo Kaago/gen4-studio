@@ -1,0 +1,46 @@
+.panel {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-12) var(--g4-raum-16);
+  padding: var(--g4-raum-12);
+}
+
+/* The two size fields stay narrow; the name takes what it needs. */
+.fields > :nth-child(1) {
+  width: 200px;
+}
+
+.fields > :nth-child(2),
+.fields > :nth-child(3) {
+  width: 96px;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-12) var(--g4-raum-8);
+}
+
+.note {
+  max-width: 70ch;
+  margin-top: var(--g4-raum-12);
+}
+
+.grid {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--g4-raum-12) var(--g4-raum-12);
+}

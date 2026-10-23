@@ -64,6 +64,27 @@ describe("Dialog", () => {
     expect(onOpenChange.mock.calls.map((c) => c[0])).toEqual([false]);
   });
 
+  it("escape_that_a_field_used_does_not_ask_the_owner_to_close", () => {
+    const onOpenChange = vi.fn();
+    act(() =>
+      root.render(
+        <Dialog open onOpenChange={onOpenChange} title="Frage">
+          <input
+            aria-label="Feld"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") e.preventDefault();
+            }}
+          />
+        </Dialog>,
+      ),
+    );
+    pressKey(dialog()!.querySelector("input")!, "Escape");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    pressKey(dialog()!.querySelector("input")!, "Enter");
+    pressKey(dialog()!, "Escape");
+    expect(onOpenChange.mock.calls.map((c) => c[0])).toEqual([false]);
+  });
+
   it("the_close_button_asks_the_owner_to_close", () => {
     const onOpenChange = vi.fn();
     act(() =>

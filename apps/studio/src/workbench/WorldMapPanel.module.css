@@ -1,0 +1,163 @@
+.panel {
+  position: relative;
+  display: flex;
+  height: 100%;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The region: panned and zoomed by the transform on `.world`. */
+.viewport {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--g4-flaeche-welt);
+  cursor: grab;
+  touch-action: none;
+}
+
+.world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.message {
+  margin: 0;
+  padding: var(--g4-raum-16);
+  color: var(--g4-text-sekundaer);
+}
+
+.lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.line {
+  stroke: var(--g4-akzent-grund);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+/* The list of places beside the map. */
+.places {
+  box-sizing: border-box;
+  width: 300px;
+  flex: none;
+  overflow-y: auto;
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-schau);
+}
+
+.summary {
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.summary:focus-visible,
+.card:focus-visible,
+.outside:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: var(--g4-strich-fokus);
+}
+
+.chip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--g4-raum-6);
+  border: var(--g4-strich-standard) solid var(--g4-linie-stark);
+  border-radius: 2px;
+}
+
+.rooms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-2) 0 var(--g4-raum-8) var(--g4-raum-16);
+}
+
+.card {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--g4-dichte-steuer);
+  flex-direction: column;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.cardName {
+  font-weight: 400;
+}
+
+.current {
+  font-weight: 700;
+}
+
+.card.current {
+  background: var(--g4-auswahl-flaeche);
+  box-shadow: inset 3px 0 0 var(--g4-auswahl-kante);
+}
+
+.card.current .cardName {
+  font-weight: 700;
+}
+
+.unplaced {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+}
+
+.grey {
+  color: var(--g4-text-sekundaer);
+  font-weight: 400;
+}
+
+.reason {
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.outside {
+  display: inline-flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  padding: 0 var(--g4-raum-8);
+  border: 0;
+  background: transparent;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.outside.current {
+  font-weight: 700;
+}

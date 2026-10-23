@@ -196,7 +196,7 @@ describe("object sprites", () => {
   const spriteOf = (set: ReturnType<typeof buildMarkers>) => [...set.entries.keys()].find((o) => o instanceof THREE.Sprite) as THREE.Sprite;
   const picture = (w: number, h: number) => ({ texture: new THREE.DataTexture(new Uint8Array(w * h * 4), w, h), width: w, height: h });
 
-  it("shows an object as a bottom-anchored billboard on the middle of its tile, a yellow square until its picture is there", () => {
+  it("shows an object as a bottom-anchored billboard on the middle of its tile, a coloured square (the figure colour) until its picture is there", () => {
     const set = buildMarkers(matrix, events());
     const sprite = spriteOf(set);
     expect(sprite).toBeInstanceOf(THREE.Sprite);
@@ -206,8 +206,8 @@ describe("object sprites", () => {
     expect(sprite.renderOrder).toBe(11);
     expect(sprite.material).toMatchObject({ depthTest: false, transparent: true });
     expect(sprite.material.map).toBe(set.placeholder);
-    // Yellow, opaque.
-    expect(Array.from(set.placeholder.image.data as Uint8Array)).toEqual([234, 179, 8, 255]);
+    // The figure colour of the scene tokens (#4273AD), opaque.
+    expect(Array.from(set.placeholder.image.data as Uint8Array)).toEqual([66, 115, 173, 255]);
     expect(set.group.children).toContain(sprite);
     // One sprite for the object, none for the other classes.
     expect([...set.entries.keys()].filter((o) => o instanceof THREE.Sprite)).toHaveLength(1);

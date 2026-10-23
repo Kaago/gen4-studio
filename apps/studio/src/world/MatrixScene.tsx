@@ -12,6 +12,8 @@ import { useBuildingRefresh, useEventRefresh, useMapRefresh } from "./scene/useR
 import { useSceneLoader } from "./scene/useSceneLoader";
 import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
+import { useSceneTheme } from "./scene/useSceneTheme";
+import styles from "./MatrixScene.module.css";
 import { useBuildingSelection, useEventSelection, useEventVisibility, usePermissionVisibility } from "./scene/useSceneProps";
 
 interface Props {
@@ -115,6 +117,7 @@ function MatrixScene({
 
   // The hooks run their effects in this order, which is the order the effects always had.
   useSceneSetup(host, refs, reportEvents);
+  useSceneTheme(refs);
   useSceneLoader({ matrix, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
   useMapRefresh(refs, mapRefresh);
   useBuildingSelection(refs, selectedMap, selectedBuilding);
@@ -125,13 +128,9 @@ function MatrixScene({
   useEventVisibility(refs, showEvents);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
-      <div ref={host} style={{ position: "absolute", inset: 0 }} />
-      {eventStatus && (
-        <div style={{ position: "absolute", left: 8, bottom: 8, color: "#e5e7eb", font: "12px system-ui", maxWidth: "70%" }}>
-          {eventStatus}
-        </div>
-      )}
+    <div className={styles.scene}>
+      <div ref={host} className={styles.canvas} />
+      {eventStatus && <div className={styles.status}>{eventStatus}</div>}
     </div>
   );
 }

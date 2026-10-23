@@ -1,6 +1,7 @@
 import { isCmdError } from "../api";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
 import { TERMS } from "../workbench/terms";
+import { eventColor } from "./colors";
 import { MAP_SIZE } from "./layout";
 
 export type { EventKind } from "../api";
@@ -18,11 +19,12 @@ export const EVENT_KINDS: EventKind[] = ["warp", "object", "coord", "bg"];
 
 export type EventData = WarpDto | ObjectDto | CoordDto | BgDto;
 
+/** Marker colours from the scene tokens: a warp is the door, an object the figure, a trigger the zone, a background event the sign. */
 export const MARKER_COLORS: Record<EventKind, string> = {
-  warp: "#2563eb",
-  object: "#eab308",
-  coord: "#22c55e",
-  bg: "#a855f7",
+  warp: eventColor("warp"),
+  object: eventColor("figur"),
+  coord: eventColor("ausloeser"),
+  bg: eventColor("schild"),
 };
 
 /**

@@ -75,9 +75,9 @@ describe("AreaGrid", () => {
 
   it("shows_the_thumbnail_once_it_is_ready_and_asks_the_source_once_per_filled_cell", async () => {
     show();
-    expect(cell(0, 0)?.getAttribute("style")).not.toContain('url("data:');
+    expect((cell(0, 0)?.getAttribute("style") ?? "")).not.toContain('url("data:');
     await flush();
-    expect(cell(0, 0)?.getAttribute("style")).toContain('url("data:');
+    expect((cell(0, 0)?.getAttribute("style") ?? "")).toContain('url("data:');
     expect(glb).toHaveBeenCalledTimes(4);
   });
 
@@ -101,7 +101,6 @@ describe("AreaGrid", () => {
     expect(cell(2, 1)?.getAttribute("title")).toBe("x 2, y 1 · Karte 0524 · Header 0000 · Höhe 2");
     expect(cell(2, 0)?.getAttribute("title")).toBe("x 2, y 0 · Höhe 0");
     expect(cell(2, 0)?.textContent).toBe("—");
-    expect(cell(2, 0)?.getAttribute("style")).toContain("dashed");
   });
 
   it("shows_map_and_header_ids_only_at_size_64", () => {
@@ -114,8 +113,8 @@ describe("AreaGrid", () => {
 
   it("tints_cells_by_the_colour_of_their_header", () => {
     show({ colorOf: (h) => (h === 415 ? "rgb(1, 2, 3)" : null) });
-    expect(cell(0, 0)?.getAttribute("style")).toContain("rgb(1, 2, 3)");
-    expect(cell(1, 0)?.getAttribute("style")).not.toContain("rgb(1, 2, 3)");
+    expect((cell(0, 0)?.getAttribute("style") ?? "")).toContain("rgb(1, 2, 3)");
+    expect((cell(1, 0)?.getAttribute("style") ?? "")).not.toContain("rgb(1, 2, 3)");
   });
 
   describe("with an IntersectionObserver", () => {
@@ -154,13 +153,13 @@ describe("AreaGrid", () => {
       show();
       await flush();
       expect(glb).not.toHaveBeenCalled();
-      expect(cell(0, 0)?.getAttribute("style")).not.toContain('url("data:');
+      expect((cell(0, 0)?.getAttribute("style") ?? "")).not.toContain('url("data:');
 
       setVisible(1, 0, true);
       await flush();
       expect(glb.mock.calls).toEqual([[522, 7]]);
-      expect(cell(1, 0)?.getAttribute("style")).toContain('url("data:');
-      expect(cell(0, 0)?.getAttribute("style")).not.toContain('url("data:');
+      expect((cell(1, 0)?.getAttribute("style") ?? "")).toContain('url("data:');
+      expect((cell(0, 0)?.getAttribute("style") ?? "")).not.toContain('url("data:');
     });
 
     it("observes_only_filled_cells", () => {

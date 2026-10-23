@@ -1,0 +1,52 @@
+/* The legend button floats over the bottom left of the 3D view. */
+.legend {
+  position: absolute;
+  bottom: var(--g4-raum-8);
+  left: var(--g4-raum-8);
+  z-index: 1;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  box-shadow: var(--g4-schatten-schwebend);
+}
+
+.group + .group {
+  margin-top: var(--g4-raum-12);
+}
+
+.heading {
+  margin: 0 0 var(--g4-raum-4);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  list-style: none;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  font: var(--g4-font-text-s);
+}
+
+.entry svg {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.swatch {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-stark);
+  border-radius: var(--g4-radius-taste);
+}

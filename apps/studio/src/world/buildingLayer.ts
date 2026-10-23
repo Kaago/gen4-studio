@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { BuildingDto, MapDto, MatrixDto } from "../api";
+import { FALLBACK_BOX, SELECTION_HALO } from "./colors";
 import { buildingFallbackBox, buildingKey, buildingModelIds, buildingTransform } from "./buildings";
 import { cellOrigin, cellY } from "./layout";
 import { cloneModel, disposeClone, disposeTree } from "./sceneUtil";
@@ -20,8 +21,8 @@ interface Slot {
 }
 
 const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
-const boxMaterial = new THREE.MeshBasicMaterial({ color: "#f59e0b", wireframe: true });
-const OUTLINE_COLOR = "#ffffff";
+const boxMaterial = new THREE.MeshBasicMaterial({ color: FALLBACK_BOX, wireframe: true });
+const OUTLINE_COLOR = SELECTION_HALO;
 
 /**
  * The buildings of the shown matrix: one group per building and cell, holding the textured model

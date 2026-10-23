@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import { thumbnails } from "../world/thumbnailStore";
@@ -10,6 +10,7 @@ import { buildPlaces, mapsText, placeColor } from "./places";
 import type { Place, PlaceHeader } from "./places";
 import { TERMS, id4 } from "./terms";
 import { useMatrix } from "./useMatrix";
+import styles from "./WorldMapPanel.module.css";
 import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 import type { PlaceCells, RoomLink } from "./worldMap";
 
@@ -39,8 +40,6 @@ const MAX_SCALE = 3;
 /** The status line "Kartenbilder n/m" shows only for a queue longer than this. */
 const PROGRESS_THRESHOLD = 50;
 const PROGRESS_INTERVAL_MS = 200;
-const GREY = "#6b7280";
-const LINE_COLOR = "#2563eb";
 
 interface View {
   scale: number;
@@ -97,20 +96,6 @@ const clampScale = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, sc
 const sameLines = (a: Line[], b: Line[]) =>
   a.length === b.length && a.every((l, i) => l.header === b[i].header && l.hidden === b[i].hidden && l.x1 === b[i].x1 && l.y1 === b[i].y1 && l.x2 === b[i].x2 && l.y2 === b[i].y2);
 
-const card: CSSProperties = {
-  all: "unset",
-  boxSizing: "border-box",
-  display: "flex",
-  flexDirection: "column",
-  width: "100%",
-  padding: "4px 8px",
-  cursor: "pointer",
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  background: "#fff",
-  fontSize: 12,
-};
-
 function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
   const h = entry.header;
   const grey = [id4(h.id), mapsText(entry)].filter((part) => part !== null).join(" · ");
@@ -122,12 +107,12 @@ function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link:
       aria-current={selected ? "true" : undefined}
       title={unplaced ? `ohne Eingang: ${link.reason}` : undefined}
       onClick={() => onOpen(h.id)}
-      style={{ ...card, fontWeight: selected ? 700 : 400, color: unplaced ? GREY : "#111827", background: unplaced ? "#f3f4f6" : "#fff", boxShadow: selected ? "inset 3px 0 0 #2563eb" : "none" }}
+      className={`${styles.card} ${selected ? styles.current : ""} ${unplaced ? styles.unplaced : ""}`}
     >
-      <span>{h.internal_name}</span>
-      <span style={{ color: GREY, fontWeight: 400 }}>{grey}</span>
-      {unplaced && <span style={{ color: GREY, fontWeight: 400 }}>ohne Eingang</span>}
-      {unplaced && <span style={{ color: GREY, fontWeight: 400, fontSize: 11 }}>{link.reason}</span>}
+      <span className={styles.cardName}>{h.internal_name}</span>
+      <span className={styles.grey}>{grey}</span>
+      {unplaced && <span className={styles.grey}>ohne Eingang</span>}
+      {unplaced && <span className={`${styles.grey} ${styles.reason}`}>{link.reason}</span>}
     </button>
   );
 }
@@ -275,43 +260,33 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
         data-world-viewport=""
         onPointerDown={onPointerDown}
         onClickCapture={onClickCapture}
-        style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "none", cursor: "grab", background: "#f9fafb" }}
+        className={styles.viewport}
       >
         {hasRegion ? (
           <div
             ref={gridBox}
             data-world-grid=""
-            style={{ position: "absolute", left: 0, top: 0, transformOrigin: "0 0", transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+            className={styles.world}
+            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} /* dyn */
           >
             {grid}
             {labels.map((place) => (
               <span
                 key={place.key}
                 data-place-label={place.key}
-                style={{
-                  position: "absolute",
-                  left: place.center.x * pitch + CELL_SIZE / 2,
-                  top: place.center.y * pitch + CELL_SIZE / 2,
-                  transform: "translate(-50%, -50%)",
-                  pointerEvents: "none",
-                  whiteSpace: "nowrap",
-                  // Counter-scaled: the text keeps its size on screen while the map zooms.
-                  fontSize: 12 / view.scale,
-                  fontWeight: 700,
-                  padding: `0 ${4 / view.scale}px`,
-                  borderRadius: 3 / view.scale,
-                  background: "rgba(255,255,255,0.8)",
-                }}
+                className={styles.label}
+                // Counter-scaled: the text keeps its size on screen while the map zooms.
+                style={{ left: place.center.x * pitch + CELL_SIZE / 2, top: place.center.y * pitch + CELL_SIZE / 2, fontSize: 12 / view.scale, padding: `0 ${4 / view.scale}px`, borderRadius: 3 / view.scale }} /* dyn */
               >
                 {place.name}
               </span>
             ))}
           </div>
         ) : (
-          <p style={{ margin: 0, padding: 16 }}>{message}</p>
+          <p className={styles.message}>{message}</p>
         )}
       </div>
-      <svg aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+      <svg aria-hidden="true" className={styles.lines}>
         {lines.map((l) => (
           <line
             key={l.header}
@@ -320,9 +295,7 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
             y1={l.y1}
             x2={l.x2}
             y2={l.y2}
-            stroke={LINE_COLOR}
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
+            className={styles.line}
             visibility={l.hidden ? "hidden" : "visible"}
           />
         ))}
@@ -344,14 +317,14 @@ interface PlaceListProps {
 /** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
 const PlaceList = memo(function PlaceList({ places, links, selected, openKeys, onToggle, onOpen, list }: PlaceListProps) {
   return (
-    <div ref={list} style={{ width: 300, flex: "none", overflowY: "auto", boxSizing: "border-box", padding: "8px 12px", borderLeft: "1px solid #e5e7eb" }}>
+    <div ref={list} className={styles.places}>
       {places.map((place) => (
         <details key={place.key} data-place-key={place.key} open={openKeys.has(place.key)} onToggle={(e) => onToggle(place.key, e.currentTarget.open)}>
-          <summary style={{ cursor: "pointer", lineHeight: 1.6 }}>
-            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 6, background: placeColor(place.key) }} />
+          <summary className={styles.summary}>
+            <span className={styles.chip} style={{ background: placeColor(place.key) }} /* dyn */ />
             {place.name}
           </summary>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px 0 8px 16px" }}>
+          <div className={styles.rooms}>
             {place.headers.map((entry) =>
               entry.kind === "inside" ? (
                 <RoomCard key={entry.header.id} entry={entry} link={links.get(place.key)?.find((l) => l.header === entry.header.id)} selected={entry.header.id === selected} onOpen={onOpen} />
@@ -363,7 +336,7 @@ const PlaceList = memo(function PlaceList({ places, links, selected, openKeys, o
                   aria-current={entry.header.id === selected ? "true" : undefined}
                   title={TERMS.outside.short}
                   onClick={() => onOpen(entry.header.id)}
-                  style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: entry.header.id === selected ? 700 : 400 }}
+                  className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >
                   {TERMS.outside.label} · {id4(entry.header.id)}
                 </button>
@@ -451,7 +424,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
 
   return (
-    <div ref={rootBox} style={{ position: "relative", display: "flex", height: "100%", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
+    <div ref={rootBox} className={styles.panel}>
       <MapView
         grid={grid}
         hasRegion={region !== null}

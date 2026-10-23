@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls: string[] = [];
 const renders = { count: 0 };
+const clearColors: string[] = [];
 
 vi.mock("three", async (importOriginal) => {
   const three = await importOriginal<typeof import("three")>();
@@ -16,7 +18,9 @@ vi.mock("three", async (importOriginal) => {
       };
     }
     setPixelRatio() {}
-    setClearColor() {}
+    setClearColor(color: string) {
+      clearColors.push(color);
+    }
     setSize() {}
     render() {
       renders.count++;
@@ -30,6 +34,7 @@ vi.mock("three", async (importOriginal) => {
 vi.mock("../markers", () => ({ disposeMarkers: () => calls.push("markers") }));
 vi.mock("../sceneUtil", () => ({ disposeTree: () => calls.push("content") }));
 
+import { dunkel, hell } from "../../ui/tokens/tokens";
 import type { BuildingLayer } from "../buildingLayer";
 import type { MarkerSet } from "../markers";
 import { SceneHost } from "./SceneHost";
@@ -44,6 +49,7 @@ class FakeObserver {
 beforeEach(() => {
   calls.length = 0;
   renders.count = 0;
+  clearColors.length = 0;
   vi.stubGlobal("ResizeObserver", FakeObserver);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -55,6 +61,36 @@ function host() {
 }
 
 describe("SceneHost", () => {
+  it("clears_with_the_world_surface_of_the_shown_theme", () => {
+    document.documentElement.dataset.theme = "dunkel";
+    try {
+      host();
+      expect(clearColors).toEqual([dunkel["flaeche/welt"]]);
+      clearColors.length = 0;
+      document.documentElement.dataset.theme = "hell";
+      host();
+      expect(clearColors).toEqual([hell["flaeche/welt"]]);
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
+  });
+
+  it("set_background_changes_the_clear_colour_and_leaves_models_and_content_alone", () => {
+    const { h } = host();
+    const content = h.content;
+    const models = h.models;
+    const model = new THREE.Group();
+    models.push(model);
+    content.add(model);
+    clearColors.length = 0;
+    h.setBackground("#101821");
+    expect(clearColors).toEqual(["#101821"]);
+    expect(h.content).toBe(content);
+    expect(h.models).toBe(models);
+    expect(h.models).toEqual([model]);
+    expect(content.children).toEqual([model]);
+  });
+
   it("puts its canvas into the element and renders once for the first size", () => {
     const { el, h } = host();
     expect(el.contains(h.canvas)).toBe(true);

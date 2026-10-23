@@ -21,7 +21,7 @@ describe("markerPosition", () => {
 
 describe("MARKER_COLORS", () => {
   it("has one colour per event class", () => {
-    expect(MARKER_COLORS).toEqual({ warp: "#2563eb", object: "#eab308", coord: "#22c55e", bg: "#a855f7" });
+    expect(MARKER_COLORS).toEqual({ warp: "#AD3173", object: "#4273AD", coord: "#CEBD42", bg: "#218C31" });
   });
 });
 

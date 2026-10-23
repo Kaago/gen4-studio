@@ -1,0 +1,32 @@
+/* The floating bar over the top left of the 3D view. */
+.bar {
+  position: absolute;
+  top: var(--g4-raum-8);
+  left: var(--g4-raum-8);
+  right: var(--g4-raum-8);
+  z-index: 1;
+  display: flex;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--g4-raum-8));
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  box-shadow: var(--g4-schatten-schwebend);
+}
+
+.layers,
+.extra {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.extra {
+  padding-left: var(--g4-raum-4);
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}

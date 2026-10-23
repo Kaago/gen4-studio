@@ -100,6 +100,18 @@ describe("buildContent / recolourMap", () => {
     built.buildings.dispose();
   });
 
+  it("fills the overlay at 42 % in the token colours, without tone mapping or depth writes", () => {
+    const loaded = new Map([[1, loadedMap(1)]]);
+    const built = buildContent(matrix, loaded, names);
+    const material = built.tiles.material as THREE.MeshBasicMaterial;
+    expect(material.opacity).toBe(0.42);
+    expect(material.transparent).toBe(true);
+    expect(material.toneMapped).toBe(false);
+    expect(material.depthWrite).toBe(false);
+    expect(material.polygonOffset).toBe(true);
+    built.buildings.dispose();
+  });
+
   it("recolours every instance of a map from its current permissions", () => {
     const loaded = new Map([[1, loadedMap(1)]]);
     const built = buildContent(matrix, loaded, names);
@@ -184,7 +196,7 @@ describe("setMarkers sprites", () => {
     const h = handle();
     setMarkers(h, events(object(0, 7, 2), object(1, 900)), true);
     const [known, unknown] = sprites(h);
-    // The yellow square holds until then.
+    // The placeholder square holds until then.
     expect(known.material.map).toBe(h.markers?.placeholder);
     await settle();
     expect(getObjectSprite).toHaveBeenCalledWith(7, 2);

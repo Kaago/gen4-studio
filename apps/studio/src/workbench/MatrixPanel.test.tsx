@@ -1,0 +1,176 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMatrix, getMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
+import type { HeaderSummary, MatrixDto, ProjectInfo } from "../api";
+import { ask } from "../platform/dialogs";
+import { pressKey, typeInto } from "../ui/primitives/testUtils";
+import { MatrixPanel } from "./MatrixPanel";
+import type { MatrixPanelContext } from "./MatrixPanel";
+
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  getMatrix: vi.fn(),
+  createMatrix: vi.fn(),
+  renameMatrix: vi.fn(),
+  resizeMatrix: vi.fn(),
+  setMatrixSections: vi.fn(),
+}));
+vi.mock("../platform/dialogs", () => ({ ask: vi.fn() }));
+// The pictures are not under test: every cell shows its number plate.
+vi.mock("../world/useThumbnail", () => ({ useThumbnail: () => null }));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+const info = { root: "/p", family: "Platinum" } as unknown as ProjectInfo;
+const headers: HeaderSummary[] = [];
+const matrix: MatrixDto = { index: 7, name: "Dorf", width: 2, height: 1, maps: [10, 11], headers: [415, 416], altitudes: [0, 0] };
+
+describe("MatrixPanel", () => {
+  let container: HTMLElement;
+  let root: Root;
+  const goTo = vi.fn();
+  const onEdited = vi.fn();
+  const onCountsChanged = vi.fn();
+  const onError = vi.fn();
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    for (const f of [getMatrix, createMatrix, renameMatrix, resizeMatrix, setMatrixSections, ask]) vi.mocked(f).mockReset();
+    for (const f of [goTo, onEdited, onCountsChanged, onError]) f.mockReset();
+    vi.mocked(getMatrix).mockResolvedValue(matrix);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const context = (over: Partial<MatrixPanelContext> = {}): MatrixPanelContext => ({
+    info,
+    headers,
+    areaDataId: 0,
+    counts: { Map: 600 },
+    sceneMatrix: 7,
+    revision: 0,
+    selection: null,
+    goTo,
+    onEdited,
+    onCountsChanged,
+    onError,
+    ...over,
+  });
+  const show = async (over: Partial<MatrixPanelContext> = {}) => {
+    act(() => root.render(<MatrixPanel context={context(over)} />));
+    await flush();
+  };
+  const field = (name: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)!;
+  const button = (name: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === name)!;
+  const commit = async (input: HTMLInputElement, text: string) => {
+    await act(async () => input.focus());
+    typeInto(input, text);
+    await act(async () => input.blur());
+    await flush();
+  };
+
+  it("says_when_no_project_is_open", async () => {
+    await show({ info: null });
+    expect(container.textContent).toContain("Kein Projekt geöffnet.");
+  });
+
+  it("asks_for_a_place_but_still_offers_a_new_matrix_while_no_header_is_selected", async () => {
+    await show({ sceneMatrix: null });
+    expect(container.textContent).toContain("Noch kein Ort gewählt.");
+    expect(container.querySelector("input")).toBeNull();
+    expect(button("Neue Matrix")).toBeDefined();
+  });
+
+  it("heads_the_panel_with_the_matrix_and_fills_the_fields_from_it", async () => {
+    await show();
+    expect(container.querySelector("header h2")?.textContent).toBe("Raster");
+    expect(container.querySelector("header")?.textContent).toContain("0007");
+    expect(field("Name der Matrix").value).toBe("Dorf");
+    expect(field("Breite").value).toBe("2");
+    expect(field("Höhe").value).toBe("1");
+    expect(container.querySelector('[role=switch][aria-checked="true"]')).not.toBeNull();
+    expect(container.querySelectorAll("[role=switch]")).toHaveLength(2);
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+  });
+
+  it("renames_on_commit_and_reloads_through_the_owner", async () => {
+    vi.mocked(renameMatrix).mockResolvedValue(undefined as never);
+    await show();
+    await commit(field("Name der Matrix"), "Neuer Name");
+    expect(renameMatrix).toHaveBeenCalledWith(7, "Neuer Name");
+    expect(onEdited).toHaveBeenCalledWith(7);
+  });
+
+  it("resizes_on_commit_and_refuses_a_width_beyond_255_naming_the_maximum", async () => {
+    vi.mocked(resizeMatrix).mockResolvedValue(undefined as never);
+    await show();
+    await commit(field("Breite"), "3");
+    expect(resizeMatrix).toHaveBeenCalledWith(7, 3, 1);
+    vi.mocked(resizeMatrix).mockClear();
+    await commit(field("Breite"), "300");
+    expect(resizeMatrix).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("255");
+  });
+
+  it("asks_before_a_resize_that_loses_cells", async () => {
+    vi.mocked(ask).mockResolvedValue(false);
+    await show();
+    await commit(field("Breite"), "1");
+    expect(ask).toHaveBeenCalledOnce();
+    expect(vi.mocked(ask).mock.calls[0][0]).toContain("außerhalb von 1 × 1");
+    expect(resizeMatrix).not.toHaveBeenCalled();
+  });
+
+  it("asks_before_a_section_with_values_is_removed_and_keeps_it_when_refused", async () => {
+    vi.mocked(ask).mockResolvedValue(false);
+    await show();
+    const header = [...container.querySelectorAll<HTMLElement>("[role=switch]")].find((s) => s.closest("label")?.textContent === "Header")!;
+    await act(async () => header.click());
+    await flush();
+    expect(ask).toHaveBeenCalledOnce();
+    expect(setMatrixSections).not.toHaveBeenCalled();
+  });
+
+  it("removes_an_empty_section_without_asking", async () => {
+    vi.mocked(setMatrixSections).mockResolvedValue(undefined as never);
+    await show();
+    const heights = [...container.querySelectorAll<HTMLElement>("[role=switch]")].find((s) => s.closest("label")?.textContent === "Höhen")!;
+    await act(async () => heights.click());
+    await flush();
+    expect(ask).not.toHaveBeenCalled();
+    expect(setMatrixSections).toHaveBeenCalledWith(7, true, false);
+  });
+
+  it("creates_a_matrix_and_shows_it_with_a_note_that_no_header_uses_it", async () => {
+    vi.mocked(createMatrix).mockResolvedValue(9);
+    vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
+    await show();
+    await act(async () => button("Neue Matrix").click());
+    await flush();
+    expect(createMatrix).toHaveBeenCalledWith("neu");
+    expect(goTo).toHaveBeenCalledWith({ kind: "matrixCell", matrix: 9, x: 0, y: 0 });
+    expect(container.textContent).toContain("gehört noch zu keinem Header");
+  });
+
+  it("opens_the_cell_in_the_inspector_on_a_click_and_the_extend_dialog_from_a_plus_cell", async () => {
+    await show();
+    await act(async () => container.querySelector<HTMLElement>('[data-cell="1,0"]')!.click());
+    expect(goTo).toHaveBeenCalledWith({ kind: "matrixCell", matrix: 7, x: 1, y: 0 });
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    await act(async () => container.querySelector<HTMLElement>('[data-extend="2,0"]')!.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain("Karte bei x 2, y 0 anlegen?");
+    pressKey((document.activeElement as HTMLElement) ?? dialog, "Escape");
+    await flush();
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+  });
+});

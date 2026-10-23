@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useState } from "react";
 import { extendArea } from "../api";
 import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
-import { DraftInput } from "./DraftInput";
+import { Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
 import { extendDefaults, extendSpec } from "./extend";
-import { escapeCloses, useFocusTrap } from "./modal";
-import { parseCellField } from "./matrix";
+import styles from "./ExtendAreaDialog.module.css";
 import { id4 } from "./terms";
 
 interface Props {
@@ -19,12 +17,10 @@ interface Props {
   onError: (e: unknown) => void;
 }
 
-const backdrop: CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const sheet: CSSProperties = { background: "#fff", borderRadius: 8, padding: 16, width: 380, maxWidth: "90vw", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" };
-const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
-const field: CSSProperties = { width: 72, textAlign: "right", fontFamily: "ui-monospace, monospace" };
-
-/** Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. */
+/**
+ * Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. A `Dialog`: the focus
+ * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
+ */
 export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onError }: Props) {
   const defaults = extendDefaults(matrix, x, y);
   const neighbour = defaults.neighbour;
@@ -38,27 +34,10 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
   const [headerCell, setHeaderCell] = useState(neighbour?.header ?? 0);
   const [working, setWorking] = useState(false);
 
-  // Escape cancels (not while the request runs; not when it takes back typed text, see `escapeCloses`), the first
-  // control has the focus and Tab stays inside the dialog.
-  const dialog = useRef<HTMLDivElement>(null);
-  const leave = useRef(onDone);
-  leave.current = onDone;
-  const running = useRef(working);
-  running.current = working;
-  useFocusTrap(dialog);
-  useEffect(() => {
-    dialog.current?.querySelector<HTMLElement>("input, select, button")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (running.current || !escapeCloses(e)) return;
-      leave.current(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
   const sourceMap = mode === "neighbour" && neighbour ? neighbour.map : picked;
 
   async function create() {
+    if (working) return;
     setWorking(true);
     let report: ExtendReport;
     try {
@@ -71,73 +50,42 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
     onDone(report);
   }
 
+  const leave = () => {
+    if (!working) onDone(null);
+  };
+  const sources = [
+    ...(neighbour ? [{ value: "neighbour" as const, label: `Kopie von Karte ${id4(neighbour.map)} (Nachbarzelle)` }] : []),
+    { value: "pick" as const, label: "Karte wählen" },
+  ];
+
   return (
-    <div style={backdrop} role="presentation">
-      <div ref={dialog} role="dialog" aria-modal="true" aria-label={`Karte bei x ${x}, y ${y} anlegen`} style={sheet}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>Karte bei x {x}, y {y} anlegen</div>
-        <fieldset style={{ border: "none", padding: 0, margin: "8px 0" }} disabled={working}>
-          {neighbour && (
-            <label style={row}>
-              <input type="radio" name="source" checked={mode === "neighbour"} onChange={() => setMode("neighbour")} />
-              Kopie von Karte {id4(neighbour.map)} (Nachbarzelle)
-            </label>
-          )}
-          <label style={row}>
-            <input type="radio" name="source" checked={mode === "pick"} onChange={() => setMode("pick")} />
-            Karte wählen
-            <DraftInput
-              label={`Karte (0 bis ${mapMax})`}
-              type="number"
-              min={0}
-              max={mapMax}
-              value={String(picked)}
-              onCommit={(text) => {
-                const n = parseCellField(text, mapMax, false);
-                if (typeof n === "number") {
-                  setPicked(n);
-                  setMode("pick");
-                }
-              }}
-              style={field}
-            />
-          </label>
-          <label style={row}>
-            <input type="checkbox" checked={clearBuildings} onChange={(e) => setClearBuildings(e.target.checked)} />
-            ohne Gebäude
-          </label>
-          {hasHeaders && (
-            <label style={row}>
-              Header-Zelle
-              <DraftInput
-                label={`Header-Zelle (0 bis ${headerMax})`}
-                type="number"
-                min={0}
-                max={headerMax}
-                value={String(headerCell)}
-                onCommit={(text) => {
-                  const n = parseCellField(text, headerMax, false);
-                  if (typeof n === "number") setHeaderCell(n);
-                }}
-                style={field}
-              />
-            </label>
-          )}
-        </fieldset>
-        <p style={{ margin: "8px 0", color: "#6b7280" }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) leave();
+      }}
+      title={`Karte bei x ${x}, y ${y} anlegen?`}
+      description="Anlegen lässt sich nicht rückgängig machen."
+      actions={[
+        { label: "Abbrechen", onClick: leave },
+        { label: "Karte anlegen", kind: "primary", onClick: () => void create() },
+      ]}
+    >
+      <div className={styles.form} aria-busy={working}>
+        {sources.length > 1 && <Segmented ariaLabel="Quelle der Kopie" options={sources} value={mode} onChange={setMode} />}
+        {mode === "pick" && (
+          <NumberField label="Karte" showLabel hint={`0 bis ${mapMax}`} min={0} max={mapMax} value={picked} disabled={working} onCommit={setPicked} />
+        )}
+        <Checkbox label="ohne Gebäude" checked={clearBuildings} disabled={working} onChange={setClearBuildings} />
+        {hasHeaders && (
+          <NumberField label="Header-Zelle" showLabel hint={`0 bis ${headerMax}`} min={0} max={headerMax} value={headerCell} disabled={working} onCommit={setHeaderCell} />
+        )}
+        <p className={styles.size}>
           {defaults.width > matrix.width || defaults.height > matrix.height
             ? `Das Raster wird auf ${defaults.width} × ${defaults.height} vergrößert.`
-            : `Das Raster bleibt ${defaults.width} × ${defaults.height} groß.`}{" "}
-          Anlegen lässt sich nicht rückgängig machen.
+            : `Das Raster bleibt ${defaults.width} × ${defaults.height} groß.`}
         </p>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={() => onDone(null)} disabled={working}>
-            Abbrechen
-          </button>
-          <button onClick={() => void create()} disabled={working}>
-            Anlegen
-          </button>
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

@@ -22,7 +22,17 @@ export type DialogProps = {
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
 export function Dialog({ open, onOpenChange, title, description, actions, children }: DialogProps) {
   return (
-    <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+    <BaseDialog.Root
+      open={open}
+      onOpenChange={(next, details) => {
+        // A field inside that used Escape to take back typed text has called `preventDefault`: the dialog stays open.
+        if (!next && details.reason === "escape-key" && details.event.defaultPrevented) {
+          details.cancel();
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className={styles.backdrop} />
         <BaseDialog.Popup className={styles.popup} aria-modal="true">
