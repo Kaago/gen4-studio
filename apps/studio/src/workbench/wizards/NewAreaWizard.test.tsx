@@ -61,7 +61,7 @@ describe("NewAreaWizard", () => {
     await act(async () => root.render(wizard(prefill)));
     await flush();
   }
-  const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+  const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
   const cell = (x: number, y: number) => container.querySelector<HTMLElement>(`[data-cell="${x},${y}"]`);
   const click = (el: Element | null | undefined, init: MouseEventInit = {}) => act(async () => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true, ...init })));
   const next = () => click(button("Weiter"));
@@ -84,13 +84,13 @@ describe("NewAreaWizard", () => {
     expect(container.textContent).toContain("Raster 0131");
     expect(container.textContent).toContain("Karten 0571, 0572");
     expect(button("Weiter")).toBeUndefined();
-    await click(button("Im Studio zeigen"));
+    await click(button("Zeigen"));
     expect(onCreated).toHaveBeenCalledWith(report, spec);
   });
 
   it("walks_the_steps_in_order_and_gates_weiter_on_a_selection", async () => {
     await show();
-    const current = () => container.querySelector('[aria-current="step"]')?.textContent;
+    const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
     expect(current()).toBe("1. Quelle");
     expect(button("Weiter")?.disabled).toBe(true);
     await click(cell(0, 0));
@@ -323,9 +323,9 @@ describe("NewAreaWizard", () => {
     // The refusal is shown inside the dialog (the status strip is hidden behind its backdrop).
     expect(onError).not.toHaveBeenCalled();
     expect(container.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("map 9999 does not exist (the game has 600)");
-    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe("4. Zusammenfassung");
+    expect(container.querySelector('[aria-current="step"]')?.getAttribute("aria-label")).toBe("4. Zusammenfassung");
     expect(button("Anlegen")?.disabled).toBe(false);
-    expect(button("Im Studio zeigen")).toBeUndefined();
+    expect(button("Zeigen")).toBeUndefined();
   });
 
   it("drops_the_refusal_when_the_user_goes_back_to_change_something", async () => {
@@ -353,7 +353,7 @@ describe("NewAreaWizard", () => {
     expect(container.textContent).toContain("Angelegt: Raster 0131, Karten 0571, 0572. Danach fehlgeschlagen: Header umstellen (boom).");
     expect(container.textContent).toContain("Raster-Tab");
     expect(container.textContent).toContain("Header-Editor");
-    expect(button("Im Studio zeigen")).toBeUndefined();
+    expect(button("Zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
   });
@@ -458,7 +458,7 @@ describe("NewAreaWizard", () => {
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {
     await show();
-    await act(async () => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createArea).not.toHaveBeenCalled();
   });

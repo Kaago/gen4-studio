@@ -64,6 +64,17 @@ describe("TextField", () => {
     expect(field().value).toBe("Route 202");
   });
 
+  it("uses_enter_only_while_it_holds_typed_text", () => {
+    // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
+    act(() => root.render(<Owner />));
+    act(() => field().focus());
+    expect(pressKey(field(), "Enter").defaultPrevented).toBe(false);
+    act(() => field().focus());
+    typeInto(field(), "Route 202");
+    expect(pressKey(field(), "Enter").defaultPrevented).toBe(true);
+    expect(commits.mock.calls).toEqual([["Route 202"]]);
+  });
+
   it("commits_on_blur", () => {
     act(() => root.render(<Owner />));
     act(() => field().focus());

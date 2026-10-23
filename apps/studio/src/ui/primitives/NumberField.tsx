@@ -139,7 +139,8 @@ export function NumberField({ label, value, onCommit, min = 0, max, base: basePr
               // Base UI would block the letters of a hex entry and step on its own terms.
               e.preventBaseUIHandler();
               if (e.key === "Enter") {
-                e.preventDefault();
+                // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+                if (draft.edited) e.preventDefault();
                 e.currentTarget.blur();
               } else if (e.key === "Escape") {
                 if (draft.edited) {

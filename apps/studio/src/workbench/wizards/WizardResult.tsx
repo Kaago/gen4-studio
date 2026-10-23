@@ -5,13 +5,10 @@ interface DoneProps {
   title: string;
   lines: string[];
   next: string[];
-  busy: boolean;
-  /** "Im Studio zeigen". */
-  onShow: () => void;
 }
 
-/** The result step of a wizard that created everything: what it made, what to do next, and the way into the studio. */
-export function DoneResult({ title, lines, next, busy, onShow }: DoneProps) {
+/** The result step of a wizard that created everything: what it made and what to do next (the frame adds "Zeigen" and "Hier spielen"). */
+export function DoneResult({ title, lines, next }: DoneProps) {
   return (
     <div>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>{title}</div>
@@ -26,9 +23,6 @@ export function DoneResult({ title, lines, next, busy, onShow }: DoneProps) {
           <li key={line}>{line}</li>
         ))}
       </ul>
-      <button type="button" disabled={busy} onClick={onShow} style={{ marginTop: 12 }}>
-        Im Studio zeigen
-      </button>
     </div>
   );
 }

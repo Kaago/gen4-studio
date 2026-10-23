@@ -20,6 +20,7 @@ import { StartPane } from "./ui/frame/StartPane";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
+import { AREAS } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
@@ -50,6 +51,7 @@ import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
 import type { Created } from "./app/useWizards";
+import { WizardHints, WizardStep } from "./app/WizardHints";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
@@ -69,6 +71,10 @@ const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   technik: "Kommt mit 3c.2",
   einstellungen: "Kommt mit 3c.2",
 };
+
+/** While a wizard is open, the world is the only area: the others wait until it is done. */
+const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
+const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
@@ -102,6 +108,13 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
+  const wizardOpen = useRef(false);
+  // A link does not leave the world while a wizard is open there.
+  const showArea = useStableCallback((target: AreaId) => {
+    if (wizardOpen.current && target !== "welt") return;
+    setArea(target);
+  });
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   // The dockview apis of the two docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it.
@@ -109,8 +122,9 @@ function AppBody() {
     const none = () => ({ current: null as DockviewApi | null });
     return { welt: { schau: none(), hand: none() }, texte: { schau: none(), hand: none() } };
   });
-  // A collapsed hand opens before one of its panels is brought to the front.
+  // A collapsed hand opens before one of its panels is brought to the front; not while a wizard's step holds the hand.
   const revealHand = useStableCallback((target: DeckArea) => {
+    if (wizardOpen.current) return;
     if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
   });
   const revealWorldHand = useStableCallback(() => revealHand("welt"));
@@ -132,6 +146,8 @@ function AppBody() {
   // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
   // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
   const showProblems = useStableCallback(() => {
+    // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
+    if (wizardOpen.current) return;
     const shown = shell.state.area;
     const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
     setArea(target);
@@ -154,7 +170,7 @@ function AppBody() {
   unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
   // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
-  const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand);
+  const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand, () => wizardOpen.current);
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
@@ -162,7 +178,7 @@ function AppBody() {
     refreshDirty: session.refreshDirty,
     setPinned: pin,
     docks,
-    setArea,
+    setArea: showArea,
     revealHand,
     onOpenText,
     onOpenScript: scripts.api.open,
@@ -205,7 +221,13 @@ function AppBody() {
       // A read that failed reported itself: the announcement does not wipe that.
       if (made && made.header === null) session.setMessage(announce(made.announcement));
     },
+    // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
+    onOpen: () => {
+      setArea("welt");
+      shell.setTool("select");
+    },
   });
+  wizardOpen.current = wizards.request !== null;
   useEffect(() => {
     const show = showAfterSync.current;
     if (show === null) return;
@@ -271,6 +293,8 @@ function AppBody() {
   /** Another project was opened: the scene and the world start over with its header list. */
   function resetProject(headers: HeaderSummary[]) {
     showAfterSync.current = null;
+    // A wizard works on the project it was opened in.
+    wizards.close();
     problems.clear();
     scene.resetForProject(headers);
     world.resetForProject();
@@ -404,10 +428,13 @@ function AppBody() {
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
     );
+  // The world's deck keeps the slots of the wizard's bar and step; they show while a wizard is open.
+  const showsWizard = wizards.request !== null;
   /** The deck of an area: its two docks and its hinge, which works on that area's hand and shows `trail`. */
   const deckOf = (target: DeckArea, trail: Crumb[]) => (
     <Deck
       area={target}
+      wizard={target === "welt" ? showsWizard : undefined}
       schauComponents={DECK_COMPONENTS[target].schau}
       handComponents={DECK_COMPONENTS[target].hand}
       schauRef={docks[target].schau}
@@ -427,6 +454,7 @@ function AppBody() {
           canPlay={info !== null}
           onDragHeight={(height) => onDragHeight(target, height)}
           onToggleCollapse={() => onToggleCollapse(target)}
+          wizard={target === "welt" ? showsWizard : undefined}
         />
       }
     />
@@ -452,7 +480,16 @@ function AppBody() {
                 onToggleTheme={shell.toggleTheme}
               />
             }
-            atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
+            atlas={
+              <Atlas
+                area={area}
+                onArea={setArea}
+                onHelp={onHelp}
+                locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
+                lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
+                density={shell.density}
+              />
+            }
             area={area}
             areas={Object.fromEntries(
               DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
@@ -460,8 +497,8 @@ function AppBody() {
             pane={pane}
             status={
               <StatusLine
-                left={area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
-                middle={area === "texte" ? <TextStatus /> : context}
+                left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
+                middle={showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : context}
                 right={<ProblemCount store={problems} />}
                 bridge={bridge}
                 density={shell.density}
@@ -489,6 +526,7 @@ function AppBody() {
           await scene.syncHeaders();
         }}
         onError={session.fail}
+        onPlay={() => void onPlay()}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       {!inTauri() && <WebDialogHost />}

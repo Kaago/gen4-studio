@@ -15,15 +15,24 @@ interface WizardsParams {
    * was left after it wrote (with null: only read), and by `created`.
    */
   onCreated: (created: Created | null) => Promise<void>;
+  /** A wizard opens: the app shows the world (its step bar is in the world's hinge) and puts the tool back on "Auswählen". */
+  onOpen?: () => void;
 }
 
 /** Which wizard is open (if any) with what it is prefilled with. Only the app's wizard host reads `request`. */
-export function useWizards({ onCreated }: WizardsParams) {
+export function useWizards({ onCreated, onOpen }: WizardsParams) {
   const [request, setRequest] = useState<WizardRequest | null>(null);
   const refresh = useStableCallback(onCreated);
+  const opening = useStableCallback(() => onOpen?.());
 
   /** Stable: it is handed to memoised panels as `onOpenWizard`. */
-  const open = useCallback((next: WizardRequest) => setRequest(next), []);
+  const open = useCallback(
+    (next: WizardRequest) => {
+      opening();
+      setRequest(next);
+    },
+    [opening],
+  );
   /** Leaves the wizard; `written` says it changed the project, which is then read again (nothing is shown). */
   const close = useCallback(
     (written = false) => {
@@ -32,7 +41,7 @@ export function useWizards({ onCreated }: WizardsParams) {
     },
     [refresh],
   );
-  /** "Im Studio zeigen": leaves the wizard, reads the project again and shows what it made. */
+  /** "Zeigen": leaves the wizard, reads the project again and shows what it made. */
   const created = useCallback(
     (made: Created) => {
       setRequest(null);

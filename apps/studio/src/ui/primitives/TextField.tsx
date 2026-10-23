@@ -50,7 +50,8 @@ export function TextField({ label, value, onCommit, onChange, type = "text", err
         onBlur={draft.flush}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
+            // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+            if (draft.edited) e.preventDefault();
             e.currentTarget.blur();
           } else if (e.key === "Escape" && draft.edited) {
             // Taking back the typed text uses the key: a dialog around the field must not close as well.

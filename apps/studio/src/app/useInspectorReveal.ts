@@ -16,12 +16,13 @@ function typingInField(): boolean {
  * `setPinned` that also brings the world hand's Inspector tab to the front when the new pin is a header, event, building, area or matrix cell:
  * the inspector shares its tab group with Script and Probleme, so a selection would otherwise change something that is hidden.
  * A collapsed hand opens first; a text field that has the focus keeps it (the tab stays as it is then). An update function (history
- * reloads settling the pin again) and the pins that show nothing editable leave the tabs alone.
+ * reloads settling the pin again) and the pins that show nothing editable leave the tabs alone, and so does any pin while `paused` says
+ * the hand is taken (a wizard's step is in it).
  */
-export function useInspectorReveal(setPinned: Dispatch<SetStateAction<InspectorModel>>, dockApi: DockApis, revealHand: () => void) {
+export function useInspectorReveal(setPinned: Dispatch<SetStateAction<InspectorModel>>, dockApi: DockApis, revealHand: () => void, paused: () => boolean = () => false) {
   return useStableCallback((next: SetStateAction<InspectorModel>) => {
     setPinned(next);
-    if (typeof next === "function" || !EDITED.has(next.kind) || typingInField()) return;
+    if (typeof next === "function" || !EDITED.has(next.kind) || typingInField() || paused()) return;
     try {
       const panel = dockApi.hand.current?.getPanel("inspector");
       if (!panel) return;

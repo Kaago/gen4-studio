@@ -96,12 +96,12 @@ describe("NewRoomWizard", () => {
     );
     await flush();
   }
-  const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+  const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
   const rowButton = (id: string) => [...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith(id));
   const click = (el: Element | null | undefined) => act(async () => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   const next = () => click(button("Weiter"));
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
-  const current = () => container.querySelector('[aria-current="step"]')?.textContent;
+  const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
   async function type(input: HTMLInputElement, text: string) {
     await act(async () => input.focus());
     await act(async () => {
@@ -144,7 +144,7 @@ describe("NewRoomWizard", () => {
     });
     expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
     expect(container.textContent).toContain("Eingang: Warp 3 in Header 0000");
-    await click(button("Im Studio zeigen"));
+    await click(button("Zeigen"));
     expect(onCreated).toHaveBeenCalledWith(report, spec);
   });
 
@@ -467,7 +467,7 @@ describe("NewRoomWizard", () => {
     expect(onError).not.toHaveBeenCalled();
     // In German, with the system's reason as it came.
     expect(container.textContent).toContain("Angelegt: Karte 0571, Raster 0131. Danach fehlgeschlagen: Header umstellen (boom).");
-    expect(button("Im Studio zeigen")).toBeUndefined();
+    expect(button("Zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
   });
@@ -520,7 +520,7 @@ describe("NewRoomWizard", () => {
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {
     await show();
-    await act(async () => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createRoom).not.toHaveBeenCalled();
   });

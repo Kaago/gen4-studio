@@ -61,18 +61,22 @@ describe("Deck", () => {
     shell = useShell();
     return null;
   }
-  const mount = async (area: "welt" | "texte" = "welt") => {
-    schauRef.current = null;
-    handRef.current = null;
+  /** Renders the deck (again: the docks stay); `wizard` as App gives it to the world's deck. */
+  const render = async (area: "welt" | "texte", wizard?: boolean) => {
     const [schauComponents, handComponents] = area === "welt" ? [SCHAU, HAND] : [TEXT_SCHAU, TEXT_HAND];
     await act(async () =>
       root.render(
         <ShellProvider initialArea={area}>
           <Probe />
-          <Deck area={area} schauComponents={schauComponents} handComponents={handComponents} schauRef={schauRef} handRef={handRef} hinge={<div role="toolbar" aria-label="Scharnier" />} />
+          <Deck area={area} schauComponents={schauComponents} handComponents={handComponents} schauRef={schauRef} handRef={handRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
         </ShellProvider>,
       ),
     );
+  };
+  const mount = async (area: "welt" | "texte" = "welt", wizard?: boolean) => {
+    schauRef.current = null;
+    handRef.current = null;
+    await render(area, wizard);
   };
   const schau = () => schauRef.current!;
   const hand = () => handRef.current!;
@@ -288,6 +292,43 @@ describe("Deck", () => {
     expect(hand().getPanel("script")!.title).toBe("Script");
     act(() => scriptDirtyStore.set(0));
     expect(dotIn(tabOf("Script"))).toBeNull();
+  });
+
+  it("has_a_slot_for_the_wizard_step_only_where_wizards_show", async () => {
+    await mount("texte");
+    expect(container.querySelector("[data-wizard-hand]")).toBeNull();
+    await mount("welt", false);
+    expect(container.querySelector<HTMLElement>("[data-wizard-hand]")!.hidden).toBe(true);
+    expect(dock("hand").hidden).toBe(false);
+  });
+
+  it("hides_the_hand_dock_behind_an_open_wizard_without_rebuilding_it", async () => {
+    await mount("welt", false);
+    const before = hand();
+    await render("welt", true);
+    const slot = container.querySelector<HTMLElement>("[data-wizard-hand]")!;
+    expect(slot.hidden).toBe(false);
+    expect(dock("hand").hidden).toBe(true);
+    expect(slot.style.height).toBe(`${HAND_DEFAULT}px`);
+    await render("welt", false);
+    expect(slot.hidden).toBe(true);
+    expect(dock("hand").hidden).toBe(false);
+    expect(hand()).toBe(before);
+  });
+
+  it("lifts_a_collapsed_hand_for_the_wizard_without_touching_the_remembered_height", async () => {
+    const state = readShellState();
+    writeShellState({ ...state, handHeight: { ...state.handHeight, welt: 220 }, handCollapsed: { ...state.handCollapsed, welt: true } });
+    await mount("welt", true);
+    const slot = container.querySelector<HTMLElement>("[data-wizard-hand]")!;
+    expect(slot.hidden).toBe(false);
+    expect(slot.style.height).toBe(`${HAND_DEFAULT}px`);
+    expect(shell.state.handHeight.welt).toBe(220);
+    expect(shell.state.handCollapsed.welt).toBe(true);
+    // An open hand keeps its own height for the wizard.
+    act(() => shell.toggleHandCollapsed("welt"));
+    act(() => shell.setHandHeight("welt", 420));
+    expect(slot.style.height).toBe("420px");
   });
 
   it("resets_nothing_of_a_deck_that_is_not_built", () => {

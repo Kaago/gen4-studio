@@ -13,8 +13,8 @@ import { useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
 import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
-import { WizardShell } from "./WizardShell";
-import type { WizardStep } from "./WizardShell";
+import { WizardFrame } from "./WizardFrame";
+import type { WizardStep } from "./WizardFrame";
 import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
@@ -30,11 +30,13 @@ interface Props {
   prefill?: { matrix?: number; header?: number };
   /** The wizard is left; `written` says whether it changed the project (the app then reads it again). */
   onClose: (written: boolean) => void;
-  /** "Im Studio zeigen": the app reads the project again and shows the new area. */
+  /** "Zeigen": the app reads the project again and shows the new area. */
   onCreated: (report: AreaReport, spec: AreaSpec) => Promise<void>;
   /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
   onHeaderPatch: () => Promise<void>;
   onError: (e: unknown) => void;
+  /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
+  onPlay?: () => void;
 }
 
 type Outcome = { kind: "done"; report: AreaReport; spec: AreaSpec } | { kind: "partial"; message: string };
@@ -58,7 +60,7 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onError }: Props) {
+export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onError, onPlay }: Props) {
   const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -156,6 +158,12 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
     } finally {
       setBusy(false);
     }
+  }
+
+  /** "Hier spielen": shows what was made, then plays. */
+  async function showAndPlay(report: AreaReport, spec: AreaSpec) {
+    await show(report, spec);
+    onPlay?.();
   }
 
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, template), areaDataId: form.areaDataId, eventFile: form.eventFile };
@@ -279,16 +287,21 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   ];
 
   let result = null;
+  let onShow: (() => void) | undefined;
+  let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec)} busy={busy} onShow={() => void show(report, spec)} />;
+    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec)} />;
+    onShow = () => void show(report, spec);
+    if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} />;
   }
 
   return (
-    <WizardShell
+    <WizardFrame
       title="Gebiet anlegen"
+      icon="matrix"
       steps={steps}
       step={step}
       onStep={(i) => {
@@ -297,10 +310,14 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
       }}
       submitLabel="Anlegen"
       onSubmit={() => void create()}
-      onClose={() => onClose(outcome !== null)}
+      onCancel={() => onClose(outcome !== null)}
+      onShow={onShow}
+      onPlay={play}
       busy={busy || patch.busy}
       result={result}
       error={refusal}
+      summary={"spec" in built ? areaSummary(built.spec, headers, links)[0] : undefined}
+      irreversible
     />
   );
 }

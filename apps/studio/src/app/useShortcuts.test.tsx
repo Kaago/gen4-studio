@@ -72,6 +72,33 @@ describe("useShortcuts", () => {
     expect(handlers.unpinSelection).toHaveBeenCalledOnce();
   });
 
+  it("ignores_delete_undo_save_play_and_the_tool_letters_while_a_wizard_is_open", async () => {
+    env.tauri = true;
+    // A wizard is a non-modal dialog in the hand: the scene stays usable, the workbench's keys do not.
+    const wizard = document.createElement("div");
+    wizard.setAttribute("role", "dialog");
+    wizard.setAttribute("data-wizard", "");
+    document.body.append(wizard);
+    for (const target of [document.body, wizard]) {
+      await press({ key: "Delete" }, target);
+      await press({ key: "Backspace" }, target);
+      await press({ key: "Escape" }, target);
+      await press({ key: "z", metaKey: true }, target);
+      await press({ key: "s", metaKey: true }, target);
+      await press({ key: "r", metaKey: true }, target);
+      await press({ key: "b" }, target);
+    }
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+    expect(handlers.step).not.toHaveBeenCalled();
+    expect(handlers.onSave).not.toHaveBeenCalled();
+    expect(handlers.onPlay).not.toHaveBeenCalled();
+    expect(handlers.onTool).not.toHaveBeenCalled();
+    wizard.remove();
+    await press({ key: "Delete" });
+    expect(handlers.onDeleteBuilding).toHaveBeenCalledOnce();
+  });
+
   it("plays_on_cmd_r_inside_the_app_and_leaves_the_reload_to_the_browser", async () => {
     env.tauri = true;
     await press({ key: "r", metaKey: true });

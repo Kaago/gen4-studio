@@ -68,8 +68,11 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, max
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        else if (e.key === "Escape" && draft !== null && draft !== value) {
+        if (e.key === "Enter") {
+          // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+          if (draft !== null && draft !== value) e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === "Escape" && draft !== null && draft !== value) {
           // Taking back the typed text uses the key: a dialog around the field must not close as well.
           e.preventDefault();
           setDraft(null);

@@ -22,8 +22,11 @@ interface ShortcutHandlers {
   toolsActive: boolean;
 }
 
-/** Whether a modal dialog is open: its own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. */
-const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+/**
+ * Whether a modal dialog or a wizard is open: their own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. A wizard is not
+ * modal (the view stays usable), but while it works on the project nothing else may change it.
+ */
+const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"], [data-wizard]') !== null;
 
 /** Whether the key goes to something that takes letters for itself: a text field, or an open menu or list (type-ahead, Escape closes it). */
 function inField(target: HTMLElement | null): boolean {
@@ -33,7 +36,7 @@ function inField(target: HTMLElement | null): boolean {
 /**
  * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
  * "Auswählen", and Delete / Escape on a pinned building or
- * event, none of them while a modal dialog is open. Registered once; the handlers of the latest render are called through a ref.
+ * event, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
   // Shortcuts always call the handlers of the latest render.

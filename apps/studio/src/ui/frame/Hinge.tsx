@@ -1,5 +1,5 @@
 import { Fragment, useRef } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { HistoryDto } from "../../api";
 import { inTauri } from "../../platform/transport";
 import type { Crumb } from "../../workbench/breadcrumb";
@@ -29,8 +29,11 @@ export type HingeProps = {
   /** The new height of the hand while the grip is dragged, already inside 200..560. */
   onDragHeight: (height: number) => void;
   onToggleCollapse: () => void;
-  /** Replaces the content (the wizard's step bar, 3c.2); the grip stays. */
-  wizard?: ReactNode;
+  /**
+   * The hinge where wizards show (the world's): it keeps a slot for the wizard's step bar (`data-wizard-bar`, filled through a portal).
+   * True while a wizard is open: the slot replaces the content, the grip stays but does not collapse the hand. Undefined: no slot.
+   */
+  wizard?: boolean;
 };
 
 /** The menu lists this many of the newest undo steps. */
@@ -84,24 +87,26 @@ export function Hinge({ crumbs, depth, onDepth, problems, onProblems, history, o
   const counts = countsText(problems);
   const lightKind = problems.errors > 0 ? styles.error : problems.warnings > 0 ? styles.warning : styles.sound;
 
+  // The hand holds the wizard's step: it does not collapse under it.
+  const toggleCollapse = wizard === true ? undefined : onToggleCollapse;
+
   return (
-    <div className={styles.hinge} role="toolbar" aria-label="Scharnier" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
+    <div className={wizard === true ? `${styles.hinge} ${styles.wizardMode}` : styles.hinge} role="toolbar" aria-label="Scharnier" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
       <button
         type="button"
         className={styles.grip}
         data-hinge-grip=""
         aria-label="Hand ein- oder ausklappen (Ziehen ändert die Höhe)"
-        onDoubleClick={onToggleCollapse}
+        onDoubleClick={toggleCollapse}
         // Enter and Space arrive as a click without a click count; a mouse click is the start of a drag or half a double click.
         onClick={(e) => {
-          if (e.detail === 0) onToggleCollapse();
+          if (e.detail === 0) toggleCollapse?.();
         }}
       >
         <Icon name="grip" />
       </button>
-      {wizard !== undefined ? (
-        <div className={styles.wizard}>{wizard}</div>
-      ) : (
+      {wizard !== undefined && <div className={styles.wizard} data-wizard-bar="" hidden={!wizard} />}
+      {wizard !== true && (
         <>
           <nav className={styles.crumbs} aria-label="Brotkrume">
             <ol>

@@ -184,12 +184,28 @@ describe("Hinge", () => {
     expect(button(/Hier spielen/)).toBeUndefined();
   });
 
-  it("replaces_its_content_by_the_wizard_when_one_is_given_but_keeps_the_grip", () => {
-    show(base({ wizard: <span>Schritt 1 von 3</span> }));
-    expect(bar().textContent).toContain("Schritt 1 von 3");
+  it("has_a_hidden_slot_for_the_wizard_bar_only_where_wizards_show", () => {
+    show(base());
+    expect(container.querySelector("[data-wizard-bar]")).toBeNull();
+    show(base({ wizard: false }));
+    const slot = container.querySelector<HTMLElement>("[data-wizard-bar]")!;
+    expect(slot.hidden).toBe(true);
+    expect(container.querySelector("nav")).not.toBeNull();
+  });
+
+  it("shows_the_wizard_slot_instead_of_its_content_and_keeps_the_grip_without_collapsing", () => {
+    const props = base({ wizard: true });
+    show(props);
+    const slot = container.querySelector<HTMLElement>("[data-wizard-bar]")!;
+    expect(slot.hidden).toBe(false);
     expect(container.querySelector("nav")).toBeNull();
     expect(button(/Hier spielen/)).toBeUndefined();
-    expect(container.querySelector("[data-hinge-grip]")).not.toBeNull();
+    const grip = container.querySelector<HTMLElement>("[data-hinge-grip]")!;
+    expect(grip).not.toBeNull();
+    // The hand stays open while the wizard works in it.
+    act(() => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    act(() => void grip.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(props.onToggleCollapse).not.toHaveBeenCalled();
   });
 
   describe("grip", () => {

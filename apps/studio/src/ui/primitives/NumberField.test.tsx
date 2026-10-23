@@ -56,6 +56,17 @@ describe("NumberField", () => {
     act(() => input().blur());
   };
 
+  it("uses_enter_only_while_it_holds_typed_text", () => {
+    // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
+    act(() => root.render(<Owner />));
+    act(() => input().focus());
+    expect(pressKey(input(), "Enter").defaultPrevented).toBe(false);
+    act(() => input().focus());
+    typeInto(input(), "200");
+    expect(pressKey(input(), "Enter").defaultPrevented).toBe(true);
+    expect(commits.mock.calls).toEqual([[200]]);
+  });
+
   it("commits_on_enter_and_blur_and_reverts_on_escape", () => {
     act(() => root.render(<Owner />));
     expect(input().value).toBe("100");

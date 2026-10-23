@@ -91,4 +91,20 @@ describe("DraftInput", () => {
     act(() => input().blur());
     expect(commits).not.toHaveBeenCalled();
   });
+
+  it("uses_enter_only_while_it_holds_typed_text", () => {
+    // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
+    const enter = () => {
+      const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+      act(() => void input().dispatchEvent(event));
+      return event;
+    };
+    act(() => root.render(<Owner />));
+    act(() => input().focus());
+    expect(enter().defaultPrevented).toBe(false);
+    act(() => input().focus());
+    act(() => typeText("Route 231"));
+    expect(enter().defaultPrevented).toBe(true);
+    expect(commits.mock.calls).toEqual([["Route 231"]]);
+  });
 });

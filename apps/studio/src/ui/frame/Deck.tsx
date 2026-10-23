@@ -6,6 +6,7 @@ import { deckPanels, isSaneLayout, layoutKey, loadLayout, saveLayout } from "../
 import type { DeckId, PanelSpec } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { useShell } from "./ShellContext";
+import { HAND_DEFAULT } from "./shellState";
 import type { AreaId } from "./shellState";
 import styles from "./Deck.module.css";
 
@@ -21,6 +22,11 @@ export type DeckProps = {
   handRef: MutableRefObject<DockviewApi | null>;
   /** The bar between the two docks. */
   hinge: ReactNode;
+  /**
+   * The deck where wizards show (the world's): it keeps a slot beside the hand's dock for the wizard's step (`data-wizard-hand`, filled
+   * through a portal). True while a wizard is open: the slot shows in place of the dock. Undefined: no slot.
+   */
+  wizard?: boolean;
 };
 
 /**
@@ -122,19 +128,25 @@ const DeckDock = memo(function DeckDock({ area, deck, components, apiRef }: { ar
  * The deck of an area: the view (Schau) on top, the hinge, the hand below. The hand has the remembered height, the view the rest; a
  * collapsed hand is hidden (not unmounted: CodeMirror and the scene keep their state) and only the hinge is left.
  * Each dock is its own dockview with its own layout key, so a panel moves within a dock, never between the two. Every area with a deck has
- * its own `Deck` (the shell keeps them all mounted); the hand's height and whether it is collapsed are the area's own.
+ * its own `Deck` (the shell keeps them all mounted); the hand's height and whether it is collapsed are the area's own. While a wizard is open
+ * (world only), its step takes the hand's place.
  */
-export function Deck({ area, schauComponents, handComponents, schauRef, handRef, hinge }: DeckProps) {
+export function Deck({ area, schauComponents, handComponents, schauRef, handRef, hinge, wizard }: DeckProps) {
   const { state } = useShell();
+  const collapsed = state.handCollapsed[area];
+  // A wizard needs room: a collapsed hand is lifted to at least the default height while it is open (the remembered height stays).
+  const wizardHeight = collapsed ? Math.max(state.handHeight[area], HAND_DEFAULT) : state.handHeight[area];
   return (
     <div className={styles.deck}>
       <div className={styles.schau} id={`dock-${area}-schau`} data-dock="schau">
         <DeckDock area={area} deck="schau" components={schauComponents} apiRef={schauRef} />
       </div>
       {hinge}
-      <div className={styles.hand} id={`dock-${area}-hand`} data-dock="hand" hidden={state.handCollapsed[area]} style={{ height: state.handHeight[area] } /* dyn */}>
+      {/* Behind an open wizard the dock stays mounted (CodeMirror and the scene keep their state), only hidden. */}
+      <div className={styles.hand} id={`dock-${area}-hand`} data-dock="hand" hidden={collapsed || wizard === true} style={{ height: state.handHeight[area] } /* dyn */}>
         <DeckDock area={area} deck="hand" components={handComponents} apiRef={handRef} />
       </div>
+      {wizard !== undefined && <div className={styles.hand} data-wizard-hand="" hidden={!wizard} style={{ height: wizardHeight } /* dyn */} />}
     </div>
   );
 }

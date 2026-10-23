@@ -128,7 +128,7 @@ Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für d
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Im Studio zeigen“ |
+| (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Zeigen“ |
 | (A) 5–10 Raum anlegen (Spielerzimmer als neuer Header 0593) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „Neu anlegen“ (+ in der Liste „Orte“) → „Raum anlegen…“, Vorlage Header 0415, „Neuer Header“ (vorher „Patch anwenden“), Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Tür-Kacheln“ an lassen, „Anlegen“. Nicht Header 0002 „UG“ (Sonder-Header, bleibt im Spiel schwarz). Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0593“, „Zum Ziel“); Gegenprobe `call.sh get_events` der neuen Eventdatei: genau ein Warp auf der Rückweg-Kachel, Ziel 0411 |
 | (A) Stoppuhr und „Zahlen getippt“ | Hand | Die Zeit misst der Mensch bei eigener Bedienung. Der Agent trägt nur seine getippten Zahlen ein und sagt, dass seine Zeit nichts aussagt |
 | (A) 11 Warps von Hand verbinden | Agent | Browser, Schritte in Rezept „Warps verbinden“ unten |
@@ -155,7 +155,7 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 | (A) 1 Ausgangslage | Agent | `ls -l <Kopie>/files/fielddata/maptable/mapname.bin` (Größe notieren), `ls <Kopie>/arm9/arm9.bin.backup` muss fehlen; Zahl der Header: `call.sh list_headers` oder letzte ID im Explorer plus eins |
 | (A) 2–3 Assistent bis Patch | Agent | Browser: Header 0342, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, zwei Zellen übrig, Name „Route 231“, Schritt Header: „Neuer Header“ ist gesperrt, Kasten „Patch „Dynamische Header“ nötig“ lesen, vorher speichern, „Patch anwenden“ |
 | (A) 4 Platte nach dem Patch | Agent | `cmp <Kopie>/arm9/arm9.bin <Kopie>/arm9/arm9.bin.backup` meldet Unterschiede; `ls <Kopie>/unpacked/dynamicHeaders \| wc -l` gleich Zahl der Header; `ls -l <Kopie>/arm9/arm9.bin*` |
-| (A) 5–6 Neuer Header | Agent | Browser: „Neuer Header“, „Interner Name“ auf `R231`, Zusammenfassung lesen, „Anlegen“, „Im Studio zeigen“ |
+| (A) 5–6 Neuer Header | Agent | Browser: „Neuer Header“, „Interner Name“ auf `R231`, Zusammenfassung lesen, „Anlegen“, „Zeigen“ |
 | (A) 7 Platte nach dem Anlegen | Agent | `ls -l <Kopie>/unpacked/dynamicHeaders/NNNN` (NNNN vierstellig, 24 Byte; in JSON ohne führende Nullen, zum Beispiel `{"id":593}`); `mapname.bin` genau 16 Byte länger; `tail -c 16 <Kopie>/files/fielddata/maptable/mapname.bin \| xxd` beginnt mit `R231` |
 | (A) 8 Variante „behalten“ | Agent | Browser: zweites Gebiet „Route 232“, Eventdatei „behalten“; Gegenprobe `call.sh get_header '{"id":NNNN}'` (NNNN ohne führende Nullen; gleiche `event_file_id` wie 0342) |
 | (A) 9–10 Warp und Gang im Spiel | Agent | Warps in der Oberfläche setzen (siehe 3a (A) 11) und mit `g4emu` laufen, **oder** das Szenario `pt-neuer-header.yaml` auf einer weiteren frischen Kopie (Patch, neuer Header, Treppe, hin und zurück ohne Klick) |

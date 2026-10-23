@@ -17,8 +17,8 @@ import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
-import { WizardShell } from "./WizardShell";
-import type { WizardStep } from "./WizardShell";
+import { WizardFrame } from "./WizardFrame";
+import type { WizardStep } from "./WizardFrame";
 import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 
@@ -41,11 +41,13 @@ interface Props {
   lastTile: () => { x: number; z: number } | null;
   /** The wizard is left; `written` says whether it changed the project (the app then reads it again). */
   onClose: (written: boolean) => void;
-  /** "Im Studio zeigen": the app reads the project again and shows the new room. */
+  /** "Zeigen": the app reads the project again and shows the new room. */
   onCreated: (report: RoomReport, spec: RoomSpec) => Promise<void>;
   /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
   onHeaderPatch: () => Promise<void>;
   onError: (e: unknown) => void;
+  /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
+  onPlay?: () => void;
 }
 
 type Outcome = { kind: "done"; report: RoomReport; spec: RoomSpec } | { kind: "partial"; message: string };
@@ -82,7 +84,7 @@ function parseTile(text: string): number | null {
 }
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onError }: Props) {
+export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onError, onPlay }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
   const [form, setForm] = useState<RoomForm>(() => {
@@ -235,6 +237,12 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     } finally {
       setBusy(false);
     }
+  }
+
+  /** "Hier spielen": shows what was made, then plays. */
+  async function showAndPlay(report: RoomReport, spec: RoomSpec) {
+    await show(report, spec);
+    onPlay?.();
   }
 
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, form.template ?? 0), areaDataId: form.areaDataId, eventFile: form.eventFile };
@@ -418,16 +426,21 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   ];
 
   let result = null;
+  let onShow: (() => void) | undefined;
+  let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec)} busy={busy} onShow={() => void show(report, spec)} />;
+    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec)} />;
+    onShow = () => void show(report, spec);
+    if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} />;
   }
 
   return (
-    <WizardShell
+    <WizardFrame
       title={`${TERMS.room.label} anlegen`}
+      icon="room"
       steps={steps}
       step={step}
       onStep={(i) => {
@@ -436,10 +449,14 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       }}
       submitLabel="Anlegen"
       onSubmit={() => void create()}
-      onClose={() => onClose(outcome !== null)}
+      onCancel={() => onClose(outcome !== null)}
+      onShow={onShow}
+      onPlay={play}
       busy={busy || patch.busy}
       result={result}
       error={refusal}
+      summary={"spec" in built ? roomSummary(built.spec, headers, undefined, links)[0] : undefined}
+      irreversible
     />
   );
 }

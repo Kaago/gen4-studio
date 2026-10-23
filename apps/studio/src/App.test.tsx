@@ -38,7 +38,7 @@ vi.mock("./workbench/panels", () => ({
   DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} } },
 }));
 vi.mock("./ui/frame/Deck", async () => {
-  const { useEffect } = await import("react");
+  const { Fragment, createElement, useEffect } = await import("react");
   type Ref = { current: unknown };
   /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
   const dock = (area: string, ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`) } : undefined) });
@@ -50,13 +50,20 @@ vi.mock("./ui/frame/Deck", async () => {
     texte: [["textView"], ["textEdit", "problems"]],
   };
   return {
-    Deck: ({ area, schauRef, handRef, hinge }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown }) => {
+    // The hand is a bare element: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
+    Deck: ({ area, schauRef, handRef, hinge, wizard }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown; wizard?: boolean }) => {
       schauRef.current = dock(area, PANELS[area]![0]);
       handRef.current = dock(area, PANELS[area]![1]);
       useEffect(() => {
         shown.mounts++;
       }, []);
-      return hinge;
+      return createElement(
+        Fragment,
+        null,
+        hinge as never,
+        createElement("div", { "data-dock": "hand", hidden: wizard === true }),
+        wizard === undefined ? null : createElement("div", { "data-wizard-hand": "", hidden: !wizard }),
+      );
     },
   };
 });
@@ -272,7 +279,8 @@ describe("App wiring", () => {
     expect(data().warpLinks).toEqual([]);
     const opener = data().onOpenWizard;
     await act(async () => opener({ kind: "area" }));
-    expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Gebiet anlegen");
+    const titleId = container.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby");
+    expect(titleId && document.getElementById(titleId)?.textContent).toBe("Gebiet anlegen");
     await select(listed[0]);
     // Opening the wizard and everything after it leaves the workbench's data alone.
     expect(data().onOpenWizard).toBe(opener);
@@ -1022,7 +1030,7 @@ describe("App wiring", () => {
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await create();
       expect(data().selected).toBe(0);
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       // Header 1 was selected with its new matrix, not the one the old header list had for it.
       expect(data().selected).toBe(1);
       expect(vi.mocked(getMatrix).mock.calls[vi.mocked(getMatrix).mock.calls.length - 1]?.[0]).toBe(5);
@@ -1036,7 +1044,7 @@ describe("App wiring", () => {
       expect(data().matrix?.index).toBe(1);
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await create();
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(data().selected).toBe(1);
       expect(data().matrix?.index).toBe(5);
       expect(live().message?.text).toContain("Raster 0005");
@@ -1048,7 +1056,7 @@ describe("App wiring", () => {
       await create();
       const read = vi.mocked(listHeaders).getMockImplementation();
       vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(data().selected).toBe(0);
       expect(live().message?.kind).toBe("error");
       expect(live().message?.text).not.toContain("Raster 0005");
@@ -1067,7 +1075,7 @@ describe("App wiring", () => {
       await create();
       const read = vi.mocked(listHeaders).getMockImplementation();
       vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(live().message?.kind).toBe("error");
       // The next read (here after a header edit) lists header 1 on the new matrix: the creation is over, nothing selects it.
       vi.mocked(listHeaders).mockImplementation(read!);
@@ -1087,7 +1095,7 @@ describe("App wiring", () => {
         if (index === 5) throw new Error("matrix 0005 unreadable");
         return matrixOf(index);
       });
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(live().message?.kind).toBe("error");
       expect(live().message?.text).toContain("matrix 0005 unreadable");
     });
@@ -1099,6 +1107,68 @@ describe("App wiring", () => {
       await click("Abbrechen");
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       expect(sourceSelect()?.value).toBe("0");
+    });
+  });
+
+  describe("wizard in the deck", () => {
+    const weltDeck = () => area("welt", "deck")!;
+    const barSlot = () => weltDeck().querySelector<HTMLElement>("[data-wizard-bar]")!;
+    const handDock = () => weltDeck().querySelector<HTMLElement>('[data-dock="hand"]')!;
+    const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
+
+    it("shows an open wizard in the world's hinge and hand, hides the hand dock and locks the other areas of the atlas", async () => {
+      // Opened from the texts, it takes the user to the world.
+      await click("Texte");
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(barSlot().hidden).toBe(false);
+      expect(barSlot().textContent).toContain("Gebiet anlegen");
+      expect(barSlot().querySelector('ol[aria-label="Schritte"]')).not.toBeNull();
+      expect(weltDeck().querySelector('[data-wizard-hand] [role="dialog"]')).not.toBeNull();
+      expect(handDock().hidden).toBe(true);
+      // The hinge of the texts has no wizard slot.
+      expect(area("texte", "deck")!.querySelector("[data-wizard-bar]")).toBeNull();
+      for (const name of ["Start", "Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
+      expect(atlasEntry("Welt")?.getAttribute("aria-disabled")).toBeNull();
+      await click("Texte");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(statusLine()).toContain("↵ Weiter, ⌘[ Zurück, Esc Abbrechen");
+      expect(statusLine()).toContain("Schritt 1 von 4: Quelle");
+      await click("Abbrechen");
+      expect(barSlot().hidden).toBe(true);
+      expect(handDock().hidden).toBe(false);
+      expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).toBeNull();
+      expect(statusLine()).not.toContain("Schritt 1 von 4");
+    });
+
+    it("keeps the workbench's keys off and the tool on Auswählen while a wizard is open", async () => {
+      env.tauri = true;
+      vi.mocked(save).mockResolvedValue(undefined as never);
+      await select(listed[0]);
+      await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+      await act(async () => data().onTool("paint"));
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(data().tool).toBe("select");
+      expect(data().selectedBuilding).toEqual({ map: 0, index: 1 });
+      await press({ key: "Delete" });
+      await press({ key: "z", metaKey: true });
+      await press({ key: "s", metaKey: true });
+      await press({ key: "r", metaKey: true });
+      await press({ key: "b" });
+      expect(ask).not.toHaveBeenCalled();
+      expect(undo).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(data().tool).toBe("select");
+      expect(data().selectedBuilding).toEqual({ map: 0, index: 1 });
+    });
+
+    it("leaves the hand of the world alone while a wizard holds it", async () => {
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      shown.focused = [];
+      await select(listed[1]);
+      expect(shown.focused).toEqual([]);
     });
   });
 
