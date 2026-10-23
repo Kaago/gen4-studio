@@ -48,7 +48,11 @@ export function isTypingTarget(target: { tagName?: string; isContentEditable?: b
   return target.isContentEditable === true || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
-/** The app-level shortcut a key event asks for (Cmd/Ctrl+Z, +Shift+Z, +S), or null; none while typing in a field, where Z must stay the text field's own undo. */
+/**
+ * The app-level shortcut a key event asks for (Cmd/Ctrl+Z, +Shift+Z, +S, and +R for "Hier spielen" inside the app), or null; none while
+ * typing in a field, where Z must stay the text field's own undo. `inApp` is whether the page runs in the Tauri window: in a browser
+ * Cmd+R reloads the page and is not ours.
+ */
 export function shortcutAction(e: {
   key: string;
   target: { tagName?: string; isContentEditable?: boolean } | null;
@@ -56,10 +60,13 @@ export function shortcutAction(e: {
   ctrlKey: boolean;
   altKey: boolean;
   shiftKey: boolean;
-}): "undo" | "redo" | "save" | null {
+  inApp?: boolean;
+}): "undo" | "redo" | "save" | "play" | null {
   if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
   const key = e.key.toLowerCase();
   if (key === "s") return "save";
+  // Shift+R is the hard reload of a webview.
+  if (key === "r" && e.inApp === true && !e.shiftKey) return "play";
   if (key === "z" && !isTypingTarget(e.target)) return e.shiftKey ? "redo" : "undo";
   return null;
 }
@@ -117,8 +124,8 @@ export function settleBuilding(list: BuildingDto[], index: number, expected: Bui
   return true;
 }
 
-/** Text of the confirmation before a building is deleted: its index, map, model and position. */
+/** Text of the confirmation before a building is deleted: its number (1-based, like every building label), map, model and position. */
 export function deletePrompt(map: number, index: number, b: Pick<BuildingDto, "model_id" | "x" | "y" | "z"> | undefined): string {
-  const what = `Gebäude ${index} von Karte ${String(map).padStart(4, "0")}`;
+  const what = `Gebäude ${index + 1} von Karte ${String(map).padStart(4, "0")}`;
   return b ? `${what} (Modell ${b.model_id}, x ${b.x}, y ${b.y}, z ${b.z}) löschen?` : `${what} löschen?`;
 }

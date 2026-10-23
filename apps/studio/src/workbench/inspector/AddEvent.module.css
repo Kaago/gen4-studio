@@ -1,0 +1,5 @@
+.add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}

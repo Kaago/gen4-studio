@@ -1,0 +1,96 @@
+/* Also used by Reference for its context menu. */
+.trigger {
+  display: inline-flex;
+  min-height: var(--g4-dichte-steuer);
+  min-width: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-6);
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid transparent;
+  border-radius: var(--g4-radius-taste);
+  background: transparent;
+  color: inherit;
+  font: var(--g4-font-text-s-betont);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--g4-dauer-kurz);
+}
+
+.trigger:hover,
+.trigger[data-popup-open] {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.trigger svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.positioner {
+  z-index: var(--g4-ebene-schwebend);
+  outline: none;
+}
+
+.popup {
+  min-width: 160px;
+  max-width: 320px;
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  outline: none;
+  box-shadow: var(--g4-schatten-schwebend);
+  transition: opacity var(--g4-dauer-kurz);
+}
+
+.popup[data-starting-style],
+.popup[data-ending-style] {
+  opacity: 0;
+}
+
+.item {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-12);
+  border-radius: var(--g4-radius-feld);
+  font: var(--g4-font-text-s);
+  cursor: default;
+  user-select: none;
+}
+
+.item svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.item[data-highlighted] {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+  outline: none;
+}
+
+.item[data-disabled] {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.item[data-disabled][data-highlighted] {
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+}
+
+.separator {
+  height: var(--g4-strich-standard);
+  margin: var(--g4-raum-4) 0;
+  background: var(--g4-linie-leise);
+}
+
+.groupLabel {
+  padding: var(--g4-raum-4) var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

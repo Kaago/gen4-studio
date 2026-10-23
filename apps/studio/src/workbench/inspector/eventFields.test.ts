@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoordDto, EventPatch, EventsDto, WarpDto } from "../../api";
 import type { EventData } from "../../world/events";
-import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs, eventPatch } from "./eventFields";
+import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventPatch, eventSubtitle } from "./eventFields";
 import { EditSession } from "./headerCommit";
 
 const warp = (over: Partial<WarpDto> = {}): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0, ...over });
@@ -25,7 +25,14 @@ describe("eventFieldSpecs", () => {
 
   it("labels the facing and limits it to the i16 the object stores", () => {
     const dir = eventFieldSpecs("object", null).find((s) => s.key === "dir");
-    expect(dir).toMatchObject({ label: "Richtung (0 oben, 1 unten, 2 links, 3 rechts)", min: -32768, max: 32767 });
+    expect(dir).toMatchObject({ label: "Blickrichtung", min: -32768, max: 32767 });
+    // The four facings are choices, in the order the game numbers them.
+    expect(dir?.options).toEqual([
+      { value: 0, label: "Oben" },
+      { value: 1, label: "Unten" },
+      { value: 2, label: "Links" },
+      { value: 3, label: "Rechts" },
+    ]);
   });
 
   it("limits x and z to the type the kind stores", () => {
@@ -37,15 +44,6 @@ describe("eventFieldSpecs", () => {
     expect(range("object")).toEqual([0, 65535]);
     expect(range("coord")).toEqual([-32768, 32767]);
     expect(range("bg")).toEqual([-2147483648, 2147483647]);
-  });
-});
-
-describe("clampEventValue", () => {
-  it("rounds to a whole number and keeps it in range", () => {
-    const x = { min: 0, max: 65535 };
-    expect(clampEventValue(x, 3.6)).toBe(4);
-    expect(clampEventValue(x, -4)).toBe(0);
-    expect(clampEventValue(x, 70000)).toBe(65535);
   });
 });
 
@@ -99,5 +97,14 @@ describe("EditSession over one event", () => {
   it("fails to load an event that is gone, naming it", async () => {
     const backend = eventBackend(3, "warp", { getEvents: async () => dto([]), update: async () => {} });
     await expect(backend.get(2)).rejects.toThrow("Warp 2 existiert in Event-Datei 3 nicht (mehr)");
+  });
+});
+
+describe("eventSubtitle", () => {
+  it("counts_from_one_among_the_events_of_the_class_and_names_the_place", () => {
+    expect(eventSubtitle("object", 2, 5, "Zweiblattdorf")).toBe("Figur 3 von 5 in Zweiblattdorf");
+    expect(eventSubtitle("warp", 0, 2, "Route 201")).toBe("Tür 1 von 2 in Route 201");
+    expect(eventSubtitle("coord", 1, 3, null)).toBe("Auslöser 2 von 3");
+    expect(eventSubtitle("bg", 0, null, null)).toBe("Schild 1");
   });
 });

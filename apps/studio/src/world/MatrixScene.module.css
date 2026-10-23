@@ -1,0 +1,24 @@
+.scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Above the legend button at the bottom left of the view. */
+.status {
+  position: absolute;
+  left: var(--g4-raum-8);
+  bottom: calc(var(--g4-dichte-steuer) + var(--g4-raum-16));
+  max-width: 70%;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

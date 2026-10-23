@@ -15,7 +15,7 @@ export interface AdoptBoxProps {
 
 type Phase = { kind: "idle" } | { kind: "running"; progress: AdoptProgressDto | null } | { kind: "done"; report: AdoptReportDto } | { kind: "failed"; message: string };
 
-const box: CSSProperties = { maxWidth: 560, margin: "24px auto", padding: 16, border: "1px solid #d1d5db", borderRadius: 6, background: "#fff", fontFamily: "system-ui, sans-serif" };
+const box: CSSProperties = { maxWidth: 560, margin: "24px auto", padding: 16, border: "1px solid #d1d5db", borderRadius: 6, background: "var(--g4-flaeche-blatt)", color: "var(--g4-text-primaer)", fontFamily: "system-ui, sans-serif" };
 
 /** The box the Script panel shows until rotom has taken the project's scripts over (spec §8.2). */
 export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {

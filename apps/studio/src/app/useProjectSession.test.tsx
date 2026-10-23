@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuildReport, ProblemDto } from "../api";
-import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, save, saveScript, scriptsStatus } from "../api";
+import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, runRom, save, saveScript, scriptsStatus } from "../api";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus, EditEvent } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
@@ -26,6 +26,7 @@ vi.mock("../api", async (importOriginal) => ({
   scriptsStatus: vi.fn(),
   readScript: vi.fn(),
   saveScript: vi.fn(),
+  runRom: vi.fn(),
 }));
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
@@ -42,10 +43,11 @@ describe("useProjectSession with open scripts", () => {
   let problems: ProblemsStore;
   let bus: EditBus;
   let events: EditEvent[];
+  let showProblems: ReturnType<typeof vi.fn<() => void>>;
 
   function Host() {
     const bridge = useRef<ScriptBridge>(NO_SCRIPTS);
-    session = useProjectSession({ bus, problems, scripts: bridge });
+    session = useProjectSession({ bus, problems, scripts: bridge, onShowProblems: showProblems });
     scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
     bridge.current = scripts.bridge;
     return null;
@@ -65,6 +67,7 @@ describe("useProjectSession with open scripts", () => {
     problems = new ProblemsStore();
     bus = createEditBus();
     events = [];
+    showProblems = vi.fn<() => void>();
     bus.subscribe(() => true, (e) => events.push(e));
     vi.mocked(savePath).mockReset().mockResolvedValue("/out.nds");
     vi.mocked(ask).mockReset().mockResolvedValue(true);
@@ -84,6 +87,23 @@ describe("useProjectSession with open scripts", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("keeps_the_list_of_dirty_assets_next_to_the_count_and_the_same_list_while_it_does_not_change", async () => {
+    expect(session.dirtyAssets).toEqual([]);
+    vi.mocked(dirty).mockResolvedValue([{ kind: "Event", index: 8 }]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyCount).toBe(1);
+    expect(session.dirtyAssets).toEqual([{ kind: "Event", index: 8 }]);
+    // Another read with the same assets (a fresh array from the backend) leaves the list as it was.
+    const before = session.dirtyAssets;
+    vi.mocked(dirty).mockResolvedValue([{ kind: "Event", index: 8 }]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyAssets).toBe(before);
+    // A save empties it.
+    vi.mocked(dirty).mockResolvedValue([]);
+    await act(async () => session.refreshDirty());
+    expect(session.dirtyAssets).toEqual([]);
   });
 
   it("build_saves_open_scripts_first_and_stops_on_failure", async () => {
@@ -157,6 +177,40 @@ describe("useProjectSession with open scripts", () => {
     expect(buildRom).not.toHaveBeenCalled();
   });
 
+  it("build_with_a_known_path_builds_there_without_asking_and_resolves_to_the_rom", async () => {
+    await act(async () => void (await session.onBuild("/kept/out.nds")));
+    expect(savePath).not.toHaveBeenCalled();
+    expect(buildRom).toHaveBeenCalledExactlyOnceWith("/kept/out.nds");
+    // Without one it still asks, and resolves to what was built (or null when nothing was).
+    let rom: string | null = "unset";
+    await act(async () => void (rom = await session.onBuild()));
+    expect(savePath).toHaveBeenCalledOnce();
+    expect(rom).toBe("/out.nds");
+    vi.mocked(savePath).mockResolvedValueOnce(null);
+    await act(async () => void (rom = await session.onBuild()));
+    expect(rom).toBeNull();
+  });
+
+  it("run_starts_the_given_rom_and_falls_back_to_the_last_one_built", async () => {
+    localStorage.setItem("g4.emulatorPath", "/emu");
+    vi.mocked(runRom).mockResolvedValue(1);
+    await act(async () => session.onRun("/given.nds"));
+    expect(runRom).toHaveBeenLastCalledWith("/emu", "/given.nds");
+    await build();
+    await act(async () => session.onRun());
+    expect(runRom).toHaveBeenLastCalledWith("/emu", "/out.nds");
+    localStorage.removeItem("g4.emulatorPath");
+  });
+
+  it("run_forgets_the_stored_emulator_when_it_fails_to_start_and_says_so", async () => {
+    localStorage.setItem("g4.emulatorPath", "/falsch");
+    vi.mocked(runRom).mockRejectedValueOnce({ code: "error", message: "Emulator nicht startbar", asset: null });
+    await act(async () => session.onRun("/given.nds"));
+    expect(localStorage.getItem("g4.emulatorPath")).toBeNull();
+    expect(session.message).toMatchObject({ kind: "error" });
+    expect(session.message?.text).toBe("Emulator nicht startbar. Beim nächsten Start fragt das Studio erneut nach dem Emulator.");
+  });
+
   it("build_puts_compile_problems_of_the_saves_into_the_store_and_still_builds", async () => {
     await openDirty(3);
     vi.mocked(saveScript).mockResolvedValue({ problems: [problem("expanded/scripts/0003.rotom", 2, "unbekannter Befehl", "warning")], touched_archives: [] });
@@ -190,9 +244,31 @@ describe("useProjectSession with open scripts", () => {
       ["e2", "text"],
       ["w1", "compile"],
     ]);
-    expect(session.message).toMatchObject({ kind: "error", text: "Build abgebrochen: 2 Fehler" });
+    expect(session.message).toMatchObject({ kind: "error", text: "2 Fehler in Scripts, Build abgebrochen" });
+    expect(session.message?.actions?.map((a) => a.label)).toEqual(["Probleme zeigen"]);
+    session.message?.actions?.[0]?.run();
+    expect(showProblems).toHaveBeenCalledOnce();
     expect(session.busy).toBe(false);
     expect(session.lastRom).toBeNull();
+    expect(session.lastBuiltAt).toBeNull();
+  });
+
+  it("one_compile_error_of_the_build_is_counted_as_1_Fehler", async () => {
+    vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem("expanded/scripts/0003.rotom", 2, "e1")] });
+    await build();
+    expect(session.message).toMatchObject({ kind: "error", text: "1 Fehler in Scripts, Build abgebrochen" });
+  });
+
+  it("a_successful_build_stamps_the_time_and_opening_a_project_forgets_it", async () => {
+    const before = Date.now();
+    await build();
+    expect(session.lastRom).toBe("/out.nds");
+    expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
+    expect(session.lastBuiltAt).toBeLessThanOrEqual(Date.now());
+    vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "Pt", language: "English", header_count: 0 });
+    await act(async () => void (await session.openProjectAt("/q", () => {})));
+    expect(session.lastRom).toBeNull();
+    expect(session.lastBuiltAt).toBeNull();
   });
 
   it("a_compile_error_without_a_problem_list_still_aborts_with_the_backends_message", async () => {

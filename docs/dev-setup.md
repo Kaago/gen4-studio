@@ -163,6 +163,32 @@ Messlauf, nicht Teil des normalen Durchlaufs (`#[ignore]`): `G4_APICULA=... carg
 --nocapture bench_matrix_models` lädt eine große Matrix (Standard: Header 3, Platin Matrix 0) und gibt die Zeiten aus;
 `G4_BENCH_HEADER` wählt einen anderen Header.
 
+## Design-System und Tokens
+
+Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.
+
+Ein Token ändern:
+
+```sh
+python3 design-system/scripts/check_tokens.py     # Raster (RGB555) und Kontraste in beiden Themen
+cd apps/studio && pnpm tokens                     # schreibt die drei Dateien neu (python3 export_tokens.py <root> <Ausgabeordner>)
+cd ../.. && ./scripts/check-tokens.sh             # check_tokens.py plus Abgleich der eingecheckten Dateien mit einem frischen Export
+```
+
+Danach die geänderten Token-Dateien in OpenPencil einspielen („Design-Tokens importieren“, siehe das README des Design-Systems). Die drei Dateien nie von Hand ändern: der Gate-Schritt `tokens` meldet jede Abweichung vom Export.
+
+Stil-Regeln für `apps/studio/src` und der Gate-Schritt `styles` (`scripts/check-styles.sh`, gleiches `grep`-Prinzip, Exit 1 mit `Datei:Zeile` je Fund):
+
+- Stile stehen in CSS Modules (`Name.module.css`) und benutzen nur `--g4-*`-Variablen (Thema, Raum, Dichte, Schrift), nie Primitive wie `--g4-platin-500`.
+- Kein `style={{` in `.tsx` und keine Hex-Farbe (`#rgb` bis `#rrggbbaa`) in `.tsx`, `.ts` und `.css`. Ausgenommen sind `ui/tokens/`, `world/colors.ts` (setzt die Zahlen aus `tokens.ts` für three.js um), Testdateien und Zeilen mit `/* dyn */` (Werte, die erst zur Laufzeit entstehen, etwa die Position eines Markers; die Markierung steht in derselben Zeile).
+- `scripts/check-styles.allow` nennt Dateien und Ordner (je eine Zeile, Glob erlaubt), die noch im alten Stil sind. In 3c.1 sind das Text, Script, Probleme, die Assistenten und ihre Dialoge; Plan 3c.2 zieht sie um und leert die Liste. Neue Dateien kommen nie auf die Liste.
+
+Die `.fig` pflegen: nach dem Speichern in OpenPencil `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555` (aus der Repo-Wurzel; repariert Text-Glyphen und rastet Farben auf RGB555), dann die Datei einchecken.
+
+## Galerie
+
+Die Galerie zeigt die Bausteine aus `apps/studio/src/ui/primitives/` mit ihren Zuständen, eine Seite je Gruppe (Tasten, Eingaben, Inhalt und Status, Schwebendes, Auswahl); oben schalten „Thema“ (Hell, Dunkel, System) und „Dichte“ (Komfort, Kompakt) um. Sie läuft nur im Browser-Modus, nie im Tauri-Fenster, und braucht kein Projekt: `http://127.0.0.1:1430/?gallery`, nachdem `scripts/agent/studio-web.sh` gestartet ist (oder mit `pnpm dev` in `apps/studio` auf dem Vite-Port). Es gibt keine automatischen Tests für die Galerie; der Agent macht für das Gate Screenshots in Hell, Dunkel und Kompakt und achtet auf unlesbare Stellen. Ein neuer Baustein bekommt eine Zeile auf einer Seite unter `ui/gallery/pages/` (`pages/index.ts` listet die Seiten).
+
 ## Gate-Skript
 
 Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt sie und ist der Lauf vor einem Merge. Voraussetzung neben Rust und pnpm ist `uv` (der Schritt `g4emu unit` startet `uv run`; der erste Lauf lädt die Python-Pakete von PyPI). Es fährt der Reihe nach:
@@ -170,10 +196,13 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
-4. `pnpm test` und `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
-5. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
-6. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
-7. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+4. `pnpm test` in `apps/studio`
+5. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
+6. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
+7. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
+8. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
+9. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
+10. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
 
 ```sh
 scripts/gate.sh

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { EventFileChoice, HeaderPatchDto, HeaderSummary, MemberCounts, WarpLink } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
-import { HeaderPicker } from "../inspector/HeaderPicker";
+import { HeaderSearch } from "./HeaderSearch";
 import { parseCellField } from "../matrix";
 import { TERMS, id4 } from "../terms";
 import { INTERNAL_NAME_MAX, internalName, specialHeader } from "./wizardSpecs";
@@ -35,7 +35,7 @@ interface Props {
 
 const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
 const heading: CSSProperties = { fontWeight: 600, marginBottom: 4 };
-const box: CSSProperties = { border: "1px solid #d97706", background: "#fffbeb", borderRadius: 6, padding: "8px 12px", margin: "8px 0" };
+const box: CSSProperties = { border: "1px solid #d97706", background: "var(--g4-status-warnung-flaeche)", color: "var(--g4-text-primaer)", borderRadius: 6, padding: "8px 12px", margin: "8px 0" };
 const muted: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 const NAME_PATTERN = "[A-Z0-9_]*";
 
@@ -107,7 +107,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
         </div>
       )}
       {patch?.applied === true && patch.repairable && (
-        <div style={{ ...box, borderColor: "#b91c1c", background: "#fef2f2" }}>
+        <div style={{ ...box, borderColor: "#b91c1c", background: "var(--g4-status-fehler-flaeche)" }}>
           <div style={heading}>{TERMS.patch.label} „Dynamische Header“ fehlerhaft</div>
           <p style={{ margin: "4px 0" }}>
             Der Patch ruft im Spielcode eine falsche Funktion auf: das Spiel bleibt nach dem Intro schwarz. So haben ihn DSPRE und ältere Studio-Versionen für Platin (deutsch, französisch,
@@ -146,7 +146,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={heading}>{TERMS.header.label} wählen</div>
-            <HeaderPicker
+            <HeaderSearch
               headers={headers}
               current={value.header ?? -1}
               onPick={(id) => set({ header: id })}

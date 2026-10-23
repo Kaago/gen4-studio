@@ -1,0 +1,33 @@
+.button {
+  display: inline-flex;
+  width: var(--g4-dichte-steuer);
+  height: var(--g4-dichte-steuer);
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--g4-radius-taste);
+  background: transparent;
+  color: var(--g4-text-primaer);
+  font-size: var(--g4-dichte-symbol);
+  cursor: pointer;
+  transition:
+    background var(--g4-dauer-kurz),
+    color var(--g4-dauer-kurz);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--g4-flaeche-deck);
+}
+
+.button[aria-pressed="true"] {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+.button:disabled {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}

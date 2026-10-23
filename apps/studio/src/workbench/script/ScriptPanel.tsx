@@ -32,7 +32,7 @@ export interface ScriptPanelContext {
 const bar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" };
 const note: CSSProperties = { margin: 0, padding: "8px 12px", color: "#6b7280" };
 const tab: CSSProperties = { all: "unset", cursor: "pointer", padding: "2px 8px", borderRadius: 4, border: "1px solid #d1d5db", whiteSpace: "nowrap" };
-const activeTab: CSSProperties = { ...tab, background: "#eff6ff", borderColor: "#2563eb", fontWeight: 700 };
+const activeTab: CSSProperties = { ...tab, background: "var(--g4-auswahl-flaeche)", color: "var(--g4-text-primaer)", borderColor: "#2563eb", fontWeight: 700 };
 
 /** "Scriptdatei 0042" / "Level-Script 0042": how documents are named in questions and lists. */
 export const docName = (doc: Pick<ScriptDocument, "file" | "kind">) => `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(doc.file)}`;
@@ -77,7 +77,7 @@ function Outline({ lsp, uri, onJump }: { lsp: LspStatus; uri: string; onJump: (l
         Gliederung
       </button>
       {menu && (
-        <ul role="menu" style={{ position: "absolute", zIndex: 10, margin: 0, padding: 4, listStyle: "none", background: "#fff", border: "1px solid #d1d5db", borderRadius: 4, minWidth: 180, maxHeight: 240, overflowY: "auto" }}>
+        <ul role="menu" style={{ position: "absolute", zIndex: 10, margin: 0, padding: 4, listStyle: "none", background: "var(--g4-flaeche-blatt)", color: "var(--g4-text-primaer)", border: "1px solid #d1d5db", borderRadius: 4, minWidth: 180, maxHeight: 240, overflowY: "auto" }}>
           {"error" in menu ? (
             <li style={{ padding: "2px 8px", color: "#6b7280" }}>{menu.error}</li>
           ) : (

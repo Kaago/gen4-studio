@@ -13,8 +13,12 @@
     "windows": [
       {
         "title": "Gen4 Studio",
-        "width": 1100,
-        "height": 750
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 720,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

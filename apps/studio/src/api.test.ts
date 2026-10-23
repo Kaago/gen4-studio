@@ -21,6 +21,7 @@ import {
   getTextArchive,
   getHeader,
   headerFamily,
+  history,
   memberCounts,
   headerFields,
   isCmdError,
@@ -140,6 +141,16 @@ describe("header commands", () => {
     invoke.mockResolvedValue({ Matrix: 4, HeaderTable: 1 });
     expect(await memberCounts()).toEqual({ Matrix: 4, HeaderTable: 1 });
     expect(invoke).toHaveBeenLastCalledWith("member_counts");
+  });
+});
+
+describe("history", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("asks for the undo and redo labels and returns them as sent", async () => {
+    invoke.mockResolvedValue({ undo: ["A", "B"], redo: ["C"] });
+    expect(await history()).toEqual({ undo: ["A", "B"], redo: ["C"] });
+    expect(invoke).toHaveBeenCalledWith("history");
   });
 });
 

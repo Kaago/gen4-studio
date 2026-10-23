@@ -1,0 +1,47 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge svg {
+  font-size: var(--g4-schrift-groesse-xs);
+  flex: none;
+}
+
+.unsaved {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+.irreversible,
+.changedOnDisk {
+  background: var(--g4-status-warnung-flaeche);
+  color: var(--g4-status-warnung);
+}
+
+.locked {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+}
+
+.ptHgssOnly,
+.info {
+  background: var(--g4-status-info-flaeche);
+  color: var(--g4-status-info);
+}
+
+.error {
+  background: var(--g4-status-fehler-flaeche);
+  color: var(--g4-status-fehler);
+}
+
+.live {
+  background: var(--g4-live-flaeche);
+  color: var(--g4-live-text);
+}

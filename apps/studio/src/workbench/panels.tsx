@@ -1,44 +1,44 @@
-import { Suspense, lazy, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
 import type { ProjectInfo } from "../api";
-import { StatusBar } from "../Toolbar";
+import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
+import type { DockComponents } from "../ui/frame/Deck";
+import { useShell } from "../ui/frame/ShellContext";
+import { EmptyState } from "../ui/primitives";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
-import { AddEvent } from "./inspector/AddEvent";
+import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
+import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
+import { SceneBar } from "./SceneBar";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import type { ScriptPanelContext } from "./script/ScriptPanel";
 import { TextPanel } from "./text/TextPanel";
 import type { TextPanelContext } from "./text/TextPanel";
+import styles from "./panels.module.css";
+import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
+import { ToolsPanel } from "./ToolsPanel";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
+import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
-const toggleStyle: React.CSSProperties = {
-  color: "#e5e7eb",
-  background: "rgba(0,0,0,0.5)",
-  padding: "4px 8px",
-  borderRadius: 4,
-  fontSize: 12,
-  whiteSpace: "nowrap",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-};
-
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
 
-export function HeadersPanel() {
+/** The explorer: no dock panel but the shell's list column; whether it is folded is the shell's state of the world area. */
+export function ExplorerPane() {
   const d = useWorkbench();
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.welt;
+  const onToggleList = useStableCallback(() => setListOpen("welt", !listOpen));
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
   const revealToken = useBusRevision(d.bus, "headerReveal");
   // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
@@ -54,69 +54,66 @@ export function HeadersPanel() {
       selected={d.selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}
+      depth={d.depth}
       onSelect={d.onSelect}
       onOpenWizard={d.onOpenWizard}
       scriptsAdopted={d.scripts.status?.adopted === true}
       onOpenScript={onOpenScript}
+      listOpen={listOpen}
+      onToggleList={onToggleList}
     />
   );
 }
 
 export function WorldPanel() {
   const d = useWorkbench();
+  const first = d.headers[0];
+  if (!d.matrix) {
+    return (
+      <div className={styles.empty}>
+        <EmptyState
+          what="Noch kein Ort gewählt."
+          why="Wähle links einen Ort, dann zeigt die Schau seine Karten."
+          action={first ? { label: "Ersten Ort zeigen", onClick: () => d.onSelect(first) } : undefined}
+        />
+      </div>
+    );
+  }
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", minWidth: 0, fontFamily: "system-ui, sans-serif" }}>
-      {d.matrix ? (
-        <>
-          <MatrixScene
-            matrix={d.matrix}
-            areaDataId={d.areaDataId}
-            showPermissions={d.showPermissions}
-            eventFileId={d.eventFileId}
-            showEvents={d.showEvents}
-            headers={d.headers}
-            paintEnabled={d.paintEnabled}
-            history={d.history}
-            bus={d.bus}
-            onEdited={d.onEdited}
-            onError={d.onError}
-            onInspect={d.onInspect}
-            onStatus={d.onLoadStatus}
-            selectedMap={d.selectedBuilding?.map ?? null}
-            selectedBuilding={d.selectedBuilding?.index ?? null}
-            onSelectBuilding={d.onSelectBuilding}
-            onBuildingMoved={d.onBuildingMoved}
-            selectedEvent={d.selectedEvent}
-            onSelectEvent={d.onSelectEvent}
-            onEventMoved={d.onEventMoved}
-            onEventsLocked={d.onEventsLocked}
-          />
-          <div style={{ position: "absolute", top: 8, left: 8, right: 8, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-            <label style={toggleStyle}>
-              <input type="checkbox" checked={d.showPermissions} onChange={(e) => d.onShowPermissions(e.target.checked)} /> Permissions anzeigen
-            </label>
-            <label style={toggleStyle}>
-              <input type="checkbox" checked={d.showEvents} onChange={(e) => d.onShowEvents(e.target.checked)} /> Events anzeigen
-            </label>
-            <button
-              onClick={() => void d.onAddBuilding(null)}
-              disabled={!d.paintEnabled}
-              title="Legt ein Gebäude auf der Kachel an, über der die Maus zuletzt war"
-              style={{ ...toggleStyle, border: "none", fontFamily: "inherit" }}
-            >
-              Neues Gebäude
-            </button>
-            <AddEvent
-              disabled={!d.paintEnabled || d.eventFileId === null || d.eventLock !== null}
-              title={d.eventLock ? lockedText(d.eventLock.reason) : undefined}
-              onAdd={(kind) => void d.onAddEvent(kind)}
-              style={toggleStyle}
-            />
-          </div>
-        </>
-      ) : (
-        <p style={{ padding: 16 }}>Header wählen, um die Matrix anzuzeigen. Klick setzt Kollision, Shift+Klick löscht sie.</p>
-      )}
+    <div className={styles.stage}>
+      <MatrixScene
+        matrix={d.matrix}
+        areaDataId={d.areaDataId}
+        showPermissions={d.showPermissions}
+        eventFileId={d.eventFileId}
+        showEvents={d.showEvents}
+        headers={d.headers}
+        paintEnabled={d.paintEnabled}
+        tool={d.tool}
+        onTileClick={d.onTileClick}
+        onBuildings={d.onBuildings}
+        history={d.history}
+        bus={d.bus}
+        onEdited={d.onEdited}
+        onError={d.onError}
+        onInspect={d.onInspect}
+        onStatus={d.onLoadStatus}
+        selectedMap={d.selectedBuilding?.map ?? null}
+        selectedBuilding={d.selectedBuilding?.index ?? null}
+        onSelectBuilding={d.onSelectBuilding}
+        onBuildingMoved={d.onBuildingMoved}
+        selectedEvent={d.selectedEvent}
+        onSelectEvent={d.onSelectEvent}
+        onEventMoved={d.onEventMoved}
+        onEventsLocked={d.onEventsLocked}
+      />
+      <SceneBar
+        showPermissions={d.showPermissions}
+        showEvents={d.showEvents}
+        onShowPermissions={d.onShowPermissions}
+        onShowEvents={d.onShowEvents}
+      />
+      <Legend />
     </div>
   );
 }
@@ -186,7 +183,7 @@ export function ScriptTab() {
   // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
   const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, onError }), [info, scripts, problems, bus, onError]);
   return (
-    <Suspense fallback={<p style={{ padding: 12, color: "#6b7280" }}>Editor wird geladen …</p>}>
+    <Suspense fallback={<p className={styles.loading}>Editor wird geladen …</p>}>
       <ScriptPanel context={context} />
     </Suspense>
   );
@@ -196,6 +193,39 @@ export function ProblemsTab() {
   const { problems, goTo } = useWorkbench();
   const context = useMemo<ProblemsPanelContext>(() => ({ problems, goTo }), [problems, goTo]);
   return <ProblemsPanel context={context} />;
+}
+
+export function ToolsTab() {
+  const { tool, onTool, eventFileId, eventLock } = useWorkbench();
+  const { density } = useShell();
+  // The four event tools wait for a shown place and an event file that may be written.
+  const eventsBlocked = eventLock ? lockedText(eventLock.reason) : eventFileId === null ? "Erst einen Ort wählen." : null;
+  return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
+}
+
+/** The scene and the inspector report a failed read of the events already. */
+const ignoreError = () => {};
+
+export function ContextTab() {
+  const d = useWorkbench();
+  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo).
+  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
+  const events = useEvents(d.eventFileId, ignoreError, eventsRevision);
+  const { goTo, onSelectEvent, onSelectBuilding } = d;
+  const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  return (
+    <ContextPanel
+      hasPlace={d.matrix !== null}
+      events={events}
+      headers={d.headers}
+      buildings={d.buildings}
+      selectedEvent={d.selectedEvent}
+      selectedBuilding={d.selectedBuilding}
+      onSelectEvent={onSelectEvent}
+      onSelectBuilding={onSelectBuilding}
+      onOpenHeader={onOpenHeader}
+    />
+  );
 }
 
 export function InspectorPanel() {
@@ -217,6 +247,7 @@ export function InspectorPanel() {
   return (
     <Inspector
       model={inspector}
+      depth={d.depth}
       headerEditor={{
         headers: d.headers,
         counts: d.memberCounts,
@@ -235,10 +266,11 @@ export function InspectorPanel() {
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,
       }}
-      areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
+      areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
       buildingEditor={{
         areaDataId: d.areaDataId,
         counts: d.memberCounts,
+        dirty: d.dirtyAssets,
         revision: buildingRevision,
         onChanged: d.onBuildingChanged,
         onAdd: d.onAddBuilding,
@@ -247,6 +279,7 @@ export function InspectorPanel() {
       }}
       eventEditor={{
         headers: d.headers,
+        dirty: d.dirtyAssets,
         family: d.info?.family ?? null,
         revision: eventRevision,
         onChanged: d.onEventChanged,
@@ -260,6 +293,7 @@ export function InspectorPanel() {
         onError: d.onError,
       }}
       matrixEditor={{
+        dirty: d.dirtyAssets,
         headerCount: d.headers.length,
         goTo: d.goTo,
         counts: d.memberCounts,
@@ -272,13 +306,6 @@ export function InspectorPanel() {
   );
 }
 
-export function StatusPanel() {
-  const d = useWorkbench();
-  const message = useMessage();
-  const counts = useSyncExternalStore(d.problems.subscribe, d.problems.counts);
-  return (
-    <div style={{ height: "100%", overflowY: "auto" }}>
-      <StatusBar message={message} problems={counts} onDismiss={d.onDismissMessage} />
-    </div>
-  );
-}
+/** The panels of the view dock and of the hand dock, by id. Module-level constants: dockview would remount every panel if they changed. */
+export const SCHAU_COMPONENTS: DockComponents = { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab };
+export const HAND_COMPONENTS: DockComponents = { tools: ToolsTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab, context: ContextTab };

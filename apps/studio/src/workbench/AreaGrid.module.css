@@ -1,0 +1,86 @@
+.grid {
+  display: grid;
+  width: max-content;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  outline-offset: calc(-1 * var(--g4-strich-standard));
+  background-color: var(--g4-flaeche-deck);
+  background-position: center;
+  background-size: cover;
+  color: var(--g4-text-primaer);
+  font-family: var(--g4-schrift-familie-code);
+  cursor: pointer;
+}
+
+.big {
+  width: 64px;
+  height: 64px;
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.small {
+  width: 32px;
+  height: 32px;
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.empty {
+  outline: var(--g4-strich-standard) dashed var(--g4-linie-stark);
+  background: transparent;
+  color: var(--g4-text-sekundaer);
+}
+
+.extend {
+  outline: var(--g4-strich-standard) dashed var(--g4-linie-stark);
+  background: transparent;
+  color: var(--g4-text-sekundaer);
+  font-size: var(--g4-schrift-groesse-m);
+}
+
+.cell:hover {
+  outline-color: var(--g4-linie-stark);
+}
+
+.cell:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}
+
+.selected,
+.selected:hover {
+  outline: var(--g4-strich-fokus) solid var(--g4-auswahl-kante);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}
+
+/* The map and header numbers sit on a plate of the sheet colour: legible on the picture and on every place colour, in both themes. */
+.tag {
+  padding: 0 var(--g4-raum-4);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  line-height: 14px;
+}
+
+.tagMap {
+  position: absolute;
+  bottom: var(--g4-raum-2);
+  left: var(--g4-raum-2);
+}
+
+.tagHeader {
+  position: absolute;
+  top: var(--g4-raum-2);
+  right: var(--g4-raum-2);
+}

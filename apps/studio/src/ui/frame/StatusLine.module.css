@@ -1,0 +1,48 @@
+.line {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: var(--g4-raum-16);
+  padding: 0 var(--g4-raum-12);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.left,
+.middle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.middle {
+  flex: 1;
+}
+
+.right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-12);
+}
+
+.build {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.build svg {
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.missing {
+  color: var(--g4-status-fehler);
+  font-weight: 600;
+}

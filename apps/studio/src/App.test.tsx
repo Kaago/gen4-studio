@@ -3,31 +3,53 @@ import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, scriptsStatus, undo } from "./api";
+import { ask, openPath, savePath } from "./platform/dialogs";
+import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
-import { StatusBar } from "./Toolbar";
 import type { EditEvent } from "./bus/editBus";
+import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { readShellState, writeShellState } from "./ui/frame/shellState";
+import type { RecentProject } from "./ui/frame/shellState";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
 import type { InspectorModel } from "./workbench/Inspector";
 
 /**
  * The real App with its real hooks (project session, scene sync, world actions, history reload,
- * workbench model) over a mocked `api` module. Only the dockview workbench is replaced by a stub
- * that records what App hands it, so the tests call the callbacks the panels would call.
+ * workbench model) over a mocked `api` module. Only the panels are replaced: the providers record
+ * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
+ * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0 }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0 }));
 vi.mock("./workbench/Workbench", () => ({
-  default: ({ data, live }: { data: unknown; live: unknown }) => {
+  default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
     shown.live = live;
     shown.renders++;
-    return null;
+    return children;
   },
 }));
+vi.mock("./workbench/panels", () => ({ ExplorerPane: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
+vi.mock("./ui/frame/Deck", async () => {
+  const { useEffect } = await import("react");
+  type Ref = { current: unknown };
+  /** A dockview api that knows these panels: a link focuses the panel that shows its target. */
+  const dock = (ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(id) } : undefined) });
+  return {
+    Deck: ({ schauRef, handRef, hinge }: { schauRef: Ref; handRef: Ref; hinge: unknown }) => {
+      schauRef.current = dock(["world", "matrix", "worldmap"]);
+      handRef.current = dock(["inspector", "text", "script", "problems"]);
+      useEffect(() => {
+        shown.mounts++;
+      }, []);
+      return hinge;
+    },
+  };
+});
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
+  buildRom: vi.fn(),
+  save: vi.fn(),
   openProject: vi.fn(),
   listHeaders: vi.fn(),
   memberCounts: vi.fn(),
@@ -44,6 +66,9 @@ vi.mock("./api", async (importOriginal) => ({
   repairHeaderPatch: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
+  history: vi.fn(),
+  getEvents: vi.fn(),
+  runRom: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -78,7 +103,13 @@ describe("App wiring", () => {
 
   beforeEach(async () => {
     vi.resetAllMocks();
+    localStorage.clear();
+    resetToasts();
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.dichte;
     shown.renders = 0;
+    shown.focused = [];
+    shown.mounts = 0;
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -87,6 +118,7 @@ describe("App wiring", () => {
     vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
     vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Main #1:\n\tEnd\n" });
     vi.mocked(dirty).mockResolvedValue([]);
+    vi.mocked(history).mockResolvedValue({ undo: [], redo: [] });
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
@@ -101,15 +133,42 @@ describe("App wiring", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
+    resetToasts();
     env.tauri = false;
     window.history.replaceState(null, "", "/");
   });
 
+  /** Clicks the button with this text or accessible name (the first one in the document). */
   async function click(label: string) {
-    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label || b.getAttribute("aria-label") === label);
     if (!button) throw new Error(`no button ${label}`);
     await act(async () => button.click());
   }
+  /** Renders a fresh App (in StrictMode, like the dev server does) after the beforeEach one is gone. */
+  async function renderFresh() {
+    act(() => root.unmount());
+    container.remove();
+    vi.mocked(openProject).mockClear();
+    vi.mocked(openPath).mockClear();
+    shown.mounts = 0;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>,
+      ),
+    );
+  }
+  const atlasEntry = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent === name);
+  const statusLine = () => container.querySelector("footer")?.textContent ?? "";
+  const titleBar = () => container.querySelector("header")?.textContent ?? "";
+  const alerts = () => [...container.querySelectorAll("[role=alert]")].map((e) => e.textContent ?? "");
+  const infos = () => [...container.querySelectorAll("[role=status]")].map((e) => e.textContent ?? "");
+  const pressUndo = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true })));
   const select = (h: HeaderSummary) => act(async () => data().onSelect(h));
 
   it("keeps the workbench data object through hover and message updates", async () => {
@@ -133,6 +192,20 @@ describe("App wiring", () => {
     expect(data()).toBe(before);
   });
 
+  it("brings the Inspector tab of the hand forward when something is selected, not for a hover or a deselect", async () => {
+    await select(listed[0]);
+    expect(shown.focused).toEqual(["inspector"]);
+    shown.focused = [];
+    await act(async () => data().onInspect(tile(3)));
+    await act(async () => data().onSelectBuilding(null));
+    expect(shown.focused).toEqual([]);
+    await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+    expect(shown.focused).toEqual(["inspector"]);
+    vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [] });
+    await act(async () => data().onSelectEvent({ file: 101, kind: "object", index: 0 }));
+    expect(shown.focused).toEqual(["inspector", "inspector"]);
+  });
+
   it("opens a script file at a line for a link to a script and leaves the selection alone", async () => {
     await select(listed[1]);
     const selected = data().selected;
@@ -146,15 +219,15 @@ describe("App wiring", () => {
     expect(data().scripts.active).toBe(43);
   });
 
-  it("counts unsaved scripts in the toolbar and forgets scripts and problems with the project", async () => {
+  it("counts unsaved scripts in the title bar and forgets scripts and problems with the project", async () => {
     await act(async () => data().scripts.open(42));
-    expect(container.textContent).toContain("gespeichert");
-    expect(container.textContent).not.toContain("ungespeichert");
+    expect(titleBar()).toContain("Alles gespeichert");
+    expect(titleBar()).not.toContain("nicht gespeichert");
     const doc = data().scripts.documents.get(42)!;
     const before = data();
     doc.text += "// edit\n";
     await act(async () => data().scripts.onChange(42));
-    expect(container.textContent).toContain("● ungespeichert (1)");
+    expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
     expect(data().scripts).not.toBe(before.scripts);
     // Typing more keeps the dirty set: nothing moves.
     const dirtyScripts = data().scripts;
@@ -192,24 +265,6 @@ describe("App wiring", () => {
   });
 
   describe("browser mode", () => {
-    /** Renders a fresh App (in StrictMode, like the dev server does) after the beforeEach one is gone. */
-    async function renderFresh() {
-      act(() => root.unmount());
-      container.remove();
-      vi.mocked(openProject).mockClear();
-      vi.mocked(openPath).mockClear();
-      container = document.createElement("div");
-      document.body.append(container);
-      root = createRoot(container);
-      await act(async () =>
-        root.render(
-          <StrictMode>
-            <App />
-          </StrictMode>,
-        ),
-      );
-    }
-
     it("opens_the_project_from_the_url_outside_tauri", async () => {
       window.history.replaceState(null, "", "/?project=/tmp/p");
       await renderFresh();
@@ -217,6 +272,9 @@ describe("App wiring", () => {
       expect(openProject).toHaveBeenCalledWith("/tmp/p");
       expect(openPath).not.toHaveBeenCalled();
       expect(data().headers).toEqual(listed);
+      // With a project in the URL the app starts in the world, not on the start pane.
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
     });
 
     it("does_not_open_a_project_from_the_url_inside_tauri", async () => {
@@ -224,6 +282,7 @@ describe("App wiring", () => {
       window.history.replaceState(null, "", "/?project=/tmp/p");
       await renderFresh();
       expect(openProject).not.toHaveBeenCalled();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
     });
 
     it("build_dialog_default_path_is_bare_in_tauri_and_prefilled_in_the_browser", async () => {
@@ -241,18 +300,498 @@ describe("App wiring", () => {
     it("does_not_open_anything_without_a_project_parameter", async () => {
       await renderFresh();
       expect(openProject).not.toHaveBeenCalled();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Willkommen zurück");
     });
 
-    it("status_bar_shows_the_browser_mode", async () => {
-      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
-      expect(container.textContent).toContain("Browser-Modus (Brücke)");
-      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
-      expect(container.textContent).toMatch(/Browser-Modus \(Brücke\).*Fertig/);
+    it("the_status_line_shows_the_browser_mode_and_the_app_does_not", async () => {
+      expect(statusLine()).toContain("Browser-Modus (Brücke)");
       env.tauri = true;
-      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
-      expect(container.textContent).not.toContain("Browser-Modus");
-      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
-      expect(container.textContent).toBe("");
+      await renderFresh();
+      expect(statusLine()).not.toContain("Brücke");
+    });
+
+    it("the_status_line_says_when_the_bridge_does_not_answer_and_again_when_it_does", async () => {
+      await act(async () => data().onError({ code: "error", message: "Brücke nicht erreichbar", asset: null }));
+      expect(statusLine()).toContain("Brücke nicht erreichbar");
+      expect(statusLine()).not.toContain("Browser-Modus");
+      // Any answer of the bridge (here a save) says it is back.
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await click("Speichern");
+      expect(statusLine()).toContain("Browser-Modus (Brücke)");
+    });
+  });
+
+  describe("frame", () => {
+    const recent = (name: string, ageMs = 2 * 3_600_000 + 5_000): RecentProject => ({ path: `/old/${name}`, name, game: "Platin, DE", openedAt: Date.now() - ageMs });
+    const row = (path: string) => container.querySelector<HTMLElement>(`[data-recent="${path}"]`);
+    const seed = (...list: RecentProject[]) => writeShellState({ ...readShellState(), recent: list });
+
+    it("opening_a_project_switches_to_the_world_and_remembers_it", async () => {
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
+      expect(titleBar()).toContain("p");
+      expect(titleBar()).toContain("HeartGold/SoulSilver, EN");
+      expect(readShellState().recent).toMatchObject([{ path: "/p", name: "p", game: "HeartGold/SoulSilver, EN" }]);
+    });
+
+    it("the_start_pane_lists_the_recent_projects_and_a_click_opens_one_and_switches_to_the_world", async () => {
+      seed(recent("pt-a"), recent("hg-b", 5 * 60_000 + 5_000));
+      await renderFresh();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Willkommen zurück");
+      expect(row("/old/pt-a")?.textContent).toContain("pt-a");
+      expect(row("/old/pt-a")?.textContent).toContain("Platin, DE");
+      expect(row("/old/pt-a")?.textContent).toContain("vor 2 Stunden");
+      expect(row("/old/hg-b")?.textContent).toContain("vor 5 Minuten");
+      await act(async () => row("/old/hg-b")!.click());
+      expect(openProject).toHaveBeenCalledWith("/old/hg-b");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
+    });
+
+    it("keeps_the_dock_alive_while_the_start_pane_covers_it", async () => {
+      expect(shown.mounts).toBe(1);
+      await act(async () => atlasEntry("Start")!.click());
+      expect(container.textContent).toContain("Willkommen zurück");
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(container.textContent).not.toContain("Willkommen zurück");
+      expect(shown.mounts).toBe(1);
+    });
+
+    it("a_recent_project_that_cannot_be_opened_says_so_and_can_leave_the_list", async () => {
+      seed(recent("gone"), recent("here"));
+      await renderFresh();
+      vi.mocked(openProject).mockRejectedValueOnce({ code: "error", message: "Ordner fehlt", asset: null });
+      await act(async () => row("/old/gone")!.click());
+      expect(row("/old/gone")?.textContent).toContain("nicht gefunden");
+      expect(row("/old/here")?.textContent).not.toContain("nicht gefunden");
+      expect(alerts()).toEqual([expect.stringContaining("Ordner fehlt")]);
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      await click("Aus der Liste nehmen");
+      expect(row("/old/gone")).toBeNull();
+      expect(row("/old/here")).not.toBeNull();
+      expect(readShellState().recent.map((p) => p.path)).toEqual(["/old/here"]);
+    });
+
+    it("asks_before_a_recent_project_replaces_unsaved_edits", async () => {
+      // The project of beforeEach is open and in the recent list.
+      vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+      await act(async () => data().onEdited());
+      await act(async () => atlasEntry("Start")!.click());
+      vi.mocked(openProject).mockClear();
+      await act(async () => row("/p")!.click());
+      expect(ask).toHaveBeenCalledWith("Ungespeicherte Änderungen verwerfen?", { kind: "warning" });
+      expect(openProject).not.toHaveBeenCalled();
+      // Agreeing opens it.
+      vi.mocked(ask).mockResolvedValue(true);
+      await act(async () => row("/p")!.click());
+      expect(openProject).toHaveBeenCalledWith("/p");
+    });
+
+    it("saving_shows_a_toast_that_goes_after_five_seconds", async () => {
+      vi.mocked(dirty).mockResolvedValue([]);
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [{ kind: "HeaderTable" }, { kind: "HeaderTable" }] as never, problems: [] });
+      vi.useFakeTimers();
+      await click("Speichern");
+      expect(infos()).toEqual([expect.stringContaining("2 Datei(en) gespeichert")]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(INFO_MS - 1);
+      });
+      expect(infos()).toHaveLength(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(infos()).toEqual([]);
+      expect(live().message).toBeNull();
+    });
+
+    it("setMessage_null_removes_only_the_session_toast_and_an_error_with_actions_stays", async () => {
+      const run = vi.fn();
+      await act(async () => data().onLoadStatus({ kind: "error", text: "Ladefehler", actions: [{ label: "Nochmal", run }] }));
+      await act(async () => data().onLoadStatus({ kind: "info", text: "Modelle 3/900" }));
+      expect(alerts()).toEqual([expect.stringContaining("Ladefehler")]);
+      expect(infos()).toEqual([expect.stringContaining("Modelle 3/900")]);
+      await act(async () => data().onLoadStatus(null));
+      expect(infos()).toEqual([]);
+      expect(alerts()).toEqual([expect.stringContaining("Ladefehler")]);
+      // It survives the five seconds an info lives, and its button works.
+      vi.useFakeTimers();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(INFO_MS * 2);
+      });
+      expect(alerts()).toHaveLength(1);
+      await click("Nochmal");
+      expect(run).toHaveBeenCalledOnce();
+      expect(listToasts()).toEqual([]);
+    });
+
+    it("a_build_with_compile_errors_offers_the_problems_and_goes_only_into_the_store_and_the_counts", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockRejectedValue({
+        code: "compile",
+        message: "2 Fehler in Scripts oder Texten",
+        asset: null,
+        problems: [
+          { severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" },
+          { severity: "error", file: "expanded/scripts/0003.rotom", line: 9, col: 1, message: "e2", source: "compile" },
+        ],
+      });
+      await click("Bauen");
+      expect(alerts()).toEqual(["2 Fehler in Scripts, Build abgebrochenProbleme zeigen"]);
+      expect(statusLine()).toContain("2 Fehler");
+      expect(data().problems.list().map((p) => p.message)).toEqual(["e1", "e2"]);
+      await click("Probleme zeigen");
+      expect(shown.focused).toEqual(["problems"]);
+      expect(alerts()).toEqual([]);
+    });
+
+    it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+      await click("Bauen");
+      expect(statusLine()).toContain("Gebaut gerade eben");
+    });
+
+    it("switches_the_theme_and_the_density_without_touching_the_panels_data", async () => {
+      await select(listed[0]);
+      const before = data();
+      await click("Thema wechseln");
+      expect(document.documentElement.dataset.theme).toBe("dunkel");
+      await click("Thema wechseln");
+      expect(document.documentElement.dataset.theme).toBe("hell");
+      expect(statusLine()).toContain("Komfort");
+      await click("Komfort");
+      expect(document.documentElement.dataset.dichte).toBe("kompakt");
+      expect(statusLine()).toContain("Kompakt");
+      expect(data()).toBe(before);
+    });
+
+    it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) {
+        expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
+        await act(async () => atlasEntry(name)!.click());
+      }
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("names_what_the_status_line_shows_in_its_middle", async () => {
+      await select(listed[1]);
+      expect(statusLine()).toContain("Ort 1, Raster 1");
+      await act(async () => data().onInspect(tile(4)));
+      expect(statusLine()).toContain("Kachel x 4, y 0");
+    });
+  });
+
+  describe("deck and hinge", () => {
+    const hinge = () => container.querySelector<HTMLElement>('[role="toolbar"][aria-label="Scharnier"]')!;
+    const hingeButton = (name: string | RegExp) =>
+      [...hinge().querySelectorAll<HTMLButtonElement>("button")].find((b) => {
+        const text = b.getAttribute("aria-label") ?? b.textContent ?? "";
+        return typeof name === "string" ? text === name || b.textContent === name : name.test(text);
+      });
+    const pressHinge = (name: string | RegExp) => act(async () => hingeButton(name)!.click());
+    const tick = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+    /** Opens the history menu the way a pointer does and returns its items. */
+    const historyItems = async () => {
+      const trigger = hingeButton(/^Verlauf/)!;
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.click();
+      });
+      return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    };
+    const handState = () => ({ height: readShellState().handHeight.welt, collapsed: readShellState().handCollapsed.welt });
+    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+    const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
+
+    afterEach(() => {
+      localStorage.removeItem("g4.emulatorPath");
+      document.body.querySelectorAll("[role=menu]").forEach((m) => m.remove());
+    });
+
+    it("shows_place_header_and_the_pinned_event_in_the_breadcrumb", async () => {
+      expect(hinge().querySelector("nav")?.textContent).toContain("Kein Ort gewählt");
+      await select(listed[1]);
+      // The overview does not know the matrix here, so the header counts as a room.
+      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Raum 0001");
+      vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 0, local_id: 5 } as never] });
+      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 0, header: 1 }));
+      // The title is the inspector's heading once the events of the file are read.
+      expect(getEvents).toHaveBeenCalledWith(101);
+      expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 0 · ID 5");
+      // A crumb leads where it says.
+      await act(async () => hingeButton(/^Raum 0001/)!.click());
+      expect(hinge().querySelector("nav")?.textContent).not.toContain("Objekt");
+    });
+
+    it("falls_back_to_the_short_event_title_when_the_events_cannot_be_read", async () => {
+      await select(listed[1]);
+      vi.mocked(getEvents).mockRejectedValue(new Error("kaputt"));
+      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 3, header: 1 }));
+      expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 3");
+      expect(hinge().querySelector("nav")?.textContent).not.toContain("·");
+      // The inspector reports a failed read; the crumb stays quiet.
+      expect(alerts()).toEqual([]);
+    });
+
+    it("stops_going_back_in_the_history_at_the_first_undo_that_fails", async () => {
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      vi.mocked(undo).mockResolvedValueOnce(null).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
+      const items = await historyItems();
+      await act(async () => items[3]!.click());
+      // The second step failed and was reported; the third and fourth never ran.
+      expect(undo).toHaveBeenCalledTimes(2);
+      expect(alerts()).toEqual([expect.stringContaining("kaputt")]);
+    });
+
+    it("counts_the_undo_steps_after_a_write_and_lists_their_labels_newest_first", async () => {
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("0");
+      vi.mocked(history).mockResolvedValue({ undo: ["Name geändert", "move event", ""], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("3");
+      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Event verschoben", "Name geändert"]);
+    });
+
+    it("goes_back_as_many_undo_steps_as_the_clicked_entry_is_deep", async () => {
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      const items = await historyItems();
+      await act(async () => items[2]!.click());
+      expect(undo).toHaveBeenCalledTimes(3);
+      expect(redo).not.toHaveBeenCalled();
+    });
+
+    it("redoes_from_the_hinge_when_there_is_something_to_redo", async () => {
+      expect(hingeButton("Wiederholen")?.disabled).toBe(true);
+      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["Tür verschoben"] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      expect(hingeButton("Wiederholen")?.disabled).toBe(false);
+      await pressHinge("Wiederholen");
+      expect(redo).toHaveBeenCalledOnce();
+    });
+
+    it("keeps_the_panels_data_through_a_change_of_the_problems_or_the_history", async () => {
+      await select(listed[0]);
+      const before = data();
+      const renders = shown.renders;
+      data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "error", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
+      await tick(0);
+      expect(hingeButton(/Fehler/)?.textContent).toContain("1 Fehler");
+      vi.mocked(history).mockResolvedValue({ undo: ["a"], redo: [] });
+      await act(async () => data().bus.emit({ topic: "matrixData" }));
+      await tick(150);
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("1");
+      // Neither the problem light nor the history rendered App, let alone the panels.
+      expect(shown.renders).toBe(renders);
+      expect(data()).toBe(before);
+    });
+
+    it("opens_the_problems_of_the_hand_from_the_problem_light_also_when_the_hand_is_collapsed", async () => {
+      expect(hingeButton("Alles stimmig")).toBeDefined();
+      data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "warning", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
+      await tick(0);
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      await pressHinge("1 Warnung");
+      expect(shown.focused).toEqual(["problems"]);
+      expect(handState().collapsed).toBe(false);
+    });
+
+    it("switches_the_depth_and_remembers_it", async () => {
+      expect(readShellState().depth).toBe("bauen");
+      await pressHinge("Tüfteln");
+      expect(readShellState().depth).toBe("tuefteln");
+      await pressHinge("Bauen");
+      expect(readShellState().depth).toBe("bauen");
+    });
+
+    it("plays_in_the_browser_by_building_only_and_says_so", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).toHaveBeenCalledWith("/out.nds");
+      expect(runRom).not.toHaveBeenCalled();
+      expect(infos()).toContainEqual(expect.stringContaining("Im Browser-Modus wird nur gebaut"));
+    });
+
+    it("plays_in_the_app_by_building_and_then_running_on_the_emulator", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/Applications/melonDS");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(4242);
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/Applications/melonDS", "/out.nds");
+      expect(infos().join("|")).not.toContain("Browser-Modus wird nur");
+    });
+
+    it("asks_for_an_emulator_first_when_none_is_set_and_runs_nothing_when_none_is_picked", async () => {
+      env.tauri = true;
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(1);
+      built();
+      vi.mocked(openPath).mockResolvedValueOnce(null);
+      await pressHinge(/Hier spielen/);
+      expect(openPath).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringContaining("Emulator") }));
+      expect(runRom).not.toHaveBeenCalled();
+      vi.mocked(openPath).mockResolvedValueOnce("/pick/melonDS");
+      await pressHinge(/Hier spielen/);
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/pick/melonDS", "/out.nds");
+      expect(localStorage.getItem("g4.emulatorPath")).toBe("/pick/melonDS");
+    });
+
+    it("does_not_run_a_rom_when_the_build_fails_or_is_cancelled", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      // The first play asks for the path: a cancelled dialog builds and runs nothing.
+      vi.mocked(savePath).mockResolvedValueOnce(null);
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(runRom).not.toHaveBeenCalled();
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      // A ROM from an earlier build must not be started by a build that failed.
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(runRom).toHaveBeenCalledOnce();
+      vi.mocked(runRom).mockClear();
+      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 1, col: 1, message: "e", source: "compile" }] });
+      await pressHinge(/Hier spielen/);
+      expect(runRom).not.toHaveBeenCalled();
+    });
+
+    it("asks_for_the_output_path_on_the_first_play_only_and_builds_to_the_last_path_afterwards", async () => {
+      vi.mocked(savePath).mockResolvedValue("/chosen/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [] });
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledOnce();
+      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds");
+      // Button and Cmd+R now build to that path without a dialog.
+      vi.mocked(savePath).mockClear();
+      await pressHinge(/Hier spielen/);
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      vi.mocked(runRom).mockResolvedValue(1);
+      await press({ key: "r", metaKey: true });
+      expect(savePath).not.toHaveBeenCalled();
+      expect(buildRom).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(buildRom).mock.calls.map((c) => c[0])).toEqual(["/chosen/out.nds", "/chosen/out.nds", "/chosen/out.nds"]);
+      expect(runRom).toHaveBeenLastCalledWith("/emu", "/chosen/out.nds");
+      // The title bar's Bauen keeps asking.
+      await click("Bauen");
+      expect(savePath).toHaveBeenCalledOnce();
+    });
+
+    it("asks_again_after_another_project_was_opened", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await pressHinge(/Hier spielen/);
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledOnce();
+      vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows_Baut_and_cannot_be_pressed_again_while_the_build_runs", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let finish: (value: Awaited<ReturnType<typeof buildRom>>) => void = () => {};
+      vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      await pressHinge(/Hier spielen/);
+      const busy = hingeButton(/Baut/)!;
+      expect(busy.disabled).toBe(true);
+      await act(async () => busy.click());
+      expect(buildRom).toHaveBeenCalledOnce();
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      expect(hingeButton(/Hier spielen/)?.disabled).toBe(false);
+    });
+
+    it("plays_on_cmd_r_inside_the_app_and_leaves_the_reload_to_the_browser", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await press({ key: "r", metaKey: true });
+      expect(buildRom).not.toHaveBeenCalled();
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      vi.mocked(runRom).mockResolvedValue(1);
+      await press({ key: "r", metaKey: true });
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(runRom).toHaveBeenCalledOnce();
+    });
+
+    it("raises_a_low_hand_to_400_when_a_script_opens_once_per_opening_and_never_lowers_it", async () => {
+      expect(handState()).toEqual({ height: 286, collapsed: false });
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(400);
+      // The same document again is not a new opening: a hand the user lowered stays.
+      act(() => {
+        Element.prototype.setPointerCapture = vi.fn();
+        Element.prototype.releasePointerCapture = vi.fn();
+      });
+      const grip = container.querySelector("[data-hinge-grip]")!;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const bottom = this.getAttribute("role") === "toolbar" ? 600 : 1000;
+        return { bottom, top: bottom - 44, height: 44, left: 0, right: 100, width: 100, x: 0, y: bottom - 44, toJSON: () => ({}) } as DOMRect;
+      });
+      const pointer = (type: string, clientY: number) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
+        Object.defineProperty(event, "pointerId", { value: 1 });
+        return act(async () => void grip.dispatchEvent(event));
+      };
+      await pointer("pointerdown", 580);
+      await pointer("pointermove", 680);
+      await pointer("pointerup", 680);
+      vi.restoreAllMocks();
+      expect(handState().height).toBe(300);
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(300);
+      await act(async () => data().scripts.open(43));
+      expect(handState().height).toBe(400);
+    });
+
+    it("opens_a_collapsed_hand_when_a_script_opens", async () => {
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      await act(async () => data().scripts.open(42));
+      expect(handState()).toEqual({ height: 400, collapsed: false });
+    });
+
+    it("opens_a_collapsed_hand_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard", async () => {
+      await select(listed[0]);
+      shown.focused = [];
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      const field = document.createElement("input");
+      document.body.append(field);
+      try {
+        field.focus();
+        await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+        // The field keeps the keyboard, so the tab stays where it is and the hand stays closed.
+        expect(shown.focused).toEqual([]);
+        expect(handState().collapsed).toBe(true);
+      } finally {
+        field.remove();
+      }
+      await act(async () => data().onSelectBuilding({ map: 0, index: 2 }));
+      expect(shown.focused).toEqual(["inspector"]);
+      expect(handState().collapsed).toBe(false);
+    });
+
+    it("keeps_a_hand_that_is_higher_than_400_when_a_script_opens", async () => {
+      window.history.replaceState(null, "", "/?project=/tmp/p");
+      writeShellState({ ...readShellState(), handHeight: { ...readShellState().handHeight, welt: 520 } });
+      await renderFresh();
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(520);
     });
   });
 
@@ -445,7 +984,7 @@ describe("App wiring", () => {
       const log = record();
       vi.mocked(undo).mockResolvedValue({ kind: "Matrix", index: 0 });
       expect(data().history.current).toBe(0);
-      await click("Undo");
+      await pressUndo();
       // The plan for a restored shown matrix: unpin, the matrix panel and editor, the scene's matrix.
       expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
       expect(data().history.current).toBe(1);
@@ -455,7 +994,7 @@ describe("App wiring", () => {
       await select(listed[0]);
       const log = record();
       vi.mocked(undo).mockResolvedValue(null);
-      await click("Undo");
+      await pressUndo();
       expect(log).toEqual([]);
       expect(data().history.current).toBe(0);
     });

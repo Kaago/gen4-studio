@@ -1,0 +1,75 @@
+.wrap {
+  display: inline-flex;
+}
+
+.chip {
+  display: inline-flex;
+  min-height: 24px;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-2) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid transparent;
+  border-radius: var(--g4-radius-plakette);
+  font: var(--g4-font-text-s-betont);
+  cursor: pointer;
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: currentColor;
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chip svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tech {
+  flex: none;
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+  opacity: 0.8;
+}
+
+.welt {
+  background: var(--g4-bereich-welt-flaeche);
+  color: var(--g4-bereich-welt);
+}
+
+.geschichten {
+  background: var(--g4-bereich-geschichten-flaeche);
+  color: var(--g4-bereich-geschichten);
+}
+
+.pokemon {
+  background: var(--g4-bereich-pokemon-flaeche);
+  color: var(--g4-bereich-pokemon);
+}
+
+.gegenstaende {
+  background: var(--g4-bereich-gegenstaende-flaeche);
+  color: var(--g4-bereich-gegenstaende);
+}
+
+.texte {
+  background: var(--g4-bereich-texte-flaeche);
+  color: var(--g4-bereich-texte);
+}
+
+.technik {
+  background: var(--g4-bereich-technik-flaeche);
+  color: var(--g4-bereich-technik);
+}

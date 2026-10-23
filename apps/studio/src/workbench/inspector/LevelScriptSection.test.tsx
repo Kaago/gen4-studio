@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readScript, resolveScript, saveLevelScript } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
+import { openSelect } from "../../ui/primitives/testUtils";
 import { LevelScriptSection } from "./LevelScriptSection";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), readScript: vi.fn(), saveLevelScript: vi.fn(), resolveScript: vi.fn() }));
@@ -64,12 +65,17 @@ describe("LevelScriptSection", () => {
   const button = (text: string, within: ParentNode = container) => [...within.querySelectorAll("button")].find((b) => b.textContent === text);
   const click = (el: Element | undefined | null) => act(async () => void (el as HTMLElement).click());
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
-  const select = (label: string) => container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
-  const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string, event: "input" | "change" = "input") =>
+  const select = (label: string) => container.querySelector<HTMLElement>(`[role=combobox][aria-label="${label}"]`)!;
+  const optionEls = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
+  /** Picks the trigger `type` (shown as "Beim Laden (on_load)") from the select named `label`. */
+  const choose = async (label: string, type: string) => {
+    openSelect(select(label));
+    await act(async () => void optionEls().find((o) => o.textContent?.endsWith(`(${type})`))!.click());
+  };
+  const setValue = (el: HTMLInputElement, value: string) =>
     act(async () => {
-      const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-      Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
-      el.dispatchEvent(new Event(event, { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
     });
   /** Types into a field that commits on blur. */
   const typeAndBlur = async (el: HTMLInputElement, value: string) => {
@@ -93,11 +99,12 @@ describe("LevelScriptSection", () => {
     expect(readScript).toHaveBeenCalledWith(1);
     expect(container.textContent).toContain("Level-Script 0001");
     expect(rows("Kopfeinträge")).toHaveLength(2);
-    expect(select("Auslöser 1").value).toBe("on_load");
-    expect([...select("Auslöser 1").options].map((o) => o.textContent)).toEqual(["Beim Laden (on_load)", "Beim Fortsetzen (on_resume)", "Beim Betreten (on_transition)", "Variablen-Bedingungen (on_var_condition)"]);
+    expect(select("Auslöser 1").textContent).toContain("Beim Laden (on_load)");
+    openSelect(select("Auslöser 1"));
+    expect(optionEls().map((o) => o.textContent)).toEqual(["Beim Laden (on_load)", "Beim Fortsetzen (on_resume)", "Beim Betreten (on_transition)", "Variablen-Bedingungen (on_var_condition)"]);
     expect(field("Script 1").value).toBe("3");
     // on_var_condition has no script number of its own.
-    expect(select("Auslöser 2").value).toBe("on_var_condition");
+    expect(select("Auslöser 2").textContent).toContain("Variablen-Bedingungen (on_var_condition)");
     expect(container.querySelector('input[aria-label="Script 2"]')).toBeNull();
     expect(rows("Variablen-Bedingungen")).toHaveLength(1);
     expect([field("Variable 1").value, field("Wert 1").value, field("Script der Bedingung 1").value]).toEqual(["16384", "1", "4"]);
@@ -111,11 +118,11 @@ describe("LevelScriptSection", () => {
     expect(rows("Kopfeinträge").map(note)).toEqual(["Script ohne Nachricht und ohne Warten auf Eingaben, sonst bleibt die Karte schwarz.", null]);
     expect(rows("Kopfeinträge")[0]!.querySelector('[role="note"]')!.getAttribute("title")).toContain("Variablen-Bedingung");
     for (const type of ["on_resume", "on_transition"]) {
-      await setValue(select("Auslöser 1"), type, "change");
+      await choose("Auslöser 1", type);
       await flush();
       expect(note(rows("Kopfeinträge")[0]!)).not.toBeNull();
     }
-    await setValue(select("Auslöser 1"), "on_var_condition", "change");
+    await choose("Auslöser 1", "on_var_condition");
     await flush();
     expect(note(rows("Kopfeinträge")[0]!)).toBeNull();
   });
@@ -123,8 +130,8 @@ describe("LevelScriptSection", () => {
   it("saves_at_once_with_the_expected_document_when_an_entry_is_added", async () => {
     await show();
     await flush();
-    await setValue(select("Neuer Auslöser"), "on_resume", "change");
-    await setValue(field("Neues Script"), "9");
+    await choose("Neuer Auslöser", "on_resume");
+    await typeAndBlur(field("Neues Script"), "9");
     await click(button("Eintrag hinzufügen"));
     await flush();
     expect(saveLevelScript).toHaveBeenCalledTimes(1);
@@ -141,9 +148,9 @@ describe("LevelScriptSection", () => {
   it("adds_a_var_condition_and_removes_an_entry", async () => {
     await show();
     await flush();
-    await setValue(field("Neue Variable"), "16385");
-    await setValue(field("Neuer Wert"), "2");
-    await setValue(field("Script der neuen Bedingung"), "6");
+    await typeAndBlur(field("Neue Variable"), "16385");
+    await typeAndBlur(field("Neuer Wert"), "2");
+    await typeAndBlur(field("Script der neuen Bedingung"), "6");
     await click(button("Bedingung hinzufügen"));
     await flush();
     expect(vi.mocked(saveLevelScript).mock.calls[0]![1].var_conditions).toEqual([
@@ -164,16 +171,36 @@ describe("LevelScriptSection", () => {
   it("saves_a_changed_trigger_and_a_changed_script_number", async () => {
     await show();
     await flush();
-    await setValue(select("Auslöser 1"), "on_transition", "change");
+    await choose("Auslöser 1", "on_transition");
     await flush();
     expect(saveLevelScript).toHaveBeenLastCalledWith(1, expect.objectContaining({ header_entries: [{ type: "on_transition", script_id: 3 }, { type: "on_var_condition" }] }));
     await typeAndBlur(field("Script 1"), "12");
     await flush();
     expect(saveLevelScript).toHaveBeenLastCalledWith(1, expect.objectContaining({ header_entries: [{ type: "on_transition", script_id: 12 }, { type: "on_var_condition" }] }));
+    const saved = vi.mocked(saveLevelScript).mock.calls.length;
     await typeAndBlur(field("Wert 1"), "70000");
     await flush();
-    // Clamped to the u16 the file stores.
-    expect(vi.mocked(saveLevelScript).mock.lastCall![1].var_conditions).toEqual([{ var: 16384, value: 65535, script_id: 4 }]);
+    // Refused with the limit of the u16 the file stores, not clamped to it: nothing is saved and the old value stays.
+    expect(container.textContent).toContain("höchstens 65535");
+    expect(field("Wert 1").value).toBe("1");
+    expect(saveLevelScript).toHaveBeenCalledTimes(saved);
+  });
+
+  it("still_saves_a_number_that_is_being_typed_when_the_section_is_folded_and_shows_the_form_again_when_it_is_opened", async () => {
+    await show();
+    await flush();
+    await act(async () => void field("Script 1").focus());
+    await setValue(field("Script 1"), "21");
+    // Folding the section removes the field before it has blurred: what was typed is written, not lost.
+    await click(container.querySelector("button[aria-expanded]"));
+    await flush();
+    expect(container.querySelector("table")).toBeNull();
+    expect(saveLevelScript).toHaveBeenCalledTimes(1);
+    expect(saveLevelScript).toHaveBeenCalledWith(1, expect.objectContaining({ header_entries: [{ type: "on_load", script_id: 21 }, { type: "on_var_condition" }] }));
+    await click(container.querySelector("button[aria-expanded]"));
+    expect(field("Script 1").value).toBe("21");
+    // The document stayed with the section: folding does not read the file again.
+    expect(readScript).toHaveBeenCalledTimes(1);
   });
 
   it("opens_the_script_of_an_entry_through_resolve_script_of_the_header", async () => {
@@ -351,12 +378,12 @@ describe("LevelScriptSection", () => {
       await flush();
       await click(button("Bedingung hinzufügen"));
       expect(hint(ZERO)).toBe(true);
-      await setValue(field("Neue Variable"), "0");
+      await typeAndBlur(field("Neue Variable"), "0");
       await click(button("Bedingung hinzufügen"));
       expect(rows("Variablen-Bedingungen")).toHaveLength(1);
       expect(saveLevelScript).not.toHaveBeenCalled();
       // A valid variable is added and the hint goes.
-      await setValue(field("Neue Variable"), "7");
+      await typeAndBlur(field("Neue Variable"), "7");
       await click(button("Bedingung hinzufügen"));
       await flush();
       expect(hint(ZERO)).toBe(false);
@@ -381,7 +408,7 @@ describe("LevelScriptSection", () => {
     it("shows_a_hint_for_a_second_on_var_condition_entry_and_sends_nothing", async () => {
       await show();
       await flush();
-      await setValue(select("Neuer Auslöser"), "on_var_condition", "change");
+      await choose("Neuer Auslöser", "on_var_condition");
       await click(button("Eintrag hinzufügen"));
       await flush();
       expect(hint(DUPLICATE)).toBe(true);
@@ -396,13 +423,13 @@ describe("LevelScriptSection", () => {
       vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
       await show();
       await flush();
-      await setValue(field("Neue Variable"), "5");
+      await typeAndBlur(field("Neue Variable"), "5");
       await click(button("Bedingung hinzufügen"));
       await flush();
       expect(hint(ORPHAN)).toBe(true);
       expect(saveLevelScript).not.toHaveBeenCalled();
       expect(rows("Variablen-Bedingungen")).toHaveLength(1);
-      await setValue(select("Neuer Auslöser"), "on_var_condition", "change");
+      await choose("Neuer Auslöser", "on_var_condition");
       await click(button("Eintrag hinzufügen"));
       await flush();
       expect(hint(ORPHAN)).toBe(false);
@@ -414,7 +441,7 @@ describe("LevelScriptSection", () => {
       vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
       await show();
       await flush();
-      await setValue(field("Neue Variable"), "5");
+      await typeAndBlur(field("Neue Variable"), "5");
       await click(button("Bedingung hinzufügen"));
       await show({ revision: 1 });
       await flush();

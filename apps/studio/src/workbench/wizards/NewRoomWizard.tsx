@@ -7,7 +7,7 @@ import { thumbnails } from "../../world/thumbnailStore";
 import { useThumbnail } from "../../world/useThumbnail";
 import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
-import { HeaderPicker } from "../inspector/HeaderPicker";
+import { HeaderSearch } from "./HeaderSearch";
 import { filterPlaces } from "../places";
 import type { Place } from "../places";
 import { TERMS, id4 } from "../terms";
@@ -349,7 +349,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
             {waiting !== null ? (
               <div style={note}>{waiting}</div>
             ) : (
-              <HeaderPicker headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
+              <HeaderSearch headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
             )}
             <div style={note}>
               {outsideHeader ? `Gewählt: ${id4(outsideHeader.id)} „${headerLabel(outsideHeader)}“` : `Kein ${TERMS.header.label} außen gewählt.`}

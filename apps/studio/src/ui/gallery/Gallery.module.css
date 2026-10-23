@@ -1,0 +1,159 @@
+.gallery {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "head head"
+    "nav page";
+  /* The document does not scroll (base.css); the nav and the page scroll on their own. */
+  height: 100vh;
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-primaer);
+}
+
+.head {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-8) var(--g4-raum-16);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  background: var(--g4-flaeche-deck);
+}
+
+.title {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.switches {
+  display: flex;
+  gap: var(--g4-raum-4);
+}
+
+.nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-12);
+  border-right: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  min-height: 0;
+  overflow: auto;
+}
+
+.nav > button {
+  justify-content: flex-start;
+}
+
+.nav > button[aria-current="page"] {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+.page {
+  grid-area: page;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--g4-dichte-panel-innen);
+  background: var(--g4-flaeche-blatt);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-32);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.blockTitle {
+  margin: 0;
+  font: var(--g4-font-text-l);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  gap: var(--g4-raum-12) var(--g4-raum-24);
+  align-items: center;
+}
+
+.gridHead {
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.row {
+  display: contents;
+}
+
+.hingeSwatch {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-12);
+  align-self: flex-start;
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-scharnier-grund);
+  color: var(--g4-scharnier-text);
+}
+
+.block > .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-12);
+}
+
+.note {
+  margin: 0;
+  max-width: 64ch;
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+  gap: var(--g4-raum-16) var(--g4-raum-24);
+  align-items: start;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 360px));
+  gap: var(--g4-raum-16);
+  align-items: start;
+}
+
+.panelBox {
+  max-width: 360px;
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-blatt);
+}
+
+/* Stands in for a map thumbnail; the gallery never ships images from the game. */
+.placeholder {
+  display: block;
+  width: 48px;
+  height: 32px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-welt);
+}
+
+.dialogRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--g4-raum-12);
+  padding-top: var(--g4-raum-8);
+}

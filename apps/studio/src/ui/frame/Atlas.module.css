@@ -1,0 +1,102 @@
+.atlas {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--g4-raum-8) 0;
+  overflow-y: auto;
+  border-right: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-gehaeuse);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.entry {
+  position: relative;
+  display: flex;
+  height: 64px;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-4);
+  border: 0;
+  background: transparent;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  cursor: pointer;
+  transition:
+    background var(--g4-dauer-kurz),
+    color var(--g4-dauer-kurz);
+}
+
+.entry svg {
+  font-size: 24px;
+}
+
+.entry:hover:not([aria-disabled="true"]) {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+}
+
+/* The colour of an area: its own, or the accent where it has none (Start, Einstellungen). */
+.entry {
+  --atlas-farbe: var(--g4-akzent-text);
+  --atlas-flaeche: var(--g4-auswahl-flaeche);
+}
+.entry[data-area="welt"] {
+  --atlas-farbe: var(--g4-bereich-welt);
+  --atlas-flaeche: var(--g4-bereich-welt-flaeche);
+}
+.entry[data-area="geschichten"] {
+  --atlas-farbe: var(--g4-bereich-geschichten);
+  --atlas-flaeche: var(--g4-bereich-geschichten-flaeche);
+}
+.entry[data-area="pokemon"] {
+  --atlas-farbe: var(--g4-bereich-pokemon);
+  --atlas-flaeche: var(--g4-bereich-pokemon-flaeche);
+}
+.entry[data-area="gegenstaende"] {
+  --atlas-farbe: var(--g4-bereich-gegenstaende);
+  --atlas-flaeche: var(--g4-bereich-gegenstaende-flaeche);
+}
+.entry[data-area="texte"] {
+  --atlas-farbe: var(--g4-bereich-texte);
+  --atlas-flaeche: var(--g4-bereich-texte-flaeche);
+}
+.entry[data-area="technik"] {
+  --atlas-farbe: var(--g4-bereich-technik);
+  --atlas-flaeche: var(--g4-bereich-technik-flaeche);
+}
+
+.entry[aria-current="page"] {
+  background: var(--atlas-flaeche);
+  color: var(--atlas-farbe);
+  font-weight: 600;
+}
+
+.entry[aria-current="page"]::before {
+  position: absolute;
+  top: var(--g4-raum-8);
+  bottom: var(--g4-raum-8);
+  left: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--atlas-farbe);
+  content: "";
+}
+
+.entry[aria-disabled="true"] {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+/* Symbols only: the shell's column is 56 px then (Shell.module.css). */
+.atlas[data-dichte="kompakt"] .entry {
+  padding: 0;
+}

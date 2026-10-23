@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { effectiveTheme } from "../../ui/tokens/theme";
 import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
+import { sceneBackground } from "../colors";
 import type { BuildingLayer, BuildingRef } from "../buildingLayer";
 import type { EventRef } from "../events";
 import { disposeMarkers } from "../markers";
@@ -54,12 +56,13 @@ export class SceneHost {
   constructor(el: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor("#1e2430");
+    this.renderer.setClearColor(sceneBackground(effectiveTheme()));
     el.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.display = "block";
 
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#667788", 1.6));
-    const sun = new THREE.DirectionalLight("#ffffff", 1.5);
+    // Lighting, not design colours: neutral white sun and a cool-grey ground bounce (as in thumbnailRenderer).
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(-40, 100, 60);
     this.scene.add(sun);
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 8000);
@@ -86,6 +89,11 @@ export class SceneHost {
   }
 
   render = () => this.renderer.render(this.scene, this.camera);
+
+  /** Sets the colour the scene is cleared with (the theme's world surface). It does not render, and touches neither models nor content. */
+  setBackground(hex: string) {
+    this.renderer.setClearColor(hex);
+  }
 
   /** Renders on the next animation frame; bursts of arriving models cost one render. */
   queueRender() {

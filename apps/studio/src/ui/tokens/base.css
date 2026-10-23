@@ -1,0 +1,69 @@
+/* Base stylesheet: reset, document font, focus ring, reduced motion, forced colors. Tokens come from tokens.css. */
+:root {
+  /* Stacking scale, defined once: dialog backdrop < dialog < floating < toast. */
+  --g4-ebene-dialog-grund: 1000;
+  --g4-ebene-dialog: 1010;
+  /* Select, menu, popover and tooltip portal to body and must sit above an open dialog. */
+  --g4-ebene-schwebend: 1020;
+  --g4-ebene-toast: 1030;
+  /* The one shadow of everything that floats (menu, tooltip, dialog, popover, toast, select popup). */
+  --g4-schatten-schwebend: 0 8px 24px color-mix(in srgb, var(--g4-platin-1000) 24%, transparent);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* The app shell fills the window and the document never scrolls: a panel's overflow must not move the title bar. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+html {
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+  background: var(--g4-flaeche-gehaeuse);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--g4-fokus-ring);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --g4-dauer-kurz: 0ms;
+    --g4-dauer-mittel: 0ms;
+    --g4-dauer-scharnier: 0ms;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --g4-fokus-ring: Highlight;
+    --g4-akzent-grund: Highlight;
+    --g4-akzent-auf: HighlightText;
+  }
+}

@@ -1,7 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
+import type { Depth } from "../ui/frame/shellState";
+import { ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
+import { ShownMark } from "./ShownMark";
+import { TERMS, id4, techLabel } from "./terms";
+import styles from "./WorldExplorer.module.css";
 
 interface Props {
   info: ProjectInfo | null;
@@ -11,43 +15,28 @@ interface Props {
   shownMatrix: number | null;
   /** Bumped by every link to a header: the list scrolls to the selection again, also when it was selected already. */
   revealToken: number;
+  /** Tüfteln writes the id and the code into every row; Bauen leaves them to the tooltip. */
+  depth: Depth;
   onSelect: (h: HeaderSummary) => void;
 }
 
-/** id, location name, internal name, matrix. The location name has priority: it shrinks last (never below 72px), the internal name first. */
-const COLUMNS = "40px minmax(72px, 3fr) minmax(0, 2fr) 40px";
-
-const cell: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
-
 /** One row of the list. Memoised: a selection or search change renders the rows whose props changed, not all of them. */
-const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, onSelect }: { header: HeaderSummary; selected: boolean; marked: boolean; onSelect: (h: HeaderSummary) => void }) {
+const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, tinker, onSelect }: { header: HeaderSummary; selected: boolean; marked: boolean; tinker: boolean; onSelect: (h: HeaderSummary) => void }) {
   return (
-    <li>
-      <button
-        data-header-id={h.id}
-        onClick={() => onSelect(h)}
-        aria-current={selected ? "true" : undefined}
-        title={`${String(h.id).padStart(4, "0")} ${h.location_name} ${h.internal_name} Matrix ${h.matrix_id}${marked ? " (Matrix wird angezeigt)" : ""}`}
-        style={{
-          all: "unset",
-          boxSizing: "border-box",
-          display: "grid",
-          gridTemplateColumns: COLUMNS,
-          columnGap: 6,
-          width: "100%",
-          cursor: "pointer",
-          lineHeight: 1.6,
-          fontWeight: selected ? 700 : 400,
-          background: marked ? "#eff6ff" : "transparent",
-          boxShadow: marked ? "inset 3px 0 0 #2563eb" : "none",
-        }}
-      >
-        <span style={{ ...cell, fontFamily: "ui-monospace, monospace" }}>{String(h.id).padStart(4, "0")}</span>
-        <span style={cell}>{h.location_name}</span>
-        <span style={{ ...cell, color: "#6b7280" }}>{h.internal_name}</span>
-        <span style={{ ...cell, textAlign: "right" }}>M{h.matrix_id}</span>
-      </button>
-    </li>
+    <ListRow
+      label={h.location_name || h.internal_name}
+      tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
+      selected={selected}
+      onSelect={() => onSelect(h)}
+      title={`${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
+      dataAttrs={{ "data-header-id": h.id }}
+      trailing={
+        <>
+          {marked && <ShownMark />}
+          <span className={styles.matrixTag}>M{h.matrix_id}</span>
+        </>
+      }
+    />
   );
 });
 
@@ -56,10 +45,12 @@ const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, onSelec
  * reveal token or the callback change, not when the scene is hovered or a message arrives.
  * `onSelect` must keep its identity for that.
  */
-export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, onSelect }: Props) {
+export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, onSelect }: Props) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterHeaders(headers, query), [headers, query]);
-  const list = useRef<HTMLUListElement>(null);
+  // The host is always rendered, so the arrow keys work after a search and after switching modes.
+  const list = useRef<HTMLDivElement>(null);
+  useRovingList(list);
   // The selection and token last scrolled to, so a search that hides the selection later does not pull it back.
   const revealed = useRef<string | null>(null);
   // A newly selected header (also one chosen by a link) is scrolled into view; a search that hides
@@ -81,27 +72,20 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
     }
   });
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
-      <div style={{ padding: "12px 16px 8px" }}>
+    <div className={styles.column}>
+      <div className={styles.top}>
         {info && (
-          <p style={{ margin: "0 0 8px", ...cell }}>
-            {info.game_code} ({info.family}, {info.language}), {info.header_count} Header
+          <p className={styles.caption}>
+            {info.header_count} {TERMS.header.plural}
           </p>
         )}
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Suchen nach Ort oder Kürzel"
-          aria-label="Header suchen"
-          style={{ width: "100%", boxSizing: "border-box", padding: "4px 8px" }}
-        />
+        <TextField type="search" label="Header suchen" placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
       </div>
-      <ul ref={list} style={{ flex: 1, minHeight: 0, overflowY: "auto", listStyle: "none", margin: 0, padding: "0 16px 16px" }}>
+      <div ref={list} role="listbox" aria-label="Header" className={styles.host}>
         {shown.map((h) => (
-          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} onSelect={onSelect} />
+          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depth === "tuefteln"} onSelect={onSelect} />
         ))}
-      </ul>
+      </div>
     </div>
   );
 });

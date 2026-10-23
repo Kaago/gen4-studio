@@ -34,6 +34,39 @@ Legende der Spalte „Wer“: **Agent** erledigt der Agent allein; **Agent + Bli
 5. **App beenden:** Weg 1: `preview_stop`. Weg 2: `kill $(cat target/agent/studio-web.pid)` (TERM an das Skript beendet Brücke und Vite; kein `pkill -f`, das träfe auch die Shell). Danach `lsof -iTCP:1430 -iTCP:1431 -sTCP:LISTEN` (leer = Ports frei). Nach einem Neustart der Brücke ist kein Projekt mehr offen, die Seite muss neu geladen werden.
 6. **Ergebnis:** Die Gate-Datei bekommt im Abschnitt „Ergebnis“ je Teil eine Zeile (Datum, Projekt, Ergebnis, Auffälligkeiten) und in der Spalte „Wer“ Agent oder Hand. Am Ende listet der Agent dem Nutzer alle Punkte mit „Hand“ und „Agent + Blick“, bei Bildern von `g4emu` mit Pfad, sonst mit Ort und Zahlen.
 
+## Doppeldeck: wo was ist
+
+Seit Phase 3c hat die App das Doppeldeck-Raster. Die älteren Abschnitte dieser Anleitung und die Gate-Dateien 3a bis 3b.2 nennen teils die Namen von vorher („Panel Welt“, „Neu anlegen“ (+ in der Liste „Orte“), „Begriffe“); die Tabelle unten sagt, wo es heute steht. Von oben nach unten und von links nach rechts:
+
+| Fläche | Was dort ist | Zum Bedienen |
+|---|---|---|
+| Titelleiste (40 px) | Projektname mit Spiel-Plakette, die Zeile „Ungespeichert“ (liest sich „N Änderungen nicht gespeichert“, ohne Änderungen „Alles gespeichert“), die Palette (Schaltfläche „Suchen oder Befehl eingeben“, gesperrt, Tooltip „Kommt mit 3c.2“), „Projekt öffnen“, „Speichern“ (⌘S), „Bauen“, „Thema wechseln“, „Hilfe“ | Rolle `button` mit dem Namen; „Bauen“ fragt im Browser-Modus nach dem Pfad (siehe Werkzeuge unten) |
+| Atlas (88 px, Kompakt 56 px nur Symbole, der `aria-label` bleibt) | `nav` „Bereiche“: „Start“, „Welt“ (aktiv), „Geschichten“, „Pokémon“, „Gegenstände“ (diese drei gesperrt, „Kommt mit Phase 3b.3“), „Texte“, „Technik“, „Einstellungen“ (diese drei gesperrt, „Kommt mit 3c.2“), „Hilfe“ | „Hilfe“ öffnet den Dialog mit dem Glossar, das früher „Begriffe“ hieß (`workbench/terms.ts`) |
+| Liste „Orte“ (272 px) | Suche „Welt durchsuchen“, Umschalter „Baum“ / „Liste“, das Menü „Neu anlegen“ (+) mit „Gebiet anlegen…“ und „Raum anlegen…“, der Knoten „Scripts“ mit Volltextsuche | ersetzt das alte Panel „Welt“ und „Neu anlegen“ (+ in der Liste „Orte“); „Gebiet erweitern“ öffnet über die „+“-Zellen im Reiter „Raster“ |
+| Schau (oben) | Reiter „3D“, „Raster“, „Weltkarte“; die Szenenleiste mit den Schaltern „Gelände“ und „Ereignisse“ und die „Legende“ | die Szene nimmt Klicks nach dem aktiven Werkzeug (unten) |
+| Scharnier (44 px) | Brotkrume (Ort, Auswahl), Umschalter „Bauen“ / „Tüfteln“ (Tüfteln zeigt im Inspector Rohwerte, Hex-Felder und Bezeichner), Prüflicht (Schaltfläche „Alles stimmig“, sonst „N Fehler, M Warnungen“), Verlauf-Menü („Verlauf, N Schritte“), „Wiederholen“ (⇧⌘Z), „Hier spielen“ (baut und startet den Emulator; ⌘R nur in der App) | Ziehen am Scharnier ändert die Höhe der Hand (200 bis 560 px), Doppelklick auf den Griff klappt sie ein |
+| Hand (unten) | links „Werkzeuge“, in der Mitte der Inspector mit den Reitern „Text“, „Script“, „Probleme“, rechts „An diesem Ort“ (Ereignisse und Gebäude der Karte; Klick wählt) | der Inspector zeigt das Gewählte; Text, Script und Probleme sind die Editoren aus 3b.2 |
+| Statusleiste (28 px) | links die Hinweise des Werkzeugs („Klick wählt“ …), Mitte Kachel- und Ortskontext, rechts Build-Stand („Noch nicht gebaut“, „Baut …“, „Gebaut vor …“), Dichte (Komfort / Kompakt), im Browser-Modus „Browser-Modus (Brücke)“ | die Dichte schaltet um und ist im `localStorage` gemerkt |
+| Meldungen | Toasts unten rechts; ein Fehler bleibt, bis man ihn schließt, ein Fortschritt ersetzt sich | im DOM Rolle `alert` (Fehler) bzw. `status` |
+
+**Werkzeuge** (Hand, links). Der Buchstabe wählt das Werkzeug (nicht im Textfeld und nicht mit Umschalttaste oder Cmd), Esc wählt wieder „Auswählen“:
+
+| Werkzeug | Taste | Klick in der Szene |
+|---|---|---|
+| Auswählen | V | wählt Marker und Gebäude, Ziehen verschiebt; malt nie |
+| Gelände malen | B | setzt die Kollision der Kachel, Umschalt-Klick löscht sie |
+| Figur | F | stellt eine Figur hin (Objekt-Event) |
+| Tür | T | legt einen Warp an (ersetzt den Knopf „Warp hinzufügen“ der Szenenleiste) |
+| Auslöser | A | legt einen Trigger an |
+| Schild | S | stellt ein Hintergrund-Event auf |
+| Gebäude | G | setzt ein Gebäude (ersetzt den Knopf „Neues Gebäude“ der Szenenleiste) |
+
+Nach einem Klick mit Figur, Tür, Auslöser, Schild oder Gebäude steht wieder „Auswählen“. Gemalt wird nur mit „Gelände malen“; ein Klick mit „Auswählen“ ändert nie die Karte. Im Inspector bleiben „Warp hinzufügen“ im Abschnitt „Eingänge / Ausgänge“ des Header-Editors (legt den Warp auf der zuletzt berührten Kachel an) und „Neues Gebäude“ im Gebäude-Editor.
+
+**Galerie.** `http://127.0.0.1:1430/?gallery` zeigt alle Bausteine ohne Projekt, mit Schaltern für Thema und Dichte; für die Screenshots des Gates (Hell, Dunkel, Kompakt) siehe [dev-setup.md](dev-setup.md), Abschnitt „Galerie“.
+
+**Layout.** Jedes Deck merkt sein Layout im `localStorage` (`g4.layout.v7.welt.schau` und `g4.layout.v7.welt.hand`, dazu `g4.shell.v1` für den Rahmen); ein unbrauchbares Layout setzt nur dieses Deck auf den Standard zurück. Zum Zurücksetzen im Browser-Modus `localStorage.clear()` ausführen und die Seite neu laden.
+
 ## Werkzeuge
 
 **In-Seite-Dialoge.** Im Browser-Modus gibt es keine nativen Dialoge: Fragen erscheinen auf der Seite mit „Ja“ und „Nein“, Pfadabfragen mit dem Feld „Pfad“, „OK“ und „Abbrechen“. „Bauen“ fragt „Speichern unter“, vorbelegt mit `<Projekt>/out.nds`; „OK“ baut, Meldung „ROM gebaut“. Escape heißt „Nein“ bzw. „Abbrechen“. Fehlt die Brücke, steht „Brücke nicht erreichbar“ in der Statusleiste.
@@ -81,8 +114,8 @@ uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
 
 ## Hinweise aus dem Handdurchlauf
 
-- Warps feuern nur auf Treppen- und Warp-Kacheln und auf Türen (Verhalten 0x69) mit Kollision 0x80. Einen Warp auf eine „freie“ Kachel zu setzen verbindet nichts; im Spiel passiert dort nichts. „Warp hinzufügen“ fragt deshalb, ob die Kachel zur Tür werden soll, und der Raum-Assistent macht beide Tür-Kacheln zu Türen, wenn nötig.
-- Ein neuer Header mit Eventdatei „neu, leer“ braucht einen Ankunfts-Warp (Index 0, `add_event`/„Warp hinzufügen“). Ohne ihn zeigt der Ziel-Warp 0 ins Leere, und das Spiel zeigt nach dem Übergang schwarz.
+- Warps feuern nur auf Treppen- und Warp-Kacheln und auf Türen (Verhalten 0x69) mit Kollision 0x80. Einen Warp auf eine „freie“ Kachel zu setzen verbindet nichts; im Spiel passiert dort nichts. Das Anlegen eines Warps (Werkzeug „Tür“ oder „Warp hinzufügen“) fragt deshalb, ob die Kachel zur Tür werden soll, und der Raum-Assistent macht beide Tür-Kacheln zu Türen, wenn nötig.
+- Ein neuer Header mit Eventdatei „neu, leer“ braucht einen Ankunfts-Warp (Index 0, `add_event`/Werkzeug „Tür“). Ohne ihn zeigt der Ziel-Warp 0 ins Leere, und das Spiel zeigt nach dem Übergang schwarz.
 - Der Gebiets-Assistent nimmt als Vorlage den Header, für den er geöffnet wurde, sonst den der ersten gewählten Zelle, die keine Füllfläche (Header 0) ist. Beim Prüfen von Schritt Header steht die Vorlage in der Zeile „Kopie von Header …“.
 - Der von DSPRE übernommene Patch „Dynamische Header“ war für Platin DE/FR/IT/ES fehlerhaft; „Patch reparieren“ und die Korrektur sind in [formats/dynamic_headers.md](formats/dynamic_headers.md) beschrieben. Die Anleitung prüft diese Befunde nicht neu.
 - `Cmd+S` im Browser-Fenster kann die Seite statt der App meinen. Tritt das auf, „Speichern“ in der Leiste klicken oder `call.sh save` benutzen.
@@ -95,19 +128,19 @@ Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für d
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „+ Neu“ → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Im Studio zeigen“ |
-| (A) 5–10 Raum anlegen (Spielerzimmer als neuer Header 0593) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „+ Neu“ → „Raum anlegen…“, Vorlage Header 0415, „Neuer Header“ (vorher „Patch anwenden“), Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Tür-Kacheln“ an lassen, „Anlegen“. Nicht Header 0002 „UG“ (Sonder-Header, bleibt im Spiel schwarz). Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0593“, „Zum Ziel“); Gegenprobe `call.sh get_events` der neuen Eventdatei: genau ein Warp auf der Rückweg-Kachel, Ziel 0411 |
+| (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Im Studio zeigen“ |
+| (A) 5–10 Raum anlegen (Spielerzimmer als neuer Header 0593) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „Neu anlegen“ (+ in der Liste „Orte“) → „Raum anlegen…“, Vorlage Header 0415, „Neuer Header“ (vorher „Patch anwenden“), Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Tür-Kacheln“ an lassen, „Anlegen“. Nicht Header 0002 „UG“ (Sonder-Header, bleibt im Spiel schwarz). Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0593“, „Zum Ziel“); Gegenprobe `call.sh get_events` der neuen Eventdatei: genau ein Warp auf der Rückweg-Kachel, Ziel 0411 |
 | (A) Stoppuhr und „Zahlen getippt“ | Hand | Die Zeit misst der Mensch bei eigener Bedienung. Der Agent trägt nur seine getippten Zahlen ein und sagt, dass seine Zeit nichts aussagt |
 | (A) 11 Warps von Hand verbinden | Agent | Browser, Schritte in Rezept „Warps verbinden“ unten |
 | (A) 12 Gang im Spiel | Agent | „Bauen“, dann `g4emu`, Schritte in Rezept „Gang im Spiel“ unten; Rückgabe 0 und die Header-Folge sind das Ergebnis, `shot` an jeder Station |
-| (B) 1–4 Explorer | Agent | Browser: Suche „Zweiblatt“ im Panel „Welt“, Umschalter „Baum / Liste“, Popover „Begriffe“, „Ohne Ortsnamen“; Texte im DOM lesen (`find`, `get_page_text`) |
+| (B) 1–4 Explorer | Agent | Browser: Suche „Zweiblatt“ in der Liste „Orte“, Umschalter „Baum / Liste“, Hilfe-Dialog (Atlas „Hilfe“, früher „Begriffe“), „Ohne Ortsnamen“; Texte im DOM lesen (`find`, `get_page_text`) |
 | (C) 1–4 Raster | Agent | Browser: Tab „Raster“, Header 0411, 0003, Route 230; die „+“-Zelle öffnet den Dialog „Karte bei x …, y … anlegen“. Neue Karten, Raster und Eventdateien sind sofort auf der Platte; `call.sh member_counts` zeigt die Zahlen |
 | (D) 1–3 Weltkarte | Agent | Browser: Tab „Weltkarte“, Zellenklick, Zoomen mit dem Mausrad, Linien bei Zweiblattdorf, nach (A) der neue Raum |
 | (D) 4 HeartGold US | Agent | frische Kopie `hg-3a`, `?project=…`; Baum und Weltkarte laden, New Bark Town = Header 0060 |
 | (E) 1–2 Automatik | Agent | `scripts/gate.sh` (rund 25 Minuten, im Hintergrund mit `> target/agent/gate.log` und Tabelle am Ende übernehmen) |
 | (F) Kartenbilder: Ausrichtung | Agent + Blick | Tab „Raster“ und 3D-Ansicht von oben bei Zweiblattdorf nacheinander ansehen, Norden oben, nicht gespiegelt; der Nutzer bestätigt |
 | (F) Kartenbilder ohne apicula | Agent | laufende App beenden (Ports sind belegt), dann `G4_APICULA=/nirgends bash scripts/agent/studio-web.sh > target/agent/studio-web.log 2>&1 & echo $! > target/agent/studio-web.pid`, Seite öffnen: Platzhalter und Tooltip lesen; danach beenden und normal neu starten |
-| (F) Layout im schmalen Panel | Agent | Browser-Fenster so verkleinern (`resize_window`) oder den Teiler ziehen, dass das Panel „Welt“ 300 px breit ist; Listenansicht, Popover „Begriffe“ und „+ Neu“ ansehen, Escape und Klick daneben |
+| (F) Layout im schmalen Panel | Agent | Browser-Fenster so verkleinern (`resize_window`) oder den Teiler ziehen, dass die Liste „Orte“ schmal ist (Atlas auf Kompakt); Listenansicht, Hilfe-Dialog (Atlas „Hilfe“, früher „Begriffe“) und „Neu anlegen“ (+ in der Liste „Orte“) ansehen, Escape und Klick daneben |
 | (F) Tastatur während eines Assistenten | Agent | Assistent öffnen, Escape, Backspace, Cmd+Z, Cmd+S drücken; danach `call.sh dirty` (leer = nichts verändert) |
 | (F) Raum-Assistent, Fehlerfälle | Agent | Browser, Schritte in Rezept „Raum-Assistent und Fehlerfälle“ unten (Raster-Wechsel, „Raum hier anbinden…“, Kachel x 999, gesperrte Eventdatei, später Fehler, Cmd+Z) |
 | (F) Layout nach Neustart | Agent | Panel verschieben, Seite neu laden (das Layout liegt im `localStorage`) |
@@ -120,7 +153,7 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 | Punkt | Wer | Wie |
 |---|---|---|
 | (A) 1 Ausgangslage | Agent | `ls -l <Kopie>/files/fielddata/maptable/mapname.bin` (Größe notieren), `ls <Kopie>/arm9/arm9.bin.backup` muss fehlen; Zahl der Header: `call.sh list_headers` oder letzte ID im Explorer plus eins |
-| (A) 2–3 Assistent bis Patch | Agent | Browser: Header 0342, „+ Neu“ → „Gebiet anlegen…“, zwei Zellen übrig, Name „Route 231“, Schritt Header: „Neuer Header“ ist gesperrt, Kasten „Patch „Dynamische Header“ nötig“ lesen, vorher speichern, „Patch anwenden“ |
+| (A) 2–3 Assistent bis Patch | Agent | Browser: Header 0342, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, zwei Zellen übrig, Name „Route 231“, Schritt Header: „Neuer Header“ ist gesperrt, Kasten „Patch „Dynamische Header“ nötig“ lesen, vorher speichern, „Patch anwenden“ |
 | (A) 4 Platte nach dem Patch | Agent | `cmp <Kopie>/arm9/arm9.bin <Kopie>/arm9/arm9.bin.backup` meldet Unterschiede; `ls <Kopie>/unpacked/dynamicHeaders \| wc -l` gleich Zahl der Header; `ls -l <Kopie>/arm9/arm9.bin*` |
 | (A) 5–6 Neuer Header | Agent | Browser: „Neuer Header“, „Interner Name“ auf `R231`, Zusammenfassung lesen, „Anlegen“, „Im Studio zeigen“ |
 | (A) 7 Platte nach dem Anlegen | Agent | `ls -l <Kopie>/unpacked/dynamicHeaders/NNNN` (NNNN vierstellig, 24 Byte; in JSON ohne führende Nullen, zum Beispiel `{"id":593}`); `mapname.bin` genau 16 Byte länger; `tail -c 16 <Kopie>/files/fielddata/maptable/mapname.bin \| xxd` beginnt mit `R231` |
@@ -144,9 +177,11 @@ Die Brücke kennt alle Befehle von Scripts und Texten: `get_text_archive`, `edit
 ## Rezepte
 
 **Warps verbinden (3a (A) 11).** Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln.
-1. In 0411: `call.sh get_events '{"eventFileId":390}'` zeigt die Türen (Warp 0 bei 105, 875 führt in das Rivalenhaus). Auf der Kachel einer Tür „Warp hinzufügen“, im Event-Editor Ziel Header 1, Ziel-Warp 0. Den Index des neuen Warps in „Eingänge / Ausgänge“ ablesen.
-2. In 0001 (Route 230): Maus auf die Zielkachel, „Warp hinzufügen“, Ziel Header 411 und der Index aus Schritt 1. Hat die Kachel kein Warp-Verhalten, passt `call.sh tile_behaviors` den Wert an und `set_permission` setzt ihn; gelingt das nicht, den Befund notieren.
+1. In 0411: `call.sh get_events '{"eventFileId":390}'` zeigt die Türen (Warp 0 bei 105, 875 führt in das Rivalenhaus). Werkzeug „Tür“ (T) wählen und auf die Kachel einer Tür klicken (früher der Knopf „Warp hinzufügen“; der Knopf im Abschnitt „Eingänge / Ausgänge“ des Header-Editors geht weiterhin und nimmt die zuletzt berührte Kachel), im Inspector Ziel Header 1, Ziel-Warp 0. Den Index des neuen Warps in „Eingänge / Ausgänge“ ablesen.
+2. In 0001 (Route 230): Werkzeug „Tür“ (T), Klick auf die Zielkachel, Ziel Header 411 und der Index aus Schritt 1. Hat die Kachel kein Warp-Verhalten, passt `call.sh tile_behaviors` den Wert an und `set_permission` setzt ihn; gelingt das nicht, den Befund notieren.
 3. Prüfen: `call.sh list_warps` nennt beide Warps.
+
+**Gebäude setzen.** Werkzeug „Gebäude“ (G) wählen und auf eine Kachel der 3D-Ansicht klicken (früher der Knopf „Neues Gebäude“ der Szenenleiste); danach steht wieder „Auswählen“, und der Inspector zeigt das neue Gebäude. Gegenprobe: `call.sh dirty` nennt die Karte.
 
 **Gang im Spiel (3a (A) 12).** Koordinaten von Warps (`x`, `z`) sind draußen gleich `x`, `y` von `where`; die Kachel vor einer Tür liegt eine südlich (Tür bei 105, 875: vorher 105, 876).
 1. „Bauen“ (OK im Pfad-Dialog), Ergebnis `<Kopie>/out.nds`.
@@ -160,14 +195,14 @@ Die Brücke kennt alle Befehle von Scripts und Texten: `get_text_archive`, `edit
 3. Route 230: `walk-to` auf die Warp-Kachel aus „Warps verbinden“ plus ein Schritt in Richtung Ausgang, `expect-map 1`, `shot`; zurück ebenso nach `expect-map 411`.
 
 **Patch reparieren (3b.1 (A) 18)**, auf `pt-3b1-rep`:
-1. App öffnen, „+ Neu“ → „Gebiet anlegen…“, bis Schritt Header, „Patch anwenden“, App beenden (Seite schließen, Brücke stoppen).
+1. App öffnen, „Neu anlegen“ (+ in der Liste „Orte“) → „Gebiet anlegen…“, bis Schritt Header, „Patch anwenden“, App beenden (Seite schließen, Brücke stoppen).
 2. Fehler nachstellen: `printf '\xCC\xF7\x74\xFC' | dd of=<pt-3b1-rep>/arm9/arm9.bin bs=1 seek=$((0x3A0D6)) conv=notrunc`
 3. App starten, Kopie öffnen: Meldung „Patch „Dynamische Header“ fehlerhaft …“ und Knopf „Patch reparieren“ (`call.sh header_patch_status` zeigt `repairable: true`). Knopf drücken: Meldung „… repariert …“.
 4. `xxd -g1 -s $((0x3A0D6)) -l 4 <pt-3b1-rep>/arm9/arm9.bin` zeigt `de f7 ad f8`. Bauen, `g4emu run … continue wait 600 shot weiter`: das Spiel läuft nach dem Intro weiter.
 5. Gegenprobe: `pt-3b1` öffnen, die Meldung erscheint nicht.
 
 **Raum-Assistent und Fehlerfälle (3a (F))**, auf einer eigenen Kopie `pt-3a-f`:
-- *Falsches Raster:* in der Szene Header 0342 (Raster 0000) zeigen, „+ Neu“ → „Raum anlegen…“, Vorlage 0415, im Schritt Header einen freien Header, im Schritt Eingang als Außen-Header 0504 (Großmoor, Raster 0240) wählen (0002 „UG“ wird nicht als Außen-Header angeboten: Raster 0002 hat keinen Header-Abschnitt). Erwartet: der Schritt fragt nach der Kachel der Tür (leere Felder, kein Hinweis „Kachel zuletzt in der Szene gewählt“). Zum Vergleich Außen-Header 0411 (Raster 0000): die Kachel ist vorbelegt.
+- *Falsches Raster:* in der Szene Header 0342 (Raster 0000) zeigen, „Neu anlegen“ (+ in der Liste „Orte“) → „Raum anlegen…“, Vorlage 0415, im Schritt Header einen freien Header, im Schritt Eingang als Außen-Header 0504 (Großmoor, Raster 0240) wählen (0002 „UG“ wird nicht als Außen-Header angeboten: Raster 0002 hat keinen Header-Abschnitt). Erwartet: der Schritt fragt nach der Kachel der Tür (leere Felder, kein Hinweis „Kachel zuletzt in der Szene gewählt“). Zum Vergleich Außen-Header 0411 (Raster 0000): die Kachel ist vorbelegt.
 - *„Raum hier anbinden…“:* Header 0411 öffnen, im Inspector „Raum hier anbinden…“: der Assistent hat 0411 als Außen-Header vorgewählt.
 - *Kachel außerhalb:* im Schritt Eingang x 999 eintippen: der Assistent lehnt ab, bevor etwas angelegt wird (`call.sh member_counts` vorher und nachher gleich).
 - *Gesperrte Eventdatei:* App beenden, `printf '\0' >> <pt-3a-f>/unpacked/eventFiles/0390` (hängt ein Byte an die Datei von 0411 an, sie lässt sich dann nicht mehr verlustfrei schreiben), App neu starten. Raum-Assistent mit Außen-Header 0411: der Schritt Eingang nennt die Sperre und bietet „später verbinden“; `call.sh get_events '{"eventFileId":390}'` zeigt `locked`.

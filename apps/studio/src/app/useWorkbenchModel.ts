@@ -1,5 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import type { HeaderSummary } from "../api";
+import type { Depth, Tool } from "../ui/frame/shellState";
+import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
@@ -14,7 +16,7 @@ import type { WorldActions } from "./useWorldActions";
 
 interface WorkbenchModelParams {
   bus: EditBus;
-  session: Pick<ProjectSession, "info" | "message" | "setMessage" | "busy" | "counts" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
+  session: Pick<ProjectSession, "info" | "message" | "busy" | "counts" | "dirtyAssets" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
   scene: Pick<SceneSync, "headers" | "selected" | "matrix" | "sceneArea" | "history" | "onSelect" | "goTo" | "onHeaderChanged" | "onAreaChanged" | "onMatrixEdited">;
   world: Pick<
     WorldActions,
@@ -32,6 +34,8 @@ interface WorkbenchModelParams {
     | "onDeleteBuilding"
     | "onAddEvent"
     | "onDeleteEvent"
+    | "sceneBuildings"
+    | "onBuildings"
   >;
   pins: Pick<InspectorState, "pinned" | "inspector">;
   /** The matrix and warp overviews of the project (the world explorer's data). */
@@ -43,8 +47,19 @@ interface WorkbenchModelParams {
   /** The project's scripts (the object keeps its identity until `revision` or another field changes) and the problems store. */
   scripts: ScriptsApi;
   problems: ProblemsStore;
-  /** The scene's switches, owned by App. */
-  view: { showPermissions: boolean; setShowPermissions: (show: boolean) => void; showEvents: boolean; setShowEvents: (show: boolean) => void };
+  /** The scene's switches and the tool, owned by App. */
+  view: {
+    showPermissions: boolean;
+    setShowPermissions: (show: boolean) => void;
+    showEvents: boolean;
+    setShowEvents: (show: boolean) => void;
+    /** The depth of the app (the shell's). */
+    depth: Depth;
+    /** The active tool, the way to switch it, and the answer to a click with an adding tool; the two callbacks must keep their identity. */
+    tool: Tool;
+    onTool: (tool: Tool) => void;
+    onTileClick: (tile: TileClick) => void;
+  };
 }
 
 /**
@@ -57,8 +72,6 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
-  const { setMessage } = session;
-  const onDismissMessage = useCallback(() => setMessage(null), [setMessage]);
 
   const eventFileId = scene.headers.find((h) => h.id === scene.selected)?.event_file_id ?? null;
   const { pinned } = pins;
@@ -86,12 +99,19 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     showEvents: view.showEvents,
     onShowEvents: view.setShowEvents,
     paintEnabled: !session.busy,
+    depth: view.depth,
+    tool: view.tool,
+    onTool: view.onTool,
+    onTileClick: view.onTileClick,
+    buildings: world.sceneBuildings,
+    onBuildings: world.onBuildings,
     history: scene.history,
     onEdited: session.onEdited,
     onError: session.fail,
     onLoadStatus: session.onLoadStatus,
     onInspect: world.onInspect,
     memberCounts: session.counts,
+    dirtyAssets: session.dirtyAssets,
     onHeaderChanged: scene.onHeaderChanged,
     onAreaChanged: scene.onAreaChanged,
     onMatrixEdited: scene.onMatrixEdited,
@@ -113,7 +133,6 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     textTarget: text.target,
     scripts,
     problems,
-    onDismissMessage,
   });
 
   const { inspector } = pins;

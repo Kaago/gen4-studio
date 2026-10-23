@@ -1,0 +1,63 @@
+.pane {
+  display: flex;
+  width: 272px;
+  height: 100%;
+  background: var(--g4-flaeche-blatt);
+  border-right: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.pane[data-open="false"] {
+  width: 8px;
+  background: var(--g4-flaeche-gehaeuse);
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* `display` above would otherwise win over the hidden attribute. */
+.body[hidden] {
+  display: none;
+}
+
+.content {
+  min-height: 0;
+  flex: 1;
+}
+
+.grip {
+  position: relative;
+  width: 8px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The handle in the middle of the strip; the whole strip takes the click. */
+.grip::after {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 4px;
+  height: 32px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: var(--g4-linie-standard);
+  content: "";
+  transition: background var(--g4-dauer-kurz);
+}
+
+.grip:hover,
+.grip:focus-visible {
+  background: var(--g4-flaeche-deck);
+}
+
+.grip:hover::after,
+.grip:focus-visible::after {
+  background: var(--g4-akzent-grund);
+}

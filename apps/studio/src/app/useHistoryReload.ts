@@ -108,8 +108,10 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
     if (failure !== null) throw failure;
   }
 
-  async function step(action: typeof undo) {
-    if (!session.info || session.busy) return;
+  /** One undo or redo with its reloads. Resolves to false when it did not go through (no project, busy, or an error that was reported). */
+  async function step(action: typeof undo): Promise<boolean> {
+    if (!session.info || session.busy) return false;
+    let done = true;
     try {
       const asset = await action();
       if (asset) {
@@ -117,9 +119,11 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         await reloadAfterHistory(asset);
       }
     } catch (e) {
+      done = false;
       fail(e);
     }
     await refreshDirty();
+    return done;
   }
 
   return { step };

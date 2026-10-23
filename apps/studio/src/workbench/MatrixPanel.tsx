@@ -1,15 +1,15 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
 import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { AreaGrid, cellKey } from "./AreaGrid";
-import { DraftInput } from "./DraftInput";
+import { Button, EmptyState, Notice, NumberField, PanelHead, Switch, TextField } from "../ui/primitives";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
-import { parseCellField, resizePreview } from "./matrix";
+import { resizePreview } from "./matrix";
+import styles from "./MatrixPanel.module.css";
 import type { NavTarget } from "./navigation";
 import { buildPlaces, placeColor } from "./places";
-import { TERMS } from "./terms";
+import { TERMS, id4 } from "./terms";
 import { useMatrix } from "./useMatrix";
 
 /** What the matrix panel needs from App. */
@@ -34,10 +34,6 @@ export interface MatrixPanelContext {
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
 }
-
-const bar: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "8px 12px" };
-const note: CSSProperties = { margin: 0, padding: "0 12px 8px", fontSize: 12, color: "#6b7280" };
-const dim: CSSProperties = { width: 56, textAlign: "right", fontFamily: "ui-monospace, monospace" };
 
 function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boolean {
   return (m[section] ?? []).some((v) => v !== 0);
@@ -133,69 +129,65 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
     await edit(m.index, () => setMatrixSections(m.index, headers, altitudes));
   }
 
-  const size = (m: MatrixDto, apply: (width: number, height: number) => void) => (axis: "width" | "height") => (text: string) => {
-    const n = parseCellField(text, 255, false);
-    if (n === null || n === "empty" || n < 1) return;
-    apply(axis === "width" ? n : m.width, axis === "height" ? n : m.height);
-  };
-
-  if (!info) return <p style={{ ...note, padding: 16 }}>Kein Projekt geöffnet.</p>;
-
-  const sizer = matrix ? size(matrix, (w, h) => void onResize(matrix, w, h)) : null;
-  return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={bar} title={TERMS.matrix.short}>
-        {matrix && sizer ? (
-          <>
-            <span style={{ fontFamily: "ui-monospace, monospace" }}>{String(matrix.index).padStart(4, "0")}</span>
-            <DraftInput
-              label="Name der Matrix"
-              value={matrix.name}
-              onCommit={(name) => void edit(matrix.index, () => renameMatrix(matrix.index, name))}
-              style={{ width: 160 }}
-            />
-            <label>
-              Breite{" "}
-              <DraftInput label="Breite (1 bis 255)" type="number" min={1} max={255} value={String(matrix.width)} onCommit={sizer("width")} style={dim} />
-            </label>
-            <label>
-              Höhe{" "}
-              <DraftInput label="Höhe (1 bis 255)" type="number" min={1} max={255} value={String(matrix.height)} onCommit={sizer("height")} style={dim} />
-            </label>
-            <label>
-              <input type="checkbox" checked={matrix.headers != null} onChange={(e) => void onSection(matrix, "headers", e.target.checked)} /> Header
-            </label>
-            <label>
-              <input type="checkbox" checked={matrix.altitudes != null} onChange={(e) => void onSection(matrix, "altitudes", e.target.checked)} /> Höhen
-            </label>
-          </>
-        ) : (
-          <span style={{ color: "#6b7280" }}>Header wählen, um seine Matrix zu bearbeiten.</span>
-        )}
-        <button onClick={() => void onNew()} style={{ marginLeft: "auto" }}>
-          Neue Matrix
-        </button>
+  if (!info) {
+    return (
+      <div className={styles.panel}>
+        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt das Raster seine Karten." />
       </div>
-      <p style={note}>
-        Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten; eine Stufe hebt die Zelle in
-        der 3D-Ansicht um eine halbe Kachel.
-      </p>
-      {created !== null && created !== sceneMatrix && (
-        <p style={{ ...note, color: "#92400e" }}>Diese Matrix gehört noch zu keinem Header. Im Header-Editor einem Header als Matrix zuweisen, dann zeigt die Szene sie.</p>
+    );
+  }
+
+  return (
+    <div className={styles.panel}>
+      <PanelHead
+        title={TERMS.matrix.label}
+        subtitle={matrix ? `${id4(matrix.index)} · ${TERMS.matrix.tech}` : undefined}
+        actions={
+          <Button kind="quiet" size="s" icon="plus" onClick={() => void onNew()}>
+            Neue Matrix
+          </Button>
+        }
+      />
+      {matrix ? (
+        <>
+          <div className={styles.fields} title={TERMS.matrix.short}>
+            <TextField label="Name der Matrix" showLabel value={matrix.name} onCommit={(name) => void edit(matrix.index, () => renameMatrix(matrix.index, name))} />
+            <NumberField label="Breite" showLabel min={1} max={255} hint="1 bis 255" value={matrix.width} onCommit={(w) => void onResize(matrix, w, matrix.height)} />
+            <NumberField label="Höhe" showLabel min={1} max={255} hint="1 bis 255" value={matrix.height} onCommit={(h) => void onResize(matrix, matrix.width, h)} />
+            <Switch label="Header" checked={matrix.headers != null} onChange={(on) => void onSection(matrix, "headers", on)} />
+            <Switch label="Höhen" checked={matrix.altitudes != null} onChange={(on) => void onSection(matrix, "altitudes", on)} />
+          </div>
+          {created !== null && created !== sceneMatrix && (
+            <div className={styles.notes}>
+              <Notice kind="warning">Diese Matrix gehört noch zu keinem Header. Im Header-Editor einem Header als Matrix zuweisen, dann zeigt die Schau sie.</Notice>
+            </div>
+          )}
+        </>
+      ) : (
+        index === null && <EmptyState what="Noch kein Ort gewählt." why="Wähle links einen Ort, dann zeigt das Raster seine Karten." />
       )}
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 12px 12px" }}>
+      <div className={styles.grid}>
         {matrix && (
-          <AreaGrid
-            matrix={matrix}
-            headers={headers}
-            areaFallback={areaDataId}
-            cellSize={64}
-            selected={selected}
-            colorOf={colorOf}
-            onCellClick={onCellClick}
-            onCellDoubleClick={onCellDoubleClick}
-            onExtend={onExtend}
-          />
+          <>
+            <AreaGrid
+              matrix={matrix}
+              headers={headers}
+              areaFallback={areaDataId}
+              cellSize={64}
+              selected={selected}
+              colorOf={colorOf}
+              onCellClick={onCellClick}
+              onCellDoubleClick={onCellDoubleClick}
+              onExtend={onExtend}
+            />
+            {/* After the grid, so the cells get the room. */}
+            <div className={styles.note}>
+              <Notice kind="info">
+                Neue Matrix und Kartenkopie werden sofort angelegt; Anlegen lässt sich nicht rückgängig machen. Höhen lassen sich bearbeiten; eine Stufe hebt die Zelle
+                in der 3D-Ansicht um eine halbe Kachel.
+              </Notice>
+            </div>
+          </>
         )}
       </div>
       {matrix && extendAt && (

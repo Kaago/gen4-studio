@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
-import type { FieldSpec } from "./fields";
-import { clampField, draftToValue, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
+import { fieldBits, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
 
 const pt: MapHeaderPt = {
   area_data_id: 1,
@@ -24,14 +23,12 @@ const pt: MapHeaderPt = {
 };
 
 describe("headerFieldSpecs", () => {
-  it("lists family-specific header fields in struct order and clamps values", () => {
+  it("lists family-specific header fields in struct order", () => {
     const pt = headerFieldSpecs("Pt").map((f) => f.key);
     expect(pt.slice(0, 3)).toEqual(["area_data_id", "matrix_id", "script_file_id"]);
     expect(pt).toContain("area_icon");
     expect(pt).not.toContain("worldmap_x");
     expect(headerFieldSpecs("HGSS").map((f) => f.key)).toContain("kanto_flag");
-    expect(clampField({ key: "weather_id", label: "", kind: "u8" }, 300)).toBe(255);
-    expect(clampField({ key: "matrix_id", label: "", kind: "pick", pick: "matrix" }, -1)).toBe(0);
   });
 
   it("names every field of the header struct except the unknown ones", () => {
@@ -63,22 +60,13 @@ describe("headerFieldSpecs", () => {
   });
 });
 
-describe("clampField", () => {
-  it("limits to the type range and rounds to whole numbers", () => {
-    const u16 = { key: "music_day_id", label: "", kind: "u16" } as const;
-    expect(clampField(u16, 70000)).toBe(65535);
-    expect(clampField(u16, 3.7)).toBe(4);
-    expect(clampField(u16, Number.NaN)).toBe(0);
-    expect(clampField({ key: "kanto_flag", label: "", kind: "bool" }, 5)).toBe(1);
-  });
-
-  it("limits pickers to the member count when one is known", () => {
-    const spec = { key: "matrix_id", label: "", kind: "pick", pick: "matrix" } as const;
-    expect(clampField(spec, 500, 2)).toBe(2);
-    expect(clampField(spec, 500, undefined)).toBe(500);
-    // The type range still applies.
-    expect(clampField({ key: "area_data_id", label: "", kind: "pick", pick: "areaData" }, 500, 1000)).toBe(255);
-    expect(clampField(spec, 1, -1)).toBe(0);
+describe("fieldBits", () => {
+  it("is_the_storage_width_of_the_number_a_field_holds", () => {
+    expect(fieldBits({ key: "weather_id", label: "", kind: "u8" })).toBe(8);
+    expect(fieldBits({ key: "music_day_id", label: "", kind: "u16" })).toBe(16);
+    // A picker is as wide as the field it is stored in: the area data id is a byte, the others are words.
+    expect(fieldBits({ key: "area_data_id", label: "", kind: "pick", pick: "areaData" })).toBe(8);
+    expect(fieldBits({ key: "matrix_id", label: "", kind: "pick", pick: "matrix" })).toBe(16);
   });
 });
 
@@ -111,26 +99,5 @@ describe("fieldValue and withField", () => {
     const header: MapHeader = { HGSS: hgss };
     expect(fieldValue(header, "kanto_flag")).toBe(0);
     expect(withField(header, "kanto_flag", 1)).toEqual({ HGSS: { kanto_flag: true } });
-  });
-});
-
-describe("draftToValue", () => {
-  const u16: FieldSpec = { key: "matrix_id", label: "", kind: "u16" };
-
-  it("treats a blank or non-numeric draft as no change", () => {
-    expect(draftToValue("", u16)).toBeNull();
-    expect(draftToValue("   ", u16)).toBeNull();
-    expect(draftToValue("abc", u16)).toBeNull();
-  });
-
-  it("clamps a typed number like clampField", () => {
-    expect(draftToValue("70000", u16)).toBe(65535);
-    expect(draftToValue(" 3.7 ", u16)).toBe(4);
-    expect(draftToValue("-4", u16)).toBe(0);
-    expect(draftToValue("9", u16, 2)).toBe(2);
-  });
-
-  it("keeps an explicit zero", () => {
-    expect(draftToValue("0", u16)).toBe(0);
   });
 });

@@ -26,7 +26,7 @@ describe("facingOf", () => {
 });
 
 describe("spriteTexture", () => {
-  it("unknown_graphics_id_keeps_the_yellow_marker", async () => {
+  it("unknown_graphics_id_keeps_the_placeholder_marker", async () => {
     expect(await spriteTexture(900, 1)).toBeNull();
     expect(await spriteTexture(900, 1)).toBeNull();
     // The miss is remembered: the backend is asked once per (graphics id, facing).

@@ -1,0 +1,66 @@
+.row {
+  display: flex;
+  min-height: var(--g4-dichte-zeile);
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-dichte-zeile-innen);
+  border-radius: var(--g4-radius-feld);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  cursor: pointer;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.row svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.selected,
+.selected:hover {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+  box-shadow: inset var(--g4-strich-fokus) 0 0 var(--g4-auswahl-kante);
+}
+
+.disabled,
+.disabled:hover {
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tech {
+  min-width: 0;
+  /* In a narrow row the technical part gives way first: the name is what the row is for. */
+  flex: 0 10 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.selected .tech {
+  color: inherit;
+}
+
+.trailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  margin-left: auto;
+}

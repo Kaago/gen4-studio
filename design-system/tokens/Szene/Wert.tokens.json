@@ -1,0 +1,94 @@
+{
+ "gelaende": {
+  "blockiert": {
+   "$type": "color",
+   "$value": "#D65A00"
+  },
+  "wasser": {
+   "$type": "color",
+   "$value": "#0073B5"
+  },
+  "hohes-gras": {
+   "$type": "color",
+   "$value": "#009C73"
+  },
+  "vorsprung": {
+   "$type": "color",
+   "$value": "#E79C00"
+  },
+  "eis": {
+   "$type": "color",
+   "$value": "#52B5E7"
+  },
+  "spezial": {
+   "$type": "color",
+   "$value": "#CE7BA5"
+  },
+  "unbekannt": {
+   "$type": "color",
+   "$value": "#BDBDBD"
+  }
+ },
+ "ereignis": {
+  "figur": {
+   "$type": "color",
+   "$value": "#4273AD"
+  },
+  "warp": {
+   "$type": "color",
+   "$value": "#AD3173"
+  },
+  "ausloeser": {
+   "$type": "color",
+   "$value": "#CEBD42"
+  },
+  "schild": {
+   "$type": "color",
+   "$value": "#218C31"
+  },
+  "gegenstand": {
+   "$type": "color",
+   "$value": "#63CEEF"
+  }
+ },
+ "hoehe": {
+  "0": {
+   "$type": "color",
+   "$value": "#00214A"
+  },
+  "1": {
+   "$type": "color",
+   "$value": "#31426B"
+  },
+  "2": {
+   "$type": "color",
+   "$value": "#636B73"
+  },
+  "3": {
+   "$type": "color",
+   "$value": "#948C7B"
+  },
+  "4": {
+   "$type": "color",
+   "$value": "#C6B563"
+  },
+  "5": {
+   "$type": "color",
+   "$value": "#E7CE5A"
+  },
+  "6": {
+   "$type": "color",
+   "$value": "#FFEF42"
+  }
+ },
+ "auswahl": {
+  "kern": {
+   "$type": "color",
+   "$value": "#FFFFFF"
+  },
+  "halo": {
+   "$type": "color",
+   "$value": "#3152DE"
+  }
+ }
+}

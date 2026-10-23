@@ -1,7 +1,9 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
-import type { Message } from "../Toolbar";
+import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
+import type { Message } from "../app/message";
+import type { Depth, Tool } from "../ui/frame/shellState";
+import type { MapBuildings, TileClick } from "../world/scene/types";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
@@ -47,7 +49,20 @@ export interface WorkbenchData {
   eventFileId: number | null;
   showEvents: boolean;
   onShowEvents: (show: boolean) => void;
+  /** Edits in the scene (painting, adding, dragging) are allowed; false while a build runs. */
   paintEnabled: boolean;
+  /** The depth of the whole app: Tüfteln adds the technical section, the Dez | Hex switches and the identifiers in the explorer. It changes rarely. */
+  depth: Depth;
+  /** The active tool of the palette. */
+  tool: Tool;
+  /** Switches the tool; switching to painting also shows the terrain layer. */
+  onTool: (tool: Tool) => void;
+  /** A click in the scene with one of the adding tools landed on this tile: the app adds what the tool makes there and returns to "Auswählen". */
+  onTileClick: (tile: TileClick) => void;
+  /** The buildings of the shown maps as the scene reports them (maps without buildings are left out). */
+  buildings: MapBuildings[];
+  /** The scene reports the buildings of the shown maps. */
+  onBuildings: (buildings: MapBuildings[]) => void;
   /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
   history: { readonly current: number };
   onEdited: () => void;
@@ -57,6 +72,8 @@ export interface WorkbenchData {
   /** The scene reports what is under the pointer (`none` when it left every cell and marker). */
   onInspect: (model: InspectorModel) => void;
   memberCounts: MemberCounts;
+  /** The assets with unsaved changes; it changes only when a write or a save moved them. */
+  dirtyAssets: readonly AssetId[];
   /** A header field was written: refresh list, scene and dirty count. */
   onHeaderChanged: () => void | Promise<void>;
   /** An area data field was written: refresh the dirty count and, if the shown models' tileset changed, the scene. */
@@ -73,8 +90,8 @@ export interface WorkbenchData {
   onBuildingMoved: (map: number) => void;
   /** The building editor wrote a field: refresh the scene and the dirty count. */
   onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
-  /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
-  onAddBuilding: (fallbackMap: number | null) => void | Promise<void>;
+  /** Appends a building on the tile `at` (a click), else on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
+  onAddBuilding: (fallbackMap: number | null, at?: { map: number; x: number; y: number }) => void | Promise<void>;
   /** Asks first, then deletes the building. */
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   /** The event selected in the scene (it is the pinned inspector model); null: none. */
@@ -88,8 +105,8 @@ export interface WorkbenchData {
   onEventsLocked: (lock: EventLock | null) => void;
   /** The event editor wrote a field: refresh the scene and the dirty count. */
   onEventChanged: (eventFile: number) => void | Promise<void>;
-  /** Adds an event on the last hovered tile of the selected header's event file and selects it. */
-  onAddEvent: (kind: EventKind) => void | Promise<void>;
+  /** Adds an event on the tile `at` (a click), else on the last hovered tile of the selected header's event file and selects it. */
+  onAddEvent: (kind: EventKind, at?: { x: number; z: number }) => void | Promise<void>;
   /** Asks first, then deletes the event. */
   onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   /** The archive and message a link to the text panel asked for; a new object with every request, so the same one can be asked for again. Null: none yet. */
@@ -98,7 +115,6 @@ export interface WorkbenchData {
   scripts: ScriptsApi;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
-  onDismissMessage: () => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */
@@ -109,29 +125,30 @@ export interface MatrixSelection {
 }
 
 /**
- * What changes with the pointer and the message bar, each in a context of its own so a panel
+ * What changes with the pointer and the session message, each in a context of its own so a panel
  * subscribes only to what it renders: hovering the scene must not render the header list or the
- * matrix tab, and a load progress line must not render anything but the status strip.
+ * matrix tab. The message is not read by any panel any more (the frame shows it as a toast); it stays
+ * here as the one place that says what the session currently shows.
  */
 export interface WorkbenchLive {
   /** What the inspector shows: the scene's hover while the pointer is over a cell, else the pinned model. */
   inspector: InspectorModel;
   /** The inspector's cell if it is a matrix cell, else null. Keeps its identity while the same cell shows. */
   matrixSelection: MatrixSelection | null;
+  /** The session message the frame mirrors into the toasts. */
   message: Message | null;
 }
 
 const WorkbenchContext = createContext<WorkbenchData | null>(null);
 const InspectorContext = createContext<InspectorModel>({ kind: "none" });
 const MatrixSelectionContext = createContext<MatrixSelection | null>(null);
-const MessageContext = createContext<Message | null>(null);
 
 export function WorkbenchProviders({ data, live, children }: { data: WorkbenchData; live: WorkbenchLive; children: ReactNode }) {
   return (
     <WorkbenchContext.Provider value={data}>
       <InspectorContext.Provider value={live.inspector}>
         <MatrixSelectionContext.Provider value={live.matrixSelection}>
-          <MessageContext.Provider value={live.message}>{children}</MessageContext.Provider>
+          {children}
         </MatrixSelectionContext.Provider>
       </InspectorContext.Provider>
     </WorkbenchContext.Provider>
@@ -152,9 +169,4 @@ export function useInspectorModel(): InspectorModel {
 
 export function useMatrixSelection(): MatrixSelection | null {
   return useContext(MatrixSelectionContext);
-}
-
-/** Changes with the message and every load progress line; only the status strip reads it. */
-export function useMessage(): Message | null {
-  return useContext(MessageContext);
 }

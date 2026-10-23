@@ -10,10 +10,11 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 |---|---|---|
 | 0 | Entscheidungsgrundlage (erledigt) | Analyse, Spec, Roadmap liegen vor |
 | 1 | Kernel-Fundament und Shell-Spike: Projekt öffnen, Permissions malen, speichern, ROM bauen, im Emulator laufen | Edit-Build-Play-Schleife funktioniert auf einem HGSS- und einem Platin-Projekt |
-| 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
-| 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (in Arbeit, Gate offen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
-| 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (implementiert, Gate offen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
-| 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (implementiert, Gate offen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
+| 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (durch Gate 3a abgelöst) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
+| 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
+| 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
+| 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
+| 3c | Doppeldeck: Design-System in der App (Tokens, Komponentenbibliothek, Rahmen aus Titelleiste, Atlas, Liste, Schau, Scharnier, Hand), Bereich Welt im neuen Raster; 3c.2 bringt Texte, Scripts, Technik, Assistenten (in Arbeit: 3c.1 implementiert, Gate offen) | Der Screen „Welt bauen“ ist in der App wiedererkennbar, die Abnahmen 3a, 3b.1 und 3b.2 laufen über die Test-Umgebung erneut grün; `scripts/gate.sh` grün |
 | 3b.3 | Daten-Editoren: Encounter, Trainer, Pokémon, Moves, Items | Neue Trainer und Encounter komplett im Studio |
 | 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
@@ -35,7 +36,7 @@ Risiken: uxie-Header-Offsets für HGSS; NARC-Padding; Gebäudekoordinaten-Konven
 
 ## Phase 2: Welt-Editor v1
 
-Status: implementiert, Gate offen. 2a und 2b sind gebaut und automatisch getestet; die Prüfung von Hand (GUI, melonDS) steht in [docs/phase-2-gate.md](phase-2-gate.md) und ist noch nicht durchgeführt. Phase 2 gilt erst als abgeschlossen, wenn dort das Ergebnis eingetragen ist.
+Status: durch Gate 3a abgelöst. 2a und 2b sind gebaut und automatisch getestet; die Prüfung von Hand in [docs/phase-2-gate.md](phase-2-gate.md) wurde nicht mehr einzeln durchgeführt, ihre Punkte laufen im Gate von Phase 3a ([docs/phase-3a-gate.md](phase-3a-gate.md)).
 
 Detailpläne: [Phase 2a: Fundament, Bundle und Orientierung](superpowers/plans/2026-10-21-phase-2a-foundation-and-orientation.md) (Eingangskriterien, Workbench, Hover, Event-Marker, Texturen, Ortsnamen, große Matrizen, App-Bundle) und [Phase 2b: Welt-Editoren](superpowers/plans/2026-10-21-phase-2b-editors.md) (Header, Matrix, Area-Data, Gebäude, Events, Undo je Asset, Querverlinkung).
 
@@ -75,7 +76,7 @@ Offene Reste von Phase 2, erledigt in Phase 3b.1 (siehe dort):
 
 ## Phase 3a: Welt-Explorer, Assistenten, Weltkarte
 
-Status: in Arbeit. Alle Tasks sind implementiert und automatisch getestet; die Prüfung von Hand (GUI, melonDS) steht in [docs/phase-3a-gate.md](phase-3a-gate.md) und ist noch nicht durchgeführt. Anlass war der Gate-Durchlauf von Phase 2: das Raster-Panel war nicht verständlich, die Reihenfolge der Schritte unklar und das Ergebnis nicht sichtbar.
+Status: Gate bestanden (DSPRE und gepackte App auf Wunsch ausgelassen); die Ergebnisse stehen in [docs/phase-3a-gate.md](phase-3a-gate.md). Anlass war der Gate-Durchlauf von Phase 2: das Raster-Panel war nicht verständlich, die Reihenfolge der Schritte unklar und das Ergebnis nicht sichtbar.
 
 Spezifikation: [docs/superpowers/specs/2026-10-22-world-explorer-design.md](superpowers/specs/2026-10-22-world-explorer-design.md).
 
@@ -91,11 +92,11 @@ Nicht in 3a: neue Header (Patch, jetzt 3b.1), Gelände malen (Phase 6), Höhen u
 
 ## Phase 3b: Daten-Editoren, Scripts, Text, Import
 
-Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. 3b.1 wurde auf Wunsch implementiert, während das Gate von Phase 3a noch offen ist; beide Gates sind offen. 3b.2 bis 3b.4 beginnen, wenn beide Gates bestanden sind; die Teile bauen aufeinander auf.
+Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. 3b.1 wurde auf Wunsch implementiert, während das Gate von Phase 3a noch offen war; beide Gates sind inzwischen bestanden. Die Teile bauen aufeinander auf.
 
 ### Phase 3b.1: Fundament
 
-Status: implementiert, Gate offen. Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`); die Prüfung von Hand (GUI, melonDS, DSPRE) steht in [docs/phase-3b1-gate.md](phase-3b1-gate.md) und ist noch nicht durchgeführt.
+Status: Gate bestanden (DSPRE und gepackte App auf Wunsch ausgelassen). Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`); die Ergebnisse der Prüfung stehen in [docs/phase-3b1-gate.md](phase-3b1-gate.md).
 
 Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b1-foundation-design.md](superpowers/specs/2026-10-22-phase-3b1-foundation-design.md). Plan: [docs/superpowers/plans/2026-10-22-phase-3b1-foundation.md](superpowers/plans/2026-10-22-phase-3b1-foundation.md).
 
@@ -113,7 +114,7 @@ Nicht in 3b.1: Header löschen, DSPREs ARM9-Expansion und andere Patches, die OW
 
 ### Phase 3b.2: Scripts und Text
 
-Status: implementiert, Gate offen. Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`, auch die gated Läufe gegen Platin DE, HeartGold DE und HeartGold US); die Prüfung von Hand (GUI, melonDS, DSPRE) und der Rauchtest der gepackten App stehen in [docs/phase-3b2-gate.md](phase-3b2-gate.md) und sind noch nicht durchgeführt.
+Status: Gate bestanden (DSPRE und gepackte App auf Wunsch ausgelassen). Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`, auch die gated Läufe gegen Platin DE, HeartGold DE und HeartGold US); die Ergebnisse der Prüfung stehen in [docs/phase-3b2-gate.md](phase-3b2-gate.md).
 
 Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md](superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md). Plan: [docs/superpowers/plans/2026-10-22-phase-3b2-scripts-text.md](superpowers/plans/2026-10-22-phase-3b2-scripts-text.md).
 
@@ -146,6 +147,20 @@ Lieferumfang:
 
 Gate (für Phase 3b insgesamt): Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
 
+## Phase 3c: Doppeldeck
+
+Status: in Arbeit. 3c.1 ist implementiert und automatisch getestet, das Gate ist offen; der Plan für 3c.2 wird nach dem Merge von 3c.1 geschrieben. Eingeschoben zwischen 3b.2 und 3b.3, damit die Daten-Editoren von 3b.3 gleich auf der neuen Komponentenbibliothek aufsetzen.
+
+Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md). Plan 3c.1: [docs/superpowers/plans/2026-10-23-phase-3c1-doppeldeck-fundament.md](superpowers/plans/2026-10-23-phase-3c1-doppeldeck-fundament.md). Gestaltungsquelle: [design-system/README.md](../design-system/README.md).
+
+Lieferumfang:
+- 3c.1 „Fundament und Welt“: das Design-System im Repo (`design-system/`, Tokens als eingecheckte Dateien in `apps/studio/src/ui/tokens/`), Paket `ui/` mit Base-UI-Primitives und Galerie (`?gallery`), der Rahmen (Titelleiste, Atlas, Liste, Deck aus Schau und Hand mit Scharnier, Statusleiste, Toasts), der Bereich Welt im neuen Raster mit Werkzeugen mit Buchstabenkürzeln, Tiefe Bauen und Tüfteln im Inspector, Szenenfarben aus den Tokens, Verlauf im Scharnier (Befehl `history`), die Gate-Schritte „tokens“ und „styles“.
+- 3c.2 „Texte, Scripts, Technik, Assistenten“: Bereich Texte mit DS-Bildschirm-Vorschau, Script und Probleme im neuen Stil, Assistenten als Schrittleiste im Scharnier, Start, Technik, Einstellungen und Hilfe als Flächen, Befehlspalette ⌘K, Ausnahmeliste der Stil-Prüfung leer, Gate-Ablauf in `docs/phase-3c-gate.md`.
+
+Gate: Spec §1 (A) bis (H): der Screen „Welt bauen: Figur bearbeiten“ ist wiedererkennbar, Texte, Scripts und Assistent laufen im neuen Raster, dunkles Thema und Kompakt sind lesbar, Tastaturbedienung, die Abnahmen 3a, 3b.1 und 3b.2 über die Test-Umgebung und `scripts/gate.sh` grün; die gepackte App prüft der Nutzer von Hand.
+
+Nicht in 3c: die Bereiche Geschichten, Pokémon und Gegenstände (gesperrt im Atlas), Tiefe Erzählen, Live-Vorschau der Assistenten in der Schau, Story-Graph, Spielmodus mit Live-Flags, Veröffentlichen, Plugins, Gelände malen mit Draufsicht und Muster im Overlay (siehe „Aus dem Design-System, später“).
+
 ## Phase 4: Textprojekt und Build-Graph
 
 Lieferumfang:
@@ -177,9 +192,20 @@ Lieferumfang:
 
 Gate: Eine im Studio gemalte Karte wird gebaut, in eine Matrix gesetzt und im Emulator begangen.
 
+## Aus dem Design-System, später
+
+Das Design-System „Doppeldeck“ ([design-system/README.md](../design-system/README.md)) zeigt mehr, als 3c baut. Was bewusst später kommt (Spec 3c §13):
+
+- Tiefe „Erzählen“ mit Rezepten und Live-Vorschau der Assistenten (nach 3b.3, als 3d).
+- Bereiche Pokémon und Gegenstände mit Läden (3b.3).
+- Flags und Variablen sowie Geschichten und Story-Graph (3b.4).
+- Prüfen und Bauen mit Build-Schritten, Spielmodus live (Live-Flags, bernsteinfarbenes Scharnier) und Veröffentlichen (Phase 4).
+- Plugins im Bereich Technik (Phase 5).
+- Gelände malen, Höhen-Overlay, Draufsicht-Kamera und Overlay-Muster (Phase 6).
+
 ## Querschnitt (laufend ab Phase 1)
 
-- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
+- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
 - Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3b.
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

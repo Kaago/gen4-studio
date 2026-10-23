@@ -1,0 +1,22 @@
+.positioner {
+  z-index: var(--g4-ebene-schwebend);
+  outline: none;
+}
+
+.popup {
+  max-width: 320px;
+  padding: var(--g4-raum-12);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  outline: none;
+  box-shadow: var(--g4-schatten-schwebend);
+  transition: opacity var(--g4-dauer-kurz);
+}
+
+.popup[data-starting-style],
+.popup[data-ending-style] {
+  opacity: 0;
+}

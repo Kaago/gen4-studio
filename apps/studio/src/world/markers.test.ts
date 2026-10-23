@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto } from "../api";
-import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
+import { applyTheme } from "../ui/tokens/theme";
+import { selectionColor } from "./colors";
+import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, moveMarker, pickMarker, recolorMarkerOutline, selectMarker } from "./markers";
 
 const matrix = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
 
@@ -171,6 +173,28 @@ describe("selectMarker", () => {
     expect(set.outline?.position.toArray()).toEqual([9.5, 0.6, 4.5]);
   });
 
+  it("outlines in the colour of the theme and recolours the outline in place", () => {
+    const color = (set: ReturnType<typeof buildMarkers>) => (set.outline?.material as THREE.LineBasicMaterial).color.getHexString();
+    try {
+      applyTheme("hell");
+      const set = buildMarkers(matrix, events());
+      selectMarker(set, { kind: "warp", index: 0 });
+      expect(color(set)).toBe("3152de");
+      const outline = set.outline;
+      recolorMarkerOutline(set, selectionColor("dunkel"));
+      expect(color(set)).toBe("ffffff");
+      expect(set.outline).toBe(outline);
+      applyTheme("dunkel");
+      selectMarker(set, { kind: "warp", index: 0 });
+      expect(color(set)).toBe("ffffff");
+      // No outline, nothing to recolour.
+      selectMarker(set, null);
+      expect(() => recolorMarkerOutline(set, "#000000")).not.toThrow();
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
+  });
+
   it("outlines nothing for no selection or for an event without a marker", () => {
     const set = buildMarkers(matrix, events());
     selectMarker(set, { kind: "warp", index: 0 });
@@ -196,7 +220,7 @@ describe("object sprites", () => {
   const spriteOf = (set: ReturnType<typeof buildMarkers>) => [...set.entries.keys()].find((o) => o instanceof THREE.Sprite) as THREE.Sprite;
   const picture = (w: number, h: number) => ({ texture: new THREE.DataTexture(new Uint8Array(w * h * 4), w, h), width: w, height: h });
 
-  it("shows an object as a bottom-anchored billboard on the middle of its tile, a yellow square until its picture is there", () => {
+  it("shows an object as a bottom-anchored billboard on the middle of its tile, a coloured square (the figure colour) until its picture is there", () => {
     const set = buildMarkers(matrix, events());
     const sprite = spriteOf(set);
     expect(sprite).toBeInstanceOf(THREE.Sprite);
@@ -206,8 +230,8 @@ describe("object sprites", () => {
     expect(sprite.renderOrder).toBe(11);
     expect(sprite.material).toMatchObject({ depthTest: false, transparent: true });
     expect(sprite.material.map).toBe(set.placeholder);
-    // Yellow, opaque.
-    expect(Array.from(set.placeholder.image.data as Uint8Array)).toEqual([234, 179, 8, 255]);
+    // The figure colour of the scene tokens (#4273AD), opaque.
+    expect(Array.from(set.placeholder.image.data as Uint8Array)).toEqual([66, 115, 173, 255]);
     expect(set.group.children).toContain(sprite);
     // One sprite for the object, none for the other classes.
     expect([...set.entries.keys()].filter((o) => o instanceof THREE.Sprite)).toHaveLength(1);

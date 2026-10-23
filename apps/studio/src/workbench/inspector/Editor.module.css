@@ -1,0 +1,67 @@
+/* The frame and the small parts the inspector editors share. */
+.panel {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: var(--g4-raum-12);
+}
+
+.pad {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8);
+}
+
+.note {
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.warn {
+  color: var(--g4-status-warnung);
+}
+
+.error {
+  color: var(--g4-status-fehler);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+}
+
+/* A control with buttons next to it (a reference and "Ändern…", a field and "Öffnen"). */
+.inline {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.mono {
+  font: var(--g4-font-code-s);
+}
+
+/* The control keeps 6 x 16 px at least and asks for 8 x 16 px; below that the buttons wrap to the next line. */
+.grow {
+  min-width: calc(var(--g4-raum-16) * 6);
+  max-width: 100%;
+  flex: 1 1 calc(var(--g4-raum-16) * 8);
+}

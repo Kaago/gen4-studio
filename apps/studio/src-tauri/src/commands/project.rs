@@ -93,6 +93,20 @@ pub fn redo_impl(state: &AppState) -> Result<Option<AssetId>, CmdError> {
     Ok(session(&mut guard)?.store.redo())
 }
 
+/// The labels of the undo and redo stacks: undo oldest first, redo in the order `redo` applies
+/// them (the next one first).
+#[derive(Debug, PartialEq, Serialize)]
+pub struct HistoryDto {
+    pub undo: Vec<String>,
+    pub redo: Vec<String>,
+}
+
+pub fn history_impl(state: &AppState) -> Result<HistoryDto, CmdError> {
+    let mut guard = lock(state)?;
+    let (undo, redo) = session(&mut guard)?.store.history();
+    Ok(HistoryDto { undo, redo })
+}
+
 pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
     Ok(session(&mut guard)?.store.dirty())
@@ -298,6 +312,11 @@ pub fn redo(state: State<AppState>) -> Result<Option<AssetId>, CmdError> {
 }
 
 #[tauri::command]
+pub fn history(state: State<AppState>) -> Result<HistoryDto, CmdError> {
+    history_impl(&state)
+}
+
+#[tauri::command]
 pub fn dirty(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
     dirty_impl(&state)
 }
@@ -382,6 +401,41 @@ mod tests {
         let json = serde_json::to_value(&counts).unwrap();
         assert_eq!(json["AreaData"], 2);
         assert!(member_counts_impl(&AppState::default()).is_err());
+    }
+
+    #[test]
+    fn history_names_the_undo_and_redo_entries() {
+        let (_fixture, state) = open_synthetic();
+        let none = HistoryDto {
+            undo: vec![],
+            redo: vec![],
+        };
+        assert_eq!(history_impl(&state).unwrap(), none);
+        set_permission_impl(&state, 1, 5, 6, 2, 0x80).unwrap();
+        set_permission_impl(&state, 1, 6, 6, 2, 0x80).unwrap();
+        let labels = |n: usize| vec!["paint".to_owned(); n];
+        assert_eq!(
+            history_impl(&state).unwrap(),
+            HistoryDto {
+                undo: labels(2),
+                redo: vec![]
+            }
+        );
+        undo_impl(&state).unwrap();
+        assert_eq!(
+            history_impl(&state).unwrap(),
+            HistoryDto {
+                undo: labels(1),
+                redo: labels(1)
+            }
+        );
+        // Serialized for the frontend as `{ undo, redo }`.
+        let json = serde_json::to_value(history_impl(&state).unwrap()).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "undo": ["paint"], "redo": ["paint"] })
+        );
+        assert!(history_impl(&AppState::default()).is_err());
     }
 
     #[test]

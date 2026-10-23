@@ -97,6 +97,9 @@ export function fakePicker(): Picker {
 export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
   const callbacks: SceneCallbacks = {
     paintEnabled: true,
+    tool: "select",
+    onTileClick: vi.fn(),
+    onBuildings: vi.fn(),
     onEdited: vi.fn(),
     onError: vi.fn(),
     onInspect: vi.fn(),

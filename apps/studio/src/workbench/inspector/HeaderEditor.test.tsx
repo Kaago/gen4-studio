@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderPt } from "../../api";
+import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
 
@@ -72,8 +73,8 @@ describe("HeaderEditor scripts", () => {
     onError,
     ...over,
   });
-  async function show(ctx = context()) {
-    await act(async () => root.render(<HeaderEditor id={411} context={ctx} />));
+  async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
+    await act(async () => root.render(<HeaderEditor id={411} context={ctx} depth={depth} />));
     await flush();
   }
   beforeEach(() => {
@@ -96,24 +97,34 @@ describe("HeaderEditor scripts", () => {
 
   it("limits_both_pickers_by_the_member_count_of_the_script_archive", async () => {
     await show();
-    const titles = [...container.querySelectorAll("label")].map((l) => l.getAttribute("title"));
-    expect(titles).toContain("script_file_id (0 bis 799)");
-    expect(titles).toContain("level_script_id (0 bis 799)");
+    const row = (label: string) => [...container.querySelectorAll<HTMLElement>("div")].find((d) => d.firstElementChild?.textContent === label && d.children.length >= 2)!;
+    expect(row("Scriptdatei").textContent).toContain("0 bis 799");
+    expect(row("Level-Script").textContent).toContain("0 bis 799");
+    // A picker whose archive size is not known yet is a plain number field.
+    expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
+  });
+
+  it("shows_the_form_in_the_sections_Karten_und_Raster_Aussehen_Texte_und_Scripts_Ausgänge_and_Level_Script", async () => {
+    await show();
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten und Raster", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
+    expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
+    expect(container.textContent).toContain("0411 · T01");
   });
 
   it("opens_the_script_file_and_the_level_script_of_the_header", async () => {
     await show();
-    await click(button("Scriptdatei öffnen"));
+    // The references read "Scriptdatei" and the number.
+    await click(button("Scriptdatei0040"));
     expect(onOpenScript).toHaveBeenLastCalledWith(40);
-    await click(button("Level-Script öffnen"));
+    await click(button("Level-Script0041"));
     expect(onOpenScript).toHaveBeenLastCalledWith(41);
   });
 
   it("has_nothing_to_open_for_a_header_without_a_level_script", async () => {
     vi.mocked(getHeader).mockResolvedValue(pt({ level_script_id: 0 }));
     await show();
-    expect(button("Level-Script öffnen")!.disabled).toBe(true);
-    expect(button("Scriptdatei öffnen")!.disabled).toBe(false);
+    expect(button("Level-Scriptkeins")!.disabled).toBe(true);
+    expect(button("Scriptdatei0040")!.disabled).toBe(false);
   });
 
   it("writes_the_number_of_a_new_script_file_into_the_header_and_opens_the_file", async () => {
@@ -178,18 +189,98 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [{ type: "on_load", script_id: 3 }], var_conditions: [] } });
     await show();
     expect(readScript).toHaveBeenCalledWith(41);
-    expect(container.querySelector('section[aria-label="Level-Script"] table')).not.toBeNull();
+    expect(container.querySelector('table[aria-label="Kopfeinträge"]')).not.toBeNull();
   });
 
   it("asks_for_the_adoption_and_calls_no_command_while_scripts_are_not_adopted", async () => {
     await show(context({ scriptsAdopted: false }));
     expect(container.textContent).toContain("Erst Scripts übernehmen (Panel „Script“)");
-    for (const label of ["Scriptdatei öffnen", "Level-Script öffnen", "Neue Scriptdatei anlegen", "Neues Level-Script anlegen"]) {
+    for (const label of ["Scriptdatei0040", "Level-Script0041", "Neue Scriptdatei anlegen", "Neues Level-Script anlegen"]) {
       expect(button(label)!.disabled).toBe(true);
       await click(button(label));
     }
     expect(onOpenScript).not.toHaveBeenCalled();
     expect(newScriptFile).not.toHaveBeenCalled();
     expect(readScript).not.toHaveBeenCalled();
+  });
+
+  describe("fields", () => {
+    const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
+    const sectionHead = (title: string) => [...container.querySelectorAll<HTMLElement>("h3 button")].find((b) => b.textContent === title)!;
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
+
+    it("writes_a_typed_number_on_blur_as_one_undoable_header_edit", async () => {
+      await show();
+      await act(async () => void field("Wetter").focus());
+      typeInto(field("Wetter"), "20");
+      expect(setHeader).not.toHaveBeenCalled();
+      await act(async () => void field("Wetter").blur());
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ weather_id: 20 }), "Wetter");
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses_a_number_the_field_cannot_hold_and_writes_nothing", async () => {
+      await show();
+      await act(async () => void field("Wetter").focus());
+      typeInto(field("Wetter"), "300");
+      await act(async () => void field("Wetter").blur());
+      await flush();
+      expect(container.textContent).toContain("höchstens 255");
+      expect(setHeader).not.toHaveBeenCalled();
+    });
+
+    it("writes_a_number_that_is_still_being_typed_when_its_section_is_folded", async () => {
+      await show();
+      await act(async () => void field("Wetter").focus());
+      typeInto(field("Wetter"), "21");
+      // The field goes away without a blur; the draft is written, not lost.
+      await click(sectionHead("Aussehen"));
+      await flush();
+      expect(field("Wetter")).toBeNull();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ weather_id: 21 }), "Wetter");
+      await click(sectionHead("Aussehen"));
+      expect(field("Wetter").value).toBe("21");
+    });
+
+    it("keeps_a_folded_section_folded_when_the_editor_is_replaced_and_mounted_again_as_a_hover_does", async () => {
+      await show();
+      await click(sectionHead("Aussehen"));
+      expect(field("Wetter")).toBeNull();
+      await act(async () => root.render(null));
+      await show();
+      await flush();
+      expect(field("Wetter")).toBeNull();
+      await click(sectionHead("Aussehen"));
+      expect(field("Wetter")).not.toBeNull();
+    });
+
+    it("leads_the_matrix_and_the_area_data_to_their_targets_and_changes_them_through_the_picker", async () => {
+      const goTo = vi.fn();
+      await show(context({ counts: { Script: 800, Matrix: 10, AreaData: 5 }, goTo }));
+      await click(button("Matrix0002"));
+      expect(goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 2, x: 0, y: 0 });
+      await click(button("Area-Data0001"));
+      expect(goTo).toHaveBeenLastCalledWith({ kind: "area", id: 1 });
+      await click(button("Matrix ändern…"));
+      typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0005");
+      expect(options().map((o) => o.textContent)).toEqual(["Matrix0005"]);
+      await click(options()[0]);
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Matrix");
+    });
+  });
+
+  it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {
+    const technical = () => [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Technisch");
+    const hexSwitch = () => [...container.querySelectorAll("button")].some((b) => b.textContent === "Hex");
+    await show(context(), "bauen");
+    expect(technical()).toBeUndefined();
+    expect(hexSwitch()).toBe(false);
+    await show(context(), "tuefteln");
+    expect(technical()?.getAttribute("aria-expanded")).toBe("false");
+    expect(hexSwitch()).toBe(true);
+    await act(async () => void technical()?.click());
+    expect(container.textContent).toContain("Header 0411, Eintrag der Header-Tabelle");
   });
 });

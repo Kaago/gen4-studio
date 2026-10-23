@@ -1,0 +1,254 @@
+{
+ "flaeche": {
+  "gehaeuse": {
+   "$type": "color",
+   "$value": "{platin.900}"
+  },
+  "deck": {
+   "$type": "color",
+   "$value": "{platin.850}"
+  },
+  "taste": {
+   "$type": "color",
+   "$value": "{platin.800}"
+  },
+  "blatt": {
+   "$type": "color",
+   "$value": "{platin.750}"
+  },
+  "schau": {
+   "$type": "color",
+   "$value": "{platin.950}"
+  },
+  "welt": {
+   "$type": "color",
+   "$value": "{platin.950}"
+  },
+  "bildschirm-rahmen": {
+   "$type": "color",
+   "$value": "{platin.1000}"
+  },
+  "bildschirm": {
+   "$type": "color",
+   "$value": "{platin.1000}"
+  },
+  "ueberlagerung": {
+   "$type": "color",
+   "$value": "#101821B3"
+  }
+ },
+ "text": {
+  "primaer": {
+   "$type": "color",
+   "$value": "{platin.150}"
+  },
+  "sekundaer": {
+   "$type": "color",
+   "$value": "#ADB5C6"
+  },
+  "deaktiviert": {
+   "$type": "color",
+   "$value": "{platin.550}"
+  },
+  "invers": {
+   "$type": "color",
+   "$value": "{platin.950}"
+  }
+ },
+ "linie": {
+  "leise": {
+   "$type": "color",
+   "$value": "{platin.800}"
+  },
+  "standard": {
+   "$type": "color",
+   "$value": "{platin.650}"
+  },
+  "stark": {
+   "$type": "color",
+   "$value": "{platin.500}"
+  }
+ },
+ "akzent": {
+  "grund": {
+   "$type": "color",
+   "$value": "{kobalt.400}"
+  },
+  "hover": {
+   "$type": "color",
+   "$value": "{kobalt.300}"
+  },
+  "text": {
+   "$type": "color",
+   "$value": "{kobalt.300}"
+  },
+  "auf": {
+   "$type": "color",
+   "$value": "{platin.1000}"
+  }
+ },
+ "auswahl": {
+  "flaeche": {
+   "$type": "color",
+   "$value": "{kobalt.800}"
+  },
+  "kante": {
+   "$type": "color",
+   "$value": "{kobalt.400}"
+  }
+ },
+ "fokus": {
+  "ring": {
+   "$type": "color",
+   "$value": "{kobalt.300}"
+  }
+ },
+ "live": {
+  "grund": {
+   "$type": "color",
+   "$value": "{bernstein.500}"
+  },
+  "auf": {
+   "$type": "color",
+   "$value": "{platin.950}"
+  },
+  "flaeche": {
+   "$type": "color",
+   "$value": "{bernstein.800}"
+  },
+  "text": {
+   "$type": "color",
+   "$value": "{bernstein.400}"
+  }
+ },
+ "scharnier": {
+  "grund": {
+   "$type": "color",
+   "$value": "{platin.700}"
+  },
+  "text": {
+   "$type": "color",
+   "$value": "{platin.150}"
+  },
+  "leise": {
+   "$type": "color",
+   "$value": "#C6CEDE"
+  },
+  "kante": {
+   "$type": "color",
+   "$value": "{kobalt.800}"
+  },
+  "taste": {
+   "$type": "color",
+   "$value": "#5A6B94"
+  }
+ },
+ "status": {
+  "fehler": {
+   "$type": "color",
+   "$value": "{signal.300}"
+  },
+  "fehler-flaeche": {
+   "$type": "color",
+   "$value": "{signal.900}"
+  },
+  "warnung": {
+   "$type": "color",
+   "$value": "{bernstein.400}"
+  },
+  "warnung-flaeche": {
+   "$type": "color",
+   "$value": "{bernstein.900}"
+  },
+  "erfolg": {
+   "$type": "color",
+   "$value": "{moos.300}"
+  },
+  "erfolg-flaeche": {
+   "$type": "color",
+   "$value": "{moos.900}"
+  },
+  "info": {
+   "$type": "color",
+   "$value": "{kobalt.300}"
+  },
+  "info-flaeche": {
+   "$type": "color",
+   "$value": "{kobalt.800}"
+  }
+ },
+ "bereich": {
+  "welt": {
+   "$type": "color",
+   "$value": "{moos.200}"
+  },
+  "welt-flaeche": {
+   "$type": "color",
+   "$value": "{moos.900}"
+  },
+  "welt-punkt": {
+   "$type": "color",
+   "$value": "{moos.400}"
+  },
+  "geschichten": {
+   "$type": "color",
+   "$value": "{zerr.200}"
+  },
+  "geschichten-flaeche": {
+   "$type": "color",
+   "$value": "{zerr.900}"
+  },
+  "geschichten-punkt": {
+   "$type": "color",
+   "$value": "{zerr.400}"
+  },
+  "pokemon": {
+   "$type": "color",
+   "$value": "{koralle.200}"
+  },
+  "pokemon-flaeche": {
+   "$type": "color",
+   "$value": "{koralle.900}"
+  },
+  "pokemon-punkt": {
+   "$type": "color",
+   "$value": "{koralle.400}"
+  },
+  "gegenstaende": {
+   "$type": "color",
+   "$value": "{lagune.200}"
+  },
+  "gegenstaende-flaeche": {
+   "$type": "color",
+   "$value": "{lagune.900}"
+  },
+  "gegenstaende-punkt": {
+   "$type": "color",
+   "$value": "{lagune.400}"
+  },
+  "texte": {
+   "$type": "color",
+   "$value": "{sand.200}"
+  },
+  "texte-flaeche": {
+   "$type": "color",
+   "$value": "{sand.900}"
+  },
+  "texte-punkt": {
+   "$type": "color",
+   "$value": "{sand.400}"
+  },
+  "technik": {
+   "$type": "color",
+   "$value": "{platin.300}"
+  },
+  "technik-flaeche": {
+   "$type": "color",
+   "$value": "{platin.800}"
+  },
+  "technik-punkt": {
+   "$type": "color",
+   "$value": "{platin.500}"
+  }
+ }
+}

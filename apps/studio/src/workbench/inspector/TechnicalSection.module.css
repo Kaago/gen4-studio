@@ -1,0 +1,44 @@
+/* The raw view of a record: identifiers and numbers in the mono face. */
+.facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--g4-raum-4) var(--g4-raum-8);
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  font: var(--g4-font-text-xs);
+}
+
+.facts dt {
+  color: var(--g4-text-sekundaer);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font: var(--g4-font-code-s);
+  user-select: text;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--g4-font-code-s);
+}
+
+.table th,
+.table td {
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  text-align: left;
+  font-weight: normal;
+  user-select: text;
+}
+
+.table thead th {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.table td {
+  text-align: right;
+}

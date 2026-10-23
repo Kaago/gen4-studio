@@ -1,10 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, RefObject } from "react";
+import { memo, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
+import styles from "./AreaGrid.module.css";
 import { id4 } from "./terms";
+import { useVisible } from "./useVisible";
 import { GRID_GAP } from "./worldMap";
 
 export const cellKey = (x: number, y: number) => `${x},${y}`;
@@ -26,22 +28,6 @@ export interface AreaGridProps {
   colorOf?: (header: number | null) => string | null;
 }
 
-const PLACEHOLDER = "#e5e7eb";
-
-const base = (size: number): CSSProperties => ({
-  all: "unset",
-  boxSizing: "border-box",
-  width: size,
-  height: size,
-  position: "relative",
-  overflow: "hidden",
-  cursor: "pointer",
-  fontFamily: "ui-monospace, monospace",
-  fontSize: size === 64 ? 11 : 9,
-});
-
-const tag: CSSProperties = { position: "absolute", padding: "0 3px", borderRadius: 2, background: "rgba(255,255,255,0.8)", color: "#111827", lineHeight: "14px" };
-
 interface CellProps {
   x: number;
   y: number;
@@ -59,19 +45,6 @@ interface CellProps {
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
-/** Whether the element is (nearly) in view; always true where there is no IntersectionObserver (tests). */
-function useVisible(ref: RefObject<HTMLElement | null>, active: boolean): boolean {
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
-  useEffect(() => {
-    const el = ref.current;
-    if (!active || !el || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => setVisible(entries[entries.length - 1]?.isIntersecting ?? false), { rootMargin: "128px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, active]);
-  return visible;
-}
-
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
 const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, onClick, onDoubleClick }: CellProps) {
   const button = useRef<HTMLButtonElement>(null);
@@ -85,17 +58,12 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   const failure = map !== null && picture === null ? cache.failure(map, area) : null;
   if (failure) parts.push(`Bild fehlgeschlagen: ${failure}`);
 
-  const style: CSSProperties = { ...base(size) };
-  if (map === null) {
-    Object.assign(style, { border: "1px dashed #9ca3af", color: "#9ca3af", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent" });
-  } else if (typeof picture === "string") {
-    Object.assign(style, { backgroundImage: `url("${picture}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundColor: PLACEHOLDER });
-  } else {
-    Object.assign(style, { backgroundColor: color ?? PLACEHOLDER, color: "#374151", display: "flex", alignItems: "center", justifyContent: "center" });
-  }
-  if (map !== null && color) style.boxShadow = `inset 0 -4px 0 ${color}`;
-  style.outline = selected ? "3px solid #2563eb" : "1px solid #d1d5db";
-  style.outlineOffset = selected ? -3 : -1;
+  // What only the data knows: the picture, the place colour.
+  const style: CSSProperties = {};
+  if (map !== null && typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
+  else if (map !== null && color) style.backgroundColor = color; /* dyn */
+  if (map !== null && color) style.boxShadow = `inset 0 -4px 0 ${color}`; /* dyn */
+  const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : ""].join(" ");
 
   return (
     <button
@@ -104,7 +72,8 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
       data-cell={cellKey(x, y)}
       aria-pressed={selected}
       title={parts.join(" · ")}
-      style={style}
+      className={classes}
+      style={style} /* dyn */
       onClick={(e) => onClick?.(x, y, { shift: e.shiftKey })}
       onDoubleClick={() => onDoubleClick?.(x, y)}
     >
@@ -112,9 +81,9 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
         "—"
       ) : (
         <>
-          {typeof picture !== "string" && id4(map)}
-          {size === 64 && typeof picture === "string" && <span style={{ ...tag, bottom: 2, left: 2 }}>{id4(map)}</span>}
-          {size === 64 && hasHeaders && header !== null && <span style={{ ...tag, top: 2, right: 2 }}>{id4(header)}</span>}
+          {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
+          {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
+          {size === 64 && hasHeaders && header !== null && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
         </>
       )}
     </button>
@@ -138,7 +107,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
             data-extend={cellKey(x, y)}
             aria-label={`Karte bei x ${x}, y ${y} anlegen`}
             title={`Karte bei x ${x}, y ${y} anlegen`}
-            style={{ ...base(cellSize), border: "1px dashed #9ca3af", color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}
+            className={`${styles.cell} ${cellSize === 64 ? styles.big : styles.small} ${styles.extend}`}
             onClick={() => onExtend?.(x, y)}
           >
             +
@@ -172,8 +141,9 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
   return (
     <div
       role="group"
-      aria-label={`Matrix ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
-      style={{ display: "grid", gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP, width: "max-content" }}
+      aria-label={`Raster ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
+      className={styles.grid}
+      style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP }} /* dyn */
     >
       {cells}
     </div>

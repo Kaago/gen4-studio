@@ -13,6 +13,9 @@ import type { Loaded } from "./types";
 /** Height of the overlay plane of a cell on the ground (a raised cell adds its `cellY`); clicks are intersected with the same planes. */
 export const OVERLAY_Y = 0.05;
 
+/** Opacity of the overlay fill (spec §8.1: 42 %). */
+export const OVERLAY_OPACITY = 0.42;
+
 const colorCache = new Map<string, THREE.Color>();
 export function overlayColor(kind: number, collision: number, names: Map<number, TileBehavior>): THREE.Color {
   const hex = permissionColor(kind, collision, names.get(kind)?.class ?? null);
@@ -65,9 +68,14 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
   plane.rotateX(-Math.PI / 2);
   const planeMaterial = new THREE.MeshBasicMaterial({
     transparent: true,
-    opacity: 0.45,
+    opacity: OVERLAY_OPACITY,
     depthTest: false,
     depthWrite: false,
+    // The token colours must come out as they are, not through tone mapping.
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
   const tiles = new THREE.InstancedMesh(plane, planeMaterial, cells.length * perCell);
   tiles.renderOrder = 10;
@@ -119,7 +127,7 @@ export function setMarkers(h: SceneHost, events: EventsDto | null, visible: bool
  * Gives the object markers of `set` their sprites. Sprites that are already loaded are applied at once; the others
  * are asked for (once per graphics id and facing, see `spriteTexture`) and drawn when they arrive. A result for a
  * set that has been replaced meanwhile is dropped (the new set asks for itself); an object without a sprite keeps
- * its yellow square.
+ * its placeholder square.
  */
 function loadSprites(h: SceneHost, set: MarkerSet, events: EventsDto) {
   for (const object of events.objects) {

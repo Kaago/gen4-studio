@@ -1,0 +1,50 @@
+.scroll {
+  overflow-x: auto;
+  padding: 0 var(--g4-raum-8);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--g4-font-text-s);
+}
+
+.table th {
+  padding: var(--g4-raum-4) var(--g4-raum-4) var(--g4-raum-4) 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  text-align: left;
+}
+
+.table td {
+  min-width: 96px;
+  padding: var(--g4-raum-2) var(--g4-raum-4) var(--g4-raum-2) 0;
+  vertical-align: top;
+}
+
+.buttons {
+  display: flex;
+  min-width: 0;
+  gap: var(--g4-raum-4);
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--g4-text-sekundaer);
+}
+
+/* The warning under a trigger that runs while the map is set up. */
+.hint {
+  max-width: 240px;
+  margin: var(--g4-raum-2) 0 0;
+  font: var(--g4-font-text-xs);
+}
+
+/* The inputs of a new row, in a line that wraps in a narrow inspector. */
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+}

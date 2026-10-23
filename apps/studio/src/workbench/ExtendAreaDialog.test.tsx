@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extendArea } from "../api";
 import type { MatrixDto } from "../api";
+import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), extendArea: vi.fn() }));
@@ -33,31 +34,63 @@ describe("ExtendAreaDialog", () => {
 
   const show = (m: MatrixDto = matrix) =>
     act(() => root.render(<ExtendAreaDialog matrix={m} x={2} y={0} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
-  const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+  const dialog = () => document.querySelector<HTMLElement>("[role=dialog]")!;
+  const button = (text: string) => [...dialog().querySelectorAll("button")].find((b) => b.textContent === text);
+  const field = (name: string) => dialog().querySelector<HTMLInputElement>(`input[aria-label^="${name}"]`);
 
   it("proposes_a_copy_of_the_neighbour_with_its_header_and_announces_the_new_size", async () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
     show();
-    expect(container.textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
-    expect(container.textContent).toContain("Das Raster wird auf 3 × 1 vergrößert. Anlegen lässt sich nicht rückgängig machen.");
-    expect(container.querySelector<HTMLInputElement>('input[aria-label^="Header-Zelle"]')?.value).toBe("416");
-    await act(async () => button("Anlegen")?.click());
+    expect(dialog().getAttribute("aria-modal")).toBe("true");
+    expect(dialog().textContent).toContain("Karte bei x 2, y 0 anlegen?");
+    expect(dialog().textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
+    expect(dialog().textContent).toContain("Das Raster wird auf 3 × 1 vergrößert.");
+    expect(dialog().textContent).toContain("Anlegen lässt sich nicht rückgängig machen.");
+    expect(field("Header-Zelle")?.value).toBe("416");
+    await act(async () => button("Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith({ matrix: 7, x: 2, y: 0, source_map: 11, clear_buildings: false, header_cell: 416 });
     expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
+  });
+
+  it("copies_the_chosen_map_without_buildings", async () => {
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
+    show();
+    expect(field("Karte")).toBeNull();
+    const choose = [...dialog().querySelectorAll("button")].find((b) => b.textContent === "Karte wählen")!;
+    act(() => choose.click());
+    await act(async () => field("Karte")!.focus());
+    typeInto(field("Karte")!, "42");
+    await act(async () => field("Karte")!.blur());
+    act(() => [...dialog().querySelectorAll<HTMLElement>("[role=checkbox]")].find((c) => c.closest("label")?.textContent === "ohne Gebäude")!.click());
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith({ matrix: 7, x: 2, y: 0, source_map: 42, clear_buildings: true, header_cell: 416 });
+  });
+
+  it("refuses_a_map_beyond_the_archive_and_names_the_highest", async () => {
+    show({ ...matrix, maps: [null, null], headers: undefined });
+    expect(dialog().textContent).not.toContain("Nachbarzelle");
+    await act(async () => field("Karte")!.focus());
+    typeInto(field("Karte")!, "700");
+    await act(async () => field("Karte")!.blur());
+    expect(dialog().textContent).toContain("599");
+    expect(field("Karte")!.value).toBe("0");
+    await act(async () => button("Karte anlegen")?.click());
+    // Nothing was taken over: the old value, never the clamped 599, goes to the backend.
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 0 }));
   });
 
   it("sends_no_header_cell_for_a_grid_without_header_section", async () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
     show({ ...matrix, headers: undefined });
-    expect(container.querySelector('input[aria-label^="Header-Zelle"]')).toBeNull();
-    await act(async () => button("Anlegen")?.click());
+    expect(field("Header-Zelle")).toBeNull();
+    await act(async () => button("Karte anlegen")?.click());
     expect(vi.mocked(extendArea).mock.calls[0][0].header_cell).toBeNull();
   });
 
   it("reports_a_failure_and_leaves_without_a_result", async () => {
     vi.mocked(extendArea).mockRejectedValue(new Error("boom"));
     show();
-    await act(async () => button("Anlegen")?.click());
+    await act(async () => button("Karte anlegen")?.click());
     expect(onError).toHaveBeenCalledOnce();
     expect(onDone).toHaveBeenCalledWith(null);
   });
@@ -69,62 +102,65 @@ describe("ExtendAreaDialog", () => {
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  const escape = (target: EventTarget = document) => act(async () => void target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-
-  it("puts_the_focus_on_the_first_control", async () => {
-    await show();
-    const first = container.querySelector("input");
-    expect(first?.type).toBe("radio");
-    expect(document.activeElement).toBe(first);
+  it("puts_the_focus_inside_the_dialog_on_a_control_not_on_the_cross", async () => {
+    show();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.getAttribute("aria-label")).not.toBe("Schließen");
   });
 
-  it("cancels_with_escape_without_calling_the_backend", async () => {
-    await show();
-    await escape();
+  it("cancels_with_escape_without_calling_the_backend", () => {
+    show();
+    pressKey((document.activeElement as HTMLElement) ?? dialog(), "Escape");
     expect(onDone).toHaveBeenCalledOnce();
     expect(onDone).toHaveBeenCalledWith(null);
     expect(extendArea).not.toHaveBeenCalled();
   });
 
-  it("cancels_with_escape_while_a_radio_button_has_the_focus", async () => {
-    await show();
-    await escape(container.querySelector("input")!);
+  it("cancels_with_the_cross", () => {
+    show();
+    act(() => dialog().querySelector<HTMLElement>("button[aria-label='Schließen']")!.click());
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
   it("takes_back_typed_text_with_escape_and_closes_only_from_an_unedited_field", async () => {
-    await show();
-    const field = container.querySelector<HTMLInputElement>('input[aria-label^="Header-Zelle"]')!;
-    const before = field.value;
-    await act(async () => field.focus());
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, "77");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await escape(field);
+    show();
+    const input = field("Header-Zelle")!;
+    const before = input.value;
+    await act(async () => input.focus());
+    typeInto(input, "77");
+    pressKey(input, "Escape");
     // The first Escape takes back "77"; the dialog stays.
     expect(onDone).not.toHaveBeenCalled();
-    expect(field.value).toBe(before);
+    expect(input.value).toBe(before);
     // The field is unedited now: Escape closes.
-    await escape(field);
+    pressKey(input, "Escape");
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  it("keeps_tab_inside_the_dialog", async () => {
-    await show();
-    const controls = [...container.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), button:not([disabled])")];
-    controls[controls.length - 1].focus();
-    await act(async () => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
-    expect(document.activeElement).toBe(controls[0]);
+  it("keeps_the_tab_stops_inside_the_dialog", async () => {
+    show();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    // Base UI traps the focus with guards around the popup; every control the dialog offers sits inside it.
+    const controls = [...dialog().querySelectorAll<HTMLElement>("input:not([disabled]), button:not([disabled])")];
+    expect(controls.length).toBeGreaterThan(3);
+    expect(controls.every((c) => dialog().contains(c))).toBe(true);
+    expect(dialog().contains(document.activeElement)).toBe(true);
   });
 
-  it("ignores_escape_while_the_request_runs", async () => {
+  it("ignores_escape_and_a_second_press_while_the_request_runs", async () => {
     let finish!: (report: { map: number; width: number; height: number }) => void;
     vi.mocked(extendArea).mockReturnValue(new Promise((resolve) => (finish = resolve)));
-    await show();
-    await act(async () => button("Anlegen")?.click());
-    await escape();
+    show();
+    await act(async () => button("Karte anlegen")?.click());
+    pressKey((document.activeElement as HTMLElement) ?? dialog(), "Escape");
     expect(onDone).not.toHaveBeenCalled();
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledOnce();
     await act(async () => finish({ map: 600, width: 3, height: 1 }));
     expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
   });

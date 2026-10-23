@@ -1,0 +1,400 @@
+/* Gen4 Studio Design-System: Tokens. Generiert aus design-system/tokens (DTCG). Nicht von Hand ändern. */
+/* Alle Farben sind RGB555-treu: jeder Kanal liegt im 15-Bit-Raster des Nintendo DS. */
+
+:root {
+  /* Primitive */
+  --g4-platin-0: #FFFFFF;
+  --g4-platin-50: #F7F7FF;
+  --g4-platin-100: #EFF7FF;
+  --g4-platin-150: #E7EFF7;
+  --g4-platin-200: #DEE7EF;
+  --g4-platin-250: #D6DEE7;
+  --g4-platin-300: #CED6E7;
+  --g4-platin-400: #BDC6D6;
+  --g4-platin-450: #A5ADC6;
+  --g4-platin-500: #848CA5;
+  --g4-platin-550: #6B7384;
+  --g4-platin-600: #5A6373;
+  --g4-platin-650: #4A5263;
+  --g4-platin-700: #42527B;
+  --g4-platin-750: #394252;
+  --g4-platin-800: #31394A;
+  --g4-platin-850: #293142;
+  --g4-platin-900: #212939;
+  --g4-platin-950: #182131;
+  --g4-platin-1000: #101821;
+  --g4-kobalt-100: #DEE7FF;
+  --g4-kobalt-200: #BDCEFF;
+  --g4-kobalt-300: #94ADF7;
+  --g4-kobalt-400: #6384F7;
+  --g4-kobalt-500: #4A6BEF;
+  --g4-kobalt-600: #3152DE;
+  --g4-kobalt-700: #2942B5;
+  --g4-kobalt-800: #29397B;
+  --g4-kobalt-900: #182163;
+  --g4-bernstein-100: #FFF7DE;
+  --g4-bernstein-200: #FFE7A5;
+  --g4-bernstein-300: #FFD66B;
+  --g4-bernstein-400: #F7BD31;
+  --g4-bernstein-500: #F7A510;
+  --g4-bernstein-600: #DE8C08;
+  --g4-bernstein-700: #9C5A00;
+  --g4-bernstein-750: #8C5200;
+  --g4-bernstein-800: #4A3910;
+  --g4-bernstein-900: #423110;
+  --g4-signal-100: #FFE7E7;
+  --g4-signal-200: #F7BDBD;
+  --g4-signal-300: #F7949C;
+  --g4-signal-400: #F77B84;
+  --g4-signal-500: #DE3142;
+  --g4-signal-600: #C62939;
+  --g4-signal-700: #AD2131;
+  --g4-signal-900: #4A2129;
+  --g4-moos-100: #DEF7E7;
+  --g4-moos-200: #B5E7C6;
+  --g4-moos-300: #73D69C;
+  --g4-moos-400: #52C684;
+  --g4-moos-500: #42AD73;
+  --g4-moos-700: #186B42;
+  --g4-moos-900: #213929;
+  --g4-zerr-100: #EFE7FF;
+  --g4-zerr-200: #D6C6F7;
+  --g4-zerr-400: #B58CE7;
+  --g4-zerr-500: #9C63CE;
+  --g4-zerr-700: #633994;
+  --g4-zerr-900: #392952;
+  --g4-koralle-100: #FFE7DE;
+  --g4-koralle-200: #FFC6B5;
+  --g4-koralle-400: #F78463;
+  --g4-koralle-500: #E7634A;
+  --g4-koralle-700: #943121;
+  --g4-koralle-900: #4A2921;
+  --g4-lagune-100: #DEF7F7;
+  --g4-lagune-200: #B5E7E7;
+  --g4-lagune-400: #42BDBD;
+  --g4-lagune-500: #21A5A5;
+  --g4-lagune-700: #106363;
+  --g4-lagune-900: #183939;
+  --g4-sand-100: #F7EFDE;
+  --g4-sand-200: #E7D6B5;
+  --g4-sand-400: #C6AD7B;
+  --g4-sand-500: #AD945A;
+  --g4-sand-700: #6B5229;
+  --g4-sand-900: #423921;
+  /* Szene (gleich in beiden Themen) */
+  --g4-szene-gelaende-blockiert: #D65A00;
+  --g4-szene-gelaende-wasser: #0073B5;
+  --g4-szene-gelaende-hohes-gras: #009C73;
+  --g4-szene-gelaende-vorsprung: #E79C00;
+  --g4-szene-gelaende-eis: #52B5E7;
+  --g4-szene-gelaende-spezial: #CE7BA5;
+  --g4-szene-gelaende-unbekannt: #BDBDBD;
+  --g4-szene-ereignis-figur: #4273AD;
+  --g4-szene-ereignis-warp: #AD3173;
+  --g4-szene-ereignis-ausloeser: #CEBD42;
+  --g4-szene-ereignis-schild: #218C31;
+  --g4-szene-ereignis-gegenstand: #63CEEF;
+  --g4-szene-hoehe-0: #00214A;
+  --g4-szene-hoehe-1: #31426B;
+  --g4-szene-hoehe-2: #636B73;
+  --g4-szene-hoehe-3: #948C7B;
+  --g4-szene-hoehe-4: #C6B563;
+  --g4-szene-hoehe-5: #E7CE5A;
+  --g4-szene-hoehe-6: #FFEF42;
+  --g4-szene-auswahl-kern: #FFFFFF;
+  --g4-szene-auswahl-halo: #3152DE;
+  /* Raum, Form, Schriftgrößen */
+  --g4-raum-0: 0px;
+  --g4-raum-2: 2px;
+  --g4-raum-4: 4px;
+  --g4-raum-6: 6px;
+  --g4-raum-8: 8px;
+  --g4-raum-12: 12px;
+  --g4-raum-16: 16px;
+  --g4-raum-20: 20px;
+  --g4-raum-24: 24px;
+  --g4-raum-32: 32px;
+  --g4-raum-40: 40px;
+  --g4-raum-48: 48px;
+  --g4-raum-64: 64px;
+  --g4-radius-feld: 4px;
+  --g4-radius-taste: 6px;
+  --g4-radius-bildschirm: 8px;
+  --g4-radius-fenster: 12px;
+  --g4-radius-plakette: 999px;
+  --g4-strich-standard: 1px;
+  --g4-strich-fokus: 2px;
+  --g4-strich-scharnier: 2px;
+  --g4-schrift-groesse-xs: 12px;
+  --g4-schrift-groesse-s: 13px;
+  --g4-schrift-groesse-m: 15px;
+  --g4-schrift-groesse-l: 18px;
+  --g4-schrift-groesse-titel-s: 24px;
+  --g4-schrift-groesse-titel-m: 32px;
+  --g4-schrift-groesse-titel-l: 44px;
+  --g4-schrift-groesse-code: 13px;
+  --g4-schrift-zeile-xs: 16px;
+  --g4-schrift-zeile-s: 18px;
+  --g4-schrift-zeile-m: 20px;
+  --g4-schrift-zeile-l: 24px;
+  --g4-schrift-zeile-titel-s: 30px;
+  --g4-schrift-zeile-titel-m: 38px;
+  --g4-schrift-zeile-titel-l: 52px;
+  --g4-schrift-zeile-code: 20px;
+  /* Schriftfamilien und Textstile */
+  --g4-schrift-familie-ui: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-schrift-familie-titel: "Zen Maru Gothic", system-ui, sans-serif;
+  --g4-schrift-familie-code: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
+  --g4-schrift-familie-spiel: "Pixelify Sans", system-ui, sans-serif;
+  --g4-font-text-xs: 400 12px/16px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-text-s: 400 13px/18px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-text-s-betont: 600 13px/18px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-text-m: 400 15px/20px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-text-m-betont: 600 15px/20px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-text-l: 600 18px/24px "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --g4-font-titel-s: 700 24px/30px "Zen Maru Gothic", system-ui, sans-serif;
+  --g4-font-titel-m: 700 32px/38px "Zen Maru Gothic", system-ui, sans-serif;
+  --g4-font-titel-l: 900 44px/52px "Zen Maru Gothic", system-ui, sans-serif;
+  --g4-font-code-s: 400 13px/20px "Atkinson Hyperlegible Mono", ui-monospace, monospace;
+  --g4-font-spiel-textbox: 400 24px/32px "Pixelify Sans", system-ui, sans-serif;
+  /* Bewegung */
+  --g4-dauer-sofort: 0ms;
+  --g4-dauer-kurz: 120ms;
+  --g4-dauer-mittel: 200ms;
+  --g4-dauer-scharnier: 280ms;
+  /* Dichte: Komfort (Standard) */
+  --g4-dichte-steuer: 32px;
+  --g4-dichte-zeile: 32px;
+  --g4-dichte-zeile-innen: 12px;
+  --g4-dichte-panel-innen: 16px;
+  --g4-dichte-feld-abstand: 8px;
+  --g4-dichte-scharnier: 44px;
+  --g4-dichte-symbol: 18px;
+  --g4-dichte-werkzeug: 40px;
+  /* Thema: Hell (Standard) */
+  --g4-flaeche-gehaeuse: var(--g4-platin-150);
+  --g4-flaeche-deck: var(--g4-platin-250);
+  --g4-flaeche-taste: var(--g4-platin-50);
+  --g4-flaeche-blatt: var(--g4-platin-0);
+  --g4-flaeche-schau: var(--g4-platin-100);
+  --g4-flaeche-welt: var(--g4-platin-400);
+  --g4-flaeche-bildschirm-rahmen: var(--g4-platin-750);
+  --g4-flaeche-bildschirm: var(--g4-platin-950);
+  --g4-flaeche-ueberlagerung: #18213199;
+  --g4-text-primaer: var(--g4-platin-950);
+  --g4-text-sekundaer: var(--g4-platin-650);
+  --g4-text-deaktiviert: var(--g4-platin-500);
+  --g4-text-invers: var(--g4-platin-50);
+  --g4-linie-leise: var(--g4-platin-400);
+  --g4-linie-standard: var(--g4-platin-450);
+  --g4-linie-stark: var(--g4-platin-550);
+  --g4-akzent-grund: var(--g4-kobalt-600);
+  --g4-akzent-hover: var(--g4-kobalt-700);
+  --g4-akzent-text: var(--g4-kobalt-600);
+  --g4-akzent-auf: var(--g4-platin-0);
+  --g4-auswahl-flaeche: var(--g4-kobalt-100);
+  --g4-auswahl-kante: var(--g4-kobalt-600);
+  --g4-fokus-ring: var(--g4-kobalt-600);
+  --g4-live-grund: var(--g4-bernstein-500);
+  --g4-live-auf: var(--g4-platin-950);
+  --g4-live-flaeche: var(--g4-bernstein-100);
+  --g4-live-text: var(--g4-bernstein-700);
+  --g4-scharnier-grund: var(--g4-platin-850);
+  --g4-scharnier-text: var(--g4-platin-150);
+  --g4-scharnier-leise: #9CA5BD;
+  --g4-scharnier-kante: var(--g4-platin-700);
+  --g4-scharnier-taste: var(--g4-platin-750);
+  --g4-status-fehler: var(--g4-signal-700);
+  --g4-status-fehler-flaeche: var(--g4-signal-100);
+  --g4-status-warnung: var(--g4-bernstein-750);
+  --g4-status-warnung-flaeche: var(--g4-bernstein-100);
+  --g4-status-erfolg: var(--g4-moos-700);
+  --g4-status-erfolg-flaeche: var(--g4-moos-100);
+  --g4-status-info: var(--g4-kobalt-700);
+  --g4-status-info-flaeche: var(--g4-kobalt-100);
+  --g4-bereich-welt: var(--g4-moos-700);
+  --g4-bereich-welt-flaeche: var(--g4-moos-100);
+  --g4-bereich-welt-punkt: var(--g4-moos-500);
+  --g4-bereich-geschichten: var(--g4-zerr-700);
+  --g4-bereich-geschichten-flaeche: var(--g4-zerr-100);
+  --g4-bereich-geschichten-punkt: var(--g4-zerr-500);
+  --g4-bereich-pokemon: var(--g4-koralle-700);
+  --g4-bereich-pokemon-flaeche: var(--g4-koralle-100);
+  --g4-bereich-pokemon-punkt: var(--g4-koralle-500);
+  --g4-bereich-gegenstaende: var(--g4-lagune-700);
+  --g4-bereich-gegenstaende-flaeche: var(--g4-lagune-100);
+  --g4-bereich-gegenstaende-punkt: var(--g4-lagune-500);
+  --g4-bereich-texte: var(--g4-sand-700);
+  --g4-bereich-texte-flaeche: var(--g4-sand-100);
+  --g4-bereich-texte-punkt: var(--g4-sand-500);
+  --g4-bereich-technik: var(--g4-platin-750);
+  --g4-bereich-technik-flaeche: var(--g4-platin-200);
+  --g4-bereich-technik-punkt: var(--g4-platin-550);
+  color-scheme: light;
+}
+
+:root[data-theme="dunkel"] {
+  --g4-flaeche-gehaeuse: var(--g4-platin-900);
+  --g4-flaeche-deck: var(--g4-platin-850);
+  --g4-flaeche-taste: var(--g4-platin-800);
+  --g4-flaeche-blatt: var(--g4-platin-750);
+  --g4-flaeche-schau: var(--g4-platin-950);
+  --g4-flaeche-welt: var(--g4-platin-950);
+  --g4-flaeche-bildschirm-rahmen: var(--g4-platin-1000);
+  --g4-flaeche-bildschirm: var(--g4-platin-1000);
+  --g4-flaeche-ueberlagerung: #101821B3;
+  --g4-text-primaer: var(--g4-platin-150);
+  --g4-text-sekundaer: #ADB5C6;
+  --g4-text-deaktiviert: var(--g4-platin-550);
+  --g4-text-invers: var(--g4-platin-950);
+  --g4-linie-leise: var(--g4-platin-800);
+  --g4-linie-standard: var(--g4-platin-650);
+  --g4-linie-stark: var(--g4-platin-500);
+  --g4-akzent-grund: var(--g4-kobalt-400);
+  --g4-akzent-hover: var(--g4-kobalt-300);
+  --g4-akzent-text: var(--g4-kobalt-300);
+  --g4-akzent-auf: var(--g4-platin-1000);
+  --g4-auswahl-flaeche: var(--g4-kobalt-800);
+  --g4-auswahl-kante: var(--g4-kobalt-400);
+  --g4-fokus-ring: var(--g4-kobalt-300);
+  --g4-live-grund: var(--g4-bernstein-500);
+  --g4-live-auf: var(--g4-platin-950);
+  --g4-live-flaeche: var(--g4-bernstein-800);
+  --g4-live-text: var(--g4-bernstein-400);
+  --g4-scharnier-grund: var(--g4-platin-700);
+  --g4-scharnier-text: var(--g4-platin-150);
+  --g4-scharnier-leise: #C6CEDE;
+  --g4-scharnier-kante: var(--g4-kobalt-800);
+  --g4-scharnier-taste: #5A6B94;
+  --g4-status-fehler: var(--g4-signal-300);
+  --g4-status-fehler-flaeche: var(--g4-signal-900);
+  --g4-status-warnung: var(--g4-bernstein-400);
+  --g4-status-warnung-flaeche: var(--g4-bernstein-900);
+  --g4-status-erfolg: var(--g4-moos-300);
+  --g4-status-erfolg-flaeche: var(--g4-moos-900);
+  --g4-status-info: var(--g4-kobalt-300);
+  --g4-status-info-flaeche: var(--g4-kobalt-800);
+  --g4-bereich-welt: var(--g4-moos-200);
+  --g4-bereich-welt-flaeche: var(--g4-moos-900);
+  --g4-bereich-welt-punkt: var(--g4-moos-400);
+  --g4-bereich-geschichten: var(--g4-zerr-200);
+  --g4-bereich-geschichten-flaeche: var(--g4-zerr-900);
+  --g4-bereich-geschichten-punkt: var(--g4-zerr-400);
+  --g4-bereich-pokemon: var(--g4-koralle-200);
+  --g4-bereich-pokemon-flaeche: var(--g4-koralle-900);
+  --g4-bereich-pokemon-punkt: var(--g4-koralle-400);
+  --g4-bereich-gegenstaende: var(--g4-lagune-200);
+  --g4-bereich-gegenstaende-flaeche: var(--g4-lagune-900);
+  --g4-bereich-gegenstaende-punkt: var(--g4-lagune-400);
+  --g4-bereich-texte: var(--g4-sand-200);
+  --g4-bereich-texte-flaeche: var(--g4-sand-900);
+  --g4-bereich-texte-punkt: var(--g4-sand-400);
+  --g4-bereich-technik: var(--g4-platin-300);
+  --g4-bereich-technik-flaeche: var(--g4-platin-800);
+  --g4-bereich-technik-punkt: var(--g4-platin-500);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="hell"]) {
+    --g4-flaeche-gehaeuse: var(--g4-platin-900);
+    --g4-flaeche-deck: var(--g4-platin-850);
+    --g4-flaeche-taste: var(--g4-platin-800);
+    --g4-flaeche-blatt: var(--g4-platin-750);
+    --g4-flaeche-schau: var(--g4-platin-950);
+    --g4-flaeche-welt: var(--g4-platin-950);
+    --g4-flaeche-bildschirm-rahmen: var(--g4-platin-1000);
+    --g4-flaeche-bildschirm: var(--g4-platin-1000);
+    --g4-flaeche-ueberlagerung: #101821B3;
+    --g4-text-primaer: var(--g4-platin-150);
+    --g4-text-sekundaer: #ADB5C6;
+    --g4-text-deaktiviert: var(--g4-platin-550);
+    --g4-text-invers: var(--g4-platin-950);
+    --g4-linie-leise: var(--g4-platin-800);
+    --g4-linie-standard: var(--g4-platin-650);
+    --g4-linie-stark: var(--g4-platin-500);
+    --g4-akzent-grund: var(--g4-kobalt-400);
+    --g4-akzent-hover: var(--g4-kobalt-300);
+    --g4-akzent-text: var(--g4-kobalt-300);
+    --g4-akzent-auf: var(--g4-platin-1000);
+    --g4-auswahl-flaeche: var(--g4-kobalt-800);
+    --g4-auswahl-kante: var(--g4-kobalt-400);
+    --g4-fokus-ring: var(--g4-kobalt-300);
+    --g4-live-grund: var(--g4-bernstein-500);
+    --g4-live-auf: var(--g4-platin-950);
+    --g4-live-flaeche: var(--g4-bernstein-800);
+    --g4-live-text: var(--g4-bernstein-400);
+    --g4-scharnier-grund: var(--g4-platin-700);
+    --g4-scharnier-text: var(--g4-platin-150);
+    --g4-scharnier-leise: #C6CEDE;
+    --g4-scharnier-kante: var(--g4-kobalt-800);
+    --g4-scharnier-taste: #5A6B94;
+    --g4-status-fehler: var(--g4-signal-300);
+    --g4-status-fehler-flaeche: var(--g4-signal-900);
+    --g4-status-warnung: var(--g4-bernstein-400);
+    --g4-status-warnung-flaeche: var(--g4-bernstein-900);
+    --g4-status-erfolg: var(--g4-moos-300);
+    --g4-status-erfolg-flaeche: var(--g4-moos-900);
+    --g4-status-info: var(--g4-kobalt-300);
+    --g4-status-info-flaeche: var(--g4-kobalt-800);
+    --g4-bereich-welt: var(--g4-moos-200);
+    --g4-bereich-welt-flaeche: var(--g4-moos-900);
+    --g4-bereich-welt-punkt: var(--g4-moos-400);
+    --g4-bereich-geschichten: var(--g4-zerr-200);
+    --g4-bereich-geschichten-flaeche: var(--g4-zerr-900);
+    --g4-bereich-geschichten-punkt: var(--g4-zerr-400);
+    --g4-bereich-pokemon: var(--g4-koralle-200);
+    --g4-bereich-pokemon-flaeche: var(--g4-koralle-900);
+    --g4-bereich-pokemon-punkt: var(--g4-koralle-400);
+    --g4-bereich-gegenstaende: var(--g4-lagune-200);
+    --g4-bereich-gegenstaende-flaeche: var(--g4-lagune-900);
+    --g4-bereich-gegenstaende-punkt: var(--g4-lagune-400);
+    --g4-bereich-texte: var(--g4-sand-200);
+    --g4-bereich-texte-flaeche: var(--g4-sand-900);
+    --g4-bereich-texte-punkt: var(--g4-sand-400);
+    --g4-bereich-technik: var(--g4-platin-300);
+    --g4-bereich-technik-flaeche: var(--g4-platin-800);
+    --g4-bereich-technik-punkt: var(--g4-platin-500);
+    color-scheme: dark;
+  }
+}
+
+:root[data-dichte="kompakt"] {
+  --g4-dichte-steuer: 24px;
+  --g4-dichte-zeile: 24px;
+  --g4-dichte-zeile-innen: 8px;
+  --g4-dichte-panel-innen: 12px;
+  --g4-dichte-feld-abstand: 6px;
+  --g4-dichte-scharnier: 36px;
+  --g4-dichte-symbol: 16px;
+  --g4-dichte-werkzeug: 32px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --g4-dauer-kurz: 0ms;
+    --g4-dauer-mittel: 0ms;
+    --g4-dauer-scharnier: 0ms;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --g4-fokus-ring: Highlight;
+    --g4-akzent-grund: Highlight;
+    --g4-akzent-auf: HighlightText;
+    --g4-linie-stark: CanvasText;
+  }
+}
+
+/* Basis */
+:where(html) {
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+  background: var(--g4-flaeche-gehaeuse);
+  font-variant-numeric: tabular-nums;
+}
+:where(:focus-visible) {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: 2px;
+}

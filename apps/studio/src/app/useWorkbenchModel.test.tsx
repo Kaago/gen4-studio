@@ -5,20 +5,21 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "../app/message";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab } from "../workbench/panels";
+import { ExplorerPane, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab } from "../workbench/panels";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import { shownInspector } from "../workbench/pin";
+import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
 import { useWorkbenchModel } from "./useWorkbenchModel";
 
 /** How often each panel asked for each context: a panel reads its contexts once per render, so this counts renders. */
-const reads = vi.hoisted(() => ({ data: 0, inspector: 0, selection: 0, message: 0 }));
+const reads = vi.hoisted(() => ({ data: 0, inspector: 0, selection: 0 }));
 vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
   const real = await importOriginal<typeof import("../workbench/WorkbenchContext")>();
   return {
@@ -26,7 +27,6 @@ vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
     useWorkbench: () => (reads.data++, real.useWorkbench()),
     useInspectorModel: () => (reads.inspector++, real.useInspectorModel()),
     useMatrixSelection: () => (reads.selection++, real.useMatrixSelection()),
-    useMessage: () => (reads.message++, real.useMessage()),
   };
 });
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
@@ -62,7 +62,8 @@ const pinned: InspectorModel = { kind: "header", id: 1 };
 type Inputs = Parameters<typeof useWorkbenchModel>[0];
 
 /** The pieces App's hooks hand over: every callback has the identity it has in the real hooks (stable). Their results are not used here. */
-const session = { info, busy: false, counts, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop, setMessage: noop } as unknown as Omit<Inputs["session"], "message">;
+const dirtyList = [{ kind: "Event", index: 8 }] as const;
+const session = { info, busy: false, counts, dirtyAssets: dirtyList, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop } as unknown as Omit<Inputs["session"], "message">;
 const scene = { headers, selected: 1, matrix, sceneArea: 0, history, onSelect: noop, goTo: noop, onHeaderChanged: noop, onAreaChanged: noop, onMatrixEdited: noop } as unknown as Inputs["scene"];
 const world = {
   eventLock: null,
@@ -79,12 +80,14 @@ const world = {
   onDeleteBuilding: noop,
   onAddEvent: noop,
   onDeleteEvent: noop,
+  sceneBuildings: [],
+  onBuildings: noop,
 } as unknown as Inputs["world"];
 const text = { target: null };
 /** The scripts as App's hook hands them over: the same object until its revision changes. */
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();
-const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop };
+const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
 
@@ -95,6 +98,7 @@ interface Volatile {
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
+  depth?: "bauen" | "tuefteln";
   /** Another scripts object, as after a document was opened (its revision moved). */
   scripts?: ScriptsApi;
   matrices?: MatrixSummary[];
@@ -102,7 +106,7 @@ interface Volatile {
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen", scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
@@ -114,7 +118,7 @@ function Model({ pin = pinned, hover, message, showEvents = true, scripts: scrip
     text,
     scripts: scriptsApi,
     problems,
-    view: { ...view, showEvents },
+    view: { ...view, showEvents, depth },
   });
   onModel(model);
   return <WorkbenchProviders data={model.data} live={model.live}>{children}</WorkbenchProviders>;
@@ -144,6 +148,8 @@ describe("workbench model", () => {
     show({ hover: tile(2), message: { kind: "info", text: "Modelle 3/900" } });
     show({ hover: null, message: { kind: "info", text: "Modelle 4/900" } });
     expect(new Set(models.map((m) => m.data)).size).toBe(1);
+    // The data carries the session's dirty assets (the inspector's "Ungespeichert"), and hover/message did not change them.
+    expect(models[0].data.dirtyAssets).toBe(dirtyList);
     // ... while the volatile part does follow.
     expect(models[2].live.inspector).toMatchObject({ kind: "tile", x: 2 });
     expect(models[3].live.message?.text).toBe("Modelle 3/900");
@@ -160,7 +166,16 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
+  it("gives a new data object when the depth changes", () => {
+    const models: Array<{ data: WorkbenchData }> = [];
+    const show = (v: Volatile) => act(() => root.render(<Model {...v} onModel={(m) => models.push(m)} />));
+    show({ hover: null, message: null });
+    show({ hover: null, message: null, depth: "tuefteln" });
+    expect(models[1].data).not.toBe(models[0].data);
+    expect(models[1].data.depth).toBe("tuefteln");
+  });
+
+  const panels = { headers: ExplorerPane, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -168,7 +183,15 @@ describe("workbench model", () => {
     vi.mocked(getMatrix).mockResolvedValue(shown);
     const Panel = panels[name];
     // One element for all renders, as in dockview: the panel renders again only through the contexts it reads.
-    const element = <Panel />;
+    // The explorer reads the shell's state of the folded list, so it needs the shell around it.
+    const element =
+      name === "headers" ? (
+        <ShellProvider>
+          <Panel />
+        </ShellProvider>
+      ) : (
+        <Panel />
+      );
     const show = (v: Volatile) => act(async () => root.render(<Model {...base} {...v} onModel={noop}>{element}</Model>));
     await show({ hover: null, message: null });
     for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
@@ -246,17 +269,6 @@ describe("workbench model", () => {
     await showProblems({ hover: tile(1), message: null });
     await showProblems({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
     expect(reads.data).toBe(0);
-  });
-
-  it("renders the status strip for a message, not for a hover", async () => {
-    const show = await mountPanel("status");
-    await show({ hover: tile(1), message: null });
-    await show({ hover: null, message: null });
-    expect(reads.message).toBe(0);
-    await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
-    await show({ hover: null, message: { kind: "info", text: "Modelle 4/900" } });
-    expect(reads.message).toBe(2);
-    expect(container.textContent).toContain("Modelle 4/900");
   });
 
   it("renders the inspector panel for a hover, not for a message", async () => {

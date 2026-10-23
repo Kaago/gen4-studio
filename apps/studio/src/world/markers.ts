@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import type { EventsDto, MatrixDto } from "../api";
+import { effectiveTheme } from "../ui/tokens/theme";
+import { selectionColor } from "./colors";
 import { MARKER_COLORS, markerPosition } from "./events";
 import { cellYAtTile } from "./layout";
 import type { EventData, EventKind } from "./events";
@@ -13,7 +15,7 @@ const AREA_Y = 0.08;
 
 /** Texels per tile of an overworld sprite. */
 export const SPRITE_TEXELS_PER_TILE = 16;
-/** Size in tiles of the yellow placeholder an object shows until (or unless) its sprite is there. */
+/** Size in tiles of the placeholder an object shows until (or unless) its sprite is there. */
 const PLACEHOLDER_SIZE = { width: 0.8, height: 0.4 };
 /** Width of the outline of a selected event (a sprite wider than this is outlined at its own width). */
 const OUTLINE_WIDTH = 0.95;
@@ -42,7 +44,7 @@ export interface MarkerSet {
   /** The outline of the selected marker (null: none). */
   outline: THREE.LineSegments | null;
   selected: MarkerRef | null;
-  /** The yellow texture of the sprites that have no picture yet; owned (and disposed) by the set. */
+  /** The figure-coloured texture of the sprites that have no picture yet; owned (and disposed) by the set. */
   placeholder: THREE.DataTexture;
 }
 
@@ -78,7 +80,7 @@ function colorTexture(color: string): THREE.DataTexture {
 
 /**
  * Builds the marker meshes of `events`; events outside the matrix get no marker. Object events are billboard
- * sprites showing a yellow square until `applySprite` gives them their picture.
+ * sprites showing a figure-coloured square until `applySprite` gives them their picture.
  */
 export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
   const group = new THREE.Group();
@@ -199,7 +201,7 @@ function instancesOf(set: MarkerSet, ref: MarkerRef): { mesh: THREE.Object3D; i:
   return found;
 }
 
-/** Marks event `ref` (null: none) with a white outline; an event that has no marker (outside the matrix) selects nothing. */
+/** Marks event `ref` (null: none) with an outline in the halo colour; an event that has no marker (outside the matrix) selects nothing. */
 export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   if (set.outline) {
     set.group.remove(set.outline);
@@ -212,7 +214,7 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   if (!ref || !found) return;
   const { width, height } = outlineSize(found.mesh, ref.kind);
   const box = new THREE.BoxGeometry(width, height, width);
-  const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: "#ffffff", depthTest: false }));
+  const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: selectionColor(effectiveTheme()), depthTest: false }));
   box.dispose();
   outline.renderOrder = 12;
   outline.frustumCulled = false;
@@ -220,6 +222,11 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   set.selected = ref;
   set.group.add(outline);
   placeOutline(set, found.data.x, found.data.z);
+}
+
+/** Gives the outline drawn now another colour (the theme switched); nothing is rebuilt. */
+export function recolorMarkerOutline(set: MarkerSet, hex: string) {
+  (set.outline?.material as THREE.LineBasicMaterial | undefined)?.color.set(hex);
 }
 
 /** The box that outlines a marker: a sprite's own height (and its width when wider than the usual box). */

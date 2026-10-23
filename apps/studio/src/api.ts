@@ -460,6 +460,12 @@ export const setPermission = (index: number, x: number, y: number, kind: number,
 export const undo = () => invoke<AssetId | null>("undo");
 /** Resolves to the asset that was restored, or null when there was nothing to redo. */
 export const redo = () => invoke<AssetId | null>("redo");
+/** The undo labels (oldest first) and redo labels (the one `redo` applies next first); a label may be empty. */
+export interface HistoryDto {
+  undo: string[];
+  redo: string[];
+}
+export const history = () => invoke<HistoryDto>("history");
 export const dirty = () => invoke<AssetId[]>("dirty");
 export const save = () => invoke<SaveReport>("save");
 /** Saves dirty assets, then builds the ROM at `out`. */

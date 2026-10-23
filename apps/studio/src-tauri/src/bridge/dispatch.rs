@@ -97,6 +97,7 @@ pub const COMMANDS: &[&str] = &[
     "set_permission",
     "undo",
     "redo",
+    "history",
     "dirty",
     "save",
     "build_rom",
@@ -375,6 +376,7 @@ pub fn dispatch(
         ),
         "undo" => run!(json, "undo", args, {}, |_a| undo_impl(state)),
         "redo" => run!(json, "redo", args, {}, |_a| redo_impl(state)),
+        "history" => run!(json, "history", args, {}, |_a| history_impl(state)),
         "dirty" => run!(json, "dirty", args, {}, |_a| dirty_impl(state)),
         "save" => run!(json, "save", args, {}, |_a| save_impl(state)),
         "build_rom" => run!(json, "build_rom", args, { out: String }, |a| {
@@ -413,7 +415,8 @@ pub fn dispatch(
 mod tests {
     use super::*;
     use crate::commands::{
-        dirty_impl, get_header_impl, get_matrix_impl, list_headers_impl, open_synthetic,
+        dirty_impl, get_header_impl, get_matrix_impl, history_impl, list_headers_impl,
+        open_synthetic,
     };
     use crate::state::AppState;
     use serde_json::{Value, json};
@@ -591,6 +594,7 @@ mod tests {
             ),
             ("undo", json!({})),
             ("redo", json!({})),
+            ("history", json!({})),
             ("dirty", json!({})),
             ("save", json!({})),
             ("build_rom", json!({ "out": out })),
@@ -640,6 +644,10 @@ mod tests {
         assert_eq!(
             json_of(call(&state, &roots, "dirty", Value::Null)),
             direct(dirty_impl(&state).unwrap())
+        );
+        assert_eq!(
+            json_of(call(&state, &roots, "history", Value::Null)),
+            direct(history_impl(&state).unwrap())
         );
     }
 

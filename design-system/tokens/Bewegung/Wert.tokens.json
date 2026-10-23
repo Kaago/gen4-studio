@@ -1,0 +1,32 @@
+{
+ "dauer": {
+  "sofort": {
+   "$type": "duration",
+   "$value": {
+    "value": 0,
+    "unit": "ms"
+   }
+  },
+  "kurz": {
+   "$type": "duration",
+   "$value": {
+    "value": 120,
+    "unit": "ms"
+   }
+  },
+  "mittel": {
+   "$type": "duration",
+   "$value": {
+    "value": 200,
+    "unit": "ms"
+   }
+  },
+  "scharnier": {
+   "$type": "duration",
+   "$value": {
+    "value": 280,
+    "unit": "ms"
+   }
+  }
+ }
+}

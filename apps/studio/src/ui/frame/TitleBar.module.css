@@ -1,0 +1,111 @@
+.bar {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: var(--g4-raum-16);
+  padding: 0 var(--g4-raum-12);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-primaer);
+  user-select: none;
+}
+
+.left,
+.right {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.middle {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 360px;
+  justify-content: center;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  font: var(--g4-font-text-m-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game {
+  flex: none;
+  padding: 0 var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.saveState {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.saved {
+  color: var(--g4-text-sekundaer);
+}
+
+.saved svg {
+  color: var(--g4-status-erfolg);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.unsaved {
+  color: var(--g4-akzent-text);
+  font-weight: 600;
+}
+
+.palette {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-deaktiviert);
+  font: var(--g4-font-text-s);
+  cursor: not-allowed;
+}
+
+.palette svg {
+  flex: none;
+  font-size: var(--g4-dichte-symbol);
+}
+
+.paletteText {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

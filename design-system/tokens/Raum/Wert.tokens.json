@@ -1,0 +1,162 @@
+{
+ "raum": {
+  "0": {
+   "$type": "dimension",
+   "$value": "0px"
+  },
+  "2": {
+   "$type": "dimension",
+   "$value": "2px"
+  },
+  "4": {
+   "$type": "dimension",
+   "$value": "4px"
+  },
+  "6": {
+   "$type": "dimension",
+   "$value": "6px"
+  },
+  "8": {
+   "$type": "dimension",
+   "$value": "8px"
+  },
+  "12": {
+   "$type": "dimension",
+   "$value": "12px"
+  },
+  "16": {
+   "$type": "dimension",
+   "$value": "16px"
+  },
+  "20": {
+   "$type": "dimension",
+   "$value": "20px"
+  },
+  "24": {
+   "$type": "dimension",
+   "$value": "24px"
+  },
+  "32": {
+   "$type": "dimension",
+   "$value": "32px"
+  },
+  "40": {
+   "$type": "dimension",
+   "$value": "40px"
+  },
+  "48": {
+   "$type": "dimension",
+   "$value": "48px"
+  },
+  "64": {
+   "$type": "dimension",
+   "$value": "64px"
+  }
+ },
+ "radius": {
+  "feld": {
+   "$type": "dimension",
+   "$value": "4px"
+  },
+  "taste": {
+   "$type": "dimension",
+   "$value": "6px"
+  },
+  "bildschirm": {
+   "$type": "dimension",
+   "$value": "8px"
+  },
+  "fenster": {
+   "$type": "dimension",
+   "$value": "12px"
+  },
+  "plakette": {
+   "$type": "dimension",
+   "$value": "999px"
+  }
+ },
+ "strich": {
+  "standard": {
+   "$type": "dimension",
+   "$value": "1px"
+  },
+  "fokus": {
+   "$type": "dimension",
+   "$value": "2px"
+  },
+  "scharnier": {
+   "$type": "dimension",
+   "$value": "2px"
+  }
+ },
+ "schrift": {
+  "groesse": {
+   "xs": {
+    "$type": "dimension",
+    "$value": "12px"
+   },
+   "s": {
+    "$type": "dimension",
+    "$value": "13px"
+   },
+   "m": {
+    "$type": "dimension",
+    "$value": "15px"
+   },
+   "l": {
+    "$type": "dimension",
+    "$value": "18px"
+   },
+   "titel-s": {
+    "$type": "dimension",
+    "$value": "24px"
+   },
+   "titel-m": {
+    "$type": "dimension",
+    "$value": "32px"
+   },
+   "titel-l": {
+    "$type": "dimension",
+    "$value": "44px"
+   },
+   "code": {
+    "$type": "dimension",
+    "$value": "13px"
+   }
+  },
+  "zeile": {
+   "xs": {
+    "$type": "dimension",
+    "$value": "16px"
+   },
+   "s": {
+    "$type": "dimension",
+    "$value": "18px"
+   },
+   "m": {
+    "$type": "dimension",
+    "$value": "20px"
+   },
+   "l": {
+    "$type": "dimension",
+    "$value": "24px"
+   },
+   "titel-s": {
+    "$type": "dimension",
+    "$value": "30px"
+   },
+   "titel-m": {
+    "$type": "dimension",
+    "$value": "38px"
+   },
+   "titel-l": {
+    "$type": "dimension",
+    "$value": "52px"
+   },
+   "code": {
+    "$type": "dimension",
+    "$value": "20px"
+   }
+  }
+ }
+}

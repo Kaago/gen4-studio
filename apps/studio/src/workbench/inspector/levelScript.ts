@@ -40,11 +40,6 @@ export const headerEntries = (doc: LevelScriptDoc): HeaderEntry[] => listOf<Head
 /** The rows of `var_conditions` (empty when the document has none). */
 export const varConditions = (doc: LevelScriptDoc): VarCondition[] => listOf<VarCondition>(doc, "var_conditions");
 
-/** `n` as a whole number inside `0..max`; a non-number is 0. */
-export function clampNumber(n: number, max: number): number {
-  return Number.isFinite(n) ? Math.min(max, Math.max(0, Math.round(n))) : 0;
-}
-
 const entry = (type: HeaderEntryType, scriptId: number): HeaderEntry => (type === "on_var_condition" ? { type } : { type, script_id: scriptId });
 
 /** A copy of `doc` with `list` replaced; every other field stays. */

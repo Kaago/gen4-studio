@@ -5,8 +5,8 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
+import { pressKey } from "../ui/primitives/testUtils";
 import { placeColor } from "./places";
-import { TERMS } from "./terms";
 import { WorldExplorer } from "./WorldExplorer";
 import type { WorldExplorerProps } from "./WorldExplorer";
 
@@ -78,58 +78,97 @@ describe("WorldExplorer", () => {
     selected: null,
     shownMatrix: null,
     revealToken: 0,
+    // The existing assertions read the rows with their identifiers: Tüfteln.
+    depth: "tuefteln",
     onSelect: () => {},
     onOpenWizard: () => {},
     scriptsAdopted: true,
     onOpenScript: () => {},
+    listOpen: true,
+    onToggleList: () => {},
     ...over,
   });
   const render = (p: WorldExplorerProps) => act(() => root.render(<WorldExplorer {...p} />));
-  const places = () => [...container.querySelectorAll<HTMLDetailsElement>("details[data-place-key]")];
-  const row = (id: number) => container.querySelector<HTMLButtonElement>(`[data-header-id="${id}"]`);
-  const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name);
+  const treeitems = () => [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+  const places = () => [...container.querySelectorAll<HTMLElement>('[role="treeitem"][data-place-key]')];
+  const expanded = () => places().map((p) => p.getAttribute("aria-expanded"));
+  const row = (id: number) => container.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
+  const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name || b.getAttribute("aria-label") === name);
   const search = () => container.querySelector<HTMLInputElement>(SEARCH)!;
   const type = (input: HTMLInputElement, value: string) =>
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-  /** What the browser does when the user clicks a summary: the open state changes and a toggle event follows. */
-  const toggle = (details: HTMLDetailsElement, open: boolean) =>
-    act(() => {
-      details.open = open;
-      details.dispatchEvent(new Event("toggle"));
-    });
+  const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
+  /** What a click on a place does: it opens or closes it. */
+  const toggle = (place: HTMLElement) => click(place);
 
-  it("renders one details per place with its colour chip and header count; only the selected header's place is open", () => {
+  it("renders one treeitem per place with its colour chip and header count; only the selected header's place is open", () => {
     render(props({ selected: 1 }));
     expect(places()).toHaveLength(3);
-    expect(places().map((d) => d.querySelector("summary")?.textContent)).toEqual(["Zweiblattdorf3", "Route 2011", "Ohne Ortsnamen1"]);
-    expect(places().map((d) => d.open)).toEqual([true, false, false]);
+    expect(places().map((p) => p.textContent)).toEqual(["Zweiblattdorf3", "Route 2011", "Ohne Ortsnamen1"]);
+    expect(places().map((p) => p.getAttribute("aria-level"))).toEqual(["1", "1", "1"]);
+    expect(expanded()).toEqual(["true", "false", "false"]);
     // The chip has the place's colour (the browser may write it in another notation, so both go through an element).
-    const expected = document.createElement("i");
-    expected.style.background = placeColor("Zweiblattdorf");
-    expect(places()[0].querySelector<HTMLElement>("summary [data-place-chip]")?.style.background).toBe(expected.style.background);
-    expect(expected.style.background).not.toBe("");
+    const expectedColor = document.createElement("i");
+    expectedColor.style.background = placeColor("Zweiblattdorf");
+    expect(places()[0].querySelector<HTMLElement>("[data-place-chip]")?.style.background).toBe(expectedColor.style.background);
+    expect(expectedColor.style.background).not.toBe("");
   });
 
   it("names each place for screen readers without running the count into the name", () => {
     render(props());
-    expect(places().map((d) => d.querySelector("summary")?.getAttribute("aria-label"))).toEqual(["Zweiblattdorf, 3 Header", "Route 201, 1 Header", "Ohne Ortsnamen, 1 Header"]);
-    expect(places()[0].querySelector('summary [aria-hidden="true"]')?.textContent).toBe("3");
+    expect(places().map((p) => p.getAttribute("aria-label"))).toEqual(["Zweiblattdorf, 3 Header", "Route 201, 1 Header", "Ohne Ortsnamen, 1 Header"]);
+  });
+
+  it("is a tree whose places and headers are treeitems on two levels", () => {
+    render(props({ selected: 1 }));
+    expect(container.querySelector('[role="tree"]')).not.toBeNull();
+    expect(row(1)?.getAttribute("role")).toBe("treeitem");
+    expect(row(1)?.getAttribute("aria-level")).toBe("2");
   });
 
   it("starts with every place closed when nothing is selected", () => {
     render(props());
-    expect(places().map((d) => d.open)).toEqual([false, false, false]);
+    expect(expanded()).toEqual(["false", "false", "false"]);
+    expect(row(0)).toBeNull();
+  });
+
+  it("opens and closes a place on a click and with the arrow keys", () => {
+    render(props());
+    toggle(places()[1]);
+    expect(expanded()).toEqual(["false", "true", "false"]);
+    expect(row(3)).not.toBeNull();
+    pressKey(places()[1], "ArrowLeft");
+    expect(expanded()).toEqual(["false", "false", "false"]);
+    pressKey(places()[0], "ArrowRight");
+    expect(expanded()).toEqual(["true", "false", "false"]);
   });
 
   it("writes outside headers by their place name, rooms by their internal name, and grey: id, code and the rooms' maps", () => {
     render(props({ selected: 1 }));
+    toggle(places()[2]);
     expect(row(0)?.textContent).toBe("Zweiblattdorf0000 · T01");
     expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
     expect(row(2)?.textContent).toBe("T01R01020002 · 4 Karten (2 × 2)");
     expect(row(4)?.textContent).toBe("D010004 · 1 Karte");
+  });
+
+  it("leaves_the_id_and_the_code_to_the_tooltip_in_bauen_and_keeps_the_rooms_maps", () => {
+    render(props({ selected: 1, depth: "bauen" }));
+    toggle(places()[2]);
+    expect(row(0)?.textContent).toBe("Zweiblattdorf");
+    expect(row(1)?.textContent).toBe("T01R01011 Karte");
+    expect(row(4)?.textContent).toBe("D011 Karte");
+    expect(row(0)?.getAttribute("title")).toContain("Header 0000 T01");
+  });
+
+  it("shows_the_id_and_the_code_in_every_row_when_the_depth_switches_to_tuefteln", () => {
+    render(props({ selected: 1, depth: "bauen" }));
+    expect(row(0)?.textContent).not.toContain("0000");
+    render(props({ selected: 1, depth: "tuefteln" }));
+    expect(row(0)?.textContent).toBe("Zweiblattdorf0000 · T01");
   });
 
   it("shows 'Lade Übersicht …' and no room details until the overview is loaded", () => {
@@ -138,7 +177,7 @@ describe("WorldExplorer", () => {
     // The tree is there at once, with the places and the headers' ids and codes.
     expect(places()).toHaveLength(3);
     expect(row(1)?.textContent).toBe("Zweiblattdorf0001 · T01R0101");
-    render(props({ selected: 1 }));
+    render(props({ selected: 1, info: { root: "/p", game_code: "CPUE", family: "HGSS", language: "de", header_count: 5 } }));
     expect(container.textContent).not.toContain("Lade Übersicht");
     expect(container.textContent).toContain("3 Orte, 5 Header");
     expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
@@ -163,32 +202,50 @@ describe("WorldExplorer", () => {
     expect([...container.querySelectorAll("[data-header-id]")].map((e) => e.textContent)).toEqual(["Ort0002 · T", "R10001 · 1 Karte"]);
   });
 
-  it("marks the selected row and the rows of the shown matrix", () => {
+  it("marks the selected row, and the rows of the shown matrix with a text of their own", () => {
     render(props({ selected: 3, shownMatrix: 0 }));
-    expect(row(3)?.getAttribute("aria-current")).toBe("true");
-    expect(row(0)?.getAttribute("aria-current")).toBeNull();
-    expect(row(0)?.style.boxShadow).toContain("inset");
-    expect(row(1)?.style.boxShadow).toBe("none");
+    toggle(places()[0]);
+    expect(row(3)?.getAttribute("aria-selected")).toBe("true");
+    expect(row(0)?.getAttribute("aria-selected")).toBe("false");
+    // Not by colour alone: the marked rows carry a name for assistive technology.
+    expect(row(0)?.querySelector('[aria-label="Raster wird angezeigt"]')).not.toBeNull();
+    expect(row(3)?.querySelector('[aria-label="Raster wird angezeigt"]')).not.toBeNull();
+    expect(row(1)?.querySelector('[aria-label="Raster wird angezeigt"]')).toBeNull();
   });
 
   it("calls onSelect with the header of the clicked row", () => {
     const onSelect = vi.fn();
     render(props({ selected: 1, onSelect }));
-    act(() => row(3)?.click());
-    expect(onSelect).toHaveBeenCalledWith(headers[3]);
+    click(row(2));
+    expect(onSelect).toHaveBeenCalledWith(headers[2]);
+  });
+
+  it("selects with Enter on a focused row", () => {
+    const onSelect = vi.fn();
+    render(props({ selected: 1, onSelect }));
+    pressKey(row(2)!, "Enter");
+    expect(onSelect).toHaveBeenCalledWith(headers[2]);
   });
 
   it("a search keeps the places that match, opened", () => {
     render(props());
     type(search(), "Route");
     expect(places()).toHaveLength(1);
-    expect(places()[0].querySelector("summary")?.textContent).toContain("Route 201");
-    expect(places()[0].open).toBe(true);
+    expect(places()[0].textContent).toContain("Route 201");
+    expect(expanded()).toEqual(["true"]);
     // A code searches inside the places.
     type(search(), "r0102");
-    expect(places().map((d) => d.querySelector("summary")?.textContent)).toEqual(["Zweiblattdorf1"]);
+    expect(places().map((p) => p.textContent)).toEqual(["Zweiblattdorf1"]);
     expect(row(2)).not.toBeNull();
     expect(row(1)).toBeNull();
+  });
+
+  it("filters while typing, not only when the field is left", () => {
+    render(props());
+    act(() => search().focus());
+    type(search(), "Rou");
+    expect(places()).toHaveLength(1);
+    expect(document.activeElement).toBe(search());
   });
 
   it("clears a search that hides a newly selected header, then scrolls to it", () => {
@@ -198,7 +255,7 @@ describe("WorldExplorer", () => {
     render(props({ selected: 4 }));
     expect(places()).toHaveLength(3);
     expect(search().value).toBe("");
-    expect(places().map((d) => d.open)).toEqual([false, false, true]);
+    expect(expanded()).toEqual(["false", "false", "true"]);
     expect(scrolled).toEqual(["4"]);
   });
 
@@ -215,7 +272,7 @@ describe("WorldExplorer", () => {
     render(props({ selected: 1 }));
     expect(scrolled).toEqual(["1"]);
     render(props({ selected: 3 }));
-    expect(places().map((d) => d.open)).toEqual([true, true, false]);
+    expect(expanded()).toEqual(["true", "true", "false"]);
     expect(scrolled).toEqual(["1", "3"]);
   });
 
@@ -230,104 +287,97 @@ describe("WorldExplorer", () => {
 
   it("opens a place a link reveals although the user closed it", () => {
     render(props({ selected: 1 }));
-    toggle(places()[0], false);
-    expect(places()[0].open).toBe(false);
+    toggle(places()[0]);
+    expect(expanded()[0]).toBe("false");
     render(props({ selected: 1, revealToken: 1 }));
-    expect(places()[0].open).toBe(true);
+    expect(expanded()[0]).toBe("true");
     expect(scrolled).toEqual(["1", "1"]);
   });
 
   it("keeps a place the user opened open", () => {
     render(props());
-    toggle(places()[1], true);
+    toggle(places()[1]);
     render(props({ selected: 0 }));
-    expect(places().map((d) => d.open)).toEqual([true, true, false]);
+    expect(expanded()).toEqual(["true", "true", "false"]);
   });
 
-  describe("+ Neu", () => {
+  describe("the head", () => {
+    it("is titled Orte, names the game and folds the list through the grip", () => {
+      const onToggleList = vi.fn();
+      render(props({ onToggleList, info: { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: 5 } }));
+      expect(container.querySelector("h2")?.textContent).toBe("Orte");
+      expect(container.textContent).toContain("Platin, EN");
+      // The view switch is symbols only (so the game name has room); the options keep their names.
+      const view = container.querySelector('[role="group"][aria-label="Ansicht"]')!;
+      expect([...view.querySelectorAll("button")].map((b) => [b.textContent, b.getAttribute("aria-label")])).toEqual([
+        ["", "Baum"],
+        ["", "Liste"],
+      ]);
+      act(() => button("Liste einklappen")!.click());
+      expect(onToggleList).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the tree and its state while the list is folded", () => {
+      render(props({ selected: 1 }));
+      type(search(), "Zwei");
+      render(props({ selected: 1, listOpen: false }));
+      expect(container.querySelector("section")?.hidden).toBe(true);
+      render(props({ selected: 1, listOpen: true }));
+      expect(search().value).toBe("Zwei");
+    });
+  });
+
+  describe("the + menu", () => {
+    const trigger = () => button("Neu anlegen")!;
+    const press = (el: HTMLElement) =>
+      act(() => {
+        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+        el.click();
+      });
+    const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+
     it("opens a menu whose entries ask for the wizards", () => {
       const onOpenWizard = vi.fn();
       render(props({ onOpenWizard }));
-      const neu = button("+ Neu")!;
-      expect(neu.getAttribute("aria-haspopup")).toBe("menu");
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      act(() => neu.click());
-      expect(neu.getAttribute("aria-expanded")).toBe("true");
-      expect([...container.querySelectorAll('[role="menuitem"]')].map((e) => e.textContent)).toEqual(["Gebiet anlegen…", "Raum anlegen…"]);
-      act(() => button("Gebiet anlegen…")?.click());
+      expect(trigger().getAttribute("aria-haspopup")).toBe("menu");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      press(trigger());
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      expect(items().map((e) => e.textContent)).toEqual(["Gebiet anlegen…", "Raum anlegen…"]);
+      act(() => items()[0].click());
       expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "area" });
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      act(() => button("+ Neu")!.click());
-      act(() => button("Raum anlegen…")?.click());
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      press(trigger());
+      act(() => items()[1].click());
       expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "room" });
     });
 
-    it("is used with the keyboard: focus on the first entry, arrows wrap, Escape gives the focus back", () => {
+    it("closes on Escape", () => {
       render(props());
-      const neu = button("+ Neu")!;
-      neu.focus();
-      act(() => neu.click());
-      const items = () => [...container.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-      expect(document.activeElement).toBe(items()[0]);
-      const press = (key: string) => act(() => void document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
-      press("ArrowDown");
-      expect(document.activeElement).toBe(items()[1]);
-      press("ArrowDown");
-      expect(document.activeElement).toBe(items()[0]);
-      press("ArrowUp");
-      expect(document.activeElement).toBe(items()[1]);
-      press("Home");
-      expect(document.activeElement).toBe(items()[0]);
-      press("Escape");
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      expect(document.activeElement).toBe(neu);
+      press(trigger());
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      pressKey(document.querySelector<HTMLElement>('[role="menu"]')!, "Escape");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
     });
 
-    it("closes on Escape and on a click elsewhere", () => {
+    it("stays in the list mode too", () => {
       render(props());
-      act(() => button("+ Neu")!.click());
-      act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      act(() => button("+ Neu")!.click());
-      act(() => void document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-    });
-  });
-
-  describe("Begriffe", () => {
-    it("lists every term with its technical name and explanation, and closes on Escape", () => {
-      render(props());
-      expect(container.querySelector('[role="dialog"]')).toBeNull();
-      act(() => button("Begriffe")!.click());
-      // The box is rendered into the page body: the dock's panels would cut it off.
-      const box = document.querySelector('[role="dialog"][aria-label="Begriffe"]');
-      expect(container.contains(box)).toBe(false);
-      const text = box?.textContent ?? "";
-      for (const term of Object.values(TERMS)) {
-        expect(text).toContain(term.label);
-        expect(text).toContain(term.short);
-        if (term.tech) expect(text).toContain(term.tech);
-      }
-      // A press inside the box keeps it open; Escape closes it.
-      act(() => void box?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
-      expect(document.querySelector('[role="dialog"][aria-label="Begriffe"]')).not.toBeNull();
-      act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-      expect(document.querySelector('[role="dialog"][aria-label="Begriffe"]')).toBeNull();
+      act(() => button("Liste")!.click());
+      expect(trigger()).toBeDefined();
     });
   });
 
   describe("tree / list switch", () => {
-    it("shows the old header list in the list mode and remembers the mode", () => {
+    it("shows the header list in the list mode and remembers the mode", () => {
       render(props({ selected: 1 }));
       expect(container.querySelector('input[aria-label="Header suchen"]')).toBeNull();
       act(() => button("Liste")!.click());
       expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
       expect(container.querySelector(SEARCH)).toBeNull();
       expect(places()).toHaveLength(0);
-      expect(container.querySelectorAll("li")).toHaveLength(5);
+      expect(container.querySelectorAll('[role="option"]')).toHaveLength(5);
       expect(localStorage.getItem("g4.explorer.mode")).toBe("list");
-      // The menu stays in both modes.
-      expect(button("+ Neu")).toBeDefined();
       act(() => root.unmount());
       root = createRoot(container);
       render(props());
@@ -353,6 +403,48 @@ describe("WorldExplorer", () => {
         Object.defineProperty(window, "localStorage", original);
       }
     });
+
+    it("selects a header in the list mode with a click and marks it", () => {
+      const onSelect = vi.fn();
+      localStorage.setItem("g4.explorer.mode", "list");
+      render(props({ selected: 3, onSelect }));
+      expect(row(3)?.getAttribute("aria-selected")).toBe("true");
+      click(row(1));
+      expect(onSelect).toHaveBeenCalledWith(headers[1]);
+    });
+  });
+
+  describe("the arrow keys", () => {
+    const tabStops = (selector: string) => [...container.querySelectorAll<HTMLElement>(selector)].filter((el) => el.tabIndex === 0);
+
+    // The roving list repairs its tab stop in a mutation observer callback, a microtask after the rows changed.
+    const settle = () => act(async () => {});
+
+    it("leave exactly one tab stop in the tree, after a search and after switching to the list and back", async () => {
+      render(props({ selected: 1 }));
+      expect(tabStops('[role="treeitem"]')).toHaveLength(1);
+      type(search(), "Route");
+      await settle();
+      expect(tabStops('[role="treeitem"]')).toHaveLength(1);
+      act(() => button("Liste")!.click());
+      expect(tabStops('[role="option"]')).toHaveLength(1);
+      type(container.querySelector<HTMLInputElement>('input[aria-label="Header suchen"]')!, "Route");
+      await settle();
+      expect(tabStops('[role="option"]')).toHaveLength(1);
+      act(() => button("Baum")!.click());
+      expect(tabStops('[role="treeitem"]')).toHaveLength(1);
+    });
+
+    it("move between the rows of the tree and of the list", () => {
+      render(props({ selected: 1 }));
+      const first = treeitems()[0];
+      pressKey(first, "ArrowDown");
+      expect(document.activeElement).toBe(treeitems()[1]);
+      act(() => button("Liste")!.click());
+      const options = [...container.querySelectorAll<HTMLElement>('[role="option"]')];
+      pressKey(options[0], "ArrowDown");
+      expect(document.activeElement).toBe(options[1]);
+    });
   });
 
   it("does not render its rows again for the same props, and only the changed rows for a new selection", () => {
@@ -368,7 +460,7 @@ describe("WorldExplorer", () => {
     expect(first).toBeGreaterThan(0);
     render({ ...base });
     expect(reads).toBe(first);
-    // Selection 0 -> 3 renders the two outside rows whose mark changes, not the five of the tree.
+    // Selection 0 -> 3 renders the two outside rows whose mark changes, not the three of the open place.
     render({ ...base, selected: 3 });
     expect(reads - first).toBeGreaterThan(0);
     expect(reads - first).toBeLessThan(first);
@@ -376,38 +468,53 @@ describe("WorldExplorer", () => {
 
   describe("scripts", () => {
     const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-    const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
-    const scriptsRoot = () => container.querySelector<HTMLDetailsElement>("details[data-scripts-root]")!;
+    const scriptsRoot = () => container.querySelector<HTMLElement>("[data-scripts-root]")!;
+    const openScripts = () => click(scriptsRoot());
+    /** The script files below the root node (level 2); the children of a header are level 3. */
+    const fileRows = () => [...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="2"]')];
+    const headerChildren = () => [...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="3"]')];
+    const scriptBox = () => container.querySelector<HTMLInputElement>('input[aria-label="Scripts durchsuchen"]')!;
     const file = (n: number, kind: ScriptFileDto["kind"] = "script", headers: number[] = []): ScriptFileDto => ({ file: n, kind, size: 120, headers });
     const hit = (n: number, line: number, excerpt: string): ScriptHitDto => ({ file: n, line, excerpt });
+    const hitRows = () => treeitems().filter((t) => t.textContent?.includes("Zeile"));
     const withScripts = headers.map((h) => (h.id === 0 ? { ...h, script_file_id: 0, level_script_id: 1 } : { ...h, script_file_id: 5, level_script_id: 0 }));
-    const toggleHeader = (id: number) => click(container.querySelector(`[data-header-id="${id}"]`)!.previousElementSibling);
+    const toggleHeader = (id: number) => pressKey(row(id)!, "ArrowRight");
+
+    it("lists_the_scripts_node_first_in_the_tree", () => {
+      render(props());
+      expect(treeitems()[0]).toBe(scriptsRoot());
+      expect(scriptsRoot().textContent).toBe("Scripts");
+      expect(scriptsRoot().getAttribute("aria-expanded")).toBe("false");
+    });
 
     it("shows_the_script_file_and_level_script_below_an_expanded_header_and_opens_them", () => {
       const onOpenScript = vi.fn();
       render(props({ headers: withScripts, selected: 0, onOpenScript }));
-      expect(container.querySelector("[data-script-file]")).toBeNull();
+      expect(headerChildren()).toHaveLength(0);
+      expect(row(0)?.getAttribute("aria-expanded")).toBe("false");
       toggleHeader(0);
-      const children = [...row(0)!.closest("li")!.querySelectorAll<HTMLButtonElement>("[data-script-file]")];
-      expect(children.map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001"]);
-      click(children[0]);
-      click(children[1]);
+      expect(row(0)?.getAttribute("aria-expanded")).toBe("true");
+      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001"]);
+      click(headerChildren()[0]);
+      click(headerChildren()[1]);
       expect(onOpenScript.mock.calls).toEqual([[0], [1]]);
       // A header without a level script has only its script file; collapsing hides the children again.
+      toggle(places()[1]);
       toggleHeader(3);
-      expect([...row(3)!.closest("li")!.querySelectorAll("[data-script-file]")].map((b) => b.textContent)).toEqual(["Scriptdatei 0005"]);
-      toggleHeader(0);
-      expect(row(0)!.closest("li")!.querySelector("[data-script-file]")).toBeNull();
+      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001", "Scriptdatei 0005"]);
+      pressKey(row(0)!, "ArrowLeft");
+      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0005"]);
     });
 
     it("disables_the_header_children_and_asks_for_the_adoption_while_scripts_are_not_adopted", () => {
       const onOpenScript = vi.fn();
       render(props({ headers: withScripts, selected: 0, scriptsAdopted: false, onOpenScript }));
       toggleHeader(0);
-      const child = container.querySelector<HTMLButtonElement>("[data-script-file]")!;
-      expect(child.disabled).toBe(true);
+      const child = headerChildren()[0];
+      expect(child.getAttribute("aria-disabled")).toBe("true");
       expect(child.title).toBe("Erst Scripts übernehmen (Panel „Script“)");
       click(child);
+      pressKey(child, "Enter");
       expect(onOpenScript).not.toHaveBeenCalled();
     });
 
@@ -415,29 +522,28 @@ describe("WorldExplorer", () => {
       vi.mocked(listScriptFiles).mockResolvedValue([file(0, "script", [0, 4]), file(1, "levelScript", [0]), file(2, "binary")]);
       const onOpenScript = vi.fn();
       render(props({ onOpenScript }));
-      expect(container.querySelector("summary")?.textContent).toBe("Scripts");
       await flush();
       expect(listScriptFiles).not.toHaveBeenCalled();
-      toggle(scriptsRoot(), true);
+      openScripts();
       await flush();
       expect(listScriptFiles).toHaveBeenCalledTimes(1);
-      const rows = [...scriptsRoot().querySelectorAll<HTMLButtonElement>("[data-script-file]")];
-      expect(rows.map((r) => r.textContent)).toEqual([
+      expect(scriptsRoot().getAttribute("aria-expanded")).toBe("true");
+      expect(fileRows().map((r) => r.textContent)).toEqual([
         "Scriptdatei 0000120 Byte · Header 0000, 0004",
         "Level-Script 0001120 Byte · Header 0000",
         "Scriptdatei 0002binär · 120 Byte · ohne Header",
       ]);
-      expect(scriptsRoot().querySelector("summary")?.textContent).toBe("Scripts3");
-      click(rows[1]);
+      expect(scriptsRoot().textContent).toBe("Scripts3");
+      click(fileRows()[1]);
       expect(onOpenScript).toHaveBeenCalledWith(1);
     });
 
     it("says_to_adopt_first_and_calls_no_command_while_scripts_are_not_adopted", async () => {
       render(props({ scriptsAdopted: false }));
-      toggle(scriptsRoot(), true);
+      openScripts();
       await flush();
-      expect(scriptsRoot().textContent).toContain("Erst Scripts übernehmen (Panel „Script“)");
-      expect(scriptsRoot().querySelector("input")).toBeNull();
+      expect(container.textContent).toContain("Erst Scripts übernehmen (Panel „Script“)");
+      expect(scriptBox()).toBeNull();
       expect(listScriptFiles).not.toHaveBeenCalled();
       expect(searchScripts).not.toHaveBeenCalled();
     });
@@ -449,8 +555,8 @@ describe("WorldExplorer", () => {
         vi.mocked(searchScripts).mockResolvedValue([hit(42, 7, "script Main #1"), hit(43, 2, "Message 3")]);
         const onOpenScript = vi.fn();
         render(props({ onOpenScript }));
-        toggle(scriptsRoot(), true);
-        const box = scriptsRoot().querySelector<HTMLInputElement>('input[aria-label="Scripts durchsuchen"]')!;
+        openScripts();
+        const box = scriptBox();
         type(box, "Ma");
         await act(async () => void vi.advanceTimersByTime(200));
         type(box, "Main");
@@ -460,13 +566,12 @@ describe("WorldExplorer", () => {
         // Only the last text was searched, once.
         expect(searchScripts).toHaveBeenCalledTimes(1);
         expect(searchScripts).toHaveBeenCalledWith("Main", 100);
-        const hits = [...scriptsRoot().querySelectorAll<HTMLButtonElement>("li button")];
-        expect(hits.map((h) => h.textContent)).toEqual(["Scriptdatei 0042 · Zeile 7 · script Main #1", "Scriptdatei 0043 · Zeile 2 · Message 3"]);
-        click(hits[0]);
+        expect(hitRows().map((h) => h.textContent)).toEqual(["Scriptdatei 0042 · Zeile 7 · script Main #1", "Scriptdatei 0043 · Zeile 2 · Message 3"]);
+        click(hitRows()[0]);
         expect(onOpenScript).toHaveBeenCalledWith(42, 7);
         // Clearing the search shows the list again.
         type(box, "");
-        expect(scriptsRoot().querySelector("[data-script-file]")?.textContent).toContain("Scriptdatei 0000");
+        expect(fileRows()[0]?.textContent).toContain("Scriptdatei 0000");
       } finally {
         vi.useRealTimers();
       }
@@ -478,11 +583,26 @@ describe("WorldExplorer", () => {
         vi.mocked(listScriptFiles).mockResolvedValue([]);
         vi.mocked(searchScripts).mockResolvedValue([]);
         render(props());
-        toggle(scriptsRoot(), true);
-        type(scriptsRoot().querySelector("input")!, "xyz");
-        expect(scriptsRoot().textContent).toContain("Suche …");
+        openScripts();
+        type(scriptBox(), "xyz");
+        expect(container.textContent).toContain("Suche …");
         await act(async () => void vi.advanceTimersByTime(300));
-        expect(scriptsRoot().textContent).toContain("Keine Treffer.");
+        expect(container.textContent).toContain("Keine Treffer.");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reports_a_failed_search_as_an_alert", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(listScriptFiles).mockResolvedValue([]);
+        vi.mocked(searchScripts).mockRejectedValue("Suche abgebrochen");
+        render(props());
+        openScripts();
+        type(scriptBox(), "xyz");
+        await act(async () => void vi.advanceTimersByTime(300));
+        expect(container.querySelector('[role="alert"]')?.textContent).toContain("Suche abgebrochen");
       } finally {
         vi.useRealTimers();
       }
@@ -496,13 +616,13 @@ describe("WorldExplorer", () => {
         .mockImplementationOnce(() => new Promise<ScriptFileDto[]>((resolve) => (late = resolve)))
         .mockResolvedValueOnce([file(9)]);
       render(props({ info: a }));
-      toggle(scriptsRoot(), true);
+      openScripts();
       render(props({ info: b }));
       await flush();
-      expect(scriptsRoot().textContent).toContain("Scriptdatei 0009");
+      expect(container.textContent).toContain("Scriptdatei 0009");
       await act(async () => late([file(1)]));
-      expect(scriptsRoot().textContent).toContain("Scriptdatei 0009");
-      expect(scriptsRoot().textContent).not.toContain("Scriptdatei 0001");
+      expect(container.textContent).toContain("Scriptdatei 0009");
+      expect(container.textContent).not.toContain("Scriptdatei 0001");
     });
   });
 });

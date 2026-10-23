@@ -1,0 +1,34 @@
+.head {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-8) 0 var(--g4-dichte-zeile-innen);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.title {
+  margin: 0;
+  /* The subtitle gives way, not the title. */
+  flex: none;
+  white-space: nowrap;
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  margin-left: auto;
+}

@@ -185,7 +185,6 @@ struct Changeset {
     asset: AssetId,
     before: Vec<u8>,
     after: Vec<u8>,
-    #[allow(dead_code)] // kept for the history UI
     label: String,
 }
 
@@ -1129,6 +1128,16 @@ impl Store {
         Some(asset)
     }
 
+    /// The labels of the undo and redo stacks, as the caller gave them to the edits. Undo is
+    /// oldest first (the last entry is what `undo()` reverts next); redo is in the order
+    /// `redo()` applies them (the first entry is next). A label is kept as it was stored,
+    /// empty or not.
+    pub fn history(&self) -> (Vec<String>, Vec<String>) {
+        let undo = self.undo.iter().map(|c| c.label.clone()).collect();
+        let redo = self.redo.iter().rev().map(|c| c.label.clone()).collect();
+        (undo, redo)
+    }
+
     /// Why the loaded asset `id` is read-only (the codec would not write it back byte for
     /// byte), or `None` when it is editable or has not been loaded.
     pub fn locked(&self, id: AssetId) -> Option<&str> {
@@ -1576,6 +1585,39 @@ mod tests {
                 st.text_archive(433).unwrap().messages[1].text,
                 "Zweiblattdorf"
             );
+        }
+
+        #[test]
+        fn history_lists_undo_oldest_first_and_redo_next_first() {
+            let (_s, mut st) = store();
+            for (label, text) in [("A", "Eins"), ("B", "Zwei"), ("C", "Drei")] {
+                st.edit_text_archive(433, label, |d| d.messages[1].text = text.into())
+                    .unwrap();
+            }
+            let owned = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+            assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
+            st.undo();
+            assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
+            st.undo();
+            // Two redo entries: the one `redo()` applies next (B) comes first.
+            assert_eq!(st.history(), (owned(&["A"]), owned(&["B", "C"])));
+            st.redo();
+            assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
+            st.redo();
+            assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
+            // A new edit clears the redo stack.
+            st.undo();
+            st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
+                .unwrap();
+            assert_eq!(st.history(), (owned(&["A", "B", "D"]), vec![]));
+        }
+
+        #[test]
+        fn history_keeps_an_empty_label_as_stored() {
+            let (_s, mut st) = store();
+            st.edit_text_archive(433, "", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            assert_eq!(st.history(), (vec![String::new()], vec![]));
         }
 
         #[test]

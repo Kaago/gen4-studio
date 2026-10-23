@@ -1,0 +1,68 @@
+.shell {
+  display: grid;
+  position: relative;
+  height: 100%;
+  /* Content that hidden dock panels position below the shell is clipped; unlike `hidden`, `clip` cannot be scrolled by scrollIntoView. */
+  overflow: hidden;
+  overflow: clip;
+  grid-template-rows: 40px 1fr 28px;
+  --shell-atlas: 88px;
+  grid-template-columns: var(--shell-atlas) auto 1fr;
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-primaer);
+}
+
+/* The atlas shows symbols only in the compact density and narrows to match. */
+:global(:root[data-dichte="kompakt"]) .shell {
+  --shell-atlas: 56px;
+}
+
+.title {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.atlas {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+}
+
+.list {
+  grid-column: 2;
+  grid-row: 2;
+  /* The width is the list pane's own: 272 px, or its 8 px grip when folded. */
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.deck {
+  display: flex;
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.pane {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* `display` above would otherwise win over the hidden attribute. */
+.list[hidden],
+.deck[hidden] {
+  display: none;
+}
+
+.status {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+}

@@ -49,14 +49,38 @@ describe("ExitsSection", () => {
     await show();
     expect(container.textContent).toContain("Ausgänge");
     expect(getEvents).toHaveBeenCalledWith(5);
-    expect(rows().map((r) => r.textContent?.replace(/Zum ZielBearbeiten$/, ""))).toEqual(["Warp 0 (x 8, z 4) → 0414 Zweiblattdorf (T01R0201)", "Warp 1 (x 2, z 3) → unbekannt (9999)"]);
+    // The destination is a reference: location name, then identifier; a header that does not exist is named as such.
+    expect(rows().map((r) => r.textContent?.replace(/Bearbeiten$/, ""))).toEqual(["Warp 0 (x 8, z 4)Zweiblattdorf0414 · T01R0201", "Warp 1 (x 2, z 3)unbekannt (9999)"]);
+  });
+
+  it("counts_the_exits_in_the_head_and_folds_the_list_away_without_forgetting_it", async () => {
+    await show();
+    const head = container.querySelector<HTMLButtonElement>("h3 button")!;
+    expect(head.textContent).toBe("Eingänge / Ausgänge2");
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    await click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toHaveLength(0);
+    await click(head);
+    expect(rows()).toHaveLength(2);
+    expect(getEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps_the_list_folded_when_the_editor_is_mounted_again_as_after_a_hover", async () => {
+    await show();
+    await click(container.querySelector<HTMLButtonElement>("h3 button"));
+    act(() => root.render(null));
+    await show();
+    expect(container.querySelector<HTMLButtonElement>("h3 button")!.getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toHaveLength(0);
   });
 
   it("goes_to_the_destination_header_and_not_to_an_unknown_one", async () => {
     await show();
-    await click(button("Zum Ziel", rows()[0]));
+    await click(rows()[0]!.querySelector("button"));
     expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 414 });
-    expect(button("Zum Ziel", rows()[1])?.disabled).toBe(true);
+    // Nothing to follow for a header that is not there: only "Bearbeiten" is left in the row.
+    expect([...rows()[1]!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Bearbeiten"]);
   });
 
   it("opens_the_warp_in_the_event_editor", async () => {

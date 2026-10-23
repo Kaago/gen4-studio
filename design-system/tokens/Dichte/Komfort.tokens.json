@@ -1,0 +1,36 @@
+{
+ "dichte": {
+  "steuer": {
+   "$type": "dimension",
+   "$value": "32px"
+  },
+  "zeile": {
+   "$type": "dimension",
+   "$value": "32px"
+  },
+  "zeile-innen": {
+   "$type": "dimension",
+   "$value": "12px"
+  },
+  "panel-innen": {
+   "$type": "dimension",
+   "$value": "16px"
+  },
+  "feld-abstand": {
+   "$type": "dimension",
+   "$value": "8px"
+  },
+  "scharnier": {
+   "$type": "dimension",
+   "$value": "44px"
+  },
+  "symbol": {
+   "$type": "dimension",
+   "$value": "18px"
+  },
+  "werkzeug": {
+   "$type": "dimension",
+   "$value": "40px"
+  }
+ }
+}

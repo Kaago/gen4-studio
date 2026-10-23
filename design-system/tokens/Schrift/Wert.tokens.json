@@ -1,0 +1,20 @@
+{
+ "familie": {
+  "ui": {
+   "$type": "fontFamily",
+   "$value": "Atkinson Hyperlegible Next"
+  },
+  "titel": {
+   "$type": "fontFamily",
+   "$value": "Zen Maru Gothic"
+  },
+  "code": {
+   "$type": "fontFamily",
+   "$value": "Atkinson Hyperlegible Mono"
+  },
+  "spiel": {
+   "$type": "fontFamily",
+   "$value": "Pixelify Sans"
+  }
+ }
+}
