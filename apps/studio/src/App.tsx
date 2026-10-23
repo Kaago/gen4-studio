@@ -239,6 +239,7 @@ function AppBody() {
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
     onTool,
+    toolsActive: area === "welt",
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */

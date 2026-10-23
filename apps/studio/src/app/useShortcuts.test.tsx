@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn() };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -26,7 +26,8 @@ describe("useShortcuts", () => {
 
   beforeEach(() => {
     env.tauri = false;
-    for (const fn of Object.values(handlers)) fn.mockClear();
+    handlers.toolsActive = true;
+    for (const fn of Object.values(handlers)) if (typeof fn === "function") fn.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -123,6 +124,29 @@ describe("useShortcuts", () => {
       expect(handlers.onTool).toHaveBeenCalledTimes(3);
     });
 
+    it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {
+      mountWith(none);
+      handlers.toolsActive = false;
+      await press({ key: "b" });
+      await press({ key: "f" });
+      await press({ key: "g" });
+      await press({ key: "Escape" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      handlers.toolsActive = true;
+      await press({ key: "b" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
+      await press({ key: "Escape" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("select");
+    });
+
+    it("keeps_the_save_and_undo_shortcuts_while_the_world_is_not_shown", async () => {
+      handlers.toolsActive = false;
+      await press({ key: "s", metaKey: true });
+      await press({ key: "z", metaKey: true });
+      expect(handlers.onSave).toHaveBeenCalledOnce();
+      expect(handlers.step).toHaveBeenCalledOnce();
+    });
+
     it("ignores_a_letter_typed_in_a_text_field_a_select_or_an_editable_area", async () => {
       const input = document.createElement("input");
       const area = document.createElement("textarea");
@@ -207,7 +231,7 @@ describe("useShortcuts", () => {
     const event = new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true, cancelable: true });
     await act(async () => void field.dispatchEvent(event));
     expect(event.defaultPrevented).toBe(false);
-    for (const fn of Object.values(handlers)) expect(fn).not.toHaveBeenCalled();
+    for (const fn of Object.values(handlers)) if (typeof fn === "function") expect(fn).not.toHaveBeenCalled();
     field.remove();
   });
 });

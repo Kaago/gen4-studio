@@ -18,6 +18,8 @@ interface ShortcutHandlers {
   unpinSelection: () => void;
   /** Switches the tool of the scene (a letter, or "select" on Escape). */
   onTool: (tool: Tool) => void;
+  /** Whether the world (the deck with the scene) is shown: only then do the tool letters and Escape-to-"Auswählen" act. */
+  toolsActive: boolean;
 }
 
 /** Whether a modal dialog is open: its own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. */
@@ -57,8 +59,9 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
         }
       }
       // The tools: a letter, or Escape back to "Auswählen" when nothing is selected (a selection consumed Escape above). Never typed into
-      // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes.
-      if (!inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
+      // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes. Only while the world
+      // is shown: on another area a letter must not change the tool the world comes back with.
+      if (latest.current.toolsActive && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
         const tool = toolForKey(e.key);
         if (tool !== null) {
           latest.current.onTool(tool);
