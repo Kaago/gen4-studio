@@ -40,6 +40,19 @@ describe("Dialog", () => {
     expect(el.textContent).toContain("Inhalt");
   });
 
+  it("palette_variant_has_no_close_button_and_keeps_the_title_as_its_name", () => {
+    act(() =>
+      root.render(
+        <Dialog open onOpenChange={() => {}} title="Befehlspalette" variant="palette">
+          <p>Inhalt</p>
+        </Dialog>,
+      ),
+    );
+    const el = dialog()!;
+    expect(el.querySelector("[aria-label=Schließen]")).toBeNull();
+    expect(document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent).toBe("Befehlspalette");
+  });
+
   it("closed_renders_nothing", () => {
     act(() =>
       root.render(

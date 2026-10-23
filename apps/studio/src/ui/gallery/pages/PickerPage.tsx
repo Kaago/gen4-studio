@@ -63,7 +63,7 @@ export function PickerPage() {
           <Button kind="secondary" onClick={() => setWhich("places")}>Header wählen …</Button>
           <Button kind="secondary" onClick={() => setWhich("texts")}>Textarchiv wählen …</Button>
           <Button kind="secondary" onClick={() => setWhich("empty")}>Leere Liste …</Button>
-          <Button kind="secondary" shortcut="⌘K" onClick={() => setWhich("palette")}>Befehlspalette</Button>
+          <Button kind="secondary" onClick={() => setWhich("palette")}>Befehlspalette</Button>
         </div>
         <div className={styles.row}>
           <span className={styles.note}>Gewählt:</span>

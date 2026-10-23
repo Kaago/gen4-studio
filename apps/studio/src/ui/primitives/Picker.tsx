@@ -1,5 +1,5 @@
 import { Combobox } from "@base-ui/react/combobox";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icon";
@@ -132,6 +132,9 @@ function PickerBody({
 }: Omit<PickerProps, "open" | "title">) {
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
+  // The body is mounted anew for every opening, so this guard resets with it. Base UI keeps the popup (and the focused
+  // input) mounted while it closes; a second Enter or a key repeat in that time must not queue a second pick.
+  const picked = useRef(false);
   const { groups, total } = useMemo(() => {
     let found = filterItems(items, query);
     if (emptyQueryGroups && query.trim() === "") found = found.filter((item) => emptyQueryGroups.includes(item.group ?? ""));
@@ -160,6 +163,8 @@ function PickerBody({
         onValueChange={(item) => {
           if (!item) return;
           if (palette) {
+            if (picked.current) return;
+            picked.current = true;
             onOpenChange(false);
             setTimeout(() => onPick(item), 0);
             return;

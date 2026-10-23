@@ -275,6 +275,30 @@ describe("Picker", () => {
       expect(order.filter((o) => o === "pick")).toHaveLength(1);
     });
 
+    it("two_enters_in_a_row_pick_only_once_per_opening", async () => {
+      const { onPick } = renderPalette();
+      type("sand");
+      pressKey(input(), "Enter");
+      pressKey(input(), "Enter");
+      await tick();
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(1);
+    });
+
+    it("a_reopened_palette_picks_again", async () => {
+      const { onPick } = renderPalette();
+      type("sand");
+      pressKey(input(), "Enter");
+      await tick();
+      act(() => root.render(<Picker open={false} onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+      act(() => root.render(<Picker open onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+      type("sand");
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(2);
+    });
+
     it("the_default_dialog_variant_still_picks_synchronously", () => {
       const { onPick } = render();
       type("zwei");
