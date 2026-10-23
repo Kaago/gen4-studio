@@ -122,7 +122,7 @@
 
 **Interfaces:**
 - Consumes: `Picker` (`items` mit `group`, `area`, `tech`, `preview`), `buildPlaces`, `archiveRows`/`usersByArchive`, `listScriptFiles` (nur bei übernommenen Scripts), `goTo`, `wizards.open`, Befehle aus App.
-- Produces: `paletteEntries({ places, headers, archives, scripts, commands, hasProject }): PickerItem[]` (Gruppen „Orte“, „Header“, „Textarchive“, „Scripts“, „Befehle“; höchstens acht je Gruppe nach Filter; ohne Projekt nur Befehle); Befehle: Projekt öffnen, Speichern, Bauen, Hier spielen, Gebiet anlegen…, Raum anlegen…, Liste ein/aus, Thema wechseln, Dichte wechseln, Begriffe, Einstellungen, Bereich Welt/Texte/Technik; `Palette` als `Picker` oben mittig (Breite 640), Enter führt aus, Escape schließt.
+- Produces: `paletteEntries({ places, headers, archives, scripts, commands, hasProject }): PickerItem[]` (Gruppen „Orte“, „Header“, „Textarchive“, „Scripts“, „Befehle“; höchstens acht je Gruppe nach Filter; ohne Projekt nur Befehle); Befehle: Projekt öffnen, Speichern, Bauen, Hier spielen, Gebiet anlegen…, Raum anlegen…, Liste ein/aus, Layout zurücksetzen (löscht die Dock-Layouts des aktuellen Bereichs und baut die Standard-Docks neu; Befund aus dem 3c.1-Review: ein herausgezogenes Einzelpanel lässt sich sonst nicht zurückholen), Thema wechseln, Dichte wechseln, Begriffe, Einstellungen, Bereich Welt/Texte/Technik; `Palette` als `Picker` oben mittig (Breite 640), Enter führt aus, Escape schließt.
 
 - [ ] **Step 1: Failing tests**: `paletteEntries` ohne Projekt nur Befehle; „0412“ trifft Header und Archiv in zwei Gruppen; Enter auf „Speichern“ ruft `onSave`; ⌘K öffnet (`App.test.tsx`).
 - [ ] **Step 2: Run, FAIL** → **Step 3: Implement** → **Step 4: Run, PASS** → **Step 5: Commit** `feat(studio): command palette on the picker`
