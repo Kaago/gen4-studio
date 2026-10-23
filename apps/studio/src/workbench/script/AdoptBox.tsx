@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { errorText } from "../../api";
 import type { AdoptProgressDto, AdoptReportDto } from "../../api";
+import { Button, Notice } from "../../ui/primitives";
 import { TERMS, id4 } from "../terms";
+import styles from "./AdoptBox.module.css";
 
 export interface AdoptBoxProps {
   /** Number of script files of the project. */
@@ -15,9 +16,7 @@ export interface AdoptBoxProps {
 
 type Phase = { kind: "idle" } | { kind: "running"; progress: AdoptProgressDto | null } | { kind: "done"; report: AdoptReportDto } | { kind: "failed"; message: string };
 
-const box: CSSProperties = { maxWidth: 560, margin: "24px auto", padding: 16, border: "1px solid #d1d5db", borderRadius: 6, background: "var(--g4-flaeche-blatt)", color: "var(--g4-text-primaer)", fontFamily: "system-ui, sans-serif" };
-
-/** The box the Script panel shows until rotom has taken the project's scripts over (spec §8.2). */
+/** The box the Script panel shows until rotom has taken the project's scripts over (spec §7.3): an info notice with progress and report. */
 export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   // Progress that arrives after the end must not bring the bar back.
@@ -37,56 +36,61 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
   }
 
   return (
-    <div style={box}>
-      <h3 style={{ margin: "0 0 8px" }}>{TERMS.script.plural} übernehmen</h3>
-      {phase.kind === "done" ? (
-        <Report report={phase.report} onClose={onClose} />
-      ) : (
-        <>
-          <p style={{ margin: "0 0 12px" }}>
-            Das Studio legt <code>rotom.toml</code> und <code>.rotom/</code> im Projekt an und dekompiliert alle {fileCount} {TERMS.scriptFile.plural} nach{" "}
-            <code>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten Scripteditor ab.
-          </p>
-          {phase.kind === "running" ? (
-            <Progress progress={phase.progress} total={fileCount} />
-          ) : (
-            <button onClick={() => void start()}>Übernehmen</button>
-          )}
-          {phase.kind === "failed" && (
-            <p role="alert" style={{ color: "#b91c1c", margin: "12px 0 0" }}>
-              {phase.message}
+    <div className={styles.box}>
+      <Notice kind="info" title={`${TERMS.script.plural} übernehmen`}>
+        {phase.kind === "done" ? (
+          <Report report={phase.report} onClose={onClose} />
+        ) : (
+          <div className={styles.body}>
+            <p className={styles.text}>
+              Das Studio legt <code className={styles.code}>rotom.toml</code> und <code className={styles.code}>.rotom/</code> im Projekt an und dekompiliert alle {fileCount}{" "}
+              {TERMS.scriptFile.plural} nach <code className={styles.code}>expanded/scripts/</code>. DSPRE benutzt danach dieselben Quellen und schaltet seinen alten
+              Scripteditor ab.
             </p>
-          )}
-        </>
-      )}
+            {phase.kind === "running" ? (
+              <Progress progress={phase.progress} total={fileCount} />
+            ) : (
+              <div>
+                <Button kind="primary" onClick={() => void start()}>
+                  Übernehmen
+                </Button>
+              </div>
+            )}
+            {phase.kind === "failed" && <Notice kind="error">{phase.message}</Notice>}
+          </div>
+        )}
+      </Notice>
     </div>
   );
 }
 
 function Progress({ progress, total }: { progress: AdoptProgressDto | null; total: number }) {
-  const max = progress?.total ?? total;
+  const max = Math.max(progress?.total ?? total, 1);
   const done = progress?.done ?? 0;
+  const share = Math.min(done / max, 1) * 100;
   return (
-    <div>
-      <progress value={done} max={Math.max(max, 1)} style={{ width: "100%" }} />
-      <div style={{ color: "#6b7280" }}>
-        {done} / {max} {TERMS.scriptFile.plural}
+    <div className={styles.progress}>
+      <div className={styles.track} role="progressbar" aria-label="Fortschritt der Übernahme" aria-valuemin={0} aria-valuemax={max} aria-valuenow={done}>
+        <div className={styles.fill} style={{ width: `${share}%` } /* dyn */} />
       </div>
+      <span className={styles.count}>
+        {done} / {progress?.total ?? total} {TERMS.scriptFile.plural}
+      </span>
     </div>
   );
 }
 
 function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => void }) {
   return (
-    <div>
-      <p style={{ margin: "0 0 8px" }}>
+    <div className={styles.body}>
+      <p className={styles.text}>
         {report.decompiled} {TERMS.scriptFile.plural} dekompiliert, {report.skipped_empty} leere übersprungen
         {report.failed.length > 0 ? `, ${report.failed.length} fehlgeschlagen` : ""}.
       </p>
       {report.failed.length > 0 && (
         <>
-          <p style={{ margin: "0 0 4px" }}>Diese Dateien bleiben binär:</p>
-          <ul style={{ margin: "0 0 12px", paddingLeft: 20 }}>
+          <p className={styles.text}>Diese Dateien bleiben binär:</p>
+          <ul className={styles.failed}>
             {report.failed.map(([file, message]) => (
               <li key={file}>
                 {TERMS.scriptFile.label} {id4(file)}: {message}
@@ -95,7 +99,11 @@ function Report({ report, onClose }: { report: AdoptReportDto; onClose: () => vo
           </ul>
         </>
       )}
-      <button onClick={onClose}>Weiter</button>
+      <div>
+        <Button kind="primary" onClick={onClose}>
+          Weiter
+        </Button>
+      </div>
     </div>
   );
 }

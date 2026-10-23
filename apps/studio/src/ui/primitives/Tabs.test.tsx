@@ -53,6 +53,11 @@ describe("Tabs", () => {
     expect(container.textContent).toContain("Inhalt von a");
   });
 
+  it("puts_the_data_attributes_of_an_item_on_its_tab", () => {
+    act(() => root.render(<Tabs items={[{ id: "7", label: "Datei 0007", dataAttrs: { "data-script": 7 } }]} value="7" onChange={() => {}} ariaLabel="Offene Dateien" />));
+    expect(container.querySelector('[data-script="7"]')?.getAttribute("role")).toBe("tab");
+  });
+
   it("switches_on_click", () => {
     const onChange = vi.fn();
     act(() => root.render(<Harness onChange={onChange} />));

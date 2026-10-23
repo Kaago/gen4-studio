@@ -1,9 +1,10 @@
-import { memo } from "react";
+import { memo, useSyncExternalStore } from "react";
 import type { FunctionComponent, MutableRefObject, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { deckPanels, isSaneLayout, layoutKey, loadLayout, saveLayout } from "../../workbench/layout";
 import type { DeckId, PanelSpec } from "../../workbench/layout";
+import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { useShell } from "./ShellContext";
 import type { AreaId } from "./shellState";
 import styles from "./Deck.module.css";
@@ -22,9 +23,18 @@ export type DeckProps = {
   hinge: ReactNode;
 };
 
-/** Panels cannot be closed (there is no way to bring one back), only moved. */
+/**
+ * Panels cannot be closed (there is no way to bring one back), only moved. The tab "Script" carries the cobalt dot while a script is unsaved;
+ * its title stays "Script".
+ */
 function PanelTab(props: IDockviewPanelHeaderProps) {
-  return <DockviewDefaultTab {...props} hideClose />;
+  const unsavedScripts = useSyncExternalStore(scriptDirtyStore.subscribe, scriptDirtyStore.get);
+  return (
+    <span className={styles.tab}>
+      <DockviewDefaultTab {...props} hideClose />
+      {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
+    </span>
+  );
 }
 
 function applyDefaultLayout(api: DockviewApi, panels: readonly PanelSpec[]) {

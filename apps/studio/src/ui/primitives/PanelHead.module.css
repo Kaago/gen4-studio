@@ -26,9 +26,14 @@
   color: var(--g4-text-sekundaer);
 }
 
+/* In a narrow dock the actions wrap onto further lines instead of running out of the panel. */
 .actions {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--g4-raum-4);
   margin-left: auto;
+  padding: var(--g4-raum-2) 0;
 }

@@ -48,10 +48,10 @@ const themeOf = (mode: Mode): Extension => [
       ".cm-activeLineGutter": { backgroundColor: "var(--g4-flaeche-schau)", color: "var(--g4-text-primaer)" },
       ".cm-lintRange-error": { backgroundImage: "none", textDecoration: "underline wavy var(--g4-status-fehler)" },
       ".cm-lintRange-warning": { backgroundImage: "none", textDecoration: "underline wavy var(--g4-status-warnung)" },
-      ".cm-lintRange-info, .cm-lintRange-hint": { backgroundImage: "none", textDecoration: "underline wavy var(--g4-status-erfolg)" },
+      ".cm-lintRange-info, .cm-lintRange-hint": { backgroundImage: "none", textDecoration: "underline wavy var(--g4-status-info)" },
       ".cm-diagnostic-error": { borderLeftColor: "var(--g4-status-fehler)" },
       ".cm-diagnostic-warning": { borderLeftColor: "var(--g4-status-warnung)" },
-      ".cm-diagnostic-info, .cm-diagnostic-hint": { borderLeftColor: "var(--g4-status-erfolg)" },
+      ".cm-diagnostic-info, .cm-diagnostic-hint": { borderLeftColor: "var(--g4-status-info)" },
       ".cm-tooltip": {
         backgroundColor: "var(--g4-flaeche-blatt)",
         color: "var(--g4-text-primaer)",

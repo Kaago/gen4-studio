@@ -1,6 +1,7 @@
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import type { KeyboardEvent, ReactNode } from "react";
 import { IconButton } from "./IconButton";
+import type { RowDataAttrs } from "./ListRow";
 import styles from "./Tabs.module.css";
 
 export type TabItem = {
@@ -11,6 +12,8 @@ export type TabItem = {
   unsaved?: boolean;
   /** Accessible name of the close button, e.g. "Datei 0412 schließen". */
   closeLabel?: string;
+  /** Pass-through `data-*` attributes of the tab (`data-script`, …). */
+  dataAttrs?: RowDataAttrs;
 };
 
 export type TabsProps = {
@@ -39,7 +42,7 @@ export function Tabs({ items, value, onChange, onClose, ariaLabel, children }: T
       <BaseTabs.List className={styles.list} aria-label={ariaLabel} activateOnFocus>
         {items.map((item) => (
           <div key={item.id} role="presentation" className={styles.item} data-active={item.id === value ? "" : undefined}>
-            <BaseTabs.Tab value={item.id} className={styles.tab} onKeyDown={closeOnKey(item.id)}>
+            <BaseTabs.Tab {...item.dataAttrs} value={item.id} className={styles.tab} onKeyDown={closeOnKey(item.id)}>
               {item.label}
               {item.count !== undefined && <span className={styles.count}>{item.count}</span>}
             </BaseTabs.Tab>

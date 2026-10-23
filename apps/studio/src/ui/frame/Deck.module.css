@@ -27,3 +27,19 @@
   width: 100%;
   height: 100%;
 }
+
+/* A dock tab: dockview's own tab, then the unsaved dot (only the tab "Script" has one). */
+.tab {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.dot {
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  flex: none;
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}

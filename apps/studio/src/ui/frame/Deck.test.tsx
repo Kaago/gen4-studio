@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DECK_PANELS, layoutKey } from "../../workbench/layout";
+import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import type { PanelId } from "../../workbench/layout";
 import { Deck, resetLayout } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
@@ -87,6 +88,7 @@ describe("Deck", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    scriptDirtyStore.set(0);
   });
 
   it("renders_two_docks_with_the_hinge_between_them", async () => {
@@ -270,6 +272,22 @@ describe("Deck", () => {
     expect(hand().activePanel?.id).toBe("inspector");
     expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "schau"))!).grid.root)).toEqual([["world", "matrix", "worldmap"]]);
     expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!).grid.root)).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
+  });
+
+  it("marks_the_script_tab_with_a_dot_while_a_script_is_unsaved_and_keeps_its_title", async () => {
+    await mount();
+    const tabOf = (title: string) => [...dock("hand").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === title);
+    const dotIn = (tab: HTMLElement | undefined) => tab?.querySelector('[aria-label="ungespeichert"]') ?? null;
+    expect(tabOf("Script")).toBeDefined();
+    expect(dotIn(tabOf("Script"))).toBeNull();
+    act(() => scriptDirtyStore.set(2));
+    expect(dotIn(tabOf("Script"))?.getAttribute("role")).toBe("img");
+    // Only the script tab carries it; the title is not touched.
+    expect(dotIn(tabOf("Inspector"))).toBeNull();
+    expect(dotIn(tabOf("Probleme"))).toBeNull();
+    expect(hand().getPanel("script")!.title).toBe("Script");
+    act(() => scriptDirtyStore.set(0));
+    expect(dotIn(tabOf("Script"))).toBeNull();
   });
 
   it("resets_nothing_of_a_deck_that_is_not_built", () => {

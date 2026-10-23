@@ -11,6 +11,7 @@ import type { ScriptDocument } from "./documents";
 import { codeLenses, inlayHints } from "./lspExtras";
 import { rotomLanguage } from "./rotomLanguage";
 import { ROTOM_THEME } from "./rotomTheme";
+import styles from "./ScriptEditor.module.css";
 
 export interface ScriptEditorProps {
   doc: ScriptDocument;
@@ -211,5 +212,5 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     if (switched) latest.current.onDiagnostics(diagnosticsOf(view.state));
   });
 
-  return <div ref={host} style={{ height: "100%", minHeight: 0 }} />;
+  return <div ref={host} className={styles.host} />;
 }

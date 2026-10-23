@@ -720,6 +720,23 @@ describe("App wiring", () => {
       expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
     });
 
+    it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {
+      // The world's hand is folded and low when the texts show.
+      await act(async () => void area("welt", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState()).toEqual({ height: 286, collapsed: true });
+      await act(async () => atlasEntry("Texte")!.click());
+      shown.focused = [];
+      // As a script problem in the texts' hand does it.
+      await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(handState().collapsed).toBe(false);
+      expect(handState().height).toBeGreaterThanOrEqual(400);
+      expect(shown.focused).toEqual(["script"]);
+      expect(data().scripts.active).toBe(42);
+      // The texts' hand is left as it was.
+      expect(readShellState().handCollapsed.texte).toBe(false);
+    });
+
     it("folds_the_hand_of_the_area_whose_hinge_is_used", async () => {
       await act(async () => atlasEntry("Texte")!.click());
       const grip = area("texte", "deck")!.querySelector("[data-hinge-grip]")!;
