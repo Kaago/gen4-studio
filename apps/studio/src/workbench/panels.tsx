@@ -1,9 +1,9 @@
 import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
+import type { ReactNode } from "react";
 import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import type { DockComponents } from "../ui/frame/Deck";
-import { ListPane } from "../ui/frame/ListPane";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
 import { lockedText } from "../world/events";
@@ -19,8 +19,11 @@ import { SceneBar } from "./SceneBar";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import type { ScriptPanelContext } from "./script/ScriptPanel";
-import { TextPanel } from "./text/TextPanel";
-import type { TextPanelContext } from "./text/TextPanel";
+import { TextArea, TextHints, TextStatus } from "./text/TextArea";
+import type { TextAreaProps, TextShown } from "./text/TextArea";
+import { TextHand } from "./text/TextHand";
+import { TextList } from "./text/TextList";
+import { TextView } from "./text/TextView";
 import styles from "./panels.module.css";
 import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
@@ -167,20 +170,6 @@ export function WorldMapTab() {
   return <WorldMapPanel context={context} />;
 }
 
-/** The text panel of 3b.2. No dock places it any more: the area Texte takes its place (its panels replace this one in Task 2b). */
-export function TextTab() {
-  const d = useWorkbench();
-  // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
-  const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
-  // Memoised with the memoised panel: it renders again only when one of these changes.
-  const context = useMemo<TextPanelContext>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
-    [info, headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
-  );
-  return <TextPanel context={context} />;
-}
-
 export function ScriptTab() {
   const d = useWorkbench();
   const { info, scripts, problems, bus, onError } = d;
@@ -310,34 +299,40 @@ export function InspectorPanel() {
   );
 }
 
-/** The list of the texts: the text archives. Their rows come with the text area's own model (Task 2b); until then the list is empty. */
+/**
+ * The text area's model around the frame (App puts it around the shell): the texts' list, view, hand and status parts read it. The
+ * context it is given is memoised, so the area renders again only when one of its inputs changes, not for a hover or a message.
+ */
+export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShown) => void; children?: ReactNode }) {
+  const d = useWorkbench();
+  // Changes whenever a text archive may have moved behind the area (undo, redo, reload).
+  const textRevision = useBusRevision(d.bus, "textData");
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError } = d;
+  const context = useMemo<TextAreaProps>(
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown],
+  );
+  return <TextArea context={context}>{children}</TextArea>;
+}
+
+export { TextHints, TextStatus };
+
+/** The list of the texts: the text archives; whether it is folded is the shell's state of the texts. */
 export function TextArchivesPane() {
   const { state, setListOpen } = useShell();
   const listOpen = state.listOpen.texte;
   const onToggle = useStableCallback(() => setListOpen("texte", !listOpen));
-  return (
-    <ListPane title="Textarchive" open={listOpen} onToggle={onToggle}>
-      {null}
-    </ListPane>
-  );
+  return <TextList open={listOpen} onToggle={onToggle} />;
 }
 
-/** The view of the texts (the DS screen of the chosen message); empty until an archive is chosen. */
+/** The view of the texts: the chosen message on the DS screen. */
 export function TextViewTab() {
-  return (
-    <div className={styles.empty}>
-      <EmptyState what="Wähle links ein Archiv." why="Die Vorschau zeigt dann seine Nachrichten auf dem DS-Bildschirm." />
-    </div>
-  );
+  return <TextView />;
 }
 
-/** The messages of the chosen archive and their editor; empty until an archive is chosen. */
+/** The messages of the chosen archive, the search and the field of the chosen message. */
 export function TextEditTab() {
-  return (
-    <div className={styles.empty}>
-      <EmptyState what="Kein Archiv gewählt." why="Wähle links ein Archiv, dann stehen hier seine Nachrichten." />
-    </div>
-  );
+  return <TextHand />;
 }
 
 /**

@@ -1,6 +1,5 @@
 # Files still allowed to use inline styles and hex colours (3c.1). One path or glob per line.
 # Plan 3c.2 moves these to CSS Modules and empties this list.
-apps/studio/src/workbench/text/*
 apps/studio/src/workbench/script/*
 apps/studio/src/workbench/wizards/*
 apps/studio/src/app/WizardHost.tsx

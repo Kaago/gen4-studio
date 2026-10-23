@@ -1,0 +1,60 @@
+.editor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+}
+
+/* Looks like a multi-line `TextField`; the text is shown in the code face, where every escape and code is visible. */
+.field {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(5 * var(--g4-schrift-zeile-code) + 2 * var(--g4-raum-6));
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+  resize: vertical;
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.field:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.field:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: 1px;
+}
+
+/* The message once more, with its break codes as symbols and its other codes marked. */
+.codes {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  word-break: break-word;
+}
+
+.text {
+  color: var(--g4-text-primaer);
+}
+
+.newline,
+.clear,
+.scroll {
+  color: var(--g4-akzent-text);
+  font-weight: 700;
+}
+
+.code {
+  padding: 0 var(--g4-raum-2);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+}
+
+.warnings {
+  margin: 0;
+  padding-left: var(--g4-raum-16);
+}

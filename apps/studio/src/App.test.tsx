@@ -32,6 +32,9 @@ vi.mock("./workbench/Workbench", () => ({
 vi.mock("./workbench/panels", () => ({
   ExplorerPane: () => null,
   TextArchivesPane: () => null,
+  TextAreaHost: ({ children }: { children: unknown }) => children,
+  TextHints: () => null,
+  TextStatus: () => null,
   DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} } },
 }));
 vi.mock("./ui/frame/Deck", async () => {
@@ -665,10 +668,41 @@ describe("App wiring", () => {
       // The selection of the world stays as it was.
       expect(data().selected).toBe(1);
       expect(area("texte", "deck")!.hidden).toBe(false);
-      // Once built, a link focuses the messages in the texts' own hand.
+      // The deck was built by that link: the messages get the focus once its docks are there.
+      await tick(100);
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+      // Once built, a link focuses the messages in the texts' own hand at once.
+      shown.focused = [];
       await act(async () => data().goTo({ kind: "textArchive", index: 24 }));
       expect(shown.focused).toEqual(["texte/textEdit"]);
       expect(data().textTarget).toEqual({ index: 24, message: null });
+    });
+
+    it("opens_a_collapsed_hand_of_the_texts_for_a_link_before_the_texts_were_ever_shown", async () => {
+      writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, texte: true } });
+      await renderFresh();
+      expect(area("texte", "deck")).toBeNull();
+      await act(async () => data().goTo({ kind: "textArchive", index: 23 }));
+      expect(readShellState().handCollapsed.texte).toBe(false);
+      await tick(100);
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+    });
+
+    it("reads_the_history_once_per_change_also_when_both_decks_are_built", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => atlasEntry("Welt")!.click());
+      await tick(150);
+      vi.mocked(history).mockClear();
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b"], redo: [] });
+      await act(async () => data().bus.emit({ topic: "matrixData" }));
+      await tick(150);
+      expect(history).toHaveBeenCalledTimes(1);
+      // Both hinges show what that one read gave.
+      const counts = [...container.querySelectorAll('[role="toolbar"][aria-label="Scharnier"]')].map(
+        (bar) => [...bar.querySelectorAll("button")].find((b) => /^Verlauf/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""))?.textContent,
+      );
+      expect(counts).toHaveLength(2);
+      for (const text of counts) expect(text).toContain("2");
     });
 
     it("goes_back_to_the_world_for_a_link_to_a_script_or_a_header_from_the_texts", async () => {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary } from "../../api";
-import { archiveLabel, archiveRows, filterArchives, hitLabel, isNumericQuery, lineWidth, pages, segments, toTextForm, usersByArchive, usersLabel, visibleLine } from "./textModel";
+import { LINE_LIMIT, archiveLabel, archivePlaces, archiveRows, filterArchives, isNumericQuery, lineWidth, longestLine, messageLabel, pages, segments, toTextForm, usersByArchive, visibleLine } from "./textModel";
 
-const header = (id: number, text_archive_id: number): HeaderSummary => ({
+const header = (id: number, text_archive_id: number, location_name = ""): HeaderSummary => ({
   id,
   internal_name: `H${id}`,
-  location_name: "",
+  location_name,
   matrix_id: 0,
   area_data_id: 0,
   event_file_id: 0,
@@ -70,15 +70,9 @@ describe("labels", () => {
     expect(archiveLabel(199)).toBe("Textarchiv 0199");
   });
 
-  it("lists the headers that use an archive, a few of them in full", () => {
-    expect(usersLabel([])).toBe("");
-    expect(usersLabel([415])).toBe("Header 0415");
-    expect(usersLabel([415, 416])).toBe("Header 0415, 0416");
-    expect(usersLabel([1, 2, 3, 4, 5])).toBe("Header 0001, 0002, 0003 +2");
-  });
-
-  it("labels a hit with archive, message and excerpt", () => {
-    expect(hitLabel({ archive: 199, index: 12, excerpt: "…Hallo…" })).toBe("0199 · 12 · …Hallo…");
+  it("writes message numbers with three digits", () => {
+    expect(messageLabel(5)).toBe("Nachricht 005");
+    expect(messageLabel(1234)).toBe("Nachricht 1234");
   });
 });
 
@@ -93,17 +87,28 @@ describe("archive rows", () => {
   it("makes one row per archive of the project", () => {
     const rows = archiveRows(4, usersByArchive([header(7, 2)]));
     expect(rows).toEqual([
-      { index: 0, users: [] },
-      { index: 1, users: [] },
-      { index: 2, users: [7] },
-      { index: 3, users: [] },
+      { index: 0, users: [], place: null },
+      { index: 1, users: [], place: null },
+      { index: 2, users: [7], place: null },
+      { index: 3, users: [], place: null },
     ]);
     expect(archiveRows(undefined, new Map())).toEqual([]);
+  });
+
+  it("names an archive after the place of the first header that uses it; a nameless place gives no name", () => {
+    const headers = [header(3, 412, "Zweiblattdorf"), header(4, 412, "Sandgemme"), header(5, 7, " "), header(6, 8, "Jubelstadt")];
+    const users = usersByArchive(headers);
+    const places = archivePlaces(headers, users);
+    expect(places.get(412)).toBe("Zweiblattdorf");
+    expect(places.has(7)).toBe(false);
+    expect(archiveRows(413, users, places)[412]).toEqual({ index: 412, users: [3, 4], place: "Zweiblattdorf" });
   });
 });
 
 describe("filterArchives", () => {
-  const rows = archiveRows(500, usersByArchive([header(415, 199), header(416, 199), header(9, 300)]));
+  const headers = [header(415, 199), header(416, 199), header(9, 300), header(3, 412, "Zweiblattdorf")];
+  const users = usersByArchive(headers);
+  const rows = archiveRows(500, users, archivePlaces(headers, users));
 
   it("keeps every archive for an empty query", () => {
     expect(filterArchives(rows, "")).toBe(rows);
@@ -120,11 +125,13 @@ describe("filterArchives", () => {
     expect(filterArchives(rows, "0009").map((r) => r.index)).toContain(300);
   });
 
-  it("matches no archive for a query that is not a number (the text search answers that)", () => {
+  it("matches the place name of an archive, in any case, and nothing else for a word", () => {
     expect(isNumericQuery("0199")).toBe(true);
     expect(isNumericQuery(" 12 ")).toBe(true);
     expect(isNumericQuery("Ruhe")).toBe(false);
     expect(isNumericQuery("")).toBe(false);
+    expect(filterArchives(rows, "Zweiblatt").map((r) => r.index)).toEqual([412]);
+    expect(filterArchives(rows, "zweiBLATTdorf").map((r) => r.index)).toEqual([412]);
     expect(filterArchives(rows, "Ruhe")).toEqual([]);
   });
 });
@@ -168,5 +175,14 @@ describe("lineWidth", () => {
   });
   it("counts_an_escaped_backslash_one", () => {
     expect(lineWidth(pages(String.raw`a\\b`)[0].lines[0])).toBe(3);
+  });
+});
+
+describe("longestLine", () => {
+  it("is_the_width_of_the_widest_line_of_any_page", () => {
+    expect(longestLine(String.raw`Hallo\nWelt, wie geht es?\rKurz`)).toBe(18);
+    expect(longestLine("")).toBe(0);
+    expect(longestLine("x".repeat(45)) > LINE_LIMIT).toBe(true);
+    expect(LINE_LIMIT).toBe(38);
   });
 });

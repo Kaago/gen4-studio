@@ -10,11 +10,16 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
+import { deckPanels } from "../workbench/layout";
 import type { DeckArea, PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
 import type { AreaId } from "../ui/frame/shellState";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
+
+/** How often, and how long apart, a link looks for the docks of a deck that its area's first showing builds (about half a second). */
+const FOCUS_TRIES = 30;
+const FOCUS_WAIT_MS = 16;
 
 /** The dockview apis of a deck's two docks (each null until its dock is ready). */
 export interface DockApis {
@@ -208,21 +213,27 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
   }
 
-  /**
-   * Shows `area` and brings `panel` to the front in the dock of that area that has it. A deck that is not built yet (the area shows for
-   * the first time) has no docks to look in: it opens with its default layout, whose anchors are the panels a link leads to.
-   */
-  function focusPanel(area: DeckArea, panel: PanelId | null) {
-    if (panel === null) return;
-    setArea(area);
+  // The panel a link waits to focus until the deck of its area is built (the area shows for the first time); a newer link replaces it.
+  const pendingFocus = useRef<{ area: DeckArea; panel: PanelId } | null>(null);
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingTimer.current !== null) clearTimeout(pendingTimer.current);
+    },
+    [],
+  );
+
+  /** Brings `panel` to the front in the dock of `area` that has it; false while that area's deck is not built yet. */
+  function focusInDocks(area: DeckArea, panel: PanelId): boolean {
     const { schau, hand } = docks[area];
+    if (schau.current === null || hand.current === null) return false;
     try {
-      const inSchau = schau.current?.getPanel(panel);
+      const inSchau = schau.current.getPanel(panel);
       if (inSchau) {
         inSchau.focus();
-        return;
+        return true;
       }
-      const inHand = hand.current?.getPanel(panel);
+      const inHand = hand.current.getPanel(panel);
       if (inHand) {
         revealHand(area);
         inHand.focus();
@@ -230,6 +241,35 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     } catch {
       /* the deck is going away */
     }
+    return true;
+  }
+
+  /**
+   * Shows `area` and brings `panel` to the front in the dock of that area that has it. A deck that is not built yet (the area shows for
+   * the first time) has no docks to look in: a panel of its hand opens the hand at once (it may have been left collapsed), and the
+   * panel is focused once the docks are there (tried for `FOCUS_TRIES` short waits).
+   */
+  function focusPanel(area: DeckArea, panel: PanelId | null) {
+    if (panel === null) return;
+    setArea(area);
+    if (pendingTimer.current !== null) clearTimeout(pendingTimer.current);
+    pendingTimer.current = null;
+    pendingFocus.current = null;
+    if (focusInDocks(area, panel)) return;
+    if (deckPanels(area, "hand").some((p) => p.id === panel)) revealHand(area);
+    pendingFocus.current = { area, panel };
+    let tries = 0;
+    const retry = () => {
+      pendingTimer.current = null;
+      const pending = pendingFocus.current;
+      if (pending === null) return;
+      if (focusInDocks(pending.area, pending.panel) || ++tries >= FOCUS_TRIES) {
+        pendingFocus.current = null;
+        return;
+      }
+      pendingTimer.current = setTimeout(retry, FOCUS_WAIT_MS);
+    };
+    pendingTimer.current = setTimeout(retry, FOCUS_WAIT_MS);
   }
 
   /**

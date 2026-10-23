@@ -33,6 +33,14 @@ describe("Reference", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  it("passes_data_attributes_to_the_chip", () => {
+    const onOpen = vi.fn();
+    act(() => root.render(<Reference area="welt" label="Zweiblattdorf" tech="0012" onOpen={onOpen} dataAttrs={{ "data-header": 12 }} />));
+    expect(chip().getAttribute("data-header")).toBe("12");
+    act(() => container.querySelector<HTMLElement>('[data-header="12"]')!.click());
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
   it("a_disabled_reference_stays_visible_and_does_not_open", () => {
     const onOpen = vi.fn();
     act(() => root.render(<Reference area="welt" label="Scriptdatei 0040" onOpen={onOpen} disabled />));

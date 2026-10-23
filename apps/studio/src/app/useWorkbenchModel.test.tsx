@@ -8,7 +8,7 @@ import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } f
 import type { Message } from "../app/message";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { ExplorerPane, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab } from "../workbench/panels";
+import { ExplorerPane, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextAreaHost, TextArchivesPane } from "../workbench/panels";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
@@ -175,7 +175,7 @@ describe("workbench model", () => {
     expect(models[1].data.depth).toBe("tuefteln");
   });
 
-  const panels = { headers: ExplorerPane, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
+  const panels = { headers: ExplorerPane, matrix: MatrixTab, inspector: InspectorPanel, text: TextArchivesPane, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -183,11 +183,18 @@ describe("workbench model", () => {
     vi.mocked(getMatrix).mockResolvedValue(shown);
     const Panel = panels[name];
     // One element for all renders, as in dockview: the panel renders again only through the contexts it reads.
-    // The explorer reads the shell's state of the folded list, so it needs the shell around it.
+    // The explorer and the text list read the shell's state of the folded list, so they need the shell around them; the text list also
+    // needs the text area that the app puts around the frame.
     const element =
       name === "headers" ? (
         <ShellProvider>
           <Panel />
+        </ShellProvider>
+      ) : name === "text" ? (
+        <ShellProvider>
+          <TextAreaHost>
+            <Panel />
+          </TextAreaHost>
         </ShellProvider>
       ) : (
         <Panel />
@@ -238,9 +245,9 @@ describe("workbench model", () => {
     expect(bodies.matrix).toBe(0);
   });
 
-  it("does not render the text panel for a hover or a message", async () => {
+  it("does not render the text area for a hover or a message", async () => {
     const show = await mountPanel("text");
-    expect(container.textContent).toContain("Textarchiv 0002");
+    expect(container.querySelector('[data-archive="2"]')).not.toBeNull();
     bodies.text = 0;
     await show({ hover: tile(1), message: null });
     await show({ hover: tile(2), message: null });
@@ -248,7 +255,7 @@ describe("workbench model", () => {
     expect(reads.data).toBe(0);
     expect(bodies.text).toBe(0);
     await show({ hover: null, message: null, showEvents: false });
-    // The tab rendered, the memoised text panel did not: its context is the same object.
+    // The host rendered, the memoised text area did not: its context is the same object.
     expect(reads.data).toBe(1);
     expect(bodies.text).toBe(0);
   });

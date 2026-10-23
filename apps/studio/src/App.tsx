@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
-import { DECK_COMPONENTS, ExplorerPane, TextArchivesPane } from "./workbench/panels";
+import { DECK_COMPONENTS, ExplorerPane, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
+import type { TextShown } from "./workbench/text/TextArea";
 import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
@@ -35,6 +36,7 @@ import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
+import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
@@ -120,6 +122,8 @@ function AppBody() {
   // not in the text area, so a link that comes before the texts were ever shown (their deck is built on the first visit) is not lost.
   const [textTarget, setTextTarget] = useState<TextTarget | null>(null);
   const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
+  // The archive and message the texts show (their hinge's breadcrumb follows them).
+  const [textShown, setTextShown] = useState<TextShown>({ archive: null, message: null });
 
   // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
   // (a build saves them first), hence the ref the session reads them through.
@@ -216,6 +220,9 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
+  // The undo history of every hinge, read once per change for all of them (a deck per area, each with its hinge).
+  const [historyFeed] = useState(() => new HistoryFeed());
+  useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);
   // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo; the first one that fails ends it.
   const onUndoTo = useStableCallback(async (stepsBack: number) => {
     for (let i = 0; i < stepsBack; i++) if (!(await step(undo))) return;
@@ -369,17 +376,18 @@ function AppBody() {
     () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo }),
     [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo],
   );
-  // The breadcrumb of the texts: the archive they are asked to open, with the place whose header uses it, and the message.
+  // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
-    const user = textTarget === null ? undefined : scene.headers.find((h) => h.text_archive_id === textTarget.index);
+    const { archive, message } = textShown;
+    const user = archive === null ? undefined : scene.headers.find((h) => h.text_archive_id === archive);
     const place = user === undefined ? undefined : placeOf(places, user.id);
     return textCrumbs({
-      archive: textTarget?.index ?? null,
+      archive,
       place: place !== undefined && place.key !== UNNAMED_KEY ? place.name : null,
-      message: textTarget?.message ?? null,
+      message,
       goTo: data.goTo,
     });
-  }, [textTarget, scene.headers, places, data.goTo]);
+  }, [textShown, scene.headers, places, data.goTo]);
   // Each hinge works on the hand of its own area (only the shown area's hinge can be reached).
   const onDragHeight = useStableCallback((target: DeckArea, height: number) => {
     // Dragging a collapsed hinge opens the hand to where it is dragged.
@@ -406,10 +414,8 @@ function AppBody() {
       handRef={docks[target].hand}
       hinge={
         <HingeHost
-          bus={bus}
           problems={problems}
-          historyRevision={session.dirtyRevision}
-          hasProject={info !== null}
+          history={historyFeed}
           crumbs={trail}
           depth={shell.state.depth}
           onDepth={shell.setDepth}
@@ -429,39 +435,42 @@ function AppBody() {
   return (
     <>
       <Workbench data={data} live={live}>
-        <Shell
-          title={
-            <TitleBar
-              projectName={info ? projectName(info.root) : null}
-              game={info ? gameLabel(info) : null}
-              dirtyCount={session.dirtyCount + scripts.dirtyCount}
-              busy={session.busy}
-              onOpen={() => void session.onOpen(resetProject)}
-              onSave={() => void session.onSave()}
-              onBuild={() => void session.onBuild()}
-              onHelp={onHelp}
-              theme={shell.theme}
-              onToggleTheme={shell.toggleTheme}
-            />
-          }
-          atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
-          area={area}
-          areas={Object.fromEntries(
-            DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
-          )}
-          pane={pane}
-          status={
-            <StatusLine
-              left={area === "welt" ? <ToolHints tool={shell.tool} /> : null}
-              middle={context}
-              right={<ProblemCount store={problems} />}
-              bridge={bridge}
-              density={shell.density}
-              onToggleDensity={shell.toggleDensity}
-              build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-            />
-          }
-        />
+        {/* Around the whole frame: the texts' list, deck and status parts share the text area's state. */}
+        <TextAreaHost onShown={setTextShown}>
+          <Shell
+            title={
+              <TitleBar
+                projectName={info ? projectName(info.root) : null}
+                game={info ? gameLabel(info) : null}
+                dirtyCount={session.dirtyCount + scripts.dirtyCount}
+                busy={session.busy}
+                onOpen={() => void session.onOpen(resetProject)}
+                onSave={() => void session.onSave()}
+                onBuild={() => void session.onBuild()}
+                onHelp={onHelp}
+                theme={shell.theme}
+                onToggleTheme={shell.toggleTheme}
+              />
+            }
+            atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
+            area={area}
+            areas={Object.fromEntries(
+              DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
+            )}
+            pane={pane}
+            status={
+              <StatusLine
+                left={area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
+                middle={area === "texte" ? <TextStatus /> : context}
+                right={<ProblemCount store={problems} />}
+                bridge={bridge}
+                density={shell.density}
+                onToggleDensity={shell.toggleDensity}
+                build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+              />
+            }
+          />
+        </TextAreaHost>
       </Workbench>
       <WizardHost
         wizards={wizards}

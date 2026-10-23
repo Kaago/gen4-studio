@@ -2,6 +2,7 @@
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
+  ArrowLeft,
   ArrowsHorizontal,
   ArrowSquareOut,
   Backpack,
@@ -69,6 +70,7 @@ export const icons = {
   tinker: Wrench,
   play: Play,
   undo: ArrowCounterClockwise,
+  back: ArrowLeft,
   redo: ArrowClockwise,
   search: MagnifyingGlass,
   sun: Sun,

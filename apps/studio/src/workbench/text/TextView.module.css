@@ -1,0 +1,158 @@
+.empty {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+}
+
+.view {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+  outline: none;
+}
+
+/* The screen with its controls on the left, the page cards on the right. */
+.body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-16);
+}
+
+.screenColumn {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* The space the screen is fitted into (whole-number magnification). */
+.stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.stage > div {
+  width: auto;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
+  background-position: center;
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+.controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.facts {
+  margin-right: auto;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.cards {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.card:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: 1px;
+}
+
+/* The page on the screen: the cobalt edge of the selection. */
+.current,
+.current:hover {
+  border-color: var(--g4-auswahl-kante);
+  box-shadow: inset var(--g4-strich-fokus) 0 0 var(--g4-auswahl-kante);
+}
+
+.cardTitle {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.cardLines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cardLine {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+.cardText {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.width {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.over {
+  color: var(--g4-status-warnung);
+  font-weight: 700;
+}
