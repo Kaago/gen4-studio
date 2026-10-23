@@ -1,0 +1,165 @@
+# Phase 3b.2: Gate prüfen
+
+Stand: Automatik gelaufen (`scripts/gate.sh` grün am 2026-10-23, siehe (I) und "Ergebnis"), Bundle gebaut und mit `check-bundle.sh` geprüft (H); die Prüfung von Hand (GUI, melonDS, DSPRE) ist noch nicht durchgeführt.
+
+Phase 3b.2 (Scripts und Text: Textarchive editieren, Scripts übernehmen, Script-Editor mit rotom-lsp, Level-Scripts, Navigation, Build mit Compile) ist implementiert und automatisch getestet. Das Gate braucht das GUI, melonDS und DSPRE und wird von Hand durchgeführt; die Automatik läuft über `scripts/gate.sh`. Die Ergebnisse stehen unten im Abschnitt "Ergebnis". Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md](superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md), Abschnitt 1 (Gate). Plan: [docs/superpowers/plans/2026-10-22-phase-3b2-scripts-text.md](superpowers/plans/2026-10-22-phase-3b2-scripts-text.md).
+
+Das Gate besteht aus neun Teilen:
+
+- (A) Scripts übernehmen und Rebuild: der Bericht ohne Fehler, ein Build ohne Änderung ist byte-identisch.
+- (B) NPC mit Textliteral auf der neuen Route. Das ist das eigentliche Gate.
+- (C) Flag und Item: derselbe NPC gibt einmalig ein Item und sagt danach etwas anderes.
+- (D) Vanilla-Dialog ändern.
+- (E) Level-Script im Header-Editor.
+- (F) Text-Panel: ändern, anfügen, suchen.
+- (G) DSPRE-Gegenprobe.
+- (H) Rauchtest der gepackten App (`pnpm bundle`).
+- (I) Automatik: `scripts/gate.sh`.
+
+Namen in der Oberfläche: Die Begriffe stehen in `apps/studio/src/workbench/terms.ts` und im Popover "Begriffe": "Scriptdatei" (alle Scripts eines Headers in einer Datei; ein Event nennt die Nummer `#n` darin), "Script" (ein Ablauf in rotom, zum Beispiel `script Main #1`), "Level-Script" (läuft beim Laden oder Betreten der Karte oder wenn eine Variable einen Wert hat), "Textarchiv" (die Nachrichten eines Headers), "Nachricht" (ein Text eines Textarchivs) und "Problem" (ein Fehler oder eine Warnung aus Compile, Text oder Sprachdienst). Geschrieben wird überall "Script", nicht "Skript". Die Panels: "Script" und "Text" sind Tabs der 3D-Gruppe (neben "3D", "Raster" und "Weltkarte"); "Probleme" ist eine eigene Gruppe **unter** der 3D-Gruppe, über dem Streifen "Status", und **kein** Tab neben "Status" (der Streifen hat keine Tab-Leiste und bleibt allein in seiner Gruppe). Im Panel "Script" zeigt ein Projekt ohne Übernahme den Kasten "Scripts übernehmen" mit dem Knopf "Übernehmen"; danach hat die Kopfzeile die Dokument-Auswahl, den Titel ("Scriptdatei 0042" oder "Level-Script 0042 (JSON)"), das Outline-Menü, "Speichern", "Script anfügen" und den LSP-Status (fehlt der Sprachserver: "rotom-lsp fehlt — Completion und Diagnosen aus"). Das Panel "Text" hat links die Archivliste mit Suchfeld und "Neues Archiv", rechts die Nachrichtenliste und das Feld "Text der Nachricht" mit "Nachricht anfügen" und "Letzte entfernen". Das Panel "Probleme" hat die Spalten Schwere, Datei, Zeile, Meldung, Quelle ("Compile", "Text", "live"); ein Klick springt zur Zeile. Im Header-Editor stehen "Scriptdatei" und "Level-Script" als Zahlenfelder mit "Öffnen" und "Neu", dazu der Abschnitt "Level-Script" mit den Auslösern "Beim Laden (on_load)", "Beim Fortsetzen (on_resume)", "Beim Betreten (on_transition)" und "Variablen-Bedingungen (on_var_condition)", "Eintrag hinzufügen", "Entfernen" und "Als JSON öffnen". Im Event-Inspector hat das Feld "Script" die Knöpfe "Öffnen" und "Neues Script". Im Explorer "Welt" hängen unter jedem Header die Kinder "Scriptdatei NNNN" und "Level-Script NNNN", und der Wurzelknoten "Scripts" listet alle Dateien mit Suche.
+
+Zwei Regeln, die man im Ablauf merkt:
+
+- Das Formular des Level-Scripts speichert nie ein Dokument, das rotom ablehnt: es zeigt stattdessen Hinweise ("Nicht gespeichert, bis das Level-Script gültig ist.").
+- Ein Script speichern heißt Quelle schreiben, kompilieren, Member schreiben. Bei einem Compile-Fehler ist die Quelle gespeichert, der Member bleibt unverändert, und das Panel "Probleme" zeigt Datei, Zeile und Spalte. Hängt ein Textliteral an einem Textarchiv mit ungespeicherten Änderungen, verweigert das Speichern ("Textarchiv NNNN erst speichern").
+
+## Vorbereitung
+
+1. Kopien der Projekte anlegen (Platin DE, HeartGold DE), zum Beispiel:
+   `cp -R "../Roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents" ../Roms/_testkopien/pt-3b2`
+   `cp -R "../Roms/Pokemon - Goldene Edition HeartGold (Germany)_DSPRE_contents" ../Roms/_testkopien/hg-3b2`
+   Für jeden Durchlauf eine frische Kopie nehmen: "Scripts übernehmen" legt `rotom.toml`, `.rotom/` und `expanded/scripts/` an und schreibt Quellen, Scripts und Texte sofort auf Platte; das lässt sich nicht rückgängig machen. Die Kopie `pt-3b2` darf vor (A) weder von DSPRE noch von `rotom init` übernommen sein (es darf kein `rotom.toml` im Projekt liegen).
+2. Gebündelte App bauen: `cd apps/studio && pnpm bundle && bash scripts/check-bundle.sh` (Ausgabe `bundle ok`, siehe `docs/release.md`). Gestartet wird `target/release/bundle/macos/Gen4 Studio.app`, `G4_APICULA` und `G4_ROTOM_LSP` dürfen nicht gesetzt sein. Beim ersten Start verlangt Gatekeeper eine Freigabe (siehe `docs/release.md`). Für Prüfungen, wo es dasteht, geht auch `G4_ROTOM_LSP="$PWD/tools/rotom/bin/rotom-lsp" G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tauri dev` (siehe `docs/dev-setup.md`).
+3. melonDS (die .app) und DSPRE bereithalten. DSPRE läuft nur unter Windows (oder einer Windows-Umgebung); die Kopie `pt-3b2` muss dort erreichbar sein.
+4. Die neue Route aus dem 3a-Gate (Route 230, Header 0001, siehe [docs/phase-3a-gate.md](phase-3a-gate.md) (A)) wird für (B) und (C) gebraucht. Wer sie nicht mehr hat, legt sie auf `pt-3b2` mit dem Assistenten "Gebiet anlegen…" an (Header 0001 "NOTHING" umstellen) und ergänzt von Hand einen Warp hin und zurück (wie 3a (A) 11), damit sie in melonDS begehbar ist.
+5. Netz: Der Studio-Build braucht kein Netz. Nur ein sauberer Cargo-Build (rotoms `build.rs` lädt `db-latest.zip`) und der erste Bau von `rotom-lsp` brauchen es; das Studio selbst benutzt immer die mitgelieferte Befehlsdatenbank in `crates/g4-kernel/metadata/scrcmd/` (Revision 33), nie eine heruntergeladene. Siehe `docs/dev-setup.md`.
+
+Fakten zu Platin DE, die der Ablauf braucht: Zweiblattdorf hat den Außen-Header 0411 und sechs Räume 0412 bis 0417, das Spielerzimmer ist Header 0415 (Karte 187); die Mutter steht im Spielerhaus (Erdgeschoss, im Explorer unter Zweiblattdorf zu finden); Route 201 ist Header 0342.
+
+## (A) Scripts übernehmen und Rebuild
+
+Ziel: "Scripts übernehmen" läuft durch, der Bericht nennt die Anzahl und keine Fehler, und das Projekt baut ohne weitere Änderung byte-identisch zum Vanilla-ROM. Der byte-identische Rebuild ist als gated Test automatisiert (`scripts/gate.sh`, Teil (I)); hier wird nur das GUI geprüft.
+
+Auf der Kopie `pt-3b2` (Platin DE), mit der gebündelten App:
+
+- [ ] 1. Projekt öffnen, Tab "Script". Der Kasten "Scripts übernehmen" erklärt, dass `rotom.toml` und `.rotom/` angelegt und alle N Scriptdateien nach `expanded/scripts/` dekompiliert werden und DSPRE danach dieselben Quellen benutzt. Im Projekt liegt noch kein `rotom.toml`.
+- [ ] 2. "Übernehmen" drücken: der Fortschrittsbalken läuft, danach der Bericht mit der Zahl der Dateien. Die Fehlliste ist leer (oder nennt nur Member, die rotom nicht lesen kann; der gated Test hält die erlaubte Liste je Projekt fest). Die Panels "Script" und "Probleme" zeigen keine Fehlermeldung.
+- [ ] 3. Auf der Platte: `rotom.toml`, `.rotom/command_database/`, `.rotom/status/compile-state.json` und `expanded/scripts/NNNN.rotom` bzw. `NNNN.json` (Level-Scripts) liegen im Projekt; `unpacked/scripts` ist unverändert (`diff -r` gegen das Original ohne `rotom.toml`, `.rotom`, `expanded`).
+- [ ] 4. "Übernehmen" erscheint nicht noch einmal (Kasten weg, Dokument-Auswahl da). Projekt schließen und wieder öffnen: der Kasten bleibt weg, ohne Nachfrage.
+- [ ] 5. Ohne weitere Änderung "Bauen": das ROM entsteht ohne Fehler und ohne Zeilen im Panel "Probleme". Optional `cmp` gegen ein ds-rom-Rebuild derselben Kopie (bei bestandenem gated Test nicht nötig).
+- [ ] 6. HeartGold DE (Kopie `hg-3b2`): dieselben Schritte 1 bis 5.
+
+## (B) NPC mit Textliteral
+
+Ziel: Auf der neuen Route bekommt ein neuer NPC per "Neues Script" ein Script mit einem Textliteral; im Spiel spricht er diesen Text, und das Textarchiv des Headers zeigt die Nachricht im Panel "Text". Auf einer Kopie von Platin DE mit übernommenen Scripts (nach (A)):
+
+- [ ] 1. Header 0001 (Route 230) im Explorer wählen; im Header-Editor stehen "Scriptdatei" und "Level-Script". Hat der Header noch keine eigene Scriptdatei, im Feld "Scriptdatei" "Neu" drücken: die neue Nummer steht im Feld, der Header ist ungespeichert (dirty).
+- [ ] 2. Ein neues Objekt (Person) auf eine freie Kachel setzen (Leiste der 3D-Ansicht, "Hinzufügen"). Im Event-Inspector beim Feld "Script" "Neues Script" drücken: die Nummer des neuen Scripts steht im Feld, das Event ist dirty.
+- [ ] 3. Das Panel "Script" zeigt die Scriptdatei des Headers; im Quelltext das neue Script ergänzen, zum Beispiel
+  ```
+  script NpcHallo #1:
+      Message "Hallo aus dem Studio!"
+      End
+  ```
+  (die Nummer `#n` ist die, die im Event-Feld steht; weitere Befehle wie `FacePlayer` oder `CloseMessage` schlägt die Completion vor, sobald man einen Befehlsnamen tippt).
+- [ ] 4. Cmd+S: Quelle gespeichert, kompiliert, kein Eintrag im Panel "Probleme". Das Textarchiv des Headers wird neu geladen; im Panel "Text" steht die neue Nachricht am Ende, mit `Hallo aus dem Studio!`.
+- [ ] 5. Header und Events speichern, bauen (ROM entsteht ohne Fehler), in melonDS zu Route 230 laufen, den NPC ansprechen: er sagt den Text.
+
+## (C) Flag und Item
+
+Derselbe NPC gibt einmalig ein Item und sagt danach einen anderen Text:
+
+- [ ] 1. Im Script des NPCs mit einer Flag-Bedingung: beim ersten Ansprechen Item geben und Flag setzen, danach ein anderer Text. Beim Tippen des Flag-Namens (zum Beispiel nach `Flag`) schlägt die Completion Namen aus der Befehlsdatenbank vor.
+- [ ] 2. Speichern: kein Problem. Ein absichtlicher Tippfehler (falscher Befehlsname) zeigt eine Diagnose im Editor, im Panel "Probleme" erscheint beim Speichern eine Zeile "Compile" mit Datei, Zeile und Spalte; ein Klick auf die Zeile springt an die Fehlstelle; der Member bleibt unverändert. Tippfehler beheben, speichern: die Zeile verschwindet.
+- [ ] 3. Bauen, in melonDS: der NPC gibt beim ersten Ansprechen das Item (Beutel prüfen) und sagt beim zweiten Ansprechen den anderen Text.
+
+## (D) Vanilla-Dialog
+
+- [ ] 1. Mutter im Spielerhaus (Zweiblattdorf, Erdgeschoss): Event der Mutter wählen, beim Feld "Script" "Öffnen". Das Panel "Script" springt zu ihrem Script; ein Script, das an mehreren Stellen steht, nennt die Kandidaten statt eines Sprungs.
+- [ ] 2. Den Text der Nachricht ändern (im Script bei einem Textliteral, oder im Panel "Text" bei der Nachricht des Archivs) und speichern. Bei einem Archiv mit ungespeicherten Änderungen verlangt das Script-Speichern erst "Textarchiv NNNN erst speichern".
+- [ ] 3. Bauen, in melonDS: die Mutter sagt den geänderten Text; die Datei `unpacked/textArchives/NNNN` hat sich geändert, die zugehörige `expanded/textArchives/NNNN.json` enthält den neuen Text.
+
+## (E) Level-Script
+
+- [ ] 1. Auf Route 230 den Header-Editor öffnen: der Abschnitt "Level-Script" zeigt "Kein Level-Script" mit "Anlegen" (Level-Script-ID 0). "Anlegen" drücken: eine neue Level-Script-Datei entsteht, ihre Nummer steht im Feld "Level-Script".
+- [ ] 2. "Eintrag hinzufügen": Auslöser "Beim Laden (on_load)", Script-Nummer eines neuen Scripts mit einer Nachricht (über "Neu" bzw. Script anfügen im Panel "Script"). Das Formular speichert nur, wenn rotom das Dokument annimmt: bei einer ungültigen Nummer zeigt es Hinweise ("Nicht gespeichert, bis das Level-Script gültig ist.") statt zu speichern. "Als JSON öffnen" zeigt rotoms JSON im Panel "Script" ("Level-Script NNNN (JSON)") mit dem Eintrag `on_load`.
+- [ ] 3. Speichern, bauen, in melonDS: beim Betreten der Karte läuft das Script und zeigt die Nachricht.
+
+## (F) Text-Panel
+
+- [ ] 1. Tab "Text": links die Archivliste mit Nummer, Nachrichtenzahl und den Headern, die das Archiv nutzen (zum Beispiel "Header 0415, 0416"). Ein Archiv wählen, eine Nachricht wählen: das Feld "Text der Nachricht" zeigt den Text, Steuercodes bleiben als Text sichtbar, `\n`, `\r` und `\f` stehen in der Liste lesbar.
+- [ ] 2. Eine Nachricht ändern und "Nachricht anfügen" drücken (neue Nachricht am Ende, mit Text). Ein sehr langer Text zeigt die Überlängen-Warnung unter dem Feld und beim Speichern eine "Text"-Zeile im Panel "Probleme". Cmd+Z macht die letzte Änderung rückgängig.
+- [ ] 3. Speichern (Toolbar "Speichern" speichert auch Textarchive), bauen, in melonDS: geänderter und angefügter Text erscheinen im Spiel (die angefügte Nachricht über ein Script mit ihrer Nummer erreichen).
+- [ ] 4. Suchfeld oben: der neue Text wird über alle Archive gefunden, Treffer zeigen Archiv, Nachrichtennummer und Auszug; ein Klick wählt Archiv und Nachricht.
+- [ ] 5. "Neues Archiv": ein leeres Archiv entsteht, die Nummer ist die nächste freie; ein Build packt es.
+
+## (G) DSPRE-Gegenprobe
+
+Platin DE, Kopie `pt-3b2` nach (F):
+
+- [ ] 1. Die Kopie vor dem Öffnen in DSPRE noch einmal kopieren (`cp -R .../pt-3b2 .../pt-3b2-dspre`) und **die zweite Kopie** in DSPRE öffnen, damit DSPRE (das beim Speichern Dateien neu schreibt) das Testergebnis nicht überschreibt. DSPRE öffnet das Projekt ohne Fehlermeldung.
+- [ ] 2. Das Textarchiv des Headers (das der Mutter aus (D) bzw. das Archiv aus (B)) zeigt die geänderte und die angefügte Nachricht.
+- [ ] 3. DSPRE `main` zeigt wegen `rotom.toml` seine alten Skripteditoren als deaktiviert (der Avalonia-Zweig benutzt dieselben Quellen unter `expanded/scripts`). Ein Level-Script und die Scripts sind dort lesbar bzw. öffnen sich in ihrem Editor, soweit er verfügbar ist.
+- [ ] 4. Nichts in DSPRE speichern. Optional: DSPRE baut aus der zweiten Kopie ein ROM, das in melonDS startet.
+
+## (H) Rauchtest der gepackten App
+
+Die Fragen sind WKWebView-spezifisch: laufen CodeMirror 6, der Tauri-Kanal für `rotom-lsp` und die CSP in der gepackten App? Im Entwicklungsbetrieb ist das nicht gedeckt.
+
+Bundle (`cd apps/studio && pnpm bundle && bash scripts/check-bundle.sh`):
+
+Bundle gebaut und mit `check-bundle.sh` geprüft am 2026-10-23: `pnpm bundle` lief ohne Fehler (nur die bekannte, harmlose Warnung „stripping debug info with `rust-objcopy` failed“), `check-bundle.sh` meldete `bundle ok: target/release/bundle/macos/Gen4 Studio.app` (34,55 MiB). Das prüft Sidecars, dylib und rpath, nicht das Verhalten im WKWebView: die Schritte von Hand unten sind **nicht** durchgeführt.
+
+Von Hand mit der gepackten App (`target/release/bundle/macos/Gen4 Studio.app`, `G4_APICULA` und `G4_ROTOM_LSP` nicht gesetzt) auf einer Testkopie (nicht auf einem Original):
+
+- [ ] 1. Die App startet (Gatekeeper-Freigabe beim ersten Mal), das Projekt `pt-3b2` oder `hg-3b2` öffnet.
+- [ ] 2. Tab "Script": Script öffnen (über ein Event, "Öffnen"), die Kopfzeile zeigt den LSP-Status als laufend, nicht "rotom-lsp fehlt".
+- [ ] 3. Im Editor einen Befehl beginnen (zum Beispiel `Mes`): die Completion erscheint mit Befehlen aus der Befehlsdatenbank; Hover über einen Befehl zeigt die Signatur.
+- [ ] 4. Einen absichtlichen Fehler tippen und speichern: das Panel "Probleme" zeigt die Zeile mit Datei, Zeile und Spalte, Klick springt dorthin; Fehler beheben, speichern: Zeile weg.
+- [ ] 5. Die Konsole der App (Rechtsklick, "Element untersuchen", falls verfügbar) zeigt keine CSP-Verletzungen (`Refused to ...`) beim Öffnen des Editors.
+
+## (I) Automatik
+
+- [x] 1. (2026-10-23, siehe "Ergebnis") `scripts/gate.sh` läuft grün: `cargo fmt --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-features`, `pnpm test`, `pnpm build`, danach `cargo test --workspace --all-features` mit `G4_TEST_PROJECT` gegen Platin DE, HeartGold DE und HeartGold US (dazu `G4_APICULA`, `G4_DSROM_CLI` und neu `G4_ROTOM_LSP`). Die gated Tests dieser Phase: "Scripts übernehmen" läuft auf allen drei Projekten ohne Fehler, ein Compile direkt nach dem Übernehmen ist sauber, und das nach dem Übernehmen neu gebaute ROM ist byte-identisch zum ds-rom-Rebuild. Das Skript liest die Originale nur; schreibende Tests arbeiten auf einer Kopie in einem Temp-Verzeichnis (`vanilla_copy()`). Es braucht rund 25 Minuten, siehe `docs/dev-setup.md`, Abschnitt "Gate-Skript".
+- [x] 2. Die Tabelle hat keine Zeile "skipped": alle drei Projekte sind gelaufen.
+
+Der Lauf vom 2026-10-23 steht unter "Ergebnis"; für den Merge wird er wiederholt, wenn danach Code geändert wurde.
+
+## Ergebnis
+
+Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, HeartGold DE), App (gebündelt oder `tauri dev`), bestanden oder nicht, Auffälligkeiten.
+
+| Teil | Datum | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| (A) Scripts übernehmen und Rebuild | | | | |
+| (B) NPC mit Textliteral | | | | |
+| (C) Flag und Item | | | | |
+| (D) Vanilla-Dialog | | | | |
+| (E) Level-Script | | | | |
+| (F) Text-Panel | | | | |
+| (G) DSPRE-Gegenprobe | | | | |
+| (H) Rauchtest der gepackten App | 2026-10-23 (nur Bundle) | | Bundle ok; Schritte von Hand offen | `pnpm bundle` und `check-bundle.sh` laufen; Start, Completion und Fehlerprüfung in der gepackten App sind nicht geprüft |
+| (I) Automatik (`scripts/gate.sh`) | 2026-10-23 | Platin DE, HeartGold DE, HeartGold US | bestanden (1335 s) | keine |
+
+Ergebnis von `scripts/gate.sh` (Tabelle aus der Ausgabe):
+
+```
+Step                                                 Project                                      Result                 Seconds
+----                                                 -------                                      ------                 -------
+cargo fmt --check                                    -                                            ok                           1
+cargo clippy (-D warnings)                           -                                            ok                          12
+cargo test (no ROM data)                             -                                            ok                          29
+pnpm test                                            -                                            ok                          10
+pnpm build                                           -                                            ok                           3
+gated tests (cargo test)                             Pokemon - Goldene Edition HeartGold (Germany) ok                         517
+gated tests (cargo test)                             Pokemon - HeartGold Version (USA)            ok                         308
+gated tests (cargo test)                             Pokemon - Platin-Edition (Germany)           ok                         455
+
+Gate: ok (1335 s)
+```
+
+Lauf vom 2026-10-23 auf dem Stand des Commits vor diesem Dokument, mit `G4_ROTOM_LSP`, `G4_APICULA` und Standard-`G4_ROMS_DIR`. In jedem der drei Projekte liefen `vanilla_adopts_and_compiles_clean` (Übernehmen ohne Fehler, Compile direkt danach sauber), `vanilla_rebuild_matches_dsrom_cli` und `vanilla_rebuild_matches_dsrom_cli_after_adopt` (ROM nach dem Übernehmen byte-identisch) grün; keine Zeile "skipped"; 2076 Tests bestanden, 0 fehlgeschlagen (Summe aller `test result`-Zeilen des Laufs).
+
+Offene Punkte aus dem Durchlauf:
+
+-

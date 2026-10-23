@@ -20,7 +20,7 @@ Das Produkt ist eine **Authoring-Engine mit Build-Pipeline**: Quelle ist ein Pro
 | Frage | Entscheidung | Begründung |
 |---|---|---|
 | Kernel-Sprache | Rust | MIT-lizenzierte Basis (uxie, rotom, chatot, ds-rom), spätere WASM-Plugins (Zed-Modell), headless als CLI nutzbar |
-| UI-Shell | Tauri 2 mit React, TypeScript, three.js | Web-Stack für UX-Geschwindigkeit (Pokémon-Studio-Niveau), macOS und Windows, LSP-Clients für Monaco fertig |
+| UI-Shell | Tauri 2 mit React, TypeScript, three.js | Web-Stack für UX-Geschwindigkeit (Pokémon-Studio-Niveau), macOS und Windows, LSP-Clients für CodeMirror 6 fertig (geändert am 2026-10-23, vorher: Monaco; Begründung in der Spec 3b.2) |
 | Lizenz des Editors | MIT | Nur möglich, weil keine AGPL-Abhängigkeit; nitroarc (LGPL) wird als separate Shared Library ausgeliefert |
 | DSPRE-Projektformat | Kompatibel lesen und schreiben (ds-rom-Layout plus `unpacked/<Kind>/NNNN`) | Bestehende Projekte öffnen, DSPRE parallel nutzbar, Testorakel |
 | Script-Sprache | rotom als kanonische Form | Compiler, Decompiler, LSP vorhanden |
@@ -32,7 +32,7 @@ Das Produkt ist eine **Authoring-Engine mit Build-Pipeline**: Quelle ist ein Pro
 ## 4. Architektur
 
 ```
-apps/studio            Tauri 2 (React, TypeScript, three.js, Monaco + rotom-lsp)
+apps/studio            Tauri 2 (React, TypeScript, three.js, CodeMirror 6 + rotom-lsp; vor 2026-10-23: Monaco)
    │ Tauri-Commands / Events (JSON)
 crates/g4-kernel       Projekt, Store (Changesets, Undo), Build, Export, CLI `g4k`
 crates/g4-formats      NARC, Map, Matrix, AreaData, (später BDHC, NSBMD-Writer)
