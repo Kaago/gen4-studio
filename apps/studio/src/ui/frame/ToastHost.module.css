@@ -3,7 +3,7 @@
   right: var(--g4-raum-16);
   /* Above the 28 px status bar. */
   bottom: calc(28px + var(--g4-raum-12));
-  z-index: 1100;
+  z-index: var(--g4-ebene-toast);
   display: flex;
   width: 360px;
   max-width: calc(100vw - 2 * var(--g4-raum-16));

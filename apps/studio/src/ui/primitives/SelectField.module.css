@@ -64,7 +64,7 @@
 }
 
 .positioner {
-  z-index: 10;
+  z-index: var(--g4-ebene-schwebend);
   outline: none;
 }
 
@@ -74,7 +74,7 @@
   padding: var(--g4-raum-4);
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-taste);
-  background: var(--g4-flaeche-ueberlagerung);
+  background: var(--g4-flaeche-blatt);
   color: var(--g4-text-primaer);
   outline: none;
   box-shadow: var(--g4-schatten-schwebend);

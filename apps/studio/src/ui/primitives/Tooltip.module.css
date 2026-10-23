@@ -1,5 +1,5 @@
 .positioner {
-  z-index: 1000;
+  z-index: var(--g4-ebene-schwebend);
 }
 
 .popup {

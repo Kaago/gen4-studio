@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { ToastHost } from "../../frame/ToastHost";
 import { toast } from "../../frame/toasts";
-import { Button, Dialog, IconButton, Menu, Popover } from "../../primitives";
+import { Button, Dialog, IconButton, Menu, Popover, SelectField } from "../../primitives";
 import styles from "../Gallery.module.css";
 
 export function OverlayPage() {
   const [dialog, setDialog] = useState<"closed" | "question" | "form">("closed");
+  const [kind, setKind] = useState<number | string>(1);
   const [log, setLog] = useState("Noch nichts gewählt.");
   const progress = () => {
     let step = 0;
@@ -73,6 +74,26 @@ export function OverlayPage() {
           ]}
         >
           <p className={styles.note}>Tab bleibt im Dialog, Escape schließt ihn, der Fokus kehrt zur Taste zurück.</p>
+          <div className={styles.dialogRow}>
+            <SelectField
+              label="Gelände"
+              showLabel
+              value={kind}
+              options={[
+                { value: 0, label: "Nichts" },
+                { value: 1, label: "Hohes Gras" },
+                { value: 2, label: "Wasser" },
+              ]}
+              onChange={setKind}
+            />
+            <Menu
+              trigger="Vorlage"
+              items={[
+                { label: "Leer", onSelect: () => setLog("Vorlage: Leer") },
+                { label: "Dorf", onSelect: () => setLog("Vorlage: Dorf") },
+              ]}
+            />
+          </div>
         </Dialog>
       </section>
 

@@ -135,3 +135,10 @@
   border-radius: var(--g4-radius-bildschirm);
   background: var(--g4-flaeche-blatt);
 }
+
+.dialogRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--g4-raum-12);
+  padding-top: var(--g4-raum-8);
+}
