@@ -46,11 +46,11 @@ const linkButton: CSSProperties = { all: "unset", cursor: "pointer", color: "#25
 const SEGMENT_STYLE: Record<SegmentKind, CSSProperties> = {
   text: {},
   newline: { color: "#2563eb", fontWeight: 700 },
-  scroll: { color: "#b45309", fontWeight: 700 },
-  clear: { color: "#0f766e", fontWeight: 700 },
+  clear: { color: "#b45309", fontWeight: 700 },
+  scroll: { color: "#0f766e", fontWeight: 700 },
   code: { color: "#7c3aed", background: "#f5f3ff", borderRadius: 3, padding: "0 2px" },
 };
-const SEGMENT_SHOWN: Partial<Record<SegmentKind, string>> = { newline: "⏎", scroll: "▼", clear: "▽" };
+const SEGMENT_SHOWN: Partial<Record<SegmentKind, string>> = { newline: "⏎", clear: "▼", scroll: "▽" };
 
 /** One archive of the list. Memoised: a selection or filter change renders the rows whose props changed, not all of them. */
 const ArchiveItem = memo(function ArchiveItem({ row, selected, count, onSelect }: { row: ArchiveRow; selected: boolean; count: number | null; onSelect: (index: number) => void }) {

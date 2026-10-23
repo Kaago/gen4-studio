@@ -28,11 +28,11 @@ export interface Segment {
 
 /** An unknown code (`\xNNNN`), a backslash pair (`\n`, `\r`, `\f`, an escaped backslash) or a control code in braces or brackets (`{COLOR, 0, 5}`, `[PK]`). */
 const TOKEN = /\\x[0-9a-fA-F]{4}|\\([\s\S])|\{[^{}]*\}|\[[^[\]]*\]/g;
-const BREAKS: Record<string, SegmentKind> = { n: "newline", r: "scroll", f: "clear" };
+const BREAKS: Record<string, SegmentKind> = { n: "newline", r: "clear", f: "scroll" };
 
 /**
- * A message in chatot's text form split into plain text, the line break (`\n`), scroll (`\r`) and
- * clear (`\f`) codes and other control codes. The segments joined give the text back.
+ * A message in chatot's text form split into plain text, the line break (`\n`), clear (`\r`) and
+ * scroll (`\f`) codes and other control codes. The segments joined give the text back.
  */
 export function segments(text: string): Segment[] {
   const found: Segment[] = [];
@@ -58,13 +58,67 @@ export function segments(text: string): Segment[] {
   return found;
 }
 
-const SYMBOLS: Partial<Record<SegmentKind, string>> = { newline: "⏎", scroll: "▼", clear: "▽" };
+const SYMBOLS: Partial<Record<SegmentKind, string>> = { newline: "⏎", clear: "▼", scroll: "▽" };
 
-/** A message on one line: the line break, scroll and clear codes get a visible stand-in (⏎ ▼ ▽). */
+/** A message on one line: the line break, clear and scroll codes get a visible stand-in (⏎ ▼ ▽). */
 export function visibleLine(text: string): string {
   return segments(text)
     .map((s) => SYMBOLS[s.kind] ?? s.text)
     .join("");
+}
+
+/** One box of the dialog as the game shows it: two lines, whether it waits for a key (`prompt`) and whether it only exists because a third line did not fit (`overflow`). */
+export interface Page {
+  lines: Segment[][];
+  prompt: boolean;
+  overflow: boolean;
+}
+
+/**
+ * A message cut into the boxes the game shows. `\n` moves from line 1 to line 2; a `\n` in line 2
+ * does not fit and starts a new page (`overflow`). `\r` (clear, ▼) ends the page with a prompt and the
+ * next one starts empty; `\f` (scroll, ▽) ends it with a prompt and the next one starts with the old
+ * line 2 as its line 1. A `\r` or `\f` at the very end adds no empty page; an empty text is one page
+ * with one empty line.
+ */
+export function pages(text: string): Page[] {
+  const result: Page[] = [];
+  let page: Page = { lines: [[]], prompt: false, overflow: false };
+  // True while the current page only exists because a clear/scroll code ended the one before and nothing followed yet.
+  let fresh = false;
+  const line = () => page.lines[page.lines.length - 1];
+  const next = (lines: Segment[][], overflow: boolean) => {
+    result.push(page);
+    page = { lines, prompt: false, overflow };
+  };
+  for (const segment of segments(text)) {
+    if (segment.kind === "newline") {
+      if (page.lines.length === 1) page.lines.push([]);
+      else next([[]], true);
+      fresh = false;
+    } else if (segment.kind === "clear" || segment.kind === "scroll") {
+      page.prompt = true;
+      next(segment.kind === "scroll" ? [page.lines[1] ?? [], []] : [[]], false);
+      fresh = true;
+    } else {
+      line().push(segment);
+      fresh = false;
+    }
+  }
+  if (!fresh) result.push(page);
+  return result;
+}
+
+const GLYPH_CODE = /^(\[[^[\]]*\]|\\x[0-9a-fA-F]{4})$/;
+
+/** How many characters a line holds: text counts its characters (an escaped backslash one), `[PK]` and `\xNNNN` one each, control codes in braces none. */
+export function lineWidth(line: Segment[]): number {
+  let width = 0;
+  for (const s of line) {
+    if (s.kind === "text") width += Array.from(s.text.replace(/\\\\/g, "\\")).length;
+    else if (s.kind === "code" && GLYPH_CODE.test(s.text)) width += 1;
+  }
+  return width;
 }
 
 /** The text with real line breaks (Enter, a paste) written as the `\n` the archive stores: a message holds no raw break. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary } from "../../api";
-import { archiveLabel, archiveRows, filterArchives, hitLabel, isNumericQuery, segments, toTextForm, usersByArchive, usersLabel, visibleLine } from "./textModel";
+import { archiveLabel, archiveRows, filterArchives, hitLabel, isNumericQuery, lineWidth, pages, segments, toTextForm, usersByArchive, usersLabel, visibleLine } from "./textModel";
 
 const header = (id: number, text_archive_id: number): HeaderSummary => ({
   id,
@@ -40,8 +40,8 @@ describe("segments", () => {
       { kind: "newline", text: "\\n" },
       { kind: "code", text: "[PK]" },
       { kind: "text", text: "x" },
-      { kind: "scroll", text: "\\r" },
-      { kind: "clear", text: "\\f" },
+      { kind: "clear", text: "\\r" },
+      { kind: "scroll", text: "\\f" },
     ]);
     expect(segments("\\x0123!")).toEqual([
       { kind: "code", text: "\\x0123" },
@@ -126,5 +126,47 @@ describe("filterArchives", () => {
     expect(isNumericQuery("Ruhe")).toBe(false);
     expect(isNumericQuery("")).toBe(false);
     expect(filterArchives(rows, "Ruhe")).toEqual([]);
+  });
+});
+
+const shown = (text: string) => pages(text).map((p) => p.lines.map((l) => l.map((s) => s.text).join("")));
+
+describe("pages", () => {
+  it("pages_split_on_clear_and_two_lines_per_page", () => {
+    expect(shown(String.raw`A\nB\rC`)).toEqual([["A", "B"], ["C"]]);
+    expect(pages(String.raw`A\nB\rC`)[0].prompt).toBe(true);
+  });
+  it("scroll_keeps_the_last_line", () => {
+    expect(shown(String.raw`A\nB\fC`)).toEqual([["A", "B"], ["B", "C"]]);
+    expect(pages(String.raw`A\nB\fC`)[0].prompt).toBe(true);
+  });
+  it("a_third_newline_overflows_into_a_new_page", () => {
+    const p = pages(String.raw`A\nB\nC`);
+    expect(p).toHaveLength(2);
+    expect(p[0].overflow).toBe(false);
+    expect(p[1].overflow).toBe(true);
+  });
+  it("codes_stay_in_the_line_and_count_zero", () => {
+    const p = pages("Hallo {PLAYER}!");
+    expect(p[0].lines[0].some((s) => s.kind === "code")).toBe(true);
+    expect(lineWidth(p[0].lines[0])).toBe(7);
+  });
+  it("trailing_break_makes_no_empty_page", () => {
+    expect(pages(String.raw`A\r`)).toHaveLength(1);
+    expect(pages(String.raw`A\nB\f`)).toHaveLength(1);
+    expect(pages(String.raw`A\r`)[0].prompt).toBe(true);
+  });
+  it("empty_text_is_one_page_with_one_empty_line", () => {
+    expect(shown("")).toEqual([[""]]);
+    expect(pages("")[0]).toMatchObject({ prompt: false, overflow: false });
+  });
+});
+
+describe("lineWidth", () => {
+  it("counts_glyph_codes_one_and_control_codes_zero", () => {
+    expect(lineWidth(pages("[PK]MON\\x0123{COLOR, 0, 5}")[0].lines[0])).toBe(1 + 3 + 1);
+  });
+  it("counts_an_escaped_backslash_one", () => {
+    expect(lineWidth(pages(String.raw`a\\b`)[0].lines[0])).toBe(3);
   });
 });

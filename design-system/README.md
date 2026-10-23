@@ -54,7 +54,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 | Sammlung | Modi | Inhalt |
 |---|---|---|
 | Primitiv | Wert | Rampen Platin (Neutrale), Kobalt, Bernstein, Signal, Moos, Zerr, Koralle, Lagune, Sand |
-| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js; gleich in beiden Themen |
+| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm; gleich in beiden Themen |
 | Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*` |
 | Raum | Wert | `raum/0…64` (Pixel im Namen), `radius/feld|taste|bildschirm|fenster|plakette`, `strich/*`, `schrift/groesse/*`, `schrift/zeile/*` |
 | Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug` |
@@ -130,6 +130,7 @@ Für die Umsetzung eignen sich Radix- oder Reka-Primitives (Dialog, Popover, Tab
 - Farben aus `apps/studio/src/ui/tokens/tokens.ts` (`szene`), Material `toneMapped: false`, `depthWrite: false`, `polygonOffset`. Füllung 42 % Deckkraft, opake Kontur mit dunklem Halo.
 - Gelände: blockiert diagonal schraffiert, Wasser Wellen, hohes Gras Punkte, Vorsprung Pfeil in Sprungrichtung, Eis Kreuzschraffur, Spezial Schachbrett, unbekannt gestrichelt. Muster hängen an Kachelkoordinaten (`gelaendeMuster`).
 - Ereignisse: Figur Kreis, Trainer Kreis mit Sichtlinie, Tür Raute, Auslöser gestrichelte Fläche, Schild Etikett, Gegenstand rundes Quadrat. Auswahl mit 3-px-Kobalt-Halo.
+- DS-Bildschirm (Gruppe `ds`, Spielinhalt, gleich in beiden Themen): `ds/grund` ist die Spielfläche hinter der Box, `ds/textbox/*` und `ds/schild/*` (je `flaeche`, `rahmen`, `text`) sind die Textbox und die Schildbox des Spiels, `ds/pfeil` der Weiter-Pfeil. In CSS `--g4-szene-ds-textbox-flaeche` usw., in `tokens.ts` als `szene.ds['textbox/flaeche']`. Text auf Fläche hat mindestens 4,5:1 (`check_tokens.py`).
 - Höhen: sieben Stufen cividis, eine Stufe ist eine halbe Kachel, Isolinien bei Stufenwechsel.
 - Standardkamera ist die Gen-4-Kamera; „Draufsicht“ schaltet orthografisch zum präzisen Malen.
 

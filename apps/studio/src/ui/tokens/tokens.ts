@@ -32,6 +32,16 @@ export const szene = {
     'kern': 0xFFFFFF,
     'halo': 0x3152DE,
   },
+  ds: {
+    'grund': 0x182131,
+    'textbox/flaeche': 0xF7F7FF,
+    'textbox/rahmen': 0x4A5263,
+    'textbox/text': 0x394252,
+    'schild/flaeche': 0xE7D6B5,
+    'schild/rahmen': 0x6B5229,
+    'schild/text': 0x423921,
+    'pfeil': 0x4A5263,
+  },
 } as const;
 
 /** Muster je Geländeklasse (Shader-Parameter uPattern): 0 voll, 1 diagonal, 2 kreuz, 3 punkte, 4 wellen/linien, 5 schachbrett. */
