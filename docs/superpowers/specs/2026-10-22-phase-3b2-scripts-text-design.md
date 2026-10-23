@@ -24,7 +24,7 @@ Scripts und Texte entstehen komplett im Studio und wirken im Spiel; das Projekt 
 - Auf der neuen Route aus dem 3a-Gate bekommt ein neuer NPC per „Neues Script“ ein Script mit einem Textliteral; im Spiel spricht er diesen Text. Das Textarchiv des Headers zeigt die neue Nachricht im Panel „Text“.
 - Derselbe NPC gibt einmalig ein Item und sagt danach einen anderen Text (eine Flag, deren Namen die Completion vorschlägt).
 - Ein Vanilla-Dialog (etwa der der Mutter) wird im Editor geändert und ist im Spiel geändert.
-- Ein Level-Script (`on_load` → Script mit einer Nachricht) entsteht im Formular des Header-Editors und läuft beim Betreten der Karte.
+- Ein Level-Script (Variablen-Bedingung `on_var_condition` → Script mit einer Nachricht, das die Variable umstellt; nachgetragen 2026-10-23: ein `on_load`-Script darf keine Nachricht zeigen, die Karte bliebe schwarz) entsteht im Formular des Header-Editors und läuft beim Betreten der Karte.
 - Ein Text wird im Panel „Text“ geändert und einer angefügt; beide erscheinen im Spiel; die Suche findet den neuen Text.
 - Das Projekt öffnet weiterhin in DSPRE: Das Textarchiv zeigt die Änderung; DSPRE `main` zeigt wegen `rotom.toml` seine Skripteditoren als deaktiviert, der Avalonia-Zweig benutzt dieselben Quellen.
 - `scripts/gate.sh` läuft grün gegen alle drei Projekte (mit der neuen Werkzeug-Variable `G4_ROTOM_LSP`).
