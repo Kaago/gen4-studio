@@ -56,7 +56,11 @@ export function ButtonsPage() {
           <Kbd keys="⌘K" />
           <Kbd keys="⇧⌘P" />
           <Kbd keys="Esc" />
-          <Kbd keys="⌘K" onHinge={() => {}} />
+        </div>
+        <div className={styles.hingeSwatch}>
+          <Kbd keys="⌘K" onHinge />
+          <Kbd keys="⇧⌘P" onHinge />
+          <Kbd keys="Esc" onHinge />
         </div>
       </section>
 

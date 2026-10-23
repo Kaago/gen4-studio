@@ -89,6 +89,17 @@
   display: contents;
 }
 
+.hingeSwatch {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-12);
+  align-self: flex-start;
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-scharnier-grund);
+  color: var(--g4-scharnier-text);
+}
+
 .block > .row {
   display: flex;
   flex-wrap: wrap;

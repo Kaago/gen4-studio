@@ -3,15 +3,10 @@ import styles from "./Kbd.module.css";
 export type KbdProps = {
   /** The key combination as shown, e.g. "⌘K". */
   keys: string;
-  /** When given, the key hint is a button that opens the hinge for this shortcut. */
-  onHinge?: () => void;
+  /** Variant for keys shown on the dark hinge bar ("Auf Scharnier"); default is the light variant. */
+  onHinge?: boolean;
 };
 
-export function Kbd({ keys, onHinge }: KbdProps) {
-  if (!onHinge) return <kbd className={styles.kbd}>{keys}</kbd>;
-  return (
-    <button type="button" className={styles.hinge} onClick={onHinge}>
-      <kbd className={styles.kbd}>{keys}</kbd>
-    </button>
-  );
+export function Kbd({ keys, onHinge = false }: KbdProps) {
+  return <kbd className={onHinge ? `${styles.kbd} ${styles.onHinge}` : styles.kbd}>{keys}</kbd>;
 }
