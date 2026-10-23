@@ -5,11 +5,11 @@ export function readCss(relative: string, from: string): string {
   return readFileSync(new URL(relative, from), "utf8");
 }
 
-/** The declaration body of the first rule whose selector list contains `selector`; "" when there is none. */
+/** The declarations of every plain rule whose selector list contains `selector` (grouped rules included), joined; "" when there is none. */
 export function ruleBody(css: string, selector: string): string {
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const match of stripped.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (match[1].split(",").some((s) => s.trim() === selector)) return match[2];
-  }
-  return "";
+  return [...stripped.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((match) => match[1].split(",").some((s) => s.trim() === selector))
+    .map((match) => match[2])
+    .join("\n");
 }

@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readCss, ruleBody } from "../cssSource";
 import { Hinge } from "./Hinge";
 import type { HingeProps } from "./Hinge";
 
@@ -63,6 +64,24 @@ describe("Hinge", () => {
     expect(nav.textContent).toContain("0414");
     expect(nav.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
     expect(nav.querySelector('[aria-current="location"]')?.textContent).toContain("0414");
+  });
+
+  it("gives_every_crumb_its_full_text_as_a_title_so_a_cut_off_crumb_stays_readable", () => {
+    const onClick = vi.fn();
+    show(base({ crumbs: [{ label: "Zweiblattdorf", onClick }, { label: "Außen 0412", tech: "0394" }, { label: "Warp 0 → Header 0412", tech: "Eventdatei 0394" }] }));
+    const titles = [...container.querySelectorAll("nav li[title]")].map((li) => li.getAttribute("title"));
+    expect(titles).toEqual(["Zweiblattdorf", "Außen 0412 0394", "Warp 0 → Header 0412 Eventdatei 0394"]);
+    // A hover over the button inside a crumb shows the crumb's title.
+    expect(button("Zweiblattdorf")!.closest("li")!.getAttribute("title")).toBe("Zweiblattdorf");
+  });
+
+  it("lets_only_the_last_crumb_give_way_when_the_bar_is_narrow", () => {
+    const css = readCss("./Hinge.module.css", import.meta.url);
+    // The earlier crumbs keep their text; the last one takes the remaining space and ends in an ellipsis.
+    expect(ruleBody(css, ".crumb")).toMatch(/flex:\s*none|flex-shrink:\s*0/);
+    expect(ruleBody(css, ".last")).toMatch(/overflow:\s*hidden/);
+    expect(ruleBody(css, ".last")).toMatch(/text-overflow:\s*ellipsis/);
+    expect(ruleBody(css, ".crumbButton")).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   it("makes_a_crumb_with_a_link_a_button_and_one_without_plain_text", () => {

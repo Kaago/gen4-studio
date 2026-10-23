@@ -81,11 +81,16 @@
   text-overflow: ellipsis;
 }
 
+/* The earlier crumbs keep their text (up to a generous cap); only the last one gives way. */
 .crumb {
+  flex: none;
+  max-width: calc(var(--g4-raum-16) * 12);
   color: var(--g4-scharnier-leise);
 }
 
+/* The last crumb takes the remaining space and ends in an ellipsis; the hinge titles carry the full text. */
 .last {
+  flex: 0 1 auto;
   color: var(--g4-scharnier-text);
   font: var(--g4-font-text-s-betont);
 }
@@ -102,6 +107,11 @@
 }
 
 .crumbButton {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: var(--g4-raum-2) var(--g4-raum-4);
   border: 0;
   border-radius: var(--g4-radius-feld);
