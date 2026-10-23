@@ -141,7 +141,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
   return (
     <div
       role="group"
-      aria-label={`Matrix ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
+      aria-label={`Raster ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
       className={styles.grid}
       style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP }} /* dyn */
     >

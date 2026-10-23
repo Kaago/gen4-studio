@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { HeaderSummary } from "../../api";
 import { Button, Reference, Section } from "../../ui/primitives";
 import { KIND_LABELS, lockedText } from "../../world/events";
@@ -8,6 +7,7 @@ import type { WizardRequest } from "../WorkbenchContext";
 import { useEvents } from "../useEvents";
 import styles from "./Editor.module.css";
 import exits from "./ExitsSection.module.css";
+import { useSectionOpen } from "./foldState";
 import { referenceFor } from "./referenceFor";
 
 interface Props {
@@ -28,9 +28,9 @@ const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", 
 export function ExitsSection({ header, headers, revision, goTo, onOpenWizard, onAddWarp, onError }: Props) {
   const events = useEvents(header.event_file_id, onError, revision);
   const locked = events?.locked ?? null;
-  const [open, setOpen] = useState(true);
+  const [open, toggle] = useSectionOpen("header:exits", true);
   return (
-    <Section title={TERMS.warp.plural} count={events?.warps.length} open={open} onToggle={() => setOpen((o) => !o)}>
+    <Section title={TERMS.warp.plural} count={events?.warps.length} open={open} onToggle={toggle}>
       {events === null ? (
         <p className={styles.note}>Lade …</p>
       ) : events.warps.length === 0 ? (

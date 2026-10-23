@@ -37,6 +37,12 @@ describe("AreaGrid", () => {
     act(() => root.render(<AreaGrid matrix={matrix} headers={headers} areaFallback={1} cellSize={64} cache={cache} {...props} />));
   const cell = (x: number, y: number) => container.querySelector<HTMLElement>(`[data-cell="${x},${y}"]`);
 
+  it("names_the_grid_with_the_word_of_the_ui_vocabulary", () => {
+    show();
+    const name = container.querySelector('[role="group"]')?.getAttribute("aria-label");
+    expect(name).toMatch(/^Raster \d+, \d+ Zeilen, \d+ Spalten$/);
+  });
+
   it("renders_one_cell_per_grid_position", () => {
     show();
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(6);

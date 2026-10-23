@@ -36,7 +36,7 @@ type Preview = { model: number; state: "loading" } | { model: number; state: "ok
 async function readBuilding(map: number, index: number): Promise<{ building: BuildingDto; count: number }> {
   const { buildings } = await getMap(map);
   const building = buildings[index];
-  if (!building) throw new Error(`Gebäude ${index} existiert in Karte ${map} nicht (mehr)`);
+  if (!building) throw new Error(`Gebäude ${index + 1} existiert in Karte ${map} nicht (mehr)`);
   return { building, count: buildings.length };
 }
 
@@ -50,6 +50,7 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
       label={label}
       value={String(value)}
       error={error}
+      onChange={() => setError(undefined)}
       onCommit={(text) => {
         const n = parseNumberField(text);
         if (n === null) return setError("Das ist keine Zahl. Gib z. B. 1.5 ein.");

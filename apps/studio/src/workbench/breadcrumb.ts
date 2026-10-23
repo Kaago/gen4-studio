@@ -54,13 +54,13 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, event
       crumbs.push({ label: eventLabel(pinned, headers, events), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
       break;
     case "building":
-      crumbs.push({ label: `Gebäude ${pinned.index}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });
+      crumbs.push({ label: `Gebäude ${pinned.index + 1}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });
       break;
     case "matrixCell":
       crumbs.push({ label: `Zelle ${pinned.x}, ${pinned.y}`, tech: matrixName, onClick: link({ kind: "matrixCell", matrix: pinned.matrix, x: pinned.x, y: pinned.y }) });
       break;
     case "area":
-      crumbs.push({ label: `Area-Data ${pinned.id}`, onClick: link({ kind: "area", id: pinned.id }) });
+      crumbs.push({ label: `Area-Data ${id4(pinned.id)}`, onClick: link({ kind: "area", id: pinned.id }) });
       break;
     default:
       break;

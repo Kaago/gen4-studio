@@ -38,6 +38,19 @@ describe("TechnicalSection", () => {
     expect(container.querySelector("table")).toBeNull();
   });
 
+  it("stays_open_when_the_editor_is_replaced_by_another_one_and_back_as_a_hover_does", () => {
+    act(() => root.render(<TechnicalSection model={model} source={source} />));
+    act(() => head().click());
+    // The hover model replaces the editor: its sections unmount.
+    act(() => root.render(null));
+    act(() => root.render(<TechnicalSection model={{ kind: "event", eventFile: 411, eventKind: "object", index: 4 }} source={source} />));
+    expect(head().getAttribute("aria-expanded")).toBe("true");
+    act(() => head().click());
+    act(() => root.render(null));
+    act(() => root.render(<TechnicalSection model={model} source={source} />));
+    expect(head().getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("shows_the_asset_line_the_file_and_every_field_with_decimal_and_hex_once_opened", () => {
     act(() => root.render(<TechnicalSection model={model} source={source} />));
     act(() => head().click());

@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { Section } from "../../ui/primitives";
 import type { InspectorModel } from "../Inspector";
+import { useSectionOpen } from "./foldState";
 import styles from "./TechnicalSection.module.css";
 import { assetLine, filePath, technicalRows } from "./technical";
 import type { TechnicalSource } from "./technical";
@@ -10,10 +10,10 @@ import type { TechnicalSource } from "./technical";
  * hex value. Closed until opened. Editors render it only in Tüfteln, once their record is loaded.
  */
 export function TechnicalSection({ model, source }: { model: InspectorModel; source: TechnicalSource }) {
-  const [open, setOpen] = useState(false);
+  const [open, toggle] = useSectionOpen("technisch", false);
   const path = filePath(model);
   return (
-    <Section title="Technisch" open={open} onToggle={() => setOpen((o) => !o)}>
+    <Section title="Technisch" open={open} onToggle={toggle}>
       <dl className={styles.facts}>
         <dt>Asset</dt>
         <dd>{assetLine(model)}</dd>

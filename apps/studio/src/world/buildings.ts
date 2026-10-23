@@ -124,8 +124,8 @@ export function settleBuilding(list: BuildingDto[], index: number, expected: Bui
   return true;
 }
 
-/** Text of the confirmation before a building is deleted: its index, map, model and position. */
+/** Text of the confirmation before a building is deleted: its number (1-based, like every building label), map, model and position. */
 export function deletePrompt(map: number, index: number, b: Pick<BuildingDto, "model_id" | "x" | "y" | "z"> | undefined): string {
-  const what = `Gebäude ${index} von Karte ${String(map).padStart(4, "0")}`;
+  const what = `Gebäude ${index + 1} von Karte ${String(map).padStart(4, "0")}`;
   return b ? `${what} (Modell ${b.model_id}, x ${b.x}, y ${b.y}, z ${b.z}) löschen?` : `${what} löschen?`;
 }

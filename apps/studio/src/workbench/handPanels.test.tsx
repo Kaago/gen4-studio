@@ -109,7 +109,7 @@ describe("the hand's panels on the workbench context", () => {
     expect(row("Warp 0 → Header 0004 (T01R0201)")).toBeDefined();
     act(() => row("Objekt 0").click());
     expect(onSelectEvent).toHaveBeenCalledWith({ file: 103, kind: "object", index: 0 });
-    act(() => row("Gebäude 0").click());
+    act(() => row("Gebäude 1").click());
     expect(onSelectBuilding).toHaveBeenCalledWith({ map: 40, index: 0 });
   });
 

@@ -5,6 +5,7 @@ import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "
 import { Button, Notice, NumberField, Section, SelectField } from "../../ui/primitives";
 import { TERMS, id4 } from "../terms";
 import styles from "./Editor.module.css";
+import { useSectionOpen } from "./foldState";
 import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_NO_MESSAGES, HINT_NO_MESSAGES_DETAIL, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, headerEntries, removeEntry, runsDuringMapSetup, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
 import type { HeaderEntryType, VarCondition } from "./levelScript";
 import table from "./LevelScriptSection.module.css";
@@ -86,10 +87,10 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   const [cond, setCond] = useState({ var: 0, value: 0, script: 0 });
   // Why the last add was refused.
   const [addHint, setAddHint] = useState<string | null>(null);
-  const [open, setOpen] = useState(true);
+  const [open, toggle] = useSectionOpen("header:levelScript", true);
 
   const container = (children: ReactNode) => (
-    <Section title={TERMS.levelScript.label} open={open} onToggle={() => setOpen((o) => !o)}>
+    <Section title={TERMS.levelScript.label} open={open} onToggle={toggle}>
       {children}
     </Section>
   );

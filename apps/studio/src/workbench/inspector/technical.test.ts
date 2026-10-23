@@ -85,7 +85,7 @@ describe("assetLine and filePath", () => {
 
   it("names_the_asset_of_each_editable_model", () => {
     expect(assetLine(event)).toBe("Eventdatei 0411, Index 3");
-    expect(assetLine(building)).toBe("Karte 0187, Gebäude 2");
+    expect(assetLine(building)).toBe("Karte 0187, Index 2");
     expect(assetLine(cell)).toBe("Raster 0131, Zelle 7, 25");
     expect(assetLine({ kind: "area", id: 5 })).toBe("Area-Data 0005");
     expect(assetLine({ kind: "header", id: 1 })).toBe("Header 0001, Eintrag der Header-Tabelle");

@@ -66,7 +66,7 @@ export function assetLine(model: InspectorModel): string {
     case "area":
       return `${TERMS.areaData.label} ${id4(model.id)}`;
     case "building":
-      return `${TERMS.map.label} ${id4(model.map)}, Gebäude ${model.index}`;
+      return `${TERMS.map.label} ${id4(model.map)}, Index ${model.index}`;
     case "event":
       return `${TERMS.eventFile.label} ${id4(model.eventFile)}, Index ${model.index}`;
     case "matrixCell":

@@ -7,10 +7,10 @@ import styles from "./AddEvent.module.css";
 const OPTIONS = EVENT_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] }));
 
 /** Picks the class of a new event and asks for it; it appears on the tile the pointer was last over. */
-export function AddEvent({ disabled, title, onAdd }: { disabled?: boolean; title?: string; onAdd: (kind: EventKind) => void }) {
+export function AddEvent({ disabled, onAdd }: { disabled?: boolean; onAdd: (kind: EventKind) => void }) {
   const [kind, setKind] = useState<EventKind>("warp");
   return (
-    <span title={title} className={styles.add}>
+    <span className={styles.add}>
       <SelectField label="Art des neuen Events" value={kind} options={OPTIONS} disabled={disabled} onChange={setKind} />
       <Button kind="quiet" size="s" disabled={disabled} onClick={() => onAdd(kind)} title="Legt das Event auf der Kachel an, über der die Maus zuletzt war">
         Hinzufügen

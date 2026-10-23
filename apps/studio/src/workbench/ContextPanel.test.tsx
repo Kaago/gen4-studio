@@ -66,7 +66,7 @@ describe("ContextPanel", () => {
     expect(groups).toEqual(["Figuren2", "Türen1", "Schilder1", "Gebäude2", "Karte 0040"]);
     expect(row("Objekt 1 · ID 2").textContent).toContain("x 11, z 21");
     expect(row("Warp 0 → Header 0414 (T01R0201)")).toBeDefined();
-    expect(row("Gebäude 1").textContent).toContain("Modell 22");
+    expect(row("Gebäude 2").textContent).toContain("Modell 22");
   });
 
   it("selects_an_event_on_a_click_like_a_click_in_the_scene", () => {
@@ -77,7 +77,7 @@ describe("ContextPanel", () => {
 
   it("selects_a_building_on_a_click", () => {
     show();
-    act(() => row("Gebäude 1").click());
+    act(() => row("Gebäude 2").click());
     expect(onSelectBuilding).toHaveBeenCalledWith({ map: 40, index: 1 });
   });
 
@@ -85,8 +85,8 @@ describe("ContextPanel", () => {
     show({ selectedEvent: { file: 7, kind: "object", index: 0 }, selectedBuilding: { map: 40, index: 1 } });
     expect(row("Objekt 0").getAttribute("aria-selected")).toBe("true");
     expect(row("Objekt 1").getAttribute("aria-selected")).toBe("false");
-    expect(row("Gebäude 1").getAttribute("aria-selected")).toBe("true");
-    expect(row("Gebäude 0").getAttribute("aria-selected")).toBe("false");
+    expect(row("Gebäude 2").getAttribute("aria-selected")).toBe("true");
+    expect(row("Gebäude 1").getAttribute("aria-selected")).toBe("false");
     // The same index in another class is another event.
     show({ selectedEvent: { file: 7, kind: "warp", index: 1 } });
     expect(container.querySelectorAll('[aria-selected="true"]').length).toBe(0);
@@ -98,7 +98,7 @@ describe("ContextPanel", () => {
     dbl(row("Warp 0"));
     expect(onOpenHeader).toHaveBeenCalledWith(414);
     dbl(row("Objekt 0"));
-    dbl(row("Gebäude 0"));
+    dbl(row("Gebäude 1"));
     expect(onOpenHeader).toHaveBeenCalledOnce();
   });
 
@@ -130,7 +130,7 @@ describe("ContextPanel", () => {
 
   it("lists_the_buildings_while_the_events_still_load", () => {
     show({ events: null });
-    expect(row("Gebäude 0")).toBeDefined();
+    expect(row("Gebäude 1")).toBeDefined();
     expect(container.textContent).toContain("2 Gebäude");
   });
 });

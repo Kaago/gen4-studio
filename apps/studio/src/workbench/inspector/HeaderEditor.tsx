@@ -10,6 +10,7 @@ import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
 import { ExitsSection } from "./ExitsSection";
 import { Field } from "./Field";
+import { useSectionFolds } from "./foldState";
 import { fieldValue, pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
 import { HeaderSession } from "./headerCommit";
@@ -65,14 +66,9 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
-  // The form sections the user folded away (a closed section does not render its fields).
-  const [folded, setFolded] = useState<ReadonlySet<HeaderSectionId>>(new Set());
-  const toggle = (section: HeaderSectionId) =>
-    setFolded((current) => {
-      const next = new Set(current);
-      if (!next.delete(section)) next.add(section);
-      return next;
-    });
+  // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: a hover mounts a new one.
+  const folds = useSectionFolds();
+  const foldKey = (section: HeaderSectionId) => `header:${section}`;
   const callbacks = useRef({ onChanged, onError });
   callbacks.current = { onChanged, onError };
   const session = useRef<HeaderSession | null>(null);
@@ -157,7 +153,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         ) : (
           <div key={refused}>
             {headerSections(headerFamily(header)).map((section) => (
-              <Section key={section.id} title={section.title} open={!folded.has(section.id)} onToggle={() => toggle(section.id)}>
+              <Section key={section.id} title={section.title} open={folds.isOpen(foldKey(section.id))} onToggle={() => folds.toggle(foldKey(section.id))}>
                 {section.specs.map((spec) => fieldRow(spec, header))}
                 {section.id === "texts" && !scriptsAdopted && (
                   <p role="note" className={styles.note}>

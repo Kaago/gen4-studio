@@ -88,6 +88,15 @@ describe("BuildingEditor", () => {
     expect(container.textContent).toContain("Das ist keine Zahl. Gib z. B. 1.5 ein.");
   });
 
+  it("drops_the_refusal_as_soon_as_the_user_types_again", async () => {
+    await show();
+    await typeAndBlur(field("z (Kacheln)"), "abc");
+    expect(container.textContent).toContain("keine Zahl");
+    await act(async () => void field("z (Kacheln)").focus());
+    typeInto(field("z (Kacheln)"), "1");
+    expect(container.textContent).not.toContain("keine Zahl");
+  });
+
   it("writes_a_new_model_number_and_refuses_a_negative_one_without_clamping", async () => {
     await show();
     await typeAndBlur(field("Modellnummer"), "9");
@@ -121,6 +130,6 @@ describe("BuildingEditor", () => {
     expect(technical()?.getAttribute("aria-expanded")).toBe("false");
     expect(hexSwitch()).toBe(true);
     await act(async () => void technical()?.click());
-    expect(container.textContent).toContain("Karte 0012, Gebäude 2");
+    expect(container.textContent).toContain("Karte 0012, Index 2");
   });
 });

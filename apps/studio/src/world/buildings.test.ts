@@ -131,8 +131,8 @@ describe("buildings", () => {
   });
 
   it("names model and position in the delete confirmation", () => {
-    expect(deletePrompt(12, 3, { model_id: 7, x: -5.5, y: 1, z: 4 })).toBe("Gebäude 3 von Karte 0012 (Modell 7, x -5.5, y 1, z 4) löschen?");
-    expect(deletePrompt(12, 3, undefined)).toBe("Gebäude 3 von Karte 0012 löschen?");
+    expect(deletePrompt(12, 3, { model_id: 7, x: -5.5, y: 1, z: 4 })).toBe("Gebäude 4 von Karte 0012 (Modell 7, x -5.5, y 1, z 4) löschen?");
+    expect(deletePrompt(12, 3, undefined)).toBe("Gebäude 4 von Karte 0012 löschen?");
   });
 
   it("maps Cmd/Ctrl+Z and +S to app shortcuts, but leaves Z to a field being typed in", () => {

@@ -243,6 +243,18 @@ describe("HeaderEditor scripts", () => {
       expect(field("Wetter").value).toBe("21");
     });
 
+    it("keeps_a_folded_section_folded_when_the_editor_is_replaced_and_mounted_again_as_a_hover_does", async () => {
+      await show();
+      await click(sectionHead("Aussehen"));
+      expect(field("Wetter")).toBeNull();
+      await act(async () => root.render(null));
+      await show();
+      await flush();
+      expect(field("Wetter")).toBeNull();
+      await click(sectionHead("Aussehen"));
+      expect(field("Wetter")).not.toBeNull();
+    });
+
     it("leads_the_matrix_and_the_area_data_to_their_targets_and_changes_them_through_the_picker", async () => {
       const goTo = vi.fn();
       await show(context({ counts: { Script: 800, Matrix: 10, AreaData: 5 }, goTo }));

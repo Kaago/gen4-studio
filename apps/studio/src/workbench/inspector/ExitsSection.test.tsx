@@ -66,6 +66,15 @@ describe("ExitsSection", () => {
     expect(getEvents).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps_the_list_folded_when_the_editor_is_mounted_again_as_after_a_hover", async () => {
+    await show();
+    await click(container.querySelector<HTMLButtonElement>("h3 button"));
+    act(() => root.render(null));
+    await show();
+    expect(container.querySelector<HTMLButtonElement>("h3 button")!.getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toHaveLength(0);
+  });
+
   it("goes_to_the_destination_header_and_not_to_an_unknown_one", async () => {
     await show();
     await click(rows()[0]!.querySelector("button"));

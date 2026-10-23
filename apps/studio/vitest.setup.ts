@@ -1,3 +1,9 @@
+import { afterEach } from "vitest";
+import { resetSectionFolds } from "./src/workbench/inspector/foldState";
+
+// The inspector remembers folded sections across editors (outside React state); a test starts with the defaults.
+afterEach(() => resetSectionFolds());
+
 // jsdom lacks these browser APIs; stubs are installed only when the environment has no own version.
 
 if (typeof globalThis.ResizeObserver === "undefined") {

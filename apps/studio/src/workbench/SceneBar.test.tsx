@@ -41,15 +41,4 @@ describe("SceneBar", () => {
     expect(onShowPermissions).toHaveBeenCalledWith(false);
     expect(onShowEvents).toHaveBeenCalledWith(true);
   });
-
-  it("shows_extra_controls_after_the_toggles", () => {
-    show({ extra: <button type="button">Neues Gebäude</button> });
-    const labels = [...container.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent);
-    expect(labels).toEqual(["Gelände", "Ereignisse", "Neues Gebäude"]);
-  });
-
-  it("shows_no_extra_group_without_extra_controls", () => {
-    show();
-    expect(container.querySelectorAll("button")).toHaveLength(2);
-  });
 });

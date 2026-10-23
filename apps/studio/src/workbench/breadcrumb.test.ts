@@ -79,9 +79,9 @@ describe("crumbsFor", () => {
 
   it("writes_a_building_a_cell_and_area_data_as_the_last_crumb", () => {
     const last = (crumbs: Crumb[]) => crumbs[crumbs.length - 1];
-    expect(last(pin({ kind: "building", map: 3, index: 3 }))).toMatchObject({ label: "Gebäude 3" });
+    expect(last(pin({ kind: "building", map: 3, index: 3 }))).toMatchObject({ label: "Gebäude 4" });
     expect(last(pin({ kind: "matrixCell", matrix: 0, x: 7, y: 25 }, 0, { matrixName: "Hauptraster" }))).toMatchObject({ label: "Zelle 7, 25", tech: "Hauptraster" });
-    expect(last(pin({ kind: "area", id: 12 }))).toMatchObject({ label: "Area-Data 12" });
+    expect(last(pin({ kind: "area", id: 12 }))).toMatchObject({ label: "Area-Data 0012" });
   });
 
   it("never_has_more_than_three_crumbs", () => {

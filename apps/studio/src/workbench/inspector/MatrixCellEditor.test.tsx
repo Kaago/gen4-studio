@@ -86,6 +86,15 @@ describe("MatrixCellEditor", () => {
     expect(setMatrixCell).not.toHaveBeenCalled();
   });
 
+  it("drops_the_refusal_of_the_map_as_soon_as_the_user_types_again", async () => {
+    await show();
+    await typeAndBlur("Karte", "700");
+    expect(container.textContent).toContain("höchstens 599");
+    await act(async () => void input("Karte").focus());
+    typeInto(input("Karte"), "7");
+    expect(container.textContent).not.toContain("höchstens 599");
+  });
+
   it("writes_a_header_and_an_altitude_and_refuses_beyond_their_limits", async () => {
     await show();
     await typeAndBlur("Header", "413");

@@ -39,6 +39,7 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
       placeholder="leer"
       value={map === null ? "" : String(map)}
       error={error}
+      onChange={() => setError(undefined)}
       onCommit={(text) => {
         if (text.trim() === "") {
           setError(undefined);

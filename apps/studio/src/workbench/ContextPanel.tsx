@@ -95,7 +95,7 @@ export function ContextPanel({ hasPlace, events, headers, buildings, selectedEve
                   {m.models.map((model, index) => (
                     <ListRow
                       key={index}
-                      label={`Gebäude ${index}`}
+                      label={`Gebäude ${index + 1}`}
                       tech={`Modell ${model}`}
                       icon="building"
                       selected={selectedBuilding?.map === m.map && selectedBuilding.index === index}
