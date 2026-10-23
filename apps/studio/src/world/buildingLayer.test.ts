@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { BuildingDto, MapDto, MatrixDto } from "../api";
+import { applyTheme } from "../ui/tokens/theme";
 import { BuildingLayer } from "./buildingLayer";
+import { selectionColor } from "./colors";
 
 const building = (model_id: number, x = 0, z = 0, over: Partial<BuildingDto> = {}): BuildingDto => ({
   model_id,
@@ -112,6 +114,26 @@ describe("BuildingLayer", () => {
     expect(positions(layer)).toEqual(expect.arrayContaining([[18.5, 0, 15], [82.5, 0, 15]]));
     layer.select(null);
     expect(layer.root.children[1].children).toHaveLength(0);
+  });
+
+  it("draws the outline in the colour of the theme and recolours it without rebuilding", () => {
+    const outlineColors = (layer: BuildingLayer) => layer.root.children[1].children.map((h) => ((h as THREE.BoxHelper).material as THREE.LineBasicMaterial).color.getHexString());
+    try {
+      applyTheme("hell");
+      const layer = new BuildingLayer();
+      layer.build(matrix, loaded());
+      layer.select({ map: 5, index: 1 });
+      expect(outlineColors(layer)).toEqual(["3152de", "3152de"]);
+      const helpers = [...layer.root.children[1].children];
+      layer.recolorOutlines(selectionColor("dunkel"));
+      expect(outlineColors(layer)).toEqual(["ffffff", "ffffff"]);
+      expect(layer.root.children[1].children).toEqual(helpers);
+      applyTheme("dunkel");
+      layer.select({ map: 5, index: 1 });
+      expect(outlineColors(layer)).toEqual(["ffffff", "ffffff"]);
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
   });
 
   it("swaps the model when the model number of a shown building changes", () => {

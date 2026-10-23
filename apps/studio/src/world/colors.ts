@@ -45,8 +45,13 @@ export function eventColor(key: EventColorKey): string {
   return hexOf(szene.ereignis[key]);
 }
 
-/** Outline of the selected marker or building: the halo of the selection colours. */
-export const SELECTION_HALO = hexOf(szene.auswahl.halo);
+/**
+ * Outline of the selected marker or building: the halo on the light world surface, the core (white) on the dark one, where the
+ * halo has only 2.6:1 and the spec (section 9) asks for 3:1.
+ */
+export function selectionColor(theme: "hell" | "dunkel"): string {
+  return hexOf(theme === "dunkel" ? szene.auswahl.kern : szene.auswahl.halo);
+}
 
 /** Wireframe box of a building whose model is missing (amber, like the class `vorsprung`). */
 export const FALLBACK_BOX = terrainColor("vorsprung");

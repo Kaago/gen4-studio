@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto } from "../api";
-import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, moveMarker, pickMarker, selectMarker } from "./markers";
+import { applyTheme } from "../ui/tokens/theme";
+import { selectionColor } from "./colors";
+import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, moveMarker, pickMarker, recolorMarkerOutline, selectMarker } from "./markers";
 
 const matrix = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
 
@@ -169,6 +171,28 @@ describe("selectMarker", () => {
     // Moving another event leaves the outline alone.
     moveMarker(set, { kind: "object", index: 0 }, { x: 1, z: 1 });
     expect(set.outline?.position.toArray()).toEqual([9.5, 0.6, 4.5]);
+  });
+
+  it("outlines in the colour of the theme and recolours the outline in place", () => {
+    const color = (set: ReturnType<typeof buildMarkers>) => (set.outline?.material as THREE.LineBasicMaterial).color.getHexString();
+    try {
+      applyTheme("hell");
+      const set = buildMarkers(matrix, events());
+      selectMarker(set, { kind: "warp", index: 0 });
+      expect(color(set)).toBe("3152de");
+      const outline = set.outline;
+      recolorMarkerOutline(set, selectionColor("dunkel"));
+      expect(color(set)).toBe("ffffff");
+      expect(set.outline).toBe(outline);
+      applyTheme("dunkel");
+      selectMarker(set, { kind: "warp", index: 0 });
+      expect(color(set)).toBe("ffffff");
+      // No outline, nothing to recolour.
+      selectMarker(set, null);
+      expect(() => recolorMarkerOutline(set, "#000000")).not.toThrow();
+    } finally {
+      delete document.documentElement.dataset.theme;
+    }
   });
 
   it("outlines nothing for no selection or for an event without a marker", () => {

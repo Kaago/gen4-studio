@@ -29,6 +29,14 @@ function storeEmulator(path: string) {
   }
 }
 
+function forgetEmulator() {
+  try {
+    localStorage.removeItem(EMULATOR_KEY);
+  } catch {
+    /* nothing stored that could be kept */
+  }
+}
+
 interface SessionParams {
   /** Where a saved text archive is announced (the language server reads it again). */
   bus: EditBus;
@@ -312,7 +320,15 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     try {
       const emulator = storedEmulator() ?? (await pickEmulator());
       if (!emulator) return;
-      await runRom(emulator, rom);
+      try {
+        await runRom(emulator, rom);
+      } catch (e) {
+        // A wrong choice cannot be undone anywhere else in the UI: forget it, so the next start asks again.
+        forgetEmulator();
+        const why = errorText(e);
+        setMessage({ kind: "error", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Beim nächsten Start fragt das Studio erneut nach dem Emulator.` });
+        return;
+      }
       setMessage({ kind: "info", text: `Emulator gestartet: ${rom}` });
     } catch (e) {
       fail(e);

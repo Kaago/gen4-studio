@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { BuildingDto, MapDto, MatrixDto } from "../api";
-import { FALLBACK_BOX, SELECTION_HALO } from "./colors";
+import { effectiveTheme } from "../ui/tokens/theme";
+import { FALLBACK_BOX, selectionColor } from "./colors";
 import { buildingFallbackBox, buildingKey, buildingModelIds, buildingTransform } from "./buildings";
 import { cellOrigin, cellY } from "./layout";
 import { cloneModel, disposeClone, disposeTree } from "./sceneUtil";
@@ -22,7 +23,6 @@ interface Slot {
 
 const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
 const boxMaterial = new THREE.MeshBasicMaterial({ color: FALLBACK_BOX, wireframe: true });
-const OUTLINE_COLOR = SELECTION_HALO;
 
 /**
  * The buildings of the shown matrix: one group per building and cell, holding the textured model
@@ -134,13 +134,18 @@ export class BuildingLayer {
     }
     if (!ref) return;
     for (const slot of this.slots.get(buildingKey(ref.map, ref.index)) ?? []) {
-      const helper = new THREE.BoxHelper(slot.group, OUTLINE_COLOR);
+      const helper = new THREE.BoxHelper(slot.group, selectionColor(effectiveTheme()));
       const material = helper.material as THREE.LineBasicMaterial;
       material.depthTest = false;
       helper.renderOrder = 12;
       helper.frustumCulled = false;
       this.outlineGroup.add(helper);
     }
+  }
+
+  /** Gives the outlines drawn now another colour (the theme switched); no outline is rebuilt. */
+  recolorOutlines(hex: string) {
+    for (const helper of this.outlineGroup.children) ((helper as THREE.BoxHelper).material as THREE.LineBasicMaterial).color.set(hex);
   }
 
   /** Whether building `ref` exists in the scene. */

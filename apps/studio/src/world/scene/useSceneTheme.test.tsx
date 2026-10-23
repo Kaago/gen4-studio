@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyTheme } from "../../ui/tokens/theme";
 import { dunkel, hell } from "../../ui/tokens/tokens";
+import { selectionColor } from "../colors";
 import type { SceneHost } from "./SceneHost";
 import { useSceneTheme } from "./useSceneTheme";
 
@@ -59,6 +60,22 @@ describe("useSceneTheme", () => {
     act(() => applyTheme("hell"));
     expect(host.setBackground).toHaveBeenLastCalledWith(hell["flaeche/welt"]);
     expect(host.setBackground).toHaveBeenCalledTimes(2);
+  });
+
+  it("recolours_the_selection_outlines_by_theme_before_the_one_render", () => {
+    const { host } = fakeHost();
+    const recolorOutlines = vi.fn();
+    const setColor = vi.fn();
+    Object.assign(host, { buildings: { recolorOutlines }, markers: { outline: { material: { color: { set: setColor } } } } });
+    const refs = { handle: { current: host as unknown as SceneHost } };
+    act(() => root.render(<Probe refs={refs} />));
+    act(() => applyTheme("dunkel"));
+    expect(recolorOutlines).toHaveBeenCalledExactlyOnceWith(selectionColor("dunkel"));
+    expect(setColor).toHaveBeenCalledExactlyOnceWith(selectionColor("dunkel"));
+    expect(host.render).toHaveBeenCalledTimes(1);
+    act(() => applyTheme("hell"));
+    expect(recolorOutlines).toHaveBeenLastCalledWith(selectionColor("hell"));
+    expect(setColor).toHaveBeenLastCalledWith(selectionColor("hell"));
   });
 
   it("ignores_a_choice_that_changes_nothing_and_a_disposed_or_missing_host", () => {

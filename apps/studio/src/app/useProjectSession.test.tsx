@@ -202,6 +202,15 @@ describe("useProjectSession with open scripts", () => {
     localStorage.removeItem("g4.emulatorPath");
   });
 
+  it("run_forgets_the_stored_emulator_when_it_fails_to_start_and_says_so", async () => {
+    localStorage.setItem("g4.emulatorPath", "/falsch");
+    vi.mocked(runRom).mockRejectedValueOnce({ code: "error", message: "Emulator nicht startbar", asset: null });
+    await act(async () => session.onRun("/given.nds"));
+    expect(localStorage.getItem("g4.emulatorPath")).toBeNull();
+    expect(session.message).toMatchObject({ kind: "error" });
+    expect(session.message?.text).toBe("Emulator nicht startbar. Beim nächsten Start fragt das Studio erneut nach dem Emulator.");
+  });
+
   it("build_puts_compile_problems_of_the_saves_into_the_store_and_still_builds", async () => {
     await openDirty(3);
     vi.mocked(saveScript).mockResolvedValue({ problems: [problem("expanded/scripts/0003.rotom", 2, "unbekannter Befehl", "warning")], touched_archives: [] });

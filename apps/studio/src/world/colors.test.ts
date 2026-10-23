@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { dunkel, hell, szene } from "../ui/tokens/tokens";
-import { eventColor, hexOf, permissionColor, sceneBackground, SELECTION_HALO, terrainColor } from "./colors";
+import { eventColor, hexOf, permissionColor, sceneBackground, selectionColor, terrainColor } from "./colors";
 
 describe("hexOf", () => {
   it("writes_a_token_number_as_six_upper_case_hex_digits", () => {
@@ -55,7 +55,12 @@ describe("scene colours", () => {
   it("builds_terrain_and_event_colours_from_the_tokens", () => {
     expect(terrainColor("eis")).toBe("#52B5E7");
     expect(eventColor("warp")).toBe("#AD3173");
-    expect(SELECTION_HALO).toBe("#3152DE");
+  });
+
+  it("picks_the_selection_outline_by_theme_so_it_stays_visible_on_the_dark_surface", () => {
+    expect(selectionColor("hell")).toBe(hexOf(szene.auswahl.halo));
+    expect(selectionColor("dunkel")).toBe(hexOf(szene.auswahl.kern));
+    expect(selectionColor("hell")).not.toBe(selectionColor("dunkel"));
   });
 
   it("takes_the_background_of_the_scene_from_the_theme", () => {

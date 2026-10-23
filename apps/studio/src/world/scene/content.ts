@@ -16,7 +16,7 @@ export const OVERLAY_Y = 0.05;
 /** Opacity of the overlay fill (spec §8.1: 42 %). */
 export const OVERLAY_OPACITY = 0.42;
 
-const colorCache =new Map<string, THREE.Color>();
+const colorCache = new Map<string, THREE.Color>();
 export function overlayColor(kind: number, collision: number, names: Map<number, TileBehavior>): THREE.Color {
   const hex = permissionColor(kind, collision, names.get(kind)?.class ?? null);
   let color = colorCache.get(hex);

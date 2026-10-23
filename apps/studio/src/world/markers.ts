@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { EventsDto, MatrixDto } from "../api";
-import { SELECTION_HALO } from "./colors";
+import { effectiveTheme } from "../ui/tokens/theme";
+import { selectionColor } from "./colors";
 import { MARKER_COLORS, markerPosition } from "./events";
 import { cellYAtTile } from "./layout";
 import type { EventData, EventKind } from "./events";
@@ -213,7 +214,7 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   if (!ref || !found) return;
   const { width, height } = outlineSize(found.mesh, ref.kind);
   const box = new THREE.BoxGeometry(width, height, width);
-  const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: SELECTION_HALO, depthTest: false }));
+  const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: selectionColor(effectiveTheme()), depthTest: false }));
   box.dispose();
   outline.renderOrder = 12;
   outline.frustumCulled = false;
@@ -221,6 +222,11 @@ export function selectMarker(set: MarkerSet, ref: MarkerRef | null) {
   set.selected = ref;
   set.group.add(outline);
   placeOutline(set, found.data.x, found.data.z);
+}
+
+/** Gives the outline drawn now another colour (the theme switched); nothing is rebuilt. */
+export function recolorMarkerOutline(set: MarkerSet, hex: string) {
+  (set.outline?.material as THREE.LineBasicMaterial | undefined)?.color.set(hex);
 }
 
 /** The box that outlines a marker: a sprite's own height (and its width when wider than the usual box). */
