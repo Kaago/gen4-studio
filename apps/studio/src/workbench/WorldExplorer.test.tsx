@@ -289,6 +289,12 @@ describe("WorldExplorer", () => {
       render(props({ onToggleList, info: { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: 5 } }));
       expect(container.querySelector("h2")?.textContent).toBe("Orte");
       expect(container.textContent).toContain("Platin, EN");
+      // The view switch is symbols only (so the game name has room); the options keep their names.
+      const view = container.querySelector('[role="group"][aria-label="Ansicht"]')!;
+      expect([...view.querySelectorAll("button")].map((b) => [b.textContent, b.getAttribute("aria-label")])).toEqual([
+        ["", "Baum"],
+        ["", "Liste"],
+      ]);
       act(() => button("Liste einklappen")!.click());
       expect(onToggleList).toHaveBeenCalledTimes(1);
     });

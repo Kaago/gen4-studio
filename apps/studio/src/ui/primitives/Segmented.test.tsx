@@ -75,4 +75,32 @@ describe("Segmented", () => {
     );
     expect(buttons()).toHaveLength(2);
   });
+
+  it("shows_symbols_only_on_request_and_keeps_the_label_as_the_name", () => {
+    const onChange = vi.fn();
+    act(() => root.render(<Segmented options={options} value="liste" onChange={onChange} ariaLabel="Ansicht" iconOnly />));
+    expect(buttons().map((b) => b.textContent)).toEqual(["", ""]);
+    expect(buttons().map((b) => b.getAttribute("aria-label"))).toEqual(["Baum", "Liste"]);
+    expect(buttons().every((b) => b.querySelector("svg") !== null)).toBe(true);
+    expect(pressed().map((b) => b.getAttribute("aria-label"))).toEqual(["Liste"]);
+    act(() => buttons()[0].click());
+    expect(onChange.mock.calls).toEqual([["baum"]]);
+  });
+
+  it("names_an_icon_only_option_in_a_tooltip", async () => {
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(<Segmented options={options} value="liste" onChange={() => {}} ariaLabel="Ansicht" iconOnly />));
+      await act(async () => {
+        const b = buttons()[0];
+        b.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        b.dispatchEvent(new MouseEvent("mouseenter"));
+        b.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Baum");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

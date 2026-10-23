@@ -386,12 +386,13 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, listOpe
     <>
       <Segmented<Mode>
         size="s"
+        iconOnly
         ariaLabel="Ansicht"
         value={mode}
         onChange={changeMode}
         options={[
-          { value: "tree", label: "Baum" },
-          { value: "list", label: "Liste" },
+          { value: "tree", label: "Baum", icon: "tree" },
+          { value: "list", label: "Liste", icon: "list" },
         ]}
       />
       <Menu
