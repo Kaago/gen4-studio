@@ -2,6 +2,7 @@
 # Style rules for apps/studio/src (spec 3c, section 4):
 #   1. no `style={{` in *.tsx
 #   2. no hex colours (#rgb, #rrggbb, #rrggbbaa) in *.tsx, *.ts, *.css
+#   3. no primitive colour tokens (--g4-platin-500, --g4-kobalt-600, ...) in *.tsx, *.ts, *.css
 # Not checked: ui/tokens/, world/colors.ts, test files, lines marked `/* dyn */`
 # (runtime values) and the files listed in scripts/check-styles.allow.
 # Prints file:line for every finding and exits 1 when there is any.
@@ -37,7 +38,7 @@ report() { # report <rule> <regex> <file>
     case "$hit" in *"/* dyn */"*) continue ;; esac
     printf '%s:%s [%s]\n' "$file" "$hit" "$rule"
     found=1
-  done < <(grep -nE "$regex" "$file" || true)
+  done < <(grep -nE -e "$regex" "$file" || true)
 }
 
 while IFS= read -r file; do
@@ -49,6 +50,7 @@ while IFS= read -r file; do
     *.tsx) report "inline style" 'style=\{\{' "$file" ;;
   esac
   report "hex colour" '#[0-9a-fA-F]{3,8}\b' "$file"
+  report "primitive token" '--g4-(platin|kobalt|bernstein|signal|moos|zerr|koralle|lagune|sand)-[0-9]' "$file"
 done < <(find "$SRC" -type f \( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \) | sort)
 
 if [ "$found" -ne 0 ]; then

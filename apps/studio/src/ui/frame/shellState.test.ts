@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { HAND_COLLAPSED, HAND_DEFAULT, HAND_MAX, HAND_MIN, readShellState, rememberRecent, writeShellState } from "./shellState";
+import { HAND_DEFAULT, HAND_MAX, HAND_MIN, readShellState, rememberRecent, writeShellState } from "./shellState";
 import type { RecentProject } from "./shellState";
 
 const KEY = "g4.shell.v1";
@@ -17,7 +17,7 @@ describe("shell state", () => {
     expect(s.listOpen.welt).toBe(true);
     expect(s.handHeight.welt).toBe(286);
     expect(s.handCollapsed.welt).toBe(false);
-    expect([HAND_MIN, HAND_MAX, HAND_DEFAULT, HAND_COLLAPSED]).toEqual([200, 560, 286, 48]);
+    expect([HAND_MIN, HAND_MAX, HAND_DEFAULT]).toEqual([200, 560, 286]);
   });
 
   it("round_trips_what_it_wrote", () => {

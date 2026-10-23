@@ -73,6 +73,31 @@ describe("toast store", () => {
     expect(listToasts().map((t) => t.text)).toEqual(["Fehler 2", "Fehler 3", "Fehler 4", "Fehler 5"]);
   });
 
+  it("an_error_equal_to_an_open_one_bumps_it_instead_of_stacking", () => {
+    const first = toast.error("Build abgebrochen", { actions: [{ label: "Probleme zeigen", onClick: vi.fn() }] });
+    toast.error("Anderer Fehler");
+    const onClick = vi.fn();
+    const again = toast.error("Build abgebrochen", { actions: [{ label: "Probleme zeigen", onClick }] });
+    expect(again).toBe(first);
+    expect(listToasts().map((t) => t.text)).toEqual(["Anderer Fehler", "Build abgebrochen"]);
+    listToasts()[1]!.actions[0]!.onClick();
+    expect(onClick).toHaveBeenCalledOnce();
+    // Other action labels or other text are a different error.
+    toast.error("Build abgebrochen");
+    toast.error("Build abgebrochen", { actions: [{ label: "Wiederholen", onClick: vi.fn() }] });
+    expect(listToasts()).toHaveLength(4);
+  });
+
+  it("a_full_stack_of_errors_makes_room_for_a_new_info_by_dropping_its_oldest_error", () => {
+    for (const n of [1, 2, 3, 4]) toast.error(`Fehler ${n}`);
+    const info = toast.info("Gespeichert");
+    expect(listToasts().map((t) => t.text)).toEqual(["Fehler 2", "Fehler 3", "Fehler 4", "Gespeichert"]);
+    expect(listToasts().some((t) => t.id === info)).toBe(true);
+    toast.progress("load", "1/3");
+    // The older info goes before any error.
+    expect(listToasts().map((t) => t.text)).toEqual(["Fehler 2", "Fehler 3", "Fehler 4", "1/3"]);
+  });
+
   it("hover_pauses_the_clock_and_leaving_resumes_with_the_rest", () => {
     const id = toast.info("Gespeichert");
     vi.advanceTimersByTime(3000);

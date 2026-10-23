@@ -1,6 +1,7 @@
 // The toast store: a plain module (no React) that `ToastHost` reads through `useSyncExternalStore`.
 // Rules: info vanishes after INFO_MS (hover pauses the clock); an error stays until closed, with or without actions;
-// progress stays until `progress(key, null)` and a second one with the same key replaces the first; at most four toasts.
+// progress stays until `progress(key, null)` and a second one with the same key replaces the first; an error that says what an open
+// error already says (same text, same action labels) bumps that one instead of stacking; at most four toasts.
 
 export const INFO_MS = 5000;
 const MAX_TOASTS = 4;
@@ -41,11 +42,14 @@ function startClock(id: string, ms: number): void {
   clocks.set(id, clock);
 }
 
-/** Drop order when more than four are open: the oldest info, then the oldest progress, never an error while one of those exists. */
-function trim(list: readonly Toast[]): readonly Toast[] {
+/**
+ * Drop order when more than four are open: the oldest info, then the oldest progress, then the oldest error. The toast that was just
+ * added (`fresh`) is never the one to go: a full stack of errors makes room for it by dropping its oldest error.
+ */
+function trim(list: readonly Toast[], fresh: string): readonly Toast[] {
   const kept = [...list];
   while (kept.length > MAX_TOASTS) {
-    const victim = (["info", "progress", "error"] as const).map((kind) => kept.findIndex((t) => t.kind === kind)).find((i) => i >= 0) ?? 0;
+    const victim = (["info", "progress", "error"] as const).map((kind) => kept.findIndex((t) => t.kind === kind && t.id !== fresh)).find((i) => i >= 0) ?? 0;
     const [dropped] = kept.splice(victim, 1);
     if (dropped) stopClock(dropped.id);
   }
@@ -56,7 +60,7 @@ function add(kind: ToastKind, text: string, options?: ToastOptions, key?: string
   const id = `toast-${nextId++}`;
   const toast: Toast = { id, kind, text, actions: options?.actions ?? [], ...(key === undefined ? {} : { key }) };
   if (kind === "info") startClock(id, INFO_MS);
-  emit(trim([...toasts, toast]));
+  emit(trim([...toasts, toast], id));
   return id;
 }
 
@@ -68,7 +72,14 @@ function dismiss(id: string): void {
 
 export const toast = {
   info: (text: string, options?: ToastOptions): string => add("info", text, options),
-  error: (text: string, options?: ToastOptions): string => add("error", text, options),
+  /** An error equal to an open one (text and action labels) takes that one's place at the end, with the new actions, and keeps its id. */
+  error(text: string, options?: ToastOptions): string {
+    const actions = options?.actions ?? [];
+    const same = toasts.find((t) => t.kind === "error" && t.text === text && t.actions.length === actions.length && t.actions.every((a, i) => a.label === actions[i]?.label));
+    if (same === undefined) return add("error", text, options);
+    emit([...toasts.filter((t) => t !== same), { ...same, actions }]);
+    return same.id;
+  },
   /** Replaces the toast with the same key; `null` removes it. */
   progress(key: string, text: string | null): void {
     const existing = toasts.find((t) => t.kind === "progress" && t.key === key);

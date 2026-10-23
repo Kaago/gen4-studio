@@ -71,7 +71,7 @@
   color: var(--g4-akzent-auf);
 }
 .danger:hover:not(:disabled) {
-  background: var(--g4-akzent-hover);
+  background: color-mix(in srgb, var(--g4-status-fehler) 85%, var(--g4-text-primaer));
 }
 
 .button:disabled {

@@ -537,11 +537,11 @@ describe("App wiring", () => {
 
     it("counts_the_undo_steps_after_a_write_and_lists_their_labels_newest_first", async () => {
       expect(hingeButton(/^Verlauf/)?.textContent).toContain("0");
-      vi.mocked(history).mockResolvedValue({ undo: ["Name geändert", "Tür verschoben", ""], redo: [] });
+      vi.mocked(history).mockResolvedValue({ undo: ["edit header", "move event", ""], redo: [] });
       await act(async () => data().onEdited());
       await tick(150);
       expect(hingeButton(/^Verlauf/)?.textContent).toContain("3");
-      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Tür verschoben", "Name geändert"]);
+      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Event verschoben", "Header geändert"]);
     });
 
     it("goes_back_as_many_undo_steps_as_the_clicked_entry_is_deep", async () => {
@@ -556,7 +556,7 @@ describe("App wiring", () => {
 
     it("redoes_from_the_hinge_when_there_is_something_to_redo", async () => {
       expect(hingeButton("Wiederholen")?.disabled).toBe(true);
-      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["Tür verschoben"] });
+      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["move event"] });
       await act(async () => data().onEdited());
       await tick(150);
       expect(hingeButton("Wiederholen")?.disabled).toBe(false);

@@ -205,7 +205,7 @@ Das Design-System „Doppeldeck“ ([design-system/README.md](../design-system/R
 
 ## Querschnitt (laufend ab Phase 1)
 
-- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
+- Prüfung: `scripts/gate.sh` fährt lokal `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`, die Token-Prüfung (`scripts/check-tokens.sh`), die Stilprüfung (`scripts/check-styles.sh`: keine Hex-Farben, keine Primitive, keine Inline-Styles), `pnpm build` und die gated Tests gegen die drei Testprojekte (siehe `docs/dev-setup.md`). Es gibt kein Remote und noch keine CI; Builds für macOS (arm64) und Windows (x64), Linux als Best-Effort, folgen mit einem Remote.
 - Releases: Tauri-Bundles, signiert, mit Auto-Update ab Phase 3b.
 - Dokumentation: `docs/formats/` für jedes Format mit Byte-Layout und Quelle der Information.
 - Lizenz-Audit bei jeder neuen Abhängigkeit (`cargo deny`).

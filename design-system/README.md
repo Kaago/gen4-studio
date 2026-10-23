@@ -153,9 +153,9 @@ Jeder Screen ist 1440 × 900 und zeigt einen konkreten Moment mit echten Zustän
 Stand nach Phase 3c.1 (Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md)). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
 
 Umgesetzt (3c.1):
-- Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons; Thema (Hell, Dunkel, System) und Dichte (Komfort, Kompakt) in der Titelleiste und der Statusleiste umschaltbar.
+- Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons; Thema in der Titelleiste (Hell und Dunkel; „System“ folgt mit den Einstellungen in 3c.2) und Dichte (Komfort, Kompakt) in der Statusleiste umschaltbar.
 - Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand), sichtbar in der Galerie (`?gallery` im Browser-Modus).
-- Der Rahmen: Titelleiste, Atlas (Start, Welt, drei gesperrte Bereiche, Hilfe), Liste „Orte“, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts.
+- Der Rahmen: Titelleiste, Atlas (Start, Welt, sechs gesperrte Bereiche, Hilfe), Liste „Orte“, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts.
 - Der Bereich Welt im neuen Raster: 3D, Raster und Weltkarte als Schau; Werkzeuge mit Buchstabenkürzeln (V B F T A S G), Inspector und „An diesem Ort“ als Hand; Text, Script und Probleme als Reiter der Hand (innen noch im alten Stil); Szenenfarben aus den Tokens.
 - Die Regeln aus diesem README prüft das Gate: `check-tokens.sh` (Raster, Kontraste, eingecheckte Dateien gleich frischem Export) und `check-styles.sh` (keine Hex-Farben, keine Primitive, keine Inline-Styles außer `/* dyn */`; Ausnahmeliste `scripts/check-styles.allow` für Dateien, die 3c.2 umzieht).
 

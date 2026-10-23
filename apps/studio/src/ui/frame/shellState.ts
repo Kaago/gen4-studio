@@ -11,8 +11,6 @@ export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemo
 export const HAND_MIN = 200;
 export const HAND_MAX = 560;
 export const HAND_DEFAULT = 286;
-/** The height of a collapsed hand: only the hinge is left. */
-export const HAND_COLLAPSED = 48;
 
 const MAX_RECENT = 5;
 const KEY = "g4.shell.v1";

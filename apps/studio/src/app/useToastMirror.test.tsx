@@ -99,6 +99,16 @@ describe("useToastMirror", () => {
     expect(current).toBeNull();
   });
 
+  it("reuses_the_open_toast_of_an_identical_error_and_closing_it_clears_the_message", () => {
+    say({ kind: "error", text: "Kaputt" });
+    say(null);
+    say({ kind: "error", text: "Kaputt" });
+    expect(texts()).toEqual(["error:Kaputt"]);
+    expect(current?.text).toBe("Kaputt");
+    act(() => toast.dismiss(listToasts()[0]!.id));
+    expect(current).toBeNull();
+  });
+
   it("does_not_clear_a_newer_message_when_an_older_error_toast_is_closed", () => {
     say({ kind: "error", text: "Alt" });
     const oldId = listToasts()[0]!.id;

@@ -1,8 +1,9 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { Hinge } from "../ui/frame/Hinge";
 import type { HingeProps } from "../ui/frame/Hinge";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
+import { germanHistory } from "./historyLabel";
 import { useHistory } from "./useHistory";
 
 export type HingeHostProps = Omit<HingeProps, "problems" | "history"> & {
@@ -15,11 +16,13 @@ export type HingeHostProps = Omit<HingeProps, "problems" | "history"> & {
 };
 
 /**
- * The hinge with its own state: the problem counts and the undo history are read here, so a change of either renders this bar and not
- * App (let alone the panels, which get none of it through `WorkbenchData`).
+ * The hinge with its own state: the problem counts and the undo history are read here, so a change of either reaches this bar and not
+ * the panels (they get none of it through `WorkbenchData`). App itself still renders per write (its dirty count moves); this host does
+ * not keep App out of that. The history labels are the kernel's English ones and are named in German on the way to the bar.
  */
 export function HingeHost({ bus, problems, historyRevision, hasProject, ...rest }: HingeHostProps) {
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
-  const history = useHistory(bus, historyRevision, hasProject);
+  const read = useHistory(bus, historyRevision, hasProject);
+  const history = useMemo(() => germanHistory(read), [read]);
   return <Hinge {...rest} problems={counts} history={history} />;
 }
