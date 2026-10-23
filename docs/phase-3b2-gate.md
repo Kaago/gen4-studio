@@ -1,6 +1,6 @@
 # Phase 3b.2: Gate prüfen
 
-Stand: Automatik gelaufen (`scripts/gate.sh` grün am 2026-10-23, siehe (I) und "Ergebnis"), Bundle gebaut und mit `check-bundle.sh` geprüft (H); die Prüfung von Hand (GUI, melonDS, DSPRE) ist noch nicht durchgeführt.
+Stand: 2026-10-23 vom Agenten durchlaufen (Browser-Modus mit `studio-bridge`, Emulator `g4emu`, main 6080351), siehe „Ergebnis“; offen sind (G), (H) und die Punkte, die rotom-lsp brauchen (Completion, Hover, Diagnosen im Editor).
 
 Phase 3b.2 (Scripts und Text: Textarchive editieren, Scripts übernehmen, Script-Editor mit rotom-lsp, Level-Scripts, Navigation, Build mit Compile) ist implementiert und automatisch getestet. Das Gate braucht das GUI, melonDS und DSPRE und wird von Hand durchgeführt; die Automatik läuft über `scripts/gate.sh`. Die Ergebnisse stehen unten im Abschnitt "Ergebnis". Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md](superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md), Abschnitt 1 (Gate). Plan: [docs/superpowers/plans/2026-10-22-phase-3b2-scripts-text.md](superpowers/plans/2026-10-22-phase-3b2-scripts-text.md).
 
@@ -158,17 +158,17 @@ Der Lauf vom 2026-10-23 steht unter "Ergebnis"; für den Merge wird er wiederhol
 
 Hier wird nach dem Durchlauf je Teil eingetragen: Datum, Projekt (Platin DE, HeartGold DE), App (gebündelt oder `tauri dev`), bestanden oder nicht, Auffälligkeiten.
 
-| Teil | Datum | Projekt | Ergebnis | Auffälligkeiten |
-|---|---|---|---|---|
-| (A) Scripts übernehmen und Rebuild | | | | |
-| (B) NPC mit Textliteral | | | | |
-| (C) Flag und Item | | | | |
-| (D) Vanilla-Dialog | | | | |
-| (E) Level-Script | | | | |
-| (F) Text-Panel | | | | |
-| (G) DSPRE-Gegenprobe | | | | |
-| (H) Rauchtest der gepackten App | 2026-10-23 (nur Bundle) | | Bundle ok; Schritte von Hand offen | `pnpm bundle` und `check-bundle.sh` laufen; Start, Completion und Fehlerprüfung in der gepackten App sind nicht geprüft |
-| (I) Automatik (`scripts/gate.sh`) | 2026-10-23 | Platin DE, HeartGold DE, HeartGold US | bestanden (1335 s) | keine |
+| Teil | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|---|
+| (A) Scripts übernehmen und Rebuild | Agent | 2026-10-23 | Platin DE (`pt-3b2`), HeartGold DE (`hg-3b2`) | bestanden | Browser-Modus mit `studio-bridge` statt gebündelter App. Bericht „1124 Scriptdateien dekompiliert, 0 leere übersprungen“ (HG 965), keine Probleme; `rotom.toml`, `.rotom/command_database`, `compile-state.json`, `expanded/scripts` angelegt, `unpacked/scripts` unverändert; Kasten nach Neuöffnen weg; Bauen ohne Probleme. Byte-Gleichheit: gated Test `vanilla_rebuild_matches_dsrom_cli_after_adopt` (I). |
+| (B) NPC mit Textliteral | Agent (Completion: Hand) | 2026-10-23 | Platin DE | bestanden | Scriptdatei 1124 für Header 0001 neu, Objekt mit „Neues Script“ → `script_2 #2`, Literal-Script gespeichert, Archiv 0023 Nachricht 101; im Spiel (`g4emu`) sagt der NPC „Hallo aus dem Studio!“. Der Hinweis „Textliteral nicht auflösbar …“ erscheint vor dem Speichern des Headers; danach muss das Script **erneut** gespeichert werden, Cmd+S allein kompiliert es nicht neu. Completion (rotom-lsp) ist im Browser-Modus aus. |
+| (C) Flag und Item | Agent (Completion, Editor-Diagnose, Beutel: Hand) | 2026-10-23 | Platin DE | bestanden | Im Spiel erst „Hier, ein Geschenk!“, dann „Mehr habe ich nicht.“ Tippfehler → Zeile „Analysis error: Unknown command 'AddItemm'“ (Zeile 11, Compile), Klick springt hin, Member unverändert. Den Beutel konnte `g4emu` nicht öffnen (Menü reagiert mit diesem Spielstand nicht). Das Panel „Probleme“ zeigt keine Spalte. |
+| (D) Vanilla-Dialog | Agent | 2026-10-23 | Platin DE | bestanden | Satz der Mutter an der Tür (Archiv 557, Nachricht 4) im Panel „Text“ geändert; Member und `expanded/textArchives/0557.json` geändert; im Spiel „Mutter: … Das Studio hat diesen Text …“. Script-Panel „Speichern“ verweigert mit „Textarchiv 0023 erst speichern“, Cmd+S speichert Archiv und Script. Event → „Öffnen“ in (B) geprüft; die Mutter in der 3D-Ansicht anklicken konnte der Agent nicht, Sprungziel über `resolve_script` (Datei 1055, Zeile 151). |
+| (E) Level-Script | Agent | 2026-10-23 | Platin DE | **nicht bestanden wie beschrieben** | Header 0001 hat in Platin das geteilte Level-Script 897 (nicht 0), daher „Neu“ → 1125. Eintrag `on_load` → Script 3 (mit `Message`) gespeichert, JSON korrekt, aber im Spiel bleibt die Karte **schwarz** und die Figur hängt. Mit „Variablen-Bedingungen (on_var_condition)“ (Variable 16433 = 0 → Script 3, das die Variable auf 1 setzt) erscheint „Willkommen auf …“ beim Betreten. Die Formular-Hinweise funktionieren. |
+| (F) Text-Panel | Agent | 2026-10-23 | Platin DE | bestanden | Steuercodes lesbar, Suche wählt Archiv und Nachricht, angefügte Nachricht 104 im Spiel über `Message 104`, Überlängen-Warnung unter dem Feld und als „Text“-Zeile, „Neues Archiv“ 0724 sofort auf der Platte. Beim Speichern eines Scripts erscheinen 44 bis 58 Überlängen-Warnungen zu unveränderten Original-Texten aus Archiv 0023. Undo im Textfeld nicht geprüft. |
+| (G) DSPRE-Gegenprobe | Hand | | | offen | DSPRE läuft nur unter Windows. |
+| (H) Rauchtest der gepackten App | Hand | 2026-10-23 (nur Bundle) | | Bundle ok; Schritte von Hand offen | `pnpm bundle` und `check-bundle.sh` laufen; Start, LSP-Status, Completion, Hover und Fehlerprüfung in der gepackten App sind nicht geprüft |
+| (I) Automatik (`scripts/gate.sh`) | Agent | 2026-10-23 | Platin DE, HeartGold DE, HeartGold US | bestanden (1335 s; auf main 6080351 erneut grün, 1541 s) | keine |
 
 Ergebnis von `scripts/gate.sh` (Tabelle aus der Ausgabe):
 
@@ -191,4 +191,7 @@ Lauf vom 2026-10-23 auf dem Stand des Commits vor diesem Dokument, mit `G4_ROTOM
 
 Offene Punkte aus dem Durchlauf:
 
--
+- Hand: (G) DSPRE-Gegenprobe; (H) gepackte App mit rotom-lsp (Completion bei `Mes` und `FLAG_UN`, Hover, Diagnose im Editor, keine CSP-Fehler); Beutel nach (C) prüfen.
+- (E) im Dokument ändern: eine Nachricht beim Betreten braucht eine Variablen-Bedingung, kein `on_load` (das hängt die Karte auf). Header 0001 hat in Platin schon ein Level-Script.
+- Befunde: Cmd+S kompiliert ein Script nach „Textliteral nicht auflösbar“ nicht neu; Überlängen-Warnungen für unveränderte Original-Texte; keine Spalte im Panel „Probleme“; Cmd+A im Feld „Text der Nachricht“ markierte im Agent-Lauf nicht alles.
+- Bilder des Laufs: `../gate-artefakte/2026-10-23-3b2/` (außerhalb des Repos).
