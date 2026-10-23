@@ -75,6 +75,9 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     setSearchError(null);
   }
 
+  // Nothing typed in the old project shows in the preview of the new one (the store tells its readers, hence not during the render).
+  useEffect(() => draft.clear(), [project, draft]);
+
   // The callbacks of the latest render, for the commits that run later (a blur, a timer, an unmount).
   const latest = useRef(context);
   latest.current = context;

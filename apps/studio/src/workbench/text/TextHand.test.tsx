@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { editTextArchive, getTextArchive, validateText } from "../../api";
 import { archive, flush, textHarness } from "./textTesting";
@@ -37,6 +38,21 @@ describe("TextHand", () => {
     // The column of the selected message: its title, the field and where the archive is used.
     expect(h.container.querySelector('[aria-label="Nachricht bearbeiten"] h2')?.textContent).toBe("Nachricht 000");
     expect(h.container.textContent).toContain("Verwendet in");
+  });
+
+  it("starts the table of another archive at its top", async () => {
+    vi.mocked(getTextArchive).mockImplementation(async (index) => archive(index, Array.from({ length: 300 }, (_, i) => `Text ${index}.${i}`)));
+    await h.open433();
+    const body = () => h.container.querySelector<HTMLElement>("[data-text-table-body]")!;
+    act(() => {
+      body().scrollTop = 200 * 28;
+      body().dispatchEvent(new Event("scroll"));
+    });
+    expect(h.messageRow(0)).toBeNull();
+    h.click(h.archiveRow(5));
+    await flush();
+    expect(body().scrollTop).toBe(0);
+    expect(h.messageRow(0)?.textContent).toContain("Text 5.0");
   });
 
   it("offers to create a message for an archive without one", async () => {

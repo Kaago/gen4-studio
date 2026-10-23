@@ -92,6 +92,40 @@ describe("TextTable", () => {
     expect(onEnter).toHaveBeenCalledWith(0);
   });
 
+  it("selects a row that is not selected yet before Enter asks for the editor", () => {
+    act(() => root.render(<Table count={5} initial={1} />));
+    key(row(3)!, "Enter");
+    expect(row(3)?.getAttribute("aria-selected")).toBe("true");
+    expect(row(1)?.getAttribute("aria-selected")).toBe("false");
+    expect(onEnter).toHaveBeenCalledWith(3);
+  });
+
+  it("measures the row height again when it changes (another density), so the window stays right", () => {
+    let rowHeight = 32;
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute("data-row") ? rowHeight : 0;
+      },
+    });
+    try {
+      act(() => root.render(<Table count={800} />));
+      act(() => {
+        scroller().scrollTop = 400 * 32;
+        scroller().dispatchEvent(new Event("scroll"));
+      });
+      expect(row(400)).not.toBeNull();
+      // Compact rows: the same scroll position now lies further down the list.
+      rowHeight = 24;
+      act(() => root.render(<Table count={801} />));
+      expect(row(533)).not.toBeNull();
+      expect(row(400)).toBeNull();
+    } finally {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, "offsetHeight", descriptor);
+    }
+  });
+
   it("brings a selection far down into view and keeps it reachable with the keys", () => {
     act(() => root.render(<Table count={800} initial={700} />));
     expect(row(700)).not.toBeNull();

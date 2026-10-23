@@ -249,6 +249,25 @@ describe("TextArea", () => {
     expect(h.textarea()?.value).toBe("Twinleaf Town");
   });
 
+  it("opens the message of a hit that Enter is pressed on and puts the focus into its field, not into the one open before", async () => {
+    vi.mocked(searchText).mockResolvedValue([
+      { archive: 433, index: 1, excerpt: "…Twinleaf Town…" },
+      { archive: 5, index: 0, excerpt: "…Neuer Text…" },
+    ]);
+    await h.open433();
+    h.type(h.searchBox()!, "text");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+    await flush();
+    const hit = h.container.querySelector<HTMLElement>('[data-hit="5:0"]')!;
+    expect(hit.getAttribute("aria-selected")).toBe("false");
+    h.key(hit, { key: "Enter" });
+    await flush();
+    expect(getTextArchive).toHaveBeenCalledWith(5);
+    expect(h.container.querySelector('[data-hit="5:0"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(h.textarea());
+    expect(h.textarea()?.value).toBe("Neuer Text");
+  });
+
   it("searches only the open archive in the scope of this archive, without asking the backend", async () => {
     await h.open433();
     h.click([...h.container.querySelectorAll('[role="group"][aria-label="Suchbereich"] button')].find((b) => b.textContent === "Dieses Archiv"));

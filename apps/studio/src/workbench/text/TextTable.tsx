@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { RowDataAttrs } from "../../ui/primitives";
 import styles from "./TextTable.module.css";
@@ -41,27 +41,44 @@ export const TextTable = memo(function TextTable({ label, kind, columns, count, 
   const body = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewHeight, setViewHeight] = useState(0);
-  const rowHeight = useRef(ROW_FALLBACK);
+  const [height, setHeight] = useState(ROW_FALLBACK);
   // The row that takes the focus after the render that shows it (a key moved the selection).
   const focusAfter = useRef<number | null>(null);
+  // Watches the view and the first row shown: a resize of either (the density changes the row height) measures again.
+  const observer = useRef<ResizeObserver | null>(null);
+  const watchedRow = useRef<HTMLElement | null>(null);
 
-  // The height of the view, and of a row, as laid out.
-  useLayoutEffect(() => {
+  /** The height of the view, and of a row, as laid out (a row that is not laid out keeps the last height). */
+  const measure = useCallback(() => {
     const el = body.current;
     if (!el) return;
-    const measure = () => {
-      const row = el.querySelector<HTMLElement>("[data-row]");
-      if (row && row.offsetHeight > 0) rowHeight.current = row.offsetHeight;
-      setViewHeight(el.clientHeight);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    const row = el.querySelector<HTMLElement>("[data-row]");
+    if (row && row.offsetHeight > 0) setHeight(row.offsetHeight);
+    setViewHeight(el.clientHeight);
   }, []);
 
-  const height = rowHeight.current;
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === "undefined" || !body.current) return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(body.current);
+    observer.current = watch;
+    return () => {
+      watch.disconnect();
+      observer.current = null;
+      watchedRow.current = null;
+    };
+  }, [measure]);
+
+  // After every render: measure (cheap; state only changes when a size did) and watch the first row that is shown now.
+  useLayoutEffect(() => {
+    measure();
+    const row = body.current?.querySelector<HTMLElement>("[data-row]") ?? null;
+    if (row === watchedRow.current || !observer.current) return;
+    if (watchedRow.current) observer.current.unobserve(watchedRow.current);
+    if (row) observer.current.observe(row);
+    watchedRow.current = row;
+  });
+
   const view = viewHeight > 0 ? viewHeight : VIEW_FALLBACK_ROWS * height;
   const inView = Math.ceil(view / height);
   const first = Math.min(Math.floor(scrollTop / height), Math.max(0, count - 1));
@@ -98,6 +115,8 @@ export const TextTable = memo(function TextTable({ label, kind, columns, count, 
     const moves: Record<string, number> = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: count - 1, PageDown: index + page, PageUp: index - page };
     if (event.key === "Enter") {
       event.preventDefault();
+      // The editor is the one of this row: a row that is not selected yet is selected first.
+      if (index !== selected) onSelect(index);
       onEnter?.(index);
       return;
     }

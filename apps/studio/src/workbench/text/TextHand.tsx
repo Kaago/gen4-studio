@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import type { TextHit } from "../../api";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
@@ -63,7 +63,25 @@ export function TextHand() {
   const t = useTextArea();
   const { project, archive, message, loaded, error, loading, widths, query, effectiveScope, hits, searchError, select, setQuery, setScope, append } = t;
   const field = useRef<HTMLTextAreaElement>(null);
-  const focusEditor = useCallback(() => field.current?.focus(), []);
+  // The message whose field takes the focus as soon as it shows (Enter on a row: the table selected it, its archive may still load).
+  const focusWanted = useRef<string | null>(null);
+  const shownKey = archive !== null && message !== null && loaded?.messages[message] !== undefined ? draftKey(archive, message) : null;
+  const focusWhenShown = useCallback(
+    (key: string) => {
+      focusWanted.current = key;
+      // The row was selected already: its field is there, nothing renders again.
+      if (key === shownKey && field.current) {
+        focusWanted.current = null;
+        field.current.focus();
+      }
+    },
+    [shownKey],
+  );
+  useEffect(() => {
+    if (focusWanted.current === null || focusWanted.current !== shownKey || !field.current) return;
+    focusWanted.current = null;
+    field.current.focus();
+  });
   const messages = loaded?.messages;
   const q = query.trim();
 
@@ -103,6 +121,9 @@ export function TextHand() {
   );
   const hitAttrs = useCallback((row: number) => ({ "data-hit": `${hitList[row]!.archive}:${hitList[row]!.index}` }), [hitList]);
   const selectedHit = hitList.findIndex((h) => h.archive === archive && h.index === message);
+  // Enter on a row: the table selected its message; its field takes the focus once it shows.
+  const enterMessage = useCallback((row: number) => archive !== null && focusWhenShown(draftKey(archive, matches[row]!)), [archive, matches, focusWhenShown]);
+  const enterHit = useCallback((row: number) => focusWhenShown(draftKey(hitList[row]!.archive, hitList[row]!.index)), [hitList, focusWhenShown]);
 
   if (project === null) {
     return (
@@ -124,7 +145,7 @@ export function TextHand() {
     else if (hits.length === 0) table = nothing;
     else
       table = (
-        <TextTable label="Treffer in allen Archiven" kind="hits" columns={HIT_COLUMNS} count={hits.length} selected={selectedHit < 0 ? null : selectedHit} rowAttrs={hitAttrs} cells={hitCells} onSelect={selectHit} onEnter={focusEditor} />
+        <TextTable key="hits" label="Treffer in allen Archiven" kind="hits" columns={HIT_COLUMNS} count={hits.length} selected={selectedHit < 0 ? null : selectedHit} rowAttrs={hitAttrs} cells={hitCells} onSelect={selectHit} onEnter={enterHit} />
       );
   } else if (archive === null) {
     table = (
@@ -146,8 +167,10 @@ export function TextHand() {
     table = nothing;
   } else {
     const selectedRow = message === null ? -1 : matches.indexOf(message);
+    // Keyed by the archive: another archive's table starts at its top (scroll position and row window are its own).
     table = (
       <TextTable
+        key={`archive-${archive}`}
         label={`Nachrichten von Archiv ${id4(archive)}`}
         kind="messages"
         columns={MESSAGE_COLUMNS}
@@ -156,7 +179,7 @@ export function TextHand() {
         rowAttrs={messageAttrs}
         cells={messageCells}
         onSelect={selectMessage}
-        onEnter={focusEditor}
+        onEnter={enterMessage}
       />
     );
   }

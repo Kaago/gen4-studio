@@ -46,6 +46,13 @@ export class TextDraft {
     for (const listener of [...this.listeners]) listener();
   }
 
+  /** Forgets the typed text (another project was opened). */
+  clear(): void {
+    if (this.shown === null) return;
+    this.shown = null;
+    for (const listener of [...this.listeners]) listener();
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => void this.listeners.delete(listener);
