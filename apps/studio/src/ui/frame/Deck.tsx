@@ -45,6 +45,20 @@ function applyDefaultLayout(api: DockviewApi, panels: readonly PanelSpec[]) {
   if (anchor) api.getPanel(anchor.id)?.api.setActive();
 }
 
+/**
+ * Puts both docks of `area` back to their default layouts and remembers them (a dock that is not built yet is left alone: it starts
+ * from its stored layout, which this does not touch).
+ */
+export function resetLayout(area: AreaId, docks: Record<DeckId, MutableRefObject<DockviewApi | null>>): void {
+  for (const deck of ["schau", "hand"] as const) {
+    const api = docks[deck].current;
+    if (!api) continue;
+    applyDefaultLayout(api, deckPanels(area, deck));
+    syncTabBars(api);
+    saveLayout(layoutKey(area, deck), api.toJSON());
+  }
+}
+
 /** Restores the stored layout of this dock when it is complete, otherwise builds the dock's default one. Touches no other dock. */
 function initLayout(api: DockviewApi, key: string, panels: readonly PanelSpec[]) {
   const saved = loadLayout(key);
@@ -97,17 +111,18 @@ const DeckDock = memo(function DeckDock({ area, deck, components, apiRef }: { ar
 /**
  * The deck of an area: the view (Schau) on top, the hinge, the hand below. The hand has the remembered height, the view the rest; a
  * collapsed hand is hidden (not unmounted: CodeMirror and the scene keep their state) and only the hinge is left.
- * Each dock is its own dockview with its own layout key, so a panel moves within a dock, never between the two.
+ * Each dock is its own dockview with its own layout key, so a panel moves within a dock, never between the two. Every area with a deck has
+ * its own `Deck` (the shell keeps them all mounted); the hand's height and whether it is collapsed are the area's own.
  */
 export function Deck({ area, schauComponents, handComponents, schauRef, handRef, hinge }: DeckProps) {
   const { state } = useShell();
   return (
     <div className={styles.deck}>
-      <div className={styles.schau} id="dock-schau">
+      <div className={styles.schau} id={`dock-${area}-schau`} data-dock="schau">
         <DeckDock area={area} deck="schau" components={schauComponents} apiRef={schauRef} />
       </div>
       {hinge}
-      <div className={styles.hand} id="dock-hand" hidden={state.handCollapsed[area]} style={{ height: state.handHeight[area] } /* dyn */}>
+      <div className={styles.hand} id={`dock-${area}-hand`} data-dock="hand" hidden={state.handCollapsed[area]} style={{ height: state.handHeight[area] } /* dyn */}>
         <DeckDock area={area} deck="hand" components={handComponents} apiRef={handRef} />
       </div>
     </div>

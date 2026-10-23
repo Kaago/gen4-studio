@@ -1,7 +1,12 @@
 import type { AreaId } from "../ui/frame/shellState";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
-export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "tools" | "inspector" | "text" | "script" | "problems" | "context";
+export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "tools" | "inspector" | "script" | "problems" | "context" | "textView" | "textEdit";
+
+/** The areas that have a deck (a list and two docks); the others show a pane. */
+export type DeckArea = "welt" | "texte";
+export const DECK_AREAS: readonly DeckArea[] = ["welt", "texte"];
+export const isDeckArea = (area: AreaId): area is DeckArea => (DECK_AREAS as readonly AreaId[]).includes(area);
 
 /** The two docks of a deck: the view (Schau, above the hinge) and the hand (below it). */
 export type DeckId = "schau" | "hand";
@@ -15,10 +20,11 @@ export interface PanelSpec {
 }
 
 /**
- * The panels of each dock. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit beside it. The explorer is
- * no dock panel any more. The layout key is versioned (`v7`): a layout stored by an older panel set is not read, not migrated.
+ * The panels of each dock of each area with a deck. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit
+ * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v8`): a layout stored by
+ * an older panel set is not read, not migrated. The problems are a panel of both hands; each area's dock is its own dockview, so the ids do not clash.
  */
-export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
+export const DECK_PANELS: Record<DeckArea, Record<DeckId, PanelSpec[]>> = {
   welt: {
     schau: [
       { id: "world", title: "3D", position: { direction: "within" } },
@@ -27,7 +33,6 @@ export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
     ],
     hand: [
       { id: "inspector", title: "Inspector", position: { direction: "within" } },
-      { id: "text", title: "Text", position: { direction: "within", referencePanel: "inspector" } },
       { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
       { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
       // The tools to the left of the inspector, "An diesem Ort" to its right: groups of one panel, so without a tab bar.
@@ -35,15 +40,39 @@ export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
       { id: "context", title: "An diesem Ort", position: { direction: "right", referencePanel: "inspector" }, width: 260 },
     ],
   },
+  texte: {
+    schau: [{ id: "textView", title: "Vorschau", position: { direction: "within" } }],
+    hand: [
+      { id: "textEdit", title: "Nachrichten", position: { direction: "within" } },
+      { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "textEdit" } },
+    ],
+  },
 };
 
 /** The panels of a dock of `area`; an area without a deck has none. */
 export function deckPanels(area: AreaId, deck: DeckId): PanelSpec[] {
-  return area === "welt" ? DECK_PANELS.welt[deck] : [];
+  return isDeckArea(area) ? DECK_PANELS[area][deck] : [];
 }
 
 /** The localStorage key of one dock's layout: per area and per deck, so one broken layout resets only its own dock. */
-export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v7.${area}.${deck}`;
+export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v8.${area}.${deck}`;
+
+/** The prefix of the layouts of the version before (the world's hand still had the text panel). */
+const OLD_PREFIX = "g4.layout.v7.";
+
+/** Removes the layouts stored under `v7` (called once at the start); other keys stay. A storage that cannot be read is left alone. */
+export function dropOldLayouts(storage: Storage): void {
+  try {
+    const old: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key !== null && key.startsWith(OLD_PREFIX)) old.push(key);
+    }
+    for (const key of old) storage.removeItem(key);
+  } catch {
+    /* nothing is dropped */
+  }
+}
 
 export function saveLayout(key: string, json: object): void {
   try {

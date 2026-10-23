@@ -29,16 +29,27 @@ vi.mock("./workbench/Workbench", () => ({
     return children;
   },
 }));
-vi.mock("./workbench/panels", () => ({ ExplorerPane: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
+vi.mock("./workbench/panels", () => ({
+  ExplorerPane: () => null,
+  TextArchivesPane: () => null,
+  DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} } },
+}));
 vi.mock("./ui/frame/Deck", async () => {
   const { useEffect } = await import("react");
   type Ref = { current: unknown };
-  /** A dockview api that knows these panels: a link focuses the panel that shows its target. */
-  const dock = (ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(id) } : undefined) });
+  /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
+  const dock = (area: string, ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`) } : undefined) });
+  const PANELS: Record<string, [string[], string[]]> = {
+    welt: [
+      ["world", "matrix", "worldmap"],
+      ["inspector", "script", "problems"],
+    ],
+    texte: [["textView"], ["textEdit", "problems"]],
+  };
   return {
-    Deck: ({ schauRef, handRef, hinge }: { schauRef: Ref; handRef: Ref; hinge: unknown }) => {
-      schauRef.current = dock(["world", "matrix", "worldmap"]);
-      handRef.current = dock(["inspector", "text", "script", "problems"]);
+    Deck: ({ area, schauRef, handRef, hinge }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown }) => {
+      schauRef.current = dock(area, PANELS[area]![0]);
+      handRef.current = dock(area, PANELS[area]![1]);
       useEffect(() => {
         shown.mounts++;
       }, []);
@@ -164,6 +175,8 @@ describe("App wiring", () => {
     );
   }
   const atlasEntry = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent === name);
+  /** The list or the deck column of an area in the shell (null while the area was never shown). */
+  const area = (id: string, part: "list" | "deck") => container.querySelector<HTMLElement>(`[data-area="${id}"][data-part="${part}"]`);
   const statusLine = () => container.querySelector("footer")?.textContent ?? "";
   const titleBar = () => container.querySelector("header")?.textContent ?? "";
   const alerts = () => [...container.querySelectorAll("[role=alert]")].map((e) => e.textContent ?? "");
@@ -446,6 +459,16 @@ describe("App wiring", () => {
       expect(alerts()).toEqual([]);
     });
 
+    it("shows_the_problems_of_the_world_when_they_are_offered_on_an_area_without_them", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] });
+      await act(async () => atlasEntry("Start")!.click());
+      await click("Bauen");
+      await click("Probleme zeigen");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.focused).toEqual(["problems"]);
+    });
+
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
       expect(statusLine()).toContain("Noch nicht gebaut");
       vi.mocked(savePath).mockResolvedValue("/out.nds");
@@ -469,11 +492,39 @@ describe("App wiring", () => {
     });
 
     it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
-      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Technik", "Einstellungen"]) {
         expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
         await act(async () => atlasEntry(name)!.click());
       }
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    it("opens_the_texts_with_their_own_list_and_deck_and_keeps_the_world_mounted_behind_them", async () => {
+      expect(shown.mounts).toBe(1);
+      expect(area("texte", "deck")).toBeNull();
+      await act(async () => atlasEntry("Texte")!.click());
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(area("texte", "list")!.hidden).toBe(false);
+      expect(area("texte", "deck")!.hidden).toBe(false);
+      expect(area("welt", "list")!.hidden).toBe(true);
+      expect(area("welt", "deck")!.hidden).toBe(true);
+      // The texts' hinge names the area; the world's tools are not hinted in the status line.
+      expect(area("texte", "deck")!.querySelector("nav")?.textContent).toBe("Texte");
+      expect(statusLine()).not.toContain("Auswählen");
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(area("welt", "deck")!.hidden).toBe(false);
+      expect(area("texte", "deck")!.hidden).toBe(true);
+      // Each deck was built once and stays.
+      expect(shown.mounts).toBe(2);
+    });
+
+    it("drops_the_layouts_of_v7_once_at_the_start", async () => {
+      localStorage.setItem("g4.layout.v7.welt.hand", "{}");
+      localStorage.setItem("g4.layout.v8.welt.hand", "{}");
+      await renderFresh();
+      expect(localStorage.getItem("g4.layout.v7.welt.hand")).toBeNull();
+      expect(localStorage.getItem("g4.layout.v8.welt.hand")).toBe("{}");
     });
 
     it("names_what_the_status_line_shows_in_its_middle", async () => {
@@ -603,6 +654,57 @@ describe("App wiring", () => {
       await pressHinge("1 Warnung");
       expect(shown.focused).toEqual(["problems"]);
       expect(handState().collapsed).toBe(false);
+    });
+
+    it("goes_to_the_texts_for_a_link_to_a_text_archive_and_keeps_the_target_until_the_texts_are_built", async () => {
+      await select(listed[1]);
+      shown.focused = [];
+      await act(async () => data().goTo({ kind: "textArchive", index: 23, message: 2 }));
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(data().textTarget).toEqual({ index: 23, message: 2 });
+      // The selection of the world stays as it was.
+      expect(data().selected).toBe(1);
+      expect(area("texte", "deck")!.hidden).toBe(false);
+      // Once built, a link focuses the messages in the texts' own hand.
+      await act(async () => data().goTo({ kind: "textArchive", index: 24 }));
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+      expect(data().textTarget).toEqual({ index: 24, message: null });
+    });
+
+    it("goes_back_to_the_world_for_a_link_to_a_script_or_a_header_from_the_texts", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      shown.focused = [];
+      await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.focused).toEqual(["script"]);
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => data().goTo({ kind: "header", id: 1 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      // A header the project does not have leads nowhere: the area stays.
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => data().goTo({ kind: "header", id: 999 }));
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("folds_the_hand_of_the_area_whose_hinge_is_used", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      const grip = area("texte", "deck")!.querySelector("[data-hinge-grip]")!;
+      await act(async () => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(readShellState().handCollapsed.texte).toBe(true);
+      expect(readShellState().handCollapsed.welt).toBe(false);
+    });
+
+    it("opens_the_problems_in_the_hand_of_the_texts_while_the_texts_show", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => void area("texte", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(readShellState().handCollapsed.texte).toBe(true);
+      shown.focused = [];
+      const light = [...area("texte", "deck")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Alles stimmig")!;
+      await act(async () => light.click());
+      expect(shown.focused).toEqual(["texte/problems"]);
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(readShellState().handCollapsed.texte).toBe(false);
+      expect(readShellState().handCollapsed.welt).toBe(false);
     });
 
     it("switches_the_depth_and_remembers_it", async () => {

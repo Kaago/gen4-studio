@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto, HeaderSummary, MatrixSummary, ObjectDto, WarpDto } from "../api";
-import { crumbsFor } from "./breadcrumb";
+import { crumbsFor, textCrumbs } from "./breadcrumb";
 import type { Crumb } from "./breadcrumb";
 import { buildPlaces } from "./places";
 import type { InspectorModel } from "./Inspector";
@@ -106,5 +106,34 @@ describe("crumbsFor", () => {
 
   it("has_no_links_without_a_goTo", () => {
     expect(pin({ kind: "header", id: 414 }).every((c) => c.onClick === undefined)).toBe(true);
+  });
+});
+
+describe("textCrumbs", () => {
+  const labels = (crumbs: Crumb[]) => crumbs.map((c) => c.label);
+
+  it("names_the_area_the_archive_with_its_place_and_the_message", () => {
+    expect(labels(textCrumbs({ archive: 412, place: "Zweiblattdorf", message: 5 }))).toEqual(["Texte", "Archiv 0412, Zweiblattdorf", "Nachricht 005"]);
+  });
+
+  it("leaves_out_the_place_of_an_archive_no_place_uses_and_a_message_not_chosen", () => {
+    expect(labels(textCrumbs({ archive: 7, place: null, message: null }))).toEqual(["Texte", "Archiv 0007"]);
+    expect(labels(textCrumbs({ archive: 7 }))).toEqual(["Texte", "Archiv 0007"]);
+  });
+
+  it("is_the_area_alone_without_an_archive", () => {
+    expect(textCrumbs({ archive: null, place: "Zweiblattdorf", message: 3 })).toEqual([{ label: "Texte" }]);
+  });
+
+  it("links_the_archive_and_the_message_when_it_has_a_goTo", () => {
+    const goTo = vi.fn();
+    const crumbs = textCrumbs({ archive: 412, place: "Zweiblattdorf", message: 5, goTo });
+    expect(crumbs[0]?.onClick).toBeUndefined();
+    crumbs.forEach((c) => c.onClick?.());
+    expect(goTo.mock.calls.map((c) => c[0])).toEqual([
+      { kind: "textArchive", index: 412 },
+      { kind: "textArchive", index: 412, message: 5 },
+    ]);
+    expect(textCrumbs({ archive: 412, message: 5 }).every((c) => c.onClick === undefined)).toBe(true);
   });
 });

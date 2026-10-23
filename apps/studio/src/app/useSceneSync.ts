@@ -10,16 +10,20 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { PanelId } from "../workbench/layout";
+import type { DeckArea, PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
+import type { AreaId } from "../ui/frame/shellState";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
-/** The dockview apis of the deck's two docks (each null until its dock is ready). */
+/** The dockview apis of a deck's two docks (each null until its dock is ready). */
 export interface DockApis {
   schau: MutableRefObject<DockviewApi | null>;
   hand: MutableRefObject<DockviewApi | null>;
 }
+
+/** The docks of every area with a deck. */
+export type AreaDocks = Record<DeckArea, DockApis>;
 
 interface SceneSyncParams {
   bus: EditBus;
@@ -27,11 +31,13 @@ interface SceneSyncParams {
   fail: (e: unknown) => void;
   refreshDirty: () => Promise<void>;
   setPinned: (pinned: InspectorModel) => void;
-  /** The docks of the deck: a link focuses the panel that shows its target, in the dock that has it. */
-  dockApi: DockApis;
-  /** Called before a panel of the hand is focused: a collapsed hand opens. */
-  revealHand: () => void;
-  /** Tells the text panel which archive and message to open (a link to a text archive). */
+  /** The docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it. */
+  docks: AreaDocks;
+  /** Shows an area: a link switches to the area of its target first. */
+  setArea: (area: AreaId) => void;
+  /** Called before a panel of an area's hand is focused: a collapsed hand opens. */
+  revealHand: (area: DeckArea) => void;
+  /** Tells the texts which archive and message to open (a link to a text archive). */
   onOpenText: (index: number, message?: number) => void;
   /** Tells the script panel which file to open, and at which 1-based line (a link to a script). */
   onOpenScript: (file: number, line?: number) => void;
@@ -42,7 +48,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, revealHand, onOpenText, onOpenScript }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, revealHand, onOpenText, onOpenScript }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -202,17 +208,23 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
   }
 
-  function focusPanel(panel: PanelId | null) {
+  /**
+   * Shows `area` and brings `panel` to the front in the dock of that area that has it. A deck that is not built yet (the area shows for
+   * the first time) has no docks to look in: it opens with its default layout, whose anchors are the panels a link leads to.
+   */
+  function focusPanel(area: DeckArea, panel: PanelId | null) {
     if (panel === null) return;
+    setArea(area);
+    const { schau, hand } = docks[area];
     try {
-      const inSchau = dockApi.schau.current?.getPanel(panel);
+      const inSchau = schau.current?.getPanel(panel);
       if (inSchau) {
         inSchau.focus();
         return;
       }
-      const inHand = dockApi.hand.current?.getPanel(panel);
+      const inHand = hand.current?.getPanel(panel);
       if (inHand) {
-        revealHand();
+        revealHand(area);
         inHand.focus();
       }
     } catch {
@@ -222,8 +234,9 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
 
   /**
    * Follows a link (see `nextSelection`): a header goes through the same path as a click in the
-   * list (its matrix loads under the selection guards), the inspector is pinned to the target and
-   * the panel showing it is focused. Resolves when the matrix of a newly selected header has loaded (or failed).
+   * list (its matrix loads under the selection guards), the inspector is pinned to the target, the
+   * area of the target shows and the panel showing it is focused. A link that leads nowhere (an
+   * unknown header) leaves the area alone. Resolves when the matrix of a newly selected header has loaded (or failed).
    */
   function goTo(target: NavTarget): Promise<void> | void {
     const shown = matrixRef.current;
@@ -239,14 +252,14 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
       target,
     );
     if (next.pinned === null) {
-      // A text archive changes neither the selection nor the pin: the text panel opens it and takes the focus.
+      // A text archive changes neither the selection nor the pin: the texts open it and their messages take the focus.
       if (next.text) {
         onOpenText(next.text.index, next.text.message ?? undefined);
-        focusPanel(next.panel);
+        focusPanel(next.area, next.panel);
       } else if (next.script) {
         // Likewise a script: the panel opens the document, the selection stays.
         onOpenScript(next.script.file, next.script.line ?? undefined);
-        focusPanel(next.panel);
+        focusPanel(next.area, next.panel);
       } else if (target.kind === "header") {
         setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
       }
@@ -261,7 +274,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
-    focusPanel(next.panel);
+    focusPanel(next.area, next.panel);
     return loading;
   }
 

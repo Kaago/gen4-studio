@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
-import { ExplorerPane, HAND_COMPONENTS, SCHAU_COMPONENTS } from "./workbench/panels";
-import { buildPlaces } from "./workbench/places";
+import { DECK_COMPONENTS, ExplorerPane, TextArchivesPane } from "./workbench/panels";
+import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
-import { crumbsFor } from "./workbench/breadcrumb";
+import { crumbsFor, textCrumbs } from "./workbench/breadcrumb";
+import type { Crumb } from "./workbench/breadcrumb";
+import { DECK_AREAS, deckPanels, dropOldLayouts, isDeckArea } from "./workbench/layout";
+import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
 import { Deck } from "./ui/frame/Deck";
@@ -38,7 +41,7 @@ import { useInspectorReveal } from "./app/useInspectorReveal";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
-import type { DockApis } from "./app/useSceneSync";
+import type { AreaDocks } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
 import { useStableCallback } from "./app/useStable";
 import { useToastMirror } from "./app/useToastMirror";
@@ -56,12 +59,11 @@ import { inTauri } from "./platform/transport";
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "technik", "einstellungen"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   geschichten: "Kommt mit Phase 3b.3",
   pokemon: "Kommt mit Phase 3b.3",
   gegenstaende: "Kommt mit Phase 3b.3",
-  texte: "Kommt mit 3c.2",
   technik: "Kommt mit 3c.2",
   einstellungen: "Kommt mit 3c.2",
 };
@@ -77,7 +79,15 @@ const BRIDGE_DOWN = "Brücke nicht erreichbar";
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
-  const [initialArea] = useState<AreaId>(() => (!inTauri() && projectFromUrl(window.location.search) !== null ? "welt" : "start"));
+  const [initialArea] = useState<AreaId>(() => {
+    // Once at the start, before a dock reads its layout: the layouts of v7 (the world's hand still had the text panel) go.
+    try {
+      dropOldLayouts(localStorage);
+    } catch {
+      /* no storage: nothing to drop */
+    }
+    return !inTauri() && projectFromUrl(window.location.search) !== null ? "welt" : "start";
+  });
   return (
     <ShellProvider initialArea={initialArea}>
       <AppBody />
@@ -92,17 +102,22 @@ function AppBody() {
   const area = shell.state.area;
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  // The dockview apis of the deck's two docks: a link focuses the panel that shows its target, in the dock that has it.
-  const [dockApi] = useState<DockApis>(() => ({ schau: { current: null as DockviewApi | null }, hand: { current: null as DockviewApi | null } }));
-  // A collapsed hand opens before one of its panels is brought to the front.
-  const revealHand = useStableCallback(() => {
-    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
+  // The dockview apis of the two docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it.
+  const [docks] = useState<AreaDocks>(() => {
+    const none = () => ({ current: null as DockviewApi | null });
+    return { welt: { schau: none(), hand: none() }, texte: { schau: none(), hand: none() } };
   });
+  // A collapsed hand opens before one of its panels is brought to the front.
+  const revealHand = useStableCallback((target: DeckArea) => {
+    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
+  });
+  const revealWorldHand = useStableCallback(() => revealHand("welt"));
 
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
 
-  // The archive and message the text panel is asked to open: a new object per request, so the same one can be asked for twice.
+  // The archive and message the texts are asked to open: a new object per request, so the same one can be asked for twice. It lives here,
+  // not in the text area, so a link that comes before the texts were ever shown (their deck is built on the first visit) is not lost.
   const [textTarget, setTextTarget] = useState<TextTarget | null>(null);
   const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
 
@@ -110,19 +125,22 @@ function AppBody() {
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the world.
-  const showProblems = useCallback(() => {
-    setArea("welt");
+  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
+  // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
+  const showProblems = useStableCallback(() => {
+    const shown = shell.state.area;
+    const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
+    setArea(target);
     try {
-      const panel = dockApi.hand.current?.getPanel("problems");
+      const panel = docks[target].hand.current?.getPanel("problems");
       if (panel) {
-        revealHand();
+        revealHand(target);
         panel.focus();
       }
     } catch {
       /* the deck is going away */
     }
-  }, [setArea, dockApi, revealHand]);
+  });
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
@@ -132,14 +150,15 @@ function AppBody() {
   unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
   // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
-  const pin = useInspectorReveal(pins.setPinned, dockApi, revealHand);
+  const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand);
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
     fail: session.fail,
     refreshDirty: session.refreshDirty,
     setPinned: pin,
-    dockApi,
+    docks,
+    setArea,
     revealHand,
     onOpenText,
     onOpenScript: scripts.api.open,
@@ -296,9 +315,9 @@ function AppBody() {
   }, [session.message]);
   const bridge = inTauri() ? "none" : bridgeLost ? "missing" : "ok";
 
-  // The dock is built the first time the world shows and then stays (hidden) while another area covers it: the scene keeps its models.
-  const deckBuilt = useRef(false);
-  if (area === "welt") deckBuilt.current = true;
+  // An area's list and deck are built the first time it shows and then stay (hidden) while another area shows: the scene keeps its models.
+  const built = useRef<Set<DeckArea>>(new Set());
+  if (isDeckArea(area)) built.current.add(area);
 
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
@@ -350,21 +369,62 @@ function AppBody() {
     () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo }),
     [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo],
   );
-  const onDragHeight = useStableCallback((height: number) => {
+  // The breadcrumb of the texts: the archive they are asked to open, with the place whose header uses it, and the message.
+  const textTrail = useMemo(() => {
+    const user = textTarget === null ? undefined : scene.headers.find((h) => h.text_archive_id === textTarget.index);
+    const place = user === undefined ? undefined : placeOf(places, user.id);
+    return textCrumbs({
+      archive: textTarget?.index ?? null,
+      place: place !== undefined && place.key !== UNNAMED_KEY ? place.name : null,
+      message: textTarget?.message ?? null,
+      goTo: data.goTo,
+    });
+  }, [textTarget, scene.headers, places, data.goTo]);
+  // Each hinge works on the hand of its own area (only the shown area's hinge can be reached).
+  const onDragHeight = useStableCallback((target: DeckArea, height: number) => {
     // Dragging a collapsed hinge opens the hand to where it is dragged.
-    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
-    shell.setHandHeight("welt", height);
+    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
+    shell.setHandHeight(target, height);
   });
-  const onToggleCollapse = useStableCallback(() => shell.toggleHandCollapsed("welt"));
+  const onToggleCollapse = useStableCallback((target: DeckArea) => shell.toggleHandCollapsed(target));
 
   const { info } = session;
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
-    area === "welt" ? undefined : area === "start" ? (
+    isDeckArea(area) ? undefined : area === "start" ? (
       <StartPane recent={shell.state.recent} missing={missing} onOpen={() => void session.onOpen(resetProject)} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
     );
+  /** The deck of an area: its two docks and its hinge, which works on that area's hand and shows `trail`. */
+  const deckOf = (target: DeckArea, trail: Crumb[]) => (
+    <Deck
+      area={target}
+      schauComponents={DECK_COMPONENTS[target].schau}
+      handComponents={DECK_COMPONENTS[target].hand}
+      schauRef={docks[target].schau}
+      handRef={docks[target].hand}
+      hinge={
+        <HingeHost
+          bus={bus}
+          problems={problems}
+          historyRevision={session.dirtyRevision}
+          hasProject={info !== null}
+          crumbs={trail}
+          depth={shell.state.depth}
+          onDepth={shell.setDepth}
+          onProblems={showProblems}
+          onUndoTo={onUndoTo}
+          onRedo={onRedo}
+          onPlay={onPlay}
+          playing={session.busy}
+          canPlay={info !== null}
+          onDragHeight={(height) => onDragHeight(target, height)}
+          onToggleCollapse={() => onToggleCollapse(target)}
+        />
+      }
+    />
+  );
 
   return (
     <>
@@ -385,37 +445,10 @@ function AppBody() {
             />
           }
           atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
-          list={deckBuilt.current ? <ExplorerPane /> : undefined}
-          deck={
-            deckBuilt.current ? (
-              <Deck
-                area="welt"
-                schauComponents={SCHAU_COMPONENTS}
-                handComponents={HAND_COMPONENTS}
-                schauRef={dockApi.schau}
-                handRef={dockApi.hand}
-                hinge={
-                  <HingeHost
-                    bus={bus}
-                    problems={problems}
-                    historyRevision={session.dirtyRevision}
-                    hasProject={info !== null}
-                    crumbs={crumbs}
-                    depth={shell.state.depth}
-                    onDepth={shell.setDepth}
-                    onProblems={showProblems}
-                    onUndoTo={onUndoTo}
-                    onRedo={onRedo}
-                    onPlay={onPlay}
-                    playing={session.busy}
-                    canPlay={info !== null}
-                    onDragHeight={onDragHeight}
-                    onToggleCollapse={onToggleCollapse}
-                  />
-                }
-              />
-            ) : undefined
-          }
+          area={area}
+          areas={Object.fromEntries(
+            DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
+          )}
           pane={pane}
           status={
             <StatusLine

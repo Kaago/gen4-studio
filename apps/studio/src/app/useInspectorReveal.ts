@@ -13,8 +13,8 @@ function typingInField(): boolean {
 }
 
 /**
- * `setPinned` that also brings the hand's Inspector tab to the front when the new pin is a header, event, building, area or matrix cell:
- * the inspector shares its tab group with Text, Script and Probleme, so a selection would otherwise change something that is hidden.
+ * `setPinned` that also brings the world hand's Inspector tab to the front when the new pin is a header, event, building, area or matrix cell:
+ * the inspector shares its tab group with Script and Probleme, so a selection would otherwise change something that is hidden.
  * A collapsed hand opens first; a text field that has the focus keeps it (the tab stays as it is then). An update function (history
  * reloads settling the pin again) and the pins that show nothing editable leave the tabs alone.
  */

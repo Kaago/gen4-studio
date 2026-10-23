@@ -3,6 +3,7 @@ import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import type { DockComponents } from "../ui/frame/Deck";
+import { ListPane } from "../ui/frame/ListPane";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
 import { lockedText } from "../world/events";
@@ -10,6 +11,7 @@ import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
 import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
+import type { DeckArea, DeckId } from "./layout";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
@@ -165,6 +167,7 @@ export function WorldMapTab() {
   return <WorldMapPanel context={context} />;
 }
 
+/** The text panel of 3b.2. No dock places it any more: the area Texte takes its place (its panels replace this one in Task 2b). */
 export function TextTab() {
   const d = useWorkbench();
   // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
@@ -307,6 +310,47 @@ export function InspectorPanel() {
   );
 }
 
-/** The panels of the view dock and of the hand dock, by id. Module-level constants: dockview would remount every panel if they changed. */
-export const SCHAU_COMPONENTS: DockComponents = { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab };
-export const HAND_COMPONENTS: DockComponents = { tools: ToolsTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab, context: ContextTab };
+/** The list of the texts: the text archives. Their rows come with the text area's own model (Task 2b); until then the list is empty. */
+export function TextArchivesPane() {
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.texte;
+  const onToggle = useStableCallback(() => setListOpen("texte", !listOpen));
+  return (
+    <ListPane title="Textarchive" open={listOpen} onToggle={onToggle}>
+      {null}
+    </ListPane>
+  );
+}
+
+/** The view of the texts (the DS screen of the chosen message); empty until an archive is chosen. */
+export function TextViewTab() {
+  return (
+    <div className={styles.empty}>
+      <EmptyState what="Wähle links ein Archiv." why="Die Vorschau zeigt dann seine Nachrichten auf dem DS-Bildschirm." />
+    </div>
+  );
+}
+
+/** The messages of the chosen archive and their editor; empty until an archive is chosen. */
+export function TextEditTab() {
+  return (
+    <div className={styles.empty}>
+      <EmptyState what="Kein Archiv gewählt." why="Wähle links ein Archiv, dann stehen hier seine Nachrichten." />
+    </div>
+  );
+}
+
+/**
+ * The panels of the view dock and of the hand dock of each area, by id. Module-level constants: dockview would remount every panel if they
+ * changed. The problems are in both hands: each area's dock is its own dockview, and every instance reads the one problems store.
+ */
+export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
+  welt: {
+    schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
+    hand: { tools: ToolsTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
+  },
+  texte: {
+    schau: { textView: TextViewTab },
+    hand: { textEdit: TextEditTab, problems: ProblemsTab },
+  },
+};
