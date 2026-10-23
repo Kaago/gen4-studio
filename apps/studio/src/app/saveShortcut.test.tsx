@@ -49,6 +49,7 @@ describe("Cmd+S inside the script editor", () => {
       onSave: session.onSave,
       step: async () => {},
       onPlay: async () => {},
+      onOpenProject: () => {},
       onDeleteBuilding: () => {},
       onTool: () => {},
       toolsActive: true,

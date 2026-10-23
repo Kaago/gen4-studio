@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -115,6 +115,30 @@ describe("useShortcuts", () => {
     await act(async () => void document.body.dispatchEvent(reload));
     expect(handlers.onPlay).not.toHaveBeenCalled();
     expect(reload.defaultPrevented).toBe(false);
+  });
+
+  it("opens_a_project_on_cmd_o_once_per_press_and_keeps_the_browser_from_its_own_open", async () => {
+    const event = new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(event));
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    await press({ key: "o", metaKey: true, repeat: true });
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+    // Not while the world's tools are away either: Cmd+O works on every area.
+    handlers.toolsActive = false;
+    await press({ key: "o", ctrlKey: true });
+    expect(handlers.onOpenProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("does_not_open_a_project_while_a_wizard_or_a_modal_dialog_is_open", async () => {
+    for (const attrs of [{ role: "dialog", "data-wizard": "" }, { role: "dialog", "aria-modal": "true" }]) {
+      const cover = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) cover.setAttribute(name, value);
+      document.body.append(cover);
+      await press({ key: "o", metaKey: true });
+      cover.remove();
+    }
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
   it("does_not_play_while_a_modal_dialog_is_open", async () => {

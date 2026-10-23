@@ -31,6 +31,14 @@ describe("Badge", () => {
     expect(container.textContent).toBe("Neu");
   });
 
+  it("takes_a_symbol_for_a_kind_without_one", () => {
+    act(() => root.render(<Badge kind="neutral">Platin, DE</Badge>));
+    expect(container.querySelector("svg")).toBeNull();
+    act(() => root.render(<Badge kind="neutral" icon="game">Platin, DE</Badge>));
+    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.textContent).toBe("Platin, DE");
+  });
+
   it("has_a_default_text_for_every_kind", () => {
     const expected = {
       unsaved: "Ungespeichert",

@@ -1,0 +1,26 @@
+.row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.path,
+.none {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path {
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  font-family: var(--g4-schrift-familie-code);
+}
+
+.none {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

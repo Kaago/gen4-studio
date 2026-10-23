@@ -12,6 +12,8 @@ interface ShortcutHandlers {
   onSave: () => Promise<void>;
   /** "Hier spielen": save, build, run. Only asked for inside the app (in a browser Cmd+R reloads the page). */
   onPlay: () => Promise<void>;
+  /** Cmd+O: asks for a project folder and opens it (asking first about unsaved edits, like the title bar's button). */
+  onOpenProject: () => void;
   step: (action: typeof undo) => Promise<unknown>;
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   onDeleteEvent: (file: number, kind: EventKind, index: number) => void | Promise<void>;
@@ -34,7 +36,7 @@ function inField(target: HTMLElement | null): boolean {
 }
 
 /**
- * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
+ * Cmd+O, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
  * "Auswählen", and Delete / Escape on a pinned building or
  * event, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
@@ -82,6 +84,10 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       } else if (action === "save") {
         e.preventDefault();
         void latest.current.onSave();
+      } else if (action === "open") {
+        // The browser's own "open file" stays away; a held key asks once.
+        e.preventDefault();
+        if (!e.repeat) latest.current.onOpenProject();
       } else if (action === "play") {
         e.preventDefault();
         // A held key must not start a build per repeat.

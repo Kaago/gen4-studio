@@ -19,8 +19,10 @@ import {
   Cursor,
   Door,
   DotsSixVertical,
+  DotsThree,
   FloppyDisk,
   FolderOpen,
+  GameController,
   Gear,
   Globe,
   GridFour,
@@ -35,6 +37,7 @@ import {
   MapPin,
   MapTrifold,
   Minus,
+  Monitor,
   Moon,
   PaintBrush,
   PawPrint,
@@ -108,6 +111,9 @@ export const icons = {
   minus: Minus,
   history: ClockCounterClockwise,
   scrub: ArrowsHorizontal,
+  game: GameController,
+  more: DotsThree,
+  system: Monitor,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

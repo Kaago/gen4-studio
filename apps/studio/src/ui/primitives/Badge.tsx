@@ -38,10 +38,13 @@ export type BadgeProps = {
   children?: ReactNode;
   /** Native tooltip; the `code` badge for an unknown code names the code here. */
   title?: string;
+  /** Replaces the symbol of the kind (or gives one to a kind without, like the game chip on `neutral`). */
+  icon?: IconName;
 };
 
-export function Badge({ kind, children, title }: BadgeProps) {
-  const { text, icon } = defaults[kind];
+export function Badge({ kind, children, title, icon: given }: BadgeProps) {
+  const { text, icon: fallback } = defaults[kind];
+  const icon = given ?? fallback;
   return (
     <span className={`${styles.badge} ${styles[kind]}`} title={title}>
       {icon && <Icon name={icon} weight="fill" />}

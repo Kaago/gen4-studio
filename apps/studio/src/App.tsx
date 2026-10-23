@@ -17,6 +17,7 @@ import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
+import { SettingsArea } from "./einstellungen/SettingsArea";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
@@ -63,13 +64,12 @@ import { inTauri } from "./platform/transport";
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "technik", "einstellungen"];
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "technik"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   geschichten: "Kommt mit Phase 3b.3",
   pokemon: "Kommt mit Phase 3b.3",
   gegenstaende: "Kommt mit Phase 3b.3",
   technik: "Kommt mit 3c.2",
-  einstellungen: "Kommt mit 3c.2",
 };
 
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
@@ -290,6 +290,7 @@ function AppBody() {
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
+    onOpenProject: () => void session.onOpen(resetProject),
     step,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
@@ -433,6 +434,16 @@ function AppBody() {
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <StartPane recent={shell.state.recent} missing={missing} onOpen={() => void session.onOpen(resetProject)} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+    ) : area === "einstellungen" ? (
+      // The emulator path comes with the session's own copy of it (3c.2, Technik); until then the row says none is chosen.
+      <SettingsArea
+        theme={shell.themeSetting}
+        density={shell.density}
+        emulatorPath={undefined}
+        onTheme={shell.setTheme}
+        onDensity={shell.setDensity}
+        onPickEmulator={() => void session.onPickEmulator()}
+      />
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
     );
@@ -506,7 +517,9 @@ function AppBody() {
             status={
               <StatusLine
                 left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
-                middle={showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : context}
+                middle={
+                  showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : area === "einstellungen" ? "Änderungen gelten sofort und für alle Projekte" : context
+                }
                 right={<ProblemCount store={problems} />}
                 bridge={bridge}
                 density={shell.density}

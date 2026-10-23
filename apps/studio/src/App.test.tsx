@@ -383,6 +383,32 @@ describe("App wiring", () => {
       expect(shown.mounts).toBe(1);
     });
 
+    it("the_settings_area_switches_theme_and_density_at_once_and_says_so_in_the_status_line", async () => {
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      expect(atlasEntry("Einstellungen")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Darstellung");
+      expect(statusLine()).toContain("Änderungen gelten sofort und für alle Projekte");
+      const option = (group: string, text: string) =>
+        [...(container.querySelector(`[role=group][aria-label="${group}"]`)?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text)!;
+      await act(async () => option("Thema", "Dunkel").click());
+      expect(document.documentElement.dataset.theme).toBe("dunkel");
+      await act(async () => option("Dichte", "Kompakt").click());
+      expect(document.documentElement.dataset.dichte).toBe("kompakt");
+      // The status line's density button follows the setting.
+      expect(statusLine()).toContain("Kompakt");
+      await act(async () => option("Thema", "Wie System").click());
+      expect(document.documentElement.dataset.theme).toBeUndefined();
+      expect(localStorage.getItem("g4.theme")).toBe("system");
+    });
+
+    it("cmd_o_opens_a_project_from_any_area", async () => {
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      vi.mocked(openPath).mockClear();
+      vi.mocked(openPath).mockResolvedValue(null);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).toHaveBeenCalledOnce();
+    });
+
     it("a_recent_project_that_cannot_be_opened_says_so_and_can_leave_the_list", async () => {
       seed(recent("gone"), recent("here"));
       await renderFresh();
@@ -503,12 +529,13 @@ describe("App wiring", () => {
     });
 
     it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
-      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Technik", "Einstellungen"]) {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Technik"]) {
         expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
         await act(async () => atlasEntry(name)!.click());
       }
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
       expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).not.toBe("true");
+      expect(atlasEntry("Einstellungen")?.getAttribute("aria-disabled")).not.toBe("true");
     });
 
     it("opens_the_texts_with_their_own_list_and_deck_and_keeps_the_world_mounted_behind_them", async () => {

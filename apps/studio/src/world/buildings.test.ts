@@ -10,6 +10,7 @@ import {
   reconcileBuildings,
   sameBuildings,
   settleBuilding,
+  SHORTCUTS,
   shortcutAction,
   snapHalfTile,
   wantsDelete,
@@ -166,5 +167,28 @@ describe("buildings", () => {
     expect(key("r", { inApp: true, shiftKey: true })).toBeNull();
     expect(key("r", { inApp: true, altKey: true })).toBeNull();
     expect(key("r", { inApp: true, metaKey: false })).toBeNull();
+  });
+
+  it("maps Cmd/Ctrl+O to opening a project, also while typing, but not with Shift or Alt", () => {
+    const key = (k: string, o: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; target: { tagName?: string } | null }> = {}) =>
+      shortcutAction({ key: k, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+    expect(key("o")).toBe("open");
+    expect(key("O", { metaKey: false, ctrlKey: true })).toBe("open");
+    expect(key("o", { target: { tagName: "INPUT" } })).toBe("open");
+    expect(key("o", { shiftKey: true })).toBeNull();
+    expect(key("o", { altKey: true })).toBeNull();
+    expect(key("o", { metaKey: false })).toBeNull();
+  });
+
+  it("lists every shortcut with keys that shortcutAction maps back to it", () => {
+    // The list in the settings cannot drift: each entry's keys, pressed inside the app, ask for that entry's action.
+    for (const [action, { keys, label }] of Object.entries(SHORTCUTS)) {
+      expect(label.length).toBeGreaterThan(0);
+      const key = keys.replace(/[⌘⇧]/g, "").toLowerCase();
+      const shiftKey = keys.includes("⇧");
+      expect(keys.startsWith("⌘") || keys.startsWith("⇧⌘")).toBe(true);
+      expect(shortcutAction({ key, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey, inApp: true })).toBe(action);
+    }
+    expect(Object.keys(SHORTCUTS).sort()).toEqual(["open", "play", "redo", "save", "undo"]);
   });
 });

@@ -1,6 +1,6 @@
 .pane {
   display: flex;
-  max-width: 640px;
+  max-width: 960px;
   flex-direction: column;
   gap: var(--g4-raum-16);
   margin: 0 auto;
@@ -13,23 +13,98 @@
   font: var(--g4-font-titel-s);
 }
 
-.list {
+/* At least 256 px of DS screen plus the frame around it fit into each card. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: var(--g4-raum-16);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  position: relative;
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: var(--g4-raum-4);
-  padding: var(--g4-raum-8);
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-fenster);
   background: var(--g4-flaeche-blatt);
+  transition: border-color var(--g4-dauer-kurz);
 }
 
-.game {
-  padding: 0 var(--g4-raum-8);
-  border-radius: var(--g4-radius-plakette);
-  background: var(--g4-flaeche-deck);
-  color: var(--g4-text-sekundaer);
-  font: var(--g4-font-text-xs);
-  font-weight: 600;
+.card:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.open {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-12);
+  border: 0;
+  border-radius: var(--g4-radius-fenster);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The 4:3 preview: an empty DS screen in its dark frame, centred. */
+.preview {
+  position: relative;
+  display: flex;
+  aspect-ratio: 4 / 3;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-bildschirm-rahmen);
+}
+
+.preview > div {
+  display: flex;
+  justify-content: center;
+}
+
+.screenName {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(12px * var(--ds-scale));
+  overflow: hidden;
+  color: var(--g4-szene-ds-textbox-flaeche);
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(16px * var(--ds-scale));
+  line-height: calc(20px * var(--ds-scale));
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.latest {
+  position: absolute;
+  top: var(--g4-raum-8);
+  left: var(--g4-raum-8);
+}
+
+.name {
+  overflow: hidden;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-m-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
 }
 
 .time {
@@ -38,9 +113,38 @@
 }
 
 .missing {
-  color: var(--g4-status-fehler);
+  color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
   font-weight: 600;
+}
+
+/* The "…" menu sits in the top right corner of the screen frame, outside the button that opens the project. */
+.more {
+  position: absolute;
+  top: var(--g4-raum-12);
+  right: var(--g4-raum-12);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-bildschirm-rahmen);
+  color: var(--g4-szene-ds-textbox-flaeche);
+}
+
+.footer {
+  display: flex;
+  padding: 0 var(--g4-raum-8) var(--g4-raum-12);
+}
+
+/* A project that could not be opened: grey, its screen without colour. */
+.gone {
+  background: var(--g4-flaeche-deck);
+}
+
+.gone .name {
+  color: var(--g4-text-sekundaer);
+}
+
+.gone .preview {
+  opacity: 0.5;
+  filter: grayscale(1);
 }
 
 .actions {
