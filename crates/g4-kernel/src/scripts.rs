@@ -1316,6 +1316,72 @@ mod tests {
         ));
     }
 
+    /// The two sample scripts of `docs/phase-3b2-gate.md` (parts B and C) compile as printed, on
+    /// top of the stub that "Neues Script" appends (`script script_<N> #<N>:`, N one above the
+    /// highest `#n`). A file from "Neu" holds `script Main #1`, so its first N is 2.
+    #[test]
+    fn gate_document_samples_compile() {
+        let (_s, p) = adopted();
+        let fresh = new_script_file(&p, SourceKind::Script).unwrap();
+        assert_eq!(add_script(&p, fresh).unwrap(), 2);
+        let ScriptSource::Rotom(stub) = read_source(&p, fresh).unwrap() else {
+            panic!("a script")
+        };
+        assert!(stub.ends_with("\nscript script_2 #2:\n\tEnd\n"), "{stub:?}");
+
+        // Text literals need the header that uses the file (rotom maps script file -> archive
+        // through the headers on disk), so the samples run on file 0, which header 0 uses.
+        let sample_b = |n: u16| {
+            format!(
+                "script script_{n} #{n}:
+    LockAll
+    FacePlayer
+    Message \"Hallo aus dem Studio!\"
+    WaitButton
+    CloseMessage
+    ReleaseAll
+    End
+"
+            )
+        };
+        let sample_c = |n: u16| {
+            format!(
+                "script script_{n} #{n}:
+    LockAll
+    FacePlayer
+    GoToIfSet FLAG_UNUSED_0x0094, AlreadyGiven
+    Message \"Hier, ein Geschenk!\"
+    WaitButton
+    CloseMessage
+    AddItem 17, 1
+    SetFlag FLAG_UNUSED_0x0094
+    ReleaseAll
+    End
+
+AlreadyGiven:
+    Message \"Mehr habe ich nicht.\"
+    WaitButton
+    CloseMessage
+    ReleaseAll
+    End
+"
+            )
+        };
+        for sample in [&sample_b as &dyn Fn(u16) -> String, &sample_c] {
+            let n = add_script(&p, 0).unwrap();
+            let ScriptSource::Rotom(text) = read_source(&p, 0).unwrap() else {
+                panic!("a script")
+            };
+            let stub = format!("script script_{n} #{n}:\n\tEnd\n");
+            assert!(text.ends_with(&stub), "{text:?}");
+            let text = text.replace(&stub, &sample(n));
+            write_source(&p, 0, &ScriptSource::Rotom(text)).unwrap();
+            let report = compile(&p).unwrap();
+            assert_eq!(report.problems, [], "{report:?}");
+            assert_eq!(report.compiled, [0], "{report:?}");
+        }
+    }
+
     #[test]
     fn resolve_local_common_and_unknown() {
         let (_s, p) = adopted();

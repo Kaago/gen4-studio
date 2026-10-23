@@ -32,7 +32,7 @@ Zwei Regeln, die man im Ablauf merkt:
 2. Gebündelte App bauen: `cd apps/studio && pnpm bundle && bash scripts/check-bundle.sh` (Ausgabe `bundle ok`, siehe `docs/release.md`). Gestartet wird `target/release/bundle/macos/Gen4 Studio.app`, `G4_APICULA` und `G4_ROTOM_LSP` dürfen nicht gesetzt sein. Beim ersten Start verlangt Gatekeeper eine Freigabe (siehe `docs/release.md`). Für Prüfungen, wo es dasteht, geht auch `G4_ROTOM_LSP="$PWD/tools/rotom/bin/rotom-lsp" G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tauri dev` (siehe `docs/dev-setup.md`).
 3. melonDS (die .app) und DSPRE bereithalten. DSPRE läuft nur unter Windows (oder einer Windows-Umgebung); die Kopie `pt-3b2` muss dort erreichbar sein.
 4. Die neue Route aus dem 3a-Gate (Route 230, Header 0001, siehe [docs/phase-3a-gate.md](phase-3a-gate.md) (A)) wird für (B) und (C) gebraucht. Wer sie nicht mehr hat, legt sie auf `pt-3b2` mit dem Assistenten "Gebiet anlegen…" an (Header 0001 "NOTHING" umstellen) und ergänzt von Hand einen Warp hin und zurück (wie 3a (A) 11), damit sie in melonDS begehbar ist.
-5. Netz: Der Studio-Build braucht kein Netz. Nur ein sauberer Cargo-Build (rotoms `build.rs` lädt `db-latest.zip`) und der erste Bau von `rotom-lsp` brauchen es; das Studio selbst benutzt immer die mitgelieferte Befehlsdatenbank in `crates/g4-kernel/metadata/scrcmd/` (Revision 33), nie eine heruntergeladene. Siehe `docs/dev-setup.md`.
+5. Netz: Das Studio braucht zur Laufzeit kein Netz; nur ein sauberer Cargo-Build lädt einmal `db-latest.zip` (rotoms `build.rs`), und der erste Bau von `rotom-lsp` braucht es auch. Das Studio selbst benutzt immer die mitgelieferte Befehlsdatenbank in `crates/g4-kernel/metadata/scrcmd/` (Revision 33), nie eine heruntergeladene. Siehe `docs/dev-setup.md`.
 
 Fakten zu Platin DE, die der Ablauf braucht: Zweiblattdorf hat den Außen-Header 0411 und sechs Räume 0412 bis 0417, das Spielerzimmer ist Header 0415 (Karte 187); die Mutter steht im Spielerhaus (Erdgeschoss, im Explorer unter Zweiblattdorf zu finden); Route 201 ist Header 0342.
 
@@ -53,23 +53,51 @@ Auf der Kopie `pt-3b2` (Platin DE), mit der gebündelten App:
 
 Ziel: Auf der neuen Route bekommt ein neuer NPC per "Neues Script" ein Script mit einem Textliteral; im Spiel spricht er diesen Text, und das Textarchiv des Headers zeigt die Nachricht im Panel "Text". Auf einer Kopie von Platin DE mit übernommenen Scripts (nach (A)):
 
-- [ ] 1. Header 0001 (Route 230) im Explorer wählen; im Header-Editor stehen "Scriptdatei" und "Level-Script". Hat der Header noch keine eigene Scriptdatei, im Feld "Scriptdatei" "Neu" drücken: die neue Nummer steht im Feld, der Header ist ungespeichert (dirty).
-- [ ] 2. Ein neues Objekt (Person) auf eine freie Kachel setzen (Leiste der 3D-Ansicht, "Hinzufügen"). Im Event-Inspector beim Feld "Script" "Neues Script" drücken: die Nummer des neuen Scripts steht im Feld, das Event ist dirty.
-- [ ] 3. Das Panel "Script" zeigt die Scriptdatei des Headers; im Quelltext das neue Script ergänzen, zum Beispiel
+- [ ] 1. Header 0001 (Route 230) im Explorer wählen; im Header-Editor stehen "Scriptdatei" und "Level-Script". Hat der Header noch keine eigene Scriptdatei (Nummer 0 oder eine geteilte), im Feld "Scriptdatei" "Neu" drücken: es entsteht eine neue Scriptdatei mit dem Rumpf `script Main #1:` und `End`, ihre Nummer steht im Feld, der Header ist ungespeichert (dirty). **Den Header jetzt speichern** (Toolbar "Speichern"): rotom ordnet ein Textliteral dem Textarchiv über die gespeicherten Header zu; solange der Header die neue Scriptdatei nicht auf der Platte hat, meldet der Compile im Panel "Probleme" "cannot resolve text archive".
+- [ ] 2. Ein neues Objekt auf eine freie Kachel setzen: in der Leiste der 3D-Ansicht bei "Art des neuen Events" die Art "Objekt" wählen (Vorgabe ist "Warp"), die Maus über die Kachel halten, "Hinzufügen". Im Event-Inspector beim Feld "Script" "Neues Script" drücken: das Studio hängt an die Scriptdatei des Headers einen leeren Rumpf `script script_<N> #<N>:` mit `End` an (N = höchste vorhandene Nummer plus eins; bei der neuen Scriptdatei aus Schritt 1 ist N = 2) und kompiliert ihn. Die Nummer N steht im Feld, das Event ist dirty.
+- [ ] 3. Event-Feld "Script" → "Öffnen": das Panel "Script" zeigt die Scriptdatei des Headers, der Cursor steht auf dem angehängten Rumpf am Ende. **Dieses Script bearbeiten, nicht ein zweites anlegen**: Zeile `script script_<N> #<N>:` stehen lassen (ein zweites `script …` mit demselben Namen oder derselben Nummer meldet "Script name or slot declared twice") und den Rumpf (`End`) durch diesen ersetzen (hier N = 2):
   ```
-  script NpcHallo #1:
+  script script_2 #2:
+      LockAll
+      FacePlayer
       Message "Hallo aus dem Studio!"
+      WaitButton
+      CloseMessage
+      ReleaseAll
       End
   ```
-  (die Nummer `#n` ist die, die im Event-Feld steht; weitere Befehle wie `FacePlayer` oder `CloseMessage` schlägt die Completion vor, sobald man einen Befehlsnamen tippt).
+  Weitere Befehle schlägt die Completion vor, sobald man einen Befehlsnamen tippt.
 - [ ] 4. Cmd+S: Quelle gespeichert, kompiliert, kein Eintrag im Panel "Probleme". Das Textarchiv des Headers wird neu geladen; im Panel "Text" steht die neue Nachricht am Ende, mit `Hallo aus dem Studio!`.
 - [ ] 5. Header und Events speichern, bauen (ROM entsteht ohne Fehler), in melonDS zu Route 230 laufen, den NPC ansprechen: er sagt den Text.
+
+(Die Beispiel-Scripts dieses Dokuments aus (B) und (C) kompiliert der Test `gate_document_samples_compile` in `crates/g4-kernel/src/scripts.rs` gegen die mitgelieferte Platin-Datenbank, mit Nummern, die aus dem Rumpf von "Neues Script" folgen.)
 
 ## (C) Flag und Item
 
 Derselbe NPC gibt einmalig ein Item und sagt danach einen anderen Text:
 
-- [ ] 1. Im Script des NPCs mit einer Flag-Bedingung: beim ersten Ansprechen Item geben und Flag setzen, danach ein anderer Text. Beim Tippen des Flag-Namens (zum Beispiel nach `Flag`) schlägt die Completion Namen aus der Befehlsdatenbank vor.
+- [ ] 1. Im Panel "Script" im Script `script_2` (`#2`) alles unter der Zeile `script script_2 #2:` durch dieses Script ersetzen (die Zeile selbst und die Nummer bleiben; die Marke `AlreadyGiven:` kommt hinter das Script, am besten ans Ende der Datei):
+  ```
+  script script_2 #2:
+      LockAll
+      FacePlayer
+      GoToIfSet FLAG_UNUSED_0x0094, AlreadyGiven
+      Message "Hier, ein Geschenk!"
+      WaitButton
+      CloseMessage
+      AddItem 17, 1
+      SetFlag FLAG_UNUSED_0x0094
+      ReleaseAll
+      End
+
+  AlreadyGiven:
+      Message "Mehr habe ich nicht."
+      WaitButton
+      CloseMessage
+      ReleaseAll
+      End
+  ```
+  Beim Tippen von `FLAG_UN` schlägt die Completion die Flag-Namen der Datenbank vor, darunter `FLAG_UNUSED_0x0094` (laut Platin-Datenbank ungenutzt). `AddItem 17, 1` gibt ein Item mit der Nummer 17 (in Platin der Trank) einmal; das Ergebnis landet in der Variable `VAR_RESULT`.
 - [ ] 2. Speichern: kein Problem. Ein absichtlicher Tippfehler (falscher Befehlsname) zeigt eine Diagnose im Editor, im Panel "Probleme" erscheint beim Speichern eine Zeile "Compile" mit Datei, Zeile und Spalte; ein Klick auf die Zeile springt an die Fehlstelle; der Member bleibt unverändert. Tippfehler beheben, speichern: die Zeile verschwindet.
 - [ ] 3. Bauen, in melonDS: der NPC gibt beim ersten Ansprechen das Item (Beutel prüfen) und sagt beim zweiten Ansprechen den anderen Text.
 
@@ -82,16 +110,17 @@ Derselbe NPC gibt einmalig ein Item und sagt danach einen anderen Text:
 ## (E) Level-Script
 
 - [ ] 1. Auf Route 230 den Header-Editor öffnen: der Abschnitt "Level-Script" zeigt "Kein Level-Script" mit "Anlegen" (Level-Script-ID 0). "Anlegen" drücken: eine neue Level-Script-Datei entsteht, ihre Nummer steht im Feld "Level-Script".
-- [ ] 2. "Eintrag hinzufügen": Auslöser "Beim Laden (on_load)", Script-Nummer eines neuen Scripts mit einer Nachricht (über "Neu" bzw. Script anfügen im Panel "Script"). Das Formular speichert nur, wenn rotom das Dokument annimmt: bei einer ungültigen Nummer zeigt es Hinweise ("Nicht gespeichert, bis das Level-Script gültig ist.") statt zu speichern. "Als JSON öffnen" zeigt rotoms JSON im Panel "Script" ("Level-Script NNNN (JSON)") mit dem Eintrag `on_load`.
+- [ ] 2. Erst das Script: im Panel "Script" die Scriptdatei des Headers öffnen (im Explorer das Kind "Scriptdatei NNNN" unter Header 0001) und "Script anfügen" drücken. Das hängt einen Rumpf `script script_<N> #<N>:` mit `End` an die Datei an (N = höchste Nummer plus eins). Den Rumpf durch eine Nachricht ersetzen, zum Beispiel `Message "Willkommen auf Route 230"` und `End` (Textliterale brauchen den gespeicherten Header, siehe (B) 1), und mit Cmd+S speichern. Dann im Header-Editor "Eintrag hinzufügen": Auslöser "Beim Laden (on_load)", Script-Nummer N. (Keine neue Scriptdatei anlegen: "Neu" beim Feld "Scriptdatei" oder "Level-Script" erzeugt eine ganze Datei, kein Script.) Das Formular speichert nur, wenn rotom das Dokument annimmt: bei einer ungültigen Nummer zeigt es Hinweise ("Nicht gespeichert, bis das Level-Script gültig ist.") statt zu speichern. "Als JSON öffnen" zeigt rotoms JSON im Panel "Script" ("Level-Script NNNN (JSON)") mit dem Eintrag `on_load`.
 - [ ] 3. Speichern, bauen, in melonDS: beim Betreten der Karte läuft das Script und zeigt die Nachricht.
 
 ## (F) Text-Panel
 
-- [ ] 1. Tab "Text": links die Archivliste mit Nummer, Nachrichtenzahl und den Headern, die das Archiv nutzen (zum Beispiel "Header 0415, 0416"). Ein Archiv wählen, eine Nachricht wählen: das Feld "Text der Nachricht" zeigt den Text, Steuercodes bleiben als Text sichtbar, `\n`, `\r` und `\f` stehen in der Liste lesbar.
-- [ ] 2. Eine Nachricht ändern und "Nachricht anfügen" drücken (neue Nachricht am Ende, mit Text). Ein sehr langer Text zeigt die Überlängen-Warnung unter dem Feld und beim Speichern eine "Text"-Zeile im Panel "Probleme". Cmd+Z macht die letzte Änderung rückgängig.
-- [ ] 3. Speichern (Toolbar "Speichern" speichert auch Textarchive), bauen, in melonDS: geänderter und angefügter Text erscheinen im Spiel (die angefügte Nachricht über ein Script mit ihrer Nummer erreichen).
-- [ ] 4. Suchfeld oben: der neue Text wird über alle Archive gefunden, Treffer zeigen Archiv, Nachrichtennummer und Auszug; ein Klick wählt Archiv und Nachricht.
-- [ ] 5. "Neues Archiv": ein leeres Archiv entsteht, die Nummer ist die nächste freie; ein Build packt es.
+- [ ] 1. Tab "Text": links die Archivliste mit Nummer und den Headern, die das Archiv nutzen (zum Beispiel "Header 0415, 0416"); die Nachrichtenzahl steht nur beim geöffneten Archiv. Ein Archiv wählen, eine Nachricht wählen: das Feld "Text der Nachricht" zeigt den Text, Steuercodes bleiben als Text sichtbar, `\n`, `\r` und `\f` stehen in der Liste lesbar.
+- [ ] 2. Ändern: eine Nachricht im Feld "Text der Nachricht" ändern. Ein sehr langer Text zeigt die Überlängen-Warnung unter dem Feld und beim Speichern eine "Text"-Zeile im Panel "Probleme". Undo: Cmd+Z im Textfeld ist das Undo des Feldes selbst; das Undo der App ist der Knopf "Undo" der Toolbar oder Cmd+Z, nachdem der Fokus das Feld verlassen hat.
+- [ ] 3. Anfügen: "Nachricht anfügen" drücken. Das hängt eine **leere** Nachricht an (die Liste zeigt "(leer)"); der Text muss danach im Feld "Text der Nachricht" getippt werden, zum Beispiel "Angefügt im Studio".
+- [ ] 4. Speichern (Toolbar "Speichern" speichert auch Textarchive), bauen, in melonDS: geänderter und angefügter Text erscheinen im Spiel (die angefügte Nachricht über ein Script mit ihrer Nummer erreichen).
+- [ ] 5. Suchfeld oben: der neue Text wird über alle Archive gefunden, Treffer zeigen Archiv, Nachrichtennummer und Auszug; ein Klick wählt Archiv und Nachricht.
+- [ ] 6. "Neues Archiv": ein Archiv als letztes Mitglied entsteht, mit einer Nachricht "Neuer Text". Es wird sofort auf die Platte geschrieben (Member und JSON), braucht kein "Speichern" und lässt sich nicht rückgängig machen. Ein Build packt es.
 
 ## (G) DSPRE-Gegenprobe
 

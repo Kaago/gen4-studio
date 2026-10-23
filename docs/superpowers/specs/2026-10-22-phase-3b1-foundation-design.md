@@ -9,7 +9,7 @@ Phase 3b (Daten-Editoren, Skripte, Text, Import, Prüfungen) ist zu groß für e
 | Teil | Inhalt |
 |---|---|
 | 3b.1 Fundament (diese Spec) | Phase-2-Reste plus neue Header per ARM9-Patch |
-| 3b.2 Skripte und Text | rotom, Monaco, chatot, Text-Editor |
+| 3b.2 Skripte und Text | rotom, CodeMirror 6 (geändert 2026-10-23, siehe Spec 3b.2), chatot, Text-Editor |
 | 3b.3 Daten-Editoren | Encounter, Trainer, Pokémon, Moves, Items |
 | 3b.4 Import und Prüfungen | Kartenimport, Projektprüfungen |
 
