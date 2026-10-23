@@ -93,6 +93,19 @@ export function setVarCondition(doc: LevelScriptDoc, index: number, patch: Parti
   );
 }
 
+/**
+ * Whether a header entry of this trigger runs while the map is set up. The game runs such a script to its end in one go,
+ * with no frame drawn in between (rotom v0.7.0 src/decompiler/levelscript.rs: on_transition on entering, on_load before
+ * the map is drawn, on_resume after a field move or a battle): a command that waits for the player never returns there.
+ * Only the scripts of `on_var_condition` run like an event script, frame by frame.
+ */
+export const runsDuringMapSetup = (type: HeaderEntryType): boolean => type !== "on_var_condition";
+
+/** The hint next to an entry that runs while the map is set up (gate 3b.2, finding 14: a message there leaves the map black). */
+export const HINT_NO_MESSAGES = "Script ohne Nachricht und ohne Warten auf Eingaben, sonst bleibt die Karte schwarz.";
+export const HINT_NO_MESSAGES_DETAIL =
+  "Dieser Auslöser läuft beim Aufbau der Karte in einem Zug, das Spiel zeigt dazwischen kein Bild. Ein Script, das eine Nachricht zeigt (Message) oder auf eine Taste wartet (WaitButton), kommt dort nicht weiter: die Karte bleibt schwarz und die Figur hängt. Eine Nachricht beim Betreten braucht eine Variablen-Bedingung, deren Script die Variable selbst umstellt.";
+
 /** What rotom's `validate` refuses (src/decompiler/levelscript.rs LevelScript::validate), as hints in the form's words. */
 export const HINT_ZERO_VAR = "Variable 0 beendet die Tabelle — bitte eine Variable angeben";
 export const HINT_DUPLICATE_VAR_TRIGGER = `Nur der erste Eintrag „${TRIGGER_LABELS.on_var_condition}“ zählt`;

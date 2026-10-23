@@ -197,12 +197,17 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
     });
   }
 
-  /** Saves everything dirty in the store. Text warnings go to the problems store; the language server is told about the archives written. */
+  /**
+   * Saves everything dirty in the store. Text warnings go to the problems store; the language server is told about the archives written. A header
+   * table save compiles what it made stale (a script whose text literal resolves only now): those files' problems are replaced, and the text panel
+   * reloads the archives that compile appended to.
+   */
   async function saveStore() {
     const report = await save();
-    const archives = report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index);
-    // An archive that was written without any warning is cleared.
-    problems.applyReport(report.problems, { archives });
+    const archives = [...new Set([...report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index), ...report.touched_archives])];
+    // An archive or a source that was written without any problem is cleared.
+    problems.applyReport(report.problems, { archives, files: report.compiled });
+    for (const archive of report.touched_archives) bus.emit({ topic: "textData", archive });
     if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
     return report;
   }

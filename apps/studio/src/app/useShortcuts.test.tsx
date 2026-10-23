@@ -67,4 +67,15 @@ describe("useShortcuts", () => {
     await press({ key: "Escape" });
     expect(handlers.unpinSelection).toHaveBeenCalledOnce();
   });
+
+  it("leaves_select_all_to_the_text_field", async () => {
+    // Cmd+A in "Text der Nachricht" (gate 3b.2, finding 18): no workbench handler takes it, the field selects its text.
+    const field = document.createElement("textarea");
+    document.body.append(field);
+    const event = new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void field.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    for (const fn of Object.values(handlers)) expect(fn).not.toHaveBeenCalled();
+    field.remove();
+  });
 });

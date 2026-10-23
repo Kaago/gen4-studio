@@ -63,7 +63,7 @@ describe("Cmd+S inside the script editor", () => {
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(openPath).mockReset().mockResolvedValue("/p");
-    vi.mocked(save).mockReset().mockResolvedValue({ written: [{ kind: "TextArchive", index: 5 }], problems: [] });
+    vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [{ kind: "TextArchive", index: 5 }], problems: [] });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
     vi.mocked(openProject).mockReset().mockResolvedValue({ root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 0 });
     vi.mocked(listHeaders).mockReset().mockResolvedValue({ headers: [], names_error: null });

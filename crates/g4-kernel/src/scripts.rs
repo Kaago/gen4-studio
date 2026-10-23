@@ -534,6 +534,45 @@ fn refresh_stale_text_json(project: &Project) -> Result<(), KernelError> {
     Ok(())
 }
 
+/// Makes the rotom sources of script files `files` stale in rotom's compile state, so the
+/// next [`compile`] compiles them again. rotom's staleness covers the source, the command
+/// database and the compiler, not the header table, yet a text literal goes to the text
+/// archive of the saved header that uses the script file: a header that now names this
+/// script file or another text archive changes what the source compiles to. The entry keeps
+/// its quirks. A file without a rotom source (binary, level script) or without an entry
+/// (rotom compiles it anyway) is skipped; so is a project that is not adopted.
+pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
+    if files.is_empty() || !is_adopted(project) {
+        return Ok(());
+    }
+    let config = load_config(project)?;
+    let root = &project.root;
+    let state_path = config.status_dir(root).join("compile-state.json");
+    // rotom v0.7.0: src/compile_state.rs CompileState::load_or_default
+    let mut state = rotom::CompileState::load_or_default(&state_path)
+        .map_err(|e| rotom_error("compile state", e))?;
+    let mut changed = false;
+    for &file in files {
+        let source = source_path(project, file, SourceKind::Script);
+        if !source.is_file() {
+            continue;
+        }
+        // rotom v0.7.0: src/project/compile.rs compile_project keys the state by the source
+        // path relative to the project root and compiles an entry whose source_hash differs.
+        if let Some(entry) = state.entries.get_mut(&relative(root, &source))
+            && entry.source_hash != 0
+        {
+            entry.source_hash = 0;
+            changed = true;
+        }
+    }
+    if changed {
+        // rotom v0.7.0: src/compile_state.rs CompileState::save
+        state.save(&state_path).map_err(io_at(&state_path))?;
+    }
+    Ok(())
+}
+
 /// Compiles every source that is stale per rotom's compile state (source, command database
 /// and compiler hashes), exactly like `rotom compile` in the project root: members and
 /// `.rotom/status/compile-state.json` are written by rotom, quirks come from the state.
@@ -691,7 +730,9 @@ pub fn source_path(project: &Project, file: u16, kind: SourceKind) -> PathBuf {
     }
 }
 
-fn source_kind(project: &Project, file: u16) -> SourceKind {
+/// What kind of source script file `file` has: the rotom source, the level script JSON, or
+/// none ([`SourceKind::Binary`]).
+pub fn source_kind(project: &Project, file: u16) -> SourceKind {
     if source_path(project, file, SourceKind::Script).is_file() {
         SourceKind::Script
     } else if source_path(project, file, SourceKind::LevelScript).is_file() {
@@ -1434,6 +1475,46 @@ mod tests {
     }
 
     #[test]
+    fn a_header_save_that_retargets_a_script_file_makes_it_stale() {
+        use crate::store::{MapHeader, Store};
+
+        let (_s, p) = adopted();
+        let literal = "script Main #1:\n    Message \"Hallo Welt\"\n    End\n";
+        write_source(&p, 0, &ScriptSource::Rotom(literal.into())).unwrap();
+        assert_eq!(compile(&p).unwrap().compiled, [0]);
+        assert!(compile(&p).unwrap().compiled.is_empty(), "nothing is stale");
+
+        // A header table save without a script file or text archive change: still nothing.
+        let mut store = Store::new(std::sync::Arc::new(p));
+        store
+            .edit_header(1, "matrix", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.matrix_id = 7;
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert!(store.save().unwrap().retargeted_scripts.is_empty());
+        assert!(compile(store.project()).unwrap().compiled.is_empty());
+
+        // Header 1 now uses script file 0: rotom's own state does not see that.
+        store
+            .edit_header(1, "script", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.script_file_id = 0;
+                    h.text_archive_id = 433;
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.save().unwrap().retargeted_scripts, [0]);
+        let report = compile(store.project()).unwrap();
+        assert_eq!(report.compiled, [0], "{report:?}");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert!(compile(store.project()).unwrap().compiled.is_empty());
+    }
+
+    #[test]
     fn level_script_round_trips() {
         let (_s, p) = adopted();
         let ScriptSource::LevelScript(mut doc) = read_source(&p, 1).unwrap() else {
@@ -1524,7 +1605,22 @@ AlreadyGiven:
 "
             )
         };
-        for sample in [&sample_b as &dyn Fn(u16) -> String, &sample_c] {
+        // (E): the script of the var condition shows the message and sets the variable, so it
+        // runs once (an on_load script must not show one, the map would stay black).
+        let sample_e = |n: u16| {
+            format!(
+                "script script_{n} #{n}:
+    LockAll
+    Message \"Willkommen auf Route 230!\"
+    WaitButton
+    CloseMessage
+    SetVar VAR_UNUSED_0x4031, 1
+    ReleaseAll
+    End
+"
+            )
+        };
+        for sample in [&sample_b as &dyn Fn(u16) -> String, &sample_c, &sample_e] {
             let n = add_script(&p, 0).unwrap();
             let ScriptSource::Rotom(text) = read_source(&p, 0).unwrap() else {
                 panic!("a script")

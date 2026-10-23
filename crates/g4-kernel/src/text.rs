@@ -266,13 +266,30 @@ pub(crate) fn text_winner<'a>(
     })
 }
 
-/// Position of byte offset `at` in `text`: 1-based line and 1-based UTF-16 column.
+/// Position of byte offset `at` in a message's `text`: 1-based line and 1-based UTF-16
+/// column. A line ends at a hard break (`\n`, `\r` or `\f` as a backslash and a letter),
+/// which is how chatot splits a message into the lines of the text box; escapes are read in
+/// pairs like chatot does, so `\\n` is no break.
 fn position(text: &str, at: usize) -> (u32, u32) {
     let at = at.min(text.len());
-    let before = &text[..at];
-    let line = before.matches('\n').count() as u32 + 1;
-    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-    let col = text[line_start..at].encode_utf16().count() as u32 + 1;
+    let mut line = 1;
+    let mut line_start = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, ch)) = chars.next() {
+        if i >= at {
+            break;
+        }
+        if ch == '\\'
+            && let Some(&(j, next)) = chars.peek()
+        {
+            chars.next();
+            if matches!(next, 'n' | 'r' | 'f') && j < at {
+                line += 1;
+                line_start = j + 1;
+            }
+        }
+    }
+    let col = text[line_start.min(at)..at].encode_utf16().count() as u32 + 1;
     (line, col)
 }
 
@@ -293,13 +310,14 @@ pub fn validate(text: &str, file: &Path) -> Vec<Problem> {
         })
         .collect();
     // An error here (unknown glyph, bad command) is already reported by the encoder dry run.
-    if let Ok((_row, px)) = measure_line_width(text, charmap, default_glyph_widths())
+    if let Ok((row, px)) = measure_line_width(text, charmap, default_glyph_widths())
         && px > DIALOG_LINE_MAX_PX
     {
         problems.push(Problem {
             severity: Severity::Warning,
             file: file.to_path_buf(),
-            line: 1,
+            // `row` is the zero-based line of the message (split at hard breaks).
+            line: row as u32 + 1,
             col: 1,
             message: format!("Zeile zu lang für das Textfeld (über {DIALOG_LINE_MAX_PX} px)"),
         });
@@ -320,8 +338,10 @@ fn tmp_path(root: &Path, name: &str) -> PathBuf {
 /// into `member_path` (temp under `<root>/.g4/tmp`, then rename). The JSON is not touched
 /// after the member, and its mtime is not older than the member's: chatot encodes from a
 /// temp copy of the JSON first (the rename keeps the temp member's earlier mtime), so DSPRE's
-/// `--newer` rule sees a member that is up to date. Returns the warnings of every message;
-/// they never block the save.
+/// `--newer` rule sees a member that is up to date. Returns the warnings of every message
+/// whose text differs from the member this replaces (every message, when there is none):
+/// a text the archive already had, like a vanilla one, is not reported again. The warnings
+/// never block the save.
 pub fn write_archive(
     root: &Path,
     json_path: &Path,
@@ -342,6 +362,10 @@ pub fn write_archive(
         let _ = std::fs::remove_file(&tmp_member);
     };
 
+    // What the member held before: its messages are not checked again.
+    let before = std::fs::read(member_path)
+        .ok()
+        .and_then(|bytes| TextArchiveDoc::from_member(&bytes, &doc.lang).ok());
     std::fs::write(&tmp_json, &json).map_err(io_at(&tmp_json))?;
     // rotom v0.7.0 and DSPRE use the same chatot call, see docs/formats/text_archive.md.
     let encoded = guard_panic("chatot", || {
@@ -393,7 +417,14 @@ pub fn write_archive(
     }
 
     let mut problems = Vec::new();
-    for message in &doc.messages {
+    for (i, message) in doc.messages.iter().enumerate() {
+        let unchanged = before
+            .as_ref()
+            .and_then(|b| b.messages.get(i))
+            .is_some_and(|old| old.text == message.text);
+        if unchanged {
+            continue;
+        }
         for mut problem in validate(&message.text, json_path) {
             problem.message = format!("{}: {}", message.id, problem.message);
             problems.push(problem);
@@ -686,6 +717,49 @@ mod tests {
         assert!(problems.iter().all(|p| p.file == json_path));
         assert!(problems.iter().any(|p| p.message.starts_with("msg_00000")));
         assert!(problems.iter().any(|p| p.message.starts_with("msg_00001")));
+    }
+
+    #[test]
+    fn write_archive_warns_only_for_changed_messages() {
+        let long = "W".repeat(60);
+        let root = tempfile::tempdir().unwrap();
+        let json_path = root.path().join("0001.json");
+        let member_path = root.path().join("0001");
+        // A vanilla member whose first message is already too long.
+        std::fs::write(&member_path, text_archive_bytes(&[&long, "Hi", "Ho"])).unwrap();
+        let mut doc =
+            TextArchiveDoc::from_member(&std::fs::read(&member_path).unwrap(), "en_US").unwrap();
+        doc.messages[1].text = long.clone();
+        doc.messages.push(TextMessage {
+            id: default_message_id(3),
+            text: long.clone(),
+            other: Default::default(),
+        });
+        let problems = write_archive(root.path(), &json_path, &member_path, &doc).unwrap();
+        let ids: Vec<_> = problems
+            .iter()
+            .map(|p| p.message.split(':').next().unwrap())
+            .collect();
+        assert_eq!(ids, ["msg_00001", "msg_00003"]);
+        // Saved again unchanged: nothing differs from the member any more.
+        let again = write_archive(root.path(), &json_path, &member_path, &doc).unwrap();
+        assert!(again.is_empty(), "{again:?}");
+    }
+
+    #[test]
+    fn validate_reports_the_line_of_the_message_that_is_too_long() {
+        let text = format!("Hallo\\nDu\\r{}", "W".repeat(60));
+        let problems = validate(&text, Path::new("0001.json"));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!((problems[0].line, problems[0].col), (3, 1));
+    }
+
+    #[test]
+    fn position_counts_hard_breaks_not_escaped_backslashes() {
+        assert_eq!(position("ab\\ncd", 5), (2, 2));
+        assert_eq!(position("ab\\fc\\rd", 7), (3, 1));
+        assert_eq!(position("a\\\\nb", 5), (1, 6));
+        assert_eq!(position("äb", 2), (1, 2));
     }
 
     #[test]

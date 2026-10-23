@@ -12,6 +12,7 @@ use g4_kernel::store::Store;
 use serde::Serialize;
 use tauri::{Manager, State};
 
+use super::scripts::reload_text_archives;
 use super::{ProblemDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
@@ -98,26 +99,64 @@ pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
 }
 
 /// What `save` did: the assets written and the warnings found while encoding them (text
-/// warnings never block the save).
+/// warnings never block the save). A save that wrote the header table of an adopted project
+/// compiles what is stale afterwards: a header that now uses a script file or another text
+/// archive makes that file stale, and a source whose text literal did not resolve (no saved
+/// header used its file) is stale anyway, so its problem goes once the header is saved.
 #[derive(Debug, Serialize)]
 pub struct SaveDto {
     pub written: Vec<AssetId>,
+    /// The text warnings of the save, then the problems of that compile.
     pub problems: Vec<ProblemDto>,
+    /// Sources that compile compiled without an error (project-relative, forward slashes):
+    /// their earlier compile problems are gone.
+    pub compiled: Vec<String>,
+    /// Text archives that compile appended to; the store holds them again.
+    pub touched_archives: Vec<u16>,
 }
 
 pub fn save_impl(state: &AppState) -> Result<SaveDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let report = session.store.save()?;
-    let root = &session.project.root;
-    Ok(SaveDto {
+    let project = Arc::clone(&session.project);
+    let root = &project.root;
+    let mut dto = SaveDto {
         written: report.written,
         problems: report
             .problems
             .iter()
             .map(|p| ProblemDto::from_kernel(p, root, "text"))
             .collect(),
-    })
+        compiled: Vec::new(),
+        touched_archives: Vec::new(),
+    };
+    let header_table_written = dto
+        .written
+        .iter()
+        .any(|id| id.kind == AssetKind::HeaderTable);
+    if header_table_written && g4_kernel::scripts::is_adopted(&project) {
+        let compile = g4_kernel::scripts::compile(&project)?;
+        reload_text_archives(&mut session.store, &compile.touched_archives)?;
+        dto.problems.extend(
+            compile
+                .problems
+                .iter()
+                .map(|p| ProblemDto::by_origin(p, root)),
+        );
+        dto.compiled = compile
+            .compiled
+            .iter()
+            .map(|&n| {
+                let kind = g4_kernel::scripts::source_kind(&project, n);
+                let source = g4_kernel::scripts::source_path(&project, n, kind);
+                let relative = source.strip_prefix(root).unwrap_or(&source);
+                relative.to_string_lossy().replace('\\', "/")
+            })
+            .collect();
+        dto.touched_archives = compile.touched_archives;
+    }
+    Ok(dto)
 }
 
 /// Drops the own changes (and their undo/redo entries) of one asset and reloads it from its

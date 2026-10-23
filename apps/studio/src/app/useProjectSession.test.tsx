@@ -70,7 +70,7 @@ describe("useProjectSession with open scripts", () => {
     vi.mocked(ask).mockReset().mockResolvedValue(true);
     vi.mocked(openPath).mockReset();
     vi.mocked(buildRom).mockReset().mockResolvedValue(report());
-    vi.mocked(save).mockReset().mockResolvedValue({ written: [], problems: [] });
+    vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
     vi.mocked(openProject).mockReset();
     vi.mocked(listHeaders).mockReset().mockResolvedValue({ headers: [], names_error: null });
@@ -116,7 +116,7 @@ describe("useProjectSession with open scripts", () => {
     let archiveSaved = false;
     vi.mocked(save).mockImplementation(async () => {
       archiveSaved = true;
-      return { written: [{ kind: "TextArchive", index: 5 }, { kind: "Map", index: 1 }], problems: [problem("expanded/textArchives/0005.json", 1, "zu breit", "warning", "text")] };
+      return { compiled: [], touched_archives: [], written: [{ kind: "TextArchive", index: 5 }, { kind: "Map", index: 1 }], problems: [problem("expanded/textArchives/0005.json", 1, "zu breit", "warning", "text")] };
     });
     vi.mocked(saveScript).mockImplementation(async () => {
       if (!archiveSaved) throw { code: "error", message: "Textarchiv 0005 erst speichern", asset: null };
@@ -222,7 +222,7 @@ describe("useProjectSession with open scripts", () => {
     });
 
     it("save_writes_the_store_and_then_the_open_scripts_and_counts_both", async () => {
-      vi.mocked(save).mockResolvedValue({ written: [{ kind: "TextArchive", index: 5 }, { kind: "Map", index: 1 }], problems: [problem("expanded/textArchives/0005.json", 1, "zu breit", "warning", "text")] });
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [{ kind: "TextArchive", index: 5 }, { kind: "Map", index: 1 }], problems: [problem("expanded/textArchives/0005.json", 1, "zu breit", "warning", "text")] });
       await openDirty(3);
       await act(async () => session.onSave());
       expect(saveScript).toHaveBeenCalledWith(3, "script F3 #1:\n// edited\n");
@@ -231,9 +231,25 @@ describe("useProjectSession with open scripts", () => {
       expect(problems.list().map((p) => p.message)).toEqual(["zu breit"]);
       expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/textArchives/0005.json", type: 2 }] });
       // The next save of archive 5 without warnings clears them.
-      vi.mocked(save).mockResolvedValue({ written: [{ kind: "TextArchive", index: 5 }], problems: [] });
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [{ kind: "TextArchive", index: 5 }], problems: [] });
       await act(async () => session.onSave());
       expect(problems.list()).toEqual([]);
+    });
+
+    it("a_header_save_that_compiles_replaces_the_problems_of_the_compiled_files", async () => {
+      // The script's text literal did not resolve before the header was saved.
+      problems.applyReport([problem("expanded/scripts/1124.rotom", 7, "Textliteral nicht auflösbar: …")], { files: ["expanded/scripts/1124.rotom"] });
+      problems.applyReport([problem("expanded/scripts/0042.rotom", 2, "Unknown command 'X'")], { files: ["expanded/scripts/0042.rotom"] });
+      vi.mocked(save).mockResolvedValue({
+        written: [{ kind: "HeaderTable", index: 0 }],
+        problems: [problem("expanded/scripts/0042.rotom", 2, "Unknown command 'X'"), problem("expanded/textArchives/0023.json", 1, "msg_00101: zu breit", "warning", "text")],
+        compiled: ["expanded/scripts/1124.rotom"],
+        touched_archives: [23],
+      });
+      await act(async () => session.onSave());
+      expect(problems.list().map((p) => p.message)).toEqual(["Unknown command 'X'", "msg_00101: zu breit"]);
+      expect(events).toContainEqual({ topic: "textData", archive: 23 });
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/textArchives/0023.json", type: 2 }] });
     });
 
     it("opening_another_project_asks_when_only_a_script_is_unsaved", async () => {

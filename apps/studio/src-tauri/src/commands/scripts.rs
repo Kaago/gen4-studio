@@ -177,7 +177,7 @@ fn refuse_dirty_text(store: &Store) -> Result<(), CmdError> {
 
 /// Loads the text archives a compile changed from disk again (the store's copy, its search
 /// index entry and its undo steps go), so the Text panel shows what rotom appended.
-fn reload_text_archives(store: &mut Store, archives: &[u16]) -> Result<(), CmdError> {
+pub(super) fn reload_text_archives(store: &mut Store, archives: &[u16]) -> Result<(), CmdError> {
     for &index in archives {
         store.reload_from_disk(AssetId {
             kind: AssetKind::TextArchive,
@@ -371,8 +371,8 @@ pub fn search_scripts(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::super::{
-        TextEdit, dirty_impl, edit_text_archive_impl, get_text_archive_impl, open_synthetic,
-        search_text_impl,
+        TextEdit, dirty_impl, edit_text_archive_impl, get_header_impl, get_text_archive_impl,
+        open_synthetic, save_impl, search_text_impl, set_header_impl,
     };
     use super::*;
 
@@ -525,6 +525,55 @@ mod tests {
         assert_eq!(hits[0].archive, ARCHIVE);
         // The reloaded archive matches its file: nothing to save.
         assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_header_save_compiles_the_script_whose_literal_did_not_resolve() {
+        use g4_kernel::store::MapHeader;
+
+        let (_f, state) = adopted();
+        let file = new_script_file_impl(&state, "script".into()).unwrap();
+        let source = "script Main #1:\n    Message \"Hallo Welt\"\n    End\n";
+        let report = save_script_impl(&state, file, source.into()).unwrap();
+        let [problem] = report.problems.as_slice() else {
+            panic!("{:?}", report.problems);
+        };
+        assert!(
+            problem.message.starts_with("Textliteral nicht auflösbar"),
+            "{problem:?}"
+        );
+
+        // Header 1 gets the new script file. Saving the header table compiles the source
+        // again (nothing else changed it), so the problem goes without a second script save.
+        let mut header = get_header_impl(&state, 1).unwrap();
+        if let MapHeader::Pt(h) = &mut header {
+            h.script_file_id = file;
+            h.text_archive_id = ARCHIVE;
+        }
+        set_header_impl(&state, 1, header, "script file").unwrap();
+        let saved = save_impl(&state).unwrap();
+        assert!(saved.problems.is_empty(), "{:?}", saved.problems);
+        assert_eq!(
+            saved.compiled,
+            [format!("expanded/scripts/{file:04}.rotom")]
+        );
+        assert_eq!(saved.touched_archives, [ARCHIVE]);
+        assert!(texts(&state, ARCHIVE).contains(&"Hallo Welt".to_owned()));
+        assert!(dirty_impl(&state).unwrap().is_empty());
+
+        // A save without the header table compiles nothing.
+        edit_text_archive_impl(
+            &state,
+            ARCHIVE,
+            TextEdit::Set {
+                index: 0,
+                text: "Anders".into(),
+            },
+        )
+        .unwrap();
+        let text_only = save_impl(&state).unwrap();
+        assert!(text_only.compiled.is_empty());
+        assert!(text_only.touched_archives.is_empty());
     }
 
     #[test]

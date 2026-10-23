@@ -432,7 +432,12 @@ export interface ProblemDto {
 
 export interface SaveReport {
   written: AssetId[];
+  /** The text warnings of the save, then the problems of the compile that follows a header table save in an adopted project. */
   problems: ProblemDto[];
+  /** Sources that compile compiled without an error (project-relative): their earlier compile problems are gone. */
+  compiled: string[];
+  /** Text archives that compile appended to (a text literal resolved now); the backend holds them again. */
+  touched_archives: number[];
 }
 
 export interface BuildReport {

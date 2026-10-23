@@ -33,6 +33,10 @@ pub struct SaveReport {
     pub written: Vec<AssetId>,
     /// Warnings found while encoding text archives; they never block the save.
     pub problems: Vec<Problem>,
+    /// Script files of the headers whose script file or text archive this save changed. They
+    /// are stale for rotom now (see [`crate::scripts::mark_stale`]): their text literals
+    /// belong to another archive, or resolve only now.
+    pub retargeted_scripts: Vec<u16>,
 }
 
 /// One message of a text archive that matched a search.
@@ -1179,7 +1183,10 @@ impl Store {
                 pending.push((id, location, asset.current.to_bytes(family)?));
             }
         }
-        let mut report = SaveReport::default();
+        let mut report = SaveReport {
+            retargeted_scripts: self.retargeted_scripts()?,
+            ..SaveReport::default()
+        };
         for (id, location, bytes) in pending {
             match &location {
                 Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
@@ -1214,7 +1221,42 @@ impl Store {
             report.written.push(id);
             self.drop_text_index(id);
         }
+        crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
+    }
+
+    /// Script files of the headers whose script file or text archive differs from the saved
+    /// header table, without repeats; empty when the table is not dirty.
+    fn retargeted_scripts(&self) -> Result<Vec<u16>, KernelError> {
+        if !self.is_dirty(HEADER_TABLE) {
+            return Ok(Vec::new());
+        }
+        let Some(asset) = self.assets.get(&HEADER_TABLE) else {
+            return Ok(Vec::new());
+        };
+        let (Loaded::HeaderTable(current), Some(saved)) = (&asset.current, &asset.saved_bytes)
+        else {
+            return Ok(Vec::new());
+        };
+        let Loaded::HeaderTable(saved) =
+            Loaded::from_bytes(HEADER_TABLE.kind, saved, self.project.family, self.lang())?
+        else {
+            return Err(mismatch(HEADER_TABLE));
+        };
+        let mut files: Vec<u16> = current
+            .iter()
+            .enumerate()
+            .filter(|(i, header)| {
+                saved.get(*i).is_none_or(|old| {
+                    old.script_file_id() != header.script_file_id()
+                        || old.text_archive_id() != header.text_archive_id()
+                })
+            })
+            .map(|(_, header)| header.script_file_id())
+            .collect();
+        files.sort_unstable();
+        files.dedup();
+        Ok(files)
     }
 }
 

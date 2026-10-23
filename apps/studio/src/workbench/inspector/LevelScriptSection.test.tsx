@@ -103,6 +103,23 @@ describe("LevelScriptSection", () => {
     expect([field("Variable 1").value, field("Wert 1").value, field("Script der Bedingung 1").value]).toEqual(["16384", "1", "4"]);
   });
 
+  it("says_next_to_an_entry_that_runs_while_the_map_is_set_up_that_its_script_must_not_show_a_message", async () => {
+    await show();
+    await flush();
+    const note = (row: Element) => row.querySelector('[role="note"]')?.textContent ?? null;
+    // on_load (row 1) gets the hint, on_var_condition (row 2) runs frame by frame and does not.
+    expect(rows("Kopfeinträge").map(note)).toEqual(["Script ohne Nachricht und ohne Warten auf Eingaben, sonst bleibt die Karte schwarz.", null]);
+    expect(rows("Kopfeinträge")[0]!.querySelector('[role="note"]')!.getAttribute("title")).toContain("Variablen-Bedingung");
+    for (const type of ["on_resume", "on_transition"]) {
+      await setValue(select("Auslöser 1"), type, "change");
+      await flush();
+      expect(note(rows("Kopfeinträge")[0]!)).not.toBeNull();
+    }
+    await setValue(select("Auslöser 1"), "on_var_condition", "change");
+    await flush();
+    expect(note(rows("Kopfeinträge")[0]!)).toBeNull();
+  });
+
   it("saves_at_once_with_the_expected_document_when_an_entry_is_added", async () => {
     await show();
     await flush();

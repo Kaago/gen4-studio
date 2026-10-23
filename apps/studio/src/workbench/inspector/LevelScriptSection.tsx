@@ -4,7 +4,7 @@ import { readScript, saveLevelScript } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { TERMS, id4 } from "../terms";
-import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, clampNumber, headerEntries, removeEntry, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
+import { CONDITION_MAX, ENTRY_SCRIPT_MAX, HEADER_ENTRY_TYPES, HINT_NO_MESSAGES, HINT_NO_MESSAGES_DETAIL, HINT_ZERO_VAR, LevelScriptSaves, TRIGGER_LABELS, addHeaderEntry, addVarCondition, clampNumber, headerEntries, removeEntry, runsDuringMapSetup, setEntryScript, setEntryType, setVarCondition, validationHints, varConditions } from "./levelScript";
 import type { HeaderEntryType, VarCondition } from "./levelScript";
 import { ADOPT_HINT, openScriptNumber } from "./scriptNav";
 
@@ -223,7 +223,14 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
           )}
           {entries.map((entry, i) => (
             <tr key={i}>
-              <td style={cell}>{typeSelect(`Auslöser ${i + 1}`, entry.type, (t) => edit((d) => setEntryType(d, i, t)))}</td>
+              <td style={cell}>
+                {typeSelect(`Auslöser ${i + 1}`, entry.type, (t) => edit((d) => setEntryType(d, i, t)))}
+                {runsDuringMapSetup(entry.type) && (
+                  <div role="note" title={HINT_NO_MESSAGES_DETAIL} style={{ color: "#b45309", fontSize: 11, maxWidth: 220, whiteSpace: "normal" }}>
+                    {HINT_NO_MESSAGES}
+                  </div>
+                )}
+              </td>
               <td style={cell}>{entry.type === "on_var_condition" ? <span style={{ color: "#6b7280" }}>siehe unten</span> : numberInput(`${TERMS.script.label} ${i + 1}`, entry.script_id ?? 0, ENTRY_SCRIPT_MAX, (n) => edit((d) => setEntryScript(d, i, n)))}</td>
               <td style={cell}>
                 <button type="button" disabled={entry.type === "on_var_condition"} onClick={() => open(entry.script_id ?? 0)}>

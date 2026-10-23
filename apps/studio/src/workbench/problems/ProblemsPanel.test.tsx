@@ -41,15 +41,16 @@ describe("ProblemsPanel", () => {
     expect(container.textContent).toContain("Keine Probleme");
   });
 
-  it("lists_severity_file_line_message_and_source_and_follows_the_store", () => {
+  it("lists_severity_file_line_column_message_and_source_and_follows_the_store", () => {
     act(() => {
       store.replaceForFile("expanded/scripts/0042.rotom", [problem("expanded/scripts/0042.rotom", 7, "unbekannter Befehl Bogus")]);
       store.replaceText(199, [problem("expanded/textArchives/0199.json", 1, "Zeile zu breit", "warning", "text")]);
     });
     expect(rows().map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent))).toEqual([
-      ["Fehler", "Scriptdatei 0042", "7", "unbekannter Befehl Bogus", "Compile"],
-      ["Warnung", "Textarchiv 0199", "1", "Zeile zu breit", "Text"],
+      ["Fehler", "Scriptdatei 0042", "7", "3", "unbekannter Befehl Bogus", "Compile"],
+      ["Warnung", "Textarchiv 0199", "1", "3", "Zeile zu breit", "Text"],
     ]);
+    expect([...container.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Schwere", "Datei", "Zeile", "Spalte", "Meldung", "Quelle"]);
     expect(container.querySelector("caption")?.textContent).toBe("1 Fehler, 1 Warnung");
     act(() => store.replaceForFile("expanded/scripts/0042.rotom", []));
     expect(rows()).toHaveLength(1);
@@ -64,7 +65,7 @@ describe("ProblemsPanel", () => {
   it("a_click_on_a_level_script_or_live_problem_goes_to_the_json_file", () => {
     act(() => store.replaceLive([{ severity: "warning", file: "expanded/scripts/0003.json", line: 2, col: 1, message: "live" }]));
     expect(rows()[0]!.querySelectorAll("td")[1]!.textContent).toBe("Level-Script 0003");
-    expect(rows()[0]!.querySelectorAll("td")[4]!.textContent).toBe("live");
+    expect(rows()[0]!.querySelectorAll("td")[5]!.textContent).toBe("live");
     act(() => rows()[0]!.click());
     expect(goTo).toHaveBeenCalledWith({ kind: "script", file: 3, line: 2 });
   });

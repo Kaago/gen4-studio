@@ -47,6 +47,7 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
             <th style={cell}>Schwere</th>
             <th style={cell}>Datei</th>
             <th style={cell}>Zeile</th>
+            <th style={cell}>Spalte</th>
             <th style={{ ...cell, width: "100%" }}>Meldung</th>
             <th style={cell}>Quelle</th>
           </tr>
@@ -68,6 +69,7 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
                   {fileLabel(row.file)}
                 </td>
                 <td style={cell}>{row.line}</td>
+                <td style={cell}>{row.col}</td>
                 <td style={{ ...cell, whiteSpace: "normal" }}>{row.message}</td>
                 <td style={cell}>{SOURCE_LABEL[row.source]}</td>
               </tr>
