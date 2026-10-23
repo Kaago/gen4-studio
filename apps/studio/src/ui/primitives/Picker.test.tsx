@@ -299,6 +299,27 @@ describe("Picker", () => {
       expect(onPick).toHaveBeenCalledTimes(2);
     });
 
+    it("a_disabled_item_is_listed_and_marked_but_never_picked", async () => {
+      const locked: PickerItem[] = [
+        { id: "cmd-area", label: "Gebiet anlegen…", group: "Befehle", icon: "plus", disabled: true, description: "Erst ein Projekt öffnen" },
+        { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open" },
+      ];
+      const { onPick } = renderPalette({ items: locked });
+      const row = options().find((o) => o.textContent?.includes("Gebiet anlegen…"))!;
+      expect(row.getAttribute("aria-disabled")).toBe("true");
+      expect(row.textContent).toContain("Erst ein Projekt öffnen");
+      type("gebiet");
+      pressKey(input(), "Enter");
+      act(() => row.click());
+      await tick();
+      expect(onPick).not.toHaveBeenCalled();
+      type("projekt");
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(onPick.mock.calls[0]![0]).toMatchObject({ id: "cmd-open" });
+    });
+
     it("the_default_dialog_variant_still_picks_synchronously", () => {
       const { onPick } = render();
       type("zwei");

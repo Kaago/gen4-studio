@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -139,6 +139,33 @@ describe("useShortcuts", () => {
       cover.remove();
     }
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
+  });
+
+  it("opens_the_palette_on_cmd_k_once_per_press_from_any_area_and_even_while_typing", async () => {
+    const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(event));
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    await press({ key: "k", metaKey: true, repeat: true });
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    handlers.toolsActive = false;
+    await press({ key: "K", ctrlKey: true });
+    expect(handlers.onPalette).toHaveBeenCalledTimes(2);
+    const field = document.createElement("input");
+    container.append(field);
+    await press({ key: "k", metaKey: true }, field);
+    expect(handlers.onPalette).toHaveBeenCalledTimes(3);
+  });
+
+  it("does_not_open_the_palette_while_a_wizard_or_a_modal_dialog_is_open", async () => {
+    for (const attrs of [{ role: "dialog", "data-wizard": "" }, { role: "dialog", "aria-modal": "true" }]) {
+      const cover = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) cover.setAttribute(name, value);
+      document.body.append(cover);
+      await press({ key: "k", metaKey: true });
+      cover.remove();
+    }
+    expect(handlers.onPalette).not.toHaveBeenCalled();
   });
 
   it("does_not_play_while_a_modal_dialog_is_open", async () => {

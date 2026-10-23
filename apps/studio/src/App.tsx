@@ -12,8 +12,9 @@ import { DECK_AREAS, deckPanels, dropOldLayouts, isDeckArea } from "./workbench/
 import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
-import { Deck } from "./ui/frame/Deck";
+import { Deck, resetLayout } from "./ui/frame/Deck";
 import { HelpDialog } from "./ui/frame/HelpDialog";
+import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
@@ -28,14 +29,17 @@ import { AREAS } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
+import { archivePlaces, archiveRows, usersByArchive } from "./workbench/text/textModel";
 import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { redo, undo } from "./api";
-import type { HeaderSummary } from "./api";
+import { listScriptFiles, redo, undo } from "./api";
+import type { HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
+import { paletteEntries } from "./app/paletteEntries";
+import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
@@ -289,10 +293,16 @@ function AppBody() {
     if (kind !== undefined) void world.onAddEvent(kind, { x: tile.absX, z: tile.absZ });
     else if (used === "building") void world.onAddBuilding(null, { map: tile.mapId, x: tile.x, y: tile.y });
   });
+  // The command palette (⌘K or the title bar's search button); not while a wizard is open, which locks everything but the world.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useStableCallback(() => {
+    if (!wizardOpen.current) setPaletteOpen(true);
+  });
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
     onOpenProject: () => openProject(),
+    onPalette: openPalette,
     step,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
@@ -436,6 +446,89 @@ function AppBody() {
       goTo: data.goTo,
     });
   }, [textShown, scene.headers, places, data.goTo]);
+  // The script files the palette lists: read each time it opens, only when rotom has adopted the scripts. Tagged with the project they
+  // belong to, so a late answer for another one is not listed.
+  const adopted = scripts.api.status?.adopted === true;
+  const [scriptFiles, setScriptFiles] = useState<{ info: ProjectInfo; list: ScriptFileDto[] } | null>(null);
+  useEffect(() => {
+    const project = session.info;
+    if (!paletteOpen || !adopted || project === null) return;
+    let current = true;
+    listScriptFiles().then(
+      (list) => current && setScriptFiles({ info: project, list }),
+      // The palette then lists no scripts; the explorer's script node says what went wrong when it is opened.
+      ignoreError,
+    );
+    return () => {
+      current = false;
+    };
+  }, [paletteOpen, adopted, session.info]);
+  const archives = useMemo(() => {
+    const users = usersByArchive(scene.headers);
+    return archiveRows(session.counts.TextArchive, users, archivePlaces(scene.headers, users));
+  }, [scene.headers, session.counts.TextArchive]);
+  const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
+  const paletteItems = useMemo(
+    () =>
+      paletteEntries({
+        places,
+        headers: scene.headers,
+        archives,
+        scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
+        hasProject: session.info !== null,
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck },
+      }),
+    [places, scene.headers, archives, adopted, scriptFiles, session.info, session.busy, area, paletteDeck],
+  );
+  /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
+  const runPalette = useStableCallback((entry: PaletteEntry) => {
+    const { run } = entry;
+    if (run.kind === "goTo") {
+      data.goTo(run.target);
+      return;
+    }
+    switch (run.command) {
+      case "open":
+        openProject();
+        break;
+      case "save":
+        if (session.info && !session.busy) void session.onSave();
+        break;
+      case "build":
+        if (session.info && !session.busy) void session.onBuild();
+        break;
+      case "play":
+        void onPlay();
+        break;
+      case "area":
+      case "room":
+        if (session.info) wizards.open({ kind: run.command });
+        break;
+      case "list":
+        shell.setListOpen(area, !shell.state.listOpen[area]);
+        break;
+      case "layout":
+        resetLayout(paletteDeck, docks[paletteDeck]);
+        break;
+      case "theme":
+        shell.toggleTheme();
+        break;
+      case "density":
+        shell.toggleDensity();
+        break;
+      case "terms":
+        setHelpOpen(true);
+        break;
+      case "settings":
+        showArea("einstellungen");
+        break;
+      case "welt":
+      case "texte":
+      case "technik":
+        showArea(run.command);
+        break;
+    }
+  });
   // Each hinge works on the hand of its own area (only the shown area's hinge can be reached).
   const onDragHeight = useStableCallback((target: DeckArea, height: number) => {
     // Dragging a collapsed hinge opens the hand to where it is dragged.
@@ -531,6 +624,8 @@ function AppBody() {
                 onSave={() => void session.onSave()}
                 onBuild={() => void session.onBuild()}
                 onHelp={onHelp}
+                onPalette={openPalette}
+                paletteDisabled={showsWizard}
                 theme={shell.theme}
                 onToggleTheme={shell.toggleTheme}
               />
@@ -582,6 +677,7 @@ function AppBody() {
         onPlay={() => void onPlay()}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}
     </>
   );

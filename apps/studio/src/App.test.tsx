@@ -9,6 +9,7 @@ import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
 import { readShellState, writeShellState } from "./ui/frame/shellState";
 import type { RecentProject } from "./ui/frame/shellState";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
@@ -20,7 +21,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0 }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][] }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -50,6 +51,7 @@ vi.mock("./ui/frame/Deck", async () => {
     texte: [["textView"], ["textEdit", "problems"]],
   };
   return {
+    resetLayout: (...args: unknown[]) => void shown.resets.push(args),
     // The hand is a bare element: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
     Deck: ({ area, schauRef, handRef, hinge, wizard }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown; wizard?: boolean }) => {
       schauRef.current = dock(area, PANELS[area]![0]);
@@ -131,6 +133,7 @@ describe("App wiring", () => {
     shown.renders = 0;
     shown.focused = [];
     shown.mounts = 0;
+    shown.resets = [];
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -1303,6 +1306,96 @@ describe("App wiring", () => {
     await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 1 } }));
     await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
     expect(selectedCells()).toEqual([]);
+  });
+
+  describe("command palette", () => {
+    const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]");
+    const paletteButton = () => [...container.querySelectorAll<HTMLButtonElement>("header button")].find((b) => b.textContent?.includes("Suchen oder Befehl eingeben"))!;
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+    const pressCmdK = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    /** Types into the open palette, presses Enter and waits for the tick on which the palette runs the entry. */
+    async function run(text: string) {
+      typeInSearch(paletteInput()!, text);
+      pressKey(paletteInput()!, "Enter");
+      await settle();
+    }
+
+    it("opens_on_cmd_k_and_from_the_title_bar_button_and_closes_on_escape", async () => {
+      expect(paletteInput()).toBeNull();
+      await pressCmdK();
+      expect(paletteInput()).not.toBeNull();
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Befehlspalette");
+      pressKey(paletteInput()!, "Escape");
+      await settle();
+      expect(paletteInput()).toBeNull();
+      await act(async () => paletteButton().click());
+      expect(paletteInput()).not.toBeNull();
+    });
+
+    it("runs_save_after_the_palette_closed", async () => {
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "speichern");
+      pressKey(paletteInput()!, "Enter");
+      expect(save).not.toHaveBeenCalled();
+      await settle();
+      expect(save).toHaveBeenCalledOnce();
+      expect(paletteInput()).toBeNull();
+    });
+
+    it("resets_the_layout_of_the_world_deck", async () => {
+      await pressCmdK();
+      await run("layout zurück");
+      expect(shown.resets).toHaveLength(1);
+      expect(shown.resets[0]![0]).toBe("welt");
+      expect(shown.resets[0]![1]).toMatchObject({ schau: expect.anything(), hand: expect.anything() });
+    });
+
+    it("goes_to_a_header_by_its_number_and_to_an_area_by_name", async () => {
+      await pressCmdK();
+      await run("0001");
+      expect(data().selected).toBe(1);
+      await pressCmdK();
+      await run("bereich texte");
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      await pressCmdK();
+      await run("einstellungen");
+      expect(atlasEntry("Einstellungen")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("opens_the_terms_and_toggles_the_list", async () => {
+      await pressCmdK();
+      await run("begriffe");
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Die Begriffe, mit denen das Studio");
+      pressKey(document.querySelector<HTMLElement>("[role=dialog]")!, "Escape");
+      await settle();
+      const before = readShellState().listOpen.welt;
+      await pressCmdK();
+      await run("liste ein");
+      expect(readShellState().listOpen.welt).toBe(!before);
+    });
+
+    it("opens_a_wizard_from_the_palette_and_is_off_while_one_is_open", async () => {
+      await pressCmdK();
+      await run("gebiet anlegen");
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      await pressCmdK();
+      expect(paletteInput()).toBeNull();
+      expect(paletteButton().disabled).toBe(true);
+    });
+
+    it("lists_only_commands_without_a_project_with_the_wizards_locked", async () => {
+      await renderFresh();
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "anlegen");
+      expect(options().map((o) => o.getAttribute("aria-disabled"))).toEqual(["true", "true"]);
+      typeInSearch(paletteInput()!, "0001");
+      expect(options()).toHaveLength(0);
+    });
   });
 
   describe("undo", () => {

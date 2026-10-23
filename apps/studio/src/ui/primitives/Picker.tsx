@@ -88,7 +88,7 @@ function PickerRow({ item, query }: { item: PickerItem; query: string | null }) 
   const icon = item.icon ?? (item.area ? areaIcon[item.area] : undefined);
   const mark = (text: string) => (query === null ? text : highlight(text, query));
   return (
-    <Combobox.Item value={item} className={styles.row}>
+    <Combobox.Item value={item} disabled={item.disabled} className={styles.row}>
       {item.preview && <span className={styles.preview}>{item.preview}</span>}
       {icon && (
         <span className={item.area ? `${styles.area} ${styles[item.area]}` : styles.area}>
@@ -161,7 +161,7 @@ function PickerBody({
           if (details.reason === "input-change" || details.reason === "input-clear") setQuery(text);
         }}
         onValueChange={(item) => {
-          if (!item) return;
+          if (!item || item.disabled) return;
           if (palette) {
             if (picked.current) return;
             picked.current = true;

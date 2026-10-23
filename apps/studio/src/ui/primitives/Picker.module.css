@@ -92,6 +92,16 @@
   outline: none;
 }
 
+.row[data-disabled] {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.row[data-disabled][data-highlighted] {
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+}
+
 .preview {
   display: inline-flex;
   flex: none;

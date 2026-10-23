@@ -21,6 +21,8 @@ export interface PickerItem {
   count?: string;
   /** Items with the same group sit under one visible group label. */
   group?: string;
+  /** Listed (and found) but not pickable: greyed, skipped by the arrow keys; the `description` can say why. */
+  disabled?: boolean;
 }
 
 /** Whether `id` equals the digits typed, ignoring leading zeros ("0411" finds 411). */

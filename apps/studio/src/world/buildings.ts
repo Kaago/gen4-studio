@@ -48,7 +48,7 @@ export function isTypingTarget(target: { tagName?: string; isContentEditable?: b
   return target.isContentEditable === true || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
-export type ShortcutAction = "open" | "save" | "undo" | "redo" | "play";
+export type ShortcutAction = "open" | "palette" | "save" | "undo" | "redo" | "play";
 
 /**
  * Every app-level shortcut as the settings list it (read only): its keys as shown and what it does. A record over `ShortcutAction`, so no
@@ -56,6 +56,7 @@ export type ShortcutAction = "open" | "save" | "undo" | "redo" | "play";
  */
 export const SHORTCUTS: Readonly<Record<ShortcutAction, { keys: string; label: string }>> = {
   open: { keys: "⌘O", label: "Projekt öffnen" },
+  palette: { keys: "⌘K", label: "Befehlspalette öffnen" },
   save: { keys: "⌘S", label: "Speichern" },
   undo: { keys: "⌘Z", label: "Rückgängig" },
   redo: { keys: "⇧⌘Z", label: "Wiederholen" },
@@ -63,7 +64,7 @@ export const SHORTCUTS: Readonly<Record<ShortcutAction, { keys: string; label: s
 };
 
 /**
- * The app-level shortcut a key event asks for (Cmd/Ctrl+O, +S, +Z, +Shift+Z, and +R for "Hier spielen" inside the app), or null; none
+ * The app-level shortcut a key event asks for (Cmd/Ctrl+O, +K, +S, +Z, +Shift+Z, and +R for "Hier spielen" inside the app), or null; none
  * while typing in a field, where Z must stay the text field's own undo. `inApp` is whether the page runs in the Tauri window: in a browser
  * Cmd+R reloads the page and is not ours.
  */
@@ -80,6 +81,7 @@ export function shortcutAction(e: {
   const key = e.key.toLowerCase();
   if (key === "s") return "save";
   if (key === "o" && !e.shiftKey) return "open";
+  if (key === "k" && !e.shiftKey) return "palette";
   // Shift+R is the hard reload of a webview.
   if (key === "r" && e.inApp === true && !e.shiftKey) return "play";
   if (key === "z" && !isTypingTarget(e.target)) return e.shiftKey ? "redo" : "undo";

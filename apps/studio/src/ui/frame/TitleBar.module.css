@@ -91,8 +91,18 @@
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-taste);
   background: var(--g4-flaeche-blatt);
-  color: var(--g4-text-deaktiviert);
+  color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-s);
+  cursor: pointer;
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.palette:hover:not(:disabled) {
+  border-color: var(--g4-linie-stark);
+}
+
+.palette:disabled {
+  color: var(--g4-text-deaktiviert);
   cursor: not-allowed;
 }
 
