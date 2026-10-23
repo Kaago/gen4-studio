@@ -11,3 +11,4 @@ scripts/g4emu/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+design-system/*.vor-textfix

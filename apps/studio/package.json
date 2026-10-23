@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "bundle": "bash scripts/prepare-bundle.sh && tauri build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "tokens": "python3 ../../design-system/scripts/export_tokens.py ../../design-system src/ui/tokens"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",

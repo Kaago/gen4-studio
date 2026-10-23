@@ -1,0 +1,200 @@
+// Gen4 Studio Design-System: Werte für Code, der keine CSS-Variablen lesen kann (three.js, Monaco, CodeMirror, Canvas).
+// Generiert aus design-system/tokens (DTCG). Nicht von Hand ändern.
+
+/** Szenenfarben als Zahl für THREE.Color. Material mit toneMapped: false, depthWrite: false. Gleich in Hell und Dunkel. */
+export const szene = {
+  gelaende: {
+    'blockiert': 0xD65A00,
+    'wasser': 0x0073B5,
+    'hohes-gras': 0x009C73,
+    'vorsprung': 0xE79C00,
+    'eis': 0x52B5E7,
+    'spezial': 0xCE7BA5,
+    'unbekannt': 0xBDBDBD,
+  },
+  ereignis: {
+    'figur': 0x4273AD,
+    'warp': 0xAD3173,
+    'ausloeser': 0xCEBD42,
+    'schild': 0x218C31,
+    'gegenstand': 0x63CEEF,
+  },
+  hoehe: {
+    '0': 0x00214A,
+    '1': 0x31426B,
+    '2': 0x636B73,
+    '3': 0x948C7B,
+    '4': 0xC6B563,
+    '5': 0xE7CE5A,
+    '6': 0xFFEF42,
+  },
+  auswahl: {
+    'kern': 0xFFFFFF,
+    'halo': 0x3152DE,
+  },
+} as const;
+
+/** Muster je Geländeklasse (Shader-Parameter uPattern): 0 voll, 1 diagonal, 2 kreuz, 3 punkte, 4 wellen/linien, 5 schachbrett. */
+export const gelaendeMuster = { blockiert: 1, wasser: 4, 'hohes-gras': 3, vorsprung: 0, eis: 2, spezial: 5, unbekannt: 0 } as const;
+
+/** Form je Ereignisart für Marker und Legende. */
+export const ereignisForm = { figur: 'kreis', trainer: 'kreis-sichtlinie', warp: 'raute', ausloeser: 'zone', schild: 'etikett', gegenstand: 'quadrat' } as const;
+
+/** Thema Hell: aufgelöste Hex-Werte (für Monaco defineTheme, Canvas, Export). */
+export const hell = {
+  'flaeche/gehaeuse': '#E7EFF7',
+  'flaeche/deck': '#D6DEE7',
+  'flaeche/taste': '#F7F7FF',
+  'flaeche/blatt': '#FFFFFF',
+  'flaeche/schau': '#EFF7FF',
+  'flaeche/welt': '#BDC6D6',
+  'flaeche/bildschirm-rahmen': '#394252',
+  'flaeche/bildschirm': '#182131',
+  'flaeche/ueberlagerung': '#18213199',
+  'text/primaer': '#182131',
+  'text/sekundaer': '#4A5263',
+  'text/deaktiviert': '#848CA5',
+  'text/invers': '#F7F7FF',
+  'linie/leise': '#BDC6D6',
+  'linie/standard': '#A5ADC6',
+  'linie/stark': '#6B7384',
+  'akzent/grund': '#3152DE',
+  'akzent/hover': '#2942B5',
+  'akzent/text': '#3152DE',
+  'akzent/auf': '#FFFFFF',
+  'auswahl/flaeche': '#DEE7FF',
+  'auswahl/kante': '#3152DE',
+  'fokus/ring': '#3152DE',
+  'live/grund': '#F7A510',
+  'live/auf': '#182131',
+  'live/flaeche': '#FFF7DE',
+  'live/text': '#9C5A00',
+  'scharnier/grund': '#293142',
+  'scharnier/text': '#E7EFF7',
+  'scharnier/leise': '#9CA5BD',
+  'scharnier/kante': '#42527B',
+  'scharnier/taste': '#394252',
+  'status/fehler': '#AD2131',
+  'status/fehler-flaeche': '#FFE7E7',
+  'status/warnung': '#8C5200',
+  'status/warnung-flaeche': '#FFF7DE',
+  'status/erfolg': '#186B42',
+  'status/erfolg-flaeche': '#DEF7E7',
+  'status/info': '#2942B5',
+  'status/info-flaeche': '#DEE7FF',
+  'bereich/welt': '#186B42',
+  'bereich/welt-flaeche': '#DEF7E7',
+  'bereich/welt-punkt': '#42AD73',
+  'bereich/geschichten': '#633994',
+  'bereich/geschichten-flaeche': '#EFE7FF',
+  'bereich/geschichten-punkt': '#9C63CE',
+  'bereich/pokemon': '#943121',
+  'bereich/pokemon-flaeche': '#FFE7DE',
+  'bereich/pokemon-punkt': '#E7634A',
+  'bereich/gegenstaende': '#106363',
+  'bereich/gegenstaende-flaeche': '#DEF7F7',
+  'bereich/gegenstaende-punkt': '#21A5A5',
+  'bereich/texte': '#6B5229',
+  'bereich/texte-flaeche': '#F7EFDE',
+  'bereich/texte-punkt': '#AD945A',
+  'bereich/technik': '#394252',
+  'bereich/technik-flaeche': '#DEE7EF',
+  'bereich/technik-punkt': '#6B7384',
+} as const;
+
+/** Thema Dunkel: aufgelöste Hex-Werte (für Monaco defineTheme, Canvas, Export). */
+export const dunkel = {
+  'flaeche/gehaeuse': '#212939',
+  'flaeche/deck': '#293142',
+  'flaeche/taste': '#31394A',
+  'flaeche/blatt': '#394252',
+  'flaeche/schau': '#182131',
+  'flaeche/welt': '#182131',
+  'flaeche/bildschirm-rahmen': '#101821',
+  'flaeche/bildschirm': '#101821',
+  'flaeche/ueberlagerung': '#101821B3',
+  'text/primaer': '#E7EFF7',
+  'text/sekundaer': '#ADB5C6',
+  'text/deaktiviert': '#6B7384',
+  'text/invers': '#182131',
+  'linie/leise': '#31394A',
+  'linie/standard': '#4A5263',
+  'linie/stark': '#848CA5',
+  'akzent/grund': '#6384F7',
+  'akzent/hover': '#94ADF7',
+  'akzent/text': '#94ADF7',
+  'akzent/auf': '#101821',
+  'auswahl/flaeche': '#29397B',
+  'auswahl/kante': '#6384F7',
+  'fokus/ring': '#94ADF7',
+  'live/grund': '#F7A510',
+  'live/auf': '#182131',
+  'live/flaeche': '#4A3910',
+  'live/text': '#F7BD31',
+  'scharnier/grund': '#42527B',
+  'scharnier/text': '#E7EFF7',
+  'scharnier/leise': '#C6CEDE',
+  'scharnier/kante': '#29397B',
+  'scharnier/taste': '#5A6B94',
+  'status/fehler': '#F7949C',
+  'status/fehler-flaeche': '#4A2129',
+  'status/warnung': '#F7BD31',
+  'status/warnung-flaeche': '#423110',
+  'status/erfolg': '#73D69C',
+  'status/erfolg-flaeche': '#213929',
+  'status/info': '#94ADF7',
+  'status/info-flaeche': '#29397B',
+  'bereich/welt': '#B5E7C6',
+  'bereich/welt-flaeche': '#213929',
+  'bereich/welt-punkt': '#52C684',
+  'bereich/geschichten': '#D6C6F7',
+  'bereich/geschichten-flaeche': '#392952',
+  'bereich/geschichten-punkt': '#B58CE7',
+  'bereich/pokemon': '#FFC6B5',
+  'bereich/pokemon-flaeche': '#4A2921',
+  'bereich/pokemon-punkt': '#F78463',
+  'bereich/gegenstaende': '#B5E7E7',
+  'bereich/gegenstaende-flaeche': '#183939',
+  'bereich/gegenstaende-punkt': '#42BDBD',
+  'bereich/texte': '#E7D6B5',
+  'bereich/texte-flaeche': '#423921',
+  'bereich/texte-punkt': '#C6AD7B',
+  'bereich/technik': '#CED6E7',
+  'bereich/technik-flaeche': '#31394A',
+  'bereich/technik-punkt': '#848CA5',
+} as const;
+
+/** Syntaxfarben für rotom-Skripte (CodeMirror HighlightStyle oder Monaco-Regeln). Kontrast >= 4.5:1 auf flaeche/blatt. */
+export const syntax = {
+  hell: { befehl: '#2942B5', schluesselwort: '#633994', zeichenkette: '#186B42', zahl: '#943121', flag: '#6B5229', kommentar: '#4A5263', fehler: '#C62939' },
+  dunkel: { befehl: '#94ADF7', schluesselwort: '#D6C6F7', zeichenkette: '#B5E7C6', zahl: '#FFC6B5', flag: '#E7D6B5', kommentar: '#ADB5C6', fehler: '#F7949C' },
+} as const;
+
+/** Pokémon-Typen der 4. Generation, RGB555-gerastert, mit lesbarer Schriftfarbe. */
+export const typen = {
+  'Normal': { grund: '#A5A57B', schrift: '#182131' },
+  'Feuer': { grund: '#EF8431', schrift: '#182131' },
+  'Wasser': { grund: '#6B8CEF', schrift: '#182131' },
+  'Pflanze': { grund: '#7BC652', schrift: '#182131' },
+  'Elektro': { grund: '#F7CE31', schrift: '#182131' },
+  'Eis': { grund: '#94D6D6', schrift: '#182131' },
+  'Kampf': { grund: '#BD3129', schrift: '#FFFFFF' },
+  'Gift': { grund: '#9C429C', schrift: '#FFFFFF' },
+  'Boden': { grund: '#DEBD6B', schrift: '#182131' },
+  'Flug': { grund: '#A58CEF', schrift: '#182131' },
+  'Psycho': { grund: '#F75A84', schrift: '#182131' },
+  'Käfer': { grund: '#A5B521', schrift: '#182131' },
+  'Gestein': { grund: '#B59C39', schrift: '#182131' },
+  'Geist': { grund: '#735A94', schrift: '#FFFFFF' },
+  'Drache': { grund: '#7339F7', schrift: '#FFFFFF' },
+  'Unlicht': { grund: '#735A4A', schrift: '#FFFFFF' },
+  'Stahl': { grund: '#B5B5CE', schrift: '#182131' },
+  '???': { grund: '#6B9C8C', schrift: '#182131' },
+} as const;
+
+/** Prüft, ob eine Farbe im DS-Farbraum liegt (RGB555), und rastet sie sonst ein. */
+export function rgb555(hex: string): string {
+  const steps = Array.from({ length: 32 }, (_, i) => (i << 3) | (i >> 2));
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return '#' + c.map((v) => steps.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a))).map((v) => v.toString(16).padStart(2, '0').toUpperCase()).join('');
+}
