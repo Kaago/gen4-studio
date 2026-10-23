@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cellLabel, parseCellField, resizePreview, sameLayout } from "./matrix";
+import { cellLabel, parseCellField, rawCell, rawRow, resizePreview, sameLayout } from "./matrix";
 
 describe("matrix helpers", () => {
   it("labels cells and counts lost cells on shrink", () => {
@@ -51,6 +51,24 @@ describe("matrix helpers", () => {
       expect(parseCellField("  ", 100, true)).toBe("empty");
       expect(parseCellField("", 100, false)).toBeNull();
       expect(parseCellField("abc", 100, true)).toBeNull();
+    });
+  });
+
+  describe("raw values", () => {
+    it("writes_a_cell_as_map_header_and_altitude_in_the_way_the_cells_do", () => {
+      expect(rawCell(104, 411, 0)).toBe("0104 0411 0");
+      expect(rawCell(521, null, 2)).toBe("0521 2");
+      expect(rawCell(521, 415, null)).toBe("0521 0415");
+    });
+
+    it("reads_one_row_as_u16_hex_in_capitals_and_u8_altitudes", () => {
+      const m = { index: 0, name: "", width: 3, height: 2, maps: [10, null, 600, 1, 2, 3], headers: [411, 0, 65535, 1, 2, 3], altitudes: [0, 255, 7, 1, 2, 3] };
+      expect(rawRow(m, 0)).toEqual({ maps: ["000A", "FFFF", "0258"], headers: ["019B", "0000", "FFFF"], altitudes: [0, 255, 7] });
+    });
+
+    it("leaves_out_the_sections_the_matrix_does_not_have", () => {
+      const m = { index: 0, name: "", width: 2, height: 1, maps: [1, 2], headers: null, altitudes: null };
+      expect(rawRow(m, 0)).toEqual({ maps: ["0001", "0002"], headers: null, altitudes: null });
     });
   });
 });

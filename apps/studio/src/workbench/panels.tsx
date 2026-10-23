@@ -141,12 +141,13 @@ export function MatrixTab() {
       sceneMatrix,
       revision: matrixRevision,
       selection,
+      depth: d.depth,
       goTo,
       onEdited: onMatrixEdited,
       onCountsChanged,
       onError,
     }),
-    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, goTo, onMatrixEdited, onCountsChanged, onError],
+    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError],
   );
   return <MatrixPanel context={context} />;
 }

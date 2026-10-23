@@ -58,6 +58,7 @@ describe("MatrixPanel", () => {
     sceneMatrix: 7,
     revision: 0,
     selection: null,
+    depth: "bauen",
     goTo,
     onEdited,
     onCountsChanged,
@@ -99,6 +100,14 @@ describe("MatrixPanel", () => {
     expect(container.querySelector('[role=switch][aria-checked="true"]')).not.toBeNull();
     expect(container.querySelectorAll("[role=switch]")).toHaveLength(2);
     expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+  });
+
+  it("shows_the_raw_values_in_the_cells_only_in_tuefteln", async () => {
+    await show();
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+    expect(container.querySelectorAll("[data-raw]")).toHaveLength(0);
+    await show({ depth: "tuefteln" });
+    expect([...container.querySelectorAll("[data-raw]")].map((e) => e.getAttribute("data-raw"))).toEqual(["0010 0415 0", "0011 0416 0"]);
   });
 
   it("renames_on_commit_and_reloads_through_the_owner", async () => {

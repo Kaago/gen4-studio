@@ -148,4 +148,28 @@ describe("MatrixCellEditor", () => {
     await act(async () => void technical()?.click());
     expect(container.textContent).toContain("Raster 0003, Zelle 1, 0");
   });
+
+  it("shows_the_raw_row_of_the_cell_in_hex_in_tuefteln_and_marks_the_chosen_cell", async () => {
+    await show(1, 0, "bauen");
+    expect(container.textContent).not.toContain("Rohdaten");
+    await show(1, 0, "tuefteln");
+    const head = [...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) => b.textContent === "Rohdaten, Zeile 0");
+    expect(head?.getAttribute("aria-expanded")).toBe("true");
+    const table = container.querySelector("table[aria-label='Rohdaten, Zeile 0']")!;
+    const row = (name: string) => [...table.querySelectorAll("tbody tr")].find((r) => r.querySelector("th")?.textContent === name)!;
+    const values = (name: string) => [...row(name).querySelectorAll("td")].map((c) => c.textContent);
+    expect(values("Karte")).toEqual(["000A", "000B"]);
+    expect(values("Header")).toEqual(["019B", "019C"]);
+    expect(values("Höhe")).toEqual(["0", "2"]);
+    // The chosen cell (x = 1) is marked in every line; the other one is not.
+    expect([...table.querySelectorAll("[aria-current='true']")].map((c) => c.textContent)).toEqual(["000B", "019C", "2"]);
+    expect(row("Karte").querySelectorAll("td")[0]?.hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("leaves_out_the_raw_lines_of_sections_the_matrix_lacks", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
+    await show(0, 0, "tuefteln");
+    const table = container.querySelector("table[aria-label='Rohdaten, Zeile 0']")!;
+    expect([...table.querySelectorAll("tbody th")].map((h) => h.textContent)).toEqual(["Karte"]);
+  });
 });

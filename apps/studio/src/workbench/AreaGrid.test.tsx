@@ -117,6 +117,27 @@ describe("AreaGrid", () => {
     expect(cell(0, 0)?.textContent).not.toContain("0415");
   });
 
+  it("writes_no_raw_values_into_the_cells_in_bauen", () => {
+    show();
+    expect(container.querySelectorAll("[data-raw]")).toHaveLength(0);
+  });
+
+  it("writes_map_header_and_altitude_into_every_filled_cell_in_tuefteln", () => {
+    show({ tinker: true });
+    expect(cell(0, 0)?.getAttribute("data-raw")).toBe("0521 0415 0");
+    expect(cell(2, 1)?.getAttribute("data-raw")).toBe("0524 0000 2");
+    // An empty cell has no map to describe.
+    expect(cell(2, 0)?.hasAttribute("data-raw")).toBe(false);
+    expect(container.querySelectorAll("[data-raw]")).toHaveLength(4);
+    const lines = [...(cell(2, 1)?.querySelectorAll("span span") ?? [])].map((e) => e.textContent);
+    expect(lines).toEqual(["0524", "0000", "2"]);
+  });
+
+  it("leaves_the_header_line_out_for_a_grid_without_a_header_section_in_tuefteln", () => {
+    show({ tinker: true, matrix: { ...matrix, headers: undefined } });
+    expect(cell(0, 0)?.getAttribute("data-raw")).toBe("0521 0");
+  });
+
   it("tints_cells_by_the_colour_of_their_header", () => {
     show({ colorOf: (h) => (h === 415 ? "rgb(1, 2, 3)" : null) });
     expect((cell(0, 0)?.getAttribute("style") ?? "")).toContain("rgb(1, 2, 3)");
