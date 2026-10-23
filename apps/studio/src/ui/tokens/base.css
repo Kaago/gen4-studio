@@ -16,6 +16,14 @@
   box-sizing: border-box;
 }
 
+/* The app shell fills the window and the document never scrolls: a panel's overflow must not move the title bar. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 html {
   font: var(--g4-font-text-s);
   color: var(--g4-text-primaer);

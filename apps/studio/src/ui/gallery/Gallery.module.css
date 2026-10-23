@@ -1,11 +1,12 @@
 .gallery {
   display: grid;
   grid-template-columns: 200px 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     "head head"
     "nav page";
-  min-height: 100vh;
+  /* The document does not scroll (base.css); the nav and the page scroll on their own. */
+  height: 100vh;
   background: var(--g4-flaeche-gehaeuse);
   color: var(--g4-text-primaer);
 }
@@ -39,6 +40,8 @@
   gap: var(--g4-raum-2);
   padding: var(--g4-raum-12);
   border-right: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  min-height: 0;
+  overflow: auto;
 }
 
 .nav > button {
@@ -52,6 +55,8 @@
 
 .page {
   grid-area: page;
+  min-height: 0;
+  overflow: auto;
   padding: var(--g4-dichte-panel-innen);
   background: var(--g4-flaeche-blatt);
 }

@@ -1,6 +1,10 @@
 .shell {
   display: grid;
-  height: 100vh;
+  position: relative;
+  height: 100%;
+  /* Content that hidden dock panels position below the shell is clipped; unlike `hidden`, `clip` cannot be scrolled by scrollIntoView. */
+  overflow: hidden;
+  overflow: clip;
   grid-template-rows: 40px 1fr 28px;
   --shell-atlas: 88px;
   grid-template-columns: var(--shell-atlas) auto 1fr;
