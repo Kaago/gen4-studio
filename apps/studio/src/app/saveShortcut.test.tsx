@@ -14,7 +14,7 @@ import { useProjectSession } from "./useProjectSession";
 import type { ProjectSession } from "./useProjectSession";
 import { useShortcuts } from "./useShortcuts";
 import type { InspectorModel } from "../workbench/Inspector";
-import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "../platform/dialogs";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -28,7 +28,7 @@ vi.mock("../api", async (importOriginal) => ({
   readScript: vi.fn(),
   saveScript: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
+vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,7 +62,7 @@ describe("Cmd+S inside the script editor", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    vi.mocked(open).mockReset().mockResolvedValue("/p");
+    vi.mocked(openPath).mockReset().mockResolvedValue("/p");
     vi.mocked(save).mockReset().mockResolvedValue({ written: [{ kind: "TextArchive", index: 5 }], problems: [] });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
     vi.mocked(openProject).mockReset().mockResolvedValue({ root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 0 });

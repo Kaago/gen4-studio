@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { ask, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { ask, openPath, savePath } from "../platform/dialogs";
 import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -27,7 +27,7 @@ vi.mock("../api", async (importOriginal) => ({
   readScript: vi.fn(),
   saveScript: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
+vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,9 +66,9 @@ describe("useProjectSession with open scripts", () => {
     bus = createEditBus();
     events = [];
     bus.subscribe(() => true, (e) => events.push(e));
-    vi.mocked(saveDialog).mockReset().mockResolvedValue("/out.nds");
+    vi.mocked(savePath).mockReset().mockResolvedValue("/out.nds");
     vi.mocked(ask).mockReset().mockResolvedValue(true);
-    vi.mocked(open).mockReset();
+    vi.mocked(openPath).mockReset();
     vi.mocked(buildRom).mockReset().mockResolvedValue(report());
     vi.mocked(save).mockReset().mockResolvedValue({ written: [], problems: [] });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
@@ -150,7 +150,7 @@ describe("useProjectSession with open scripts", () => {
     expect(save).not.toHaveBeenCalled();
     expect(buildRom).toHaveBeenCalledTimes(1);
     await openDirty(3);
-    vi.mocked(saveDialog).mockResolvedValueOnce(null);
+    vi.mocked(savePath).mockResolvedValueOnce(null);
     vi.mocked(buildRom).mockClear();
     await build();
     expect(saveScript).not.toHaveBeenCalled();
@@ -216,7 +216,7 @@ describe("useProjectSession with open scripts", () => {
 
   describe("with a project open", () => {
     beforeEach(async () => {
-      vi.mocked(open).mockResolvedValue("/p");
+      vi.mocked(openPath).mockResolvedValue("/p");
       vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 0 });
       await act(async () => session.onOpen(() => {}));
     });

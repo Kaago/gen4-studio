@@ -42,7 +42,7 @@ const bodies = { rows: 0, matrix: 0, text: 0 };
 /** Member counts whose text archive count counts its reads: the real text panel reads it on every render of its own. */
 const counts = Object.defineProperty({}, "TextArchive", { enumerable: true, get: () => (bodies.text++, 3) });
 const headers: HeaderSummary[] = [0, 1].map((id) => {
-  const h = { id, internal_name: `H${id}`, matrix_id: id, area_data_id: 0, event_file_id: id } as HeaderSummary;
+  const h = { id, internal_name: `H${id}`, matrix_id: id, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 } as HeaderSummary;
   Object.defineProperty(h, "location_name", { enumerable: true, get: () => (bodies.rows++, `Ort ${id}`) });
   return h;
 });

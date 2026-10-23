@@ -1,5 +1,5 @@
 import type { Diagnostic } from "@codemirror/lint";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask } from "../../platform/dialogs";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ProjectInfo } from "../../api";

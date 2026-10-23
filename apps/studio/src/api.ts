@@ -1,5 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
-import { invoke } from "./platform/transport";
+import { inTauri, invoke } from "./platform/transport";
 
 export interface ProjectInfo {
   root: string;
@@ -662,6 +662,10 @@ export const validateText = (text: string) => invoke<ProblemDto[]>("validate_tex
  * backend replaces a running server, and the old channel stops receiving.
  */
 export async function lspStart(onMessage: (body: string) => void): Promise<void> {
+  // The dev bridge has no channels: no language services in the browser, as when rotom-lsp is missing.
+  if (!inTauri()) {
+    return Promise.reject({ code: "tool_missing", message: "rotom-lsp fehlt — Completion und Diagnosen aus", asset: null });
+  }
   const channel = new Channel<string>();
   channel.onmessage = onMessage;
   await invoke("lsp_start", { channel });
@@ -711,8 +715,18 @@ export type ScriptTargetDto = { kind: "file"; file: number; line: number } | { k
 
 export const scriptsStatus = () => invoke<ScriptsStatusDto>("scripts_status");
 
-/** Decompiles every script file into `expanded/scripts/`; `onProgress` is called as files are done. Takes seconds. */
+/**
+ * Decompiles every script file into `expanded/scripts/`; `onProgress` is called as files are done. Takes seconds.
+ * Through the dev bridge (no channel) there are no progress events: the call runs without them and `onProgress` gets
+ * one final progress from the report.
+ */
 export async function adoptScripts(onProgress: (progress: AdoptProgressDto) => void): Promise<AdoptReportDto> {
+  if (!inTauri()) {
+    const report = await invoke<AdoptReportDto>("adopt_scripts");
+    const total = report.decompiled + report.skipped_empty + report.failed.length;
+    onProgress({ done: total, total });
+    return report;
+  }
   const progress = new Channel<AdoptProgressDto>();
   progress.onmessage = onProgress;
   return invoke<AdoptReportDto>("adopt_scripts", { progress });

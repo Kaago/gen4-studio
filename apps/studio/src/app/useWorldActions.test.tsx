@@ -70,7 +70,7 @@ describe("useWorldActions.onAddEvent", () => {
   const pins = { pinned: { kind: "none" }, setPinned: vi.fn(), setHover: vi.fn() } as never;
   const setMessage = vi.fn();
   const fail = vi.fn();
-  const header: HeaderSummary = { id: 3, internal_name: "T01", location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 7 };
+  const header: HeaderSummary = { id: 3, internal_name: "T01", location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 7, text_archive_id: 0, script_file_id: 0, level_script_id: 0 };
   // Map 40 under the first cell: a plain tile at (12, 7), a door mat at (3, 4).
   const permissions = Array.from({ length: 1024 }, (_, i): [number, number] => (i === 4 * 32 + 3 ? [0x65, 0] : [0, 0]));
   beforeEach(() => {

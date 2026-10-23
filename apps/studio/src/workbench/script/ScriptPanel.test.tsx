@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { setDiagnostics } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask } from "../../platform/dialogs";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -27,7 +27,7 @@ vi.mock("../../api", async (importOriginal) => ({
   lspSend: vi.fn(),
   lspStop: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), open: vi.fn(), save: vi.fn() }));
+vi.mock("../../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

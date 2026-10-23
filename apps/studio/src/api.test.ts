@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("./platform/transport", () => ({ invoke }));
+const inTauri = vi.hoisted(() => vi.fn(() => true));
+vi.mock("./platform/transport", () => ({ invoke, inTauri }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke,
   Channel: class {
@@ -213,6 +214,17 @@ describe("text archive commands", () => {
 describe("language server commands", () => {
   beforeEach(() => {
     invoke.mockReset();
+    inTauri.mockReturnValue(true);
+  });
+
+  it("lspStart_outside_tauri_rejects_with_tool_missing_without_a_channel_or_a_call", async () => {
+    inTauri.mockReturnValue(false);
+    await expect(lspStart(vi.fn())).rejects.toEqual({
+      code: "tool_missing",
+      message: "rotom-lsp fehlt — Completion und Diagnosen aus",
+      asset: null,
+    });
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("lspStart_hands_the_backend_a_fresh_channel_that_feeds_the_callback", async () => {
@@ -243,7 +255,20 @@ describe("language server commands", () => {
 });
 
 describe("script commands", () => {
-  beforeEach(() => invoke.mockReset());
+  beforeEach(() => {
+    invoke.mockReset();
+    inTauri.mockReturnValue(true);
+  });
+
+  it("adoptScripts_outside_tauri_calls_the_bridge_without_a_channel_and_reports_one_final_progress", async () => {
+    inTauri.mockReturnValue(false);
+    const report = { decompiled: 2, skipped_empty: 1, failed: [[7, "boom"]] };
+    invoke.mockResolvedValue(report);
+    const onProgress = vi.fn();
+    await expect(adoptScripts(onProgress)).resolves.toBe(report);
+    expect(invoke.mock.calls).toEqual([["adopt_scripts"]]);
+    expect(onProgress.mock.calls).toEqual([[{ done: 4, total: 4 }]]);
+  });
 
   it("adoptScripts_passes_a_channel_that_feeds_the_progress_callback_and_resolves_to_the_report", async () => {
     const report = { decompiled: 2, skipped_empty: 0, failed: [] };

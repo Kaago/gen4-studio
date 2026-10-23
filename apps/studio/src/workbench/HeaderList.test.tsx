@@ -12,7 +12,7 @@ import { HeaderList } from "./HeaderList";
 function countedHeaders(n: number): { headers: HeaderSummary[]; reads: () => number } {
   let reads = 0;
   const headers = Array.from({ length: n }, (_, id) => {
-    const h = { id, internal_name: `H${id}`, matrix_id: id % 7, area_data_id: 0, event_file_id: id } as HeaderSummary;
+    const h = { id, internal_name: `H${id}`, matrix_id: id % 7, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 } as HeaderSummary;
     Object.defineProperty(h, "location_name", {
       enumerable: true,
       get() {

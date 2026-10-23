@@ -137,6 +137,10 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 | (E) 1–2 `gate.sh` | Agent | `scripts/gate.sh`, Tabelle in die Ergebnisse übernehmen; keine Zeile „skipped“ außer den dokumentierten |
 | (F) 1–3 apicula-Zeitlimit | Agent | `G4_APICULA_TIMEOUT_SECS=1 bash scripts/agent/studio-web.sh …` mit frischer Kopie ohne `.g4/models`; `ls <Kopie>/.g4/models` (keine `.fail`, `last-tool` mit 16 Hexzeichen) |
 
+## Phase 3b.2 im Browser-Modus ([phase-3b2-gate.md](phase-3b2-gate.md))
+
+Die Brücke kennt alle Befehle von Scripts und Texten: `get_text_archive`, `edit_text_archive`, `create_text_archive`, `search_text`, `validate_text`, `scripts_status`, `adopt_scripts`, `list_script_files`, `read_script`, `save_script`, `save_level_script`, `new_script_file`, `add_script`, `resolve_script`, `search_scripts` (per `call.sh` wie die übrigen, Argumente wie in `api.ts`). Sie schreiben nur in das geöffnete Projekt, und das liegt unter `_testkopien`; ein Original oder ein Ordner außerhalb wird schon beim Öffnen abgelehnt. „Scripts übernehmen“ (`adopt_scripts`) läuft ohne Fortschrittsbalken: Es gibt über HTTP keinen Kanal, die Seite meldet erst am Ende einmal „fertig“ und der Aufruf kehrt nach einigen Sekunden mit dem Bericht zurück. Die Sprachdienste (`lsp_start`, `lsp_send`, `lsp_stop`) sind im Browser aus: `lsp_start` meldet „rotom-lsp fehlt — Completion und Diagnosen aus“ (Code `tool_missing`), der Editor läuft wie ohne rotom-lsp, also ohne Completion und Diagnosen. Punkte des 3b.2-Gates, die Completion oder Diagnosen aus rotom-lsp verlangen, bleiben beim Nutzer im gebündelten Fenster (Wer: Hand).
+
 ## Rezepte
 
 **Warps verbinden (3a (A) 11).** Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln.

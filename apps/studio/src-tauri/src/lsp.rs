@@ -33,7 +33,7 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_QUEUE: usize = 256;
 
 /// Shown when the binary is missing; the editor works without language services.
-const MISSING: &str = "rotom-lsp fehlt — Completion und Diagnosen aus";
+pub(crate) const MISSING: &str = "rotom-lsp fehlt — Completion und Diagnosen aus";
 
 /// Finds the rotom-lsp executable: `G4_ROTOM_LSP`, then `rotom-lsp` next to the running binary,
 /// then (debug builds only) the repository's `tools/rotom/bin/rotom-lsp`. A set `G4_ROTOM_LSP`

@@ -12,6 +12,7 @@ use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
 use g4_kernel::project::AssetKind;
+use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::store::MapHeader;
 
 /// What a command answers: JSON, or raw bytes for the GLB commands.
@@ -69,6 +70,24 @@ pub const COMMANDS: &[&str] = &[
     "update_building",
     "delete_building",
     "update_event",
+    "get_text_archive",
+    "edit_text_archive",
+    "create_text_archive",
+    "search_text",
+    "validate_text",
+    "scripts_status",
+    "adopt_scripts",
+    "list_script_files",
+    "read_script",
+    "save_script",
+    "save_level_script",
+    "new_script_file",
+    "add_script",
+    "resolve_script",
+    "search_scripts",
+    "lsp_start",
+    "lsp_send",
+    "lsp_stop",
     "add_event",
     "delete_event",
     "get_map_model_glb",
@@ -247,6 +266,80 @@ pub fn dispatch(
             { event_file: u16, kind: EventKind, index: u16, patch: EventPatch },
             |a| update_event_impl(state, a.event_file, a.kind, a.index, a.patch)
         ),
+        "get_text_archive" => run!(json, "get_text_archive", args, { index: u16 }, |a| {
+            get_text_archive_impl(state, a.index)
+        }),
+        "edit_text_archive" => run!(
+            json, "edit_text_archive", args,
+            { index: u16, edit: TextEdit },
+            |a| edit_text_archive_impl(state, a.index, a.edit)
+        ),
+        "create_text_archive" => run!(json, "create_text_archive", args, {}, |_a| {
+            create_text_archive_impl(state)
+        }),
+        "search_text" => run!(
+            json, "search_text", args,
+            { query: String, limit: usize },
+            |a| search_text_impl(state, a.query, a.limit)
+        ),
+        "validate_text" => run!(json, "validate_text", args, { text: String }, |a| {
+            Ok::<_, CmdError>(validate_text_impl(a.text))
+        }),
+        "scripts_status" => run!(json, "scripts_status", args, {}, |_a| scripts_status_impl(
+            state
+        )),
+        // Over HTTP there is no channel: the same adoption without progress events (the
+        // frontend reports one final progress from the report).
+        "adopt_scripts" => run!(json, "adopt_scripts", args, {}, |_a| {
+            adopt_scripts_impl(state, &mut |_progress| {})
+        }),
+        "list_script_files" => run!(json, "list_script_files", args, {}, |_a| {
+            list_script_files_impl(state)
+        }),
+        "read_script" => {
+            run!(json, "read_script", args, { file: u16 }, |a| read_script_impl(state, a.file))
+        }
+        "save_script" => run!(
+            json, "save_script", args,
+            { file: u16, text: String },
+            |a| save_script_impl(state, a.file, a.text)
+        ),
+        "save_level_script" => run!(
+            json, "save_level_script", args,
+            { file: u16, doc: LevelScriptDoc },
+            |a| save_level_script_impl(state, a.file, a.doc)
+        ),
+        "new_script_file" => run!(json, "new_script_file", args, { kind: String }, |a| {
+            new_script_file_impl(state, a.kind)
+        }),
+        "add_script" => {
+            run!(json, "add_script", args, { file: u16 }, |a| add_script_impl(state, a.file))
+        }
+        "resolve_script" => run!(
+            json, "resolve_script", args,
+            { header: u16, n: u16 },
+            |a| resolve_script_impl(state, a.header, a.n)
+        ),
+        "search_scripts" => run!(
+            json, "search_scripts", args,
+            { query: String, limit: usize },
+            |a| search_scripts_impl(state, a.query, a.limit)
+        ),
+        // rotom-lsp talks over a Tauri channel, which HTTP has not: no language services in the
+        // browser, exactly as when the binary is missing.
+        "lsp_start" => run!(json, "lsp_start", args, {}, |_a| {
+            Err::<(), _>(CmdError {
+                code: "tool_missing",
+                message: crate::lsp::MISSING.to_owned(),
+                asset: None,
+                problems: Vec::new(),
+            })
+        }),
+        "lsp_send" => run!(json, "lsp_send", args, { body: String }, |a| {
+            let _ = a.body;
+            Err::<(), _>(CmdError::from("rotom-lsp läuft nicht"))
+        }),
+        "lsp_stop" => run!(json, "lsp_stop", args, {}, |_a| Ok::<(), CmdError>(())),
         "add_event" => run!(
             json, "add_event", args,
             { event_file: u16, kind: EventKind, x: i32, z: i32 },
@@ -456,6 +549,27 @@ mod tests {
                 "update_event",
                 json!({ "eventFile": 1, "kind": "warp", "index": 0, "patch": { "dest_header_id": 2 } }),
             ),
+            ("get_text_archive", json!({ "index": 433 })),
+            (
+                "edit_text_archive",
+                json!({ "index": 433, "edit": { "Set": { "index": 0, "text": "x" } } }),
+            ),
+            ("create_text_archive", Value::Null),
+            ("search_text", json!({ "query": "a", "limit": 5 })),
+            ("validate_text", json!({ "text": "hello" })),
+            ("scripts_status", json!({})),
+            ("adopt_scripts", json!({})),
+            ("list_script_files", json!({})),
+            ("read_script", json!({ "file": 0 })),
+            ("save_script", json!({ "file": 0, "text": "" })),
+            ("save_level_script", json!({ "file": 0, "doc": {} })),
+            ("new_script_file", json!({ "kind": "script" })),
+            ("add_script", json!({ "file": 0 })),
+            ("resolve_script", json!({ "header": 0, "n": 1 })),
+            ("search_scripts", json!({ "query": "a", "limit": 5 })),
+            ("lsp_start", json!({})),
+            ("lsp_send", json!({ "body": "{}" })),
+            ("lsp_stop", json!({})),
             (
                 "add_event",
                 json!({ "eventFile": 1, "kind": "warp", "x": 1, "z": 1 }),
@@ -591,6 +705,43 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn lsp_is_off_in_the_bridge() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        match dispatch(&state, &roots, "lsp_start", json!({})) {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!(e.code, "tool_missing");
+                assert_eq!(e.message, "rotom-lsp fehlt — Completion und Diagnosen aus");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            dispatch(&state, &roots, "lsp_send", json!({ "body": "{}" })),
+            Err(DispatchError::Cmd(_))
+        ));
+        assert!(matches!(
+            call(&state, &roots, "lsp_stop", json!({})),
+            Reply::Json(Value::Null)
+        ));
+    }
+
+    #[test]
+    fn adopt_scripts_runs_without_progress() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let status = json_of(call(&state, &roots, "scripts_status", json!({})));
+        assert_eq!(status["adopted"], false);
+        let report = json_of(call(&state, &roots, "adopt_scripts", json!({})));
+        assert_eq!(report["decompiled"], 2, "{report}");
+        assert_eq!(report["skipped_empty"], 1, "{report}");
+        assert_eq!(report["failed"], json!([]), "{report}");
+        let status = json_of(call(&state, &roots, "scripts_status", json!({})));
+        assert_eq!(status["adopted"], true);
+        // The sources landed inside the project, which lies under the allowed root.
+        assert!(fixture.dir.path().join("rotom.toml").is_file());
     }
 
     #[test]
