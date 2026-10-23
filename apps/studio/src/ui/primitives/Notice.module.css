@@ -1,0 +1,71 @@
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border-radius: var(--g4-radius-taste);
+  font: var(--g4-font-text-s);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: var(--g4-raum-2);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.title {
+  margin: 0;
+  font: var(--g4-font-text-s-betont);
+}
+
+.text {
+  color: var(--g4-text-primaer);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-8);
+  padding-top: var(--g4-raum-4);
+}
+
+.info {
+  background: var(--g4-status-info-flaeche);
+}
+.info .icon,
+.info .title {
+  color: var(--g4-status-info);
+}
+
+.success {
+  background: var(--g4-status-erfolg-flaeche);
+}
+.success .icon,
+.success .title {
+  color: var(--g4-status-erfolg);
+}
+
+.warning {
+  background: var(--g4-status-warnung-flaeche);
+}
+.warning .icon,
+.warning .title {
+  color: var(--g4-status-warnung);
+}
+
+.error {
+  background: var(--g4-status-fehler-flaeche);
+}
+.error .icon,
+.error .title {
+  color: var(--g4-status-fehler);
+}

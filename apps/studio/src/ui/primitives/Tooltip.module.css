@@ -13,8 +13,7 @@
   background: var(--g4-flaeche-blatt);
   color: var(--g4-text-primaer);
   font: var(--g4-font-text-s);
-  /* Floating surfaces carry the only shadow; the tokens define no shadow color, so the overlay color serves. */
-  box-shadow: 0 var(--g4-raum-4) var(--g4-raum-12) var(--g4-flaeche-ueberlagerung);
+  box-shadow: var(--g4-schatten-schwebend);
   transition: opacity var(--g4-dauer-kurz);
 }
 

@@ -1,0 +1,71 @@
+.host {
+  position: fixed;
+  right: var(--g4-raum-16);
+  /* Above the 28 px status bar. */
+  bottom: calc(28px + var(--g4-raum-12));
+  z-index: 1100;
+  display: flex;
+  width: 360px;
+  max-width: calc(100vw - 2 * var(--g4-raum-16));
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-12);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-left-width: var(--g4-raum-4);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  box-shadow: var(--g4-schatten-schwebend);
+  pointer-events: auto;
+}
+
+.info {
+  border-left-color: var(--g4-status-info);
+}
+
+.error {
+  border-left-color: var(--g4-status-fehler);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: var(--g4-raum-4);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.info .icon {
+  color: var(--g4-status-info);
+}
+
+.error .icon {
+  color: var(--g4-status-fehler);
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) 0;
+}
+
+.text {
+  margin: 0;
+  font: var(--g4-font-text-s);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-8);
+}

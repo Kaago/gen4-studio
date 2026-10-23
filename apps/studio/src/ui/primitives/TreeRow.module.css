@@ -1,0 +1,9 @@
+.caret {
+  display: inline-flex;
+  width: var(--g4-dichte-symbol);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: calc(-1 * var(--g4-raum-4));
+  color: var(--g4-text-sekundaer);
+}

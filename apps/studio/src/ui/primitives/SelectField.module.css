@@ -77,7 +77,7 @@
   background: var(--g4-flaeche-ueberlagerung);
   color: var(--g4-text-primaer);
   outline: none;
-  box-shadow: 0 var(--g4-raum-4) var(--g4-raum-16) color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: var(--g4-schatten-schwebend);
 }
 
 .list {

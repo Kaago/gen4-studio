@@ -1,4 +1,9 @@
 /* Base stylesheet: reset, document font, focus ring, reduced motion, forced colors. Tokens come from tokens.css. */
+:root {
+  /* The one shadow of everything that floats (menu, tooltip, dialog, popover, toast, select popup). */
+  --g4-schatten-schwebend: 0 8px 24px color-mix(in srgb, var(--g4-platin-1000) 24%, transparent);
+}
+
 *,
 *::before,
 *::after {

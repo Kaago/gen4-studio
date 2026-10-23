@@ -120,3 +120,18 @@
   gap: var(--g4-raum-16) var(--g4-raum-24);
   align-items: start;
 }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 360px));
+  gap: var(--g4-raum-16);
+  align-items: start;
+}
+
+.panelBox {
+  max-width: 360px;
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-blatt);
+}
