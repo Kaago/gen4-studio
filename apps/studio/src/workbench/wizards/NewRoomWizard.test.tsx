@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoom, getEvents, getMatrix, headerPatchStatus } from "../../api";
+import { createRoom, getEvents, getMap, getMatrix, headerPatchStatus, tileBehaviors } from "../../api";
 import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -34,7 +35,7 @@ const matrices = [summary(0, true), summary(2, false), summary(3, false), summar
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
-const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0 };
+const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [] };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
   event_file_id: file,
@@ -60,7 +61,19 @@ describe("NewRoomWizard", () => {
     document.body.append(container);
     root = createRoot(container);
     lockedFiles = {};
-    vi.mocked(getMatrix).mockReset().mockImplementation(async (index) => ({ index, name: `m${index}`, width: 1, height: 1, maps: [index === 2 ? 321 : 400 + index] }));
+    // The village (matrix 0) is two maps wide; its second cell belongs to header 5.
+    vi.mocked(getMatrix)
+      .mockReset()
+      .mockImplementation(async (index) => (index === 0 ? { index, name: "m0", width: 2, height: 1, maps: [400, 401], headers: [0, 5] } : { index, name: `m${index}`, width: 1, height: 1, maps: [index === 2 ? 321 : 400 + index] }));
+    // Plain tiles everywhere, except the template's door mat at (5, 6) of map 321.
+    resetTileNames();
+    vi.mocked(tileBehaviors).mockReset().mockResolvedValue([
+      { value: 0x65, name: "WARP_ENTRANCE_SOUTH", class: "warp" },
+      { value: 0x69, name: "DOOR", class: "door" },
+    ]);
+    vi.mocked(getMap)
+      .mockReset()
+      .mockImplementation(async (index) => ({ index, buildings: [], permissions: Array.from({ length: 1024 }, (_, i): [number, number] => (index === 321 && i === 6 * 32 + 5 ? [0x65, 0] : [0, 0])) }));
     vi.mocked(getEvents).mockReset().mockImplementation(async (file) => events(file, lockedFiles[file] ?? null));
     vi.mocked(createRoom).mockReset().mockResolvedValue(report);
     onClose.mockReset();
@@ -116,6 +129,8 @@ describe("NewRoomWizard", () => {
     expect(field("Innen: Kachel z").value).toBe("6");
     await next();
     expect(container.textContent).toContain("Verbindet 0000 Zweiblattdorf (Kachel x 12, z 7) mit dem neuen Raum");
+    // Only the tile outside is a plain one: the template's door mat inside starts a warp.
+    expect(container.textContent).toContain("Macht die Kachel außen zur Tür (Verhalten 0x69, Kollision 0x80)");
     expect(container.textContent).toContain("Anlegen lässt sich nicht rückgängig machen.");
     await click(button("Anlegen"));
     expect(createRoom).toHaveBeenCalledOnce();
@@ -125,7 +140,7 @@ describe("NewRoomWizard", () => {
       source_map: 321,
       clear_buildings: false,
       header: { id: 3, area_data_id: 4, event_file: "New" },
-      entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6 },
+      entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6, door_tiles: true },
     });
     expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
     expect(container.textContent).toContain("Eingang: Warp 3 in Header 0000");
@@ -172,13 +187,58 @@ describe("NewRoomWizard", () => {
     expect(button("Weiter")?.disabled).toBe(true);
   });
 
-  it("clamps_a_typed_door_outside_into_the_outside_matrix", async () => {
+  it("refuses_a_typed_door_outside_the_outside_matrix_instead_of_clamping_it", async () => {
+    // Gate 3a (F): x 999 became 959 without a word, in a cell without a map.
     await show({ outsideHeader: 0 });
     await toEntrance();
     await type(field("Außen: Kachel x"), "999");
-    expect(field("Außen: Kachel x").value).toBe("63");
-    await type(field("Außen: Kachel z"), "99");
-    expect(field("Außen: Kachel z").value).toBe("31");
+    expect(field("Außen: Kachel x").value).toBe("999");
+    expect(container.textContent).toContain("Kachel x 999, z 7 liegt außerhalb des Rasters (x 0 bis 63, z 0 bis 31).");
+    expect(button("Weiter")?.disabled).toBe(true);
+    // The second cell has a map, but it belongs to header 0005: the village's warps are not loaded there.
+    await type(field("Außen: Kachel x"), "40");
+    expect(container.textContent).toContain("Kachel x 40, z 7 liegt in Zelle (1, 0) von Header 0005, nicht von 0000");
+    expect(button("Weiter")?.disabled).toBe(true);
+    await type(field("Außen: Kachel x"), "12");
+    expect(button("Weiter")?.disabled).toBe(false);
+  });
+
+  it("refuses_a_door_outside_on_a_tile_that_already_has_a_warp", async () => {
+    vi.mocked(getEvents).mockImplementation(async (file) => (file === 5 ? { ...events(5), warps: [{ index: 2, x: 12, z: 7, dest_header_id: 4, dest_warp_id: 0, height: 0 }] } : events(file)));
+    await show();
+    await toEntrance();
+    expect(container.textContent).toContain("Auf Kachel x 12, z 7 außen liegt schon Warp 2 (Ziel Header 0004)");
+    expect(button("Weiter")?.disabled).toBe(true);
+  });
+
+  it("makes_the_copied_door_warp_the_way_back_instead_of_adding_a_second_one", async () => {
+    // Gate 3a (A) 12: with a copy of the template's event file, its exit warp stays on the inside door tile.
+    await show();
+    await click(rowButton("0002"));
+    await flush();
+    await next();
+    await click(rowButton("0003"));
+    await click([...container.querySelectorAll("input[type=radio]")].find((r) => r.parentElement?.textContent === "Kopie von 0008"));
+    await next();
+    await flush();
+    expect(container.textContent).toContain("Die kopierte Eventdatei hat hier schon Warp 0 (Ziel Header 0000): er wird zum Rückweg");
+    await next();
+    expect(container.textContent).toContain("Der kopierte Warp 0 auf dieser Kachel (bisher Ziel Header 0000) wird zum Rückweg; es kommt kein zweiter dazu.");
+  });
+
+  it("names_the_door_tiles_and_leaves_them_alone_when_asked_to", async () => {
+    await show();
+    await toEntrance();
+    await flush();
+    expect(container.textContent).toContain("Außen: Verhalten 0x00, Kollision 0x00: ein Warp löst hier im Spiel nicht aus (keine Tür- oder Warp-Kachel).");
+    expect(container.textContent).toContain("Innen: Verhalten 0x65 WARP_ENTRANCE_SOUTH, Kollision 0x00: ein Warp löst hier aus.");
+    const doors = [...container.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find((c) => c.parentElement?.textContent?.startsWith("Kacheln, auf denen"))!;
+    expect(doors.checked).toBe(true);
+    await click(doors);
+    await next();
+    expect(container.textContent).toContain("Achtung: auf der Kachel außen löst ein Warp im Spiel nicht aus");
+    await click(button("Anlegen"));
+    expect(vi.mocked(createRoom).mock.calls[0][0].entrance?.door_tiles).toBe(false);
   });
 
   it("can_go_on_after_clicking_the_chosen_template_again_or_taking_one_that_shares_its_matrix", async () => {
@@ -327,7 +387,7 @@ describe("NewRoomWizard", () => {
     await type(field("Außen: Kachel z"), "5");
     await next();
     await click(button("Anlegen"));
-    expect(vi.mocked(createRoom).mock.calls[0][0].entrance).toEqual({ outside_header: 5, x: 4, z: 5, inside_x: 5, inside_z: 6 });
+    expect(vi.mocked(createRoom).mock.calls[0][0].entrance).toEqual({ outside_header: 5, x: 4, z: 5, inside_x: 5, inside_z: 6, door_tiles: true });
   });
 
   it("makes_no_entrance_when_a_copy_of_a_locked_template_event_file_is_asked_for", async () => {
@@ -376,11 +436,13 @@ describe("NewRoomWizard", () => {
     expect(rowButton("0002")).toBeUndefined();
   });
 
-  it("clamps_an_inside_tile_into_the_map", async () => {
+  it("refuses_an_inside_tile_off_the_map_instead_of_clamping_it", async () => {
     await show();
     await toEntrance();
     await type(field("Innen: Kachel x"), "40");
-    expect(field("Innen: Kachel x").value).toBe("31");
+    expect(field("Innen: Kachel x").value).toBe("40");
+    expect(container.textContent).toContain("Kachel liegt außerhalb der Karte (0 bis 31).");
+    expect(button("Weiter")?.disabled).toBe(true);
   });
 
   it("stays_on_the_summary_and_shows_a_refusal_that_created_nothing_inside_the_dialog", async () => {
@@ -403,7 +465,8 @@ describe("NewRoomWizard", () => {
     await next();
     await click(button("Anlegen"));
     expect(onError).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("header edit failed: boom");
+    // In German, with the system's reason as it came.
+    expect(container.textContent).toContain("Angelegt: Karte 0571, Raster 0131. Danach fehlgeschlagen: Header umstellen (boom).");
     expect(button("Im Studio zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
@@ -438,6 +501,11 @@ describe("NewRoomWizard", () => {
       expect(radio("neu, leer")?.checked).toBe(true);
       await click(radio("behalten"));
       await next();
+      await flush();
+      // The shared file is the template's: its door warp stands on the inside tile, and is not the wizard's to repoint.
+      expect(container.textContent).toContain("Auf Kachel x 5, z 6 innen liegt schon Warp 0 der Eventdatei 0008, die der Raum behält");
+      expect(button("Weiter")?.disabled).toBe(true);
+      await click(container.querySelector('input[aria-label="später verbinden"]'));
       await next();
       expect(container.textContent).toContain("Eventdatei: behalten (geteilt mit Header 0002)");
     });

@@ -8,18 +8,18 @@ import { useThumbnail } from "../../world/useThumbnail";
 import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
 import { HeaderPicker } from "../inspector/HeaderPicker";
-import { parseCellField } from "../matrix";
 import { filterPlaces } from "../places";
 import type { Place } from "../places";
 import { TERMS, id4 } from "../terms";
 import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
+import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, overviewNote, roomResult, roomSpec, roomSummary, templateWarp } from "./wizardSpecs";
+import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 
 interface Props {
@@ -58,6 +58,7 @@ const MATRIX_LAST_TILE = 255 * 32 - 1;
 const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
 const note: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 const heading: CSSProperties = { fontWeight: 600, marginBottom: 4 };
+const warn: CSSProperties = { color: "#b45309", margin: "6px 0" };
 
 /** The form with `template` as the room to copy: its area data is offered, and a copy of an event file follows the template. */
 function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
@@ -73,6 +74,12 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 }
 
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
+
+/** A typed tile number as it is, also when it lies off the map (the step then says why it cannot be used); null: no whole number. */
+function parseTile(text: string): number | null {
+  const n = Number(text.trim());
+  return text.trim() !== "" && Number.isInteger(n) ? n : null;
+}
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
 export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onError }: Props) {
@@ -130,11 +137,31 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   const outsideZ = form.z ?? fromScene?.z ?? null;
   const sceneDefault = fromScene !== null && (form.x === null || form.z === null);
   const outsideSize = outsideMatrix ? matrixTiles(outsideMatrix) : null;
+  // The cells of the outside matrix: the door must lie in a cell with a map that belongs to the outside header.
+  const outsideCells = useMatrix(outsideHeader?.matrix_id ?? null, 0, onError);
+  // The event file the room keeps ("behalten"): its own, or for a new header the template's, which it then shares.
+  const keptWarps =
+    form.eventFile !== "Keep"
+      ? null
+      : form.newHeader !== null
+        ? template && templateEvents && { file: template.event_file_id, warps: templateEvents.warps }
+        : roomHeader && keptEvents && { file: roomHeader.event_file_id, warps: keptEvents.warps };
+  // A copy of the template's event file brings its warp on the inside tile: the backend makes that one the way back.
+  const copiesTemplate = typeof form.eventFile === "object" && template !== null && form.eventFile.Copy === template.event_file_id;
+  const reused = copiesTemplate ? warpOnTile(templateEvents?.warps, form.insideX, form.insideZ) : null;
+  // What the two door tiles mean for a warp: outside the map under the tile, inside the template's map (the room is a copy).
+  const outsideMap = outsideX !== null && outsideZ !== null ? mapUnderTile(outsideCells, outsideX, outsideZ) : null;
+  const outsideTile = useWarpTile(outsideMap, outsideX === null ? null : outsideX % 32, outsideZ === null ? null : outsideZ % 32);
+  const insideTile = useWarpTile(templateMap, form.insideX, form.insideZ);
   // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
   const patch = useHeaderPatch(onHeaderPatch);
-  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, outsideMatrix);
+  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
+    outsideMatrix: outsideCells ?? outsideMatrix,
+    outsideWarps: outsideEvents?.warps,
+    keptWarps,
+  });
 
   const candidates = useMemo(() => {
     const outside = places.flatMap((p) => p.headers).filter((h) => h.kind === "outside" || h.header.id === prefill?.outsideHeader);
@@ -177,8 +204,8 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
         max={max}
         value={value === null ? "" : String(value)}
         onCommit={(text) => {
-          const n = parseCellField(text, max, false);
-          if (n !== null && n !== "empty") setTile({ [key]: n }, key.startsWith("inside"));
+          const n = parseTile(text);
+          if (n !== null) setTile({ [key]: n }, key.startsWith("inside"));
         }}
         style={{ width: 80, textAlign: "right", fontFamily: "ui-monospace, monospace" }}
       />
@@ -194,7 +221,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(e)) setOutcome({ kind: "partial", message: text });
+      if (isLateFailure(e)) setOutcome({ kind: "partial", message: partialText(text) });
       else setRefusal(text);
     } finally {
       setBusy(false);
@@ -353,6 +380,18 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
               </div>
             )}
             {!insideEdited && !door && <div style={note}>Standardwert: die Vorlage hat keinen Warp.</div>}
+            {reused && (
+              <div style={note}>
+                Die kopierte {TERMS.eventFile.label} hat hier schon {TERMS.warp.tech} {reused.index} (Ziel {TERMS.header.label} {id4(reused.dest_header_id)}): er wird zum Rückweg, es kommt kein zweiter dazu.
+              </div>
+            )}
+            <div style={heading}>Tür-Kacheln</div>
+            {outsideTile && <div style={outsideTile.fires ? note : warn}>Außen: {outsideTile.text}</div>}
+            {insideTile && <div style={insideTile.fires ? note : warn}>Innen: {insideTile.text}</div>}
+            <label style={row}>
+              <input type="checkbox" checked={form.doorTiles} onChange={(e) => setForm((f) => ({ ...f, doorTiles: e.target.checked }))} />
+              Kacheln, auf denen ein {TERMS.warp.tech} nicht auslöst, zur Tür machen (Verhalten 0x69, Kollision 0x80)
+            </label>
           </fieldset>
           {"error" in built && <div style={{ color: "#b91c1c", marginTop: 8 }}>{built.error}</div>}
         </div>
@@ -365,7 +404,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       content: (
         <div>
           {"spec" in built ? (
-            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links).map((line) => (
+            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }).map((line) => (
               <p key={line} style={{ margin: "6px 0" }}>
                 {line}
               </p>

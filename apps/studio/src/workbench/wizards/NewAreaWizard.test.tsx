@@ -302,11 +302,14 @@ describe("NewAreaWizard", () => {
     await next();
     await next();
     const row = (id: string) => [...container.querySelectorAll("li")].find((li) => li.textContent?.startsWith(id))?.textContent;
-    expect(row("0000")).toContain("Warps hierher: 0, wirkt unbenutzt");
+    // Header 0 is the default of every cell without one: no warp leads there, and still it is not free.
+    expect(row("0000")).toContain("Warps hierher: 0, Sonder-Header, nicht frei");
+    expect(row("0000")).not.toContain("wirkt unbenutzt");
     expect(row("0001")).toContain("Warps hierher: 1");
     expect(row("0001")).not.toContain("wirkt unbenutzt");
     await click([...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith("0000")));
-    expect(container.textContent).toContain("nichts führt hierher");
+    expect(container.textContent).toContain("Sonder-Header: Vorgabe-Header aller Zellen ohne eigenen");
+    expect(container.textContent).not.toContain("nichts führt hierher");
   });
 
   it("stays_on_the_summary_and_shows_a_refusal_that_created_nothing_inside_the_dialog", async () => {
@@ -347,7 +350,7 @@ describe("NewAreaWizard", () => {
     await next();
     await click(button("Anlegen"));
     expect(onError).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("matrix 0131 and maps 0571, 0572 were created; header edit failed: boom");
+    expect(container.textContent).toContain("Angelegt: Raster 0131, Karten 0571, 0572. Danach fehlgeschlagen: Header umstellen (boom).");
     expect(container.textContent).toContain("Raster-Tab");
     expect(container.textContent).toContain("Header-Editor");
     expect(button("Im Studio zeigen")).toBeUndefined();

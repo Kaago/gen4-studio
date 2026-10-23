@@ -1,7 +1,8 @@
-import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
+import type { WarpTile } from "../warpTile";
 
 /** The internal name of a header the wizard creates: A-Z, 0-9 and `_` only, at most 16 bytes (the kernel's limit). */
 export const INTERNAL_NAME_MAX = 16;
@@ -39,6 +40,20 @@ export interface HeaderChoiceValue {
   /** Area data the header gets; null keeps the one it has. */
   areaDataId: number | null;
   eventFile: EventFileChoice;
+}
+
+/** The map type of the Underground (Platinum `location_specifier`, HGSS `location_type`). */
+const UNDERGROUND = 6;
+
+/**
+ * Why a header that no warp leads to is still not free, or null: header 0 is the game's default for every cell without
+ * one, the Underground header starts the Underground (a room on it stays black), the Union Room is reached by script.
+ */
+export function specialHeader(h: Pick<HeaderSummary, "id" | "internal_name" | "map_type">): string | null {
+  if (h.id === 0) return "Vorgabe-Header aller Zellen ohne eigenen";
+  if (h.map_type === UNDERGROUND || h.internal_name === "UG") return "Untergrund: das Spiel startet dort den Untergrund, ein Raum bleibt schwarz";
+  if (h.internal_name === "UNION") return "Union-Raum, nur per Skript erreichbar";
+  return null;
 }
 
 /** A cell of the source matrix the user picked, with the map it holds. */
@@ -193,14 +208,22 @@ function inUseLine(assign: AssignHeader, headers: readonly HeaderSummary[], link
 
 const NOT_UNDOABLE = "Anlegen lässt sich nicht rückgängig machen.";
 
+/** A warning when the header to be reassigned is a special one (see `specialHeader`); null otherwise. */
+function specialLine(assign: AssignHeader, headers: readonly HeaderSummary[]): string | null {
+  if (assign.new_header) return null;
+  const assigned = headers.find((h) => h.id === assign.id);
+  const why = assigned ? specialHeader(assigned) : null;
+  return why === null ? null : `Achtung: ${TERMS.header.label} ${id4(assign.id)} ist ein Sonder-${TERMS.header.label} (${why}).`;
+}
+
 /** What "Anlegen" will do, one sentence per line, for the last step. */
 export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], links: readonly WarpLink[] = []): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
   const copies = spec.cells.map((c) => `${TERMS.map.label} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
   lines.push(`Kopiert ${copies}, ${spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden"}.`);
   lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers));
-  const warning = spec.header === null ? null : inUseLine(spec.header, headers, links);
-  if (warning) lines.push(warning);
+  const warnings = spec.header === null ? [] : [specialLine(spec.header, headers), inUseLine(spec.header, headers, links)];
+  for (const warning of warnings) if (warning) lines.push(warning);
   lines.push(NOT_UNDOABLE);
   return lines;
 }
@@ -212,12 +235,18 @@ export function areaResult(report: AreaReport, spec: AreaSpec): { lines: string[
   lines.push(`${report.maps.length === 1 ? TERMS.map.label : TERMS.map.plural} ${maps} kopiert.`);
   if (report.header !== null) {
     const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
-    lines.push(`${TERMS.header.label} ${id4(report.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
+    lines.push(`${headerResultName(report.header, spec.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
   }
   return {
     lines,
     next: [`Mit der Welt verbinden: ${TERMS.header.label}-Editor › ${TERMS.warp.plural} › Warp hinzufügen (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
   };
+}
+
+/** The header a result names: a header the wizard made is called new, with its internal name. */
+function headerResultName(id: number, assign: AssignHeader | null): string {
+  const created = assign?.new_header;
+  return created ? `Neuer ${TERMS.header.label} ${id4(id)} „${created.internal_name}“ (Kopie von ${id4(created.template)})` : `${TERMS.header.label} ${id4(id)}`;
 }
 
 const hasMap = (matrix: MatrixDto, x: number, y: number): number | null => {
@@ -244,15 +273,21 @@ export function rectSelection(selected: PickedCell[], matrix: MatrixDto, from: {
   return next.sort(rowMajor);
 }
 
-/** The header of the first selected cell (in row order) that has a known one: where the wizard takes area data and event file from. */
-export function sourceHeader(matrix: MatrixDto, headers: readonly HeaderSummary[], selected: readonly PickedCell[]): HeaderSummary | null {
+/**
+ * The header the wizard takes area data and event file from, and copies a new header from: `preferred` (the header the
+ * wizard was opened for) when one of the selected cells has it, else the header of the first selected cell (in row
+ * order) that is no special header (see `specialHeader`; the filler cells around a town belong to header 0), else the
+ * first known one.
+ */
+export function sourceHeader(matrix: MatrixDto, headers: readonly HeaderSummary[], selected: readonly PickedCell[], preferred?: number): HeaderSummary | null {
   if (!matrix.headers) return null;
+  const found: HeaderSummary[] = [];
   for (const c of [...selected].sort(rowMajor)) {
     const id = matrix.headers[c.y * matrix.width + c.x];
-    const found = id === undefined ? undefined : headers.find((h) => h.id === id);
-    if (found) return found;
+    const header = id === undefined ? undefined : headers.find((h) => h.id === id);
+    if (header) found.push(header);
   }
-  return null;
+  return found.find((h) => h.id === preferred) ?? found.find((h) => specialHeader(h) === null) ?? found[0] ?? null;
 }
 
 /**
@@ -286,6 +321,43 @@ export const overviewNote = (loaded: boolean, failed: boolean): string | null =>
  */
 export const isLateFailure = (e: unknown): boolean => isCmdError(e) && e.code === "partial";
 
+const MEMBER_WORDS: Record<string, string> = {
+  header: TERMS.header.label,
+  headers: TERMS.header.plural,
+  matrix: TERMS.matrix.label,
+  matrices: TERMS.matrix.plural,
+  map: TERMS.map.label,
+  maps: TERMS.map.plural,
+  "event file": TERMS.eventFile.label,
+  "event files": TERMS.eventFile.plural,
+};
+
+const STEP_WORDS: Record<string, string> = {
+  "header creation": `${TERMS.header.label} anlegen`,
+  "map copy": `${TERMS.map.label} kopieren`,
+  "matrix creation": `${TERMS.matrix.label} anlegen`,
+  "event file": `${TERMS.eventFile.label} anlegen`,
+  "matrix edit": `${TERMS.matrix.label} ändern`,
+  "header edit": `${TERMS.header.label} umstellen`,
+  "warp edit": `${TERMS.warp.tech} setzen`,
+  "door tile": "Tür-Kachel setzen",
+};
+
+/**
+ * The backend's text of a late failure ("header 0593 and map 0670 were created; map copy failed: …") in German: what
+ * was created and which step failed; the system's reason stays as it came. Another text comes back unchanged.
+ */
+export function partialText(message: string): string {
+  const parts = /^(.*) (?:was|were) created; (.*?) failed: (.*)$/s.exec(message);
+  if (!parts) return message;
+  const [, members, step, reason] = parts;
+  // "header 0593, matrix 0131 and maps 0003, 0004": each group is a word and its ids.
+  const groups = [...members.matchAll(/(event files?|headers?|matrix|matrices|maps?) ([\d, ]+?)(?=,? and |, [a-z]|$)/g)];
+  if (groups.length === 0) return message;
+  const created = groups.map(([, word, ids]) => `${MEMBER_WORDS[word] ?? word} ${ids.trim()}`).join(", ");
+  return `Angelegt: ${created}. Danach fehlgeschlagen: ${STEP_WORDS[step] ?? step} (${reason}).`;
+}
+
 /** What the "Raum anlegen" wizard edits. `template` is the room's header, `templateMap` the map it is copied from. */
 export interface RoomForm {
   name: string;
@@ -306,6 +378,8 @@ export interface RoomForm {
   /** The door inside, a tile of the room's map. */
   insideX: number;
   insideZ: number;
+  /** Tiles a warp would not fire on become doors (behaviour 0x69, collision 0x80). */
+  doorTiles: boolean;
 }
 
 export const emptyRoomForm: RoomForm = {
@@ -323,6 +397,7 @@ export const emptyRoomForm: RoomForm = {
   z: null,
   insideX: 16,
   insideZ: 30,
+  doorTiles: true,
 };
 
 /** The last tile of a map (a map is 32 × 32 tiles). */
@@ -331,12 +406,36 @@ export const MAP_LAST_TILE = 31;
 /** The tiles of a matrix per side (a map is 32 tiles wide). */
 export const matrixTiles = (matrix: { width: number; height: number }) => ({ x: matrix.width * 32, z: matrix.height * 32 });
 
+/** What `roomSpec` checks the doors against, as far as it is known (left out: not checked). */
+export interface RoomChecks {
+  /**
+   * The outside header's matrix: the door outside must lie in it, with the cells (once read) in a cell with a map that,
+   * with a header section, belongs to the outside header (the game loads a header's warps only in its own cells).
+   */
+  outsideMatrix?: { width: number; height: number; maps?: (number | null)[]; headers?: number[] | null } | null;
+  /** The warps of the outside header's event file: the door outside needs a tile without one. */
+  outsideWarps?: readonly WarpDto[] | null;
+  /** The warps of the event file the room keeps ("behalten"): the door inside needs a tile without one there. */
+  keptWarps?: { file: number; warps: readonly WarpDto[] } | null;
+}
+
+/** The map under tile (x, z) of a matrix; null off the matrix, in an empty cell and while the matrix is not read. */
+export function mapUnderTile(matrix: Pick<MatrixDto, "width" | "height" | "maps"> | null, x: number, z: number): number | null {
+  if (!matrix || x < 0 || z < 0 || x >= matrix.width * 32 || z >= matrix.height * 32) return null;
+  return matrix.maps[Math.floor(z / 32) * matrix.width + Math.floor(x / 32)] ?? null;
+}
+
+/** The first warp on tile (x, z): the one the game takes there. */
+export const warpOnTile = (warps: readonly WarpDto[] | null | undefined, x: number, z: number): WarpDto | null => warps?.find((w) => w.x === x && w.z === z) ?? null;
+
 /**
  * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now (a
- * new header gets that number). `outsideMatrix` is the size of the outside header's matrix: the door outside must lie
- * in it (null or omitted: unknown, not checked).
+ * new header gets that number). `checks` holds what is known about the outside matrix and the event files (see
+ * `RoomChecks`); for the matrix alone its size may be passed.
  */
-export function roomSpec(form: RoomForm, headerCount: number, outsideMatrix?: { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
+export function roomSpec(form: RoomForm, headerCount: number, checks?: RoomChecks | { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
+  const known: RoomChecks = checks && "width" in checks ? { outsideMatrix: checks } : (checks ?? {});
+  const outsideMatrix = known.outsideMatrix;
   if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
@@ -353,6 +452,26 @@ export function roomSpec(form: RoomForm, headerCount: number, outsideMatrix?: { 
       if (form.x < 0 || form.z < 0 || form.x >= size.x || form.z >= size.z) {
         return { error: `Kachel x ${form.x}, z ${form.z} liegt außerhalb des ${TERMS.matrix.label}s (x 0 bis ${size.x - 1}, z 0 bis ${size.z - 1}).` };
       }
+      const [cx, cy] = [Math.floor(form.x / 32), Math.floor(form.z / 32)];
+      const cell = cy * outsideMatrix.width + cx;
+      if (outsideMatrix.maps && (outsideMatrix.maps[cell] ?? null) === null) {
+        return { error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) ohne ${TERMS.map.label}.` };
+      }
+      const owner = outsideMatrix.headers?.[cell];
+      if (owner !== undefined && owner !== form.outsideHeader) {
+        return {
+          error: `Kachel x ${form.x}, z ${form.z} liegt in Zelle (${cx}, ${cy}) von ${TERMS.header.label} ${id4(owner)}, nicht von ${id4(form.outsideHeader)}: dort nimmt das Spiel die ${TERMS.warp.tech}s von ${id4(form.outsideHeader)} nicht.`,
+        };
+      }
+    }
+    const taken = warpOnTile(known.outsideWarps, form.x, form.z);
+    if (taken) return { error: `Auf Kachel x ${form.x}, z ${form.z} außen liegt schon ${TERMS.warp.tech} ${taken.index} (Ziel ${TERMS.header.label} ${id4(taken.dest_header_id)}): eine andere Kachel wählen.` };
+    const kept = form.eventFile === "Keep" ? known.keptWarps : null;
+    const takenInside = kept ? warpOnTile(kept.warps, form.insideX, form.insideZ) : null;
+    if (kept && takenInside) {
+      return {
+        error: `Auf Kachel x ${form.insideX}, z ${form.insideZ} innen liegt schon ${TERMS.warp.tech} ${takenInside.index} der ${TERMS.eventFile.label} ${id4(kept.file)}, die der ${TERMS.room.label} behält: eine andere Kachel oder „Kopie von …“ wählen.`,
+      };
     }
   }
   return {
@@ -363,18 +482,26 @@ export function roomSpec(form: RoomForm, headerCount: number, outsideMatrix?: { 
       header,
       entrance:
         form.connect && form.outsideHeader !== null && form.x !== null && form.z !== null
-          ? { outside_header: form.outsideHeader, x: form.x, z: form.z, inside_x: form.insideX, inside_z: form.insideZ }
+          ? { outside_header: form.outsideHeader, x: form.x, z: form.z, inside_x: form.insideX, inside_z: form.insideZ, door_tiles: form.doorTiles }
           : null,
     },
   };
 }
 
+/** What the room summary knows about the doors beyond the request. */
+export interface DoorNotes {
+  /** The warp of the copied event file that stands on the inside tile: it becomes the way back. */
+  reused?: WarpDto | null;
+  /** The tiles a warp would not fire on now (see `warpTile`). */
+  outsideTile?: WarpTile | null;
+  insideTile?: WarpTile | null;
+}
+
 /** What "Anlegen" will do, one sentence per line, for the last step. */
-export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string, links: readonly WarpLink[] = []): string[] {
+export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string, links: readonly WarpLink[] = [], doors: DoorNotes = {}): string[] {
   const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ mit einer Kopie von ${TERMS.map.label} ${id4(spec.source_map)} an, ${spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden"}.`];
   lines.push(assignLine(spec.header, headers));
-  const warning = inUseLine(spec.header, headers, links);
-  if (warning) lines.push(warning);
+  for (const warning of [specialLine(spec.header, headers), inUseLine(spec.header, headers, links)]) if (warning) lines.push(warning);
   const entrance = spec.entrance;
   if (entrance === null) {
     const why = notConnected ? ` (${notConnected})` : "";
@@ -384,6 +511,17 @@ export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], n
     const name = outside ? ` ${headerLabel(outside)}` : "";
     lines.push(`Verbindet ${id4(entrance.outside_header)}${name} (Kachel x ${entrance.x}, z ${entrance.z}) mit dem neuen ${TERMS.room.label}.`);
     lines.push(`Der Rückweg liegt im neuen ${TERMS.room.label} auf Kachel x ${entrance.inside_x}, z ${entrance.inside_z}.`);
+    if (doors.reused) {
+      lines.push(`Der kopierte ${TERMS.warp.tech} ${doors.reused.index} auf dieser Kachel (bisher Ziel ${TERMS.header.label} ${id4(doors.reused.dest_header_id)}) wird zum Rückweg; es kommt kein zweiter dazu.`);
+    }
+    const dead = [doors.outsideTile && !doors.outsideTile.fires ? "außen" : null, doors.insideTile && !doors.insideTile.fires ? "innen" : null].filter((w) => w !== null);
+    if (dead.length > 0) {
+      lines.push(
+        entrance.door_tiles
+          ? `Macht die Kachel ${dead.join(" und ")} zur Tür (Verhalten 0x69, Kollision 0x80), sonst löst der ${TERMS.warp.tech} im Spiel nicht aus.`
+          : `Achtung: auf der Kachel ${dead.join(" und ")} löst ein ${TERMS.warp.tech} im Spiel nicht aus (keine Tür- oder Warp-Kachel).`,
+      );
+    }
   }
   lines.push(NOT_UNDOABLE);
   return lines;
@@ -393,10 +531,12 @@ export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], n
 export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[]; next: string[] } {
   const lines = [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.matrix.label} ${id4(report.matrix)}, ${TERMS.map.label} ${id4(report.map)}.`];
   const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
-  lines.push(`${TERMS.header.label} ${id4(spec.header.id)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
+  lines.push(`${headerResultName(spec.header.id, spec.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
   if (spec.entrance !== null && report.outside_warp !== null && report.inside_warp !== null) {
-    lines.push(`Eingang: Warp ${report.outside_warp} in ${TERMS.header.label} ${id4(spec.entrance.outside_header)}, Rückweg: Warp ${report.inside_warp} im neuen ${TERMS.room.label}.`);
+    const reused = report.inside_warp_reused ? " (der kopierte Warp auf der Kachel, umgestellt)" : "";
+    lines.push(`Eingang: Warp ${report.outside_warp} in ${TERMS.header.label} ${id4(spec.entrance.outside_header)}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${TERMS.room.label}.`);
   }
+  for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y}.`);
   return {
     lines,
     next:
@@ -411,3 +551,4 @@ export function templateWarp(events: EventsDto | null): { x: number; z: number }
   const first = events?.warps[0];
   return first ? { x: first.x, z: first.z } : null;
 }
+

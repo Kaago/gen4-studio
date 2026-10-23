@@ -37,6 +37,22 @@ pub fn tile_behavior(family: Family, value: u8) -> Option<TileBehavior> {
         .find(|b| b.value == value)
 }
 
+/// The behaviour of a door tile (the same value in every family).
+pub const DOOR: u8 = 0x69;
+/// The collision a door tile needs: the player bumps into the door, which starts the warp.
+pub const DOOR_COLLISION: u8 = 0x80;
+
+/// Whether the game starts a warp standing on a tile with this behaviour and collision: only
+/// warp tiles (stairs, mats, panels, escalators) do, and doors only when they block the player.
+/// A warp on any other tile is never taken.
+pub fn warp_fires(family: Family, kind: u8, collision: u8) -> bool {
+    match tile_behavior(family, kind) {
+        Some(b) if b.class == "warp" => true,
+        Some(b) if b.class == "door" => collision == DOOR_COLLISION,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -87,6 +103,20 @@ mod tests {
             })
         );
         assert_eq!(tile_behavior(Family::Pt, 0x01), None);
+    }
+
+    #[test]
+    fn warps_fire_on_warp_tiles_and_on_blocking_doors_only() {
+        for family in [Family::Pt, Family::Hgss] {
+            assert!(warp_fires(family, 0x5E, 0));
+            assert!(warp_fires(family, 0x65, 0x80));
+            assert!(warp_fires(family, DOOR, DOOR_COLLISION));
+            assert!(!warp_fires(family, DOOR, 0));
+            assert!(!warp_fires(family, 0x00, 0));
+            assert!(!warp_fires(family, 0x00, 0x80));
+        }
+        // Snow with shadows, where the gate's first return warp stood.
+        assert!(!warp_fires(Family::Pt, 0xA9, 0));
     }
 
     #[test]

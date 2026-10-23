@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { ask } from "../platform/dialogs";
-import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, updateBuilding } from "../api";
+import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, setPermission, updateBuilding } from "../api";
 import type { EventKind, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../Toolbar";
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
+import { DOOR, DOOR_COLLISION, readWarpTile } from "../workbench/warpTile";
+import { mapUnderTile } from "../workbench/wizards/wizardSpecs";
 import type { BuildingRef } from "../world/buildingLayer";
 import { deletePrompt, newBuildingPosition } from "../world/buildings";
 import { eventAt, eventDeletePrompt, eventEditGate } from "../world/events";
@@ -156,6 +158,29 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     [bus, fail, unpinSelection, refreshDirty],
   );
 
+  // A warp on a plain tile is never taken in the game: "Warp hinzufügen" says so and offers to make the tile a door.
+  const offerDoor = useCallback(
+    async (shown: MatrixDto, tile: { x: number; z: number }) => {
+      const map = mapUnderTile(shown, tile.x, tile.z);
+      if (map === null) return;
+      const [x, y] = [tile.x % 32, tile.z % 32];
+      try {
+        const found = await readWarpTile(map, x, y);
+        if (found.fires) return;
+        const question = `Der neue Warp liegt auf Kachel x ${tile.x}, z ${tile.z}. ${found.text} Die Kachel zur Tür machen (Verhalten 0x69, Kollision 0x80)? Der Spieler läuft dann dagegen, um den Warp zu nehmen.`;
+        if (!(await ask(question, { kind: "warning" }))) {
+          setMessage({ kind: "info", text: `Warp auf Kachel x ${tile.x}, z ${tile.z}: löst im Spiel nicht aus, solange die Kachel keine Tür- oder Warp-Kachel ist.` });
+          return;
+        }
+        await setPermission(map, x, y, DOOR, DOOR_COLLISION);
+        bus.emit({ topic: "mapRefetch", map });
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [bus, setMessage, fail],
+  );
+
   // A new event goes on the tile the pointer was last over, in the event file of the selected header;
   // it is selected afterwards.
   const onAddEvent = useCallback(
@@ -173,18 +198,22 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
         return;
       }
+      let added = false;
       try {
         const index = await addEvent(file, kind, tile.x, tile.z);
         setPinned({ kind: "event", eventFile: file, eventKind: kind, index });
+        added = true;
       } catch (e) {
         fail(e);
       }
       bus.emit({ topic: "eventsRefetch", file });
       bus.emit({ topic: "eventData" });
+      if (added && kind === "warp") await offerDoor(shown, tile);
       await refreshDirty();
     },
-    [bus, matrixRef, headersRef, selectedRef, setMessage, setPinned, fail, refreshDirty],
+    [bus, matrixRef, headersRef, selectedRef, setMessage, setPinned, fail, refreshDirty, offerDoor],
   );
+
 
   const onDeleteEvent = useCallback(
     async (file: number, kind: EventKind, index: number) => {

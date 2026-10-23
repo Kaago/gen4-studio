@@ -687,3 +687,16 @@ fn pt_and_hgss_have_a_dynamic_headers_archive_dp_has_none() {
     assert_eq!(unpacked, "dynamicHeaders");
     assert!(!listed);
 }
+
+#[test]
+fn vanilla_underground_header_has_its_map_type() {
+    // Gate 3a (A) 12: a room on header "UG" kept the Underground's map type and stayed black.
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let headers = Project::open(&root).unwrap().headers().unwrap();
+    let by_name = |name: &str| headers.iter().find(|h| h.internal_name == name).unwrap();
+    assert_eq!(by_name("UG").map_type, 6);
+    assert_eq!(by_name("NOTHING").map_type, 0);
+    assert_eq!(headers.iter().filter(|h| h.map_type == 6).count(), 1);
+}

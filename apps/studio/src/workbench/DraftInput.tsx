@@ -25,11 +25,13 @@ interface Props {
  * An input that writes on blur or Enter, never per keystroke. After a commit the field shows
  * `value` again until the owner passes the new one (a refused or clamped input thus never
  * lingers). Text still being typed when the field unmounts (the inspector swaps its content on
- * hover without blurring) is committed instead of lost.
+ * hover without blurring) is committed instead of lost; text already committed is not committed
+ * again, even when the field unmounts before it has shown the owner's new value.
  */
 export function DraftInput({ value, onCommit, type = "text", min, max, step, maxLength, pattern, placeholder, label, disabled, style }: Props) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // The text being typed; null while nothing is (the field shows `value`).
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => setDraft(null), [value]);
 
   const latest = useRef({ draft, value, onCommit });
   latest.current = { draft, value, onCommit };
@@ -37,14 +39,16 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, max
   useEffect(
     () => () => {
       const { draft, value, onCommit } = latest.current;
-      if (draft !== value) onCommit(draft);
+      if (draft !== null && draft !== value) onCommit(draft);
     },
     [],
   );
 
   const commit = () => {
-    if (draft !== value) onCommit(draft);
-    setDraft(value);
+    if (draft !== null && draft !== value) onCommit(draft);
+    setDraft(null);
+    // The field may unmount before it renders again (a click on "Weiter" right after typing): nothing is left to commit.
+    latest.current.draft = null;
   };
 
   return (
@@ -56,7 +60,7 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, max
       step={step}
       maxLength={maxLength}
       pattern={pattern}
-      value={draft}
+      value={draft ?? value}
       placeholder={placeholder}
       aria-label={label}
       disabled={disabled}
@@ -65,10 +69,10 @@ export function DraftInput({ value, onCommit, type = "text", min, max, step, max
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
-        else if (e.key === "Escape" && draft !== value) {
+        else if (e.key === "Escape" && draft !== null && draft !== value) {
           // Taking back the typed text uses the key: a dialog around the field must not close as well.
           e.preventDefault();
-          setDraft(value);
+          setDraft(null);
         }
       }}
       data-draft=""

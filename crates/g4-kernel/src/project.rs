@@ -239,6 +239,9 @@ pub struct HeaderSummary {
     /// In-game location name from the text archive (empty when the header's name index
     /// lies outside the archive).
     pub location_name: String,
+    /// Kind of place the game treats the header as (Platinum and Diamond/Pearl
+    /// `location_specifier`, HeartGold/SoulSilver `location_type`): 6 is the Underground.
+    pub map_type: u8,
     pub matrix_id: u16,
     pub area_data_id: u8,
     /// Member of the event archive with this header's warps, NPCs, triggers and signs.
@@ -260,6 +263,14 @@ fn location_name_index(header: &uxie::MapHeader) -> usize {
         uxie::MapHeader::DP(h) => usize::from(h.location_name),
         uxie::MapHeader::Pt(h) => usize::from(h.location_name),
         uxie::MapHeader::HGSS(h) => usize::from(h.location_name),
+    }
+}
+
+fn map_type(header: &uxie::MapHeader) -> u8 {
+    match header {
+        uxie::MapHeader::DP(h) => h.location_specifier,
+        uxie::MapHeader::Pt(h) => h.location_specifier,
+        uxie::MapHeader::HGSS(h) => h.location_type,
     }
 }
 
@@ -788,6 +799,7 @@ impl Project {
                         .get(location_name_index(header))
                         .cloned()
                         .unwrap_or_default(),
+                    map_type: map_type(header),
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),

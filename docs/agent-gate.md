@@ -80,9 +80,9 @@ uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
 
 ## Hinweise aus dem Handdurchlauf
 
-- Warps feuern nur auf Tür-, Treppen- und Warp-Kacheln. Einen Warp auf eine „freie“ Kachel zu setzen verbindet nichts; im Spiel passiert dort nichts.
+- Warps feuern nur auf Treppen- und Warp-Kacheln und auf Türen (Verhalten 0x69) mit Kollision 0x80. Einen Warp auf eine „freie“ Kachel zu setzen verbindet nichts; im Spiel passiert dort nichts. „Warp hinzufügen“ fragt deshalb, ob die Kachel zur Tür werden soll, und der Raum-Assistent macht beide Tür-Kacheln zu Türen, wenn nötig.
 - Ein neuer Header mit Eventdatei „neu, leer“ braucht einen Ankunfts-Warp (Index 0, `add_event`/„Warp hinzufügen“). Ohne ihn zeigt der Ziel-Warp 0 ins Leere, und das Spiel zeigt nach dem Übergang schwarz.
-- Der Gebiets-Assistent nimmt Header 0 als Vorlage, wenn die erste gewählte Zelle eine Füllfläche ist. Beim Prüfen von Schritt Header darauf achten (Vorlage „Kopie von Header …“ in der Zeile).
+- Der Gebiets-Assistent nimmt als Vorlage den Header, für den er geöffnet wurde, sonst den der ersten gewählten Zelle, die keine Füllfläche (Header 0) ist. Beim Prüfen von Schritt Header steht die Vorlage in der Zeile „Kopie von Header …“.
 - Der von DSPRE übernommene Patch „Dynamische Header“ war für Platin DE/FR/IT/ES fehlerhaft; „Patch reparieren“ und die Korrektur sind in [formats/dynamic_headers.md](formats/dynamic_headers.md) beschrieben. Die Anleitung prüft diese Befunde nicht neu.
 - `Cmd+S` im Browser-Fenster kann die Seite statt der App meinen. Tritt das auf, „Speichern“ in der Leiste klicken oder `call.sh save` benutzen.
 - Hover und Maus: Das 3D-Fenster lässt sich mit `hover` bedienen. Klappt Ziehen mit der Maus im Browser-Fenster nicht, prüft der Agent die Wirkung über `update_event` per `call.sh` und führt den Punkt als „Agent + Blick“.
@@ -95,7 +95,7 @@ Kopie `pt-3a` (Platin DE), für (D) 4 zusätzlich `hg-3a` (HeartGold US), für d
 | Punkt | Wer | Wie |
 |---|---|---|
 | (A) 1–4 Gebiet anlegen (Route 230) | Agent | Browser: Header 0342 wählen, „+ Neu“ → „Gebiet anlegen…“, Zellen abwählen bis zwei übrig sind, Name „Route 230“, Schritt Header: 0001 („NOTHING“), „Anlegen“, „Im Studio zeigen“ |
-| (A) 5–10 Raum anlegen (Spielerzimmer in 0002) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „+ Neu“ → „Raum anlegen…“, Vorlage Header 0415, Header 0002, Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Anlegen“. Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0002“, „Zum Ziel“); Gegenprobe `call.sh list_warps` |
+| (A) 5–10 Raum anlegen (Spielerzimmer als neuer Header 0593) | Agent | Browser: Maus (`hover`) in der 3D-Ansicht von 0411 auf die Kachel vor dem Rivalenhaus, „+ Neu“ → „Raum anlegen…“, Vorlage Header 0415, „Neuer Header“ (vorher „Patch anwenden“), Eventdatei „Kopie von …“ ausdrücklich wählen, Eingang Außen-Header 0411, „Tür-Kacheln“ an lassen, „Anlegen“. Nicht Header 0002 „UG“ (Sonder-Header, bleibt im Spiel schwarz). Dann im Inspector bei 0411 „Eingänge / Ausgänge“ ansehen (Ziel „0593“, „Zum Ziel“); Gegenprobe `call.sh get_events` der neuen Eventdatei: genau ein Warp auf der Rückweg-Kachel, Ziel 0411 |
 | (A) Stoppuhr und „Zahlen getippt“ | Hand | Die Zeit misst der Mensch bei eigener Bedienung. Der Agent trägt nur seine getippten Zahlen ein und sagt, dass seine Zeit nichts aussagt |
 | (A) 11 Warps von Hand verbinden | Agent | Browser, Schritte in Rezept „Warps verbinden“ unten |
 | (A) 12 Gang im Spiel | Agent | „Bauen“, dann `g4emu`, Schritte in Rezept „Gang im Spiel“ unten; Rückgabe 0 und die Header-Folge sind das Ergebnis, `shot` an jeder Station |
@@ -162,7 +162,7 @@ Kopien `pt-3b1` (Platin DE, **nicht** vorher mit DSPRE gepatcht) und `hg-3b1` (H
 5. Gegenprobe: `pt-3b1` öffnen, die Meldung erscheint nicht.
 
 **Raum-Assistent und Fehlerfälle (3a (F))**, auf einer eigenen Kopie `pt-3a-f`:
-- *Falsches Raster:* in der Szene Header 0342 (Raster 0000) zeigen, „+ Neu“ → „Raum anlegen…“, Vorlage 0415, im Schritt Header einen freien Header, im Schritt Eingang als Außen-Header 0002 („UG“, Raster 0002) wählen. Erwartet: der Schritt fragt nach der Kachel der Tür (leere Felder, kein Hinweis „Kachel zuletzt in der Szene gewählt“). Zum Vergleich Außen-Header 0411 (Raster 0000): die Kachel ist vorbelegt.
+- *Falsches Raster:* in der Szene Header 0342 (Raster 0000) zeigen, „+ Neu“ → „Raum anlegen…“, Vorlage 0415, im Schritt Header einen freien Header, im Schritt Eingang als Außen-Header 0504 (Großmoor, Raster 0240) wählen (0002 „UG“ wird nicht als Außen-Header angeboten: Raster 0002 hat keinen Header-Abschnitt). Erwartet: der Schritt fragt nach der Kachel der Tür (leere Felder, kein Hinweis „Kachel zuletzt in der Szene gewählt“). Zum Vergleich Außen-Header 0411 (Raster 0000): die Kachel ist vorbelegt.
 - *„Raum hier anbinden…“:* Header 0411 öffnen, im Inspector „Raum hier anbinden…“: der Assistent hat 0411 als Außen-Header vorgewählt.
 - *Kachel außerhalb:* im Schritt Eingang x 999 eintippen: der Assistent lehnt ab, bevor etwas angelegt wird (`call.sh member_counts` vorher und nachher gleich).
 - *Gesperrte Eventdatei:* App beenden, `printf '\0' >> <pt-3a-f>/unpacked/eventFiles/0390` (hängt ein Byte an die Datei von 0411 an, sie lässt sich dann nicht mehr verlustfrei schreiben), App neu starten. Raum-Assistent mit Außen-Header 0411: der Schritt Eingang nennt die Sperre und bietet „später verbinden“; `call.sh get_events '{"eventFileId":390}'` zeigt `locked`.

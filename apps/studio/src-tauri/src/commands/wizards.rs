@@ -4,10 +4,13 @@
 
 use std::collections::HashSet;
 
+use g4_formats::game::Family;
+use g4_formats::map::{Cell, MAP_SIZE};
 use g4_formats::matrix::{MATRIX_EMPTY, resize_matrix as resized};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::{MapHeader, Store, WarpEvent};
+use g4_kernel::tiles::{DOOR, DOOR_COLLISION, warp_fires};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -98,7 +101,7 @@ pub struct ExtendReport {
 }
 
 /// The door between the outside and the room: the outside warp stands at (`x`, `z`) of the
-/// outside header's map, the room warp at (`inside_x`, `inside_z`) of the room.
+/// outside header's matrix, the room warp at (`inside_x`, `inside_z`) of the room.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Entrance {
     pub outside_header: u16,
@@ -106,6 +109,9 @@ pub struct Entrance {
     pub z: u16,
     pub inside_x: u16,
     pub inside_z: u16,
+    /// Turns each of the two tiles a warp would not fire on into a door (see [`DOOR`]).
+    #[serde(default)]
+    pub door_tiles: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,6 +123,14 @@ pub struct RoomSpec {
     pub entrance: Option<Entrance>,
 }
 
+/// A tile of a map that the wizard turned into a door.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct DoorTile {
+    pub map: u16,
+    pub x: u8,
+    pub y: u8,
+}
+
 #[derive(Debug, Serialize)]
 pub struct RoomReport {
     pub matrix: u16,
@@ -124,6 +138,10 @@ pub struct RoomReport {
     pub event_file: Option<u16>,
     pub outside_warp: Option<u16>,
     pub inside_warp: Option<u16>,
+    /// The room warp is the copied warp that stood on its tile, now leading outside.
+    pub inside_warp_reused: bool,
+    /// The tiles made doors, the outside one first.
+    pub door_tiles: Vec<DoorTile>,
 }
 
 /// The members a run created so far (they stay, whatever happens next).
@@ -544,6 +562,43 @@ fn push_warp(
     Ok(())
 }
 
+/// Points warp `index` of event file `file` at warp `dest_warp_id` of header `dest_header_id`;
+/// it keeps its tile and height.
+fn retarget_warp(
+    store: &mut Store,
+    file: u16,
+    index: u16,
+    (dest_header_id, dest_warp_id): (u16, u16),
+    created: &Created,
+) -> Result<(), CmdError> {
+    let label = format!("connect warp to header {dest_header_id:04}");
+    store
+        .edit_event(file, &label, |f| {
+            if let Some(w) = f.warp_events.get_mut(usize::from(index)) {
+                w.dest_header_id = dest_header_id;
+                w.dest_warp_id = dest_warp_id;
+            }
+            Ok(())
+        })
+        .map_err(|e| late(created, "warp edit", e))?;
+    Ok(())
+}
+
+/// The first warp of event file `file` on tile (`x`, `z`): the one the game takes there.
+fn warp_at(store: &mut Store, file: u16, x: u16, z: u16) -> Result<Option<u16>, CmdError> {
+    let found = store
+        .event(file)?
+        .warp_events
+        .iter()
+        .position(|w| w.x == x && w.z == z);
+    found
+        .map(|i| {
+            u16::try_from(i)
+                .map_err(|_| CmdError::from(format!("event file {file:04} has too many warps")))
+        })
+        .transpose()
+}
+
 /// The event file `header` has now.
 fn header_event_file(store: &mut Store, header: u16) -> Result<u16, CmdError> {
     store
@@ -553,10 +608,175 @@ fn header_event_file(store: &mut Store, header: u16) -> Result<u16, CmdError> {
         .ok_or_else(|| format!("header {header} does not exist").into())
 }
 
+/// The map under tile (`x`, `z`) of the matrix `header` uses. Refuses a tile outside that
+/// matrix, in a cell without a map, and in a cell the matrix gives to another header: the game
+/// loads a header's warps only while the player is in one of its cells.
+fn outside_map(store: &mut Store, header: u16, x: u16, z: u16) -> Result<u16, CmdError> {
+    let matrix_id = store
+        .header_table()?
+        .get(usize::from(header))
+        .map(MapHeader::matrix_id)
+        .ok_or_else(|| CmdError::from(format!("header {header} does not exist")))?;
+    let m = store.matrix(matrix_id)?;
+    let (cx, cy) = (usize::from(x) / MAP_SIZE, usize::from(z) / MAP_SIZE);
+    let (width, height) = (usize::from(m.width), usize::from(m.height));
+    if cx >= width || cy >= height {
+        return Err(format!(
+            "tile ({x}, {z}) lies outside matrix {matrix_id:04} ({} x {} tiles)",
+            width * MAP_SIZE,
+            height * MAP_SIZE
+        )
+        .into());
+    }
+    let i = cy * width + cx;
+    let map = m.maps[i];
+    if map == MATRIX_EMPTY {
+        return Err(format!(
+            "tile ({x}, {z}) lies in cell ({cx}, {cy}) of matrix {matrix_id:04}, which has no map"
+        )
+        .into());
+    }
+    if let Some(owner) = m.headers.as_ref().map(|h| h[i])
+        && owner != header
+    {
+        return Err(format!(
+            "tile ({x}, {z}) lies in cell ({cx}, {cy}) of header {owner:04}, not of header {header:04}"
+        )
+        .into());
+    }
+    Ok(map)
+}
+
+/// Whether the game would take a warp on tile (`x`, `y`) of `map`.
+fn fires(store: &mut Store, family: Family, map: u16, x: u16, y: u16) -> Result<bool, CmdError> {
+    let cell = store
+        .map(map)?
+        .cell(usize::from(x), usize::from(y))
+        .map_err(KernelError::from)?;
+    Ok(warp_fires(family, cell.kind, cell.collision))
+}
+
+/// Makes tile (`x`, `y`) of `map` a door the player bumps into.
+fn set_door(
+    store: &mut Store,
+    map: u16,
+    (x, y): (u16, u16),
+    created: &Created,
+) -> Result<DoorTile, CmdError> {
+    let (x, y) = (
+        u8::try_from(x).unwrap_or(u8::MAX),
+        u8::try_from(y).unwrap_or(u8::MAX),
+    );
+    let door = Cell {
+        kind: DOOR,
+        collision: DOOR_COLLISION,
+    };
+    store
+        .edit_map(map, "door tile", |m| {
+            m.set_cell(usize::from(x), usize::from(y), door)
+        })
+        .map_err(|e| late(created, "door tile", e))?;
+    Ok(DoorTile { map, x, y })
+}
+
+/// What the entrance of a room needs from the existing files, found before anything is
+/// created: the outside event file and map, the warp of the room's event file that becomes the
+/// way back, and which of the two tiles must be made doors.
+struct EntrancePlan {
+    outside_file: u16,
+    outside_map: u16,
+    /// The warp a copied event file already has on the inside tile; it is pointed outside
+    /// instead of adding a second warp the game would never take.
+    reused: Option<u16>,
+    outside_door: bool,
+    inside_door: bool,
+}
+
+fn plan_entrance(
+    session: &mut Session,
+    spec: &RoomSpec,
+    entrance: &Entrance,
+) -> Result<EntrancePlan, CmdError> {
+    let family = session.project.family;
+    let store = &mut session.store;
+    if entrance.outside_header == spec.header.id {
+        return Err("the room's header cannot also be the header outside".into());
+    }
+    let last = MAP_SIZE as u16 - 1;
+    if entrance.inside_x > last || entrance.inside_z > last {
+        return Err(format!(
+            "tile ({}, {}) lies outside the room's map (0 to {last})",
+            entrance.inside_x, entrance.inside_z
+        )
+        .into());
+    }
+    let outside_file = header_event_file(store, entrance.outside_header)?;
+    check_event_file_writable(store, outside_file)?;
+    let outside_map = outside_map(store, entrance.outside_header, entrance.x, entrance.z)?;
+    if let Some(i) = warp_at(store, outside_file, entrance.x, entrance.z)? {
+        return Err(format!(
+            "event file {outside_file:04} already has warp {i} on tile ({}, {}) outside",
+            entrance.x, entrance.z
+        )
+        .into());
+    }
+    let reused = match spec.header.event_file {
+        EventFileChoice::Keep => {
+            let own = header_event_file(store, spec.header.source_header())?;
+            check_event_file_writable(store, own)?;
+            // The file stays shared with whoever has it now: its warp there is not the wizard's
+            // to repoint.
+            if let Some(i) = warp_at(store, own, entrance.inside_x, entrance.inside_z)? {
+                return Err(format!(
+                    "event file {own:04} already has warp {i} on tile ({}, {}) of the room",
+                    entrance.inside_x, entrance.inside_z
+                )
+                .into());
+            }
+            None
+        }
+        EventFileChoice::Copy(source) => {
+            check_event_file_writable(store, source)?;
+            warp_at(store, source, entrance.inside_x, entrance.inside_z)?
+        }
+        EventFileChoice::New => None,
+    };
+    let (mut outside_door, mut inside_door) = (false, false);
+    if entrance.door_tiles {
+        let local = |n: u16| n % MAP_SIZE as u16;
+        outside_door = !fires(
+            store,
+            family,
+            outside_map,
+            local(entrance.x),
+            local(entrance.z),
+        )?;
+        if outside_door {
+            check_writable(store, id(AssetKind::Map, outside_map))?;
+        }
+        inside_door = !fires(
+            store,
+            family,
+            spec.source_map,
+            entrance.inside_x,
+            entrance.inside_z,
+        )?;
+    }
+    Ok(EntrancePlan {
+        outside_file,
+        outside_map,
+        reused,
+        outside_door,
+        inside_door,
+    })
+}
+
 /// Creates a 1 x 1 matrix with a copy of a map, points a header at it and, with an entrance,
 /// links a warp outside with a warp inside. Order of the undoable edits: matrix, header,
-/// outside warp, room warp. When the outside header and the room header share the event file
-/// (`Keep`), the room warp is appended right after the outside warp in that one file.
+/// outside warp, room warp, then the door tiles (outside, inside). When the outside header and
+/// the room header share the event file (`Keep`), the room warp is appended right after the
+/// outside warp in that one file. A copied event file that has a warp on the inside tile keeps
+/// it as the way back, pointed outside: the game takes the first warp of a tile.
 pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -566,26 +786,11 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
     if let Some(entrance) = &spec.entrance {
         check_header_id(session, entrance.outside_header)?;
     }
+    let plan = match &spec.entrance {
+        Some(entrance) => Some(plan_entrance(session, &spec, entrance)?),
+        None => None,
+    };
     let store = &mut session.store;
-    // With an entrance, both event files that get a warp must be editable; the outside file is
-    // the one the outside header has now.
-    let mut outside_file = None;
-    if let Some(entrance) = &spec.entrance {
-        if entrance.outside_header == spec.header.id {
-            return Err("the room's header cannot also be the header outside".into());
-        }
-        let file = header_event_file(store, entrance.outside_header)?;
-        check_event_file_writable(store, file)?;
-        outside_file = Some(file);
-        match spec.header.event_file {
-            EventFileChoice::Keep => {
-                let own = header_event_file(store, spec.header.source_header())?;
-                check_event_file_writable(store, own)?;
-            }
-            EventFileChoice::Copy(source) => check_event_file_writable(store, source)?,
-            EventFileChoice::New => {}
-        }
-    }
     // A new header starts with its template's event file.
     let kept_file = header_event_file(store, spec.header.source_header())?;
 
@@ -612,15 +817,18 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         .map_err(|e| late(&created, "header edit", e))?;
 
     let (mut outside_warp, mut inside_warp) = (None, None);
-    if let (Some(entrance), Some(outside_file)) = (&spec.entrance, outside_file) {
+    let mut door_tiles = Vec::new();
+    let reused = plan.as_ref().and_then(|p| p.reused);
+    if let (Some(entrance), Some(plan)) = (&spec.entrance, &plan) {
+        let outside_file = plan.outside_file;
         let shared = outside_file == room_file;
         let late_err = |e: CmdError| late(&created, "warp edit", e.message);
         let outside_index = warp_count(store, outside_file).map_err(late_err)?;
         // With one shared file the room warp comes right after the outside warp.
-        let room_index = if shared {
-            outside_index.saturating_add(1)
-        } else {
-            warp_count(store, room_file).map_err(late_err)?
+        let room_index = match plan.reused {
+            Some(i) => i,
+            None if shared => outside_index.saturating_add(1),
+            None => warp_count(store, room_file).map_err(late_err)?,
         };
         let warp = |x, z, dest_header_id, dest_warp_id| WarpEvent {
             x,
@@ -635,18 +843,26 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
             warp(entrance.x, entrance.z, spec.header.id, room_index),
             &created,
         )?;
-        push_warp(
-            store,
-            room_file,
-            warp(
-                entrance.inside_x,
-                entrance.inside_z,
-                entrance.outside_header,
-                outside_index,
-            ),
-            &created,
-        )?;
+        let back = (entrance.outside_header, outside_index);
+        match plan.reused {
+            Some(i) => retarget_warp(store, room_file, i, back, &created)?,
+            None => push_warp(
+                store,
+                room_file,
+                warp(entrance.inside_x, entrance.inside_z, back.0, back.1),
+                &created,
+            )?,
+        }
         (outside_warp, inside_warp) = (Some(outside_index), Some(room_index));
+        let local = |n: u16| n % MAP_SIZE as u16;
+        if plan.outside_door {
+            let tile = (local(entrance.x), local(entrance.z));
+            door_tiles.push(set_door(store, plan.outside_map, tile, &created)?);
+        }
+        if plan.inside_door {
+            let tile = (entrance.inside_x, entrance.inside_z);
+            door_tiles.push(set_door(store, map, tile, &created)?);
+        }
     }
     Ok(RoomReport {
         matrix,
@@ -654,6 +870,8 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         event_file,
         outside_warp,
         inside_warp,
+        inside_warp_reused: reused.is_some(),
+        door_tiles,
     })
 }
 
@@ -679,7 +897,8 @@ mod tests {
     use super::super::{
         EventKind, add_event_impl, apply_header_patch_impl, dirty_impl, get_events_impl,
         get_header_impl, get_map_impl, get_matrix_impl, list_headers_impl, member_counts_impl,
-        reload_asset_impl, set_header_impl, set_matrix_sections_impl, undo_impl,
+        reload_asset_impl, resize_matrix_impl, set_header_impl, set_matrix_cell_impl,
+        set_matrix_sections_impl, set_permission_impl, undo_impl,
     };
     use super::*;
     use g4_kernel::store::MapHeader;
@@ -953,6 +1172,7 @@ mod tests {
                 z: 6,
                 inside_x: 16,
                 inside_z: 30,
+                door_tiles: false,
             }),
         }
     }
@@ -1067,6 +1287,166 @@ mod tests {
             (warps[3].x, warps[3].dest_header_id, warps[3].dest_warp_id),
             (16, 0, 2)
         );
+    }
+
+    /// The warps of event file `file` as (x, z, destination header, destination warp).
+    fn warps(state: &AppState, file: u16) -> Vec<(u16, u16, u16, u16)> {
+        get_events_impl(state, file)
+            .unwrap()
+            .warps
+            .iter()
+            .map(|w| (w.x, w.z, w.dest_header_id, w.dest_warp_id))
+            .collect()
+    }
+
+    #[test]
+    fn create_room_points_the_copied_warp_on_the_inside_tile_outside() {
+        // Gate 3a (A) 12: the template's exit warp stood on the inside door tile, the wizard
+        // added the way back as a second warp on that tile, and the game took the first one.
+        let (_f, state) = open_synthetic();
+        set_event_file(&state, 1, 1);
+        add_warps(&state, 1, 1);
+        add_event_impl(&state, 1, EventKind::Warp, 16, 30).unwrap();
+        let template = warps(&state, 1);
+        let report = create_room_impl(&state, room_spec(EventFileChoice::Copy(1))).unwrap();
+        assert_eq!(
+            (report.event_file, report.outside_warp, report.inside_warp),
+            (Some(2), Some(0), Some(1))
+        );
+        assert!(report.inside_warp_reused);
+        // The copy keeps its two warps; the one on the door tile now leads outside.
+        let inside = warps(&state, 2);
+        assert_eq!(inside.len(), 2);
+        assert_eq!(inside[0], template[0]);
+        assert_eq!(inside[1], (16, 30, 0, 0));
+        assert_eq!(warps(&state, 0), vec![(5, 6, 1, 1)]);
+        // The template's own file is untouched.
+        assert_eq!(warps(&state, 1), template);
+    }
+
+    #[test]
+    fn create_room_refuses_a_kept_file_with_a_warp_on_the_inside_tile() {
+        let (_f, state) = open_synthetic();
+        set_event_file(&state, 1, 1);
+        add_event_impl(&state, 1, EventKind::Warp, 16, 30).unwrap();
+        let before = counts(&state);
+        let err = create_room_impl(&state, room_spec(EventFileChoice::Keep)).unwrap_err();
+        assert!(
+            err.message.contains("warp 0 on tile (16, 30)"),
+            "{}",
+            err.message
+        );
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn create_room_refuses_an_outside_tile_that_already_has_a_warp() {
+        let (_f, state) = open_synthetic();
+        add_event_impl(&state, 0, EventKind::Warp, 5, 6).unwrap();
+        let before = counts(&state);
+        let err = create_room_impl(&state, room_spec(EventFileChoice::New)).unwrap_err();
+        assert!(
+            err.message.contains("warp 0 on tile (5, 6)"),
+            "{}",
+            err.message
+        );
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn create_room_refuses_an_outside_tile_without_a_map_of_the_outside_header() {
+        // Gate 3a (F): x 999 was clamped to the last tile and the entrance landed in an empty cell.
+        let (_f, state) = open_synthetic();
+        let at = |x: u16, z: u16| {
+            let mut spec = room_spec(EventFileChoice::New);
+            let e = spec.entrance.as_mut().unwrap();
+            (e.x, e.z) = (x, z);
+            spec
+        };
+        let before = counts(&state);
+        // Matrix 0 is 2 x 1 maps: 64 x 32 tiles.
+        let err = create_room_impl(&state, at(64, 6)).unwrap_err();
+        assert!(
+            err.message.contains("outside matrix 0000"),
+            "{}",
+            err.message
+        );
+        let err = create_room_impl(&state, at(5, 32)).unwrap_err();
+        assert!(
+            err.message.contains("outside matrix 0000"),
+            "{}",
+            err.message
+        );
+        let mut inside = room_spec(EventFileChoice::New);
+        inside.entrance.as_mut().unwrap().inside_x = 32;
+        assert!(create_room_impl(&state, inside).is_err());
+        assert_eq!(counts(&state), before);
+
+        // A third, empty cell.
+        resize_matrix_impl(&state, 0, 3, 1).unwrap();
+        let err = create_room_impl(&state, at(70, 6)).unwrap_err();
+        assert!(err.message.contains("has no map"), "{}", err.message);
+        // A cell the header section gives to header 1.
+        set_matrix_sections_impl(&state, 0, true, false).unwrap();
+        set_matrix_cell_impl(&state, 0, 1, 0, None, Some(1), None).unwrap();
+        let err = create_room_impl(&state, at(40, 6)).unwrap_err();
+        assert!(
+            err.message.contains("of header 0001, not of header 0000"),
+            "{}",
+            err.message
+        );
+        assert_eq!(counts(&state), before);
+        // Header 0's own cell is fine.
+        assert!(create_room_impl(&state, at(5, 6)).is_ok());
+    }
+
+    fn tile(state: &AppState, map: u16, x: usize, y: usize) -> [u8; 2] {
+        get_map_impl(state, map).unwrap().permissions[y * 32 + x]
+    }
+
+    #[test]
+    fn create_room_makes_doors_of_tiles_a_warp_would_not_fire_on() {
+        let (_f, state) = open_synthetic();
+        let mut spec = room_spec(EventFileChoice::New);
+        spec.entrance.as_mut().unwrap().door_tiles = true;
+        let report = create_room_impl(&state, spec).unwrap();
+        assert_eq!(
+            report.door_tiles,
+            vec![
+                DoorTile { map: 0, x: 5, y: 6 },
+                DoorTile {
+                    map: report.map,
+                    x: 16,
+                    y: 30
+                }
+            ]
+        );
+        assert_eq!(tile(&state, 0, 5, 6), [0x69, 0x80]);
+        assert_eq!(tile(&state, report.map, 16, 30), [0x69, 0x80]);
+        // The source map of the room keeps its tile.
+        assert_ne!(tile(&state, 2, 16, 30), [0x69, 0x80]);
+        // Both tiles are undo steps of their own, after the warps.
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert_ne!(tile(&state, 0, 5, 6), [0x69, 0x80]);
+        assert_eq!(warps(&state, 0).len(), 1);
+    }
+
+    #[test]
+    fn create_room_leaves_tiles_alone_that_already_start_a_warp() {
+        let (_f, state) = open_synthetic();
+        // Stairs outside (any collision), a blocking door inside the source map.
+        set_permission_impl(&state, 0, 5, 6, 0x5E, 0).unwrap();
+        set_permission_impl(&state, 2, 16, 30, 0x69, 0x80).unwrap();
+        let mut spec = room_spec(EventFileChoice::New);
+        spec.entrance.as_mut().unwrap().door_tiles = true;
+        let report = create_room_impl(&state, spec).unwrap();
+        assert!(report.door_tiles.is_empty());
+        assert_eq!(tile(&state, 0, 5, 6), [0x5E, 0]);
+        // Without the option nothing is checked or set.
+        let (_f, state) = open_synthetic();
+        let report = create_room_impl(&state, room_spec(EventFileChoice::New)).unwrap();
+        assert!(report.door_tiles.is_empty());
     }
 
     #[test]

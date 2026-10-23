@@ -13,6 +13,8 @@ export interface HeaderSummary {
   internal_name: string;
   /** In-game location name; empty when the header has none. */
   location_name: string;
+  /** The kind of place the game treats the header as (Platinum `location_specifier`, HGSS `location_type`): 6 is the Underground. */
+  map_type?: number;
   matrix_id: number;
   area_data_id: number;
   event_file_id: number;
@@ -529,6 +531,8 @@ export interface Entrance {
   z: number;
   inside_x: number;
   inside_z: number;
+  /** Turns each of the two tiles a warp would not fire on into a door (behaviour 0x69, collision 0x80). */
+  door_tiles?: boolean;
 }
 
 export interface RoomSpec {
@@ -545,6 +549,10 @@ export interface RoomReport {
   event_file: number | null;
   outside_warp: number | null;
   inside_warp: number | null;
+  /** The room warp is the copied warp that already stood on its tile, now leading outside. */
+  inside_warp_reused: boolean;
+  /** The tiles made doors (local tile x, y of the map), the outside one first. */
+  door_tiles: { map: number; x: number; y: number }[];
 }
 
 export const listMatrices = () => invoke<MatrixListing>("list_matrices");

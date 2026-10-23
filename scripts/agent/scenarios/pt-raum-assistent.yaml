@@ -1,0 +1,51 @@
+# Platin DE: the room wizard (gate 3a (A) 5-12) as one backend call. A copy of the player's room
+# (template header 415, map 187) becomes a NEW header with a copy of the room's event file 394; the
+# entrance is a door on a plain tile of Twinleaf (411), the way back the copied stairs warp at (8, 4).
+# The points: leaving the new room leads to Twinleaf, not into the player's house (the copied warp is
+# repointed instead of a second warp on the same tile), and the plain tile outside works as a door.
+# The bedroom stairs are bent to the new room only to get in quickly.
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   TUER_X/Y      plain tile of Twinleaf (matrix 0) that becomes the door outside (105 876: in front of
+#                 the rival's house; not 112 878, the town sign)
+# Example (from scripts/g4emu; the copy lives under Roms/_testkopien):
+#   uv run g4emu scenario ../agent/scenarios/pt-raum-assistent.yaml \
+#     --project ../../../Roms/_testkopien/pt-raum --out ../../target/agent/raum-assistent \
+#     --set NEUER_HEADER=593 --set TUER_X=105 --set TUER_Y=876
+game: CPUD
+edits:
+  - [apply_header_patch, {}]
+  - - create_room
+    - spec:
+        name: Testzimmer
+        source_map: 187
+        clear_buildings: false
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: {Copy: 394}
+          new_header: {template: 415, internal_name: TESTZIMMER}
+        entrance: {outside_header: 411, x: "${TUER_X}", z: "${TUER_Y}", inside_x: 8, inside_z: 4, door_tiles: true}
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_header_id: "${NEUER_HEADER}", dest_warp_id: 0}}]
+build: out.nds
+play:
+  - continue
+  - expect-map 415
+  - walk-to 8 4
+  - walk right 1
+  - expect-map "${NEUER_HEADER}"
+  - wait 150
+  - shot raum
+  - where
+  - walk-to 8 4
+  - walk right 1
+  - expect-map 411
+  - wait 150
+  - shot draussen
+  - where
+  - walk up 1
+  - expect-map "${NEUER_HEADER}"
+  - wait 150
+  - shot wieder-drin
+  - where

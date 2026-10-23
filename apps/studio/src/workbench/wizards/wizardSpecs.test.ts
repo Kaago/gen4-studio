@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 
 const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event });
@@ -219,6 +219,8 @@ describe("areaResult", () => {
     expect(lines[0]).toBe("Raster 0131 „Route 230“ (2 × 1) angelegt.");
     expect(lines.join("\n")).toContain("Karten 0571, 0572");
     expect(lines.join("\n")).toContain("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0055");
+    const created = { ...spec, header: { id: 593, area_data_id: null, event_file: "New" as const, new_header: { template: 342, internal_name: "R231" } } };
+    expect(areaResult({ ...report, header: 593 }, created).lines).toContain("Neuer Header 0593 „R231“ (Kopie von 0342) zeigt jetzt auf Raster 0131, Eventdatei 0055.");
     expect(next).toEqual(["Mit der Welt verbinden: Header-Editor › Eingänge / Ausgänge › Warp hinzufügen (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
   });
 
@@ -255,6 +257,52 @@ describe("selection helpers", () => {
     expect(sourceHeader({ ...matrix, headers: null }, headers, [cell(0, 0, 10)])).toBeNull();
     expect(sourceHeader(matrix, headers, [])).toBeNull();
   });
+
+  it("passes_over_the_filler_header_0_and_prefers_the_header_the_wizard_was_opened_for", () => {
+    // Gate 3b.1 (A) 16: the forest cells around the town belong to header 0, and the first selected cell was one.
+    const town: MatrixDto = { index: 0, name: "m", width: 3, height: 2, maps: [10, 11, 12, 13, 14, 15], headers: [0, 0, 0, 0, 2, 1] };
+    const picked = [cell(0, 0, 10), cell(1, 1, 14), cell(2, 1, 15)];
+    expect(sourceHeader(town, headers, picked)?.id).toBe(2);
+    expect(sourceHeader(town, headers, picked, 1)?.id).toBe(1);
+    // A preferred header no selected cell has does not count; only filler left: header 0 after all.
+    expect(sourceHeader(town, headers, picked, 7)?.id).toBe(2);
+    expect(sourceHeader(town, headers, [cell(0, 0, 10)])?.id).toBe(0);
+  });
+});
+
+describe("specialHeader", () => {
+  const h = (id: number, internal_name: string, map_type?: number) => ({ id, internal_name, map_type });
+  it("names_the_default_header_the_underground_and_the_union_room", () => {
+    // Gate 3a (A) 12: header 0002 "UG" kept the Underground's map type, and a room on it stayed black.
+    expect(specialHeader(h(0, "EVERYWHERE", 2))).toContain("Vorgabe-Header");
+    expect(specialHeader(h(2, "UG", 6))).toContain("Untergrund");
+    expect(specialHeader(h(3, "UG"))).toContain("Untergrund");
+    expect(specialHeader(h(9, "MY_UG_COPY", 6))).toContain("Untergrund");
+    expect(specialHeader(h(2, "UNION", 4))).toContain("Union-Raum");
+    expect(specialHeader(h(1, "NOTHING", 0))).toBeNull();
+    expect(specialHeader(h(415, "T01R0202", 4))).toBeNull();
+  });
+
+  it("warns_in_the_summary_when_a_special_header_is_given_away", () => {
+    const ug = { ...header(2, "UG"), map_type: 6 };
+    const spec: AreaSpec = { name: "A", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 1, clear_buildings: false }], with_headers: true, header: { id: 2, area_data_id: null, event_file: "New" } };
+    expect(areaSummary(spec, [ug])).toContain("Achtung: Header 0002 ist ein Sonder-Header (Untergrund: das Spiel startet dort den Untergrund, ein Raum bleibt schwarz).");
+    expect(areaSummary(spec, [header(2, "TWO")]).some((l) => l.includes("Sonder-Header"))).toBe(false);
+  });
+});
+
+describe("partialText", () => {
+  it("says_in_german_what_was_created_and_which_step_failed", () => {
+    expect(partialText("header 0593 was created; map copy failed: unpacked/maps/0670: Permission denied (os error 13)")).toBe(
+      "Angelegt: Header 0593. Danach fehlgeschlagen: Karte kopieren (unpacked/maps/0670: Permission denied (os error 13)).",
+    );
+    expect(partialText("header 0470, matrix 0001, maps 0003, 0004 and event file 0002 were created; warp edit failed: boom")).toBe(
+      "Angelegt: Header 0470, Raster 0001, Karten 0003, 0004, Eventdatei 0002. Danach fehlgeschlagen: Warp setzen (boom).",
+    );
+    expect(partialText("map 0003 was created; door tile failed: x")).toBe("Angelegt: Karte 0003. Danach fehlgeschlagen: Tür-Kachel setzen (x).");
+    // Anything else stays as it came.
+    expect(partialText("something else")).toBe("something else");
+  });
 });
 
 describe("parseMapList", () => {
@@ -288,9 +336,28 @@ describe("roomSpec", () => {
         source_map: 321,
         clear_buildings: true,
         header: { id: 1, area_data_id: 3, event_file: { Copy: 9 } },
-        entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6 },
+        entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6, door_tiles: true },
       },
     });
+  });
+
+  it("refuses_a_door_outside_in_an_empty_cell_or_a_cell_of_another_header", () => {
+    const grid = { width: 3, height: 1, maps: [10, null, 12], headers: [0, 0, 4] };
+    expect("spec" in roomSpec(roomForm({ x: 12, z: 7 }), 0, { outsideMatrix: grid })).toBe(true);
+    expect(roomSpec(roomForm({ x: 40, z: 7 }), 0, { outsideMatrix: grid })).toEqual({ error: "Kachel x 40, z 7 liegt in Zelle (1, 0) ohne Karte." });
+    expect(roomSpec(roomForm({ x: 70, z: 7 }), 0, { outsideMatrix: grid })).toMatchObject({ error: expect.stringContaining("von Header 0004, nicht von 0000") });
+    // Without a header section every cell is the outside header's.
+    expect("spec" in roomSpec(roomForm({ x: 70, z: 7 }), 0, { outsideMatrix: { ...grid, headers: null } })).toBe(true);
+  });
+
+  it("refuses_door_tiles_that_already_have_a_warp_the_game_would_take_first", () => {
+    const warp = (index: number, x: number, z: number) => ({ index, x, z, dest_header_id: 4, dest_warp_id: 0, height: 0 });
+    expect(roomSpec(roomForm(), 0, { outsideWarps: [warp(3, 12, 7)] })).toMatchObject({ error: expect.stringContaining("außen liegt schon Warp 3") });
+    expect("spec" in roomSpec(roomForm(), 0, { outsideWarps: [warp(3, 12, 8)] })).toBe(true);
+    // Inside only the file the room keeps counts: a copy gets its warp repointed, a new file has none.
+    const kept = { file: 9, warps: [warp(0, 5, 6)] };
+    expect(roomSpec(roomForm({ eventFile: "Keep", insideX: 5, insideZ: 6 }), 0, { keptWarps: kept })).toMatchObject({ error: expect.stringContaining("Warp 0 der Eventdatei 0009") });
+    expect("spec" in roomSpec(roomForm({ eventFile: { Copy: 9 }, insideX: 5, insideZ: 6 }), 0, { keptWarps: kept })).toBe(true);
   });
 
   it("makes_no_entrance_when_connecting_later", () => {
@@ -368,9 +435,20 @@ describe("roomSummary", () => {
   });
 });
 
+describe("mapUnderTile", () => {
+  it("finds_the_map_of_the_cell_and_nothing_off_the_grid", () => {
+    const grid = { width: 2, height: 1, maps: [10, null] };
+    expect(mapUnderTile(grid, 31, 31)).toBe(10);
+    expect(mapUnderTile(grid, 32, 0)).toBeNull();
+    expect(mapUnderTile(grid, 64, 0)).toBeNull();
+    expect(mapUnderTile(grid, -1, 0)).toBeNull();
+    expect(mapUnderTile(null, 0, 0)).toBeNull();
+  });
+});
+
 describe("roomResult", () => {
   const spec: RoomSpec = { name: "Haus", source_map: 321, clear_buildings: false, header: { id: 1, area_data_id: null, event_file: "New" }, entrance: { outside_header: 411, x: 12, z: 7, inside_x: 16, inside_z: 30 } };
-  const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0 };
+  const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [] };
 
   it("lists_what_was_made_and_the_warps", () => {
     const { lines, next } = roomResult(report, spec);
@@ -378,6 +456,14 @@ describe("roomResult", () => {
     expect(lines[1]).toBe("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0020.");
     expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 im neuen Raum.");
     expect(next[0]).toContain("Emulator");
+  });
+
+  it("calls_a_created_header_new_and_names_the_door_tiles_and_the_reused_warp", () => {
+    const created: RoomSpec = { ...spec, header: { id: 593, area_data_id: null, event_file: { Copy: 394 }, new_header: { template: 415, internal_name: "TESTZIMMER" } } };
+    const { lines } = roomResult({ ...report, inside_warp_reused: true, door_tiles: [{ map: 187, x: 8, y: 4 }] }, created);
+    expect(lines[1]).toBe("Neuer Header 0593 „TESTZIMMER“ (Kopie von 0415) zeigt jetzt auf Raster 0131, Eventdatei 0020.");
+    expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 (der kopierte Warp auf der Kachel, umgestellt) im neuen Raum.");
+    expect(lines[3]).toBe("Tür-Kachel gesetzt: Karte 0187, Kachel x 8, z 4.");
   });
 
   it("points_to_the_exits_section_when_no_entrance_was_made", () => {

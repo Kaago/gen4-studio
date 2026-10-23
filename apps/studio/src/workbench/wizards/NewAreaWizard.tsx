@@ -15,7 +15,7 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardShell } from "./WizardShell";
 import type { WizardStep } from "./WizardShell";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 
 interface Props {
@@ -73,8 +73,10 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   const matrix = useMatrix(sourceMatrix, 0, onError);
 
   const mapMax = counts.Map === undefined ? 0xfffe : Math.max(0, counts.Map - 1);
-  const source = matrix ? sourceHeader(matrix, headers, form.selected) : null;
-  // A new header is a copy of the header the area data is taken from (the first source cell's), else of header 0.
+  // The header the wizard was opened for leads; else the first source cell's that is no filler (header 0).
+  const preferred = prefill?.header;
+  const source = matrix ? sourceHeader(matrix, headers, form.selected, preferred) : null;
+  // A new header is a copy of the header the area data is taken from, else of header 0.
   const template = source?.id ?? 0;
   const patch = useHeaderPatch(onHeaderPatch);
   const built = areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length);
@@ -94,8 +96,8 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   /** A new selection: area data follows the first source cell's header unless the user changed it, and a copy source that went away is dropped. */
   function pick(selected: PickedCell[]) {
     setForm((f) => {
-      const before = matrix ? sourceHeader(matrix, headers, f.selected) : null;
-      const after = matrix ? sourceHeader(matrix, headers, selected) : null;
+      const before = matrix ? sourceHeader(matrix, headers, f.selected, preferred) : null;
+      const after = matrix ? sourceHeader(matrix, headers, selected, preferred) : null;
       const untouched = f.areaDataId === (before?.area_data_id ?? null);
       const lostCopy = typeof f.eventFile === "object" && f.eventFile.Copy !== after?.event_file_id;
       return { ...f, selected, areaDataId: untouched ? (after?.area_data_id ?? null) : f.areaDataId, eventFile: lostCopy ? emptyAreaForm.eventFile : f.eventFile };
@@ -140,7 +142,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(e)) setOutcome({ kind: "partial", message: text });
+      if (isLateFailure(e)) setOutcome({ kind: "partial", message: partialText(text) });
       else setRefusal(text);
     } finally {
       setBusy(false);

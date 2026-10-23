@@ -6,7 +6,7 @@ import { headerLabel } from "../headers";
 import { HeaderPicker } from "../inspector/HeaderPicker";
 import { parseCellField } from "../matrix";
 import { TERMS, id4 } from "../terms";
-import { INTERNAL_NAME_MAX, internalName } from "./wizardSpecs";
+import { INTERNAL_NAME_MAX, internalName, specialHeader } from "./wizardSpecs";
 import type { HeaderChoiceValue } from "./wizardSpecs";
 
 interface Props {
@@ -38,6 +38,12 @@ const heading: CSSProperties = { fontWeight: 600, marginBottom: 4 };
 const box: CSSProperties = { border: "1px solid #d97706", background: "#fffbeb", borderRadius: 6, padding: "8px 12px", margin: "8px 0" };
 const muted: CSSProperties = { color: "#6b7280", margin: "6px 0" };
 const NAME_PATTERN = "[A-Z0-9_]*";
+
+/** The usage a header row shows: how many warps lead there, and whether that makes it look free (a special header never does). */
+function usage(h: HeaderSummary, incoming: number): string {
+  if (specialHeader(h) !== null) return `Warps hierher: ${incoming}, Sonder-${TERMS.header.label}, nicht frei`;
+  return incoming === 0 ? "Warps hierher: 0, wirkt unbenutzt" : `Warps hierher: ${incoming}`;
+}
 
 /** The step "Header wählen": which header the new matrix is given to, with its area data and event file. */
 export function HeaderChoice({ headers, links, counts, value, copySource, onChange, patch, patchError, patchBusy, onApplyPatch, onRepairPatch, template, defaultName }: Props) {
@@ -144,7 +150,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
               headers={headers}
               current={value.header ?? -1}
               onPick={(id) => set({ header: id })}
-              renderExtra={(h) => (incomingCount(h.id) === 0 ? "Warps hierher: 0, wirkt unbenutzt" : `Warps hierher: ${incomingCount(h.id)}`)}
+              renderExtra={(h) => usage(h, incomingCount(h.id))}
             />
             <button type="button" disabled={value.header === null} onClick={() => set({ header: null })} style={{ marginTop: 4 }}>
               Keinen {TERMS.header.label} umstellen
@@ -158,7 +164,13 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
                   {TERMS.header.label} {id4(chosen.id)} „{headerLabel(chosen)}“
                 </div>
                 <div>Warps hierher: {incomingCount(chosen.id)}</div>
-                {incomingCount(chosen.id) === 0 && <div style={{ color: "#b45309" }}>wirkt unbenutzt: nichts führt hierher</div>}
+                {specialHeader(chosen) !== null ? (
+                  <div style={{ color: "#b91c1c" }}>
+                    Sonder-{TERMS.header.label}: {specialHeader(chosen)}. Nicht frei, auch wenn kein Warp hierher führt; einen anderen oder „Neuer {TERMS.header.label}“ wählen.
+                  </div>
+                ) : (
+                  incomingCount(chosen.id) === 0 && <div style={{ color: "#b45309" }}>wirkt unbenutzt: nichts führt hierher</div>
+                )}
               </>
             ) : (
               <div style={{ color: "#6b7280" }}>Kein {TERMS.header.label} gewählt: nur das {TERMS.matrix.label} wird angelegt.</div>
