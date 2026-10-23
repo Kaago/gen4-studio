@@ -409,6 +409,29 @@ describe("App wiring", () => {
       expect(openPath).toHaveBeenCalledOnce();
     });
 
+    it("opens_no_project_while_a_build_runs_neither_by_cmd_o_nor_from_the_start_pane", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let finish: (value: Awaited<ReturnType<typeof buildRom>>) => void = () => {};
+      vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      await click("Bauen");
+      expect(buildRom).toHaveBeenCalledOnce();
+      vi.mocked(openPath).mockClear();
+      vi.mocked(openProject).mockClear();
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).not.toHaveBeenCalled();
+      await act(async () => atlasEntry("Start")!.click());
+      await act(async () => row("/p")!.click());
+      const startOpen = [...container.querySelectorAll("main button")].find((b) => b.textContent?.startsWith("Projekt öffnen"));
+      await act(async () => (startOpen as HTMLButtonElement).click());
+      expect(openPath).not.toHaveBeenCalled();
+      expect(openProject).not.toHaveBeenCalled();
+      // Once the build is done, Cmd+O opens again.
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      vi.mocked(openPath).mockResolvedValue(null);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).toHaveBeenCalledOnce();
+    });
+
     it("a_recent_project_that_cannot_be_opened_says_so_and_can_leave_the_list", async () => {
       seed(recent("gone"), recent("here"));
       await renderFresh();

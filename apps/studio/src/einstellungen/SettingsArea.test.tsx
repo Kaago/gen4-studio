@@ -67,7 +67,11 @@ describe("SettingsArea", () => {
 
   it("lists_every_app_shortcut_read_only", () => {
     render();
-    const list = container.querySelector('[aria-label="Tastenkürzel"]')!;
+    // The column is a region named by its heading; the list is in it.
+    const section = heading("Tastenkürzel")!.closest("section")!;
+    expect(document.getElementById(section.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("Tastenkürzel");
+    const list = section.querySelector("dl")!;
+    expect(list.hasAttribute("aria-label")).toBe(false);
     const keys = [...list.querySelectorAll("kbd")].map((k) => k.textContent);
     expect(keys).toEqual(Object.values(SHORTCUTS).map((s) => s.keys));
     expect(list.textContent).toContain("Projekt öffnen");

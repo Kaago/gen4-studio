@@ -59,7 +59,7 @@ export function SettingsArea({ theme, density, emulatorPath, onTheme, onDensity,
           <h2 id="settings-keys" className={styles.heading}>
             Tastenkürzel
           </h2>
-          <dl className={styles.keys} aria-label="Tastenkürzel">
+          <dl className={styles.keys}>
             {Object.entries(SHORTCUTS).map(([action, { keys, label }]) => (
               <div key={action} className={styles.key}>
                 <dt>{label}</dt>

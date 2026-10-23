@@ -38,6 +38,7 @@
   border-color: var(--g4-linie-stark);
 }
 
+/* The open button holds the text; its hit area (and focus ring) is stretched over the whole card, preview included. */
 .open {
   display: flex;
   min-width: 0;
@@ -45,7 +46,6 @@
   gap: var(--g4-raum-6);
   padding: var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-12);
   border: 0;
-  border-radius: var(--g4-radius-fenster);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -53,10 +53,27 @@
   cursor: pointer;
 }
 
+.open::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--g4-radius-fenster);
+  content: "";
+}
+
+.open:focus-visible {
+  outline: none;
+}
+
+.open:focus-visible::after {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: 2px;
+}
+
 /* The 4:3 preview: an empty DS screen in its dark frame, centred. */
 .preview {
   position: relative;
   display: flex;
+  margin: var(--g4-raum-8) var(--g4-raum-8) 0;
   aspect-ratio: 4 / 3;
   align-items: center;
   justify-content: center;
@@ -85,10 +102,11 @@
   overflow-wrap: anywhere;
 }
 
+/* Inside the button, but shown on the screen frame (8 px inside the preview, which is 8 px inside the card). */
 .latest {
   position: absolute;
-  top: var(--g4-raum-8);
-  left: var(--g4-raum-8);
+  top: var(--g4-raum-16);
+  left: var(--g4-raum-16);
 }
 
 .name {
@@ -121,6 +139,7 @@
 /* The "…" menu sits in the top right corner of the screen frame, outside the button that opens the project. */
 .more {
   position: absolute;
+  z-index: 1;
   top: var(--g4-raum-12);
   right: var(--g4-raum-12);
   border-radius: var(--g4-radius-taste);
@@ -128,7 +147,10 @@
   color: var(--g4-szene-ds-textbox-flaeche);
 }
 
+/* Above the stretched open button. */
 .footer {
+  position: relative;
+  z-index: 1;
   display: flex;
   padding: 0 var(--g4-raum-8) var(--g4-raum-12);
 }

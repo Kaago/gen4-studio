@@ -290,7 +290,7 @@ function AppBody() {
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
-    onOpenProject: () => void session.onOpen(resetProject),
+    onOpenProject: () => openProject(),
     step,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
@@ -328,7 +328,13 @@ function AppBody() {
   }, [session.info, remember, setArea]);
   // Recent projects that could not be opened this time (their folder is gone, or it is not a project any more).
   const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
+  /** Asks for a project and opens it; not while a build or save runs (the title bar's button is disabled then too). */
+  function openProject() {
+    if (!session.busy) void session.onOpen(resetProject);
+  }
   async function onOpenRecent(path: string) {
+    // A build or save in flight works on the open project: another one must not replace it under it.
+    if (session.busy) return;
     const result = await session.onOpen(resetProject, path);
     if (result === "cancelled") return;
     setMissing((before) => {
@@ -433,7 +439,7 @@ function AppBody() {
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
-      <StartPane recent={shell.state.recent} missing={missing} onOpen={() => void session.onOpen(resetProject)} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+      <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
     ) : area === "einstellungen" ? (
       // The emulator path comes with the session's own copy of it (3c.2, Technik); until then the row says none is chosen.
       <SettingsArea

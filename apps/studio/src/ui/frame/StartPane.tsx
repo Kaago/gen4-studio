@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import { Badge, Button, DSScreen, Icon, Menu, useRovingList } from "../primitives";
 import { ago, useNow } from "./timeAgo";
 import type { RecentProject } from "./shellState";
@@ -22,7 +22,11 @@ function newestOf(recent: readonly RecentProject[]): number {
   return newest;
 }
 
-/** One recent project: a DS screen with its name, its game and when it was opened; a click opens it, its menu takes it off the list. */
+/**
+ * One recent project: a DS screen with its name, its game and when it was opened; a click anywhere on the card opens it, its menu takes it
+ * off the list. The DS screen (block content) sits beside the open button, whose hit area is stretched over the whole card; the button is
+ * named by the project and described by its game, its time and the plaque.
+ */
 function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
   project: RecentProject;
   latest: boolean;
@@ -31,27 +35,43 @@ function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
   onOpen: () => void;
   onForget: () => void;
 }) {
+  const id = useId();
   return (
     <li className={missing ? `${styles.card} ${styles.gone}` : styles.card} data-missing={missing ? "" : undefined}>
-      <button type="button" className={styles.open} data-roving="" data-recent={project.path} title={project.path} onClick={onOpen}>
-        <span className={styles.preview}>
-          <DSScreen variant="empty" pages={[]} page={0} background={
-              // The name below the screen names the card; this one is only the picture.
-              <span className={styles.screenName} aria-hidden="true">
-                {project.name}
-              </span>
-            }
-          />
-          {latest && (
-            <span className={styles.latest}>
-              <Badge kind="info" icon="history">
-                Zuletzt
-              </Badge>
+      <div className={styles.preview}>
+        <DSScreen
+          variant="empty"
+          pages={[]}
+          page={0}
+          background={
+            // The name below the screen names the card; this one is only the picture.
+            <span className={styles.screenName} aria-hidden="true">
+              {project.name}
             </span>
-          )}
+          }
+        />
+      </div>
+      <button
+        type="button"
+        className={styles.open}
+        data-roving=""
+        data-recent={project.path}
+        title={project.path}
+        aria-labelledby={`${id}-name`}
+        aria-describedby={latest ? `${id}-meta ${id}-latest` : `${id}-meta`}
+        onClick={onOpen}
+      >
+        {latest && (
+          <span id={`${id}-latest`} className={styles.latest}>
+            <Badge kind="info" icon="history">
+              Zuletzt
+            </Badge>
+          </span>
+        )}
+        <span id={`${id}-name`} className={styles.name}>
+          {project.name}
         </span>
-        <span className={styles.name}>{project.name}</span>
-        <span className={styles.meta}>
+        <span id={`${id}-meta`} className={styles.meta}>
           <Badge kind="neutral" icon="game">
             {project.game}
           </Badge>

@@ -51,7 +51,20 @@ describe("StartPane", () => {
     expect(card("/roms/hg-b")?.textContent).toContain("geöffnet vor 5 Minuten");
     // The path is the card's tooltip; the preview is an empty DS screen.
     expect(card("/roms/pt-a")?.getAttribute("title")).toBe("/roms/pt-a");
-    expect(card("/roms/pt-a")?.querySelector('[aria-label="DS-Bildschirm, leer"]')).not.toBeNull();
+    expect(card("/roms/pt-a")?.closest("li")?.querySelector('[aria-label="DS-Bildschirm, leer"]')).not.toBeNull();
+  });
+
+  it("names_the_open_button_by_the_project_and_describes_it_by_game_and_time", () => {
+    render({ recent: [project("pt-a", 2 * HOUR + 5_000)] });
+    const open = card("/roms/pt-a")!;
+    const textOf = (ids: string | null) => (ids ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+    expect(textOf(open.getAttribute("aria-labelledby"))).toBe("pt-a");
+    const description = textOf(open.getAttribute("aria-describedby"));
+    expect(description).toContain("Platin, DE");
+    expect(description).toContain("geöffnet vor 2 Stunden");
+    expect(description).toContain("Zuletzt");
+    // Only phrasing content inside the button: the DS screen (blocks) is beside it.
+    expect(open.querySelector("div")).toBeNull();
   });
 
   it("marks_only_the_newest_card_as_zuletzt", () => {
