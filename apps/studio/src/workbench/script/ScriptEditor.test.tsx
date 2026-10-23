@@ -12,6 +12,7 @@ import { ScriptDocuments, type ScriptDocument } from "./documents";
 import { FakeLspServer } from "./fakeLspServer";
 import { ScriptEditor } from "./ScriptEditor";
 import { lspExtras } from "./lspExtras";
+import { ROTOM_THEME } from "./rotomTheme";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,7 +48,7 @@ describe("ScriptEditor", () => {
           uri={uriOf(doc.file)}
           onChange={onChange}
           onDiagnostics={onDiagnostics}
-          theme="light"
+          theme="hell"
           {...extra}
         />,
       ),
@@ -227,12 +228,19 @@ describe("ScriptEditor", () => {
 
   it("switches_the_theme_without_losing_the_text", () => {
     const doc = docs.open(1, "script", "keep");
-    render(doc, { theme: "light" });
+    render(doc, { theme: "hell" });
     const before = view();
-    render(doc, { theme: "dark" });
+    render(doc, { theme: "dunkel" });
     expect(view()).toBe(before);
     expect(view().state.doc.toString()).toBe("keep");
     expect(view().state.facet(EditorView.darkTheme)).toBe(true);
+    // The theme is a module constant, so a render with the same theme reconfigures nothing.
+    const dark = view().state;
+    render(doc, { theme: "dunkel" });
+    expect(view().state).toBe(dark);
+    expect(ROTOM_THEME.dunkel).toBe(ROTOM_THEME.dunkel);
+    render(doc, { theme: "hell" });
+    expect(view().state.facet(EditorView.darkTheme)).toBe(false);
   });
 
   describe("with a language server", () => {

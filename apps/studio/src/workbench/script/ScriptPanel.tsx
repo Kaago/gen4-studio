@@ -1,9 +1,10 @@
 import type { Diagnostic } from "@codemirror/lint";
 import { ask } from "../../platform/dialogs";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { ProjectInfo } from "../../api";
 import { useStableCallback } from "../../app/useStable";
+import { effectiveTheme, onThemeChange } from "../../ui/tokens/theme";
 import type { EditBus } from "../../bus/editBus";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
@@ -120,6 +121,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
   const { status, documents, active, open, save, close, add, adopt, onChange } = scripts;
   const adopted = status?.adopted === true;
   const lsp = useLsp(project, adopted, bus);
+  const theme = useSyncExternalStore(onThemeChange, effectiveTheme);
   // The box stays after the adoption until its report was read.
   const [reading, setReading] = useState(false);
   const [seenProject, setSeenProject] = useState(project);
@@ -221,7 +223,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
             uri={uri}
             onChange={onEditorChange}
             onDiagnostics={onDiagnostics}
-            theme="light"
+            theme={theme}
           />
         )}
       </div>
