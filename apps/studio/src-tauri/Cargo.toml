@@ -5,6 +5,8 @@ description = "Gen4 Studio: Pokemon Gen 4 world editor"
 authors = ["Philipp Polte"]
 edition.workspace = true
 license.workspace = true
+# `pnpm tauri dev` runs `cargo run`; with the second binary (`studio-bridge`) cargo needs to know which one.
+default-run = "studio"
 
 [lib]
 # The `_lib` suffix is needed to keep the lib name unique from the bin name (Windows).
