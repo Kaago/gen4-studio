@@ -42,10 +42,11 @@ describe("useProjectSession with open scripts", () => {
   let problems: ProblemsStore;
   let bus: EditBus;
   let events: EditEvent[];
+  let showProblems: ReturnType<typeof vi.fn<() => void>>;
 
   function Host() {
     const bridge = useRef<ScriptBridge>(NO_SCRIPTS);
-    session = useProjectSession({ bus, problems, scripts: bridge });
+    session = useProjectSession({ bus, problems, scripts: bridge, onShowProblems: showProblems });
     scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
     bridge.current = scripts.bridge;
     return null;
@@ -65,6 +66,7 @@ describe("useProjectSession with open scripts", () => {
     problems = new ProblemsStore();
     bus = createEditBus();
     events = [];
+    showProblems = vi.fn<() => void>();
     bus.subscribe(() => true, (e) => events.push(e));
     vi.mocked(savePath).mockReset().mockResolvedValue("/out.nds");
     vi.mocked(ask).mockReset().mockResolvedValue(true);
@@ -190,9 +192,31 @@ describe("useProjectSession with open scripts", () => {
       ["e2", "text"],
       ["w1", "compile"],
     ]);
-    expect(session.message).toMatchObject({ kind: "error", text: "Build abgebrochen: 2 Fehler" });
+    expect(session.message).toMatchObject({ kind: "error", text: "2 Fehler in Scripts, Build abgebrochen" });
+    expect(session.message?.actions?.map((a) => a.label)).toEqual(["Probleme zeigen"]);
+    session.message?.actions?.[0]?.run();
+    expect(showProblems).toHaveBeenCalledOnce();
     expect(session.busy).toBe(false);
     expect(session.lastRom).toBeNull();
+    expect(session.lastBuiltAt).toBeNull();
+  });
+
+  it("one_compile_error_of_the_build_is_counted_as_1_Fehler", async () => {
+    vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem("expanded/scripts/0003.rotom", 2, "e1")] });
+    await build();
+    expect(session.message).toMatchObject({ kind: "error", text: "1 Fehler in Scripts, Build abgebrochen" });
+  });
+
+  it("a_successful_build_stamps_the_time_and_opening_a_project_forgets_it", async () => {
+    const before = Date.now();
+    await build();
+    expect(session.lastRom).toBe("/out.nds");
+    expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
+    expect(session.lastBuiltAt).toBeLessThanOrEqual(Date.now());
+    vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "Pt", language: "English", header_count: 0 });
+    await act(async () => void (await session.openProjectAt("/q", () => {})));
+    expect(session.lastRom).toBeNull();
+    expect(session.lastBuiltAt).toBeNull();
   });
 
   it("a_compile_error_without_a_problem_list_still_aborts_with_the_backends_message", async () => {

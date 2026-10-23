@@ -5,7 +5,7 @@ import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo }
 import { staleText } from "../assets";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
-import type { Message } from "../Toolbar";
+import type { Message } from "./message";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptBridge } from "../workbench/script/useScripts";
@@ -36,6 +36,8 @@ interface SessionParams {
   problems: ProblemsStore;
   /** The open scripts, which a build saves first and the unsaved-edit guards count. A ref: the scripts hook is created after this one (it needs `info`). */
   scripts: MutableRefObject<ScriptBridge>;
+  /** Brings the problems list to the front; the message of a build that failed to compile offers it as a button. */
+  onShowProblems?: () => void;
 }
 
 /**
@@ -44,12 +46,14 @@ interface SessionParams {
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession({ bus, problems, scripts }: SessionParams) {
+export function useProjectSession({ bus, problems, scripts, onShowProblems }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
+  /** When the last ROM was built (null: none since this project was opened). */
+  const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
   const [counts, setCounts] = useState<MemberCounts>({});
 
   // The close guard is registered once, so it reads the dirty count through a ref.
@@ -123,20 +127,25 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
     }
   }, []);
 
-  /** Asks for a project folder and opens it; `resetProject` swaps the scene's and the editors' state for the new project's header list. */
-  async function onOpen(resetProject: (headers: HeaderSummary[]) => void) {
+  /**
+   * Asks to discard unsaved edits, then opens the project at `known` or, without one, the folder the user picks;
+   * `resetProject` swaps the scene's and the editors' state for the new project's header list.
+   * "cancelled": the user said no (or picked nothing); "failed": the project could not be opened (the message says why).
+   */
+  async function onOpen(resetProject: (headers: HeaderSummary[]) => void, known?: string): Promise<"opened" | "cancelled" | "failed"> {
     try {
-      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
-      const path = await openPath({ directory: true });
-      if (path === null) return;
-      await openProjectAt(path, resetProject);
+      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return "cancelled";
+      const path = known ?? (await openPath({ directory: true }));
+      if (path === null) return "cancelled";
+      return (await openProjectAt(path, resetProject)) ? "opened" : "failed";
     } catch (e) {
       fail(e);
+      return "failed";
     }
   }
 
-  /** Opens the project at `path` (no question asked); see `onOpen` for `resetProject`. */
-  async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void) {
+  /** Opens the project at `path` (no question asked); see `onOpen` for `resetProject`. False when it could not be opened. */
+  async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
     try {
       const opened = await openProject(path);
       // The backend now has the new project. Fetch its listing first, then swap the whole UI
@@ -160,13 +169,16 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
       setCounts(loadedCounts);
       setInfo(opened);
       setLastRom(null);
+      setLastBuiltAt(null);
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
       await offerPatchRepair();
       await refreshDirty();
+      return true;
     } catch (e) {
       fail(e);
+      return false;
     }
   }
 
@@ -241,6 +253,7 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
       for (const file of dirtyScripts) await scripts.current.save(file);
       const report = await buildRom(out);
       setLastRom(report.rom);
+      setLastBuiltAt(Date.now());
       problems.applyBuildReport(report.problems);
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
@@ -248,7 +261,12 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
         const list = e.problems ?? [];
         problems.applyReport(list);
         const errors = list.filter((p) => p.severity === "error").length;
-        setMessage({ kind: "error", text: errors > 0 ? `Build abgebrochen: ${errors} Fehler` : `Build abgebrochen: ${e.message}` });
+        // Spec 5.7: the one toast a compile problem gets. The problems themselves go to the store and its counts.
+        setMessage(
+          errors > 0
+            ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions: onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined }
+            : { kind: "error", text: `Build abgebrochen: ${e.message}` },
+        );
       } else {
         fail(e);
       }
@@ -294,6 +312,7 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
     dirtyRef,
     busy,
     lastRom,
+    lastBuiltAt,
     counts,
     staleRefresh,
     refreshDirty,

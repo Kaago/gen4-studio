@@ -1,0 +1,9 @@
+.errors {
+  color: var(--g4-status-fehler);
+  font-weight: 600;
+}
+
+.warnings {
+  color: var(--g4-status-warnung);
+  font-weight: 600;
+}

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "../app/message";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";

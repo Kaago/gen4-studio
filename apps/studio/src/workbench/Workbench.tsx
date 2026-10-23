@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
-import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab, WorldMapTab, WorldPanel } from "./panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab, WorldMapTab, WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
 
@@ -17,7 +17,6 @@ const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> =
   script: ScriptTab,
   problems: ProblemsTab,
   inspector: InspectorPanel,
-  status: StatusPanel,
 };
 
 /** Panels cannot be closed (there is no way to bring one back), only moved. */
@@ -43,22 +42,6 @@ function applyDefaultLayout(api: DockviewApi) {
   api.getPanel("world")?.api.setActive();
 }
 
-/**
- * The status panel is a strip without tab header, with a minimum height below dockview's 100 px default.
- * Its group is locked so no other panel can be dropped onto it (the hidden header would leave no way
- * to drag it out again); `isSaneLayout` guarantees the status panel is alone in its group.
- */
-function fitStatusStrip(api: DockviewApi) {
-  const status = api.getPanel("status");
-  const size = DEFAULT_PANELS.find((p) => p.id === "status")?.size;
-  if (!status || size === undefined || status.group.panels.length !== 1) return;
-  status.group.header.hidden = true;
-  status.group.locked = true;
-  status.group.api.setConstraints({ minimumHeight: size });
-  // Groups restored from JSON were clamped to the 100 px default, so the strip is always reset to its height.
-  status.group.api.setSize({ height: size });
-}
-
 /** Restores the stored layout when it is complete, otherwise builds the default one. */
 function initLayout(api: DockviewApi) {
   const saved = loadLayout();
@@ -78,7 +61,6 @@ const Dock = memo(function Dock({ apiRef }: { apiRef: MutableRefObject<DockviewA
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
     initLayout(event.api);
-    fitStatusStrip(event.api);
     // The subscription ends with the api when dockview unmounts, so it needs no cleanup of its own.
     event.api.onDidLayoutChange(() => {
       const json = event.api.toJSON();

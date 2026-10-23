@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { ask } from "../platform/dialogs";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, setPermission, updateBuilding } from "../api";
 import type { EventKind, HeaderSummary, MatrixDto } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "./message";
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
 import { DOOR, DOOR_COLLISION, readWarpTile } from "../workbench/warpTile";

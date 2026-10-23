@@ -20,10 +20,10 @@ describe("workbench layout persistence", () => {
     expect(loadLayout()).toBeNull();
   });
 
-  it("default layout has the nine panels once, the raster, the world map, the text and the script as tabs of the world", () => {
-    expect(DEFAULT_PANELS.map((p) => p.id).sort()).toEqual(["headers", "inspector", "matrix", "problems", "script", "status", "text", "world", "worldmap"]);
+  it("default layout has the eight panels once, the raster, the world map, the text and the script as tabs of the world", () => {
+    expect(DEFAULT_PANELS.map((p) => p.id).sort()).toEqual(["headers", "inspector", "matrix", "problems", "script", "text", "world", "worldmap"]);
     expect(DEFAULT_PANELS.find((p) => p.id === "script")).toMatchObject({ title: "Script", position: { direction: "within", referencePanel: "world" } });
-    // The status strip stays alone in its group (isSaneLayout), so the problems list is a group of its own above it.
+    // The problems list is a group of its own below the world's tabs.
     expect(DEFAULT_PANELS.find((p) => p.id === "problems")).toMatchObject({ title: "Probleme", position: { direction: "below", referencePanel: "world" } });
     expect(DEFAULT_PANELS.find((p) => p.id === "text")).toMatchObject({ title: "Text", position: { direction: "within", referencePanel: "world" } });
     expect(DEFAULT_PANELS.find((p) => p.id === "matrix")?.position).toEqual({ direction: "within", referencePanel: "world" });
@@ -46,44 +46,44 @@ describe("workbench layout persistence", () => {
 
   describe("isSaneLayout", () => {
     const leaf = (...views: string[]) => ({ type: "leaf", data: { views, activeView: views[0], id: views.join("+") }, size: 100 });
-    const layout = (leaves: object[], panelIds: string[] = ["headers", "world", "matrix", "worldmap", "text", "script", "problems", "inspector", "status"]) => ({
+    const layout = (leaves: object[], panelIds: string[] = ["headers", "world", "matrix", "worldmap", "text", "script", "problems", "inspector"]) => ({
       grid: { root: { type: "branch", data: leaves }, width: 1000, height: 800, orientation: "HORIZONTAL" },
       panels: Object.fromEntries(panelIds.map((id) => [id, { id }])),
     });
-    const defaults = () => layout([leaf("headers"), { type: "branch", data: [leaf("world", "matrix", "worldmap", "text", "script"), leaf("problems"), leaf("status")] }, leaf("inspector")]);
+    const defaults = () => layout([leaf("headers"), { type: "branch", data: [leaf("world", "matrix", "worldmap", "text", "script"), leaf("problems")] }, leaf("inspector")]);
 
     it("accepts the default arrangement", () => {
       expect(isSaneLayout(defaults())).toBe(true);
     });
 
-    it("accepts moved panels as long as status stays alone", () => {
-      expect(isSaneLayout(layout([leaf("headers", "inspector"), leaf("world", "matrix"), leaf("status")]))).toBe(true);
+    it("accepts moved panels", () => {
+      expect(isSaneLayout(layout([leaf("headers", "inspector"), leaf("world", "matrix", "worldmap", "text", "script", "problems")]))).toBe(true);
     });
 
-    it("rejects a layout where status shares a group", () => {
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix", "status"), leaf("inspector")]))).toBe(false);
-      expect(isSaneLayout(layout([leaf("status", "inspector"), leaf("headers"), leaf("world", "matrix")]))).toBe(false);
+    it("rejects a layout that still holds the removed status panel (the key stays v5, so such layouts exist)", () => {
+      const ids = ["headers", "world", "matrix", "worldmap", "text", "script", "problems", "inspector", "status"];
+      const saved = layout([leaf("headers"), { type: "branch", data: [leaf("world", "matrix", "worldmap", "text", "script"), leaf("problems"), leaf("status")] }, leaf("inspector")], ids);
+      expect(isSaneLayout(saved)).toBe(false);
     });
 
     it("rejects a layout of the five-panel version, which has no world map", () => {
-      const v2 = layout([leaf("headers"), leaf("world", "matrix"), leaf("status"), leaf("inspector")], ["headers", "world", "matrix", "inspector", "status"]);
+      const v2 = layout([leaf("headers"), leaf("world", "matrix"), leaf("inspector")], ["headers", "world", "matrix", "inspector"]);
       expect(isSaneLayout(v2)).toBe(false);
     });
 
     it("rejects a layout of the six-panel version, which has no text panel", () => {
-      const v3 = layout([leaf("headers"), leaf("world", "matrix", "worldmap"), leaf("status"), leaf("inspector")], ["headers", "world", "matrix", "worldmap", "inspector", "status"]);
+      const v3 = layout([leaf("headers"), leaf("world", "matrix", "worldmap"), leaf("inspector")], ["headers", "world", "matrix", "worldmap", "inspector"]);
       expect(isSaneLayout(v3)).toBe(false);
     });
 
     it("rejects a layout of the seven-panel version, which has no script and problems panels", () => {
-      const v4 = layout([leaf("headers"), leaf("world", "matrix", "worldmap", "text"), leaf("status"), leaf("inspector")], ["headers", "world", "matrix", "worldmap", "text", "inspector", "status"]);
+      const v4 = layout([leaf("headers"), leaf("world", "matrix", "worldmap", "text"), leaf("inspector")], ["headers", "world", "matrix", "worldmap", "text", "inspector"]);
       expect(isSaneLayout(v4)).toBe(false);
     });
 
     it("rejects a layout with a missing panel or no groups", () => {
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix"), leaf("status")], ["headers", "world", "matrix", "worldmap", "text", "status"]))).toBe(false);
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "inspector"), leaf("status")], ["headers", "world", "inspector", "worldmap", "text", "status"]))).toBe(false);
-      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix"), leaf("inspector")]))).toBe(false);
+      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "matrix")], ["headers", "world", "matrix", "worldmap", "text"]))).toBe(false);
+      expect(isSaneLayout(layout([leaf("headers"), leaf("world", "inspector")], ["headers", "world", "inspector", "worldmap", "text"]))).toBe(false);
       expect(isSaneLayout({})).toBe(false);
       expect(isSaneLayout({ panels: null })).toBe(false);
     });

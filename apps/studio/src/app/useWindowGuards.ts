@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "../platform/dialogs";
 import { errorText } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "./message";
 
 /** Closing or quitting the app asks before unsaved edits (`dirtyRef`, read when asked) are discarded. */
 export function useWindowGuards(dirtyRef: MutableRefObject<number>, setMessage: (message: Message) => void) {

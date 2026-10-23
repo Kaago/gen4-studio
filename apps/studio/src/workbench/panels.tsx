@@ -1,6 +1,5 @@
-import { Suspense, lazy, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
 import type { ProjectInfo } from "../api";
-import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
@@ -18,7 +17,7 @@ import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
+import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
@@ -269,16 +268,5 @@ export function InspectorPanel() {
         onError: d.onError,
       }}
     />
-  );
-}
-
-export function StatusPanel() {
-  const d = useWorkbench();
-  const message = useMessage();
-  const counts = useSyncExternalStore(d.problems.subscribe, d.problems.counts);
-  return (
-    <div style={{ height: "100%", overflowY: "auto" }}>
-      <StatusBar message={message} problems={counts} onDismiss={d.onDismissMessage} />
-    </div>
   );
 }

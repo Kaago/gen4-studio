@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import type { EventsDto, HeaderSummary, MapDto } from "../../api";
-import type { Message } from "../../Toolbar";
+import type { Message } from "../../app/message";
 import type { InspectorModel } from "../../workbench/Inspector";
 import type { BuildingRef } from "../buildingLayer";
 import type { EventLock, EventRef } from "../events";

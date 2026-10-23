@@ -3,12 +3,14 @@ import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, scriptsStatus, undo } from "./api";
+import { ask, openPath, savePath } from "./platform/dialogs";
+import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, save, scriptsStatus, undo } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
-import { StatusBar } from "./Toolbar";
 import type { EditEvent } from "./bus/editBus";
+import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { readShellState, writeShellState } from "./ui/frame/shellState";
+import type { RecentProject } from "./ui/frame/shellState";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
 import type { InspectorModel } from "./workbench/Inspector";
 
@@ -17,17 +19,27 @@ import type { InspectorModel } from "./workbench/Inspector";
  * workbench model) over a mocked `api` module. Only the dockview workbench is replaced by a stub
  * that records what App hands it, so the tests call the callbacks the panels would call.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0 }));
-vi.mock("./workbench/Workbench", () => ({
-  default: ({ data, live }: { data: unknown; live: unknown }) => {
-    shown.data = data;
-    shown.live = live;
-    shown.renders++;
-    return null;
-  },
-}));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0 }));
+vi.mock("./workbench/Workbench", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: ({ data, live, apiRef }: { data: unknown; live: unknown; apiRef: { current: unknown } }) => {
+      shown.data = data;
+      shown.live = live;
+      shown.renders++;
+      // The dockview api, as far as App uses it: a link focuses the panel that shows its target.
+      apiRef.current = { getPanel: (id: string) => ({ focus: () => shown.focused.push(id) }) };
+      useEffect(() => {
+        shown.mounts++;
+      }, []);
+      return null;
+    },
+  };
+});
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
+  buildRom: vi.fn(),
+  save: vi.fn(),
   openProject: vi.fn(),
   listHeaders: vi.fn(),
   memberCounts: vi.fn(),
@@ -78,7 +90,13 @@ describe("App wiring", () => {
 
   beforeEach(async () => {
     vi.resetAllMocks();
+    localStorage.clear();
+    resetToasts();
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.dichte;
     shown.renders = 0;
+    shown.focused = [];
+    shown.mounts = 0;
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -101,15 +119,42 @@ describe("App wiring", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
+    resetToasts();
     env.tauri = false;
     window.history.replaceState(null, "", "/");
   });
 
+  /** Clicks the button with this text or accessible name (the first one in the document). */
   async function click(label: string) {
-    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === label || b.getAttribute("aria-label") === label);
     if (!button) throw new Error(`no button ${label}`);
     await act(async () => button.click());
   }
+  /** Renders a fresh App (in StrictMode, like the dev server does) after the beforeEach one is gone. */
+  async function renderFresh() {
+    act(() => root.unmount());
+    container.remove();
+    vi.mocked(openProject).mockClear();
+    vi.mocked(openPath).mockClear();
+    shown.mounts = 0;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>,
+      ),
+    );
+  }
+  const atlasEntry = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent === name);
+  const statusLine = () => container.querySelector("footer")?.textContent ?? "";
+  const titleBar = () => container.querySelector("header")?.textContent ?? "";
+  const alerts = () => [...container.querySelectorAll("[role=alert]")].map((e) => e.textContent ?? "");
+  const infos = () => [...container.querySelectorAll("[role=status]")].map((e) => e.textContent ?? "");
+  const pressUndo = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true })));
   const select = (h: HeaderSummary) => act(async () => data().onSelect(h));
 
   it("keeps the workbench data object through hover and message updates", async () => {
@@ -146,15 +191,15 @@ describe("App wiring", () => {
     expect(data().scripts.active).toBe(43);
   });
 
-  it("counts unsaved scripts in the toolbar and forgets scripts and problems with the project", async () => {
+  it("counts unsaved scripts in the title bar and forgets scripts and problems with the project", async () => {
     await act(async () => data().scripts.open(42));
-    expect(container.textContent).toContain("gespeichert");
-    expect(container.textContent).not.toContain("ungespeichert");
+    expect(titleBar()).toContain("Alles gespeichert");
+    expect(titleBar()).not.toContain("nicht gespeichert");
     const doc = data().scripts.documents.get(42)!;
     const before = data();
     doc.text += "// edit\n";
     await act(async () => data().scripts.onChange(42));
-    expect(container.textContent).toContain("● ungespeichert (1)");
+    expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
     expect(data().scripts).not.toBe(before.scripts);
     // Typing more keeps the dirty set: nothing moves.
     const dirtyScripts = data().scripts;
@@ -192,24 +237,6 @@ describe("App wiring", () => {
   });
 
   describe("browser mode", () => {
-    /** Renders a fresh App (in StrictMode, like the dev server does) after the beforeEach one is gone. */
-    async function renderFresh() {
-      act(() => root.unmount());
-      container.remove();
-      vi.mocked(openProject).mockClear();
-      vi.mocked(openPath).mockClear();
-      container = document.createElement("div");
-      document.body.append(container);
-      root = createRoot(container);
-      await act(async () =>
-        root.render(
-          <StrictMode>
-            <App />
-          </StrictMode>,
-        ),
-      );
-    }
-
     it("opens_the_project_from_the_url_outside_tauri", async () => {
       window.history.replaceState(null, "", "/?project=/tmp/p");
       await renderFresh();
@@ -217,6 +244,9 @@ describe("App wiring", () => {
       expect(openProject).toHaveBeenCalledWith("/tmp/p");
       expect(openPath).not.toHaveBeenCalled();
       expect(data().headers).toEqual(listed);
+      // With a project in the URL the app starts in the world, not on the start pane.
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
     });
 
     it("does_not_open_a_project_from_the_url_inside_tauri", async () => {
@@ -224,6 +254,7 @@ describe("App wiring", () => {
       window.history.replaceState(null, "", "/?project=/tmp/p");
       await renderFresh();
       expect(openProject).not.toHaveBeenCalled();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
     });
 
     it("build_dialog_default_path_is_bare_in_tauri_and_prefilled_in_the_browser", async () => {
@@ -241,18 +272,187 @@ describe("App wiring", () => {
     it("does_not_open_anything_without_a_project_parameter", async () => {
       await renderFresh();
       expect(openProject).not.toHaveBeenCalled();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Willkommen zurück");
     });
 
-    it("status_bar_shows_the_browser_mode", async () => {
-      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
-      expect(container.textContent).toContain("Browser-Modus (Brücke)");
-      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
-      expect(container.textContent).toMatch(/Browser-Modus \(Brücke\).*Fertig/);
+    it("the_status_line_shows_the_browser_mode_and_the_app_does_not", async () => {
+      expect(statusLine()).toContain("Browser-Modus (Brücke)");
       env.tauri = true;
-      act(() => root.render(<StatusBar message={{ kind: "info", text: "Fertig" }} onDismiss={() => {}} />));
-      expect(container.textContent).not.toContain("Browser-Modus");
-      act(() => root.render(<StatusBar message={null} onDismiss={() => {}} />));
-      expect(container.textContent).toBe("");
+      await renderFresh();
+      expect(statusLine()).not.toContain("Brücke");
+    });
+
+    it("the_status_line_says_when_the_bridge_does_not_answer_and_again_when_it_does", async () => {
+      await act(async () => data().onError({ code: "error", message: "Brücke nicht erreichbar", asset: null }));
+      expect(statusLine()).toContain("Brücke nicht erreichbar");
+      expect(statusLine()).not.toContain("Browser-Modus");
+      // Any answer of the bridge (here a save) says it is back.
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await click("Speichern");
+      expect(statusLine()).toContain("Browser-Modus (Brücke)");
+    });
+  });
+
+  describe("frame", () => {
+    const recent = (name: string, ageMs = 2 * 3_600_000 + 5_000): RecentProject => ({ path: `/old/${name}`, name, game: "Platin, DE", openedAt: Date.now() - ageMs });
+    const row = (path: string) => container.querySelector<HTMLElement>(`[data-recent="${path}"]`);
+    const seed = (...list: RecentProject[]) => writeShellState({ ...readShellState(), recent: list });
+
+    it("opening_a_project_switches_to_the_world_and_remembers_it", async () => {
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
+      expect(titleBar()).toContain("p");
+      expect(titleBar()).toContain("HeartGold/SoulSilver, EN");
+      expect(readShellState().recent).toMatchObject([{ path: "/p", name: "p", game: "HeartGold/SoulSilver, EN" }]);
+    });
+
+    it("the_start_pane_lists_the_recent_projects_and_a_click_opens_one_and_switches_to_the_world", async () => {
+      seed(recent("pt-a"), recent("hg-b", 5 * 60_000 + 5_000));
+      await renderFresh();
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Willkommen zurück");
+      expect(row("/old/pt-a")?.textContent).toContain("pt-a");
+      expect(row("/old/pt-a")?.textContent).toContain("Platin, DE");
+      expect(row("/old/pt-a")?.textContent).toContain("vor 2 Stunden");
+      expect(row("/old/hg-b")?.textContent).toContain("vor 5 Minuten");
+      await act(async () => row("/old/hg-b")!.click());
+      expect(openProject).toHaveBeenCalledWith("/old/hg-b");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).not.toContain("Willkommen zurück");
+    });
+
+    it("keeps_the_dock_alive_while_the_start_pane_covers_it", async () => {
+      expect(shown.mounts).toBe(1);
+      await act(async () => atlasEntry("Start")!.click());
+      expect(container.textContent).toContain("Willkommen zurück");
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(container.textContent).not.toContain("Willkommen zurück");
+      expect(shown.mounts).toBe(1);
+    });
+
+    it("a_recent_project_that_cannot_be_opened_says_so_and_can_leave_the_list", async () => {
+      seed(recent("gone"), recent("here"));
+      await renderFresh();
+      vi.mocked(openProject).mockRejectedValueOnce({ code: "error", message: "Ordner fehlt", asset: null });
+      await act(async () => row("/old/gone")!.click());
+      expect(row("/old/gone")?.textContent).toContain("nicht gefunden");
+      expect(row("/old/here")?.textContent).not.toContain("nicht gefunden");
+      expect(alerts()).toEqual([expect.stringContaining("Ordner fehlt")]);
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      await click("Aus der Liste nehmen");
+      expect(row("/old/gone")).toBeNull();
+      expect(row("/old/here")).not.toBeNull();
+      expect(readShellState().recent.map((p) => p.path)).toEqual(["/old/here"]);
+    });
+
+    it("asks_before_a_recent_project_replaces_unsaved_edits", async () => {
+      // The project of beforeEach is open and in the recent list.
+      vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+      await act(async () => data().onEdited());
+      await act(async () => atlasEntry("Start")!.click());
+      vi.mocked(openProject).mockClear();
+      await act(async () => row("/p")!.click());
+      expect(ask).toHaveBeenCalledWith("Ungespeicherte Änderungen verwerfen?", { kind: "warning" });
+      expect(openProject).not.toHaveBeenCalled();
+      // Agreeing opens it.
+      vi.mocked(ask).mockResolvedValue(true);
+      await act(async () => row("/p")!.click());
+      expect(openProject).toHaveBeenCalledWith("/p");
+    });
+
+    it("saving_shows_a_toast_that_goes_after_five_seconds", async () => {
+      vi.mocked(dirty).mockResolvedValue([]);
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [{ kind: "HeaderTable" }, { kind: "HeaderTable" }] as never, problems: [] });
+      vi.useFakeTimers();
+      await click("Speichern");
+      expect(infos()).toEqual([expect.stringContaining("2 Datei(en) gespeichert")]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(INFO_MS - 1);
+      });
+      expect(infos()).toHaveLength(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(infos()).toEqual([]);
+      expect(live().message).toBeNull();
+    });
+
+    it("setMessage_null_removes_only_the_session_toast_and_an_error_with_actions_stays", async () => {
+      const run = vi.fn();
+      await act(async () => data().onLoadStatus({ kind: "error", text: "Ladefehler", actions: [{ label: "Nochmal", run }] }));
+      await act(async () => data().onLoadStatus({ kind: "info", text: "Modelle 3/900" }));
+      expect(alerts()).toEqual([expect.stringContaining("Ladefehler")]);
+      expect(infos()).toEqual([expect.stringContaining("Modelle 3/900")]);
+      await act(async () => data().onLoadStatus(null));
+      expect(infos()).toEqual([]);
+      expect(alerts()).toEqual([expect.stringContaining("Ladefehler")]);
+      // It survives the five seconds an info lives, and its button works.
+      vi.useFakeTimers();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(INFO_MS * 2);
+      });
+      expect(alerts()).toHaveLength(1);
+      await click("Nochmal");
+      expect(run).toHaveBeenCalledOnce();
+      expect(listToasts()).toEqual([]);
+    });
+
+    it("a_build_with_compile_errors_offers_the_problems_and_goes_only_into_the_store_and_the_counts", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockRejectedValue({
+        code: "compile",
+        message: "2 Fehler in Scripts oder Texten",
+        asset: null,
+        problems: [
+          { severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" },
+          { severity: "error", file: "expanded/scripts/0003.rotom", line: 9, col: 1, message: "e2", source: "compile" },
+        ],
+      });
+      await click("Bauen");
+      expect(alerts()).toEqual(["2 Fehler in Scripts, Build abgebrochenProbleme zeigen"]);
+      expect(statusLine()).toContain("2 Fehler");
+      expect(data().problems.list().map((p) => p.message)).toEqual(["e1", "e2"]);
+      await click("Probleme zeigen");
+      expect(shown.focused).toEqual(["problems"]);
+      expect(alerts()).toEqual([]);
+    });
+
+    it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+      await click("Bauen");
+      expect(statusLine()).toContain("Gebaut gerade eben");
+    });
+
+    it("switches_the_theme_and_the_density_without_touching_the_panels_data", async () => {
+      await select(listed[0]);
+      const before = data();
+      await click("Thema wechseln");
+      expect(document.documentElement.dataset.theme).toBe("dunkel");
+      await click("Thema wechseln");
+      expect(document.documentElement.dataset.theme).toBe("hell");
+      expect(statusLine()).toContain("Komfort");
+      await click("Komfort");
+      expect(document.documentElement.dataset.dichte).toBe("kompakt");
+      expect(statusLine()).toContain("Kompakt");
+      expect(data()).toBe(before);
+    });
+
+    it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) {
+        expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
+        await act(async () => atlasEntry(name)!.click());
+      }
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("names_what_the_status_line_shows_in_its_middle", async () => {
+      await select(listed[1]);
+      expect(statusLine()).toContain("Ort 1, Raster 1");
+      await act(async () => data().onInspect(tile(4)));
+      expect(statusLine()).toContain("Kachel x 4, y 0");
     });
   });
 
@@ -445,7 +645,7 @@ describe("App wiring", () => {
       const log = record();
       vi.mocked(undo).mockResolvedValue({ kind: "Matrix", index: 0 });
       expect(data().history.current).toBe(0);
-      await click("Undo");
+      await pressUndo();
       // The plan for a restored shown matrix: unpin, the matrix panel and editor, the scene's matrix.
       expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
       expect(data().history.current).toBe(1);
@@ -455,7 +655,7 @@ describe("App wiring", () => {
       await select(listed[0]);
       const log = record();
       vi.mocked(undo).mockResolvedValue(null);
-      await click("Undo");
+      await pressUndo();
       expect(log).toEqual([]);
       expect(data().history.current).toBe(0);
     });

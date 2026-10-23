@@ -5,10 +5,10 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "../app/message";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab } from "../workbench/panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextTab } from "../workbench/panels";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
@@ -18,7 +18,7 @@ import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext
 import { useWorkbenchModel } from "./useWorkbenchModel";
 
 /** How often each panel asked for each context: a panel reads its contexts once per render, so this counts renders. */
-const reads = vi.hoisted(() => ({ data: 0, inspector: 0, selection: 0, message: 0 }));
+const reads = vi.hoisted(() => ({ data: 0, inspector: 0, selection: 0 }));
 vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
   const real = await importOriginal<typeof import("../workbench/WorkbenchContext")>();
   return {
@@ -26,7 +26,6 @@ vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
     useWorkbench: () => (reads.data++, real.useWorkbench()),
     useInspectorModel: () => (reads.inspector++, real.useInspectorModel()),
     useMatrixSelection: () => (reads.selection++, real.useMatrixSelection()),
-    useMessage: () => (reads.message++, real.useMessage()),
   };
 });
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
@@ -62,7 +61,7 @@ const pinned: InspectorModel = { kind: "header", id: 1 };
 type Inputs = Parameters<typeof useWorkbenchModel>[0];
 
 /** The pieces App's hooks hand over: every callback has the identity it has in the real hooks (stable). Their results are not used here. */
-const session = { info, busy: false, counts, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop, setMessage: noop } as unknown as Omit<Inputs["session"], "message">;
+const session = { info, busy: false, counts, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop } as unknown as Omit<Inputs["session"], "message">;
 const scene = { headers, selected: 1, matrix, sceneArea: 0, history, onSelect: noop, goTo: noop, onHeaderChanged: noop, onAreaChanged: noop, onMatrixEdited: noop } as unknown as Inputs["scene"];
 const world = {
   eventLock: null,
@@ -160,7 +159,7 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
+  const panels = { headers: HeadersPanel, matrix: MatrixTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -246,17 +245,6 @@ describe("workbench model", () => {
     await showProblems({ hover: tile(1), message: null });
     await showProblems({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
     expect(reads.data).toBe(0);
-  });
-
-  it("renders the status strip for a message, not for a hover", async () => {
-    const show = await mountPanel("status");
-    await show({ hover: tile(1), message: null });
-    await show({ hover: null, message: null });
-    expect(reads.message).toBe(0);
-    await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
-    await show({ hover: null, message: { kind: "info", text: "Modelle 4/900" } });
-    expect(reads.message).toBe(2);
-    expect(container.textContent).toContain("Modelle 4/900");
   });
 
   it("renders the inspector panel for a hover, not for a message", async () => {

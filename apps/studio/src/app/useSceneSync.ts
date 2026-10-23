@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import type { DockviewApi } from "dockview-react";
 import { errorText, getAreaData, getMatrix, listHeaders } from "../api";
 import type { HeaderSummary, MatrixDto } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "./message";
 import { fetchCurrent } from "../reload";
 import { tilesetKey } from "../workbench/inspector/areaFields";
 import { sameLayout } from "../workbench/matrix";

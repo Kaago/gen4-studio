@@ -1,0 +1,55 @@
+.pane {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  margin: 0 auto;
+  padding: var(--g4-raum-48) var(--g4-raum-24);
+}
+
+.title {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-titel-s);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+.game {
+  padding: 0 var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.time {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.missing {
+  color: var(--g4-status-fehler);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  gap: var(--g4-raum-8);
+}
+
+.hint {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

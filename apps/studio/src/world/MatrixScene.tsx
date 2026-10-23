@@ -1,6 +1,6 @@
 import { memo, useRef, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "../app/message";
 import type { InspectorModel } from "../workbench/Inspector";
 import type { EditBus } from "../bus/editBus";
 import { useBusQueue, useBusRevision } from "../bus/useBusEvent";

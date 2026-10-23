@@ -1,0 +1,56 @@
+.shell {
+  display: grid;
+  height: 100vh;
+  grid-template-rows: 40px 1fr 28px;
+  grid-template-columns: 88px auto 1fr;
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-primaer);
+}
+
+.title {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.atlas {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+}
+
+.list {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+}
+
+.deck {
+  display: flex;
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.pane {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* `display` above would otherwise win over the hidden attribute. */
+.list[hidden],
+.deck[hidden] {
+  display: none;
+}
+
+.status {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+}

@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
-import type { Message } from "../Toolbar";
+import type { Message } from "../app/message";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
@@ -98,7 +98,6 @@ export interface WorkbenchData {
   scripts: ScriptsApi;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
-  onDismissMessage: () => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */
@@ -109,29 +108,30 @@ export interface MatrixSelection {
 }
 
 /**
- * What changes with the pointer and the message bar, each in a context of its own so a panel
+ * What changes with the pointer and the session message, each in a context of its own so a panel
  * subscribes only to what it renders: hovering the scene must not render the header list or the
- * matrix tab, and a load progress line must not render anything but the status strip.
+ * matrix tab. The message is not read by any panel any more (the frame shows it as a toast); it stays
+ * here as the one place that says what the session currently shows.
  */
 export interface WorkbenchLive {
   /** What the inspector shows: the scene's hover while the pointer is over a cell, else the pinned model. */
   inspector: InspectorModel;
   /** The inspector's cell if it is a matrix cell, else null. Keeps its identity while the same cell shows. */
   matrixSelection: MatrixSelection | null;
+  /** The session message the frame mirrors into the toasts. */
   message: Message | null;
 }
 
 const WorkbenchContext = createContext<WorkbenchData | null>(null);
 const InspectorContext = createContext<InspectorModel>({ kind: "none" });
 const MatrixSelectionContext = createContext<MatrixSelection | null>(null);
-const MessageContext = createContext<Message | null>(null);
 
 export function WorkbenchProviders({ data, live, children }: { data: WorkbenchData; live: WorkbenchLive; children: ReactNode }) {
   return (
     <WorkbenchContext.Provider value={data}>
       <InspectorContext.Provider value={live.inspector}>
         <MatrixSelectionContext.Provider value={live.matrixSelection}>
-          <MessageContext.Provider value={live.message}>{children}</MessageContext.Provider>
+          {children}
         </MatrixSelectionContext.Provider>
       </InspectorContext.Provider>
     </WorkbenchContext.Provider>
@@ -152,9 +152,4 @@ export function useInspectorModel(): InspectorModel {
 
 export function useMatrixSelection(): MatrixSelection | null {
   return useContext(MatrixSelectionContext);
-}
-
-/** Changes with the message and every load progress line; only the status strip reads it. */
-export function useMessage(): Message | null {
-  return useContext(MessageContext);
 }

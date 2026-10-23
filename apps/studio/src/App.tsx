@@ -1,21 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
-import { Toolbar } from "./Toolbar";
-import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
+import { EmptyState } from "./ui/primitives";
+import { Atlas } from "./ui/frame/Atlas";
+import { Shell } from "./ui/frame/Shell";
+import { ShellProvider, useShell } from "./ui/frame/ShellContext";
+import { StartPane } from "./ui/frame/StartPane";
+import { StatusLine } from "./ui/frame/StatusLine";
+import { TitleBar } from "./ui/frame/TitleBar";
+import { toast } from "./ui/frame/toasts";
+import type { AreaId } from "./ui/frame/shellState";
 import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
+import { gameLabel, projectName } from "./app/gameLabel";
+import type { Message } from "./app/message";
+import { ProblemCount } from "./app/ProblemCount";
+import { statusContext } from "./app/statusContext";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useOverview } from "./app/useOverview";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
+import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
 import type { Created } from "./app/useWizards";
@@ -29,8 +40,35 @@ import { inTauri } from "./platform/transport";
 /** The message that says what a wizard made, unless an error is showing: that one stays. */
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
-/** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads. */
+/** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
+  geschichten: "Kommt mit Phase 3b.3",
+  pokemon: "Kommt mit Phase 3b.3",
+  gegenstaende: "Kommt mit Phase 3b.3",
+  texte: "Kommt mit 3c.2",
+  technik: "Kommt mit 3c.2",
+  einstellungen: "Kommt mit 3c.2",
+};
+
+/** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
+const BRIDGE_DOWN = "Brücke nicht erreichbar";
+
+/** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
+  const [initialArea] = useState<AreaId>(() => (!inTauri() && projectFromUrl(window.location.search) !== null ? "welt" : "start"));
+  return (
+    <ShellProvider initialArea={initialArea}>
+      <AppBody />
+    </ShellProvider>
+  );
+}
+
+/** Assembles the app from its hooks: the project session, the scene sync, the world actions and the undo/redo reloads; and hands the parts to the frame. */
+function AppBody() {
+  const shell = useShell();
+  const { setArea, remember, forget } = shell;
+  const area = shell.state.area;
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   // The dockview api of the workbench: a link focuses the panel that shows its target.
@@ -47,7 +85,17 @@ export default function App() {
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  const session = useProjectSession({ bus, problems, scripts: scriptBridge });
+  // A build that failed to compile offers the problems list: it comes to the front in the world.
+  const showProblems = useCallback(() => {
+    setArea("welt");
+    try {
+      dockApi.current?.getPanel("problems")?.focus();
+    } catch {
+      /* the workbench is going away */
+    }
+  }, [setArea]);
+  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
+  useToastMirror(session.message, session.setMessage);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
   scriptBridge.current = scripts.bridge;
   // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).
@@ -143,6 +191,46 @@ export default function App() {
     if (path !== null) void session.openProjectAt(path, resetProject);
   }, []);
 
+  // A project that opened goes to the top of the recent list, and the app shows its world. The backend hands out a new
+  // info object for every project it opens, so this runs once per opening.
+  useEffect(() => {
+    const info = session.info;
+    if (info === null) return;
+    remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
+    setArea("welt");
+  }, [session.info, remember, setArea]);
+  // Recent projects that could not be opened this time (their folder is gone, or it is not a project any more).
+  const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
+  async function onOpenRecent(path: string) {
+    const result = await session.onOpen(resetProject, path);
+    if (result === "cancelled") return;
+    setMissing((before) => {
+      if (before.has(path) === (result === "failed")) return before;
+      const next = new Set(before);
+      if (result === "failed") next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }
+  function onForget(path: string) {
+    forget(path);
+    setMissing((before) => new Set([...before].filter((p) => p !== path)));
+  }
+  const onHelp = useCallback(() => toast.info("Die Hilfe folgt in Kürze."), []);
+
+  // The dev bridge: the status line says whether it answers. It does until the transport says it does not; any info after that means it does again.
+  const [bridgeLost, setBridgeLost] = useState(false);
+  useEffect(() => {
+    const shown = session.message;
+    if (shown?.kind === "error" && shown.text === BRIDGE_DOWN) setBridgeLost(true);
+    else if (shown?.kind === "info") setBridgeLost(false);
+  }, [session.message]);
+  const bridge = inTauri() ? "none" : bridgeLost ? "missing" : "ok";
+
+  // The dock is built the first time the world shows and then stays (hidden) while another area covers it: the scene keeps its models.
+  const deckBuilt = useRef(false);
+  if (area === "welt") deckBuilt.current = true;
+
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -163,22 +251,47 @@ export default function App() {
     return header ? { header: header.id, matrix: header.matrix_id } : null;
   }, [scene.headers, scene.selected]);
 
+  const { info } = session;
+  const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
+  const pane =
+    area === "welt" ? undefined : area === "start" ? (
+      <StartPane recent={shell.state.recent} missing={missing} onOpen={() => void session.onOpen(resetProject)} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+    ) : (
+      <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
+    );
+
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", display: "flex", flexDirection: "column", height: "100vh" }}>
-      <Toolbar
-        projectOpen={session.info !== null}
-        busy={session.busy}
-        dirtyCount={session.dirtyCount + scripts.dirtyCount}
-        canRun={session.lastRom !== null}
-        onOpen={() => session.onOpen(resetProject)}
-        onUndo={() => void step(undo)}
-        onRedo={() => void step(redo)}
-        onSave={() => void session.onSave()}
-        onBuild={() => void session.onBuild()}
-        onRun={() => void session.onRun()}
-        onPickEmulator={() => void session.onPickEmulator()}
+    <>
+      <Shell
+        title={
+          <TitleBar
+            projectName={info ? projectName(info.root) : null}
+            game={info ? gameLabel(info) : null}
+            dirtyCount={session.dirtyCount + scripts.dirtyCount}
+            busy={session.busy}
+            onOpen={() => void session.onOpen(resetProject)}
+            onSave={() => void session.onSave()}
+            onBuild={() => void session.onBuild()}
+            onHelp={onHelp}
+            theme={shell.theme}
+            onToggleTheme={shell.toggleTheme}
+          />
+        }
+        atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} />}
+        deck={deckBuilt.current ? <Workbench data={data} live={live} apiRef={dockApi} /> : undefined}
+        pane={pane}
+        status={
+          <StatusLine
+            left={null}
+            middle={context}
+            right={<ProblemCount store={problems} />}
+            bridge={bridge}
+            density={shell.density}
+            onToggleDensity={shell.toggleDensity}
+            build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+          />
+        }
       />
-      <Workbench data={data} live={live} apiRef={dockApi} />
       <WizardHost
         wizards={wizards}
         headers={scene.headers}
@@ -198,6 +311,6 @@ export default function App() {
         onError={session.fail}
       />
       {!inTauri() && <WebDialogHost />}
-    </main>
+    </>
   );
 }

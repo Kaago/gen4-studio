@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import type { HeaderSummary } from "../api";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
@@ -14,7 +14,7 @@ import type { WorldActions } from "./useWorldActions";
 
 interface WorkbenchModelParams {
   bus: EditBus;
-  session: Pick<ProjectSession, "info" | "message" | "setMessage" | "busy" | "counts" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
+  session: Pick<ProjectSession, "info" | "message" | "busy" | "counts" | "onEdited" | "fail" | "onLoadStatus" | "onCountsChanged">;
   scene: Pick<SceneSync, "headers" | "selected" | "matrix" | "sceneArea" | "history" | "onSelect" | "goTo" | "onHeaderChanged" | "onAreaChanged" | "onMatrixEdited">;
   world: Pick<
     WorldActions,
@@ -57,8 +57,6 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
-  const { setMessage } = session;
-  const onDismissMessage = useCallback(() => setMessage(null), [setMessage]);
 
   const eventFileId = scene.headers.find((h) => h.id === scene.selected)?.event_file_id ?? null;
   const { pinned } = pins;
@@ -113,7 +111,6 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     textTarget: text.target,
     scripts,
     problems,
-    onDismissMessage,
   });
 
   const { inspector } = pins;
