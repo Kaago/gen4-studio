@@ -180,14 +180,14 @@ Danach die geänderten Token-Dateien in OpenPencil einspielen („Design-Tokens 
 Stil-Regeln für `apps/studio/src` und der Gate-Schritt `styles` (`scripts/check-styles.sh`, gleiches `grep`-Prinzip, Exit 1 mit `Datei:Zeile` je Fund):
 
 - Stile stehen in CSS Modules (`Name.module.css`) und benutzen nur `--g4-*`-Variablen (Thema, Raum, Dichte, Schrift), nie Primitive wie `--g4-platin-500`.
-- Kein `style={{` in `.tsx` und keine Hex-Farbe (`#rgb` bis `#rrggbbaa`) in `.tsx`, `.ts` und `.css`. Ausgenommen sind `ui/tokens/`, `world/colors.ts` (setzt die Zahlen aus `tokens.ts` für three.js um), Testdateien und Zeilen mit `/* dyn */` (Werte, die erst zur Laufzeit entstehen, etwa die Position eines Markers; die Markierung steht in derselben Zeile).
-- `scripts/check-styles.allow` nennt Dateien und Ordner (je eine Zeile, Glob erlaubt), die noch im alten Stil sind. In 3c.1 sind das Text, Script, Probleme, die Assistenten und ihre Dialoge; Plan 3c.2 zieht sie um und leert die Liste. Neue Dateien kommen nie auf die Liste.
+- Kein `style={` in `.tsx` (weder ein Objekt im Attribut noch ein Stil aus einer Variablen), keine Hex-Farbe (`#rgb` bis `#rrggbbaa`) und keine Primitiv-Variable (`--g4-platin-500`, `--g4-kobalt-600` …) in `.tsx`, `.ts` und `.css`. Ausgenommen sind `ui/tokens/`, `world/colors.ts` (setzt die Zahlen aus `tokens.ts` für three.js um), Testdateien und Zeilen mit `/* dyn */` (Werte, die erst zur Laufzeit entstehen, etwa die Position eines Markers; die Markierung steht in derselben Zeile). Eigene CSS-Variablen, die eine Komponente zur Laufzeit setzt, sind einmal in `apps/studio/src/css-custom-properties.d.ts` typisiert.
+- `scripts/check-styles.allow` nennt Dateien und Ordner (je eine Zeile, Glob erlaubt), die noch im alten Stil sein dürfen. Seit 3c.2 ist die Liste leer und bleibt es; neue Dateien kommen nie darauf.
 
 Die `.fig` pflegen: nach dem Speichern in OpenPencil `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555` (aus der Repo-Wurzel; repariert Text-Glyphen und rastet Farben auf RGB555), dann die Datei einchecken.
 
 ## Galerie
 
-Die Galerie zeigt die Bausteine aus `apps/studio/src/ui/primitives/` mit ihren Zuständen, eine Seite je Gruppe (Tasten, Eingaben, Inhalt und Status, Schwebendes, Auswahl); oben schalten „Thema“ (Hell, Dunkel, System) und „Dichte“ (Komfort, Kompakt) um. Sie läuft nur im Browser-Modus, nie im Tauri-Fenster, und braucht kein Projekt: `http://127.0.0.1:1430/?gallery`, nachdem `scripts/agent/studio-web.sh` gestartet ist (oder mit `pnpm dev` in `apps/studio` auf dem Vite-Port). Es gibt keine automatischen Tests für die Galerie; der Agent macht für das Gate Screenshots in Hell, Dunkel und Kompakt und achtet auf unlesbare Stellen. Ein neuer Baustein bekommt eine Zeile auf einer Seite unter `ui/gallery/pages/` (`pages/index.ts` listet die Seiten).
+Die Galerie zeigt die Bausteine aus `apps/studio/src/ui/primitives/` mit ihren Zuständen, eine Seite je Gruppe (Tasten, Eingaben, Inhalt und Status, Schwebendes, Auswahl, Bildschirm mit dem DS-Bildschirm, Rahmen mit Scharnier im Assistenten-Modus, Startkarten, Palette und Reitern); oben schalten „Thema“ (Hell, Dunkel, System) und „Dichte“ (Komfort, Kompakt) um. Sie läuft nur im Browser-Modus, nie im Tauri-Fenster, und braucht kein Projekt: `http://127.0.0.1:1430/?gallery`, nachdem `scripts/agent/studio-web.sh` gestartet ist (oder mit `pnpm dev` in `apps/studio` auf dem Vite-Port). Es gibt keine automatischen Tests für die Galerie; der Agent macht für das Gate Screenshots in Hell, Dunkel und Kompakt und achtet auf unlesbare Stellen. Ein neuer Baustein bekommt eine Zeile auf einer Seite unter `ui/gallery/pages/` (`pages/index.ts` listet die Seiten).
 
 ## Gate-Skript
 
@@ -212,7 +212,7 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `G4_ROMS_DIR` | `../Roms` (neben dem Repository) | Ordner mit den `*_DSPRE_contents`-Projekten |
+| `G4_ROMS_DIR` | `../Roms` (neben dem Repository) | Ordner mit den `*_DSPRE_contents`-Projekten; aus einem Git-Worktree absolut setzen, der Standard trifft dort nichts |
 | `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests |
 | `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich |
 | `G4EMU_CORE` | `tools/g4emu/core/melondsds_libretro.dylib` | Emulator-Kern für den Schritt `g4emu integration` |
@@ -231,7 +231,7 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 - **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`), `uv run g4emu find-u16` zum Suchen von Adressen. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.
 - **Ports:** Vite 1430, Brücke 1431. Die eigene App (`pnpm tauri dev`) bleibt auf 1420/1421.
-- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` (fertiges `studio-bridge` für Szenarien). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen.
+- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` (fertiges `studio-bridge` für Szenarien). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.
 
 ## App-Bundle
 
