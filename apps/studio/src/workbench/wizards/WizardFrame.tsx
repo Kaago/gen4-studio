@@ -105,7 +105,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
           if (e.target instanceof HTMLElement && e.target.matches("[data-draft]") && e.target.isConnected && resting()) e.target.focus();
           return;
         }
-        if (s.busy || s.done || e.target.closest(OWN_ENTER) !== null) return;
+        // A held key repeats: it must not run through the steps into the submit that cannot be undone.
+        if (s.busy || s.done || e.repeat || e.target.closest(OWN_ENTER) !== null) return;
         e.preventDefault();
         advance();
       } else if (e.key === "Escape") {
@@ -126,7 +127,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   }, []);
 
   // The first control of the step (or of the result) takes the focus when the wizard opens, and when the focus fell out of the wizard because
-  // what had it went away (the step that took an Enter, the button that started the work).
+  // what had it went away (the step that took an Enter, the button that started the work) or was locked while the work ran (an inert frame
+  // and disabled buttons drop the focus; the work may end on the same step: the patch applied, a refused submit, a failed "Zeigen").
   const focusFirst = () => {
     const box = frame.current;
     if (!box) return;
@@ -134,8 +136,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   };
   useEffect(focusFirst, [slots]);
   useEffect(() => {
-    if (resting()) focusFirst();
-  }, [step, done]);
+    if (!busy && resting()) focusFirst();
+  }, [step, done, busy]);
 
   useEffect(() => {
     wizardStatus.set({ step, count: steps.length, title: current?.title ?? "", done });

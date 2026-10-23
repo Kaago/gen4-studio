@@ -171,6 +171,14 @@ function AppBody() {
   const pins = useInspectorState();
   // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
   const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand, () => wizardOpen.current);
+  // A link to a text or a script while a wizard is open goes nowhere: the texts would open it unasked later, and a script would open in
+  // the hand under the wizard (raising the hand's remembered height).
+  const openTextLink = useStableCallback((index: number, message?: number) => {
+    if (!wizardOpen.current) onOpenText(index, message);
+  });
+  const openScriptLink = useStableCallback((file: number, line?: number) => {
+    if (!wizardOpen.current) scripts.api.open(file, line);
+  });
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
@@ -180,8 +188,8 @@ function AppBody() {
     docks,
     setArea: showArea,
     revealHand,
-    onOpenText,
-    onOpenScript: scripts.api.open,
+    onOpenText: openTextLink,
+    onOpenScript: openScriptLink,
   });
   const world = useWorldActions({
     bus,

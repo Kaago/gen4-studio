@@ -163,6 +163,31 @@ describe("WizardFrame", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it("takes_the_keyboard_back_when_the_work_ends_without_a_step_change", () => {
+    // Applying the patch, a refused submit, a failed "Zeigen": the browser drops the focus of an inert frame and a disabled button.
+    show({ start: 1 });
+    act(() => field("Name").focus());
+    show({ start: 1, busy: true });
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(document.activeElement).toBe(document.body);
+    show({ start: 1, busy: false, error: "the room's header cannot also be the header outside" });
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    pressKey(document.activeElement as HTMLElement, "Escape");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("ignores_a_held_enter", () => {
+    // A held key must not run through the steps into the submit that cannot be undone.
+    show({ start: 2 });
+    pressKey(dialog(), "Enter", { repeat: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    act(() => root.render(null));
+    show();
+    act(() => field("Kachel x").focus());
+    pressKey(field("Kachel x"), "Enter", { repeat: true });
+    expect(onStep).not.toHaveBeenCalled();
+  });
+
   it("shows_the_summary_with_the_irreversible_badge_on_every_step_and_an_error_instead", () => {
     show({ summary: "Legt Raster „Höhle“ mit einer Kopie von Karte 0003 an.", irreversible: true });
     expect(dialog().textContent).toContain("Legt Raster „Höhle“ mit einer Kopie von Karte 0003 an.");

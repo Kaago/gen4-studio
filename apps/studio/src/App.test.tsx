@@ -1164,6 +1164,41 @@ describe("App wiring", () => {
       expect(data().selectedBuilding).toEqual({ map: 0, index: 1 });
     });
 
+    it("follows no link out of the world while a wizard is open, and keeps no text for later", async () => {
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await act(async () => data().goTo({ kind: "textArchive", index: 23, message: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(data().textTarget).toBeNull();
+      await click("Abbrechen");
+      expect(data().textTarget).toBeNull();
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("does not bring the problems forward while a wizard is open", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] });
+      writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, welt: true } });
+      await renderFresh();
+      await click("Projekt öffnen");
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      shown.focused = [];
+      await click("Bauen");
+      await click("Probleme zeigen");
+      expect(shown.focused).toEqual([]);
+      expect(readShellState().handCollapsed.welt).toBe(true);
+      expect(barSlot().hidden).toBe(false);
+    });
+
+    it("closes the wizard when another project is opened", async () => {
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      vi.mocked(openProject).mockImplementation(async () => ({ root: "/q", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 }));
+      await click("Projekt öffnen");
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      expect(barSlot().hidden).toBe(true);
+      expect(handDock().hidden).toBe(false);
+    });
+
     it("leaves the hand of the world alone while a wizard holds it", async () => {
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       shown.focused = [];
