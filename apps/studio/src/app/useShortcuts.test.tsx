@@ -7,13 +7,15 @@ import type { InspectorModel } from "../workbench/Inspector";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
+const env = vi.hoisted(() => ({ tauri: false }));
+vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn() };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn() };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -23,6 +25,7 @@ describe("useShortcuts", () => {
   const press = (init: KeyboardEventInit, target: EventTarget = document.body) => act(async () => void target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
   beforeEach(() => {
+    env.tauri = false;
     for (const fn of Object.values(handlers)) fn.mockClear();
     container = document.createElement("div");
     document.body.append(container);
@@ -66,6 +69,35 @@ describe("useShortcuts", () => {
     dialog.remove();
     await press({ key: "Escape" });
     expect(handlers.unpinSelection).toHaveBeenCalledOnce();
+  });
+
+  it("plays_on_cmd_r_inside_the_app_and_leaves_the_reload_to_the_browser", async () => {
+    env.tauri = true;
+    await press({ key: "r", metaKey: true });
+    expect(handlers.onPlay).toHaveBeenCalledOnce();
+    // A held key is one build, not one per repeat.
+    await press({ key: "r", metaKey: true, repeat: true });
+    expect(handlers.onPlay).toHaveBeenCalledOnce();
+    // The hard reload stays the webview's.
+    await press({ key: "r", metaKey: true, shiftKey: true });
+    expect(handlers.onPlay).toHaveBeenCalledOnce();
+    handlers.onPlay.mockClear();
+    env.tauri = false;
+    const reload = new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(reload));
+    expect(handlers.onPlay).not.toHaveBeenCalled();
+    expect(reload.defaultPrevented).toBe(false);
+  });
+
+  it("does_not_play_while_a_modal_dialog_is_open", async () => {
+    env.tauri = true;
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.append(dialog);
+    await press({ key: "r", metaKey: true });
+    expect(handlers.onPlay).not.toHaveBeenCalled();
+    dialog.remove();
   });
 
   it("leaves_select_all_to_the_text_field", async () => {

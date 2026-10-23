@@ -152,4 +152,19 @@ describe("buildings", () => {
     expect(key("z", { altKey: true })).toBeNull();
     expect(key("x")).toBeNull();
   });
+
+  it("maps Cmd/Ctrl+R to playing inside the app only, so a browser keeps its reload", () => {
+    const key = (k: string, o: Partial<{ inApp: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; target: { tagName?: string } | null }> = {}) =>
+      shortcutAction({ key: k, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+    expect(key("r", { inApp: true })).toBe("play");
+    expect(key("R", { inApp: true, metaKey: false, ctrlKey: true })).toBe("play");
+    // Typing in a field does not stop it, like saving.
+    expect(key("r", { inApp: true, target: { tagName: "INPUT" } })).toBe("play");
+    expect(key("r")).toBeNull();
+    expect(key("r", { inApp: false })).toBeNull();
+    // The hard reload, an Alt chord and an unmodified R are not ours.
+    expect(key("r", { inApp: true, shiftKey: true })).toBeNull();
+    expect(key("r", { inApp: true, altKey: true })).toBeNull();
+    expect(key("r", { inApp: true, metaKey: false })).toBeNull();
+  });
 });

@@ -48,6 +48,7 @@ describe("Cmd+S inside the script editor", () => {
     useShortcuts(pinned, {
       onSave: session.onSave,
       step: async () => {},
+      onPlay: async () => {},
       onDeleteBuilding: () => {},
       onDeleteEvent: () => {},
       unpinSelection: () => {},

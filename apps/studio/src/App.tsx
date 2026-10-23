@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
+import { HAND_COMPONENTS, HeadersPanel, SCHAU_COMPONENTS } from "./workbench/panels";
+import { buildPlaces } from "./workbench/places";
+import { crumbsFor } from "./workbench/breadcrumb";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
+import { Deck } from "./ui/frame/Deck";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
@@ -14,9 +18,11 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
+import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
+import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { statusContext } from "./app/statusContext";
@@ -25,7 +31,9 @@ import { useOverview } from "./app/useOverview";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
+import type { DockApis } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
+import { useStableCallback } from "./app/useStable";
 import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
@@ -51,6 +59,9 @@ const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   einstellungen: "Kommt mit 3c.2",
 };
 
+/** A script opens in a hand at least this high. */
+const SCRIPT_HAND_HEIGHT = 400;
+
 /** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
 const BRIDGE_DOWN = "Brücke nicht erreichbar";
 
@@ -71,8 +82,12 @@ function AppBody() {
   const area = shell.state.area;
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  // The dockview api of the workbench: a link focuses the panel that shows its target.
-  const dockApi = useRef<DockviewApi | null>(null);
+  // The dockview apis of the deck's two docks: a link focuses the panel that shows its target, in the dock that has it.
+  const [dockApi] = useState<DockApis>(() => ({ schau: { current: null as DockviewApi | null }, hand: { current: null as DockviewApi | null } }));
+  // A collapsed hand opens before one of its panels is brought to the front.
+  const revealHand = useStableCallback(() => {
+    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
+  });
 
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
@@ -85,15 +100,19 @@ function AppBody() {
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  // A build that failed to compile offers the problems list: it comes to the front in the world.
+  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the world.
   const showProblems = useCallback(() => {
     setArea("welt");
     try {
-      dockApi.current?.getPanel("problems")?.focus();
+      const panel = dockApi.hand.current?.getPanel("problems");
+      if (panel) {
+        revealHand();
+        panel.focus();
+      }
     } catch {
-      /* the workbench is going away */
+      /* the deck is going away */
     }
-  }, [setArea]);
+  }, [setArea, dockApi, revealHand]);
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
@@ -109,6 +128,7 @@ function AppBody() {
     refreshDirty: session.refreshDirty,
     setPinned: pins.setPinned,
     dockApi,
+    revealHand,
     onOpenText,
     onOpenScript: scripts.api.open,
   });
@@ -165,9 +185,29 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
+  // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo.
+  const onUndoTo = useStableCallback(async (stepsBack: number) => {
+    for (let i = 0; i < stepsBack; i++) await step(undo);
+  });
+  const onRedo = useStableCallback(() => void step(redo));
+  // "Hier spielen": saves and builds; inside the app it then runs the ROM (asking for an emulator first when none is set). In the browser mode it only builds.
+  const playing = useRef(false);
+  const onPlay = useStableCallback(async () => {
+    if (!session.info || session.busy || playing.current) return;
+    playing.current = true;
+    try {
+      const rom = await session.onBuild();
+      if (rom === null) return;
+      if (inTauri()) await session.onRun(rom);
+      else toast.info("Im Browser-Modus wird nur gebaut");
+    } finally {
+      playing.current = false;
+    }
+  });
   useWindowGuards(unsavedRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
+    onPlay,
     step,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
@@ -251,6 +291,32 @@ function AppBody() {
     return header ? { header: header.id, matrix: header.matrix_id } : null;
   }, [scene.headers, scene.selected]);
 
+  // Opening a script document (the shown file changes) raises a low hand to 400 px, once per opening; a collapsed hand opens first.
+  const activeScript = scripts.api.active;
+  const shownScript = useRef<number | null>(null);
+  useEffect(() => {
+    const before = shownScript.current;
+    shownScript.current = activeScript;
+    if (activeScript === null || activeScript === before) return;
+    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
+    if (shell.state.handHeight.welt < SCRIPT_HAND_HEIGHT) shell.setHandHeight("welt", SCRIPT_HAND_HEIGHT);
+  }, [activeScript]);
+
+  // The breadcrumb of the hinge: place, header, selection. Each crumb is a link (`data.goTo` keeps its identity).
+  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links]);
+  const pinnedMatrix = pins.pinned.kind === "matrixCell" ? pins.pinned.matrix : null;
+  const matrixName = pinnedMatrix === null ? undefined : overview.matrices.find((m) => m.index === pinnedMatrix)?.name;
+  const crumbs = useMemo(
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, goTo: data.goTo }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, data.goTo],
+  );
+  const onDragHeight = useStableCallback((height: number) => {
+    // Dragging a collapsed hinge opens the hand to where it is dragged.
+    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
+    shell.setHandHeight("welt", height);
+  });
+  const onToggleCollapse = useStableCallback(() => shell.toggleHandCollapsed("welt"));
+
   const { info } = session;
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
@@ -262,36 +328,68 @@ function AppBody() {
 
   return (
     <>
-      <Shell
-        title={
-          <TitleBar
-            projectName={info ? projectName(info.root) : null}
-            game={info ? gameLabel(info) : null}
-            dirtyCount={session.dirtyCount + scripts.dirtyCount}
-            busy={session.busy}
-            onOpen={() => void session.onOpen(resetProject)}
-            onSave={() => void session.onSave()}
-            onBuild={() => void session.onBuild()}
-            onHelp={onHelp}
-            theme={shell.theme}
-            onToggleTheme={shell.toggleTheme}
-          />
-        }
-        atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} />}
-        deck={deckBuilt.current ? <Workbench data={data} live={live} apiRef={dockApi} /> : undefined}
-        pane={pane}
-        status={
-          <StatusLine
-            left={null}
-            middle={context}
-            right={<ProblemCount store={problems} />}
-            bridge={bridge}
-            density={shell.density}
-            onToggleDensity={shell.toggleDensity}
-            build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-          />
-        }
-      />
+      <Workbench data={data} live={live}>
+        <Shell
+          title={
+            <TitleBar
+              projectName={info ? projectName(info.root) : null}
+              game={info ? gameLabel(info) : null}
+              dirtyCount={session.dirtyCount + scripts.dirtyCount}
+              busy={session.busy}
+              onOpen={() => void session.onOpen(resetProject)}
+              onSave={() => void session.onSave()}
+              onBuild={() => void session.onBuild()}
+              onHelp={onHelp}
+              theme={shell.theme}
+              onToggleTheme={shell.toggleTheme}
+            />
+          }
+          atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} />}
+          list={deckBuilt.current ? <HeadersPanel /> : undefined}
+          deck={
+            deckBuilt.current ? (
+              <Deck
+                area="welt"
+                schauComponents={SCHAU_COMPONENTS}
+                handComponents={HAND_COMPONENTS}
+                schauRef={dockApi.schau}
+                handRef={dockApi.hand}
+                hinge={
+                  <HingeHost
+                    bus={bus}
+                    problems={problems}
+                    historyRevision={session.dirtyRevision}
+                    hasProject={info !== null}
+                    crumbs={crumbs}
+                    depth={shell.state.depth}
+                    onDepth={shell.setDepth}
+                    onProblems={showProblems}
+                    onUndoTo={onUndoTo}
+                    onRedo={onRedo}
+                    onPlay={onPlay}
+                    playing={session.busy}
+                    canPlay={info !== null}
+                    onDragHeight={onDragHeight}
+                    onToggleCollapse={onToggleCollapse}
+                  />
+                }
+              />
+            ) : undefined
+          }
+          pane={pane}
+          status={
+            <StatusLine
+              left={null}
+              middle={context}
+              right={<ProblemCount store={problems} />}
+              bridge={bridge}
+              density={shell.density}
+              onToggleDensity={shell.toggleDensity}
+              build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+            />
+          }
+        />
+      </Workbench>
       <WizardHost
         wizards={wizards}
         headers={scene.headers}

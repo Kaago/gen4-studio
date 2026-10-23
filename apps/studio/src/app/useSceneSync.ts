@@ -15,14 +15,22 @@ import type { EditBus } from "../bus/editBus";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
+/** The dockview apis of the deck's two docks (each null until its dock is ready). */
+export interface DockApis {
+  schau: MutableRefObject<DockviewApi | null>;
+  hand: MutableRefObject<DockviewApi | null>;
+}
+
 interface SceneSyncParams {
   bus: EditBus;
   setMessage: (message: Message | null) => void;
   fail: (e: unknown) => void;
   refreshDirty: () => Promise<void>;
   setPinned: (pinned: InspectorModel) => void;
-  /** The dockview api of the workbench: a link focuses the panel that shows its target. */
-  dockApi: MutableRefObject<DockviewApi | null>;
+  /** The docks of the deck: a link focuses the panel that shows its target, in the dock that has it. */
+  dockApi: DockApis;
+  /** Called before a panel of the hand is focused: a collapsed hand opens. */
+  revealHand: () => void;
   /** Tells the text panel which archive and message to open (a link to a text archive). */
   onOpenText: (index: number, message?: number) => void;
   /** Tells the script panel which file to open, and at which 1-based line (a link to a script). */
@@ -34,7 +42,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, onOpenText, onOpenScript }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, dockApi, revealHand, onOpenText, onOpenScript }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -197,9 +205,18 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
   function focusPanel(panel: PanelId | null) {
     if (panel === null) return;
     try {
-      dockApi.current?.getPanel(panel)?.focus();
+      const inSchau = dockApi.schau.current?.getPanel(panel);
+      if (inSchau) {
+        inSchau.focus();
+        return;
+      }
+      const inHand = dockApi.hand.current?.getPanel(panel);
+      if (inHand) {
+        revealHand();
+        inHand.focus();
+      }
     } catch {
-      /* the workbench is going away */
+      /* the deck is going away */
     }
   }
 

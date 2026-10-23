@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, save, scriptsStatus, undo } from "./api";
+import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -16,23 +16,33 @@ import type { InspectorModel } from "./workbench/Inspector";
 
 /**
  * The real App with its real hooks (project session, scene sync, world actions, history reload,
- * workbench model) over a mocked `api` module. Only the dockview workbench is replaced by a stub
- * that records what App hands it, so the tests call the callbacks the panels would call.
+ * workbench model) over a mocked `api` module. Only the panels are replaced: the providers record
+ * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
+ * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
 const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0 }));
-vi.mock("./workbench/Workbench", async () => {
+vi.mock("./workbench/Workbench", () => ({
+  default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
+    shown.data = data;
+    shown.live = live;
+    shown.renders++;
+    return children;
+  },
+}));
+vi.mock("./workbench/panels", () => ({ HeadersPanel: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
+vi.mock("./ui/frame/Deck", async () => {
   const { useEffect } = await import("react");
+  type Ref = { current: unknown };
+  /** A dockview api that knows these panels: a link focuses the panel that shows its target. */
+  const dock = (ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(id) } : undefined) });
   return {
-    default: ({ data, live, apiRef }: { data: unknown; live: unknown; apiRef: { current: unknown } }) => {
-      shown.data = data;
-      shown.live = live;
-      shown.renders++;
-      // The dockview api, as far as App uses it: a link focuses the panel that shows its target.
-      apiRef.current = { getPanel: (id: string) => ({ focus: () => shown.focused.push(id) }) };
+    Deck: ({ schauRef, handRef, hinge }: { schauRef: Ref; handRef: Ref; hinge: unknown }) => {
+      schauRef.current = dock(["world", "matrix", "worldmap"]);
+      handRef.current = dock(["inspector", "text", "script", "problems"]);
       useEffect(() => {
         shown.mounts++;
       }, []);
-      return null;
+      return hinge;
     },
   };
 });
@@ -56,6 +66,8 @@ vi.mock("./api", async (importOriginal) => ({
   repairHeaderPatch: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
+  history: vi.fn(),
+  runRom: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -105,6 +117,7 @@ describe("App wiring", () => {
     vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
     vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Main #1:\n\tEnd\n" });
     vi.mocked(dirty).mockResolvedValue([]);
+    vi.mocked(history).mockResolvedValue({ undo: [], redo: [] });
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
@@ -453,6 +466,233 @@ describe("App wiring", () => {
       expect(statusLine()).toContain("Ort 1, Raster 1");
       await act(async () => data().onInspect(tile(4)));
       expect(statusLine()).toContain("Kachel x 4, y 0");
+    });
+  });
+
+  describe("deck and hinge", () => {
+    const hinge = () => container.querySelector<HTMLElement>('[role="toolbar"][aria-label="Scharnier"]')!;
+    const hingeButton = (name: string | RegExp) =>
+      [...hinge().querySelectorAll<HTMLButtonElement>("button")].find((b) => {
+        const text = b.getAttribute("aria-label") ?? b.textContent ?? "";
+        return typeof name === "string" ? text === name || b.textContent === name : name.test(text);
+      });
+    const pressHinge = (name: string | RegExp) => act(async () => hingeButton(name)!.click());
+    const tick = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+    /** Opens the history menu the way a pointer does and returns its items. */
+    const historyItems = async () => {
+      const trigger = hingeButton(/^Verlauf/)!;
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.click();
+      });
+      return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    };
+    const handState = () => ({ height: readShellState().handHeight.welt, collapsed: readShellState().handCollapsed.welt });
+    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+    const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
+
+    afterEach(() => {
+      localStorage.removeItem("g4.emulatorPath");
+      document.body.querySelectorAll("[role=menu]").forEach((m) => m.remove());
+    });
+
+    it("shows_place_header_and_the_pinned_event_in_the_breadcrumb", async () => {
+      expect(hinge().querySelector("nav")?.textContent).toContain("Kein Ort gewählt");
+      await select(listed[1]);
+      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Ort 1 0001");
+      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "warp", index: 0, header: 1 }));
+      expect(hinge().querySelector("nav")?.textContent).toContain("Warp 0");
+      // A crumb leads where it says.
+      await act(async () => hingeButton(/^Ort 1 0001/)!.click());
+      expect(hinge().querySelector("nav")?.textContent).not.toContain("Warp 0");
+    });
+
+    it("counts_the_undo_steps_after_a_write_and_lists_their_labels_newest_first", async () => {
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("0");
+      vi.mocked(history).mockResolvedValue({ undo: ["Name geändert", "Tür verschoben", ""], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("3");
+      expect((await historyItems()).map((i) => i.textContent)).toEqual(["Änderung", "Tür verschoben", "Name geändert"]);
+    });
+
+    it("goes_back_as_many_undo_steps_as_the_clicked_entry_is_deep", async () => {
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      const items = await historyItems();
+      await act(async () => items[2]!.click());
+      expect(undo).toHaveBeenCalledTimes(3);
+      expect(redo).not.toHaveBeenCalled();
+    });
+
+    it("redoes_from_the_hinge_when_there_is_something_to_redo", async () => {
+      expect(hingeButton("Wiederholen")?.disabled).toBe(true);
+      vi.mocked(history).mockResolvedValue({ undo: [], redo: ["Tür verschoben"] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      expect(hingeButton("Wiederholen")?.disabled).toBe(false);
+      await pressHinge("Wiederholen");
+      expect(redo).toHaveBeenCalledOnce();
+    });
+
+    it("keeps_the_panels_data_through_a_change_of_the_problems_or_the_history", async () => {
+      await select(listed[0]);
+      const before = data();
+      const renders = shown.renders;
+      data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "error", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
+      await tick(0);
+      expect(hingeButton(/Fehler/)?.textContent).toContain("1 Fehler");
+      vi.mocked(history).mockResolvedValue({ undo: ["a"], redo: [] });
+      await act(async () => data().bus.emit({ topic: "matrixData" }));
+      await tick(150);
+      expect(hingeButton(/^Verlauf/)?.textContent).toContain("1");
+      // Neither the problem light nor the history rendered App, let alone the panels.
+      expect(shown.renders).toBe(renders);
+      expect(data()).toBe(before);
+    });
+
+    it("opens_the_problems_of_the_hand_from_the_problem_light_also_when_the_hand_is_collapsed", async () => {
+      expect(hingeButton("Alles stimmig")).toBeDefined();
+      data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "warning", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
+      await tick(0);
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      await pressHinge("1 Warnung");
+      expect(shown.focused).toEqual(["problems"]);
+      expect(handState().collapsed).toBe(false);
+    });
+
+    it("switches_the_depth_and_remembers_it", async () => {
+      expect(readShellState().depth).toBe("bauen");
+      await pressHinge("Tüfteln");
+      expect(readShellState().depth).toBe("tuefteln");
+      await pressHinge("Bauen");
+      expect(readShellState().depth).toBe("bauen");
+    });
+
+    it("plays_in_the_browser_by_building_only_and_says_so", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).toHaveBeenCalledWith("/out.nds");
+      expect(runRom).not.toHaveBeenCalled();
+      expect(infos()).toContainEqual(expect.stringContaining("Im Browser-Modus wird nur gebaut"));
+    });
+
+    it("plays_in_the_app_by_building_and_then_running_on_the_emulator", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/Applications/melonDS");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(4242);
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/Applications/melonDS", "/out.nds");
+      expect(infos().join("|")).not.toContain("Browser-Modus wird nur");
+    });
+
+    it("asks_for_an_emulator_first_when_none_is_set_and_runs_nothing_when_none_is_picked", async () => {
+      env.tauri = true;
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(1);
+      built();
+      vi.mocked(openPath).mockResolvedValueOnce(null);
+      await pressHinge(/Hier spielen/);
+      expect(openPath).toHaveBeenLastCalledWith(expect.objectContaining({ title: expect.stringContaining("Emulator") }));
+      expect(runRom).not.toHaveBeenCalled();
+      vi.mocked(openPath).mockResolvedValueOnce("/pick/melonDS");
+      await pressHinge(/Hier spielen/);
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/pick/melonDS", "/out.nds");
+      expect(localStorage.getItem("g4.emulatorPath")).toBe("/pick/melonDS");
+    });
+
+    it("does_not_run_a_rom_when_the_build_fails_or_is_cancelled", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      // A ROM from an earlier build must not be started by a build that failed.
+      built();
+      await pressHinge(/Hier spielen/);
+      expect(runRom).toHaveBeenCalledOnce();
+      vi.mocked(runRom).mockClear();
+      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 1, col: 1, message: "e", source: "compile" }] });
+      await pressHinge(/Hier spielen/);
+      vi.mocked(savePath).mockResolvedValue(null);
+      await pressHinge(/Hier spielen/);
+      expect(runRom).not.toHaveBeenCalled();
+    });
+
+    it("shows_Baut_and_cannot_be_pressed_again_while_the_build_runs", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let finish: (value: Awaited<ReturnType<typeof buildRom>>) => void = () => {};
+      vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      await pressHinge(/Hier spielen/);
+      const busy = hingeButton(/Baut/)!;
+      expect(busy.disabled).toBe(true);
+      await act(async () => busy.click());
+      expect(buildRom).toHaveBeenCalledOnce();
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      expect(hingeButton(/Hier spielen/)?.disabled).toBe(false);
+    });
+
+    it("plays_on_cmd_r_inside_the_app_and_leaves_the_reload_to_the_browser", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await press({ key: "r", metaKey: true });
+      expect(buildRom).not.toHaveBeenCalled();
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      vi.mocked(runRom).mockResolvedValue(1);
+      await press({ key: "r", metaKey: true });
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(runRom).toHaveBeenCalledOnce();
+    });
+
+    it("raises_a_low_hand_to_400_when_a_script_opens_once_per_opening_and_never_lowers_it", async () => {
+      expect(handState()).toEqual({ height: 286, collapsed: false });
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(400);
+      // The same document again is not a new opening: a hand the user lowered stays.
+      act(() => {
+        Element.prototype.setPointerCapture = vi.fn();
+        Element.prototype.releasePointerCapture = vi.fn();
+      });
+      const grip = container.querySelector("[data-hinge-grip]")!;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const bottom = this.getAttribute("role") === "toolbar" ? 600 : 1000;
+        return { bottom, top: bottom - 44, height: 44, left: 0, right: 100, width: 100, x: 0, y: bottom - 44, toJSON: () => ({}) } as DOMRect;
+      });
+      const pointer = (type: string, clientY: number) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
+        Object.defineProperty(event, "pointerId", { value: 1 });
+        return act(async () => void grip.dispatchEvent(event));
+      };
+      await pointer("pointerdown", 580);
+      await pointer("pointermove", 680);
+      await pointer("pointerup", 680);
+      vi.restoreAllMocks();
+      expect(handState().height).toBe(300);
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(300);
+      await act(async () => data().scripts.open(43));
+      expect(handState().height).toBe(400);
+    });
+
+    it("opens_a_collapsed_hand_when_a_script_opens", async () => {
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      await act(async () => data().scripts.open(42));
+      expect(handState()).toEqual({ height: 400, collapsed: false });
+    });
+
+    it("keeps_a_hand_that_is_higher_than_400_when_a_script_opens", async () => {
+      window.history.replaceState(null, "", "/?project=/tmp/p");
+      writeShellState({ ...readShellState(), handHeight: { ...readShellState().handHeight, welt: 520 } });
+      await renderFresh();
+      await act(async () => data().scripts.open(42));
+      expect(handState().height).toBe(520);
     });
   });
 

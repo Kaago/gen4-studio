@@ -55,6 +55,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
   const [counts, setCounts] = useState<MemberCounts>({});
+  /** Bumped whenever the dirty count was read again, i.e. after every write the app makes: the hinge reads the undo history then. */
+  const [dirtyRevision, setDirtyRevision] = useState(0);
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -65,6 +67,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const refreshDirty = useCallback(async () => {
     try {
       setDirtyCount((await dirty()).length);
+      setDirtyRevision((r) => r + 1);
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
     }
@@ -238,11 +241,13 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     await refreshDirty();
   }
 
-  async function onBuild() {
+  /** Builds the ROM (saving first). Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build). */
+  async function onBuild(): Promise<string | null> {
+    let built: string | null = null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
       const out = await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` });
-      if (!out) return;
+      if (!out) return null;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
       // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
@@ -252,6 +257,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
       for (const file of dirtyScripts) await scripts.current.save(file);
       const report = await buildRom(out);
+      built = report.rom;
       setLastRom(report.rom);
       setLastBuiltAt(Date.now());
       problems.applyBuildReport(report.problems);
@@ -274,6 +280,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setBusy(false);
     }
     await refreshDirty();
+    return built;
   }
 
   async function pickEmulator(): Promise<string | null> {
@@ -292,13 +299,14 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     }
   }
 
-  async function onRun() {
-    if (!lastRom) return;
+  /** Starts the emulator on `rom` (default: the last ROM built); asks for an emulator first when none is stored. */
+  async function onRun(rom: string | null = lastRom) {
+    if (!rom) return;
     try {
       const emulator = storedEmulator() ?? (await pickEmulator());
       if (!emulator) return;
-      await runRom(emulator, lastRom);
-      setMessage({ kind: "info", text: `Emulator gestartet: ${lastRom}` });
+      await runRom(emulator, rom);
+      setMessage({ kind: "info", text: `Emulator gestartet: ${rom}` });
     } catch (e) {
       fail(e);
     }
@@ -314,6 +322,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     lastRom,
     lastBuiltAt,
     counts,
+    dirtyRevision,
     staleRefresh,
     refreshDirty,
     onEdited,

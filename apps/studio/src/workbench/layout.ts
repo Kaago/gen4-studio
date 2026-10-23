@@ -1,43 +1,56 @@
-export const LAYOUT_KEY = "g4.layout.v5";
+import type { AreaId } from "../ui/frame/shellState";
 
+/** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
 export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "inspector" | "text" | "script" | "problems";
+
+/** The two docks of a deck: the view (Schau, above the hinge) and the hand (below it). */
+export type DeckId = "schau" | "hand";
 
 export interface PanelSpec {
   id: PanelId;
   title: string;
   position: { direction: "left" | "right" | "below" | "within"; referencePanel?: string };
-  /** Initial width (left/right) or height (below) in px. */
-  size?: number;
 }
 
 /**
- * Order matters: `world` is the anchor the other panels are placed around; `matrix`, `worldmap`, `text` and `script`
- * are tabs of the world's group. `problems` is a group of its own below them. The explorer (`headers`, titled "Welt") is the left
- * panel. The key is versioned: a layout stored by an older panel set is not read. It stays v5 while the status strip is gone (the
- * status line lives in the frame now): a v5 layout that still holds `status` is rejected by `isSaneLayout` and replaced by the default.
+ * The panels of each dock. Order matters: the first panel is the anchor, the others are tabs of its group (`within`). The explorer is
+ * no dock panel any more. The layout key is versioned (`v6`): a layout stored by an older panel set is not read, not migrated.
  */
-export const DEFAULT_PANELS: readonly PanelSpec[] = [
-  { id: "world", title: "3D", position: { direction: "within" } },
-  { id: "matrix", title: "Raster", position: { direction: "within", referencePanel: "world" } },
-  { id: "worldmap", title: "Weltkarte", position: { direction: "within", referencePanel: "world" } },
-  { id: "text", title: "Text", position: { direction: "within", referencePanel: "world" } },
-  { id: "script", title: "Script", position: { direction: "within", referencePanel: "world" } },
-  { id: "headers", title: "Welt", position: { direction: "left", referencePanel: "world" }, size: 300 },
-  { id: "inspector", title: "Inspector", position: { direction: "right", referencePanel: "world" }, size: 320 },
-  { id: "problems", title: "Probleme", position: { direction: "below", referencePanel: "world" }, size: 160 },
-];
+export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
+  welt: {
+    schau: [
+      { id: "world", title: "3D", position: { direction: "within" } },
+      { id: "matrix", title: "Raster", position: { direction: "within", referencePanel: "world" } },
+      { id: "worldmap", title: "Weltkarte", position: { direction: "within", referencePanel: "world" } },
+    ],
+    hand: [
+      { id: "inspector", title: "Inspector", position: { direction: "within" } },
+      { id: "text", title: "Text", position: { direction: "within", referencePanel: "inspector" } },
+      { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
+      { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
+    ],
+  },
+};
 
-export function saveLayout(json: object): void {
+/** The panels of a dock of `area`; an area without a deck has none. */
+export function deckPanels(area: AreaId, deck: DeckId): PanelSpec[] {
+  return area === "welt" ? DECK_PANELS.welt[deck] : [];
+}
+
+/** The localStorage key of one dock's layout: per area and per deck, so one broken layout resets only its own dock. */
+export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v6.${area}.${deck}`;
+
+export function saveLayout(key: string, json: object): void {
   try {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(json));
+    localStorage.setItem(key, JSON.stringify(json));
   } catch {
     /* the layout is simply not remembered */
   }
 }
 
-export function loadLayout(): object | null {
+export function loadLayout(key: string): object | null {
   try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
+    const raw = localStorage.getItem(key);
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? parsed : null;
@@ -47,14 +60,13 @@ export function loadLayout(): object | null {
 }
 
 /**
- * True when a serialized dockview layout can be restored: every default panel exists and no other panel does (a layout
- * stored by an older panel set, such as one with the removed status strip, would bring back a panel that has no component).
+ * True when a serialized dockview layout can be restored into a dock with these `panels`: every one of them exists and no other
+ * panel does (a layout stored by another panel set would bring back a panel that has no component).
  */
-export function isSaneLayout(layout: object): boolean {
-  const panels = (layout as { panels?: unknown }).panels;
-  if (typeof panels !== "object" || panels === null) return false;
-  const known = new Set<string>(DEFAULT_PANELS.map((p) => p.id));
-  if (!DEFAULT_PANELS.every((p) => Object.prototype.hasOwnProperty.call(panels, p.id))) return false;
-  return Object.keys(panels).every((id) => known.has(id));
+export function isSaneLayout(layout: object, panels: readonly PanelSpec[]): boolean {
+  const stored = (layout as { panels?: unknown }).panels;
+  if (typeof stored !== "object" || stored === null) return false;
+  const known = new Set<string>(panels.map((p) => p.id));
+  if (!panels.every((p) => Object.prototype.hasOwnProperty.call(stored, p.id))) return false;
+  return Object.keys(stored).every((id) => known.has(id));
 }
-

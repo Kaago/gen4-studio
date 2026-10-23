@@ -3,10 +3,13 @@ import type { MutableRefObject } from "react";
 import { redo, undo } from "../api";
 import type { EventKind } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
+import { inTauri } from "../platform/transport";
 import { isTypingTarget, shortcutAction, wantsDelete } from "../world/buildings";
 
 interface ShortcutHandlers {
   onSave: () => Promise<void>;
+  /** "Hier spielen": save, build, run. Only asked for inside the app (in a browser Cmd+R reloads the page). */
+  onPlay: () => Promise<void>;
   step: (action: typeof undo) => Promise<void>;
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   onDeleteEvent: (file: number, kind: EventKind, index: number) => void | Promise<void>;
@@ -17,7 +20,7 @@ interface ShortcutHandlers {
 const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 
 /**
- * Cmd+S, Cmd+Z and Cmd+Shift+Z (see `shortcutAction`), and Delete / Escape on a pinned building or
+ * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), and Delete / Escape on a pinned building or
  * event, none of them while a modal dialog is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
@@ -43,13 +46,17 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
           return;
         }
       }
-      const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey });
+      const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, inApp: inTauri() });
       if (action === "undo" || action === "redo") {
         e.preventDefault();
         void latest.current.step(action === "redo" ? redo : undo);
       } else if (action === "save") {
         e.preventDefault();
         void latest.current.onSave();
+      } else if (action === "play") {
+        e.preventDefault();
+        // A held key must not start a build per repeat.
+        if (!e.repeat) void latest.current.onPlay();
       }
     };
     window.addEventListener("keydown", onKey);

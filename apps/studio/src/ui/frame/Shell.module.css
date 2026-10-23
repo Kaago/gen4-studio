@@ -22,8 +22,13 @@
 .list {
   grid-column: 2;
   grid-row: 2;
+  /* The explorer in its old look needs a width of its own; the restyled list column sets 272 px. */
+  width: 300px;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  border-right: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-blatt);
 }
 
 .deck {
