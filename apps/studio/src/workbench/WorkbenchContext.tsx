@@ -2,6 +2,8 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import type { Tool } from "../ui/frame/shellState";
+import type { MapBuildings, TileClick } from "../world/scene/types";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
 import type { EventLock, EventRef } from "../world/events";
@@ -47,7 +49,18 @@ export interface WorkbenchData {
   eventFileId: number | null;
   showEvents: boolean;
   onShowEvents: (show: boolean) => void;
+  /** Edits in the scene (painting, adding, dragging) are allowed; false while a build runs. */
   paintEnabled: boolean;
+  /** The active tool of the palette. */
+  tool: Tool;
+  /** Switches the tool; switching to painting also shows the terrain layer. */
+  onTool: (tool: Tool) => void;
+  /** A click in the scene with one of the adding tools landed on this tile: the app adds what the tool makes there and returns to "Auswählen". */
+  onTileClick: (tile: TileClick) => void;
+  /** The buildings of the shown maps as the scene reports them (maps without buildings are left out). */
+  buildings: MapBuildings[];
+  /** The scene reports the buildings of the shown maps. */
+  onBuildings: (buildings: MapBuildings[]) => void;
   /** Bumped by every undo and redo, at once (a ref, not state): a load in flight asks whether history moved while it ran. */
   history: { readonly current: number };
   onEdited: () => void;
@@ -73,8 +86,8 @@ export interface WorkbenchData {
   onBuildingMoved: (map: number) => void;
   /** The building editor wrote a field: refresh the scene and the dirty count. */
   onBuildingChanged: (map: number, retryModel: number | null) => void | Promise<void>;
-  /** Appends a building on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
-  onAddBuilding: (fallbackMap: number | null) => void | Promise<void>;
+  /** Appends a building on the tile `at` (a click), else on the last hovered tile (else in `fallbackMap`, when given) and selects it. */
+  onAddBuilding: (fallbackMap: number | null, at?: { map: number; x: number; y: number }) => void | Promise<void>;
   /** Asks first, then deletes the building. */
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   /** The event selected in the scene (it is the pinned inspector model); null: none. */
@@ -88,8 +101,8 @@ export interface WorkbenchData {
   onEventsLocked: (lock: EventLock | null) => void;
   /** The event editor wrote a field: refresh the scene and the dirty count. */
   onEventChanged: (eventFile: number) => void | Promise<void>;
-  /** Adds an event on the last hovered tile of the selected header's event file and selects it. */
-  onAddEvent: (kind: EventKind) => void | Promise<void>;
+  /** Adds an event on the tile `at` (a click), else on the last hovered tile of the selected header's event file and selects it. */
+  onAddEvent: (kind: EventKind, at?: { x: number; z: number }) => void | Promise<void>;
   /** Asks first, then deletes the event. */
   onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   /** The archive and message a link to the text panel asked for; a new object with every request, so the same one can be asked for again. Null: none yet. */

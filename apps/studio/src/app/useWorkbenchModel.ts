@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import type { HeaderSummary } from "../api";
+import type { Tool } from "../ui/frame/shellState";
+import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
@@ -32,6 +34,8 @@ interface WorkbenchModelParams {
     | "onDeleteBuilding"
     | "onAddEvent"
     | "onDeleteEvent"
+    | "sceneBuildings"
+    | "onBuildings"
   >;
   pins: Pick<InspectorState, "pinned" | "inspector">;
   /** The matrix and warp overviews of the project (the world explorer's data). */
@@ -43,8 +47,17 @@ interface WorkbenchModelParams {
   /** The project's scripts (the object keeps its identity until `revision` or another field changes) and the problems store. */
   scripts: ScriptsApi;
   problems: ProblemsStore;
-  /** The scene's switches, owned by App. */
-  view: { showPermissions: boolean; setShowPermissions: (show: boolean) => void; showEvents: boolean; setShowEvents: (show: boolean) => void };
+  /** The scene's switches and the tool, owned by App. */
+  view: {
+    showPermissions: boolean;
+    setShowPermissions: (show: boolean) => void;
+    showEvents: boolean;
+    setShowEvents: (show: boolean) => void;
+    /** The active tool, the way to switch it, and the answer to a click with an adding tool; the two callbacks must keep their identity. */
+    tool: Tool;
+    onTool: (tool: Tool) => void;
+    onTileClick: (tile: TileClick) => void;
+  };
 }
 
 /**
@@ -84,6 +97,11 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     showEvents: view.showEvents,
     onShowEvents: view.setShowEvents,
     paintEnabled: !session.busy,
+    tool: view.tool,
+    onTool: view.onTool,
+    onTileClick: view.onTileClick,
+    buildings: world.sceneBuildings,
+    onBuildings: world.onBuildings,
     history: scene.history,
     onEdited: session.onEdited,
     onError: session.fail,

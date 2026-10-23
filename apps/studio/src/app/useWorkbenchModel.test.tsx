@@ -79,12 +79,14 @@ const world = {
   onDeleteBuilding: noop,
   onAddEvent: noop,
   onDeleteEvent: noop,
+  sceneBuildings: [],
+  onBuildings: noop,
 } as unknown as Inputs["world"];
 const text = { target: null };
 /** The scripts as App's hook hands them over: the same object until its revision changes. */
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();
-const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop };
+const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
 

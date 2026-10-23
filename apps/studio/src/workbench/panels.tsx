@@ -4,11 +4,11 @@ import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
-import { Button, EmptyState } from "../ui/primitives";
+import { EmptyState } from "../ui/primitives";
 import { lockedText } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
-import { AddEvent } from "./inspector/AddEvent";
+import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
@@ -20,7 +20,9 @@ import type { ScriptPanelContext } from "./script/ScriptPanel";
 import { TextPanel } from "./text/TextPanel";
 import type { TextPanelContext } from "./text/TextPanel";
 import styles from "./panels.module.css";
+import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
+import { ToolsPanel } from "./ToolsPanel";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
@@ -86,6 +88,9 @@ export function WorldPanel() {
         showEvents={d.showEvents}
         headers={d.headers}
         paintEnabled={d.paintEnabled}
+        tool={d.tool}
+        onTileClick={d.onTileClick}
+        onBuildings={d.onBuildings}
         history={d.history}
         bus={d.bus}
         onEdited={d.onEdited}
@@ -106,25 +111,6 @@ export function WorldPanel() {
         showEvents={d.showEvents}
         onShowPermissions={d.onShowPermissions}
         onShowEvents={d.onShowEvents}
-        extra={
-          <>
-            <Button
-              kind="quiet"
-              size="s"
-              icon="building"
-              onClick={() => void d.onAddBuilding(null)}
-              disabled={!d.paintEnabled}
-              title="Legt ein Gebäude auf der Kachel an, über der die Maus zuletzt war"
-            >
-              Neues Gebäude
-            </Button>
-            <AddEvent
-              disabled={!d.paintEnabled || d.eventFileId === null || d.eventLock !== null}
-              title={d.eventLock ? lockedText(d.eventLock.reason) : undefined}
-              onAdd={(kind) => void d.onAddEvent(kind)}
-            />
-          </>
-        }
       />
       <Legend />
     </div>
@@ -208,6 +194,39 @@ export function ProblemsTab() {
   return <ProblemsPanel context={context} />;
 }
 
+export function ToolsTab() {
+  const { tool, onTool, eventFileId, eventLock } = useWorkbench();
+  const { density } = useShell();
+  // The four event tools wait for a shown place and an event file that may be written.
+  const eventsBlocked = eventLock ? lockedText(eventLock.reason) : eventFileId === null ? "Erst einen Ort wählen." : null;
+  return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
+}
+
+/** The scene and the inspector report a failed read of the events already. */
+const ignoreError = () => {};
+
+export function ContextTab() {
+  const d = useWorkbench();
+  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo).
+  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
+  const events = useEvents(d.eventFileId, ignoreError, eventsRevision);
+  const { goTo, onSelectEvent, onSelectBuilding } = d;
+  const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  return (
+    <ContextPanel
+      hasPlace={d.matrix !== null}
+      events={events}
+      headers={d.headers}
+      buildings={d.buildings}
+      selectedEvent={d.selectedEvent}
+      selectedBuilding={d.selectedBuilding}
+      onSelectEvent={onSelectEvent}
+      onSelectBuilding={onSelectBuilding}
+      onOpenHeader={onOpenHeader}
+    />
+  );
+}
+
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
@@ -284,4 +303,4 @@ export function InspectorPanel() {
 
 /** The panels of the view dock and of the hand dock, by id. Module-level constants: dockview would remount every panel if they changed. */
 export const SCHAU_COMPONENTS: DockComponents = { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab };
-export const HAND_COMPONENTS: DockComponents = { inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
+export const HAND_COMPONENTS: DockComponents = { tools: ToolsTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab, context: ContextTab };

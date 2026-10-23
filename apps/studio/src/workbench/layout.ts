@@ -1,7 +1,7 @@
 import type { AreaId } from "../ui/frame/shellState";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
-export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "inspector" | "text" | "script" | "problems";
+export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "tools" | "inspector" | "text" | "script" | "problems" | "context";
 
 /** The two docks of a deck: the view (Schau, above the hinge) and the hand (below it). */
 export type DeckId = "schau" | "hand";
@@ -10,11 +10,13 @@ export interface PanelSpec {
   id: PanelId;
   title: string;
   position: { direction: "left" | "right" | "below" | "within"; referencePanel?: string };
+  /** The width a panel that gets a group of its own starts with (px). */
+  width?: number;
 }
 
 /**
- * The panels of each dock. Order matters: the first panel is the anchor, the others are tabs of its group (`within`). The explorer is
- * no dock panel any more. The layout key is versioned (`v6`): a layout stored by an older panel set is not read, not migrated.
+ * The panels of each dock. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit beside it. The explorer is
+ * no dock panel any more. The layout key is versioned (`v7`): a layout stored by an older panel set is not read, not migrated.
  */
 export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
   welt: {
@@ -28,6 +30,9 @@ export const DECK_PANELS: Record<"welt", Record<DeckId, PanelSpec[]>> = {
       { id: "text", title: "Text", position: { direction: "within", referencePanel: "inspector" } },
       { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
       { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
+      // The tools to the left of the inspector, "An diesem Ort" to its right: groups of one panel, so without a tab bar.
+      { id: "tools", title: "Werkzeuge", position: { direction: "left", referencePanel: "inspector" }, width: 180 },
+      { id: "context", title: "An diesem Ort", position: { direction: "right", referencePanel: "inspector" }, width: 260 },
     ],
   },
 };
@@ -38,7 +43,7 @@ export function deckPanels(area: AreaId, deck: DeckId): PanelSpec[] {
 }
 
 /** The localStorage key of one dock's layout: per area and per deck, so one broken layout resets only its own dock. */
-export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v6.${area}.${deck}`;
+export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v7.${area}.${deck}`;
 
 export function saveLayout(key: string, json: object): void {
   try {

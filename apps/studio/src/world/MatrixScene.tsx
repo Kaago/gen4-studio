@@ -1,13 +1,14 @@
 import { memo, useRef, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "../app/message";
+import type { Tool } from "../ui/frame/shellState";
 import type { InspectorModel } from "../workbench/Inspector";
 import type { EditBus } from "../bus/editBus";
 import { useBusQueue, useBusRevision } from "../bus/useBusEvent";
 import type { BuildingRef } from "./buildingLayer";
 import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
-import type { ReportEvents } from "./scene/types";
+import type { MapBuildings, ReportEvents, TileClick } from "./scene/types";
 import { useBuildingRefresh, useEventRefresh, useMapRefresh } from "./scene/useRefreshQueues";
 import { useSceneLoader } from "./scene/useSceneLoader";
 import { useSceneRefs } from "./scene/useSceneRefs";
@@ -36,8 +37,14 @@ interface Props {
   showEvents: boolean;
   /** Header list, for the internal names of warp destinations. */
   headers: HeaderSummary[];
-  /** Painting is ignored while false (e.g. during a build). */
+  /** Edits (painting, adding, dragging) are ignored while false (e.g. during a build). */
   paintEnabled: boolean;
+  /** The active tool: what a click on a tile does (see `canvasClicks`). */
+  tool: Tool;
+  /** A click with one of the adding tools landed on this tile. */
+  onTileClick: (tile: TileClick) => void;
+  /** The buildings of the shown maps, reported whenever they were loaded or changed. */
+  onBuildings: (buildings: MapBuildings[]) => void;
   /**
    * Bumped by every undo and redo, at once (not through a render). A matrix load that was in its
    * map phase meanwhile fetches again, so it never shows the state from before the undo.
@@ -76,6 +83,9 @@ function MatrixScene({
   showEvents,
   headers,
   paintEnabled,
+  tool,
+  onTileClick,
+  onBuildings,
   history,
   onEdited,
   onError,
@@ -106,7 +116,7 @@ function MatrixScene({
     eventFileId,
     headers,
     areaDataId,
-    callbacks: { paintEnabled, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked },
+    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked },
   });
   /** Shows (and reports upwards) what reading an event file gave: the note over the scene and its lock state. */
   const reportEvents: ReportEvents = (fetched) => {

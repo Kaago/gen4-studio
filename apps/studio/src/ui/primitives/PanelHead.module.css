@@ -9,6 +9,9 @@
 
 .title {
   margin: 0;
+  /* The subtitle gives way, not the title. */
+  flex: none;
+  white-space: nowrap;
   font: var(--g4-font-text-s-betont);
   color: var(--g4-text-primaer);
 }

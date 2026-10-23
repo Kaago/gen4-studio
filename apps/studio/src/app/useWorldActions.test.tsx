@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addEvent, getMap, setPermission, tileBehaviors } from "../api";
+import { addBuilding, addEvent, getMap, setPermission, tileBehaviors, updateBuilding } from "../api";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { ask } from "../platform/dialogs";
 import { resetTileNames } from "../world/scene/tileNames";
@@ -13,7 +13,7 @@ import { useWorldActions } from "./useWorldActions";
 import type { WorldActions } from "./useWorldActions";
 
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn() }));
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), addEvent: vi.fn(), getMap: vi.fn(), setPermission: vi.fn(), tileBehaviors: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), addBuilding: vi.fn(), addEvent: vi.fn(), getMap: vi.fn(), setPermission: vi.fn(), tileBehaviors: vi.fn(), updateBuilding: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -67,7 +67,8 @@ describe("useWorldActions.onAddEvent", () => {
   let root: Root;
   let actions: WorldActions;
   const bus = createEditBus();
-  const pins = { pinned: { kind: "none" }, setPinned: vi.fn(), setHover: vi.fn() } as never;
+  const setPinned = vi.fn();
+  const pins = { pinned: { kind: "none" }, setPinned, setHover: vi.fn() } as never;
   const setMessage = vi.fn();
   const fail = vi.fn();
   const header: HeaderSummary = { id: 3, internal_name: "T01", location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 7, text_archive_id: 0, script_file_id: 0, level_script_id: 0 };
@@ -81,6 +82,9 @@ describe("useWorldActions.onAddEvent", () => {
     vi.mocked(getMap).mockReset().mockResolvedValue({ index: 40, permissions, buildings: [] });
     vi.mocked(addEvent).mockReset().mockResolvedValue(2);
     vi.mocked(setPermission).mockReset().mockResolvedValue(undefined);
+    vi.mocked(addBuilding).mockReset();
+    vi.mocked(updateBuilding).mockReset();
+    setPinned.mockReset();
     vi.mocked(ask).mockReset();
     setMessage.mockReset();
     fail.mockReset();
@@ -121,5 +125,76 @@ describe("useWorldActions.onAddEvent", () => {
     act(() => actions.onInspect(at(12, 7)));
     await act(async () => actions.onAddEvent("object"));
     expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("puts_the_event_on_the_clicked_tile_even_when_the_pointer_never_hovered_one", async () => {
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onAddEvent("object", { x: 9, z: 5 }));
+    expect(addEvent).toHaveBeenCalledWith(7, "object", 9, 5);
+    expect(setMessage).not.toHaveBeenCalled();
+    expect(setPinned).toHaveBeenCalledWith({ kind: "event", eventFile: 7, eventKind: "object", index: 2 });
+  });
+
+  it("prefers_the_clicked_tile_to_the_hovered_one", async () => {
+    act(() => root.render(<Probe />));
+    act(() => actions.onInspect(at(12, 7)));
+    await act(async () => actions.onAddEvent("bg", { x: 20, z: 21 }));
+    expect(addEvent).toHaveBeenCalledWith(7, "bg", 20, 21);
+  });
+
+  it("still_asks_for_a_hover_when_called_without_a_tile", async () => {
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onAddEvent("coord"));
+    expect(addEvent).not.toHaveBeenCalled();
+    expect(setMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: "info", text: expect.stringContaining("Erst mit der Maus") }));
+  });
+
+  it("puts_a_building_on_the_clicked_tile_and_selects_it", async () => {
+    vi.mocked(addBuilding).mockResolvedValue(4);
+    vi.mocked(updateBuilding).mockResolvedValue(undefined as never);
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onAddBuilding(null, { map: 40, x: 3, y: 6 }));
+    expect(addBuilding).toHaveBeenCalledWith(40);
+    // The centre of tile (3, 6), counted from the map centre.
+    expect(updateBuilding).toHaveBeenCalledWith(40, 4, { x: -12.5, z: -9.5 });
+    expect(setPinned).toHaveBeenCalledWith({ kind: "building", map: 40, index: 4 });
+  });
+
+  it("keeps_the_hover_rule_for_a_building_without_a_clicked_tile", async () => {
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onAddBuilding(null));
+    expect(addBuilding).not.toHaveBeenCalled();
+    expect(setMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: "info", text: expect.stringContaining("Erst mit der Maus") }));
+  });
+});
+
+describe("useWorldActions.buildings", () => {
+  let container: HTMLElement;
+  let root: Root;
+  let actions: WorldActions;
+  const pins = { pinned: { kind: "none" }, setPinned: vi.fn(), setHover: vi.fn() } as never;
+  beforeEach(() => {
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+  afterEach(() => act(() => root.unmount()));
+  function Probe() {
+    const matrix: MatrixDto = { index: 0, name: "m", width: 1, height: 1, maps: [40] };
+    actions = useWorldActions({ bus: createEditBus(), pins, matrix, matrixRef: { current: matrix }, headersRef: { current: [] }, selectedRef: { current: null }, setMessage: vi.fn(), fail: vi.fn(), refreshDirty: async () => {} });
+    return null;
+  }
+
+  it("keeps_the_buildings_the_scene_reported_and_the_same_list_while_nothing_changed", () => {
+    act(() => root.render(<Probe />));
+    expect(actions.sceneBuildings).toEqual([]);
+    act(() => actions.onBuildings([{ map: 40, models: [1, 2] }]));
+    const first = actions.sceneBuildings;
+    expect(first).toEqual([{ map: 40, models: [1, 2] }]);
+    act(() => actions.onBuildings([{ map: 40, models: [1, 2] }]));
+    expect(actions.sceneBuildings).toBe(first);
+    act(() => actions.onBuildings([{ map: 40, models: [1, 3] }]));
+    expect(actions.sceneBuildings).toEqual([{ map: 40, models: [1, 3] }]);
+    act(() => actions.resetForProject());
+    expect(actions.sceneBuildings).toEqual([]);
   });
 });

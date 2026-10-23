@@ -6,6 +6,7 @@ import { fetchCurrent } from "../../reload";
 import { MAP_SIZE } from "../layout";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
+import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
 import { addModel, buildContent, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
@@ -88,6 +89,7 @@ async function showMaps(
   h.controls.update();
   h.render();
   h.refreshHover?.();
+  reportBuildings(h, refs);
   onSceneBuilt();
   return true;
 }

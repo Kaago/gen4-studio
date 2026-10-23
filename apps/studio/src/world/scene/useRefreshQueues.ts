@@ -5,6 +5,7 @@ import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
+import { reportBuildings } from "./buildingReport";
 import { recolourMap } from "./content";
 import { refreshEvents } from "./eventFetch";
 import type { ReportEvents, SceneRefs } from "./types";
@@ -42,6 +43,7 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
         const layer = h.buildings;
         if (changed) layer?.syncMap(matrixAtStart, map, buildings);
         dropMissingSelection(h, refs.callbacks.current.onSelectBuilding);
+        reportBuildings(h, refs);
         h.render();
         h.refreshHover?.();
         if (layer) await loadMissingBuildingModels(h, layer, refs.area.current, () => h.disposed || refs.handle.current !== h || h.buildings !== layer);
@@ -85,6 +87,7 @@ export function useBuildingRefresh(refs: SceneRefs, buildingRefresh: RefreshQueu
         }
         if (request.retryModel !== null) layer.retry(request.retryModel);
         dropMissingSelection(h, refs.callbacks.current.onSelectBuilding);
+        reportBuildings(h, refs);
         h.render();
         await loadMissingBuildingModels(h, layer, refs.area.current, stale);
       })().catch((e) => {

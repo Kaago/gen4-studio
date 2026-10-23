@@ -50,6 +50,7 @@ describe("Cmd+S inside the script editor", () => {
       step: async () => {},
       onPlay: async () => {},
       onDeleteBuilding: () => {},
+      onTool: () => {},
       onDeleteEvent: () => {},
       unpinSelection: () => {},
     });

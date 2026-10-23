@@ -4,6 +4,8 @@ import { redo, undo } from "../api";
 import type { EventKind } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { inTauri } from "../platform/transport";
+import type { Tool } from "../ui/frame/shellState";
+import { toolForKey } from "../workbench/tools";
 import { isTypingTarget, shortcutAction, wantsDelete } from "../world/buildings";
 
 interface ShortcutHandlers {
@@ -14,13 +16,21 @@ interface ShortcutHandlers {
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   onDeleteEvent: (file: number, kind: EventKind, index: number) => void | Promise<void>;
   unpinSelection: () => void;
+  /** Switches the tool of the scene (a letter, or "select" on Escape). */
+  onTool: (tool: Tool) => void;
 }
 
 /** Whether a modal dialog is open: its own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. */
 const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 
+/** Whether the key goes to something that takes letters for itself: a text field, or an open menu or list (type-ahead, Escape closes it). */
+function inField(target: HTMLElement | null): boolean {
+  return isTypingTarget(target) || target?.closest?.('[role="menu"], [role="listbox"], [role="combobox"]') != null;
+}
+
 /**
- * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), and Delete / Escape on a pinned building or
+ * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
+ * "Auswählen", and Delete / Escape on a pinned building or
  * event, none of them while a modal dialog is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
@@ -43,6 +53,19 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
         }
         if (e.key === "Escape" && !isTypingTarget(e.target as HTMLElement | null)) {
           latest.current.unpinSelection();
+          return;
+        }
+      }
+      // The tools: a letter, or Escape back to "Auswählen" when nothing is selected (a selection consumed Escape above). Never typed into
+      // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes.
+      if (!inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
+        const tool = toolForKey(e.key);
+        if (tool !== null) {
+          latest.current.onTool(tool);
+          return;
+        }
+        if (e.key === "Escape" && !e.defaultPrevented) {
+          latest.current.onTool("select");
           return;
         }
       }

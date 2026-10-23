@@ -45,7 +45,7 @@ const stored = (...grouped: string[][]) => ({
 const Empty: FunctionComponent<IDockviewPanelProps> = () => null;
 const components = (ids: PanelId[]) => Object.fromEntries(ids.map((id) => [id, Empty]));
 const SCHAU = components(["world", "matrix", "worldmap"]);
-const HAND = components(["inspector", "text", "script", "problems"]);
+const HAND = components(["tools", "inspector", "text", "script", "problems", "context"]);
 
 describe("Deck", () => {
   let container: HTMLElement;
@@ -103,7 +103,7 @@ describe("Deck", () => {
   it("builds_the_default_layouts_of_both_docks", async () => {
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["inspector", "text", "script", "problems"]]);
+    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "text", "script", "problems"], ["context"]]);
     expect(schau().panels.map((p) => p.id).sort()).toEqual(DECK_PANELS.welt.schau.map((p) => p.id).sort());
     expect(hand().panels.map((p) => p.id).sort()).toEqual(DECK_PANELS.welt.hand.map((p) => p.id).sort());
     // The scene is what the view opens with, the inspector what the hand opens with.
@@ -113,19 +113,19 @@ describe("Deck", () => {
 
   it("restores_a_stored_layout_of_each_dock", async () => {
     localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"], ["worldmap"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "text"], ["script", "problems"])));
+    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector", "text"], ["script", "problems"], ["context"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix"], ["worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["inspector", "text"], ["script", "problems"]]);
+    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "text"], ["script", "problems"], ["context"]]);
   });
 
   it("resets_only_the_view_when_its_stored_layout_is_unusable", async () => {
     // The view's layout lacks a panel (a layout of another panel set); the hand's was arranged by the user.
     localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "text"], ["script", "problems"])));
+    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector", "text"], ["script", "problems"], ["context"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["inspector", "text"], ["script", "problems"]]);
+    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "text"], ["script", "problems"], ["context"]]);
   });
 
   it("resets_only_the_hand_when_its_stored_json_is_broken_and_keeps_the_view", async () => {
@@ -133,17 +133,17 @@ describe("Deck", () => {
     localStorage.setItem(layoutKey("welt", "hand"), "{not json");
     await mount();
     expect(layoutOf(schau())).toEqual([["world"], ["matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["inspector", "text", "script", "problems"]]);
+    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "text", "script", "problems"], ["context"]]);
   });
 
   it("falls_back_to_the_default_of_a_dock_whose_stored_grid_cannot_be_restored", async () => {
     // Right panels, but a grid dockview refuses.
     const broken = { ...stored(["world", "matrix", "worldmap"]), grid: { root: { type: "nonsense" } } };
     localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(broken));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "text"], ["script", "problems"])));
+    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector", "text"], ["script", "problems"], ["context"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["inspector", "text"], ["script", "problems"]]);
+    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "text"], ["script", "problems"], ["context"]]);
   });
 
   it("ignores_the_layout_stored_by_the_single_dock_version", async () => {
@@ -160,7 +160,7 @@ describe("Deck", () => {
     expect(groups(savedSchau.grid.root)).toEqual([["world", "matrix"], ["worldmap"]]);
     // The hand's key still holds the hand's panels and nothing of the view.
     const savedHand = JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!);
-    expect(Object.keys(savedHand.panels).sort()).toEqual(["inspector", "problems", "script", "text"]);
+    expect(Object.keys(savedHand.panels).sort()).toEqual(["context", "inspector", "problems", "script", "text", "tools"]);
   });
 
   it("hides_the_tab_bar_of_a_group_with_one_panel_and_shows_it_from_two_panels", async () => {
@@ -186,7 +186,7 @@ describe("Deck", () => {
   });
 
   it("hides_the_tab_bar_of_a_restored_group_with_one_panel", async () => {
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "text", "script"], ["problems"])));
+    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector", "text", "script"], ["problems"], ["context"])));
     await mount();
     expect(headerHidden(hand(), "problems")).toBe(true);
     expect(headerHidden(hand(), "inspector")).toBe(false);
@@ -208,7 +208,7 @@ describe("Deck", () => {
     act(() => shell.toggleHandCollapsed("welt"));
     expect(dock("dock-hand").hidden).toBe(true);
     expect(hand()).toBe(before);
-    expect(hand().panels).toHaveLength(4);
+    expect(hand().panels).toHaveLength(DECK_PANELS.welt.hand.length);
     act(() => shell.toggleHandCollapsed("welt"));
     expect(dock("dock-hand").hidden).toBe(false);
     expect(dock("dock-hand").style.height).toBe("333px");

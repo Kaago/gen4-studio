@@ -9,7 +9,13 @@ import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
 
 // The scene needs WebGL; the panel around it is under test.
-vi.mock("../world/MatrixScene", () => ({ default: () => <div data-testid="scene" /> }));
+const sceneProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+vi.mock("../world/MatrixScene", () => ({
+  default: (props: Record<string, unknown>) => {
+    sceneProps.current = props;
+    return <div data-testid="scene" />;
+  },
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -32,12 +38,11 @@ describe("WorldPanel", () => {
   const onSelect = vi.fn();
   const onShowPermissions = vi.fn();
   const onShowEvents = vi.fn();
-  const onAddBuilding = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    for (const f of [onSelect, onShowPermissions, onShowEvents, onAddBuilding]) f.mockReset();
+    for (const f of [onSelect, onShowPermissions, onShowEvents]) f.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -51,12 +56,12 @@ describe("WorldPanel", () => {
       showPermissions: true,
       showEvents: false,
       paintEnabled: true,
+      tool: "select",
       eventFileId: 3,
       eventLock: null,
       onSelect,
       onShowPermissions,
       onShowEvents,
-      onAddBuilding,
       ...over,
     } as unknown as WorkbenchData;
     act(() =>
@@ -96,20 +101,21 @@ describe("WorldPanel", () => {
     expect(onShowPermissions).toHaveBeenCalledWith(false);
   });
 
-  it("keeps_new_building_and_add_event_as_quiet_buttons_in_the_bar", () => {
+  it("has_no_add_buttons_over_the_scene_any_more_the_tools_of_the_hand_add", () => {
     show({ matrix });
-    act(() => button("Neues Gebäude").click());
-    expect(onAddBuilding).toHaveBeenCalledWith(null);
-    expect(container.querySelector('[aria-label="Art des neuen Events"]')).not.toBeNull();
-    expect(button("Hinzufügen").disabled).toBe(false);
+    expect(button("Neues Gebäude")).toBeUndefined();
+    expect(button("Hinzufügen")).toBeUndefined();
+    expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
+    // Only the two layer toggles are left in the bar.
+    expect([...container.querySelectorAll('[role="toolbar"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
   });
 
-  it("disables_the_additions_while_painting_is_off_or_the_event_file_is_locked", () => {
-    show({ matrix, paintEnabled: false });
-    expect(button("Neues Gebäude").disabled).toBe(true);
-    expect(button("Hinzufügen").disabled).toBe(true);
-    show({ matrix, eventLock: { file: 3, reason: "17 bytes read" } });
-    expect(button("Neues Gebäude").disabled).toBe(false);
-    expect(button("Hinzufügen").disabled).toBe(true);
+  it("hands_the_scene_the_tool_and_what_it_reports_back", () => {
+    const onTileClick = vi.fn();
+    const onBuildings = vi.fn();
+    show({ matrix, tool: "door", onTileClick, onBuildings });
+    expect(sceneProps.current).toMatchObject({ tool: "door", paintEnabled: true, onTileClick, onBuildings });
+    show({ matrix, tool: "paint", paintEnabled: false, onTileClick, onBuildings });
+    expect(sceneProps.current).toMatchObject({ tool: "paint", paintEnabled: false });
   });
 });

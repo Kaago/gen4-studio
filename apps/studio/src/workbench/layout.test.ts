@@ -6,10 +6,10 @@ import { DECK_PANELS, deckPanels, isSaneLayout, layoutKey, loadLayout, saveLayou
 describe("deck layout persistence", () => {
   beforeEach(() => localStorage.clear());
 
-  it("keys_each_area_and_deck_on_its_own_under_v6", () => {
-    expect(layoutKey("welt", "schau")).toBe("g4.layout.v6.welt.schau");
-    expect(layoutKey("welt", "hand")).toBe("g4.layout.v6.welt.hand");
-    expect(layoutKey("texte", "hand")).toBe("g4.layout.v6.texte.hand");
+  it("keys_each_area_and_deck_on_its_own_under_v7", () => {
+    expect(layoutKey("welt", "schau")).toBe("g4.layout.v7.welt.schau");
+    expect(layoutKey("welt", "hand")).toBe("g4.layout.v7.welt.hand");
+    expect(layoutKey("texte", "hand")).toBe("g4.layout.v7.texte.hand");
     const keys = AREAS.flatMap((a) => [layoutKey(a, "schau"), layoutKey(a, "hand")]);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -39,14 +39,42 @@ describe("deck layout persistence", () => {
 
   it("splits_the_panels_between_the_docks_and_leaves_the_explorer_out", () => {
     expect(DECK_PANELS.welt.schau.map((p) => p.id)).toEqual(["world", "matrix", "worldmap"]);
-    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "text", "script", "problems"]);
+    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "text", "script", "problems", "tools", "context"]);
     const all = [...DECK_PANELS.welt.schau, ...DECK_PANELS.welt.hand];
     expect(all.some((p) => (p.id as string) === "headers")).toBe(false);
-    // The first panel anchors a dock, the others are tabs of its group.
+    // The first panel anchors a dock, the others are tabs of its group, except the tools and the context of the hand beside the inspector.
     expect(DECK_PANELS.welt.schau.slice(1).every((p) => p.position.direction === "within" && p.position.referencePanel === "world")).toBe(true);
-    expect(DECK_PANELS.welt.hand.slice(1).every((p) => p.position.direction === "within" && p.position.referencePanel === "inspector")).toBe(true);
+    const tabs = DECK_PANELS.welt.hand.filter((p) => p.id !== "inspector" && p.id !== "tools" && p.id !== "context");
+    expect(tabs.map((p) => p.id)).toEqual(["text", "script", "problems"]);
+    expect(tabs.every((p) => p.position.direction === "within" && p.position.referencePanel === "inspector")).toBe(true);
     const title = (id: string) => all.find((p) => p.id === id)?.title;
-    expect([title("world"), title("matrix"), title("worldmap"), title("inspector"), title("text"), title("script"), title("problems")]).toEqual(["3D", "Raster", "Weltkarte", "Inspector", "Text", "Script", "Probleme"]);
+    expect([title("world"), title("matrix"), title("worldmap"), title("inspector"), title("text"), title("script"), title("problems"), title("tools"), title("context")]).toEqual([
+      "3D",
+      "Raster",
+      "Weltkarte",
+      "Inspector",
+      "Text",
+      "Script",
+      "Probleme",
+      "Werkzeuge",
+      "An diesem Ort",
+    ]);
+  });
+
+  it("puts_the_tools_left_and_the_context_right_of_the_inspector_with_their_widths", () => {
+    const spec = (id: string) => DECK_PANELS.welt.hand.find((p) => p.id === id)!;
+    expect(spec("tools").position).toEqual({ direction: "left", referencePanel: "inspector" });
+    expect(spec("tools").width).toBe(180);
+    expect(spec("context").position).toEqual({ direction: "right", referencePanel: "inspector" });
+    expect(spec("context").width).toBe(260);
+    // The inspector is the anchor and grows with the rest.
+    expect(DECK_PANELS.welt.hand[0]?.id).toBe("inspector");
+    expect(spec("inspector").width).toBeUndefined();
+  });
+
+  it("does_not_read_the_hand_layout_of_the_version_before_the_tools", () => {
+    localStorage.setItem("g4.layout.v6.welt.hand", JSON.stringify({ a: 1 }));
+    expect(loadLayout(layoutKey("welt", "hand"))).toBeNull();
   });
 
   it("an_area_without_a_deck_has_no_panels", () => {
@@ -65,11 +93,11 @@ describe("deck layout persistence", () => {
 
     it("accepts_a_layout_with_exactly_the_panels_of_the_dock", () => {
       expect(isSaneLayout(layout([leaf("world", "matrix", "worldmap")], ["world", "matrix", "worldmap"]), schau)).toBe(true);
-      expect(isSaneLayout(layout([leaf("inspector", "text"), leaf("script", "problems")], ["inspector", "text", "script", "problems"]), hand)).toBe(true);
+      expect(isSaneLayout(layout([leaf("tools"), leaf("inspector", "text"), leaf("script", "problems"), leaf("context")], ["tools", "inspector", "text", "script", "problems", "context"]), hand)).toBe(true);
     });
 
     it("checks_against_the_list_it_is_given_so_one_docks_layout_is_not_the_others", () => {
-      const handLayout = layout([leaf("inspector", "text", "script", "problems")], ["inspector", "text", "script", "problems"]);
+      const handLayout = layout([leaf("tools"), leaf("inspector", "text", "script", "problems"), leaf("context")], ["tools", "inspector", "text", "script", "problems", "context"]);
       expect(isSaneLayout(handLayout, hand)).toBe(true);
       expect(isSaneLayout(handLayout, schau)).toBe(false);
     });

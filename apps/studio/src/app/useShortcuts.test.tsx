@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn() };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn() };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -98,6 +98,106 @@ describe("useShortcuts", () => {
     await press({ key: "r", metaKey: true });
     expect(handlers.onPlay).not.toHaveBeenCalled();
     dialog.remove();
+  });
+
+  describe("tools", () => {
+    const none = { current: { kind: "none" } as InspectorModel };
+    const withSelection = pinned;
+    const mountWith = (model: { current: InspectorModel }) => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      function Other() {
+        useShortcuts(model, handlers);
+        return null;
+      }
+      act(() => root.render(<Other />));
+    };
+
+    it("switches_to_the_tool_of_a_letter_in_either_case", async () => {
+      await press({ key: "b" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
+      await press({ key: "F" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("figure");
+      await press({ key: "v" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("select");
+      expect(handlers.onTool).toHaveBeenCalledTimes(3);
+    });
+
+    it("ignores_a_letter_typed_in_a_text_field_a_select_or_an_editable_area", async () => {
+      const input = document.createElement("input");
+      const area = document.createElement("textarea");
+      const select = document.createElement("select");
+      const editable = document.createElement("div");
+      editable.setAttribute("contenteditable", "true");
+      // jsdom does not derive isContentEditable from the attribute.
+      Object.defineProperty(editable, "isContentEditable", { value: true });
+      document.body.append(input, area, select, editable);
+      for (const target of [input, area, select, editable]) {
+        await press({ key: "b" }, target);
+        await press({ key: "f" }, target);
+        await press({ key: "Escape" }, target);
+      }
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      input.remove();
+      area.remove();
+      select.remove();
+      editable.remove();
+    });
+
+    it("ignores_a_letter_pressed_with_a_modifier_or_held_down", async () => {
+      await press({ key: "b", metaKey: true });
+      await press({ key: "b", ctrlKey: true });
+      await press({ key: "b", altKey: true });
+      await press({ key: "B", shiftKey: true });
+      await press({ key: "b", repeat: true });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+    });
+
+    it("ignores_a_letter_in_an_open_menu_or_list_where_it_searches", async () => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      const item = document.createElement("div");
+      item.setAttribute("role", "menuitem");
+      menu.append(item);
+      document.body.append(menu);
+      await press({ key: "b" }, item);
+      await press({ key: "Escape" }, item);
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      menu.remove();
+    });
+
+    it("ignores_letters_and_escape_while_a_modal_dialog_is_open", async () => {
+      const dialog = document.createElement("div");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      document.body.append(dialog);
+      await press({ key: "b" });
+      await press({ key: "Escape" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      dialog.remove();
+    });
+
+    it("resets_to_select_on_escape_when_nothing_is_selected", async () => {
+      mountWith(none);
+      await press({ key: "Escape" });
+      expect(handlers.onTool).toHaveBeenCalledWith("select");
+      expect(handlers.unpinSelection).not.toHaveBeenCalled();
+    });
+
+    it("lets_escape_deselect_first_and_keeps_the_tool_while_something_is_selected", async () => {
+      mountWith(withSelection);
+      await press({ key: "Escape" });
+      expect(handlers.unpinSelection).toHaveBeenCalledOnce();
+      expect(handlers.onTool).not.toHaveBeenCalled();
+    });
+
+    it("leaves_an_escape_that_something_else_already_handled", async () => {
+      mountWith(none);
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      event.preventDefault();
+      await act(async () => void document.body.dispatchEvent(event));
+      expect(handlers.onTool).not.toHaveBeenCalled();
+    });
   });
 
   it("leaves_select_all_to_the_text_field", async () => {

@@ -1,0 +1,17 @@
+.hints {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.tool {
+  color: var(--g4-text-primaer);
+  font-weight: 600;
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}

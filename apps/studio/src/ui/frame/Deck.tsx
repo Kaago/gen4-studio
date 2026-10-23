@@ -37,6 +37,7 @@ function applyDefaultLayout(api: DockviewApi, panels: readonly PanelSpec[]) {
       // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
       renderer: "always",
       position: p.position.referencePanel ? { direction: p.position.direction, referencePanel: p.position.referencePanel } : undefined,
+      initialWidth: p.width,
     });
   }
   // The tabs were added into the anchor's group and took focus in turn; the anchor is what opens.

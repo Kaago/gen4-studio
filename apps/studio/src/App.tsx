@@ -16,7 +16,9 @@ import { StartPane } from "./ui/frame/StartPane";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
-import type { AreaId } from "./ui/frame/shellState";
+import type { AreaId, Tool } from "./ui/frame/shellState";
+import type { TileClick } from "./world/scene/types";
+import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
 import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
@@ -28,6 +30,7 @@ import { gameLabel, projectName } from "./app/gameLabel";
 import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
+import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useOverview } from "./app/useOverview";
@@ -212,6 +215,19 @@ function AppBody() {
     }
   });
   useWindowGuards(unsavedRef, session.setMessage);
+  // The tool of the scene. Switching to painting shows the terrain layer (painting hidden tiles would be blind).
+  const onTool = useStableCallback((next: Tool) => {
+    shell.setTool(next);
+    if (next === "paint") setShowPermissions(true);
+  });
+  // A click with an adding tool: the tool makes its thing on that tile and the tool goes back to "Auswählen".
+  const onTileClick = useStableCallback((tile: TileClick) => {
+    const used = shell.tool;
+    shell.setTool("select");
+    const kind = EVENT_TOOL_KIND[used];
+    if (kind !== undefined) void world.onAddEvent(kind, { x: tile.absX, z: tile.absZ });
+    else if (used === "building") void world.onAddBuilding(null, { map: tile.mapId, x: tile.x, y: tile.y });
+  });
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -219,6 +235,7 @@ function AppBody() {
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
+    onTool,
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */
@@ -291,8 +308,14 @@ function AppBody() {
     text: { target: textTarget },
     scripts: scripts.api,
     problems,
-    view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
+    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, tool: shell.tool, onTool, onTileClick },
   });
+
+  // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.
+  const eventsBlocked = world.eventLock !== null || data.eventFileId === null;
+  useEffect(() => {
+    if (eventsBlocked && isEventTool(shell.tool)) shell.setTool("select");
+  }, [eventsBlocked, shell.tool]);
 
   const selectedHeader = useMemo(() => {
     const header = scene.headers.find((h) => h.id === scene.selected);
@@ -392,7 +415,7 @@ function AppBody() {
           pane={pane}
           status={
             <StatusLine
-              left={null}
+              left={area === "welt" ? <ToolHints tool={shell.tool} /> : null}
               middle={context}
               right={<ProblemCount store={problems} />}
               bridge={bridge}

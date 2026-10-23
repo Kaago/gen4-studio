@@ -12,6 +12,7 @@ import type { BuildingRef } from "../world/buildingLayer";
 import { deletePrompt, newBuildingPosition } from "../world/buildings";
 import { eventAt, eventDeletePrompt, eventEditGate } from "../world/events";
 import type { EventLock, EventRef } from "../world/events";
+import type { MapBuildings } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
 import type { InspectorState } from "./useInspectorState";
 
@@ -27,6 +28,9 @@ interface WorldActionsParams {
   refreshDirty: () => Promise<void>;
 }
 
+const sameBuildings = (a: MapBuildings[], b: MapBuildings[]) =>
+  a.length === b.length && a.every((x, i) => x.map === b[i]?.map && x.models.length === b[i]?.models.length && x.models.every((m, j) => m === b[i]?.models[j]));
+
 /**
  * Buildings and events of the scene: adding (on the tile the pointer was last over), deleting
  * after asking, pinning the selection in the inspector, and the bus events that make the scene
@@ -34,7 +38,7 @@ interface WorldActionsParams {
  */
 export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, selectedRef, setMessage, fail, refreshDirty }: WorldActionsParams) {
   const { pinned, setPinned, setHover } = pins;
-  // The tile the pointer was last over: where "Neues Gebäude" puts a building.
+  // The tile the pointer was last over: where a building added without a clicked tile (`onAddBuilding(fallbackMap)`) goes.
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
   // The same tile as a position in the whole matrix, where "Hinzufügen" puts an event. Unlike the
   // one above it is forgotten when the scene gets another matrix (the position is only valid in one).
@@ -62,6 +66,13 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
   eventLockRef.current = eventLock;
   const onEventsLocked = useCallback((lock: EventLock | null) => {
     setEventLock((previous) => (previous?.file === lock?.file && previous?.reason === lock?.reason ? previous : lock));
+  }, []);
+
+  // The buildings of the shown maps, as the scene reports them (the list "An diesem Ort" shows). A report that says what is known
+  // already keeps the list, so a refresh that changed nothing renders nothing.
+  const [sceneBuildings, setSceneBuildings] = useState<MapBuildings[]>([]);
+  const onBuildings = useCallback((next: MapBuildings[]) => {
+    setSceneBuildings((before) => (sameBuildings(before, next) ? before : next));
   }, []);
 
   /** Shows the header again in the inspector when a building or event was pinned (it was deselected or deleted). */
@@ -109,13 +120,13 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     },
     [bus, refreshDirty],
   );
-  // A new building goes on the tile the pointer was last over (the map centre of `fallbackMap` when
+  // A new building goes on the clicked tile `at` (a click with the building tool), else on the tile the pointer was last over (the map centre of `fallbackMap` when
   // that is unknown); it is selected afterwards. Adding and moving are two undoable changes.
   const onAddBuilding = useCallback(
-    async (fallbackMap: number | null) => {
+    async (fallbackMap: number | null, at?: { map: number; x: number; y: number }) => {
       const shown = matrixRef.current;
       if (!shown) return;
-      const hovered = lastTile.current && shown.maps.includes(lastTile.current.map) ? lastTile.current : null;
+      const hovered = at ?? (lastTile.current && shown.maps.includes(lastTile.current.map) ? lastTile.current : null);
       const map = hovered?.map ?? fallbackMap;
       if (map === null) {
         setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Gebäude entstehen soll." });
@@ -181,10 +192,10 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     [bus, setMessage, fail],
   );
 
-  // A new event goes on the tile the pointer was last over, in the event file of the selected header;
+  // A new event goes on the clicked tile `at` (a click with an event tool), else on the tile the pointer was last over, in the event file of the selected header;
   // it is selected afterwards.
   const onAddEvent = useCallback(
-    async (kind: EventKind) => {
+    async (kind: EventKind, at?: { x: number; z: number }) => {
       const shown = matrixRef.current;
       const file = headersRef.current.find((h) => h.id === selectedRef.current)?.event_file_id ?? null;
       if (!shown || file === null) return;
@@ -193,7 +204,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         setMessage({ kind: "error", text: gate.text });
         return;
       }
-      const tile = matrixTile.current;
+      const tile = at ?? matrixTile.current;
       if (!tile) {
         setMessage({ kind: "info", text: "Erst mit der Maus über die Kachel fahren, auf der das Event entstehen soll." });
         return;
@@ -247,10 +258,13 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     lastTile.current = null;
     matrixTile.current = null;
     setEventLock(null);
+    setSceneBuildings([]);
   }
 
   return {
     eventLock,
+    sceneBuildings,
+    onBuildings,
     selectedEvent,
     onInspect,
     lastMatrixTile,

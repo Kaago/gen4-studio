@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import type { EventsDto, HeaderSummary, MapDto } from "../../api";
 import type { Message } from "../../app/message";
+import type { Tool } from "../../ui/frame/shellState";
 import type { InspectorModel } from "../../workbench/Inspector";
 import type { BuildingRef } from "../buildingLayer";
 import type { EventLock, EventRef } from "../events";
@@ -17,9 +18,31 @@ export interface FetchedEvents {
   error: string | null;
 }
 
+/** The tile a click with one of the adding tools landed on: the map and the tile in it, and the tile over the whole matrix. */
+export interface TileClick {
+  mapId: number;
+  x: number;
+  y: number;
+  absX: number;
+  absZ: number;
+}
+
+/** The buildings of one shown map: the model of each, in the order of the map's building list. */
+export interface MapBuildings {
+  map: number;
+  models: number[];
+}
+
 /** What the scene reports upwards; kept in a ref (`SceneRefs.callbacks`) so a new callback never rebuilds the scene. */
 export interface SceneCallbacks {
+  /** Whether edits (painting, adding, dragging) are allowed at all; false while a build runs. */
   paintEnabled: boolean;
+  /** The active tool: what a click on a tile does. Only `paint` paints, only the adding tools call `onTileClick`. */
+  tool: Tool;
+  /** A click with one of the adding tools (figure, door, trigger, sign, building) landed on this tile. */
+  onTileClick: (tile: TileClick) => void;
+  /** The buildings of the shown maps, reported whenever they were loaded or changed. */
+  onBuildings: (buildings: MapBuildings[]) => void;
   onEdited: () => void;
   onError: (message: string) => void;
   onInspect: (model: InspectorModel) => void;
