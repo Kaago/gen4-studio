@@ -3,11 +3,14 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, MatrixSummary } from "../api";
+import { listScriptFiles, searchScripts } from "../api";
+import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
 import { placeColor } from "./places";
 import { TERMS } from "./terms";
 import { WorldExplorer } from "./WorldExplorer";
 import type { WorldExplorerProps } from "./WorldExplorer";
+
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), listScriptFiles: vi.fn(), searchScripts: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,6 +21,9 @@ const header = (id: number, location_name: string, matrix_id: number, internal_n
   matrix_id,
   area_data_id: 0,
   event_file_id: id,
+  text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
 });
 
 const matrix = (index: number, width: number, height: number, has_headers = false): MatrixSummary => ({
@@ -51,6 +57,8 @@ describe("WorldExplorer", () => {
     root = createRoot(container);
     scrolled.length = 0;
     localStorage.clear();
+    vi.mocked(listScriptFiles).mockReset();
+    vi.mocked(searchScripts).mockReset();
     // jsdom has no layout, hence no scrollIntoView.
     Element.prototype.scrollIntoView = function (this: Element) {
       scrolled.push(this.getAttribute("data-header-id") ?? "?");
@@ -72,10 +80,12 @@ describe("WorldExplorer", () => {
     revealToken: 0,
     onSelect: () => {},
     onOpenWizard: () => {},
+    scriptsAdopted: true,
+    onOpenScript: () => {},
     ...over,
   });
   const render = (p: WorldExplorerProps) => act(() => root.render(<WorldExplorer {...p} />));
-  const places = () => [...container.querySelectorAll<HTMLDetailsElement>("details")];
+  const places = () => [...container.querySelectorAll<HTMLDetailsElement>("details[data-place-key]")];
   const row = (id: number) => container.querySelector<HTMLButtonElement>(`[data-header-id="${id}"]`);
   const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name);
   const search = () => container.querySelector<HTMLInputElement>(SEARCH)!;
@@ -362,5 +372,137 @@ describe("WorldExplorer", () => {
     render({ ...base, selected: 3 });
     expect(reads - first).toBeGreaterThan(0);
     expect(reads - first).toBeLessThan(first);
+  });
+
+  describe("scripts", () => {
+    const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
+    const scriptsRoot = () => container.querySelector<HTMLDetailsElement>("details[data-scripts-root]")!;
+    const file = (n: number, kind: ScriptFileDto["kind"] = "script", headers: number[] = []): ScriptFileDto => ({ file: n, kind, size: 120, headers });
+    const hit = (n: number, line: number, excerpt: string): ScriptHitDto => ({ file: n, line, excerpt });
+    const withScripts = headers.map((h) => (h.id === 0 ? { ...h, script_file_id: 0, level_script_id: 1 } : { ...h, script_file_id: 5, level_script_id: 0 }));
+    const toggleHeader = (id: number) => click(container.querySelector(`[data-header-id="${id}"]`)!.previousElementSibling);
+
+    it("shows_the_script_file_and_level_script_below_an_expanded_header_and_opens_them", () => {
+      const onOpenScript = vi.fn();
+      render(props({ headers: withScripts, selected: 0, onOpenScript }));
+      expect(container.querySelector("[data-script-file]")).toBeNull();
+      toggleHeader(0);
+      const children = [...row(0)!.closest("li")!.querySelectorAll<HTMLButtonElement>("[data-script-file]")];
+      expect(children.map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001"]);
+      click(children[0]);
+      click(children[1]);
+      expect(onOpenScript.mock.calls).toEqual([[0], [1]]);
+      // A header without a level script has only its script file; collapsing hides the children again.
+      toggleHeader(3);
+      expect([...row(3)!.closest("li")!.querySelectorAll("[data-script-file]")].map((b) => b.textContent)).toEqual(["Scriptdatei 0005"]);
+      toggleHeader(0);
+      expect(row(0)!.closest("li")!.querySelector("[data-script-file]")).toBeNull();
+    });
+
+    it("disables_the_header_children_and_asks_for_the_adoption_while_scripts_are_not_adopted", () => {
+      const onOpenScript = vi.fn();
+      render(props({ headers: withScripts, selected: 0, scriptsAdopted: false, onOpenScript }));
+      toggleHeader(0);
+      const child = container.querySelector<HTMLButtonElement>("[data-script-file]")!;
+      expect(child.disabled).toBe(true);
+      expect(child.title).toBe("Erst Scripts übernehmen (Panel „Script“)");
+      click(child);
+      expect(onOpenScript).not.toHaveBeenCalled();
+    });
+
+    it("reads_the_script_list_when_the_root_node_is_first_opened_not_before", async () => {
+      vi.mocked(listScriptFiles).mockResolvedValue([file(0, "script", [0, 4]), file(1, "levelScript", [0]), file(2, "binary")]);
+      const onOpenScript = vi.fn();
+      render(props({ onOpenScript }));
+      expect(container.querySelector("summary")?.textContent).toBe("Scripts");
+      await flush();
+      expect(listScriptFiles).not.toHaveBeenCalled();
+      toggle(scriptsRoot(), true);
+      await flush();
+      expect(listScriptFiles).toHaveBeenCalledTimes(1);
+      const rows = [...scriptsRoot().querySelectorAll<HTMLButtonElement>("[data-script-file]")];
+      expect(rows.map((r) => r.textContent)).toEqual([
+        "Scriptdatei 0000120 Byte · Header 0000, 0004",
+        "Level-Script 0001120 Byte · Header 0000",
+        "Scriptdatei 0002binär · 120 Byte · ohne Header",
+      ]);
+      expect(scriptsRoot().querySelector("summary")?.textContent).toBe("Scripts3");
+      click(rows[1]);
+      expect(onOpenScript).toHaveBeenCalledWith(1);
+    });
+
+    it("says_to_adopt_first_and_calls_no_command_while_scripts_are_not_adopted", async () => {
+      render(props({ scriptsAdopted: false }));
+      toggle(scriptsRoot(), true);
+      await flush();
+      expect(scriptsRoot().textContent).toContain("Erst Scripts übernehmen (Panel „Script“)");
+      expect(scriptsRoot().querySelector("input")).toBeNull();
+      expect(listScriptFiles).not.toHaveBeenCalled();
+      expect(searchScripts).not.toHaveBeenCalled();
+    });
+
+    it("searches_after_a_pause_in_typing_and_opens_a_hit_at_its_line", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(listScriptFiles).mockResolvedValue([file(0)]);
+        vi.mocked(searchScripts).mockResolvedValue([hit(42, 7, "script Main #1"), hit(43, 2, "Message 3")]);
+        const onOpenScript = vi.fn();
+        render(props({ onOpenScript }));
+        toggle(scriptsRoot(), true);
+        const box = scriptsRoot().querySelector<HTMLInputElement>('input[aria-label="Scripts durchsuchen"]')!;
+        type(box, "Ma");
+        await act(async () => void vi.advanceTimersByTime(200));
+        type(box, "Main");
+        await act(async () => void vi.advanceTimersByTime(299));
+        expect(searchScripts).not.toHaveBeenCalled();
+        await act(async () => void vi.advanceTimersByTime(1));
+        // Only the last text was searched, once.
+        expect(searchScripts).toHaveBeenCalledTimes(1);
+        expect(searchScripts).toHaveBeenCalledWith("Main", 100);
+        const hits = [...scriptsRoot().querySelectorAll<HTMLButtonElement>("li button")];
+        expect(hits.map((h) => h.textContent)).toEqual(["Scriptdatei 0042 · Zeile 7 · script Main #1", "Scriptdatei 0043 · Zeile 2 · Message 3"]);
+        click(hits[0]);
+        expect(onOpenScript).toHaveBeenCalledWith(42, 7);
+        // Clearing the search shows the list again.
+        type(box, "");
+        expect(scriptsRoot().querySelector("[data-script-file]")?.textContent).toContain("Scriptdatei 0000");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("says_so_when_nothing_matches", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(listScriptFiles).mockResolvedValue([]);
+        vi.mocked(searchScripts).mockResolvedValue([]);
+        render(props());
+        toggle(scriptsRoot(), true);
+        type(scriptsRoot().querySelector("input")!, "xyz");
+        expect(scriptsRoot().textContent).toContain("Suche …");
+        await act(async () => void vi.advanceTimersByTime(300));
+        expect(scriptsRoot().textContent).toContain("Keine Treffer.");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does_not_show_a_list_that_arrives_for_another_project", async () => {
+      const a: ProjectInfo = { root: "/a", game_code: "CPUE", family: "Pt", language: "en", header_count: 5 };
+      const b: ProjectInfo = { ...a, root: "/b" };
+      let late!: (files: ScriptFileDto[]) => void;
+      vi.mocked(listScriptFiles)
+        .mockImplementationOnce(() => new Promise<ScriptFileDto[]>((resolve) => (late = resolve)))
+        .mockResolvedValueOnce([file(9)]);
+      render(props({ info: a }));
+      toggle(scriptsRoot(), true);
+      render(props({ info: b }));
+      await flush();
+      expect(scriptsRoot().textContent).toContain("Scriptdatei 0009");
+      await act(async () => late([file(1)]));
+      expect(scriptsRoot().textContent).toContain("Scriptdatei 0009");
+      expect(scriptsRoot().textContent).not.toContain("Scriptdatei 0001");
+    });
   });
 });

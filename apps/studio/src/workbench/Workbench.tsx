@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { DockviewDefaultTab, DockviewReact, themeLight } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { DEFAULT_PANELS, isSaneLayout, loadLayout, saveLayout } from "./layout";
-import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel, WorldMapTab, WorldPanel } from "./panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab, WorldMapTab, WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "./WorkbenchContext";
 
@@ -13,6 +13,9 @@ const COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> =
   world: WorldPanel,
   matrix: MatrixTab,
   worldmap: WorldMapTab,
+  text: TextTab,
+  script: ScriptTab,
+  problems: ProblemsTab,
   inspector: InspectorPanel,
   status: StatusPanel,
 };
@@ -36,7 +39,7 @@ function applyDefaultLayout(api: DockviewApi) {
       initialHeight: p.position.direction === "below" ? p.size : undefined,
     });
   }
-  // The raster and world map tabs were added last into the world's group and took focus; the scene is what opens.
+  // The raster, world map, text and script tabs were added into the world's group and took focus; the scene is what opens.
   api.getPanel("world")?.api.setActive();
 }
 

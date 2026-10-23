@@ -1,10 +1,14 @@
 import { useCallback, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
 import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "../Toolbar";
+import type { EditBus } from "../bus/editBus";
+import type { ProblemsStore } from "../workbench/problems/problems";
+import type { ScriptBridge } from "../workbench/script/useScripts";
 import { eventReadOnlyReason, lockedText } from "../world/events";
 
 const EMULATOR_KEY = "g4.emulatorPath";
@@ -25,13 +29,22 @@ function storeEmulator(path: string) {
   }
 }
 
+interface SessionParams {
+  /** Where a saved text archive is announced (the language server reads it again). */
+  bus: EditBus;
+  /** Where the problems of a save or a build go. */
+  problems: ProblemsStore;
+  /** The open scripts, which a build saves first and the unsaved-edit guards count. A ref: the scripts hook is created after this one (it needs `info`). */
+  scripts: MutableRefObject<ScriptBridge>;
+}
+
 /**
  * The project as a whole: opening, saving, building and running it, the unsaved-edit count, the
  * message bar and the handling of a file that changed on disk (`stale`). What a stale resolution
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession() {
+export function useProjectSession({ bus, problems, scripts }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
@@ -113,7 +126,7 @@ export function useProjectSession() {
   /** Asks for a project folder and opens it; `resetProject` swaps the scene's and the editors' state for the new project's header list. */
   async function onOpen(resetProject: (headers: HeaderSummary[]) => void) {
     try {
-      if (dirtyCount > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
+      if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return;
       const path = await openPath({ directory: true });
       if (path === null) return;
       await openProjectAt(path, resetProject);
@@ -184,11 +197,24 @@ export function useProjectSession() {
     });
   }
 
+  /** Saves everything dirty in the store. Text warnings go to the problems store; the language server is told about the archives written. */
+  async function saveStore() {
+    const report = await save();
+    const archives = report.written.filter((a) => a.kind === "TextArchive").map((a) => a.index);
+    // An archive that was written without any warning is cleared.
+    problems.applyReport(report.problems, { archives });
+    if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
+    return report;
+  }
+
   async function onSave() {
     if (!info || busy) return;
     try {
-      const report = await save();
-      setMessage({ kind: "info", text: `${report.written.length} Datei(en) gespeichert` });
+      const report = await saveStore();
+      // Open scripts are part of the project: saved the way Cmd+S in the editor saves them (after the archives, which a save refuses to run ahead of).
+      const dirtyScripts = scripts.current.dirtyFiles();
+      for (const file of dirtyScripts) await scripts.current.save(file);
+      setMessage({ kind: "info", text: `${report.written.length + dirtyScripts.length} Datei(en) gespeichert` });
     } catch (e) {
       fail(e);
     }
@@ -202,11 +228,25 @@ export function useProjectSession() {
       if (!out) return;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
+      // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
+      // A script save refuses while a text archive is unsaved, and the build saves the store only after the scripts: with
+      // scripts to save, the store goes first (as in `onSave`).
+      const dirtyScripts = scripts.current.dirtyFiles();
+      const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
+      for (const file of dirtyScripts) await scripts.current.save(file);
       const report = await buildRom(out);
       setLastRom(report.rom);
-      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved} Datei(en) vorher gespeichert)` });
+      problems.applyBuildReport(report.problems);
+      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
-      fail(e);
+      if (isCmdError(e) && e.code === "compile") {
+        const list = e.problems ?? [];
+        problems.applyReport(list);
+        const errors = list.filter((p) => p.severity === "error").length;
+        setMessage({ kind: "error", text: errors > 0 ? `Build abgebrochen: ${errors} Fehler` : `Build abgebrochen: ${e.message}` });
+      } else {
+        fail(e);
+      }
     } finally {
       setBusy(false);
     }

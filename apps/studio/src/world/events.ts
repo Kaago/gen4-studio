@@ -1,5 +1,6 @@
 import { isCmdError } from "../api";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
+import { TERMS } from "../workbench/terms";
 import { MAP_SIZE } from "./layout";
 
 export type { EventKind } from "../api";
@@ -49,11 +50,11 @@ export function eventTitle(kind: EventKind, data: EventData, destName?: string):
     }
     case "coord": {
       const c = data as CoordDto;
-      return `Trigger ${c.index} · Skript ${c.script}`;
+      return `Trigger ${c.index} · ${TERMS.script.label} ${c.script}`;
     }
     case "bg": {
       const b = data as BgDto;
-      return `Hintergrund-Event ${b.index} · Skript ${b.script}`;
+      return `Hintergrund-Event ${b.index} · ${TERMS.script.label} ${b.script}`;
     }
   }
 }
@@ -67,7 +68,7 @@ export function eventDetails(kind: EventKind, data: EventData): string {
     }
     case "object": {
       const o = data as ObjectDto;
-      return `Position x ${o.x}, z ${o.z}, y ${o.y} · Grafik ${o.graphics_id} · Bewegung ${o.movement_type} · Skript ${o.script}`;
+      return `Position x ${o.x}, z ${o.z}, y ${o.y} · Grafik ${o.graphics_id} · Bewegung ${o.movement_type} · ${TERMS.script.label} ${o.script}`;
     }
     case "coord": {
       const c = data as CoordDto;

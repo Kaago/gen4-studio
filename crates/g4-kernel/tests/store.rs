@@ -513,14 +513,14 @@ fn read_only_kinds_are_not_unpacked_by_the_store() {
     let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
     // No accessor exists for read-only kinds; the reload path shows the refusal.
     let id = AssetId {
-        kind: AssetKind::TextArchive,
+        kind: AssetKind::MapTexture,
         index: 0,
     };
     assert!(matches!(
         st.reload_from_disk(id).unwrap_err(),
-        KernelError::NotEditable(AssetKind::TextArchive)
+        KernelError::NotEditable(AssetKind::MapTexture)
     ));
-    assert!(!s.dir.path().join("unpacked/textArchives").exists());
+    assert!(!st.project().unpacked_dir(AssetKind::MapTexture).exists());
 }
 
 #[test]
@@ -1291,6 +1291,7 @@ fn patched_project_reads_and_saves_headers_from_files() {
     st.edit_header(1, "x", |h| {
         if let MapHeader::Pt(h) = h {
             h.matrix_id = 7;
+            h.text_archive_id = 433;
         }
         Ok(())
     })
@@ -1313,6 +1314,8 @@ fn patched_project_reads_and_saves_headers_from_files() {
     // A fresh project reads the edit back through the files.
     let reread = Project::open(s.dir.path()).unwrap();
     assert_eq!(reread.headers().unwrap()[1].matrix_id, 7);
+    // The listing carries the archive a header reads its messages from.
+    assert_eq!(reread.headers().unwrap()[1].text_archive_id, 433);
     assert_eq!(reread.header_count().unwrap(), 2);
 }
 
@@ -1691,4 +1694,174 @@ fn create_header_rolls_back_when_mapname_cannot_be_written() {
     assert!(st.dirty().is_empty());
     // Nothing is left behind: the same call works once the folder is writable.
     assert_eq!(st.create_header(0, "X").unwrap(), 2);
+}
+
+fn text_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::TextArchive,
+        index,
+    }
+}
+
+#[test]
+fn search_skips_archives_that_do_not_decode() {
+    // Members 0..=432 of the fixture are garbage; the search must not trip over them.
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    let hits = st.search_text("sandgem", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].archive, hits[0].index), (433, 2));
+    assert!(matches!(
+        st.text_archive(0).unwrap_err(),
+        KernelError::InvalidProject(m) if m.contains("textArchives/0000")
+    ));
+}
+
+#[test]
+fn search_sees_a_saved_edit_but_not_an_unsaved_one() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(st.search_text("twinleaf", 10).unwrap().len(), 1);
+    st.edit_text_archive(433, "rename", |d| {
+        d.messages[1].text = "Zweiblattdorf".into()
+    })
+    .unwrap();
+    assert_eq!(st.search_text("twinleaf", 10).unwrap().len(), 1);
+    st.save().unwrap();
+    assert!(st.search_text("twinleaf", 10).unwrap().is_empty());
+    let hits = st.search_text("ZWEIBLATT", 10).unwrap();
+    assert_eq!((hits[0].archive, hits[0].index), (433, 1));
+}
+
+#[test]
+fn text_archive_save_reports_warnings_and_is_stale_after_an_external_change() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    st.edit_text_archive(433, "wide", |d| d.messages[1].text = "W".repeat(60))
+        .unwrap();
+    let report = st.save().unwrap();
+    assert_eq!(report.written, vec![text_id(433)]);
+    assert!(
+        !report.problems.is_empty(),
+        "a line wider than 200 px warns"
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity == g4_kernel::text::Severity::Warning)
+    );
+
+    // Another tool rewrites the JSON; the next save refuses to overwrite it.
+    let json = s.dir.path().join("expanded/textArchives/0433.json");
+    let other = std::fs::read_to_string(&json).unwrap().replace('W', "V");
+    std::fs::write(&json, other).unwrap();
+    st.edit_text_archive(433, "again", |d| d.messages[1].text = "x".into())
+        .unwrap();
+    assert!(matches!(
+        st.save().unwrap_err(),
+        KernelError::Stale(id) if id == text_id(433)
+    ));
+    st.accept_disk_as_base(text_id(433)).unwrap();
+    st.save().unwrap();
+    assert!(std::fs::read_to_string(&json).unwrap().contains("\"x\""));
+}
+
+#[test]
+fn broken_text_json_is_an_error_naming_the_file() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    st.project()
+        .ensure_unpacked(AssetKind::TextArchive)
+        .unwrap();
+    let json = s.dir.path().join("expanded/textArchives/0433.json");
+    std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+    std::fs::write(&json, "{ not json").unwrap();
+    // The JSON was written after the member, so it is the source.
+    let err = st.text_archive(433).unwrap_err().to_string();
+    assert!(
+        err.contains("textArchives/0433.json: text archive JSON:"),
+        "{err}"
+    );
+    assert!(!st.is_dirty(text_id(433)));
+}
+
+#[test]
+fn location_names_read_the_member_even_when_the_json_differs() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    st.edit_text_archive(433, "rename", |d| {
+        d.messages[1].text = "Zweiblattdorf".into()
+    })
+    .unwrap();
+    st.save().unwrap();
+    let names = Project::open(s.dir.path())
+        .unwrap()
+        .location_names()
+        .unwrap();
+    assert_eq!(names[1], "Zweiblattdorf");
+}
+
+/// A JSON another tool left half-edited, newer than the member.
+fn break_text_json(root: &std::path::Path) -> std::path::PathBuf {
+    let json = root.join("expanded/textArchives/0433.json");
+    std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+    std::fs::write(&json, "{ \"key\": 0, \"messages\": [").unwrap();
+    json
+}
+
+#[test]
+fn undecodable_text_json_is_stale_and_accept_disk_as_base_recovers() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    st.edit_text_archive(433, "rename", |d| {
+        d.messages[1].text = "Zweiblattdorf".into()
+    })
+    .unwrap();
+    st.edit_map(1, "cell", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    let json = break_text_json(s.dir.path());
+    let map_member = s.dir.path().join("unpacked/maps/0001");
+    let map_before = std::fs::read(&map_member).unwrap();
+
+    // Stale, not a decode error; as for any stale asset nothing at all is written.
+    assert!(matches!(
+        st.save().unwrap_err(),
+        KernelError::Stale(id) if id == text_id(433)
+    ));
+    assert_eq!(std::fs::read(&map_member).unwrap(), map_before);
+    assert_eq!(st.dirty(), vec![map_id(1), text_id(433)]);
+
+    // Accepting the broken file keeps the asset dirty; the save overwrites both files.
+    st.accept_disk_as_base(text_id(433)).unwrap();
+    assert!(st.is_dirty(text_id(433)));
+    let report = st.save().unwrap();
+    assert_eq!(report.written, vec![map_id(1), text_id(433)]);
+    let doc = g4_kernel::text::TextArchiveDoc::from_json(&std::fs::read(&json).unwrap(), "en_US")
+        .unwrap();
+    assert_eq!(doc.messages[1].text, "Zweiblattdorf");
+    let member = std::fs::read(s.dir.path().join("unpacked/textArchives/0433")).unwrap();
+    let doc = g4_kernel::text::TextArchiveDoc::from_member(&member, "en_US").unwrap();
+    assert_eq!(doc.messages[1].text, "Zweiblattdorf");
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn reload_of_an_undecodable_text_archive_fails_and_drops_its_index_entry() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(st.search_text("twinleaf", 10).unwrap().len(), 1);
+    break_text_json(s.dir.path());
+    let err = st.reload_from_disk(text_id(433)).unwrap_err().to_string();
+    assert!(err.contains("textArchives/0433.json"), "{err}");
+    assert!(st.search_text("twinleaf", 10).unwrap().is_empty());
 }

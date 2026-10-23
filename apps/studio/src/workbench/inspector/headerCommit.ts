@@ -57,18 +57,22 @@ export class EditSession<T> {
     });
   }
 
-  /** Sets one field (one undoable change). A value the record already has records nothing. */
-  commit(key: string, label: string, value: number): Promise<void> {
+  /**
+   * Sets one field (one undoable change). A value the record already has records nothing. Resolves to whether the record
+   * has the value afterwards: false when nothing was loaded yet or the write was refused.
+   */
+  commit(key: string, label: string, value: number): Promise<boolean> {
     return this.enqueue(async () => {
       const base = this.base;
-      if (!base || this.fields.value(base, key) === value) return;
+      if (!base) return false;
+      if (this.fields.value(base, key) === value) return true;
       const next = this.fields.with(base, key, value);
       try {
         await this.backend.set(this.id, next, label);
       } catch (e) {
         if (!this.disposed) this.hooks.onRefused();
         this.hooks.onError(e);
-        return;
+        return false;
       }
       this.base = next;
       if (!this.disposed) this.hooks.onState(next);
@@ -77,6 +81,7 @@ export class EditSession<T> {
       } catch (e) {
         this.hooks.onError(e);
       }
+      return true;
     });
   }
 
@@ -84,9 +89,12 @@ export class EditSession<T> {
     this.disposed = true;
   }
 
-  private enqueue(job: () => Promise<void>): Promise<void> {
+  private enqueue<R>(job: () => Promise<R>): Promise<R> {
     const run = this.queue.then(job);
-    this.queue = run;
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
 }

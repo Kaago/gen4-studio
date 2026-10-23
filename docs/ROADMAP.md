@@ -1,6 +1,6 @@
 # Gen4 Studio: Roadmap
 
-Stand: 2026-10-22. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
+Stand: 2026-10-23. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
 
 Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phase beginnt, bevor das Gate der vorherigen bestanden ist. Zeitangaben sind bewusst weggelassen; die Reihenfolge und die Gates sind die Zusage.
 
@@ -13,7 +13,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
 | 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (in Arbeit, Gate offen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
 | 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (implementiert, Gate offen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
-| 3b.2 | Skripte und Text: rotom, Monaco, chatot, Text-Editor | Ein Ereignis-Script und neue Texte komplett im Studio |
+| 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (implementiert, Gate offen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
 | 3b.3 | Daten-Editoren: Encounter, Trainer, Pokémon, Moves, Items | Neue Trainer und Encounter komplett im Studio |
 | 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
@@ -89,7 +89,7 @@ Gate: Die neue Route aus Phase 2 (B) und ein neuer Raum mit Eingang entstehen pe
 
 Nicht in 3a: neue Header (Patch, jetzt 3b.1), Gelände malen (Phase 6), Höhen und Objekt-Sprites (jetzt 3b.1), Verschieben von Karten in der Weltkarte.
 
-## Phase 3b: Daten-Editoren, Skripte, Text, Import
+## Phase 3b: Daten-Editoren, Scripts, Text, Import
 
 Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. 3b.1 wurde auf Wunsch implementiert, während das Gate von Phase 3a noch offen ist; beide Gates sind offen. 3b.2 bis 3b.4 beginnen, wenn beide Gates bestanden sind; die Teile bauen aufeinander auf.
 
@@ -111,13 +111,24 @@ Gate: Auf Kopien von Platin DE und HeartGold DE entsteht ein neues Gebiet per As
 
 Nicht in 3b.1: Header löschen, DSPREs ARM9-Expansion und andere Patches, die OW-Tabellen-Erweiterung (`OWTBLXPANDV1`), Animation der Sprites, CI auf fremden Rechnern.
 
-### Phase 3b.2: Skripte und Text
+### Phase 3b.2: Scripts und Text
+
+Status: implementiert, Gate offen. Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`, auch die gated Läufe gegen Platin DE, HeartGold DE und HeartGold US); die Prüfung von Hand (GUI, melonDS, DSPRE) und der Rauchtest der gepackten App stehen in [docs/phase-3b2-gate.md](phase-3b2-gate.md) und sind noch nicht durchgeführt.
+
+Spezifikation: [docs/superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md](superpowers/specs/2026-10-22-phase-3b2-scripts-text-design.md). Plan: [docs/superpowers/plans/2026-10-22-phase-3b2-scripts-text.md](superpowers/plans/2026-10-22-phase-3b2-scripts-text.md).
 
 Lieferumfang:
-- Scripts: rotom-Projekt (`rotom.toml`, `.rotom/command_database/`) anlegen oder übernehmen; Monaco mit rotom-lsp; Compile beim Build; Decompile beim ersten Öffnen.
-- Text: chatot-Pipeline (JSON im Projekt), Text-Editor mit Suche, Referenzen aus Scripts.
+- Textarchive editierbar: Quelle ist `expanded/textArchives/NNNN.json` (chatot-JSON); Speichern schreibt JSON und Member. Panel „Text“ mit Archivliste, Nachrichten, Anfügen, Suche über alle Archive, Überlängen-Warnung und neuem Archiv.
+- Scripts übernehmen: expliziter Schritt, der `rotom.toml` und `.rotom/command_database/` anlegt und alle Member dekompiliert; ein von DSPRE oder rotom schon übernommenes Projekt wird ohne Nachfrage benutzt. Die Befehlsdatenbank kommt aus `crates/g4-kernel/metadata/scrcmd/` (Revision 33), nie aus dem Netz.
+- Script-Editor: CodeMirror 6 mit rotom-Syntax und `rotom-lsp` als Sidecar (Diagnosen, Completion, Hover, Signaturhilfe, Gehe-zu, Outline). Speichern schreibt Quelle, kompiliert und schreibt den Member; Compile-Fehler stehen im Panel „Probleme“ (unter der 3D-Gruppe) mit Sprung zur Zeile. Ohne `rotom-lsp` laufen Öffnen, Bearbeiten und Speichern weiter.
+- Textliterale (`Message "…"`); das betroffene Textarchiv wird nach dem Compile neu geladen.
+- Level-Scripts: Formular im Header-Editor plus „Als JSON öffnen“; das Formular speichert nie ein Dokument, das rotom ablehnt.
+- Navigation: Scriptdatei und Level-Script im Header-Editor (Öffnen, Neu), Event-Feld „Script“ (Öffnen, Neues Script), Knoten „Scripts“ im Welt-Explorer mit Volltextsuche.
+- Build: vor dem Packen werden alle veralteten Quellen kompiliert und alle veralteten Text-JSON kodiert; ein Fehler bricht den Build mit Problemliste ab. Ein unverändertes, übernommenes Projekt baut byte-identisch (gated Test).
 
-Gate: Ein Ereignis-Script und neue Texte entstehen komplett im Studio und wirken im Spiel.
+Gate: Auf Kopien von Platin DE und HeartGold DE läuft „Scripts übernehmen“ ohne Fehler, ein neuer NPC auf der neuen Route spricht einen Text aus einem Textliteral, gibt einmalig ein Item (Flag per Completion) und sagt danach etwas anderes, ein Vanilla-Dialog ist geändert, ein Level-Script (`on_load`) läuft beim Betreten, ein Text ist geändert und einer angefügt (die Suche findet ihn), DSPRE öffnet das Projekt und zeigt die Textänderung, und `scripts/gate.sh` läuft grün gegen alle drei Projekte (mit `G4_ROTOM_LSP`). Ablauf: [docs/phase-3b2-gate.md](phase-3b2-gate.md).
+
+Nicht in 3b.2: visueller Event- oder Node-Editor; Flag- und Variablen-Picker-Dialoge; DSPREs `.script`-Textformat als Editorformat; Rückwärtsreferenzen „welche Scripts nutzen Nachricht N“; mehrere Sprachen in einem Archiv; ein Diamant/Perl-Gate; Umbenennen, Referenzen und Formatieren im Editor.
 
 ### Phase 3b.3: Daten-Editoren
 

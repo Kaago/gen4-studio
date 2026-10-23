@@ -8,10 +8,10 @@ use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
 use uxie::text_bank::game_strings::TextBankIds;
-use uxie::text_bank::read_text_archive_bin;
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
+use crate::text::TextArchiveDoc;
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
 const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
@@ -41,12 +41,16 @@ pub enum AssetKind {
     /// store (the header table asset reads and writes its folder), but an archive for
     /// `build`, which packs the folder when it exists.
     DynamicHeaders,
+    /// The script archive: one member per script file (level scripts included). The store
+    /// does not edit it (scripts are rotom sources, see the `scripts` module); `build` packs
+    /// `unpacked/scripts`.
+    Script,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed; the store-only
     /// kinds come last.
-    pub const ALL: [AssetKind; 11] = [
+    pub const ALL: [AssetKind; 12] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -58,6 +62,7 @@ impl AssetKind {
         AssetKind::InteriorBuildingModel,
         AssetKind::HeaderTable,
         AssetKind::DynamicHeaders,
+        AssetKind::Script,
     ];
 
     /// Human-readable name used in error messages.
@@ -74,6 +79,7 @@ impl AssetKind {
             AssetKind::InteriorBuildingModel => "interior building model",
             AssetKind::HeaderTable => "header table",
             AssetKind::DynamicHeaders => "dynamic headers",
+            AssetKind::Script => "script file",
         }
     }
 
@@ -91,6 +97,7 @@ impl AssetKind {
             AssetKind::InteriorBuildingModel => 8,
             AssetKind::HeaderTable => 9,
             AssetKind::DynamicHeaders => 10,
+            AssetKind::Script => 11,
         }
     }
 }
@@ -134,6 +141,7 @@ struct FamilyArchives {
     interior_building_models: Option<ArchiveEntry>,
     /// Only Platinum and HGSS have the Dynamic Headers NARC.
     dynamic_headers: Option<ArchiveEntry>,
+    scripts: ArchiveEntry,
 }
 
 /// DSPRE folder names of the optional archives. They are also reported for families
@@ -155,6 +163,9 @@ pub enum Location {
     /// `count` files `0000..` of 24 bytes each in `dir` (the header table once the Dynamic
     /// Headers patch is applied); the asset's bytes are their concatenation.
     HeaderFiles { dir: PathBuf, count: usize },
+    /// A text archive: its chatot JSON source and its member. The asset's bytes are the
+    /// canonical JSON.
+    TextSource { json: PathBuf, member: PathBuf },
 }
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
@@ -163,7 +174,7 @@ pub enum Location {
 pub struct ArchiveMap {
     /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
     /// the kind has none, like the header table).
-    entries: [Option<(PathBuf, String)>; 11],
+    entries: [Option<(PathBuf, String)>; 12],
 }
 
 impl ArchiveMap {
@@ -199,6 +210,7 @@ impl ArchiveMap {
                 archives.interior_building_models.map(resolve),
                 None,
                 archives.dynamic_headers.map(resolve),
+                Some(resolve(archives.scripts)),
             ],
         })
     }
@@ -246,6 +258,12 @@ pub struct HeaderSummary {
     pub area_data_id: u8,
     /// Member of the event archive with this header's warps, NPCs, triggers and signs.
     pub event_file_id: u16,
+    /// Text archive with this header's messages (the text panel lists which headers use an archive).
+    pub text_archive_id: u16,
+    /// Member of the script archive with this header's scripts (the world explorer lists it under the header).
+    pub script_file_id: u16,
+    /// Member of the script archive with this header's level script (0: none).
+    pub level_script_id: u16,
 }
 
 /// The header list plus the reason why location names are missing, if they are.
@@ -359,6 +377,14 @@ impl Project {
             .join(self.archives.unpacked_name(kind))
     }
 
+    /// `root/expanded/<name>`: the decoded sources DSPRE keeps next to `unpacked/`. Only the
+    /// text archives (`.json`) and the scripts use it.
+    pub fn expanded_dir(&self, kind: AssetKind) -> PathBuf {
+        self.root
+            .join("expanded")
+            .join(self.archives.unpacked_name(kind))
+    }
+
     /// `root/unpacked/<name>/NNNN`
     pub fn member_path(&self, kind: AssetKind, index: u16) -> PathBuf {
         self.unpacked_dir(kind).join(format!("{index:04}"))
@@ -376,13 +402,20 @@ impl Project {
         dynamic_headers::is_applied(self)
     }
 
-    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files; the
+    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files (a text
+    /// archive is its JSON source and its member, see [`Location::TextSource`]); the
     /// header table is the slice of `arm9/arm9.bin` holding every header (its only asset has
     /// index 0), or, once the Dynamic Headers patch is applied, the files of
     /// `unpacked/dynamicHeaders`. Fails with `InvalidProject` for another index, when
     /// `arm9.bin` is too short for the table or the folder is missing, and with
     /// `UnknownGame` when the game has no known table offset.
     pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+        if kind == AssetKind::TextArchive {
+            return Ok(Location::TextSource {
+                json: self.expanded_dir(kind).join(format!("{index:04}.json")),
+                member: self.member_path(kind, index),
+            });
+        }
         if kind != AssetKind::HeaderTable {
             return Ok(Location::Member(self.member_path(kind, index)));
         }
@@ -681,7 +714,7 @@ impl Project {
         std::fs::read(&path).map(Some).map_err(io_at(&path))
     }
 
-    fn uxie_family(&self) -> uxie::GameFamily {
+    pub(crate) fn uxie_family(&self) -> uxie::GameFamily {
         match self.family {
             Family::Dp => uxie::GameFamily::DP,
             Family::Pt => uxie::GameFamily::Platinum,
@@ -689,7 +722,7 @@ impl Project {
         }
     }
 
-    fn uxie_language(&self) -> uxie::GameLanguage {
+    pub(crate) fn uxie_language(&self) -> uxie::GameLanguage {
         match self.language {
             Language::English => uxie::GameLanguage::English,
             Language::French => uxie::GameLanguage::French,
@@ -712,13 +745,16 @@ impl Project {
             )));
         }
         let path = self.member_path(AssetKind::TextArchive, bank);
-        read_text_archive_bin(&path)
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        // The member stays the source of the names: they are read as the game stores them.
+        TextArchiveDoc::from_member(&bytes, self.language.locale_key())
+            .map(|doc| doc.messages.into_iter().map(|m| m.text).collect())
             .map_err(|e| KernelError::Uxie(format!("{}: {e}", path.display())))
     }
 
     /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
     /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
-    fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
+    pub fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { dir, count } => {
                 let bytes = dynamic_headers::read_files(&dir, count)?
@@ -744,7 +780,7 @@ impl Project {
                 )
                 .map_err(|e| KernelError::Uxie(format!("{e}")))
             }
-            Location::Member(_) => Err(KernelError::InvalidProject(
+            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
         }
@@ -757,7 +793,7 @@ impl Project {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { count, .. } => Ok(count),
             Location::Slice { len, .. } => Ok(len / MAP_HEADER_SIZE),
-            Location::Member(_) => Err(KernelError::InvalidProject(
+            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
                 "the header table is not a member file".to_owned(),
             )),
         }
@@ -803,6 +839,9 @@ impl Project {
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),
                     event_file_id: header.event_file_id(),
+                    text_archive_id: header.text_archive_id(),
+                    script_file_id: header.script_file_id(),
+                    level_script_id: header.level_script_id(),
                 }
             })
             .collect();
@@ -835,9 +874,9 @@ mod tests {
             // Dynamic Headers NARC; every other archive kind exists everywhere. The header
             // table is store-only and never has an archive.
             let expected = match family {
-                Family::Dp => 8,
-                Family::Pt => 9,
-                Family::Hgss => 10,
+                Family::Dp => 9,
+                Family::Pt => 10,
+                Family::Hgss => 11,
             };
             assert_eq!(map.kinds().count(), expected, "{family:?}");
             for kind in AssetKind::ALL {

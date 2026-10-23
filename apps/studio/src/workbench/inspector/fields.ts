@@ -1,5 +1,6 @@
 import { headerFamily } from "../../api";
 import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
+import { TERMS } from "../terms";
 
 /** What an id field points at; pickers get their upper limit from the archive's member count. */
 export type PickKind = "matrix" | "areaData" | "eventFile" | "textArchive" | "script" | "header" | "mapTexture" | "buildingTexture";
@@ -23,8 +24,8 @@ const PICK_U8 = new Set(["area_data_id"]);
 
 const areaData = pick("area_data_id", "Area-Data", "areaData");
 const matrix = pick("matrix_id", "Matrix", "matrix");
-const script = pick("script_file_id", "Skriptdatei", "script");
-const levelScript = u16("level_script_id", "Level-Skript");
+const script = pick("script_file_id", TERMS.scriptFile.label, "script");
+const levelScript = pick("level_script_id", TERMS.levelScript.label, "script");
 const textArchive = pick("text_archive_id", "Textarchiv", "textArchive");
 const musicDay = u16("music_day_id", "Musik Tag");
 const musicNight = u16("music_night_id", "Musik Nacht");
@@ -142,6 +143,7 @@ const PICK_ASSET: Partial<Record<PickKind, AssetKind>> = {
   areaData: "AreaData",
   eventFile: "Event",
   textArchive: "TextArchive",
+  script: "Script",
   mapTexture: "MapTexture",
   buildingTexture: "BuildingTexture",
 };

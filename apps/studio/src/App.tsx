@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { Toolbar } from "./Toolbar";
 import type { Message } from "./Toolbar";
 import Workbench from "./workbench/Workbench";
+import type { TextTarget } from "./workbench/text/textModel";
+import { ProblemsStore } from "./workbench/problems/problems";
+import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
+import type { ScriptBridge } from "./workbench/script/useScripts";
 import { redo, undo } from "./api";
 import type { HeaderSummary } from "./api";
 import { createEditBus } from "./bus/editBus";
@@ -35,9 +39,31 @@ export default function App() {
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
 
-  const session = useProjectSession();
+  // The archive and message the text panel is asked to open: a new object per request, so the same one can be asked for twice.
+  const [textTarget, setTextTarget] = useState<TextTarget | null>(null);
+  const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
+
+  // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
+  // (a build saves them first), hence the ref the session reads them through.
+  const [problems] = useState(() => new ProblemsStore());
+  const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
+  const session = useProjectSession({ bus, problems, scripts: scriptBridge });
+  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
+  scriptBridge.current = scripts.bridge;
+  // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).
+  const unsavedRef = useRef(0);
+  unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
-  const scene = useSceneSync({ bus, setMessage: session.setMessage, fail: session.fail, refreshDirty: session.refreshDirty, setPinned: pins.setPinned, dockApi });
+  const scene = useSceneSync({
+    bus,
+    setMessage: session.setMessage,
+    fail: session.fail,
+    refreshDirty: session.refreshDirty,
+    setPinned: pins.setPinned,
+    dockApi,
+    onOpenText,
+    onOpenScript: scripts.api.open,
+  });
   const world = useWorldActions({
     bus,
     pins,
@@ -91,7 +117,7 @@ export default function App() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
-  useWindowGuards(session.dirtyRef, session.setMessage);
+  useWindowGuards(unsavedRef, session.setMessage);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     step,
@@ -103,6 +129,7 @@ export default function App() {
   /** Another project was opened: the scene and the world start over with its header list. */
   function resetProject(headers: HeaderSummary[]) {
     showAfterSync.current = null;
+    problems.clear();
     scene.resetForProject(headers);
     world.resetForProject();
   }
@@ -125,6 +152,9 @@ export default function App() {
     pins,
     overview,
     onOpenWizard: wizards.open,
+    text: { target: textTarget },
+    scripts: scripts.api,
+    problems,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },
   });
 
@@ -138,7 +168,7 @@ export default function App() {
       <Toolbar
         projectOpen={session.info !== null}
         busy={session.busy}
-        dirtyCount={session.dirtyCount}
+        dirtyCount={session.dirtyCount + scripts.dirtyCount}
         canRun={session.lastRom !== null}
         onOpen={() => session.onOpen(resetProject)}
         onUndo={() => void step(undo)}

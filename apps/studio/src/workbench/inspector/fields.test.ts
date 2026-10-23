@@ -45,6 +45,14 @@ describe("headerFieldSpecs", () => {
     expect(headerFieldSpecs("Pt")[1]).toMatchObject({ label: "Matrix", kind: "pick", pick: "matrix" });
   });
 
+  it("makes_the_script_file_and_the_level_script_pickers_of_the_script_archive", () => {
+    for (const family of ["DP", "Pt", "HGSS"] as const) {
+      const specs = headerFieldSpecs(family);
+      expect(specs.find((f) => f.key === "script_file_id")).toMatchObject({ label: "Scriptdatei", kind: "pick", pick: "script" });
+      expect(specs.find((f) => f.key === "level_script_id")).toMatchObject({ label: "Level-Script", kind: "pick", pick: "script" });
+    }
+  });
+
   it("uses the width the family stores each field in", () => {
     const kind = (family: "DP" | "Pt" | "HGSS", key: string) => headerFieldSpecs(family).find((f) => f.key === key)?.kind;
     expect(kind("DP", "location_name")).toBe("u16");
@@ -76,12 +84,14 @@ describe("clampField", () => {
 
 describe("pickMax", () => {
   it("is the member count minus one of the picked kind", () => {
-    const counts = { Matrix: 4, AreaData: 10, Event: 0, TextArchive: 600 };
+    const counts = { Matrix: 4, AreaData: 10, Event: 0, TextArchive: 600, Script: 3 };
     expect(pickMax("matrix", counts)).toBe(3);
     expect(pickMax("areaData", counts)).toBe(9);
     expect(pickMax("textArchive", counts)).toBe(599);
     expect(pickMax("eventFile", counts)).toBe(0);
-    expect(pickMax("script", counts)).toBeUndefined();
+    expect(pickMax("script", counts)).toBe(2);
+    expect(pickMax("script", { Script: 3 })).toBe(2);
+    expect(pickMax("script", {})).toBeUndefined();
     expect(pickMax("matrix", {})).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@ test-support = ["dep:tempfile", "g4-formats/test-support"]
 [dependencies]
 g4-formats = { path = "../g4-formats" }
 uxie = "0.9"
+chatot = "0.8"
 ds-rom = { git = "https://github.com/AetiasHax/ds-rom", rev = "8a9c1512fa5781d9ea53e660f5310e9ab137c53d" }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +20,8 @@ serde_yaml = "0.9"
 tempfile = { version = "3", optional = true }
 clap = { version = "4", features = ["derive"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+rotom = { git = "https://github.com/KalaayPT/rotom", tag = "v0.7.0" }
+toml = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

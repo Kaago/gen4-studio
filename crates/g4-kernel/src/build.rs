@@ -8,13 +8,57 @@ use g4_formats::narc::Narc;
 
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
+use crate::scripts;
+use crate::text::{self, Problem, Severity};
 
 /// What `build` did: the asset kinds whose unpacked folder was packed (with their member
-/// count; archives whose bytes did not change are counted but not rewritten) and the ROM.
+/// count; archives whose bytes did not change are counted but not rewritten), the ROM, the
+/// script members compiled and the text archives encoded before packing, the text archives
+/// whose JSON a script's text literal changed, and the warnings those steps raised.
 #[derive(Debug)]
 pub struct BuildReport {
     pub packed: Vec<(AssetKind, usize)>,
     pub rom: PathBuf,
+    pub compiled: Vec<u16>,
+    pub encoded: Vec<u16>,
+    /// Text archives a compiled script appended messages to (see
+    /// [`scripts::CompileReport::touched_archives`]); a store that holds them must reload.
+    pub touched_archives: Vec<u16>,
+    pub problems: Vec<Problem>,
+}
+
+/// The result of the steps `build` runs before it packs, see [`prepare`].
+#[derive(Debug, Default, PartialEq)]
+pub struct Prepared {
+    pub compiled: Vec<u16>,
+    pub encoded: Vec<u16>,
+    pub touched_archives: Vec<u16>,
+    pub problems: Vec<Problem>,
+}
+
+/// Brings the unpacked folders up to date with their sources: compiles stale scripts (only
+/// where the project is adopted) and encodes stale text JSON. Any [`Severity::Error`] among
+/// the problems of either step is `Err(KernelError::Compile(problems))` (all problems, both
+/// steps), and the caller packs nothing. Warnings come back in [`Prepared::problems`].
+pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
+    let mut prepared = Prepared::default();
+    if scripts::is_adopted(project) {
+        let report = scripts::compile(project)?;
+        prepared.compiled = report.compiled;
+        prepared.touched_archives = report.touched_archives;
+        prepared.problems = report.problems;
+    }
+    let (encoded, problems) = text::encode_stale(project)?;
+    prepared.encoded = encoded;
+    prepared.problems.extend(problems);
+    if prepared
+        .problems
+        .iter()
+        .any(|p| p.severity == Severity::Error)
+    {
+        return Err(KernelError::Compile(prepared.problems));
+    }
+    Ok(prepared)
 }
 
 fn build_err(e: impl std::fmt::Display) -> KernelError {
@@ -110,15 +154,35 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
     Ok(())
 }
 
-/// Packs every asset kind whose unpacked folder exists into its packed path, then builds
-/// the ROM with ds-rom into `out_rom`. All folders are packed in memory before the first
-/// file is written, so a pack error leaves the project untouched. Hidden entries below
-/// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
+/// Runs [`prepare_for_build`], then [`build_prepared`]: stale scripts are compiled and stale
+/// text encoded (an error among their problems stops the build before anything is packed or
+/// written), every asset kind whose unpacked folder exists is packed into its packed path,
+/// then the ROM is built with ds-rom into `out_rom`. All folders are packed in memory before
+/// the first file is written, so a pack error leaves the project untouched. Hidden entries
+/// below `files/` are an error (checked first), because ds-rom would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
+    let prepared = prepare_for_build(project, out_rom)?;
+    build_prepared(project, out_rom, prepared)
+}
+
+/// The first half of [`build`]: creates the output folder, rejects hidden entries below
+/// `files/` and runs [`prepare`]. It writes sources, members and compile state, so a caller
+/// that shares the project with an editor runs it exclusively; [`build_prepared`] only reads
+/// them.
+pub fn prepare_for_build(project: &Project, out_rom: &Path) -> Result<Prepared, KernelError> {
     if let Some(parent) = out_rom.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
     reject_hidden_files(&project.root.join("files"))?;
+    prepare(project)
+}
+
+/// The second half of [`build`]: packs the unpacked folders and builds the ROM.
+pub fn build_prepared(
+    project: &Project,
+    out_rom: &Path,
+    prepared: Prepared,
+) -> Result<BuildReport, KernelError> {
     let mut packed = Vec::new();
     let mut pending = Vec::new();
     // `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family.
@@ -157,6 +221,10 @@ pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelErr
     Ok(BuildReport {
         packed,
         rom: out_rom.to_path_buf(),
+        compiled: prepared.compiled,
+        encoded: prepared.encoded,
+        touched_archives: prepared.touched_archives,
+        problems: prepared.problems,
     })
 }
 

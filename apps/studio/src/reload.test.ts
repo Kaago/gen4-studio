@@ -41,8 +41,13 @@ describe("reloadPlan", () => {
     expect(plan("HeaderTable", 0, null)).toEqual([{ kind: "unpin" }, { kind: "headers" }]);
   });
 
+  it("re-reads the restored text archive in the text panel, nothing else", () => {
+    expect(plan("TextArchive", 433)).toEqual([{ kind: "textPanel", archive: 433 }]);
+    expect(plan("TextArchive", 433, null)).toEqual([{ kind: "textPanel", archive: 433 }]);
+  });
+
   it("has nothing to reload for assets the editors cannot change", () => {
-    for (const kind of ["TextArchive", "MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel"] as const) {
+    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script"] as const) {
       expect(plan(kind, 0)).toEqual([]);
     }
   });
@@ -55,6 +60,9 @@ const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({
   matrix_id: 3,
   area_data_id: 5,
   event_file_id: 7,
+  text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
   ...over,
 });
 

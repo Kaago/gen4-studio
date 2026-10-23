@@ -2,18 +2,39 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke,
+  Channel: class {
+    onmessage: (m: unknown) => void = () => {};
+  },
+}));
 
 import {
   addBuilding,
+  addScript,
+  adoptScripts,
+  createTextArchive,
   deleteBuilding,
+  editTextArchive,
   getBuildingGlb,
+  getTextArchive,
   getHeader,
   headerFamily,
   memberCounts,
   headerFields,
   isCmdError,
+  lspSend,
+  lspStart,
+  lspStop,
+  readScript,
+  resolveScript,
+  saveLevelScript,
+  saveScript,
+  scriptsStatus,
+  searchText,
   setHeader,
   updateBuilding,
+  validateText,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
@@ -26,6 +47,14 @@ describe("isCmdError", () => {
     expect(isCmdError({ code: "read_only", message: "m", asset: { kind: "Event", index: 3 } })).toBe(true);
     expect(isCmdError({ code: "partial", message: "map 0003 was created; header edit failed: boom", asset: null })).toBe(true);
     expect(isCmdError("plain string")).toBe(false);
+  });
+
+  it("accepts the compile code with its problems", () => {
+    const problem = { severity: "error", file: "expanded/scripts/0000.rotom", line: 2, col: 5, message: "m", source: "compile" };
+    const error = { code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem] };
+    expect(isCmdError(error)).toBe(true);
+    expect(isCmdError({ ...error, problems: [] })).toBe(true);
+    expect(isCmdError({ ...error, problems: "none" })).toBe(false);
   });
 
   it("rejects objects of the wrong shape", () => {
@@ -152,5 +181,96 @@ describe("building commands", () => {
     await expect(getBuildingGlb(9, 0)).rejects.toMatchObject({ message: "building model 9 does not exist" });
     invoke.mockResolvedValue(new ArrayBuffer(1));
     await expect(getBuildingGlb(9, 0)).resolves.toBeInstanceOf(ArrayBuffer);
+  });
+});
+
+describe("text archive commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("passes the edit as the backend's externally tagged enum", async () => {
+    invoke.mockResolvedValue(7);
+    await editTextArchive(433, { Set: { index: 1, text: "Neu" } });
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: { Set: { index: 1, text: "Neu" } } });
+    await editTextArchive(433, "Append");
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: "Append" });
+    await editTextArchive(433, "RemoveLast");
+    expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: "RemoveLast" });
+  });
+
+  it("calls the read, create, search and check commands with their argument names", async () => {
+    invoke.mockResolvedValue(null);
+    await getTextArchive(5);
+    expect(invoke).toHaveBeenLastCalledWith("get_text_archive", { index: 5 });
+    await createTextArchive();
+    expect(invoke).toHaveBeenLastCalledWith("create_text_archive");
+    await searchText("hallo", 50);
+    expect(invoke).toHaveBeenLastCalledWith("search_text", { query: "hallo", limit: 50 });
+    await validateText("Hi");
+    expect(invoke).toHaveBeenLastCalledWith("validate_text", { text: "Hi" });
+  });
+});
+
+describe("language server commands", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("lspStart_hands_the_backend_a_fresh_channel_that_feeds_the_callback", async () => {
+    invoke.mockResolvedValue(undefined);
+    const first = vi.fn();
+    const second = vi.fn();
+    await lspStart(first);
+    await lspStart(second);
+    const [cmd, args] = invoke.mock.calls[0]!;
+    expect(cmd).toBe("lsp_start");
+    args.channel.onmessage('{"id":1}');
+    expect(first).toHaveBeenCalledWith('{"id":1}');
+    expect(invoke.mock.calls[1]![1].channel).not.toBe(args.channel);
+  });
+
+  it("lspStart_rejects_with_the_backend_error", async () => {
+    const missing = { code: "tool_missing", message: "rotom-lsp fehlt — Completion und Diagnosen aus", asset: null };
+    invoke.mockRejectedValue(missing);
+    await expect(lspStart(vi.fn())).rejects.toBe(missing);
+  });
+
+  it("lspSend_and_lspStop_call_their_commands", async () => {
+    invoke.mockResolvedValue(undefined);
+    await lspSend("{}");
+    await lspStop();
+    expect(invoke.mock.calls).toEqual([["lsp_send", { body: "{}" }], ["lsp_stop"]]);
+  });
+});
+
+describe("script commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("adoptScripts_passes_a_channel_that_feeds_the_progress_callback_and_resolves_to_the_report", async () => {
+    const report = { decompiled: 2, skipped_empty: 0, failed: [] };
+    invoke.mockResolvedValue(report);
+    const onProgress = vi.fn();
+    await expect(adoptScripts(onProgress)).resolves.toBe(report);
+    const [cmd, args] = invoke.mock.calls[0]!;
+    expect(cmd).toBe("adopt_scripts");
+    args.progress.onmessage({ done: 1, total: 2 });
+    expect(onProgress).toHaveBeenCalledWith({ done: 1, total: 2 });
+  });
+
+  it("calls_each_command_with_the_argument_names_of_the_backend", async () => {
+    invoke.mockResolvedValue(undefined);
+    await scriptsStatus();
+    await readScript(3);
+    await saveScript(3, "text");
+    await saveLevelScript(4, { a: 1 });
+    await addScript(3);
+    await resolveScript(415, 2);
+    expect(invoke.mock.calls).toEqual([
+      ["scripts_status"],
+      ["read_script", { file: 3 }],
+      ["save_script", { file: 3, text: "text" }],
+      ["save_level_script", { file: 4, doc: { a: 1 } }],
+      ["add_script", { file: 3 }],
+      ["resolve_script", { header: 415, n: 2 }],
+    ]);
   });
 });

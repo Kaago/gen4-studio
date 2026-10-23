@@ -47,6 +47,19 @@ impl Language {
             _ => None,
         }
     }
+
+    /// Locale key used by chatot and uxie text JSON (`de_DE`, `en_US`, ...).
+    pub fn locale_key(self) -> &'static str {
+        match self {
+            Language::English => "en_US",
+            Language::French => "fr_FR",
+            Language::German => "de_DE",
+            Language::Italian => "it_IT",
+            Language::Spanish => "es_ES",
+            Language::Japanese => "ja_JP",
+            Language::Korean => "ko_KR",
+        }
+    }
 }
 
 #[cfg(test)]

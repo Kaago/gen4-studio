@@ -251,6 +251,8 @@ fn headers_on_synthetic_project() {
     assert_eq!(h[1].matrix_id, 0);
     assert_eq!(h[0].area_data_id, 0);
     assert_eq!(h[1].area_data_id, 1);
+    // Header 0 uses script file 0 and level script 1 (the fixture's script archive).
+    assert_eq!((h[0].script_file_id, h[0].level_script_id), (0, 1));
 }
 
 #[test]
@@ -489,8 +491,8 @@ fn archive_map_knows_every_world_kind() {
         KernelError::InvalidProject(_)
     ));
     assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
-    // Platinum: the eight world archives plus the Dynamic Headers NARC.
-    assert_eq!(p.archives.kinds().count(), 9);
+    // Platinum: the eight world archives plus the Dynamic Headers NARC and the scripts.
+    assert_eq!(p.archives.kinds().count(), 10);
 }
 
 #[test]
@@ -554,7 +556,8 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
             "buildingTextures",
             "exteriorBuildingModels",
             "interiorBuildingModels",
-            "dynamicHeaders"
+            "dynamicHeaders",
+            "scripts"
         ]
     );
 }
@@ -575,7 +578,8 @@ fn asset_kind_labels() {
             "building model",
             "interior building model",
             "header table",
-            "dynamic headers"
+            "dynamic headers",
+            "script file"
         ]
     );
 }
@@ -638,8 +642,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_eleven_slots() {
-    assert_eq!(AssetKind::ALL.len(), 11);
+fn asset_kinds_have_twelve_slots() {
+    assert_eq!(AssetKind::ALL.len(), 12);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -648,6 +652,62 @@ fn asset_kinds_have_eleven_slots() {
     }
     assert_eq!(AssetKind::ALL[10], AssetKind::DynamicHeaders);
     assert_eq!(AssetKind::DynamicHeaders.label(), "dynamic headers");
+    assert_eq!(AssetKind::ALL[11], AssetKind::Script);
+    assert_eq!(AssetKind::Script.label(), "script file");
+}
+
+#[test]
+fn script_archive_is_known_per_family() {
+    let s = common::synthetic_project();
+    let archive = |code: &str| {
+        std::fs::write(
+            s.dir.path().join("header.yaml"),
+            format!("gamecode: {code}\n"),
+        )
+        .unwrap();
+        let p = Project::open(s.dir.path()).unwrap();
+        (
+            p.archives.packed(AssetKind::Script).map(Path::to_path_buf),
+            p.archives.unpacked_name(AssetKind::Script).to_owned(),
+        )
+    };
+    for (code, packed) in [
+        ("ADAE", "files/fielddata/script/scr_seq_release.narc"),
+        ("CPUE", "files/fielddata/script/scr_seq.narc"),
+        ("IPKE", "files/a/0/1/2"),
+    ] {
+        let (found, unpacked) = archive(code);
+        assert_eq!(found.as_deref(), Some(Path::new(packed)), "{code}");
+        assert_eq!(unpacked, "scripts");
+    }
+}
+
+#[test]
+fn scrcmd_databases_load() {
+    // rotom v0.7.0: src/database.rs DatabaseV2::load reads a file, so the embedded JSON goes
+    // through a temp file.
+    let dbs = [
+        (
+            include_str!("../metadata/scrcmd/diamond_pearl_v2.json"),
+            rotom::GameFamily::DP,
+        ),
+        (
+            include_str!("../metadata/scrcmd/platinum_v2.json"),
+            rotom::GameFamily::Platinum,
+        ),
+        (
+            include_str!("../metadata/scrcmd/hgss_v2.json"),
+            rotom::GameFamily::HGSS,
+        ),
+    ];
+    for (json, family) in dbs {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.json");
+        std::fs::write(&path, json).unwrap();
+        let db = rotom::DatabaseV2::load(&path).unwrap();
+        assert_eq!(db.game_family(), Some(family));
+        assert!(db.get_script_cmd("Message").is_ok());
+    }
 }
 
 #[test]

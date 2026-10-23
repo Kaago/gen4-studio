@@ -15,6 +15,7 @@ describe("asset labels", () => {
       BuildingModel: "Gebäudemodell",
       InteriorBuildingModel: "Innen-Gebäudemodell",
       HeaderTable: "Header-Tabelle",
+      Script: "Scriptdatei",
     };
     for (const [kind, label] of Object.entries(expected)) expect(kindLabel(kind as AssetKind)).toBe(label);
   });

@@ -1,3 +1,4 @@
+import { Channel } from "@tauri-apps/api/core";
 import { invoke } from "./platform/transport";
 
 export interface ProjectInfo {
@@ -18,6 +19,12 @@ export interface HeaderSummary {
   matrix_id: number;
   area_data_id: number;
   event_file_id: number;
+  /** Text archive with the header's messages (the text panel lists which headers use an archive). */
+  text_archive_id: number;
+  /** Script file (member of the script archive) with the header's scripts. */
+  script_file_id: number;
+  /** Level script file of the header (0: none). */
+  level_script_id: number;
 }
 
 export interface HeaderListing {
@@ -372,7 +379,8 @@ export type AssetKind =
   | "BuildingTexture"
   | "BuildingModel"
   | "InteriorBuildingModel"
-  | "HeaderTable";
+  | "HeaderTable"
+  | "Script";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -385,25 +393,46 @@ export interface AssetId {
 /**
  * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only".
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
+ * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile";
   message: string;
   asset: AssetId | null;
+  /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
+  problems?: ProblemDto[];
 }
 
 export function isCmdError(e: unknown): e is CmdError {
   if (typeof e !== "object" || e === null) return false;
   const o = e as Record<string, unknown>;
   return (
-    (o.code === "stale" || o.code === "read_only" || o.code === "tool_missing" || o.code === "partial" || o.code === "error") &&
+    (o.code === "stale" ||
+      o.code === "read_only" ||
+      o.code === "tool_missing" ||
+      o.code === "partial" ||
+      o.code === "error" ||
+      o.code === "compile") &&
     typeof o.message === "string" &&
-    (o.asset === null || typeof o.asset === "object")
+    (o.asset === null || typeof o.asset === "object") &&
+    (o.problems === undefined || Array.isArray(o.problems))
   );
+}
+
+/** A problem of the last save or build, or of one text (see `validateText`). Lines and columns are 1-based. */
+export interface ProblemDto {
+  severity: "error" | "warning";
+  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet. */
+  file: string;
+  line: number;
+  col: number;
+  message: string;
+  source: "compile" | "text";
 }
 
 export interface SaveReport {
   written: AssetId[];
+  problems: ProblemDto[];
 }
 
 export interface BuildReport {
@@ -412,6 +441,12 @@ export interface BuildReport {
   /** Asset kinds that were packed (every kind the project has an archive for, by unpacked folder name) with their member counts. */
   packed: [string, number][];
   rom: string;
+  /** Script files compiled before packing. */
+  compiled: number[];
+  /** Text archives encoded before packing. */
+  encoded: number[];
+  /** Warnings of the pre-build save, the compile and the text encoding; `source` tells them apart. */
+  problems: ProblemDto[];
 }
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
@@ -581,3 +616,136 @@ export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_stat
 export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");
 /** Rewrites the 4 bytes of a broken patch's wrong call in arm9.bin; the header table is not touched. */
 export const repairHeaderPatch = () => invoke<HeaderPatchDto>("repair_header_patch");
+
+/** One message of a text archive: its id in the JSON source and its text (control codes stay as text). */
+export interface TextMessageDto {
+  id: string;
+  text: string;
+}
+
+export interface TextArchiveDto {
+  index: number;
+  key: number;
+  lang: string;
+  messages: TextMessageDto[];
+  /** Ids of the map headers that use this archive. */
+  users: number[];
+}
+
+/** One edit of an archive's message list (the backend's serde enum). */
+export type TextEdit = { Set: { index: number; text: string } } | "Append" | "RemoveLast";
+
+/** One search hit: message `index` of archive `archive`, with an excerpt around the match. */
+export interface TextHit {
+  archive: number;
+  index: number;
+  excerpt: string;
+}
+
+/** Archive `index` including unsaved edits; rejects for an archive that cannot be decoded. */
+export const getTextArchive = (index: number) => invoke<TextArchiveDto>("get_text_archive", { index });
+/**
+ * Applies one edit to an archive (one undoable change). Resolves to null when it left the archive as it was; rejects
+ * (code "error") for a message that does not exist or when the last message would be removed.
+ */
+export const editTextArchive = (index: number, edit: TextEdit) => invoke<number | null>("edit_text_archive", { index, edit });
+/** Appends an archive with one message and resolves to its index. Written at once; not undoable. */
+export const createTextArchive = () => invoke<number>("create_text_archive");
+/** Case-insensitive search over the messages of all archives; at most `limit` hits. */
+export const searchText = (query: string, limit: number) => invoke<TextHit[]>("search_text", { query, limit });
+/** Warnings for one message text (line 1 is its first line), for example "wider than the text box". */
+export const validateText = (text: string) => invoke<ProblemDto[]>("validate_text", { text });
+
+/**
+ * Starts rotom-lsp for the open project; every message of the server (one JSON-RPC body, no framing) goes to
+ * `onMessage`. Rejects with code "tool_missing" when the binary is not there. A new `Channel` per call: the
+ * backend replaces a running server, and the old channel stops receiving.
+ */
+export async function lspStart(onMessage: (body: string) => void): Promise<void> {
+  const channel = new Channel<string>();
+  channel.onmessage = onMessage;
+  await invoke("lsp_start", { channel });
+}
+
+/**
+ * Sends one JSON-RPC body to the server (the backend frames it). Rejects when the queue is full or the server is
+ * dead and not restarted. A server that was restarted since the last send has lost the client's state: the
+ * client has to initialize and open its documents again, and nothing tells it so.
+ */
+export const lspSend = (body: string) => invoke<void>("lsp_send", { body });
+
+export const lspStop = () => invoke<void>("lsp_stop");
+
+/** Whether rotom has taken the project over (`rotom.toml` and the sources exist) and how many script files it has. */
+export interface ScriptsStatusDto {
+  adopted: boolean;
+  file_count: number;
+}
+
+export interface AdoptProgressDto {
+  done: number;
+  total: number;
+}
+
+export interface AdoptReportDto {
+  decompiled: number;
+  skipped_empty: number;
+  /** Script files rotom could not decompile (file number, message); they stay binary. */
+  failed: [number, string][];
+}
+
+/** A level script as rotom's JSON document; the panel shows it as text and hands the parsed text back. */
+export type LevelScriptDoc = Record<string, unknown>;
+
+/** A script file as the editor opens it (`kind` is the tag). A binary file cannot be edited. */
+export type ScriptSourceDto = { kind: "script"; text: string } | { kind: "levelScript"; doc: LevelScriptDoc } | { kind: "binary"; size: number };
+
+export interface SaveScriptDto {
+  /** Every problem the compile reported, also those of other sources that were stale. */
+  problems: ProblemDto[];
+  /** Text archives a text literal in a script appended to; the store holds them again. */
+  touched_archives: number[];
+}
+
+export type ScriptTargetDto = { kind: "file"; file: number; line: number } | { kind: "ambiguous"; candidates: number[] } | { kind: "unknown" };
+
+export const scriptsStatus = () => invoke<ScriptsStatusDto>("scripts_status");
+
+/** Decompiles every script file into `expanded/scripts/`; `onProgress` is called as files are done. Takes seconds. */
+export async function adoptScripts(onProgress: (progress: AdoptProgressDto) => void): Promise<AdoptReportDto> {
+  const progress = new Channel<AdoptProgressDto>();
+  progress.onmessage = onProgress;
+  return invoke<AdoptReportDto>("adopt_scripts", { progress });
+}
+
+export const readScript = (file: number) => invoke<ScriptSourceDto>("read_script", { file });
+/**
+ * Writes the source and compiles what is stale. A source that does not compile is saved anyway and comes back as
+ * problems. Rejects (code "error") with "Textarchiv NNNN erst speichern" while a text archive has unsaved edits.
+ */
+export const saveScript = (file: number, text: string) => invoke<SaveScriptDto>("save_script", { file, text });
+export const saveLevelScript = (file: number, doc: LevelScriptDoc) => invoke<SaveScriptDto>("save_level_script", { file, doc });
+export const newScriptFile = (kind: "script" | "levelScript") => invoke<number>("new_script_file", { kind });
+/** Appends an empty script to the script file and resolves to its number. Same refusal as `saveScript`. */
+export const addScript = (file: number) => invoke<number>("add_script", { file });
+export const resolveScript = (header: number, n: number) => invoke<ScriptTargetDto>("resolve_script", { header, n });
+
+/** One script file in the project (`kind` "binary": rotom could not decompile it). */
+export interface ScriptFileDto {
+  file: number;
+  kind: "script" | "levelScript" | "binary";
+  size: number;
+  /** Ids of the headers that use the file as their script file (level script for a level script; a binary file counts for both). */
+  headers: number[];
+}
+
+/** A line of a script source that contains the search text (line is 1-based). */
+export interface ScriptHitDto {
+  file: number;
+  line: number;
+  excerpt: string;
+}
+
+export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files");
+/** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
+export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });

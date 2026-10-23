@@ -8,8 +8,11 @@ mod matrix;
 mod models;
 mod overview;
 mod patches;
+mod problems;
 mod project;
+mod scripts;
 mod sprites;
+mod text;
 mod wizards;
 mod world;
 
@@ -21,8 +24,11 @@ pub use matrix::*;
 pub use models::*;
 pub use overview::*;
 pub use patches::*;
+pub use problems::*;
 pub use project::*;
+pub use scripts::*;
 pub use sprites::*;
+pub use text::*;
 pub use wizards::*;
 pub use world::*;
 
@@ -31,14 +37,11 @@ use std::sync::MutexGuard;
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
-fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
-    state
-        .session
-        .lock()
-        .map_err(|_| "internal state is poisoned".into())
+pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
+    Ok(state.lock_session())
 }
 
-fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
+pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
@@ -100,6 +103,24 @@ mod tests {
                 "{dir}"
             );
         }
+    }
+
+    #[test]
+    fn a_command_works_after_a_panic_poisoned_the_state() {
+        let (_fixture, state) = open_synthetic();
+        set_permission_impl(&state, 2, 0, 0, 1, 0).unwrap();
+        let state = std::sync::Arc::new(state);
+        let poisoner = std::sync::Arc::clone(&state);
+        let panicked = std::thread::spawn(move || {
+            let _guard = lock(&poisoner).unwrap();
+            panic!("rotom panicked while the lock was held");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(state.session.is_poisoned());
+        // The session and its edits survive: commands answer, the store is still there.
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        get_map_impl(&state, 0).unwrap();
     }
 
     #[test]

@@ -4,15 +4,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use g4_kernel::build::build;
+use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::sprites::SpriteCache;
-use g4_kernel::store::{SaveReport, Store};
+use g4_kernel::store::Store;
 use serde::Serialize;
 use tauri::{Manager, State};
 
-use super::{lock, session};
+use super::{ProblemDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
@@ -38,21 +38,29 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     };
     let project = Arc::new(project);
     let store = Store::new(Arc::clone(&project));
-    *lock(state)? = Some(Session {
+    let old = lock(state)?.replace(Session {
         project,
         store,
         sprites: SpriteCache::new(),
+        lsp: None,
     });
+    // The old project's language server ends with its session, outside the state lock.
+    drop(old);
     Ok(info)
 }
 
 /// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds (by
-/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, and the ROM path.
+/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, the ROM path,
+/// the script files compiled and the text archives encoded before packing, and the warnings
+/// of the pre-build save and of those two steps (`source` tells them apart).
 #[derive(Debug, Serialize)]
 pub struct BuildDto {
     pub saved: usize,
     pub packed: Vec<(String, usize)>,
     pub rom: String,
+    pub compiled: Vec<u16>,
+    pub encoded: Vec<u16>,
+    pub problems: Vec<ProblemDto>,
 }
 
 /// Member count of every asset kind the project has an archive for (the header table counts
@@ -89,9 +97,27 @@ pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     Ok(session(&mut guard)?.store.dirty())
 }
 
-pub fn save_impl(state: &AppState) -> Result<SaveReport, CmdError> {
+/// What `save` did: the assets written and the warnings found while encoding them (text
+/// warnings never block the save).
+#[derive(Debug, Serialize)]
+pub struct SaveDto {
+    pub written: Vec<AssetId>,
+    pub problems: Vec<ProblemDto>,
+}
+
+pub fn save_impl(state: &AppState) -> Result<SaveDto, CmdError> {
     let mut guard = lock(state)?;
-    session(&mut guard)?.store.save().map_err(CmdError::from)
+    let session = session(&mut guard)?;
+    let report = session.store.save()?;
+    let root = &session.project.root;
+    Ok(SaveDto {
+        written: report.written,
+        problems: report
+            .problems
+            .iter()
+            .map(|p| ProblemDto::from_kernel(p, root, "text"))
+            .collect(),
+    })
 }
 
 /// Drops the own changes (and their undo/redo entries) of one asset and reloads it from its
@@ -113,19 +139,87 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 }
 
 /// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. The
-/// state lock is held only for the save, not for the ds-rom build.
+/// state lock is held for the save, for compiling scripts and encoding texts (they write
+/// sources, members and the compile state, which the script and text commands write too, see
+/// `g4_kernel::build::prepare`) and for the reload afterwards, not for packing and the ds-rom
+/// build. An error in the compile step is `CmdError { code: "compile" }` and nothing is
+/// packed. Text archives the compile appended messages to are loaded again in the store.
 pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError> {
-    let (project, saved) = {
+    let out = Path::new(out);
+    let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
-        let saved = if session.store.dirty().is_empty() {
-            0
+        let (saved, problems) = if session.store.dirty().is_empty() {
+            (0, Vec::new())
         } else {
-            session.store.save()?.written.len()
+            let report = session.store.save()?;
+            let root = &session.project.root;
+            let warnings = report
+                .problems
+                .iter()
+                .map(|p| ProblemDto::from_kernel(p, root, "text"))
+                .collect();
+            (report.written.len(), warnings)
         };
-        (Arc::clone(&session.project), saved)
+        let prepared = prepare_for_build(&session.project, out).map_err(CmdError::from)?;
+        (Arc::clone(&session.project), prepared, saved, problems)
     };
-    let report = build(&project, Path::new(out)).map_err(CmdError::from)?;
+    let report = build_prepared(&project, out, prepared).map_err(CmdError::from)?;
+    build_dto(state, &project, report, saved, problems)
+}
+
+/// The result of a finished build; reloads the text archives its compile changed. The lock
+/// was released for packing, so the session may be another one by now (a project opened
+/// meanwhile): then nothing is reloaded, the archives belong to `project`, not to it. An
+/// archive edited in this session since the build started is kept and reported.
+fn build_dto(
+    state: &AppState,
+    project: &Arc<Project>,
+    report: BuildReport,
+    saved: usize,
+    mut problems: Vec<ProblemDto>,
+) -> Result<BuildDto, CmdError> {
+    problems.extend(
+        report
+            .problems
+            .iter()
+            .map(|p| ProblemDto::by_origin(p, &project.root)),
+    );
+    if !report.touched_archives.is_empty() {
+        let mut guard = lock(state)?;
+        if let Ok(session) = session(&mut guard)
+            && Arc::ptr_eq(&session.project, project)
+        {
+            let warning = |index: u16, message: String| ProblemDto {
+                severity: "warning",
+                file: format!("expanded/textArchives/{index:04}.json"),
+                line: 1,
+                col: 1,
+                message,
+                source: "text",
+            };
+            for &index in &report.touched_archives {
+                let id = AssetId {
+                    kind: AssetKind::TextArchive,
+                    index,
+                };
+                // The ROM is built: a failed reload is a warning, not a failed build.
+                if session.store.is_dirty(id) {
+                    problems.push(warning(
+                        index,
+                        format!(
+                            "Textarchiv {index:04} wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
+                        ),
+                    ));
+                } else if let Err(e) = session.store.reload_from_disk(id) {
+                    problems.push(warning(
+                        index,
+                        format!("Textarchiv {index:04} konnte nicht neu geladen werden: {e}"),
+                    ));
+                }
+            }
+        }
+    }
     Ok(BuildDto {
         saved,
         packed: report
@@ -134,6 +228,9 @@ pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError>
             .map(|(kind, count)| (project.archives.unpacked_name(*kind).to_owned(), *count))
             .collect(),
         rom: report.rom.display().to_string(),
+        compiled: report.compiled,
+        encoded: report.encoded,
+        problems,
     })
 }
 
@@ -167,7 +264,7 @@ pub fn dirty(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
 }
 
 #[tauri::command]
-pub fn save(state: State<AppState>) -> Result<SaveReport, CmdError> {
+pub fn save(state: State<AppState>) -> Result<SaveDto, CmdError> {
     save_impl(&state)
 }
 
@@ -240,6 +337,7 @@ mod tests {
         assert_eq!(counts[&AssetKind::Event], 2);
         assert_eq!(counts[&AssetKind::TextArchive], 434);
         assert_eq!(counts[&AssetKind::HeaderTable], 1);
+        assert_eq!(counts[&AssetKind::Script], 3);
         assert!(!counts.contains_key(&AssetKind::DynamicHeaders));
         // Serialized for the frontend as an object keyed by the kind name.
         let json = serde_json::to_value(&counts).unwrap();
@@ -290,6 +388,203 @@ mod tests {
         let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
         assert!(err.message.contains("changed on disk"), "{}", err.message);
         assert!(!out.exists());
+    }
+
+    #[test]
+    fn build_with_a_compile_error_is_code_compile_and_packs_nothing() {
+        let (fixture, state) = open_synthetic();
+        scripts::adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        scripts::save_script_impl(&state, 0, "script Main #1:\n    NoSuch\n    End\n".into())
+            .unwrap();
+        let out = fixture.dir.path().join("out/rom.nds");
+        let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.code, "compile");
+        assert_eq!(err.message, "1 Fehler in Scripts oder Texten");
+        assert_eq!(err.problems.len(), 1, "{:?}", err.problems);
+        let problem = &err.problems[0];
+        assert_eq!(
+            (problem.source, problem.file.as_str(), problem.line),
+            ("compile", "expanded/scripts/0000.rotom", 2)
+        );
+        assert!(!out.exists());
+    }
+
+    /// Rewrites `expanded/textArchives/0433.json` with one more message, as a compile that
+    /// appended a text literal would.
+    fn append_message_to_archive_json(
+        fixture: &g4_kernel::test_support::Synthetic,
+        project: &Project,
+    ) {
+        let json = fixture.dir.path().join("expanded/textArchives/0433.json");
+        std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+        let mut doc = g4_kernel::text::TextArchiveDoc::from_member(
+            &std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
+            "en_US",
+        )
+        .unwrap();
+        doc.messages.push(g4_kernel::text::TextMessage {
+            id: "msg_00003".into(),
+            text: "Neu".into(),
+            other: Default::default(),
+        });
+        std::fs::write(&json, doc.to_json()).unwrap();
+    }
+
+    fn kernel_warning(file: &str) -> g4_kernel::text::Problem {
+        g4_kernel::text::Problem {
+            severity: g4_kernel::text::Severity::Warning,
+            file: file.into(),
+            line: 1,
+            col: 1,
+            message: "w".into(),
+        }
+    }
+
+    fn report_touching_433(problems: Vec<g4_kernel::text::Problem>) -> BuildReport {
+        BuildReport {
+            packed: vec![(AssetKind::Map, 3)],
+            rom: "out.nds".into(),
+            compiled: vec![0],
+            encoded: vec![7],
+            touched_archives: vec![433],
+            problems,
+        }
+    }
+
+    fn archive_texts(state: &AppState) -> Vec<String> {
+        get_text_archive_impl(state, 433)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.text)
+            .collect()
+    }
+
+    fn session_project(state: &AppState) -> Arc<Project> {
+        Arc::clone(&lock(state).unwrap().as_ref().unwrap().project)
+    }
+
+    #[test]
+    fn build_result_maps_problems_by_origin_and_reloads_touched_archives() {
+        let (fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        assert_eq!(archive_texts(&state).len(), 3);
+        // A compile changed the JSON behind the store's back.
+        append_message_to_archive_json(&fixture, &project);
+
+        let report = report_touching_433(vec![
+            kernel_warning("expanded/scripts/0000.rotom"),
+            kernel_warning("expanded/textArchives/0007.json"),
+        ]);
+        let pre_save = ProblemDto::from_kernel(
+            &kernel_warning("expanded/textArchives/0433.json"),
+            &project.root,
+            "text",
+        );
+        let dto = build_dto(&state, &project, report, 2, vec![pre_save]).unwrap();
+        assert_eq!(
+            (dto.saved, dto.compiled.clone(), dto.encoded.clone()),
+            (2, vec![0], vec![7])
+        );
+        let sources: Vec<_> = dto.problems.iter().map(|p| p.source).collect();
+        assert_eq!(sources, ["text", "compile", "text"]);
+        assert_eq!(dto.packed, [("maps".to_owned(), 3)]);
+        assert_eq!(
+            archive_texts(&state).last().map(String::as_str),
+            Some("Neu")
+        );
+        assert!(dirty_impl(&state).unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_keeps_a_touched_archive_that_was_edited_meanwhile() {
+        let (fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "Meine Änderung".into(),
+            },
+        )
+        .unwrap();
+        append_message_to_archive_json(&fixture, &project);
+
+        let dto = build_dto(
+            &state,
+            &project,
+            report_touching_433(Vec::new()),
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(dto.problems.len(), 1, "{:?}", dto.problems);
+        let problem = &dto.problems[0];
+        assert_eq!(
+            (problem.severity, problem.source, problem.file.as_str()),
+            ("warning", "text", "expanded/textArchives/0433.json")
+        );
+        assert_eq!(
+            problem.message,
+            "Textarchiv 0433 wurde beim Bauen geändert, ist aber ungespeichert bearbeitet — nicht neu geladen"
+        );
+        // The edit survived: still dirty, still undoable, the appended message not loaded.
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        assert_eq!(
+            archive_texts(&state),
+            ["Meine Änderung", "Twinleaf Town", "Sandgem Town"]
+        );
+        assert!(undo_impl(&state).unwrap().is_some());
+    }
+
+    #[test]
+    fn build_does_not_reload_into_a_session_opened_meanwhile() {
+        let (fixture_a, state) = open_synthetic();
+        let project_a = session_project(&state);
+        // Loading the archive unpacks its member, which the JSON below is built from.
+        assert_eq!(archive_texts(&state).len(), 3);
+        append_message_to_archive_json(&fixture_a, &project_a);
+
+        // Another project replaces the session while A builds.
+        let fixture_b = g4_kernel::test_support::synthetic_project();
+        open_project_impl(&state, fixture_b.dir.path().to_str().unwrap()).unwrap();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "B bearbeitet".into(),
+            },
+        )
+        .unwrap();
+        crate::commands::save_impl(&state).unwrap();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 1,
+                text: "B ungespeichert".into(),
+            },
+        )
+        .unwrap();
+        let dto = build_dto(
+            &state,
+            &project_a,
+            report_touching_433(Vec::new()),
+            0,
+            Vec::new(),
+        )
+        .unwrap();
+        assert!(dto.problems.is_empty(), "{:?}", dto.problems);
+        // B's archive was neither reloaded nor warned about: edit and undo are intact.
+        assert_eq!(
+            archive_texts(&state)[..2],
+            ["B bearbeitet", "B ungespeichert"]
+        );
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        assert!(undo_impl(&state).unwrap().is_some());
+        assert_eq!(archive_texts(&state)[1], "Twinleaf Town");
     }
 
     fn corrupt_map_member_on_disk(fixture: &g4_kernel::test_support::Synthetic) {

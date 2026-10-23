@@ -64,6 +64,55 @@ Folgen:
   Ein fehlerhaftes `.glb` lässt sich nur durch Löschen der Datei erneuern.
 - Beim Löschen darf die App nicht gerade Modelle laden. Zwischenstände (`apicula-<pid>-<n>`-Ordner) sind harmlos.
 
+## rotom und rotom-lsp (Scripts)
+
+Scripts werden mit [rotom](https://github.com/KalaayPT/rotom) kompiliert; die Bibliothek ist eine Cargo-Abhängigkeit von `g4-kernel`
+(Git-Tag `v0.7.0`, mit Kommentar im Code, wo welche API benutzt wird). Completion, Hover und Diagnosen im Script-Editor liefert der
+Sprachserver `rotom-lsp`, ein eigener Prozess (Sidecar) aus **demselben Tag `v0.7.0`**. Ohne ihn läuft der Editor weiter (Öffnen,
+Bearbeiten, Speichern, Compile), nur die Sprachdienste fehlen; die Kopfzeile zeigt „rotom-lsp fehlt — Completion und Diagnosen aus“.
+
+Bauen (einmal; `tools/` ist per `.gitignore` ausgeschlossen):
+
+```sh
+export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+CFLAGS="-D_POSIX_C_SOURCE=200809L" \
+  cargo install --git https://github.com/KalaayPT/rotom --tag v0.7.0 rotom-lsp --root tools/rotom
+```
+
+- `CFLAGS` ist auf macOS-SDKs ab 15.4 nötig: nitroarcs `strchrnul` kollidiert sonst mit der SDK-Deklaration (derselbe Wert steht in
+  `.cargo/config.toml`; `cargo install` hat ihn dort nicht übernommen).
+- **Netz beim Bauen:** rotoms `build.rs` lädt bei **jedem sauberen Build** (auch von `g4-kernel`, das rotom als Bibliothek einbindet) `db-latest.zip` aus dem Netz, dazu lädt `cargo` beim ersten Mal die Git-Abhängigkeit. Zur Laufzeit braucht das Studio kein Netz: es benutzt immer die mitgelieferte Befehlsdatenbank in `crates/g4-kernel/metadata/scrcmd/` (Revision 33, Herkunft in `SOURCE.md` dort), nie eine heruntergeladene und nie `rotom init`. Die Warnung „stripping debug info with `rust-objcopy` failed“ ist harmlos.
+- Das Binary braucht `libnitroarc_ffi.dylib` (LGPL, dynamisch gelinkt, wie schon bei uxie in der App) und hat **keinen rpath**. Für den
+  Entwicklungsbetrieb die dylib daneben legen und einen rpath setzen (`cargo build --release -p studio` erzeugt sie in `target/release/`):
+
+  ```sh
+  cp target/release/libnitroarc_ffi.dylib tools/rotom/bin/
+  install_name_tool -add_rpath @loader_path tools/rotom/bin/rotom-lsp
+  codesign --force --sign - tools/rotom/bin/rotom-lsp
+  echo | tools/rotom/bin/rotom-lsp     # antwortet mit einem Parse-Fehler, kein dyld-Fehler
+  ```
+
+  `apps/studio/scripts/prepare-bundle.sh` macht dasselbe (und baut `rotom-lsp`, falls es fehlt); für das Bundle bekommt die Kopie in
+  `src-tauri/binaries/` zusätzlich den rpath `@executable_path/../Frameworks` (dylib in `Contents/Frameworks`).
+
+### Wo die App rotom-lsp sucht
+
+1. Umgebungsvariable `G4_ROTOM_LSP` (voller Pfad). Ist sie gesetzt, gilt sie immer, auch wenn der Pfad falsch ist.
+2. Eine Datei `rotom-lsp` neben dem Studio-Binary (im Bundle `Contents/MacOS/`). Eine leere Datei (Platzhalter aus `build.rs`) zählt nicht.
+3. Nur in Debug-Builds: `tools/rotom/bin/rotom-lsp` im Repository.
+
+```sh
+G4_ROTOM_LSP="$PWD/tools/rotom/bin/rotom-lsp" pnpm tauri dev
+```
+
+### Lebenszyklus
+
+Ein Prozess je offenem Projekt, Arbeitsverzeichnis = Projektwurzel, gestartet vom Script-Panel über `lsp_start(channel)`. Die
+Nachrichten laufen als `Content-Length`-gerahmtes JSON-RPC über stdio; ein Lese-Thread schiebt jede Nachricht in den Tauri-Channel,
+`lsp_send` reiht die Nachricht für einen Schreib-Thread ein (blockiert nie; liest der Server nicht, füllt sich die Warteschlange und `lsp_send` meldet einen Fehler). Beendet wird er bei Projektwechsel, `lsp_stop` und App-Ende (die ganze Prozessgruppe). Stirbt er, startet
+der nächste `lsp_send` ihn neu, aber höchstens einmal je Minute; ein schnellerer Tod ergibt „rotom-lsp beendet sich wiederholt“, und er
+bleibt aus bis zum nächsten `lsp_start`. Der Neustart verlangt vom Client ein neues `initialize`.
+
 ## Tests
 
 Befehle aus der Wurzel des Repositorys, mit `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`:
@@ -94,6 +143,7 @@ beschrieben.
 | `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio` |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
+| `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
 | `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project` |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
@@ -119,11 +169,11 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI` und `G4_APICULA` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
+3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
 4. `pnpm test` und `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
 5. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
 6. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
-7. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA` und `G4_DSROM_CLI` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+7. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
 
 ```sh
 scripts/gate.sh
@@ -137,10 +187,11 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 | `G4_APICULA` | `tools/apicula/bin/apicula` | apicula-Binärdatei für die Modell-Tests |
 | `G4_DSROM_CLI` | `$G4_ROMS_DIR/_tools/dsrom` | ds-rom-Referenz-CLI für den Rebuild-Vergleich |
 | `G4EMU_CORE` | `tools/g4emu/core/melondsds_libretro.dylib` | Emulator-Kern für den Schritt `g4emu integration` |
+| `G4_ROTOM_LSP` | `tools/rotom/bin/rotom-lsp` | rotom-lsp-Binärdatei (Preflight; wird an die gated Tests durchgereicht) |
 
-Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA` oder `G4_DSROM_CLI`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
+Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
 
-Dauer: bei warmem Build-Cache etwa 20 Minuten (zuletzt 1217 s, vor den g4emu-Schritten, die rund eine Minute dazukommen; die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+Dauer: bei warmem Build-Cache etwa 20 bis 25 Minuten (zuletzt vor 3b.2 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, der aktuelle Lauf steht in [docs/phase-3b2-gate.md](phase-3b2-gate.md); die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
 
 ## Agent-Testumgebung
 
@@ -155,7 +206,7 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 
 ## App-Bundle
 
-Ein lauffähiges `.app` (mit `libnitroarc_ffi.dylib` und dem apicula-Sidecar) entsteht mit:
+Ein lauffähiges `.app` (mit `libnitroarc_ffi.dylib` und den Sidecars apicula und rotom-lsp) entsteht mit:
 
 ```sh
 cd apps/studio
@@ -163,5 +214,5 @@ pnpm bundle                      # prepare-bundle.sh, danach tauri build
 bash scripts/check-bundle.sh     # Ausgabe: bundle ok
 ```
 
-Voraussetzungen, Ablauf, Prüfbefehle und bekannte Grenzen (nicht signiert, Gatekeeper) stehen in [docs/release.md](release.md).
+Voraussetzungen, Ablauf, Prüfbefehle und bekannte Grenzen (nicht signiert, Gatekeeper) stehen in [docs/release.md](release.md). Der Rauchtest der gepackten App (Script öffnen, Completion, Fehler beim Speichern) steht im Gate-Dokument [docs/phase-3b2-gate.md](phase-3b2-gate.md), Teil (H).
 `pnpm tauri dev` und normale `cargo`-Builds brauchen das nicht.

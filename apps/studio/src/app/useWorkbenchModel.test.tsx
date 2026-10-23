@@ -8,7 +8,10 @@ import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } f
 import type { Message } from "../Toolbar";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
-import { HeadersPanel, InspectorPanel, MatrixTab, StatusPanel } from "../workbench/panels";
+import { HeadersPanel, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, StatusPanel, TextTab } from "../workbench/panels";
+import { ProblemsStore } from "../workbench/problems/problems";
+import { ScriptDocuments } from "../workbench/script/documents";
+import type { ScriptsApi } from "../workbench/script/useScripts";
 import { shownInspector } from "../workbench/pin";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
@@ -35,7 +38,9 @@ const noop = () => {};
 const bus = createEditBus();
 const info: ProjectInfo = { root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 };
 /** Counts how often the real list rows / the real matrix panel read their data: both read it on every render of theirs. */
-const bodies = { rows: 0, matrix: 0 };
+const bodies = { rows: 0, matrix: 0, text: 0 };
+/** Member counts whose text archive count counts its reads: the real text panel reads it on every render of its own. */
+const counts = Object.defineProperty({}, "TextArchive", { enumerable: true, get: () => (bodies.text++, 3) });
 const headers: HeaderSummary[] = [0, 1].map((id) => {
   const h = { id, internal_name: `H${id}`, matrix_id: id, area_data_id: 0, event_file_id: id } as HeaderSummary;
   Object.defineProperty(h, "location_name", { enumerable: true, get: () => (bodies.rows++, `Ort ${id}`) });
@@ -57,7 +62,7 @@ const pinned: InspectorModel = { kind: "header", id: 1 };
 type Inputs = Parameters<typeof useWorkbenchModel>[0];
 
 /** The pieces App's hooks hand over: every callback has the identity it has in the real hooks (stable). Their results are not used here. */
-const session = { info, busy: false, counts: {}, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop, setMessage: noop } as unknown as Omit<Inputs["session"], "message">;
+const session = { info, busy: false, counts, onEdited: noop, fail: noop, onLoadStatus: noop, onCountsChanged: noop, setMessage: noop } as unknown as Omit<Inputs["session"], "message">;
 const scene = { headers, selected: 1, matrix, sceneArea: 0, history, onSelect: noop, goTo: noop, onHeaderChanged: noop, onAreaChanged: noop, onMatrixEdited: noop } as unknown as Inputs["scene"];
 const world = {
   eventLock: null,
@@ -75,6 +80,10 @@ const world = {
   onAddEvent: noop,
   onDeleteEvent: noop,
 } as unknown as Inputs["world"];
+const text = { target: null };
+/** The scripts as App's hook hands them over: the same object until its revision changes. */
+const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
+const problems = new ProblemsStore();
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
@@ -86,12 +95,14 @@ interface Volatile {
   message: Message | null;
   /** Fields that really change `data`, to see that it does change then. */
   showEvents?: boolean;
+  /** Another scripts object, as after a document was opened (its revision moved). */
+  scripts?: ScriptsApi;
   matrices?: MatrixSummary[];
   links?: WarpLink[];
 }
 
 /** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+function Model({ pin = pinned, hover, message, showEvents = true, scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
@@ -100,6 +111,9 @@ function Model({ pin = pinned, hover, message, showEvents = true, matrices = sum
     pins: { pinned: pin, inspector: shownInspector(pin, hover) },
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
+    text,
+    scripts: scriptsApi,
+    problems,
     view: { ...view, showEvents },
   });
   onModel(model);
@@ -146,7 +160,7 @@ describe("workbench model", () => {
     expect(models[1].data.showEvents).toBe(false);
   });
 
-  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel };
+  const panels = { headers: HeadersPanel, matrix: MatrixTab, status: StatusPanel, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab };
 
   /** `base` is merged into every state the returned `show` renders (the pin, say). */
   async function mountPanel(name: keyof typeof panels, base: Partial<Volatile> = {}) {
@@ -160,6 +174,7 @@ describe("workbench model", () => {
     for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
     bodies.rows = 0;
     bodies.matrix = 0;
+    bodies.text = 0;
     return show;
   }
 
@@ -198,6 +213,39 @@ describe("workbench model", () => {
     expect(reads.data).toBe(1);
     // The tab rendered, the memoised matrix panel (the 900 cells) did not: its context is the same object.
     expect(bodies.matrix).toBe(0);
+  });
+
+  it("does not render the text panel for a hover or a message", async () => {
+    const show = await mountPanel("text");
+    expect(container.textContent).toContain("Textarchiv 0002");
+    bodies.text = 0;
+    await show({ hover: tile(1), message: null });
+    await show({ hover: tile(2), message: null });
+    await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.data).toBe(0);
+    expect(bodies.text).toBe(0);
+    await show({ hover: null, message: null, showEvents: false });
+    // The tab rendered, the memoised text panel did not: its context is the same object.
+    expect(reads.data).toBe(1);
+    expect(bodies.text).toBe(0);
+  });
+
+  it("does not render the script or problems panel for a hover or a message, and the script panel follows a new scripts object", async () => {
+    const showScript = await mountPanel("script");
+    // The editor chunk is loaded on its own: the panel appears once it has arrived.
+    await vi.waitFor(() => expect(container.textContent).toContain("Scripts werden geprüft"));
+    for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
+    await showScript({ hover: tile(1), message: null });
+    await showScript({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.data).toBe(0);
+    await showScript({ hover: null, message: null, scripts: { ...scripts, revision: 1 } });
+    expect(reads.data).toBe(1);
+
+    const showProblems = await mountPanel("problems");
+    expect(container.textContent).toContain("Keine Probleme");
+    await showProblems({ hover: tile(1), message: null });
+    await showProblems({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
+    expect(reads.data).toBe(0);
   });
 
   it("renders the status strip for a message, not for a hover", async () => {

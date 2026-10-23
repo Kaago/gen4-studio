@@ -147,7 +147,7 @@ describe("HeaderSession", () => {
     };
     const a = new HeaderSession(1, failing, h.hooks);
     await a.load();
-    await a.commit("flags", "Flags", 99);
+    expect(await a.commit("flags", "Flags", 99)).toBe(false);
     expect(h.calls.refused).toBe(1);
     expect(h.calls.errors).toHaveLength(1);
     expect(h.calls.changed).toBe(0);
@@ -159,7 +159,17 @@ describe("HeaderSession", () => {
   it("does nothing before the header has loaded", async () => {
     const f = fakeBackend();
     const a = new HeaderSession(1, f.backend, hooks().hooks);
-    await a.commit("flags", "Flags", 1);
+    expect(await a.commit("flags", "Flags", 1)).toBe(false);
     expect(f.writes).toHaveLength(0);
+  });
+
+  it("resolves to whether the record has the value afterwards", async () => {
+    const f = fakeBackend();
+    const a = new HeaderSession(1, f.backend, hooks().hooks);
+    await a.load();
+    expect(await a.commit("flags", "Flags", 5)).toBe(true);
+    // The value it already has: nothing is written, and it is there.
+    expect(await a.commit("flags", "Flags", 5)).toBe(true);
+    expect(f.writes).toHaveLength(1);
   });
 });

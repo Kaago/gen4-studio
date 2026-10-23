@@ -32,6 +32,8 @@ export type ReloadAction =
   | { kind: "areaPanel" }
   /** The scene compares the tilesets of its area data and reloads its models if they changed. */
   | { kind: "models" }
+  /** The text panel re-reads this archive. */
+  | { kind: "textPanel"; archive: number }
   /** The header list and editor re-read the table; the scene reloads if the selected header's matrix, area data or event file changed. */
   | { kind: "headers" };
 
@@ -61,8 +63,13 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
       if (scene?.area === asset.index) actions.push({ kind: "models" });
       return actions;
     }
+    case "TextArchive":
+      return [{ kind: "textPanel", archive: asset.index }];
     case "HeaderTable":
       return [{ kind: "unpin" }, { kind: "headers" }];
+    case "Script":
+      // Scripts are not editable through the store, so undo never restores one.
+      return [];
     default:
       return [];
   }

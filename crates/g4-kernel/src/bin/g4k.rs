@@ -10,6 +10,7 @@ use g4_kernel::build::{build, extract_rom};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::Project;
 use g4_kernel::store::Store;
+use g4_kernel::text::Problem;
 
 #[derive(Parser)]
 #[command(name = "g4k", about = "Gen-4 world editor kernel CLI")]
@@ -63,9 +64,25 @@ fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
+            if let KernelError::Compile(problems) = &e {
+                print_problems(problems);
+            }
             eprintln!("error: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn print_problems(problems: &[Problem]) {
+    for problem in problems {
+        eprintln!(
+            "{:?}: {}:{}:{}: {}",
+            problem.severity,
+            problem.file.display(),
+            problem.line,
+            problem.col,
+            problem.message
+        );
     }
 }
 
@@ -102,6 +119,13 @@ fn run(cli: Cli) -> Result<(), KernelError> {
                 ));
             }
             println!("{line}");
+            if !report.compiled.is_empty() {
+                println!("compiled={:?}", report.compiled);
+            }
+            if !report.encoded.is_empty() {
+                println!("encoded={:?}", report.encoded);
+            }
+            print_problems(&report.problems);
             println!("rom={}", report.rom.display());
             Ok(())
         }
@@ -113,6 +137,9 @@ fn info(path: &PathBuf) -> Result<(), KernelError> {
     let headers = match project.headers() {
         Ok(h) => h.len().to_string(),
         Err(e) => {
+            if let KernelError::Compile(problems) = &e {
+                print_problems(problems);
+            }
             eprintln!("error: {e}");
             "?".to_owned()
         }

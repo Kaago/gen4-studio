@@ -6,8 +6,11 @@ use std::path::{Path, PathBuf};
 use g4_formats::narc::Narc;
 
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
-const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
-const HEADER_SIZE: usize = 24;
+pub const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
+pub const HEADER_SIZE: usize = 24;
+/// How many Platinum headers uxie's `Workspace` (and with it rotom's compile) reads from
+/// `arm9.bin`: a shorter file makes it fail to read the table.
+const UXIE_PT_HEADER_COUNT: usize = 559;
 
 /// The Platinum US (CPUE) instruction sites the Dynamic Headers patch rewrites: file offsets
 /// of `mov r1,#0x18; mul r1,r0` and of the literal `table base + n` that follows it.
@@ -59,10 +62,11 @@ pub fn synthetic_project() -> Synthetic {
     let root = dir.path();
     std::fs::write(
         root.join("header.yaml"),
-        "game_title: \"POKEMON PL\"\ngamecode: CPUE\nmaker_code: \"01\"\n",
+        "title: \"POKEMON PL\"\ngamecode: CPUE\nmakercode: \"01\"\n",
     )
     .unwrap();
-    std::fs::write(root.join("config.yaml"), "").unwrap();
+    // The keys uxie's `RomHeader` reads from a ds-rom project (real projects have more).
+    std::fs::write(root.join("config.yaml"), "header: header.yaml\n").unwrap();
 
     let maps: Vec<Vec<u8>> = (0..3u8).map(synthetic_map_bytes).collect();
     write_narc(root, "files/fielddata/land_data/land_data.narc", &maps);
@@ -130,12 +134,19 @@ pub fn synthetic_project() -> Synthetic {
 
     // arm9.bin: zero-filled, with two Platinum headers at the CPUE table offset.
     // Platinum header layout (uxie): byte 0 = area_data_id, bytes 2..4 = matrix_id (LE).
-    let mut arm9 = vec![0u8; PT_HEADER_TABLE_CPUE + 2 * HEADER_SIZE + 64];
+    // The headers after the first two stay zero.
+    let mut arm9 = vec![0u8; PT_HEADER_TABLE_CPUE + UXIE_PT_HEADER_COUNT * HEADER_SIZE + 64];
     arm9[PT_HEADER_TABLE_CPUE] = 0; // header 0: area_data_id 0
     arm9[PT_HEADER_TABLE_CPUE + 2..PT_HEADER_TABLE_CPUE + 4].copy_from_slice(&0u16.to_le_bytes());
     // Platinum header byte 18 = location_name: header 0 names "Twinleaf Town", header 1
     // points past the end of the bank.
     arm9[PT_HEADER_TABLE_CPUE + 18] = 1;
+    // Header 0: script file 0, level script 1, text archive 433 (uxie 0.9.7 `MapHeaderPtRaw`:
+    // bytes 4, 6 and 8, little endian).
+    for (offset, value) in [(4, 0u16), (6, 1), (8, 433)] {
+        arm9[PT_HEADER_TABLE_CPUE + offset..PT_HEADER_TABLE_CPUE + offset + 2]
+            .copy_from_slice(&value.to_le_bytes());
+    }
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 18] = 200;
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE] = 1; // header 1: area_data_id 1
     arm9[PT_HEADER_TABLE_CPUE + HEADER_SIZE + 2..PT_HEADER_TABLE_CPUE + HEADER_SIZE + 4]
@@ -160,7 +171,38 @@ pub fn synthetic_project() -> Synthetic {
         &[vec![1, 2, 3, 4], vec![5, 6]],
     );
 
+    // Script archive: member 0 is compiled from rotom source, member 1 is the level script
+    // `[0,0,0,0]`, member 2 is empty.
+    write_narc(
+        root,
+        "files/fielddata/script/scr_seq.narc",
+        &[compile_script(SCRIPT_SOURCE), vec![0, 0, 0, 0], Vec::new()],
+    );
+
     Synthetic { dir }
+}
+
+/// The source of the fixture's script member 0.
+pub const SCRIPT_SOURCE: &str =
+    "script Main #1:\n    Message 1\n    End\nscript Second #2:\n    End\n";
+
+/// Compiles rotom source against the bundled Platinum command database.
+fn compile_script(source: &str) -> Vec<u8> {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("platinum_v2.json");
+    std::fs::write(
+        &db_path,
+        include_str!("../metadata/scrcmd/platinum_v2.json"),
+    )
+    .unwrap();
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(&db_path).unwrap();
+    // rotom v0.7.0: src/database.rs ConstantDb::new (the empty constant set)
+    let constants = rotom::ConstantDb::new();
+    // rotom v0.7.0: src/lib.rs compile; src/compile_state.rs BinaryQuirk (Default: no quirks)
+    rotom::compile(source, &db, &constants, rotom::BinaryQuirk::default())
+        .unwrap()
+        .bytes
 }
 
 /// A binary text archive (chatot format, key 0) with the given messages, encoded by uxie.

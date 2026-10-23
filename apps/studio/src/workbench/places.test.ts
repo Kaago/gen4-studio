@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
-import { UNNAMED_KEY, UNNAMED_PLACE, buildPlaces, filterPlaces, placeColor, placeOf } from "./places";
+import { UNNAMED_KEY, UNNAMED_PLACE, buildPlaces, filterPlaces, placeColor, placeOf, scriptChildren } from "./places";
 
 const header = (id: number, location_name: string, matrix_id: number, internal_name = `H${id}`): HeaderSummary => ({
   id,
@@ -9,6 +9,9 @@ const header = (id: number, location_name: string, matrix_id: number, internal_n
   matrix_id,
   area_data_id: 0,
   event_file_id: id,
+  text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
 });
 
 const matrix = (index: number, width: number, height: number, has_headers = false): MatrixSummary => ({
@@ -104,5 +107,15 @@ describe("placeColor", () => {
     expect(placeColor("a")).toBe(placeColor("a"));
     expect(placeColor("a")).not.toBe(placeColor("b"));
     expect(placeColor("a")).toMatch(/^hsl\(/);
+  });
+});
+
+describe("scriptChildren", () => {
+  it("lists_the_script_file_always_and_the_level_script_only_when_there_is_one", () => {
+    expect(scriptChildren({ script_file_id: 0, level_script_id: 1 })).toEqual([
+      { kind: "script", file: 0, label: "Scriptdatei 0000" },
+      { kind: "levelScript", file: 1, label: "Level-Script 0001" },
+    ]);
+    expect(scriptChildren({ script_file_id: 412, level_script_id: 0 })).toEqual([{ kind: "script", file: 412, label: "Scriptdatei 0412" }]);
   });
 });

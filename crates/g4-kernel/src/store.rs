@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use g4_formats::area_data::AreaData;
@@ -16,6 +16,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
+use crate::text::{self, Problem, TextArchiveDoc, TextMessage};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -24,12 +25,23 @@ pub use uxie::map_header::{MapHeader, MapHeaderDP, MapHeaderHGSS, MapHeaderPt};
 use uxie::map_header::{MAP_HEADER_SIZE, read_map_header_from_bytes, write_map_header_to_bytes};
 
 /// Identifies one recorded changeset.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ChangeId(pub u64);
 
 #[derive(Debug, Default, serde::Serialize)]
 pub struct SaveReport {
     pub written: Vec<AssetId>,
+    /// Warnings found while encoding text archives; they never block the save.
+    pub problems: Vec<Problem>,
+}
+
+/// One message of a text archive that matched a search.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TextHit {
+    pub archive: u16,
+    pub index: u16,
+    /// The matching text, shortened around the match.
+    pub excerpt: String,
 }
 
 /// True if writing `header` and reading it back gives `header` (no value was cut or is of
@@ -56,6 +68,8 @@ enum Loaded {
     Event(EventFile),
     /// Every map header of the game, in table order.
     HeaderTable(Vec<MapHeader>),
+    /// A text archive; its bytes are the canonical JSON.
+    TextArchive(TextArchiveDoc),
 }
 
 impl Loaded {
@@ -68,10 +82,17 @@ impl Loaded {
                 | AssetKind::AreaData
                 | AssetKind::Event
                 | AssetKind::HeaderTable
+                | AssetKind::TextArchive
         )
     }
 
-    fn from_bytes(kind: AssetKind, bytes: &[u8], family: Family) -> Result<Loaded, KernelError> {
+    /// `lang` is the locale key of the text language shown in the editor.
+    fn from_bytes(
+        kind: AssetKind,
+        bytes: &[u8],
+        family: Family,
+        lang: &str,
+    ) -> Result<Loaded, KernelError> {
         match kind {
             AssetKind::Map => Ok(Loaded::Map(MapFile::read(bytes, family)?)),
             AssetKind::Matrix => Ok(Loaded::Matrix(Matrix::read(bytes)?)),
@@ -95,12 +116,15 @@ impl Loaded {
                     .map(Loaded::HeaderTable)
                     .map_err(|e| KernelError::Uxie(e.to_string()))
             }
-            AssetKind::TextArchive
-            | AssetKind::MapTexture
+            AssetKind::TextArchive => {
+                TextArchiveDoc::from_json(bytes, lang).map(Loaded::TextArchive)
+            }
+            AssetKind::MapTexture
             | AssetKind::BuildingTexture
             | AssetKind::BuildingModel
             | AssetKind::InteriorBuildingModel
-            | AssetKind::DynamicHeaders => Err(KernelError::NotEditable(kind)),
+            | AssetKind::DynamicHeaders
+            | AssetKind::Script => Err(KernelError::NotEditable(kind)),
         }
     }
 
@@ -118,6 +142,7 @@ impl Loaded {
             Loaded::HeaderTable(headers) => {
                 Ok(headers.iter().flat_map(write_map_header_to_bytes).collect())
             }
+            Loaded::TextArchive(doc) => Ok(doc.to_json()),
         }
     }
 }
@@ -137,6 +162,9 @@ fn unwritable_reason(value: &Loaded, bytes: &[u8], family: Family) -> Option<Str
         Err(e) => Some(e.to_string()),
     }
 }
+
+/// Reads the bytes of a location, given the editor's text language.
+type DiskReader = fn(&Location, &str) -> Result<Option<Vec<u8>>, KernelError>;
 
 struct Asset {
     /// Bytes of the asset (a whole member, or the header table slice) as last read from or
@@ -165,6 +193,16 @@ pub struct Store {
     next_change: u64,
     /// Kinds whose archive this store has made sure is unpacked.
     unpacked: HashSet<AssetKind>,
+    /// Search index: the messages of every text archive as saved on disk, by archive; filled
+    /// lazily by `search_text`, an entry dropped when its archive is saved or reloaded.
+    /// An archive that does not decode has an empty entry.
+    text_index: HashMap<u16, Vec<IndexedText>>,
+}
+
+/// A message text and its lowercase form, for case-insensitive search.
+struct IndexedText {
+    text: String,
+    lower: String,
 }
 
 /// Most headers a game can have once the Dynamic Headers patch is applied: header files are
@@ -180,6 +218,33 @@ const HEADER_TABLE: AssetId = AssetId {
     index: 0,
 };
 
+fn text_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::TextArchive,
+        index,
+    }
+}
+
+/// Characters of context kept on each side of a match in a search excerpt.
+const EXCERPT_CONTEXT: usize = 40;
+
+/// `text` shortened to the match at byte `at` (`len` bytes) of its lowercase form `lower`.
+fn excerpt(text: &str, lower: &str, at: usize, len: usize) -> String {
+    // Lowercasing keeps the character count for all but a few exotic letters; the window is
+    // clamped, so a drift only shifts the context.
+    let start = lower[..at].chars().count();
+    let matched = lower[at..at + len].chars().count();
+    let total = text.chars().count();
+    let from = start.saturating_sub(EXCERPT_CONTEXT).min(total);
+    let to = (start + matched + EXCERPT_CONTEXT).min(total);
+    let body: String = text.chars().skip(from).take(to - from).collect();
+    format!(
+        "{}{body}{}",
+        if from > 0 { "…" } else { "" },
+        if to < total { "…" } else { "" }
+    )
+}
+
 fn mismatch(id: AssetId) -> KernelError {
     KernelError::InvalidProject(format!("{id} is not of the requested kind"))
 }
@@ -193,11 +258,17 @@ impl Store {
             redo: Vec::new(),
             next_change: 1,
             unpacked: HashSet::new(),
+            text_index: HashMap::new(),
         }
     }
 
     pub fn project(&self) -> &Project {
         &self.project
+    }
+
+    /// Locale key of the text language shown in the editor.
+    fn lang(&self) -> &'static str {
+        self.project.language.locale_key()
     }
 
     /// Unpacks the archive of `kind` on first use per kind.
@@ -213,12 +284,21 @@ impl Store {
     /// exist (or `arm9.bin` is missing or too short for the header table slice, or a header
     /// file is missing). Read-only kinds are refused before anything is unpacked.
     fn read_disk(&mut self, id: AssetId) -> Result<(Location, Option<Vec<u8>>), KernelError> {
+        self.read_disk_as(id, read_location)
+    }
+
+    /// [`Store::read_disk`] with the reader of `location` chosen by the caller.
+    fn read_disk_as(
+        &mut self,
+        id: AssetId,
+        read: DiskReader,
+    ) -> Result<(Location, Option<Vec<u8>>), KernelError> {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
-        let bytes = read_location(&location)?;
+        let bytes = read(&location, self.lang())?;
         Ok((location, bytes))
     }
 
@@ -236,6 +316,9 @@ impl Store {
             (Location::HeaderFiles { dir, count }, None) => {
                 Err(dynamic_headers::missing_file_error(&dir, count))
             }
+            (Location::TextSource { member, .. }, None) => {
+                Err(io_at(&member)(std::io::ErrorKind::NotFound.into()))
+            }
         }
     }
 
@@ -243,7 +326,7 @@ impl Store {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
             let family = self.project.family;
-            let current = Loaded::from_bytes(id.kind, &bytes, family)?;
+            let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
             let locked = unwritable_reason(&current, &bytes, family);
             self.assets.insert(
                 id,
@@ -512,6 +595,14 @@ impl Store {
     /// index. The archive is unpacked first; the file appears atomically and an existing file
     /// is never overwritten. The new member is not part of the undo history.
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
+        let (index, path) = self.next_member(kind)?;
+        write_atomic(&self.project.root, &path, bytes)?;
+        Ok(index)
+    }
+
+    /// Index and path of the next member of the archive of `kind`, which is unpacked first.
+    /// Refuses a full archive and a path that is taken.
+    fn next_member(&mut self, kind: AssetKind) -> Result<(u16, PathBuf), KernelError> {
         self.ensure_unpacked(kind)?;
         let count = self.member_count(kind)?;
         // Map ids are stored in matrices, where 0xFFFF marks an empty cell.
@@ -529,8 +620,7 @@ impl Store {
                 path.display()
             )));
         }
-        write_atomic(&self.project.root, &path, bytes)?;
-        Ok(index)
+        Ok((index, path))
     }
 
     /// Appends a new 1 x 1 matrix named `name` (one empty cell, no header or altitude section)
@@ -607,7 +697,7 @@ impl Store {
     pub fn create_event_file(&mut self) -> Result<u16, KernelError> {
         // Four u32 counters (background, object, warp, coordinate events), all 0.
         let family = self.project.family;
-        let current = Loaded::from_bytes(AssetKind::Event, &[0; 16], family)?;
+        let current = Loaded::from_bytes(AssetKind::Event, &[0; 16], family, self.lang())?;
         let bytes = current.to_bytes(family)?;
         let index = self.append_member(AssetKind::Event, &bytes)?;
         self.assets.insert(
@@ -660,7 +750,7 @@ impl Store {
         }
         if let Some(asset) = self.assets.get(&HEADER_TABLE) {
             let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
-            if read_location(&location)? != asset.saved_bytes {
+            if read_location(&location, self.lang())? != asset.saved_bytes {
                 return Err(KernelError::Stale(HEADER_TABLE));
             }
         }
@@ -775,6 +865,156 @@ impl Store {
         Ok(id)
     }
 
+    /// Returns text archive `index`, loading it on first use: from its JSON, or from the
+    /// member when there is no JSON or the member is newer.
+    pub fn text_archive(&mut self, index: u16) -> Result<&TextArchiveDoc, KernelError> {
+        let id = text_id(index);
+        match &self.load(id)?.current {
+            Loaded::TextArchive(doc) => Ok(doc),
+            _ => Err(mismatch(id)),
+        }
+    }
+
+    /// Edits text archive `index`. The id is `None` when `edit` left the archive as it was
+    /// (nothing is recorded to undo then).
+    pub fn edit_text_archive(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TextArchiveDoc),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        let id = text_id(index);
+        let recorded = self.undo.len();
+        let change = self.apply_edit(id, label, |loaded| match loaded {
+            Loaded::TextArchive(doc) => {
+                edit(doc);
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })?;
+        Ok((self.undo.len() > recorded).then_some(change))
+    }
+
+    /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
+    /// the archive, writes its member and its JSON at once and loads it. Returns its index.
+    /// Not undoable.
+    pub fn create_text_archive(&mut self) -> Result<u16, KernelError> {
+        let doc = TextArchiveDoc {
+            key: 0,
+            lang: self.lang().to_owned(),
+            messages: vec![TextMessage {
+                id: text::default_message_id(0),
+                text: "Neuer Text".to_owned(),
+                other: Default::default(),
+            }],
+        };
+        let (index, member) = self.next_member(AssetKind::TextArchive)?;
+        let json = self
+            .project
+            .expanded_dir(AssetKind::TextArchive)
+            .join(format!("{index:04}.json"));
+        if json.exists() {
+            return Err(KernelError::InvalidProject(format!(
+                "{} already exists, refusing to overwrite it",
+                json.display()
+            )));
+        }
+        // Nothing to warn about in the fixed text.
+        text::write_archive(&self.project.root, &json, &member, &doc)?;
+        self.assets.insert(
+            text_id(index),
+            Asset {
+                saved_bytes: Some(doc.to_json()),
+                current: Loaded::TextArchive(doc),
+                locked: None,
+            },
+        );
+        Ok(index)
+    }
+
+    /// Messages whose text contains `query`, case-insensitively, in archive and message
+    /// order, at most `limit`. An empty query finds nothing. Searches the archives as saved
+    /// on disk, not unsaved edits; an archive that does not decode is skipped. The index is
+    /// built on first use.
+    pub fn search_text(&mut self, query: &str, limit: usize) -> Result<Vec<TextHit>, KernelError> {
+        let query = query.to_lowercase();
+        if query.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        self.ensure_unpacked(AssetKind::TextArchive)?;
+        let count = self.project.member_count(AssetKind::TextArchive)?;
+        let lang = self.lang();
+        let mut hits = Vec::new();
+        for archive in (0..count).filter_map(|i| u16::try_from(i).ok()) {
+            if !self.text_index.contains_key(&archive) {
+                let entry = self.index_archive(archive, lang);
+                self.text_index.insert(archive, entry);
+            }
+            let Some(messages) = self.text_index.get(&archive) else {
+                continue;
+            };
+            for (index, message) in messages.iter().enumerate() {
+                let Some(at) = message.lower.find(&query) else {
+                    continue;
+                };
+                hits.push(TextHit {
+                    archive,
+                    // A member holds fewer than 65536 messages, the count is a u16 on disk.
+                    index: index as u16,
+                    excerpt: excerpt(&message.text, &message.lower, at, query.len()),
+                });
+                if hits.len() >= limit {
+                    return Ok(hits);
+                }
+            }
+        }
+        Ok(hits)
+    }
+
+    /// The index entry of `archive` from the disk; empty when it cannot be read or decoded.
+    fn index_archive(&self, archive: u16, lang: &str) -> Vec<IndexedText> {
+        let doc = self
+            .project
+            .asset_location(AssetKind::TextArchive, archive)
+            .ok()
+            .and_then(|location| match location {
+                Location::TextSource { json, member } => {
+                    read_text_doc(&json, &member, lang).ok().flatten()
+                }
+                _ => None,
+            });
+        doc.map(|doc| {
+            doc.messages
+                .into_iter()
+                .map(|m| IndexedText {
+                    lower: m.text.to_lowercase(),
+                    text: m.text,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// Forgets the search index entry of `id` if it is a text archive.
+    fn drop_text_index(&mut self, id: AssetId) {
+        if id.kind == AssetKind::TextArchive {
+            self.text_index.remove(&id.index);
+        }
+    }
+
+    /// Ids of the map headers whose text archive is `index`, as the store holds the table
+    /// (unsaved edits included).
+    pub fn text_archive_users(&mut self, index: u16) -> Result<Vec<u16>, KernelError> {
+        Ok(self
+            .header_table()?
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| h.text_archive_id() == index)
+            // The table holds at most 65536 headers (checked when it is read).
+            .map(|(id, _)| id as u16)
+            .collect())
+    }
+
     /// The bytes of `id` as the editor shows them: the store's value when it is loaded and
     /// writable, else the file on disk.
     fn member_bytes(&mut self, id: AssetId) -> Result<Vec<u8>, KernelError> {
@@ -789,9 +1029,12 @@ impl Store {
     /// asset's changesets leave both the undo and the redo stack; those of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
+        // Dropped first: an undecodable text archive is an error below, and the index must
+        // not keep what it read before the file changed.
+        self.drop_text_index(id);
         let bytes = self.read_member(id)?;
         let family = self.project.family;
-        let current = Loaded::from_bytes(id.kind, &bytes, family)?;
+        let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
         let locked = unwritable_reason(&current, &bytes, family);
         self.assets.insert(
             id,
@@ -803,6 +1046,7 @@ impl Store {
         );
         self.undo.retain(|c| c.asset != id);
         self.redo.retain(|c| c.asset != id);
+        self.drop_text_index(id);
         Ok(())
     }
 
@@ -819,9 +1063,9 @@ impl Store {
         if !self.assets.contains_key(&id) {
             return Ok(());
         }
-        let base = match self.read_disk(id)? {
+        let base = match self.read_disk_as(id, read_base)? {
             (_, Some(bytes)) => Some(bytes),
-            (Location::Member(_), None) => None,
+            (Location::Member(_) | Location::TextSource { .. }, None) => None,
             (Location::Slice { path, .. }, None) => {
                 return Err(KernelError::InvalidProject(format!(
                     "{} is missing or too short for the header table",
@@ -837,12 +1081,14 @@ impl Store {
         }
         self.undo.retain(|c| c.asset != id);
         self.redo.retain(|c| c.asset != id);
+        self.drop_text_index(id);
         Ok(())
     }
 
     /// Restores `bytes` as the current value of `asset`. Returns false if that fails.
     fn restore(&mut self, asset: AssetId, bytes: &[u8]) -> bool {
-        let Ok(value) = Loaded::from_bytes(asset.kind, bytes, self.project.family) else {
+        let Ok(value) = Loaded::from_bytes(asset.kind, bytes, self.project.family, self.lang())
+        else {
             return false;
         };
         match self.assets.get_mut(&asset) {
@@ -924,7 +1170,8 @@ impl Store {
         let mut pending = Vec::new();
         for id in self.dirty() {
             let location = self.project.asset_location(id.kind, id.index)?;
-            let on_disk = read_location(&location)?;
+            // A text archive that no longer decodes differs from what was loaded: stale.
+            let on_disk = read_base(&location, self.lang())?;
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(id));
@@ -952,23 +1199,36 @@ impl Store {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
                     dynamic_headers::write_changed_files(&self.project.root, dir, base, &bytes)?;
                 }
+                Location::TextSource { json, member } => {
+                    let Some(Loaded::TextArchive(doc)) = self.assets.get(&id).map(|a| &a.current)
+                    else {
+                        return Err(mismatch(id));
+                    };
+                    let problems = text::write_archive(&self.project.root, json, member, doc)?;
+                    report.problems.extend(problems);
+                }
             }
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.saved_bytes = Some(bytes);
             }
             report.written.push(id);
+            self.drop_text_index(id);
         }
         Ok(report)
     }
 }
 
 /// The bytes at `location`. `None`: the file does not exist (for header files: one of
-/// them), or (for a slice) it is too short to contain it.
-fn read_location(location: &Location) -> Result<Option<Vec<u8>>, KernelError> {
+/// them), or (for a slice) it is too short to contain it. A text archive reads as its
+/// canonical JSON, see [`read_text_doc`]; `lang` is the editor's text language.
+fn read_location(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelError> {
     let (path, slice) = match location {
         Location::Member(path) => (path, None),
         Location::Slice { path, offset, len } => (path, Some((*offset, *len))),
         Location::HeaderFiles { dir, count } => return dynamic_headers::read_files(dir, *count),
+        Location::TextSource { json, member } => {
+            return Ok(read_text_doc(json, member, lang)?.map(|doc| doc.to_json()));
+        }
     };
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -979,6 +1239,66 @@ fn read_location(location: &Location) -> Result<Option<Vec<u8>>, KernelError> {
         None => Some(bytes),
         Some((offset, len)) => slice_range(offset, len, bytes.len()).map(|r| bytes[r].to_vec()),
     })
+}
+
+/// Like [`read_location`], but a text archive whose winning file does not decode reads as
+/// that file's raw bytes instead of failing. Those never equal the canonical JSON the store
+/// saves, so for the stale check an undecodable file is "changed on disk" (`save` returns
+/// `Stale`), and `accept_disk_as_base` can adopt it as a base that keeps the asset dirty
+/// until a save overwrites the file with the store's version.
+fn read_base(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelError> {
+    let Location::TextSource { json, member } = location else {
+        return read_location(location, lang);
+    };
+    match read_text_doc(json, member, lang) {
+        Err(KernelError::InvalidProject(_)) => match text::text_winner(json, member)? {
+            Some(path) => std::fs::read(path).map(Some).map_err(io_at(path)),
+            None => Ok(None),
+        },
+        other => Ok(other?.map(|doc| doc.to_json())),
+    }
+}
+
+/// `<folder>/<file>` of `path`, how errors name a text archive file.
+fn short_path(path: &Path) -> String {
+    let name = |p: Option<&std::ffi::OsStr>| p.map(|n| n.to_string_lossy().into_owned());
+    match (path.parent().and_then(Path::file_name), path.file_name()) {
+        (dir, Some(file)) => format!(
+            "{}/{}",
+            name(dir).unwrap_or_default(),
+            file.to_string_lossy()
+        ),
+        _ => path.display().to_string(),
+    }
+}
+
+/// Puts `path` in front of the message of a text archive decode error.
+fn text_error_at(path: &Path, error: KernelError) -> KernelError {
+    match error {
+        KernelError::InvalidProject(why) => {
+            KernelError::InvalidProject(format!("{}: {why}", short_path(path)))
+        }
+        other => other,
+    }
+}
+
+/// A text archive as the loader rule (spec 4.1) sees it: the JSON when it exists and is not
+/// older than the member, else the decoded member. `None` when neither file exists.
+fn read_text_doc(
+    json: &Path,
+    member: &Path,
+    lang: &str,
+) -> Result<Option<TextArchiveDoc>, KernelError> {
+    let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
+    match text::text_winner(json, member)? {
+        Some(path) if path == json => TextArchiveDoc::from_json(&read(json)?, lang)
+            .map(Some)
+            .map_err(|e| text_error_at(json, e)),
+        Some(path) => TextArchiveDoc::from_member(&read(path)?, lang)
+            .map(Some)
+            .map_err(|e| text_error_at(member, e)),
+        None => Ok(None),
+    }
 }
 
 /// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.
@@ -1028,7 +1348,6 @@ mod tests {
     #[test]
     fn read_only_kinds_are_not_editable() {
         for kind in [
-            AssetKind::TextArchive,
             AssetKind::MapTexture,
             AssetKind::BuildingTexture,
             AssetKind::BuildingModel,
@@ -1036,7 +1355,7 @@ mod tests {
         ] {
             assert!(!Loaded::is_editable(kind));
             assert!(matches!(
-                Loaded::from_bytes(kind, &[0; 16], Family::Pt),
+                Loaded::from_bytes(kind, &[0; 16], Family::Pt, "en_US"),
                 Err(KernelError::NotEditable(k)) if k == kind
             ));
         }
@@ -1058,10 +1377,13 @@ mod tests {
             })
             .collect();
         for family in [Family::Dp, Family::Pt, Family::Hgss] {
-            let loaded = Loaded::from_bytes(AssetKind::HeaderTable, &bytes, family).unwrap();
+            let loaded =
+                Loaded::from_bytes(AssetKind::HeaderTable, &bytes, family, "en_US").unwrap();
             assert_eq!(loaded.to_bytes(family).unwrap(), bytes, "{family:?}");
         }
-        assert!(Loaded::from_bytes(AssetKind::HeaderTable, &bytes[1..], Family::Pt).is_err());
+        assert!(
+            Loaded::from_bytes(AssetKind::HeaderTable, &bytes[1..], Family::Pt, "en_US").is_err()
+        );
     }
 
     /// A value that cannot be serialized (cannot arise through `edit_event`, which rolls
@@ -1094,5 +1416,193 @@ mod tests {
             std::fs::read(st.project().member_path(AssetKind::Event, 0)).unwrap(),
             before
         );
+    }
+    #[cfg(feature = "test-support")]
+    #[allow(clippy::unwrap_used)]
+    mod text {
+        use std::time::{Duration, SystemTime};
+
+        use super::*;
+        use crate::test_support::{synthetic_project, text_archive_bytes};
+        use crate::text::TextArchiveDoc;
+
+        const ARCHIVE: AssetId = AssetId {
+            kind: AssetKind::TextArchive,
+            index: 433,
+        };
+
+        fn store() -> (crate::test_support::Synthetic, Store) {
+            let s = synthetic_project();
+            let st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+            (s, st)
+        }
+
+        fn json_path(st: &Store, index: u16) -> std::path::PathBuf {
+            st.project()
+                .expanded_dir(AssetKind::TextArchive)
+                .join(format!("{index:04}.json"))
+        }
+
+        fn set_mtime(path: &Path, time: SystemTime) {
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(time).unwrap();
+        }
+
+        /// JSON and member of archive 433 holding `json_text` and `member_text` as message 1,
+        /// with the later mtime on the JSON or, otherwise, the member.
+        fn write_both(st: &mut Store, json_text: &str, member_text: &str, json_is_newer: bool) {
+            st.project()
+                .ensure_unpacked(AssetKind::TextArchive)
+                .unwrap();
+            let member = st.project().member_path(AssetKind::TextArchive, 433);
+            let json = json_path(st, 433);
+            let doc = TextArchiveDoc::from_member(
+                &text_archive_bytes(&["Nowhere", json_text, "Sandgem Town"]),
+                "en_US",
+            )
+            .unwrap();
+            std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+            std::fs::write(&json, doc.to_json()).unwrap();
+            std::fs::write(
+                &member,
+                text_archive_bytes(&["Nowhere", member_text, "Sandgem Town"]),
+            )
+            .unwrap();
+            let (old, new) = (
+                SystemTime::now() - Duration::from_secs(100),
+                SystemTime::now(),
+            );
+            let (json_time, member_time) = if json_is_newer {
+                (new, old)
+            } else {
+                (old, new)
+            };
+            set_mtime(&json, json_time);
+            set_mtime(&member, member_time);
+        }
+
+        #[test]
+        fn text_archive_loads_from_member_without_json() {
+            let (_s, mut st) = store();
+            let doc = st.text_archive(433).unwrap();
+            assert_eq!(doc.messages[1].text, "Twinleaf Town");
+            assert_eq!(doc.lang, "en_US");
+            assert!(!st.is_dirty(ARCHIVE));
+            assert!(!json_path(&st, 433).exists(), "loading writes nothing");
+        }
+
+        #[test]
+        fn text_archive_edit_save_writes_json_and_member() {
+            let (_s, mut st) = store();
+            let change = st
+                .edit_text_archive(433, "rename", |d| {
+                    d.messages[1].text = "Zweiblattdorf".into()
+                })
+                .unwrap();
+            assert!(change.is_some());
+            assert!(st.is_dirty(ARCHIVE));
+            let report = st.save().unwrap();
+            assert_eq!(report.written, vec![ARCHIVE]);
+            assert!(report.problems.is_empty());
+            let json = std::fs::read_to_string(json_path(&st, 433)).unwrap();
+            assert!(json.contains("Zweiblattdorf"));
+            let member =
+                std::fs::read(st.project().member_path(AssetKind::TextArchive, 433)).unwrap();
+            let decoded = TextArchiveDoc::from_member(&member, "en_US").unwrap();
+            assert_eq!(decoded.messages[1].text, "Zweiblattdorf");
+            assert!(!st.is_dirty(ARCHIVE));
+            assert!(st.dirty().is_empty());
+            // The saved state is the base: a second save has nothing to do.
+            assert!(st.save().unwrap().written.is_empty());
+        }
+
+        #[test]
+        fn text_archive_undo_restores_text() {
+            let (_s, mut st) = store();
+            st.edit_text_archive(433, "rename", |d| {
+                d.messages[1].text = "Zweiblattdorf".into()
+            })
+            .unwrap();
+            assert_eq!(st.undo(), Some(ARCHIVE));
+            assert_eq!(
+                st.text_archive(433).unwrap().messages[1].text,
+                "Twinleaf Town"
+            );
+            assert!(!st.is_dirty(ARCHIVE));
+            assert_eq!(st.redo(), Some(ARCHIVE));
+            assert_eq!(
+                st.text_archive(433).unwrap().messages[1].text,
+                "Zweiblattdorf"
+            );
+        }
+
+        #[test]
+        fn an_edit_that_changes_nothing_records_no_changeset() {
+            let (_s, mut st) = store();
+            let change = st.edit_text_archive(433, "noop", |_| {}).unwrap();
+            assert_eq!(change, None);
+            assert_eq!(st.undo(), None);
+        }
+
+        #[test]
+        fn member_newer_than_json_wins() {
+            let (_s, mut st) = store();
+            write_both(&mut st, "Alt", "Neu", false);
+            assert_eq!(st.text_archive(433).unwrap().messages[1].text, "Neu");
+            assert!(!st.is_dirty(ARCHIVE));
+        }
+
+        #[test]
+        fn json_newer_than_member_wins() {
+            let (_s, mut st) = store();
+            write_both(&mut st, "Alt", "Neu", true);
+            assert_eq!(st.text_archive(433).unwrap().messages[1].text, "Alt");
+        }
+
+        #[test]
+        fn create_text_archive_appends_member_and_json() {
+            let (_s, mut st) = store();
+            assert_eq!(st.create_text_archive().unwrap(), 434);
+            assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), 435);
+            assert!(
+                st.project()
+                    .member_path(AssetKind::TextArchive, 434)
+                    .is_file()
+            );
+            assert!(json_path(&st, 434).is_file());
+            let doc = st.text_archive(434).unwrap();
+            assert_eq!(doc.key, 0);
+            let texts: Vec<_> = doc.messages.iter().map(|m| m.text.as_str()).collect();
+            assert_eq!(texts, ["Neuer Text"]);
+            assert!(st.dirty().is_empty());
+        }
+
+        #[test]
+        fn search_text_finds_across_archives() {
+            let (_s, mut st) = store();
+            let hits = st.search_text("twinleaf", 10).unwrap();
+            assert_eq!(hits.len(), 1);
+            assert_eq!((hits[0].archive, hits[0].index), (433, 1));
+            assert!(hits[0].excerpt.contains("Twinleaf Town"));
+            assert!(st.search_text("", 10).unwrap().is_empty());
+            assert_eq!(st.search_text("town", 1).unwrap().len(), 1);
+            assert_eq!(st.search_text("town", 10).unwrap().len(), 2);
+        }
+
+        #[test]
+        fn text_archive_users_lists_headers() {
+            let (_s, mut st) = store();
+            // The fixture's header 0 already uses archive 433; the edit adds header 1.
+            assert_eq!(st.text_archive_users(433).unwrap(), vec![0]);
+            st.edit_header(1, "text", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.text_archive_id = 433;
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(st.text_archive_users(433).unwrap(), vec![0, 1]);
+            assert_eq!(st.text_archive_users(5).unwrap(), Vec::<u16>::new());
+        }
     }
 }

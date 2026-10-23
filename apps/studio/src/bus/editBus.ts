@@ -21,6 +21,14 @@ export type EditEvent =
   | { topic: "eventsRefetch"; file: number }
   /** The scene reloads its models (the tilesets of the shown area data changed). */
   | { topic: "modelsReload" }
+  /** A text archive may have changed behind the text panel (undo, redo, reload); `archive` null: any of them (a reload after a stale file). */
+  | { topic: "textData"; archive: number | null }
+  /**
+   * Project files the language server should read again (LSP `workspace/didChangeWatchedFiles`): a saved text archive
+   * (its message ids), the project config after an adoption. `type` is the LSP file change type: 1 created, 2 changed.
+   * Nobody listens while the server is not running.
+   */
+  | { topic: "lspFilesChanged"; changes: { path: string; type: 1 | 2 }[] }
   /** The header list scrolls to the selection (a link led to a header). */
   | { topic: "headerReveal" };
 

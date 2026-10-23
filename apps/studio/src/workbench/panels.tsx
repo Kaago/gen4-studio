@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import type { ProjectInfo } from "../api";
 import { StatusBar } from "../Toolbar";
 import { useBusRevision } from "../bus/useBusEvent";
 import { lockedText } from "../world/events";
@@ -8,11 +9,19 @@ import { AddEvent } from "./inspector/AddEvent";
 import { Inspector } from "./Inspector";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
+import { ProblemsPanel } from "./problems/ProblemsPanel";
+import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
+import type { ScriptPanelContext } from "./script/ScriptPanel";
+import { TextPanel } from "./text/TextPanel";
+import type { TextPanelContext } from "./text/TextPanel";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useMessage, useWorkbench } from "./WorkbenchContext";
+
+/** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
+const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
 const toggleStyle: React.CSSProperties = {
   color: "#e5e7eb",
@@ -32,6 +41,9 @@ export function HeadersPanel() {
   const d = useWorkbench();
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
   const revealToken = useBusRevision(d.bus, "headerReveal");
+  // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
+  const goTo = d.goTo;
+  const onOpenScript = useCallback((file: number, line?: number) => goTo({ kind: "script", file, line }), [goTo]);
   return (
     <WorldExplorer
       info={d.info}
@@ -44,6 +56,8 @@ export function HeadersPanel() {
       revealToken={revealToken}
       onSelect={d.onSelect}
       onOpenWizard={d.onOpenWizard}
+      scriptsAdopted={d.scripts.status?.adopted === true}
+      onOpenScript={onOpenScript}
     />
   );
 }
@@ -153,6 +167,37 @@ export function WorldMapTab() {
   return <WorldMapPanel context={context} />;
 }
 
+export function TextTab() {
+  const d = useWorkbench();
+  // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
+  const textRevision = useBusRevision(d.bus, "textData");
+  const { info, headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
+  // Memoised with the memoised panel: it renders again only when one of these changes.
+  const context = useMemo<TextPanelContext>(
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
+    [info, headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
+  );
+  return <TextPanel context={context} />;
+}
+
+export function ScriptTab() {
+  const d = useWorkbench();
+  const { info, scripts, problems, bus, onError } = d;
+  // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
+  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, onError }), [info, scripts, problems, bus, onError]);
+  return (
+    <Suspense fallback={<p style={{ padding: 12, color: "#6b7280" }}>Editor wird geladen …</p>}>
+      <ScriptPanel context={context} />
+    </Suspense>
+  );
+}
+
+export function ProblemsTab() {
+  const { problems, goTo } = useWorkbench();
+  const context = useMemo<ProblemsPanelContext>(() => ({ problems, goTo }), [problems, goTo]);
+  return <ProblemsPanel context={context} />;
+}
+
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
@@ -162,6 +207,13 @@ export function InspectorPanel() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const buildingRevision = useBusRevision(d.bus, "buildingData");
   const eventRevision = useBusRevision(d.bus, "eventData");
+  // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
+  const goTo = d.goTo;
+  const openScript = (file: number, line?: number) => goTo({ kind: "script", file, line });
+  // Read when a queued form save gets its turn: a project opened since then is not the one the save was made in.
+  const openProject = useRef(d.info);
+  openProject.current = d.info;
+  const isCurrentProject = useCallback((project: ProjectInfo | null) => openProject.current === project, []);
   return (
     <Inspector
       model={inspector}
@@ -174,6 +226,13 @@ export function InspectorPanel() {
         eventRevision,
         onOpenWizard: d.onOpenWizard,
         onAddWarp: () => void d.onAddEvent("warp"),
+        info: d.info,
+        scriptsAdopted: d.scripts.status?.adopted === true,
+        scriptsRevision: d.scripts.revision,
+        onOpenScript: openScript,
+        onLevelScriptSaved: d.scripts.onLevelScriptSaved,
+        isCurrentProject,
+        onCountsChanged: d.onCountsChanged,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
@@ -194,6 +253,10 @@ export function InspectorPanel() {
         onAdd: d.onAddEvent,
         onDelete: d.onDeleteEvent,
         goTo: d.goTo,
+        selected: d.selected,
+        scriptsAdopted: d.scripts.status?.adopted === true,
+        onOpenScript: openScript,
+        onAddScript: d.scripts.add,
         onError: d.onError,
       }}
       matrixEditor={{
@@ -212,9 +275,10 @@ export function InspectorPanel() {
 export function StatusPanel() {
   const d = useWorkbench();
   const message = useMessage();
+  const counts = useSyncExternalStore(d.problems.subscribe, d.problems.counts);
   return (
     <div style={{ height: "100%", overflowY: "auto" }}>
-      <StatusBar message={message} onDismiss={d.onDismissMessage} />
+      <StatusBar message={message} problems={counts} onDismiss={d.onDismissMessage} />
     </div>
   );
 }
