@@ -182,7 +182,7 @@ Regeln für alle: Fokusring 2 px außen in `fokus/ring` nur bei `:focus-visible`
 
 `icons.ts` ist die einzige Stelle, die Phosphor importiert; Panels nennen Symbole beim Namen (`<Icon name="door" />`).
 
-**Galerie** (`?gallery` im Browser-Modus, `main.tsx` verzweigt vor `App`): eine Seite je Primitive mit allen Varianten und Zuständen in zwei Spalten (links `data-theme="hell"`, rechts `"dunkel"` über einen umschließenden Rahmen) und einem Schalter Komfort / Kompakt. Dazu je eine Seite „Scharnier“ (Bearbeiten, Assistent) und „Rahmen“ (Atlas, Statusleiste, Titelleiste macOS und Windows). Kein Storybook, keine Abhängigkeit.
+**Galerie** (`?gallery` im Browser-Modus, `main.tsx` verzweigt vor `App`): eine Seite je Primitive mit allen Varianten und Zuständen, oben Umschalter Hell / Dunkel und Komfort / Kompakt (sie setzen `data-theme` und `data-dichte` am `html`, weil die generierten Variablen an `:root` hängen; zwei Spalten nebeneinander gingen nur mit einem zweiten Selektor im Export). Dazu je eine Seite „Scharnier“ (Bearbeiten, Assistent) und „Rahmen“ (Atlas, Statusleiste, Titelleiste macOS und Windows). Kein Storybook, keine Abhängigkeit.
 
 ## 7. Bereiche und Umzug
 
