@@ -59,7 +59,9 @@
   font: var(--g4-font-code-s);
 }
 
+/* The control keeps 6 x 16 px at least and asks for 8 x 16 px; below that the buttons wrap to the next line. */
 .grow {
-  min-width: 0;
-  flex: 1;
+  min-width: calc(var(--g4-raum-16) * 6);
+  max-width: 100%;
+  flex: 1 1 calc(var(--g4-raum-16) * 8);
 }
