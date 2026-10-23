@@ -264,4 +264,17 @@ describe("TechnikArea", () => {
     expect(lsp()?.getAttribute("data-lsp")).toBe("bereit");
     expect(button("Neu starten", lsp()!)).toBeUndefined();
   });
+
+  it("werkzeuge_says_why_rotom_lsp_is_off_only_when_the_script_panel_said_so", async () => {
+    await render({ start: "werkzeuge" });
+    const lsp = () => surface()!.querySelector<HTMLElement>("[data-lsp]");
+    // Off without a reason (the panel went away with adopted scripts): a neutral note, no promise about the adoption.
+    await act(async () => tools.set({ lsp: { state: "aus" } }));
+    expect(lsp()?.getAttribute("data-lsp")).toBe("aus");
+    expect(lsp()?.textContent).toContain("Nicht gestartet.");
+    expect(lsp()?.textContent).not.toContain("übernommen");
+    // Off because the scripts are not adopted: the panel's reason.
+    await act(async () => tools.set({ lsp: { state: "aus", note: "Läuft, sobald die Scripts des Projekts übernommen sind." } }));
+    expect(lsp()?.textContent).toContain("Läuft, sobald die Scripts des Projekts übernommen sind.");
+  });
 });

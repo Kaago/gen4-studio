@@ -674,13 +674,16 @@ describe("ScriptPanel", () => {
       vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
       await render(projectB);
       await settle();
-      expect(toolStatus.get().lsp?.state).toBe("aus");
+      // Off for want of the adoption, and Technik says so.
+      expect(toolStatus.get().lsp).toMatchObject({ state: "aus", note: "Läuft, sobald die Scripts des Projekts übernommen sind." });
       vi.mocked(scriptsStatus).mockResolvedValue(ADOPTED);
       await render(projectA);
       await settle();
       expect(toolStatus.get().lsp?.state).toBe("fehlt");
       act(() => root.render(<></>));
+      // Gone with the panel, scripts adopted: off without a reason that would not hold.
       expect(toolStatus.get().lsp?.state).toBe("aus");
+      expect(toolStatus.get().lsp?.note).toBeUndefined();
     });
   });
 });

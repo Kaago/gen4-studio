@@ -63,8 +63,8 @@ const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
 const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte" };
 
-/** "Header 0412, 0413": the headers that use an archive or a script file. */
-const usedBy = (ids: readonly number[]) => `Verwendet von ${TERMS.header.label} ${ids.map(id4).join(", ")}`;
+/** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
+const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" : "verwendet"} von ${TERMS.header.label} ${ids.map(id4).join(", ")}`;
 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
@@ -140,7 +140,8 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       id: `archive-${row.index}`,
       // Like the texts' list: the place the archive is named after, else what it is.
       label: row.place ?? (row.users.length > 0 ? "Ohne Ortsnamen" : TERMS.textArchive.label),
-      description: row.users.length > 0 ? usedBy(row.users) : undefined,
+      // R10: the second line starts with what the row is, so typing "textarchiv" finds every archive (an unused one is named so already).
+      description: row.users.length > 0 ? `${TERMS.textArchive.label}, ${usedBy(row.users, false)}` : undefined,
       tech: id4(row.index),
       area: "texte",
       group: "Textarchive",

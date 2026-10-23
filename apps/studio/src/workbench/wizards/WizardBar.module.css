@@ -117,6 +117,11 @@
   background: var(--g4-scharnier-taste);
 }
 
+/* Where the bar is narrow (a list beside the deck, compact density) the other steps shorten; the current one keeps its whole name. */
+.step[data-state="current"] {
+  flex: none;
+}
+
 .step[data-state="current"] .pill {
   background: var(--g4-scharnier-text);
   color: var(--g4-scharnier-grund);

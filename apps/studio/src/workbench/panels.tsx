@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
@@ -196,14 +196,14 @@ export function ToolsTab() {
   return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
 }
 
-/** The scene and the inspector report a failed read of the events already. */
-const ignoreError = () => {};
-
 export function ContextTab() {
   const d = useWorkbench();
-  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo).
+  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
+  // failed read already; here it only ends the "Lade …".
   const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
-  const events = useEvents(d.eventFileId, ignoreError, eventsRevision);
+  const [failedFile, setFailedFile] = useState<number | null>(null);
+  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
+  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
   const { goTo, onSelectEvent, onSelectBuilding } = d;
   const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
   return (
@@ -217,6 +217,7 @@ export function ContextTab() {
       onSelectEvent={onSelectEvent}
       onSelectBuilding={onSelectBuilding}
       onOpenHeader={onOpenHeader}
+      loading={loading}
     />
   );
 }

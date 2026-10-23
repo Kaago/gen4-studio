@@ -331,8 +331,15 @@ describe("Deck", () => {
     expect(slot.style.height).toBe("420px");
   });
 
-  it("resets_nothing_of_a_deck_that_is_not_built", () => {
+  it("drops_the_stored_layouts_of_a_deck_that_is_not_built_so_it_starts_from_its_default", () => {
+    // "Layout zurücksetzen" on Start, Technik or Einstellungen works on the world, which may never have been built in this session.
+    localStorage.setItem(layoutKey("texte", "schau"), JSON.stringify({ panels: { textView: {} } }));
+    localStorage.setItem(layoutKey("texte", "hand"), JSON.stringify({ panels: { textEdit: {} } }));
+    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify({ panels: { tools: {} } }));
     expect(() => resetLayout("texte", { schau: { current: null }, hand: { current: null } })).not.toThrow();
     expect(localStorage.getItem(layoutKey("texte", "schau"))).toBeNull();
+    expect(localStorage.getItem(layoutKey("texte", "hand"))).toBeNull();
+    // Another area's layout stays.
+    expect(localStorage.getItem(layoutKey("welt", "hand"))).not.toBeNull();
   });
 });

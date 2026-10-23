@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Page, Segment } from "../../workbench/text/textModel";
 import { Badge } from "./Badge";
 import { Icon } from "./Icon";
@@ -60,7 +60,7 @@ export function DSScreen({ variant, pages, page, scale: given, background }: DSS
   const label = variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`;
   return (
     <div ref={frame} className={styles.frame}>
-      <div role="group" aria-label={label} className={styles.screen} style={{ "--ds-scale": scale } as CSSProperties /* dyn */}>
+      <div role="group" aria-label={label} className={styles.screen} style={{ "--ds-scale": scale } /* dyn */}>
         {background !== undefined && <div className={styles.background}>{background}</div>}
         {variant !== "empty" && shown && (
           <div className={`${styles.box} ${variant === "sign" ? styles.sign : styles.textbox}`}>

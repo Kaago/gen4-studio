@@ -24,6 +24,8 @@ interface ShortcutHandlers {
   onTool: (tool: Tool) => void;
   /** Whether the world (the deck with the scene) is shown: only then do the tool letters and Escape-to-"Auswählen" act. */
   toolsActive: boolean;
+  /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
+  toolLocked: (tool: Tool) => boolean;
 }
 
 /**
@@ -71,7 +73,8 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       if (latest.current.toolsActive && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
         const tool = toolForKey(e.key);
         if (tool !== null) {
-          latest.current.onTool(tool);
+          // The palette's button of a locked tool cannot be pressed; its letter cannot switch to it either.
+          if (!latest.current.toolLocked(tool)) latest.current.onTool(tool);
           return;
         }
         if (e.key === "Escape" && !e.defaultPrevented) {
@@ -86,14 +89,14 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       } else if (action === "save") {
         e.preventDefault();
         void latest.current.onSave();
-      } else if (action === "open") {
-        // The browser's own "open file" stays away; a held key asks once.
+      } else if (action === "open" || action === "palette") {
+        // A key an editor already used is not ours: on a Mac CodeMirror's Ctrl+K deletes to the line end, Ctrl+O splits the line.
+        if (e.defaultPrevented) return;
+        // The browser's own "open file" and Cmd+K (search bar) stay away; a held key asks or opens once.
         e.preventDefault();
-        if (!e.repeat) latest.current.onOpenProject();
-      } else if (action === "palette") {
-        // The browser's own Cmd+K (search bar) stays away; a held key opens once.
-        e.preventDefault();
-        if (!e.repeat) latest.current.onPalette();
+        if (e.repeat) return;
+        if (action === "open") latest.current.onOpenProject();
+        else latest.current.onPalette();
       } else if (action === "play") {
         e.preventDefault();
         // A held key must not start a build per repeat.

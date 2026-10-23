@@ -298,6 +298,8 @@ function AppBody() {
   const openPalette = useStableCallback(() => {
     if (!wizardOpen.current) setPaletteOpen(true);
   });
+  // Whether the event tools are locked (set below, once the place is known): their letters then do nothing, like their buttons.
+  const eventsBlockedRef = useRef(false);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -309,6 +311,7 @@ function AppBody() {
     unpinSelection: world.unpinSelection,
     onTool,
     toolsActive: area === "welt",
+    toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */
@@ -401,6 +404,7 @@ function AppBody() {
 
   // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.
   const eventsBlocked = world.eventLock !== null || data.eventFileId === null;
+  eventsBlockedRef.current = eventsBlocked;
   useEffect(() => {
     if (eventsBlocked && isEventTool(shell.tool)) shell.setTool("select");
   }, [eventsBlocked, shell.tool]);

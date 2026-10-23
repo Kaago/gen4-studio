@@ -110,6 +110,9 @@ function lspText(lsp: LspStatus): string {
   }
 }
 
+/** Why Technik › Werkzeuge shows the server off while the project's scripts are not adopted. */
+const NOT_ADOPTED = "Läuft, sobald die Scripts des Projekts übernommen sind.";
+
 /** The Script panel (spec §7.3): the adoption box until rotom has taken the scripts over, then the documents as tabs with their editor. */
 export const ScriptPanel = memo(function ScriptPanel({ context }: { context: ScriptPanelContext }) {
   const { project, scripts, problems, bus, depth, onError } = context;
@@ -119,7 +122,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
   // Technik › Werkzeuge shows the server's state and restarts it through the panel. Without an adopted project it does not run.
   const serving = project !== null && adopted;
   useEffect(() => {
-    toolStatus.set({ lsp: serving ? { state: LSP_TOOL[lsp.state], note: lsp.note ?? undefined, restart: lsp.restart } : { state: "aus" } });
+    toolStatus.set({ lsp: serving ? { state: LSP_TOOL[lsp.state], note: lsp.note ?? undefined, restart: lsp.restart } : { state: "aus", note: NOT_ADOPTED } });
   }, [serving, lsp.state, lsp.note, lsp.restart]);
   // The panel's server ends with the panel.
   useEffect(() => () => toolStatus.set({ lsp: { state: "aus" } }), []);

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { TextHit } from "../../api";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
@@ -42,10 +42,9 @@ const MessageText = memo(function MessageText({ text }: { text: string }) {
 /** The longest line of a message: a bar against the limit and "34 von 38"; over the limit in the warning colour with ⚠ and bold. */
 function LongestLine({ width }: { width: number }) {
   const over = width > LINE_LIMIT;
-  const fill = { "--text-line-fill": `${Math.min(100, (width / LINE_LIMIT) * 100)}%` } as CSSProperties;
   return (
     <span className={over ? `${styles.longest} ${styles.over}` : styles.longest}>
-      <span className={styles.bar} style={fill} /* dyn */ aria-hidden="true" />
+      <span className={styles.bar} style={{ "--text-line-fill": `${Math.min(100, (width / LINE_LIMIT) * 100)}%` }} /* dyn */ aria-hidden="true" />
       {over ? (
         <span className={styles.count} data-over="">
           <Icon name="warning" weight="fill" />

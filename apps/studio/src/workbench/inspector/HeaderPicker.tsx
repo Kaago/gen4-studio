@@ -1,5 +1,4 @@
 import { useMemo, useRef } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary } from "../../api";
 import { Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -21,9 +20,7 @@ function HeaderPreview({ header, cache }: { header: HeaderSummary; cache: Thumbn
   const matrix = useMatrix(visible ? header.matrix_id : null, 0, ignore);
   const map = matrix ? mapOfHeader(matrix, header.id) : null;
   const picture = useThumbnail(cache, map, header.area_data_id, visible);
-  const style: CSSProperties = {};
-  if (typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
-  return <span ref={tile} className={styles.preview} style={style} /* dyn */ data-preview={header.id} />;
+  return <span ref={tile} className={styles.preview} style={typeof picture === "string" ? { backgroundImage: `url("${picture}")` } : undefined} /* dyn */ data-preview={header.id} />;
 }
 
 export interface HeaderPickerProps {

@@ -41,7 +41,7 @@
   flex: none;
   font: var(--g4-font-code-s);
   font-size: var(--g4-schrift-groesse-xs);
-  opacity: 0.8;
+  /* Full strength: the mono face sets the number apart; dimmed it fell under 4.5:1 on the area tint (dark-and-compact pass, 3c.2). */
 }
 
 .welt {

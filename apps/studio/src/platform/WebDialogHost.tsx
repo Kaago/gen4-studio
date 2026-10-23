@@ -1,12 +1,7 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties } from "react";
-import { escapeCloses, useFocusTrap } from "../workbench/modal";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { Dialog, TextField } from "../ui/primitives";
 import { answerRequest, currentRequest, subscribeRequests } from "./dialogs";
 import type { WebRequest } from "./dialogs";
-
-const backdrop: CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 };
-const sheet: CSSProperties = { background: "#fff", borderRadius: 8, padding: 16, width: 460, maxWidth: "90vw", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" };
-const buttons: CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 };
 
 /** Shows the dialogs `platform/dialogs` asks for in a browser, one at a time. Rendered only outside Tauri. */
 export function WebDialogHost() {
@@ -26,58 +21,51 @@ function requestId(request: WebRequest): number {
   return id;
 }
 
+/**
+ * One request as a modal `Dialog`: a question with Nein and Ja, or a path typed into a field with Abbrechen and OK. Escape, the close
+ * button and a click outside answer no (or cancel); Escape cancels the path dialog also with text in the field (the field follows every
+ * keystroke, so there is no draft to take back first). Enter in the field takes the path.
+ */
 function RequestDialog({ request }: { request: WebRequest }) {
-  const dialog = useRef<HTMLDivElement>(null);
   const [path, setPath] = useState(request.kind === "path" ? request.initial : "");
   const pathRef = useRef(path);
   pathRef.current = path;
-  const isAsk = request.kind === "ask";
-  useFocusTrap(dialog);
-  useEffect(() => {
-    dialog.current?.querySelector<HTMLElement>("input, button")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (escapeCloses(e)) answerRequest(isAsk ? false : null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [isAsk]);
+  const cancel = () => answerRequest(request.kind === "ask" ? false : null);
+  const onOpenChange = (open: boolean) => {
+    if (!open) cancel();
+  };
 
   if (request.kind === "ask") {
     return (
-      <div style={backdrop} role="presentation">
-        <div ref={dialog} role="dialog" aria-modal="true" aria-label="Rückfrage" style={sheet}>
-          <div>{request.message}</div>
-          <div style={buttons}>
-            <button onClick={() => answerRequest(true)}>Ja</button>
-            <button onClick={() => answerRequest(false)}>Nein</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        open
+        onOpenChange={onOpenChange}
+        title="Rückfrage"
+        description={request.message}
+        actions={[
+          { label: "Nein", onClick: () => answerRequest(false) },
+          { label: "Ja", kind: request.level === "warning" ? "danger" : "primary", onClick: () => answerRequest(true) },
+        ]}
+      />
     );
   }
   return (
-    <div style={backdrop} role="presentation">
-      <div ref={dialog} role="dialog" aria-modal="true" aria-label={request.title} style={sheet}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            answerRequest(pathRef.current);
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{request.title}</div>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-            Pfad
-            {/* `data-draft`: Escape cancels even with text in the field (see `escapeCloses`); the path is never "taken back". */}
-            <input data-draft="" value={path} onChange={(e) => setPath(e.target.value)} spellCheck={false} style={{ fontFamily: "ui-monospace, monospace" }} />
-          </label>
-          <div style={buttons}>
-            <button type="submit">OK</button>
-            <button type="button" onClick={() => answerRequest(null)}>
-              Abbrechen
-            </button>
-          </div>
-        </form>
+    <Dialog
+      open
+      onOpenChange={onOpenChange}
+      title={request.title}
+      actions={[
+        { label: "Abbrechen", onClick: () => answerRequest(null) },
+        { label: "OK", kind: "primary", onClick: () => answerRequest(pathRef.current) },
+      ]}
+    >
+      <div
+        onKeyDown={(e) => {
+          if (e.key === "Enter") answerRequest(pathRef.current);
+        }}
+      >
+        <TextField label="Pfad" showLabel value={path} onChange={setPath} onCommit={setPath} />
       </div>
-    </div>
+    </Dialog>
   );
 }

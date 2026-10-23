@@ -28,13 +28,15 @@ describe("in-page dialogs (browser mode)", () => {
     container.remove();
   });
 
+  // The dialog is a Base UI dialog in a portal: it sits in the body, not in the container.
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
   const button = (label: string) => {
-    const b = [...container.querySelectorAll("button")].find((x) => x.textContent === label);
+    const b = [...(dialog()?.querySelectorAll("button") ?? [])].find((x) => x.textContent === label);
     if (!b) throw new Error(`no button ${label}`);
     return b;
   };
   const click = (label: string) => act(async () => button(label).click());
-  const field = () => container.querySelector<HTMLInputElement>("[role=dialog] input")!;
+  const field = () => document.querySelector<HTMLInputElement>("[role=dialog] input")!;
   const type = (value: string) =>
     act(async () => {
       const input = field();
@@ -46,10 +48,10 @@ describe("in-page dialogs (browser mode)", () => {
   it("ask_resolves_true_on_ja", async () => {
     const answer = ask("Verwerfen?", { kind: "warning" });
     await act(async () => {});
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Verwerfen?");
+    expect(dialog()?.textContent).toContain("Verwerfen?");
     await click("Ja");
     await expect(answer).resolves.toBe(true);
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(dialog()).toBeNull();
   });
 
   it("ask_resolves_false_on_nein", async () => {
@@ -64,7 +66,7 @@ describe("in-page dialogs (browser mode)", () => {
     await act(async () => {});
     await escape();
     await expect(answer).resolves.toBe(false);
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(dialog()).toBeNull();
   });
 
   it("open_path_returns_the_typed_path", async () => {
@@ -136,19 +138,49 @@ describe("in-page dialogs (browser mode)", () => {
     const first = ask("Eins?");
     const second = ask("Zwei?");
     await act(async () => {});
-    expect(container.textContent).toContain("Eins?");
+    expect(dialog()?.textContent).toContain("Eins?");
     await click("Ja");
     await first;
-    expect(container.textContent).toContain("Zwei?");
+    expect(dialog()?.textContent).toContain("Zwei?");
     await click("Nein");
     await expect(second).resolves.toBe(false);
+  });
+
+  it("ask_is_a_dialog_named_rueckfrage_with_the_message_and_nein_before_ja", async () => {
+    void ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" });
+    await act(async () => {});
+    const el = dialog()!;
+    expect(document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent).toBe("Rückfrage");
+    expect(el.textContent).toContain("Ungespeicherte Änderungen verwerfen?");
+    const labels = [...el.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
+    expect(labels.slice(0, 2)).toEqual(["Nein", "Ja"]);
+    await click("Nein");
+  });
+
+  it("path_dialog_is_named_by_its_title_and_has_a_field_named_pfad", async () => {
+    const answer = openPath({ directory: false, title: "Emulator wählen" });
+    await act(async () => {});
+    const el = dialog()!;
+    expect(document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent).toBe("Emulator wählen");
+    expect(field().getAttribute("aria-label")).toBe("Pfad");
+    await click("Abbrechen");
+    await expect(answer).resolves.toBeNull();
+  });
+
+  it("enter_in_the_path_field_takes_the_typed_path", async () => {
+    const answer = openPath({ directory: true });
+    await act(async () => {});
+    await type("/Users/x/pt-enter");
+    field().focus();
+    await act(async () => void field().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    await expect(answer).resolves.toBe("/Users/x/pt-enter");
+    expect(dialog()).toBeNull();
   });
 
   it("blocks_shortcuts_behind_it_with_a_modal_dialog", async () => {
     void ask("Verwerfen?");
     await act(async () => {});
-    const dialog = container.querySelector('[role="dialog"]');
-    expect(dialog?.getAttribute("aria-modal")).toBe("true");
+    expect(dialog()?.getAttribute("aria-modal")).toBe("true");
     await click("Nein");
   });
 });

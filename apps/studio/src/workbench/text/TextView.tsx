@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties, KeyboardEvent, RefObject } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import type { HeaderSummary } from "../../api";
 import { Badge, Button, DSScreen, EmptyState, PanelHead } from "../../ui/primitives";
 import { thumbnails } from "../../world/thumbnailStore";
@@ -44,8 +44,7 @@ function MapPicture({ header }: { header: HeaderSummary }) {
   const map = matrix ? mapOfHeader(matrix, header.id) : null;
   const picture = useThumbnail(thumbnails, map, header.area_data_id);
   if (typeof picture !== "string") return null;
-  const style: CSSProperties = { backgroundImage: `url("${picture}")` };
-  return <div className={styles.map} style={style} /* dyn */ data-map-picture="" />;
+  return <div className={styles.map} style={{ backgroundImage: `url("${picture}")` }} /* dyn */ data-map-picture="" />;
 }
 
 /** The characters of one line as a card writes them: the line and "34 von 38". */

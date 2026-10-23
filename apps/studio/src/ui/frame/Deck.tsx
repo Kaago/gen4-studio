@@ -2,7 +2,7 @@ import { memo, useSyncExternalStore } from "react";
 import type { FunctionComponent, MutableRefObject, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import { deckPanels, isSaneLayout, layoutKey, loadLayout, saveLayout } from "../../workbench/layout";
+import { deckPanels, dropLayout, isSaneLayout, layoutKey, loadLayout, saveLayout } from "../../workbench/layout";
 import type { DeckId, PanelSpec } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { useShell } from "./ShellContext";
@@ -62,13 +62,16 @@ function applyDefaultLayout(api: DockviewApi, panels: readonly PanelSpec[]) {
 }
 
 /**
- * Puts both docks of `area` back to their default layouts and remembers them (a dock that is not built yet is left alone: it starts
- * from its stored layout, which this does not touch).
+ * Puts both docks of `area` back to their default layouts and remembers them. A dock that is not built yet (the world's, reset from an
+ * area without a deck before the world was shown) forgets its stored layout, so it starts from the default when it is built.
  */
 export function resetLayout(area: AreaId, docks: Record<DeckId, MutableRefObject<DockviewApi | null>>): void {
   for (const deck of ["schau", "hand"] as const) {
     const api = docks[deck].current;
-    if (!api) continue;
+    if (!api) {
+      dropLayout(layoutKey(area, deck));
+      continue;
+    }
     applyDefaultLayout(api, deckPanels(area, deck));
     syncTabBars(api);
     saveLayout(layoutKey(area, deck), api.toJSON());

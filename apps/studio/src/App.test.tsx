@@ -161,6 +161,8 @@ describe("App wiring", () => {
     resetToasts();
     env.tauri = false;
     window.history.replaceState(null, "", "/");
+    // Also when a test failed before it got there: the next test starts without a chosen emulator.
+    localStorage.removeItem("g4.emulatorPath");
   });
 
   /** Clicks the button with this text or accessible name (the first one in the document). */
@@ -588,7 +590,6 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       const emulator = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Emulator"))!;
       expect(emulator.textContent).toContain("/Applications/melonDS.app");
-      localStorage.removeItem("g4.emulatorPath");
     });
 
     it("opens_the_texts_with_their_own_list_and_deck_and_keeps_the_world_mounted_behind_them", async () => {

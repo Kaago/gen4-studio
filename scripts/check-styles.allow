@@ -1,3 +1,2 @@
-# Files still allowed to use inline styles and hex colours (3c.1). One path or glob per line.
-# Plan 3c.2 moves these to CSS Modules and empties this list.
-apps/studio/src/platform/WebDialogHost.tsx
+# Files still allowed to use inline styles and hex colours. One path or glob per line.
+# Plan 3c.2 moved the last of them to CSS Modules: the list stays empty.

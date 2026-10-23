@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true, toolLocked: (() => false) as (tool: string) => boolean };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -27,7 +27,8 @@ describe("useShortcuts", () => {
   beforeEach(() => {
     env.tauri = false;
     handlers.toolsActive = true;
-    for (const fn of Object.values(handlers)) if (typeof fn === "function") fn.mockClear();
+    handlers.toolLocked = () => false;
+    for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -157,6 +158,21 @@ describe("useShortcuts", () => {
     expect(handlers.onPalette).toHaveBeenCalledTimes(3);
   });
 
+  it("leaves_ctrl_k_and_ctrl_o_that_an_editor_already_used", async () => {
+    // On a Mac, CodeMirror's Ctrl+K deletes to the line end and Ctrl+O splits the line: they use the key, the palette and the open dialog stay shut.
+    for (const key of ["k", "o"]) {
+      const used = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+      used.preventDefault();
+      await act(async () => void document.body.dispatchEvent(used));
+    }
+    expect(handlers.onPalette).not.toHaveBeenCalled();
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
+    await press({ key: "k", ctrlKey: true });
+    await press({ key: "o", ctrlKey: true });
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+  });
+
   it("does_not_open_the_palette_while_a_wizard_or_a_modal_dialog_is_open", async () => {
     for (const attrs of [{ role: "dialog", "data-wizard": "" }, { role: "dialog", "aria-modal": "true" }]) {
       const cover = document.createElement("div");
@@ -200,6 +216,17 @@ describe("useShortcuts", () => {
       await press({ key: "v" });
       expect(handlers.onTool).toHaveBeenLastCalledWith("select");
       expect(handlers.onTool).toHaveBeenCalledTimes(3);
+    });
+
+    it("does_nothing_with_the_letter_of_a_locked_tool", async () => {
+      // Without a place (or with the event file locked) the event tools are locked: their letters change nothing.
+      handlers.toolLocked = (tool) => tool === "figure" || tool === "door";
+      await press({ key: "f" });
+      await press({ key: "t" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      await press({ key: "b" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
+      expect(handlers.onTool).toHaveBeenCalledOnce();
     });
 
     it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {
@@ -309,7 +336,7 @@ describe("useShortcuts", () => {
     const event = new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true, cancelable: true });
     await act(async () => void field.dispatchEvent(event));
     expect(event.defaultPrevented).toBe(false);
-    for (const fn of Object.values(handlers)) if (typeof fn === "function") expect(fn).not.toHaveBeenCalled();
+    for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) expect(fn).not.toHaveBeenCalled();
     field.remove();
   });
 });

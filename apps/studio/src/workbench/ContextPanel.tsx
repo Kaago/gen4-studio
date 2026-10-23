@@ -25,12 +25,14 @@ export interface ContextPanelProps {
   onSelectBuilding: (ref: BuildingRef) => void;
   /** Follows a door to the header it leads to. */
   onOpenHeader: (header: number) => void;
+  /** The events of the place are being read (`events` is null until they come): an empty list says "Lade …", not "nichts". */
+  loading?: boolean;
 }
 
 const KIND_ICON: Record<EventKind, IconName> = { object: "figure", warp: "door", coord: "trigger", bg: "sign" };
 
 /** "An diesem Ort": what the shown place holds, as a list: its events by class and the buildings of its maps; a click selects like a click in the scene. */
-export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader }: ContextPanelProps) {
+export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader, loading = false }: ContextPanelProps) {
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   const uid = useId();
@@ -45,16 +47,18 @@ export function ContextPanel({ hasPlace, events, headers, buildings, selectedEve
     );
   }
   const empty = groups.length === 0 && buildingTotal === 0;
+  const waiting = loading && events === null;
   return (
     <section className={styles.panel} aria-label="An diesem Ort">
-      <PanelHead title="An diesem Ort" subtitle={contextCounts(events, buildingTotal)} />
+      <PanelHead title="An diesem Ort" subtitle={waiting && empty ? undefined : contextCounts(events, buildingTotal)} />
       <div className={styles.body}>
         {events?.locked && (
           <Notice kind="warning" title="Eventdatei gesperrt">
             {lockedText(events.locked)}
           </Notice>
         )}
-        {empty && (
+        {empty && waiting && <p className={styles.empty}>Lade …</p>}
+        {empty && !waiting && (
           <p className={styles.empty}>Hier ist noch nichts. Mit den Werkzeugen setzt du eine Figur, eine Tür, einen Auslöser, ein Schild oder ein Gebäude.</p>
         )}
         <div ref={list} role="listbox" aria-label="Events und Gebäude an diesem Ort" className={styles.list} hidden={empty}>
@@ -68,7 +72,14 @@ export function ContextPanel({ hasPlace, events, headers, buildings, selectedEve
                 const ref: EventRef = { file: events?.event_file_id ?? -1, kind: group.kind, index: row.index };
                 const known = row.dest !== undefined && headers.some((h) => h.id === row.dest);
                 return (
-                  <div key={row.index} role="presentation" className={styles.entry} onDoubleClick={known ? () => onOpenHeader(row.dest as number) : undefined}>
+                  <div
+                    key={row.index}
+                    role="presentation"
+                    className={styles.entry}
+                    onDoubleClick={known ? () => onOpenHeader(row.dest as number) : undefined}
+                    // Enter on a door follows it too (after the row selected it), as the double click does.
+                    onKeyDown={known ? (e) => e.key === "Enter" && onOpenHeader(row.dest as number) : undefined}
+                  >
                     <ListRow
                       label={row.title}
                       tech={row.tech}
@@ -76,7 +87,7 @@ export function ContextPanel({ hasPlace, events, headers, buildings, selectedEve
                       selected={selectedEvent?.file === ref.file && selectedEvent.kind === ref.kind && selectedEvent.index === ref.index}
                       onSelect={() => onSelectEvent(ref)}
                       dataAttrs={{ "data-event": `${group.kind}:${row.index}` }}
-                      title={known ? "Doppelklick folgt der Tür zum Ziel" : undefined}
+                      title={known ? "Doppelklick oder Enter folgt der Tür zum Ziel" : undefined}
                     />
                   </div>
                 );

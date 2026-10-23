@@ -82,6 +82,15 @@ export function saveLayout(key: string, json: object): void {
   }
 }
 
+/** Forgets a stored layout: the dock builds its default the next time it is built. */
+export function dropLayout(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* the old layout stays */
+  }
+}
+
 export function loadLayout(key: string): object | null {
   try {
     const raw = localStorage.getItem(key);

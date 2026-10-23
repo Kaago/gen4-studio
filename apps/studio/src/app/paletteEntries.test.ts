@@ -105,6 +105,15 @@ describe("paletteEntries", () => {
     expect(new Set(hits.map((e) => e.group))).toEqual(new Set(["Header", "Textarchive"]));
   });
 
+  it("says_textarchiv_first_in_an_archive_row_so_typing_textarchiv_finds_them", () => {
+    // R10: the place stays the label and the number the grey tech; the second line says what the row is.
+    expect(byId("archive-412")).toMatchObject({ label: "Zweiblattdorf", tech: "0412", description: "Textarchiv, verwendet von Header 0412" });
+    const hits = filterItems(paletteEntries(source({ scripts: null })), "textarchiv").map((e) => e.id);
+    expect(hits).toContain("archive-412");
+    expect(hits).toContain("archive-411");
+    expect(hits).toContain("archive-7");
+  });
+
   it("names_the_commands_shortcuts_and_locks_the_project_commands_while_busy", () => {
     expect(byId("cmd-open")).toMatchObject({ shortcut: "⌘O", icon: "open", disabled: false });
     expect(byId("cmd-save")).toMatchObject({ shortcut: "⌘S", disabled: false, run: { kind: "command", command: "save" } });

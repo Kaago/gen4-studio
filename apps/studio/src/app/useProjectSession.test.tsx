@@ -87,6 +87,8 @@ describe("useProjectSession with open scripts", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    // Also when a test failed before it got there: the next test starts without a chosen emulator.
+    localStorage.removeItem("g4.emulatorPath");
   });
 
   it("keeps_the_list_of_dirty_assets_next_to_the_count_and_the_same_list_while_it_does_not_change", async () => {
@@ -199,7 +201,6 @@ describe("useProjectSession with open scripts", () => {
     await build();
     await act(async () => session.onRun());
     expect(runRom).toHaveBeenLastCalledWith("/emu", "/out.nds");
-    localStorage.removeItem("g4.emulatorPath");
   });
 
   it("keeps_the_chosen_emulator_path_and_sets_it_after_pick_emulator", async () => {
@@ -212,7 +213,6 @@ describe("useProjectSession with open scripts", () => {
     vi.mocked(openPath).mockResolvedValueOnce(null);
     await act(async () => session.onPickEmulator());
     expect(session.emulatorPath).toBe("/Applications/melonDS.app");
-    localStorage.removeItem("g4.emulatorPath");
   });
 
   it("reads_the_stored_emulator_path_when_it_starts", async () => {
@@ -221,7 +221,6 @@ describe("useProjectSession with open scripts", () => {
     root = createRoot(container);
     await act(async () => root.render(<Host />));
     expect(session.emulatorPath).toBe("/emu");
-    localStorage.removeItem("g4.emulatorPath");
   });
 
   it("run_forgets_the_stored_emulator_when_it_fails_to_start_and_says_so", async () => {

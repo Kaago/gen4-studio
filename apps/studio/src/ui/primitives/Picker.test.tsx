@@ -305,11 +305,14 @@ describe("Picker", () => {
         { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open" },
       ];
       const { onPick } = renderPalette({ items: locked });
-      const row = options().find((o) => o.textContent?.includes("Gebiet anlegen…"))!;
-      expect(row.getAttribute("aria-disabled")).toBe("true");
-      expect(row.textContent).toContain("Erst ein Projekt öffnen");
+      const lockedRow = () => options().find((o) => o.textContent?.includes("Gebiet anlegen…"))!;
+      expect(lockedRow().getAttribute("aria-disabled")).toBe("true");
+      expect(lockedRow().textContent).toContain("Erst ein Projekt öffnen");
       type("gebiet");
       pressKey(input(), "Enter");
+      // The filtered list renders its rows anew: click the row that is shown now.
+      const row = lockedRow();
+      expect(row.getAttribute("aria-disabled")).toBe("true");
       act(() => row.click());
       await tick();
       expect(onPick).not.toHaveBeenCalled();

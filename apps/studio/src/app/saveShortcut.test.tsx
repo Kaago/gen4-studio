@@ -54,6 +54,7 @@ describe("Cmd+S inside the script editor", () => {
       onDeleteBuilding: () => {},
       onTool: () => {},
       toolsActive: true,
+      toolLocked: () => false,
       onDeleteEvent: () => {},
       unpinSelection: () => {},
     });

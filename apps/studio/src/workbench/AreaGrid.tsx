@@ -1,5 +1,4 @@
 import { memo, useMemo, useRef } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
@@ -63,10 +62,13 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   if (failure) parts.push(`Bild fehlgeschlagen: ${failure}`);
 
   // What only the data knows: the picture, the place colour.
-  const style: CSSProperties = {};
-  if (map !== null && typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
-  else if (map !== null && color) style.backgroundColor = color; /* dyn */
-  if (map !== null && color) style.boxShadow = `inset 0 -4px 0 ${color}`; /* dyn */
+  const pictured = map !== null && typeof picture === "string";
+  const tinted = map !== null && color !== null && color !== "";
+  const style = {
+    backgroundImage: pictured ? `url("${picture}")` : undefined, /* dyn */
+    backgroundColor: !pictured && tinted ? color : undefined, /* dyn */
+    boxShadow: tinted ? `inset 0 -4px 0 ${color}` : undefined, /* dyn */
+  };
   const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : ""].join(" ");
 
   return (

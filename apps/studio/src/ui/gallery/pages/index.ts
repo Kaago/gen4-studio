@@ -2,6 +2,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { ButtonsPage } from "./ButtonsPage";
 import { ContentPage } from "./ContentPage";
+import { FramePage } from "./FramePage";
 import { InputsPage } from "./InputsPage";
 import { OverlayPage } from "./OverlayPage";
 import { PickerPage } from "./PickerPage";
@@ -17,4 +18,5 @@ export const pages: GalleryPage[] = [
   { id: "overlay", title: "Schwebendes", element: createElement(OverlayPage) },
   { id: "picker", title: "Auswahl", element: createElement(PickerPage) },
   { id: "screen", title: "Bildschirm", element: createElement(ScreenPage) },
+  { id: "frame", title: "Rahmen", element: createElement(FramePage) },
 ];

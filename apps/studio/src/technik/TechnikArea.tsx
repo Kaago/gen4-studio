@@ -293,7 +293,8 @@ const APICULA_BADGE: Record<ApiculaState, { kind: BadgeKind; text: string; note?
 
 function lspNote(lsp: LspTool | null): string | undefined {
   if (lsp === null) return "Startet, sobald das Panel Script einmal gezeigt wird.";
-  if (lsp.state === "aus") return "Läuft, sobald die Scripts des Projekts übernommen sind.";
+  // Off: the script panel says why when it knows (scripts not adopted); without a reason the note stays neutral.
+  if (lsp.state === "aus") return lsp.note ?? "Nicht gestartet.";
   return lsp.note;
 }
 
