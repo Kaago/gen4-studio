@@ -263,6 +263,15 @@ describe("TextPanel", () => {
     expect(container.textContent).toContain("Zeile 2: line is 260 px wide, the box holds 224 px");
   });
 
+  it("gives_the_selected_row_its_own_text_colour_with_its_surface_so_the_dark_theme_stays_readable", async () => {
+    await open433();
+    click(messageButton(1)!);
+    const row = messageButton(1)!;
+    expect(row.getAttribute("aria-current")).toBe("true");
+    expect(row.style.background).toBe("var(--g4-auswahl-flaeche)");
+    expect(row.style.color).toBe("var(--g4-text-primaer)");
+  });
+
   it("appends a message and selects it, and removes the last one", async () => {
     await open433();
     vi.mocked(getTextArchive).mockResolvedValue(archive(433, ["Nowhere", "Twinleaf Town", "Sandgem Town", ""]));

@@ -34,6 +34,7 @@ import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useOverview } from "./app/useOverview";
+import { useInspectorReveal } from "./app/useInspectorReveal";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
@@ -130,12 +131,14 @@ function AppBody() {
   const unsavedRef = useRef(0);
   unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
+  // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
+  const pin = useInspectorReveal(pins.setPinned, dockApi, revealHand);
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
     fail: session.fail,
     refreshDirty: session.refreshDirty,
-    setPinned: pins.setPinned,
+    setPinned: pin,
     dockApi,
     revealHand,
     onOpenText,
@@ -143,7 +146,7 @@ function AppBody() {
   });
   const world = useWorldActions({
     bus,
-    pins,
+    pins: { ...pins, setPinned: pin },
     matrix: scene.matrix,
     matrixRef: scene.matrixRef,
     headersRef: scene.headersRef,

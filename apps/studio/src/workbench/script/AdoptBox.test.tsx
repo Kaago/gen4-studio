@@ -43,6 +43,13 @@ describe("AdoptBox", () => {
     expect(container.querySelector("progress")).toBeNull();
   });
 
+  it("sets_its_own_text_colour_with_its_surface_so_the_dark_theme_stays_readable", () => {
+    show(vi.fn());
+    const box = container.firstElementChild as HTMLElement;
+    expect(box.style.background).toBe("var(--g4-flaeche-blatt)");
+    expect(box.style.color).toBe("var(--g4-text-primaer)");
+  });
+
   it("shows_the_progress_while_it_runs_and_the_report_after", async () => {
     const run = deferred<AdoptReportDto>();
     let report!: (p: AdoptProgressDto) => void;

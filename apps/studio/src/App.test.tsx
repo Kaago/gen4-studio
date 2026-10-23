@@ -192,6 +192,20 @@ describe("App wiring", () => {
     expect(data()).toBe(before);
   });
 
+  it("brings the Inspector tab of the hand forward when something is selected, not for a hover or a deselect", async () => {
+    await select(listed[0]);
+    expect(shown.focused).toEqual(["inspector"]);
+    shown.focused = [];
+    await act(async () => data().onInspect(tile(3)));
+    await act(async () => data().onSelectBuilding(null));
+    expect(shown.focused).toEqual([]);
+    await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+    expect(shown.focused).toEqual(["inspector"]);
+    vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [] });
+    await act(async () => data().onSelectEvent({ file: 101, kind: "object", index: 0 }));
+    expect(shown.focused).toEqual(["inspector", "inspector"]);
+  });
+
   it("opens a script file at a line for a link to a script and leaves the selection alone", async () => {
     await select(listed[1]);
     const selected = data().selected;
@@ -749,6 +763,24 @@ describe("App wiring", () => {
       expect(handState().collapsed).toBe(true);
       await act(async () => data().scripts.open(42));
       expect(handState()).toEqual({ height: 400, collapsed: false });
+    });
+
+    it("opens_a_collapsed_hand_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard", async () => {
+      await select(listed[0]);
+      shown.focused = [];
+      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState().collapsed).toBe(true);
+      const field = document.createElement("input");
+      document.body.append(field);
+      field.focus();
+      await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+      // The field keeps the keyboard, so the tab stays where it is and the hand stays closed.
+      expect(shown.focused).toEqual([]);
+      expect(handState().collapsed).toBe(true);
+      field.remove();
+      await act(async () => data().onSelectBuilding({ map: 0, index: 2 }));
+      expect(shown.focused).toEqual(["inspector"]);
+      expect(handState().collapsed).toBe(false);
     });
 
     it("keeps_a_hand_that_is_higher_than_400_when_a_script_opens", async () => {

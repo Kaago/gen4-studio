@@ -128,6 +128,15 @@ describe("ScriptPanel", () => {
     expect(readScript).toHaveBeenCalledWith(42);
   });
 
+  it("gives_the_active_tab_its_own_text_colour_with_its_surface_so_the_dark_theme_stays_readable", async () => {
+    await render();
+    await settle();
+    await open(42);
+    expect(tab(42)?.getAttribute("aria-current")).toBe("true");
+    expect(tab(42)?.style.background).toBe("var(--g4-auswahl-flaeche)");
+    expect(tab(42)?.style.color).toBe("var(--g4-text-primaer)");
+  });
+
   it("opens_a_level_script_as_json_and_saves_the_parsed_document", async () => {
     vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { on_load: [1, 2] } });
     await render();

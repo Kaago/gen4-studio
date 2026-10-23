@@ -37,7 +37,7 @@ const DEBOUNCE_MS = 300;
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace" };
 const ellipsis: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 const rowButton: CSSProperties = { all: "unset", boxSizing: "border-box", display: "block", width: "100%", cursor: "pointer", lineHeight: 1.6, padding: "0 8px", ...ellipsis };
-const selectedRow: CSSProperties = { background: "#eff6ff", boxShadow: "inset 3px 0 0 #2563eb", fontWeight: 700 };
+const selectedRow: CSSProperties = { background: "var(--g4-auswahl-flaeche)", color: "var(--g4-text-primaer)", boxShadow: "inset 3px 0 0 #2563eb", fontWeight: 700 };
 const heading: CSSProperties = { margin: 0, padding: "4px 8px", fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 };
 const note: CSSProperties = { margin: 0, padding: "8px 12px", color: "#6b7280" };
 const linkButton: CSSProperties = { all: "unset", cursor: "pointer", color: "#2563eb", textDecoration: "underline" };
@@ -71,7 +71,7 @@ const MessageItem = memo(function MessageItem({ index, text, selected, onSelect 
   return (
     <li>
       <button data-message={index} onClick={() => onSelect(index)} aria-current={selected ? "true" : undefined} style={{ ...rowButton, display: "grid", gridTemplateColumns: "44px minmax(0, 1fr)", ...(selected ? selectedRow : {}) }}>
-        <span style={{ ...mono, color: "#6b7280" }}>{index}</span>
+        <span style={{ ...mono, color: "var(--g4-text-sekundaer)" }}>{index}</span>
         <span style={ellipsis}>{visibleLine(text) || "(leer)"}</span>
       </button>
     </li>
