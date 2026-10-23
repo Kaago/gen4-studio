@@ -140,7 +140,7 @@ export default function App() {
     pins,
     overview,
     onOpenWizard: wizards.open,
-    text: { target: textTarget, onOpen: onOpenText },
+    text: { target: textTarget },
     scripts: scripts.api,
     problems,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents },

@@ -1,4 +1,5 @@
-//! The problem entries the UI lists: text warnings today, compile diagnostics next.
+//! The problem entries the UI lists: compile diagnostics of scripts and text warnings and
+//! encoder errors of text archives, as kernel problems become DTOs.
 
 use std::path::Path;
 

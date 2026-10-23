@@ -14,7 +14,7 @@ describe("ScriptDocuments", () => {
   it("returns_the_open_document_unchanged_when_opened_again", () => {
     const docs = new ScriptDocuments();
     const doc = docs.open(3, "script", "a");
-    docs.setText(3, "edited");
+    docs.get(3)!.text = "edited";
     expect(docs.open(3, "script", "from disk")).toBe(doc);
     expect(doc.text).toBe("edited");
     expect(doc.savedText).toBe("a");
@@ -24,12 +24,12 @@ describe("ScriptDocuments", () => {
     const docs = new ScriptDocuments();
     docs.open(1, "script", "a");
     docs.open(2, "levelScript", "{}");
-    docs.setText(2, "{ }");
+    docs.get(2)!.text = "{ }";
     expect(docs.dirty()).toEqual([2]);
-    docs.setText(2, "{}");
+    docs.get(2)!.text = "{}";
     expect(docs.dirty()).toEqual([]);
-    docs.setText(1, "b");
-    docs.markSaved(1);
+    docs.get(1)!.text = "b";
+    docs.get(1)!.savedText = "b";
     expect(docs.dirty()).toEqual([]);
     expect(docs.get(1)?.savedText).toBe("b");
   });
@@ -45,10 +45,8 @@ describe("ScriptDocuments", () => {
     expect(docs.list().map((d) => d.file)).toEqual([5, 9]);
   });
 
-  it("ignores_text_and_save_calls_for_a_file_that_is_not_open", () => {
+  it("ignores_closing_a_file_that_is_not_open", () => {
     const docs = new ScriptDocuments();
-    docs.setText(7, "x");
-    docs.markSaved(7);
     docs.close(7);
     expect(docs.list()).toEqual([]);
   });

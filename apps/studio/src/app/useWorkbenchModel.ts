@@ -39,7 +39,7 @@ interface WorkbenchModelParams {
   /** Opens a wizard; must keep its identity (it is handed to memoised panels). */
   onOpenWizard: (request: WizardRequest) => void;
   /** The text panel's target and the way to set it (must keep its identity), owned by App. */
-  text: { target: TextTarget | null; onOpen: (index: number, message?: number) => void };
+  text: { target: TextTarget | null };
   /** The project's scripts (the object keeps its identity until `revision` or another field changes) and the problems store. */
   scripts: ScriptsApi;
   problems: ProblemsStore;
@@ -111,9 +111,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     onAddEvent: world.onAddEvent,
     onDeleteEvent: world.onDeleteEvent,
     textTarget: text.target,
-    onOpenText: text.onOpen,
     scripts,
-    onOpenScript: scripts.open,
     problems,
     onDismissMessage,
   });

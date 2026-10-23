@@ -165,6 +165,14 @@ describe("useProjectSession with open scripts", () => {
     expect(buildRom).toHaveBeenCalledTimes(1);
   });
 
+  it("a_successful_build_clears_the_stale_compile_errors_and_keeps_warnings", async () => {
+    problems.replaceForFile("expanded/scripts/0007.rotom", [problem("expanded/scripts/0007.rotom", 3, "alter Fehler")]);
+    problems.replaceForFile("expanded/scripts/0003.rotom", [problem("expanded/scripts/0003.rotom", 2, "Warnung", "warning")]);
+    await build();
+    expect(problems.list().map((p) => p.message)).toEqual(["Warnung"]);
+    expect(session.message?.text).toContain("ROM gebaut");
+  });
+
   it("a_compile_error_of_the_build_fills_the_problems_store_and_says_how_many_errors", async () => {
     vi.mocked(buildRom).mockRejectedValue({
       code: "compile",

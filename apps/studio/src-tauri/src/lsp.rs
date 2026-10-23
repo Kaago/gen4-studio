@@ -415,10 +415,9 @@ pub fn lsp_stop(state: tauri::State<AppState>) -> Result<(), CmdError> {
 pub fn stop_on_exit(app: &AppHandle) {
     let old = app
         .state::<AppState>()
-        .session
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.as_mut().and_then(|s| s.lsp.take()));
+        .lock_session()
+        .as_mut()
+        .and_then(|s| s.lsp.take());
     drop(old);
 }
 

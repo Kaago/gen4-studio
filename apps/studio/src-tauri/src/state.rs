@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use g4_kernel::project::Project;
 use g4_kernel::sprites::SpriteCache;
@@ -25,6 +25,15 @@ pub struct AppState {
     /// Set by `force_quit` once the user agreed to discard unsaved edits, so the exit it
     /// triggers is not blocked again.
     pub force_quit: AtomicBool,
+}
+
+impl AppState {
+    /// The session lock, recovered when a panic poisoned it: the session is plain in-memory
+    /// data, and refusing it would lose the unsaved edits it holds (a quit would see no
+    /// dirty asset). The single place that locks the session.
+    pub fn lock_session(&self) -> MutexGuard<'_, Option<Session>> {
+        self.session.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 /// Whether an exit request must be held back to ask the user first.
@@ -54,6 +63,20 @@ pub fn quit_action(window_open: bool, dirty: usize, force: bool) -> QuitAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_poisoned_session_lock_is_recovered_with_its_contents() {
+        let state = Arc::new(AppState::default());
+        let poisoner = Arc::clone(&state);
+        let panicked = std::thread::spawn(move || {
+            let _guard = poisoner.session.lock().unwrap();
+            panic!("poisoned on purpose");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(state.session.is_poisoned());
+        assert!(state.lock_session().is_none());
+    }
 
     #[test]
     fn exit_is_blocked_only_with_dirty_assets_and_without_force() {

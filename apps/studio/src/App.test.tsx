@@ -131,13 +131,13 @@ describe("App wiring", () => {
     expect(data().scripts.active).toBe(42);
     expect(data().scripts.documents.get(42)?.cursor).toBe("script Main #1:\n".length);
     expect(data().selected).toBe(selected);
-    // The workbench's shortcut for the same thing.
-    await act(async () => data().onOpenScript(43));
+    // The scripts api opens a file without moving the focus.
+    await act(async () => data().scripts.open(43));
     expect(data().scripts.active).toBe(43);
   });
 
   it("counts unsaved scripts in the toolbar and forgets scripts and problems with the project", async () => {
-    await act(async () => data().onOpenScript(42));
+    await act(async () => data().scripts.open(42));
     expect(container.textContent).toContain("gespeichert");
     expect(container.textContent).not.toContain("ungespeichert");
     const doc = data().scripts.documents.get(42)!;

@@ -38,10 +38,7 @@ use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
 pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, CmdError> {
-    state
-        .session
-        .lock()
-        .map_err(|_| "internal state is poisoned".into())
+    Ok(state.lock_session())
 }
 
 pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
@@ -106,6 +103,24 @@ mod tests {
                 "{dir}"
             );
         }
+    }
+
+    #[test]
+    fn a_command_works_after_a_panic_poisoned_the_state() {
+        let (_fixture, state) = open_synthetic();
+        set_permission_impl(&state, 2, 0, 0, 1, 0).unwrap();
+        let state = std::sync::Arc::new(state);
+        let poisoner = std::sync::Arc::clone(&state);
+        let panicked = std::thread::spawn(move || {
+            let _guard = lock(&poisoner).unwrap();
+            panic!("rotom panicked while the lock was held");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(state.session.is_poisoned());
+        // The session and its edits survive: commands answer, the store is still there.
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+        get_map_impl(&state, 0).unwrap();
     }
 
     #[test]

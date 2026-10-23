@@ -115,6 +115,16 @@ describe("ProblemsStore", () => {
     expect(store.list().map((p) => p.message)).toEqual(["b", "b2", "t6"]);
   });
 
+  it("apply_build_report_drops_stale_compile_errors_but_keeps_warnings_and_replaces_named_files", () => {
+    const store = new ProblemsStore();
+    store.replaceForFile(A, [problem(A, 1, "stale error"), problem(A, 2, "kept warning", "warning")]);
+    store.replaceForFile(B, [problem(B, 1, "replaced", "warning")]);
+    store.replaceText(5, [problem("expanded/textArchives/0005.json", 1, "text warning", "warning", "text")]);
+    store.applyBuildReport([problem(B, 4, "fresh warning", "warning")]);
+    expect(store.list().map((p) => p.message)).toEqual(["kept warning", "fresh warning", "text warning"]);
+    expect(store.counts()).toEqual({ errors: 0, warnings: 3 });
+  });
+
   it("clear_forgets_every_source", () => {
     const store = new ProblemsStore();
     store.replaceForFile(A, [problem(A, 1, "c")]);

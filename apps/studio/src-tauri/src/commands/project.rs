@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use g4_kernel::build::{BuildReport, build};
+use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::sprites::SpriteCache;
@@ -139,12 +139,14 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 }
 
 /// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. The
-/// state lock is held only for the save and the reload afterwards, not for the ds-rom build.
-/// Scripts that need it are compiled and texts encoded first (see `g4_kernel::build::prepare`):
-/// an error there is `CmdError { code: "compile" }` and nothing is packed. Text archives the
-/// compile appended messages to are loaded again in the store.
+/// state lock is held for the save, for compiling scripts and encoding texts (they write
+/// sources, members and the compile state, which the script and text commands write too, see
+/// `g4_kernel::build::prepare`) and for the reload afterwards, not for packing and the ds-rom
+/// build. An error in the compile step is `CmdError { code: "compile" }` and nothing is
+/// packed. Text archives the compile appended messages to are loaded again in the store.
 pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError> {
-    let (project, saved, problems) = {
+    let out = Path::new(out);
+    let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let (saved, problems) = if session.store.dirty().is_empty() {
@@ -159,14 +161,15 @@ pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError>
                 .collect();
             (report.written.len(), warnings)
         };
-        (Arc::clone(&session.project), saved, problems)
+        let prepared = prepare_for_build(&session.project, out).map_err(CmdError::from)?;
+        (Arc::clone(&session.project), prepared, saved, problems)
     };
-    let report = build(&project, Path::new(out)).map_err(CmdError::from)?;
+    let report = build_prepared(&project, out, prepared).map_err(CmdError::from)?;
     build_dto(state, &project, report, saved, problems)
 }
 
 /// The result of a finished build; reloads the text archives its compile changed. The lock
-/// was released for the build, so the session may be another one by now (a project opened
+/// was released for packing, so the session may be another one by now (a project opened
 /// meanwhile): then nothing is reloaded, the archives belong to `project`, not to it. An
 /// archive edited in this session since the build started is kept and reported.
 fn build_dto(

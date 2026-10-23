@@ -130,16 +130,14 @@ fn request_quit(app: &tauri::AppHandle) {
 
 /// Any exit request while a window is open with unsaved edits asks the frontend first. Never
 /// blocks when the exit follows `force_quit`, when no window is left (the close guard already
-/// asked, and nothing could show the prompt), when no project is open, or when the state lock
-/// is poisoned.
+/// asked, and nothing could show the prompt) or when no project is open. A state lock a panic
+/// poisoned is recovered, so its unsaved edits still count.
 fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
     let state = app.state::<AppState>();
-    let dirty = match state.session.lock() {
-        Ok(guard) => guard
-            .as_ref()
-            .map_or(0, |session| session.store.dirty().len()),
-        Err(_) => 0,
-    };
+    let dirty = state
+        .lock_session()
+        .as_ref()
+        .map_or(0, |session| session.store.dirty().len());
     let window_open = !app.webview_windows().is_empty();
     quit_action(window_open, dirty, state.force_quit.load(Ordering::SeqCst)) == QuitAction::Confirm
 }

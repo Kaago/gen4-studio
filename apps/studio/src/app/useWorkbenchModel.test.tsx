@@ -80,7 +80,7 @@ const world = {
   onAddEvent: noop,
   onDeleteEvent: noop,
 } as unknown as Inputs["world"];
-const text = { target: null, onOpen: noop };
+const text = { target: null };
 /** The scripts as App's hook hands them over: the same object until its revision changes. */
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();

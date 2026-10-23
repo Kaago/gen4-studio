@@ -39,6 +39,10 @@ verwendet, sagt der Map-Header: `script_file_id` (Scripts der Map) und `level_sc
 - **Bewegungslisten** (`action`) beginnen an einer durch 4 teilbaren Adresse.
 - Der Befehlssatz (Opcodes, Argumente) steht in der Befehlsdatenbank
   (`crates/g4-kernel/metadata/scrcmd/`), nicht hier.
+- **Textliterale** (`Message "…"`) hängt rotom an das Textarchiv des Headers an (uxie 0.9.7
+  `workspace.rs` `find_or_add_message`), verwendet aber eine Nachricht wieder, die nur aus Leerraum
+  besteht (leer oder Leerzeichen): eine angefügte leere Nachricht kann daher von einem späteren
+  Literal belegt werden.
 
 Erkennung Script gegen Level-Script (rotom `detect_script_type`): genau vier Nullbytes sind ein
 leeres Level-Script; ein Member mit einer Endemarke an einer durch 4 teilbaren Position ist ein

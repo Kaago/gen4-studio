@@ -13,7 +13,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 2 | Welt-Editor v1: Header, Matrix, Gebäude, Events, Warps, 3D-Modelle (implementiert, Gate offen) | Eine neue Route aus bestehenden Karten zusammensetzen und spielen |
 | 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (in Arbeit, Gate offen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
 | 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (implementiert, Gate offen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
-| 3b.2 | Skripte und Text: rotom, CodeMirror 6, chatot, Text-Editor (implementiert, Gate offen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
+| 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (implementiert, Gate offen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
 | 3b.3 | Daten-Editoren: Encounter, Trainer, Pokémon, Moves, Items | Neue Trainer und Encounter komplett im Studio |
 | 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
@@ -89,7 +89,7 @@ Gate: Die neue Route aus Phase 2 (B) und ein neuer Raum mit Eingang entstehen pe
 
 Nicht in 3a: neue Header (Patch, jetzt 3b.1), Gelände malen (Phase 6), Höhen und Objekt-Sprites (jetzt 3b.1), Verschieben von Karten in der Weltkarte.
 
-## Phase 3b: Daten-Editoren, Skripte, Text, Import
+## Phase 3b: Daten-Editoren, Scripts, Text, Import
 
 Phase 3b ist zu groß für eine Spec und läuft in vier Teilprojekten mit je eigener Spec, eigenem Plan und eigenem Gate. 3b.1 wurde auf Wunsch implementiert, während das Gate von Phase 3a noch offen ist; beide Gates sind offen. 3b.2 bis 3b.4 beginnen, wenn beide Gates bestanden sind; die Teile bauen aufeinander auf.
 
@@ -111,7 +111,7 @@ Gate: Auf Kopien von Platin DE und HeartGold DE entsteht ein neues Gebiet per As
 
 Nicht in 3b.1: Header löschen, DSPREs ARM9-Expansion und andere Patches, die OW-Tabellen-Erweiterung (`OWTBLXPANDV1`), Animation der Sprites, CI auf fremden Rechnern.
 
-### Phase 3b.2: Skripte und Text
+### Phase 3b.2: Scripts und Text
 
 Status: implementiert, Gate offen. Alle Tasks sind gebaut und automatisch getestet (`scripts/gate.sh`, auch die gated Läufe gegen Platin DE, HeartGold DE und HeartGold US); die Prüfung von Hand (GUI, melonDS, DSPRE) und der Rauchtest der gepackten App stehen in [docs/phase-3b2-gate.md](phase-3b2-gate.md) und sind noch nicht durchgeführt.
 

@@ -22,7 +22,6 @@ describe("ScriptEditor", () => {
   let root: Root;
   let docs: ScriptDocuments;
   const onChange = vi.fn();
-  const onSave = vi.fn();
   const onDiagnostics = vi.fn();
 
   beforeEach(() => {
@@ -31,7 +30,6 @@ describe("ScriptEditor", () => {
     root = createRoot(container);
     docs = new ScriptDocuments();
     onChange.mockReset();
-    onSave.mockReset();
     onDiagnostics.mockReset();
   });
   afterEach(() => {
@@ -48,7 +46,6 @@ describe("ScriptEditor", () => {
           lsp={null}
           uri={uriOf(doc.file)}
           onChange={onChange}
-          onSave={onSave}
           onDiagnostics={onDiagnostics}
           theme="light"
           {...extra}
@@ -56,6 +53,10 @@ describe("ScriptEditor", () => {
       ),
     );
   }
+  /** Text that arrives from outside, as `useScripts` sets it. */
+  const setText = (file: number, text: string) => {
+    docs.get(file)!.text = text;
+  };
   const lastDiagnostics = () => onDiagnostics.mock.calls[onDiagnostics.mock.calls.length - 1]![0] as Diagnostic[];
   const view = () => EditorView.findFromDOM(container.querySelector(".cm-editor") as HTMLElement)!;
   const typeAt = (pos: number, text: string) => act(() => view().dispatch({ changes: { from: pos, insert: text }, userEvent: "input.type" }));
@@ -83,13 +84,17 @@ describe("ScriptEditor", () => {
     expect(doc.state).toBe(view().state);
   });
 
-  it("calls_onSave_for_the_save_shortcut_and_not_onChange", () => {
+  it("leaves_the_save_shortcut_to_the_window_and_does_not_report_a_change", () => {
     render(docs.open(1, "script", "x"));
     const content = container.querySelector(".cm-content") as HTMLElement;
+    const atWindow = vi.fn();
+    window.addEventListener("keydown", atWindow);
     const event = new KeyboardEvent("keydown", { key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true });
     act(() => void content.dispatchEvent(event));
-    expect(event.defaultPrevented).toBe(true);
-    expect(onSave).toHaveBeenCalledTimes(1);
+    window.removeEventListener("keydown", atWindow);
+    // The editor neither handles nor swallows the key: the window's Cmd+S (store first, then the scripts) is the only save.
+    expect(event.defaultPrevented).toBe(false);
+    expect(atWindow).toHaveBeenCalledTimes(1);
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -138,7 +143,7 @@ describe("ScriptEditor", () => {
   it("shows_text_that_was_replaced_from_outside_without_reporting_it_as_an_edit", () => {
     const doc = docs.open(1, "script", "old");
     render(doc);
-    docs.setText(1, "new text");
+    setText(1, "new text");
     render(doc);
     expect(view().state.doc.toString()).toBe("new text");
     expect(onChange).not.toHaveBeenCalled();
@@ -175,7 +180,7 @@ describe("ScriptEditor", () => {
     const doc = docs.open(1, "script", "abc");
     render(doc);
     typeAt(3, "!");
-    docs.setText(1, "abc!\nmore");
+    setText(1, "abc!\nmore");
     render(doc);
     expect(view().state.doc.toString()).toBe("abc!\nmore");
     act(() => void undo(view()));
@@ -189,7 +194,7 @@ describe("ScriptEditor", () => {
     a.cursor = 2;
     render(a);
     render(b);
-    docs.setText(1, "alpha two");
+    setText(1, "alpha two");
     onChange.mockReset();
     render(a);
     expect(view().state.doc.toString()).toBe("alpha two");

@@ -170,7 +170,7 @@ describe("ScriptPanel", () => {
     expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
   });
 
-  it("saves_with_cmd_s_in_the_editor_and_puts_the_compile_problems_of_the_file_into_the_store", async () => {
+  it("saves_with_the_save_button_and_puts_the_compile_problems_of_the_file_into_the_store", async () => {
     const file = "expanded/scripts/0042.rotom";
     vi.mocked(saveScript).mockResolvedValue({
       problems: [
@@ -183,8 +183,7 @@ describe("ScriptPanel", () => {
     await settle();
     await open(42);
     typeAt(0, "x");
-    const content = container.querySelector(".cm-content") as HTMLElement;
-    act(() => void content.dispatchEvent(new KeyboardEvent("keydown", { key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true })));
+    click(button("Speichern"));
     await settle();
     expect(saveScript).toHaveBeenCalledTimes(1);
     expect(problems.list().map((p) => [p.file, p.line, p.message, p.source])).toEqual([

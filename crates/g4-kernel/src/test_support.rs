@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use g4_formats::narc::Narc;
 
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
-const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
-const HEADER_SIZE: usize = 24;
+pub const PT_HEADER_TABLE_CPUE: usize = 0xE601C;
+pub const HEADER_SIZE: usize = 24;
 /// How many Platinum headers uxie's `Workspace` (and with it rotom's compile) reads from
 /// `arm9.bin`: a shorter file makes it fail to read the table.
 const UXIE_PT_HEADER_COUNT: usize = 559;

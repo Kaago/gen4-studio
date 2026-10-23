@@ -3,7 +3,7 @@ import { json } from "@codemirror/lang-json";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { forEachDiagnostic, setDiagnosticsEffect, type Diagnostic } from "@codemirror/lint";
 import type { LSPClient } from "@codemirror/lsp-client";
-import { Annotation, Compartment, EditorState, Prec, Transaction, type Extension } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, Transaction, type Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
@@ -22,7 +22,6 @@ export interface ScriptEditorProps {
   uri: string;
   /** The new full text after a user edit. The editor has already stored it in `doc.text`. */
   onChange: (text: string) => void;
-  onSave: () => void;
   /** The diagnostics of the shown document: after each change of them, and when a document is shown. */
   onDiagnostics: (d: Diagnostic[]) => void;
   theme: "light" | "dark";
@@ -96,26 +95,13 @@ const External = Annotation.define<boolean>();
 
 /** What one `ScriptEditor` instance lends to the editor states. The states outlive the component, so the callbacks are looked up by view. */
 interface Bridge {
-  save(): void;
   update(update: ViewUpdate): void;
 }
 const bridges = new WeakMap<EditorView, Bridge>();
 
-const bridge: Extension = [
-  Prec.highest(
-    keymap.of([
-      {
-        key: "Mod-s",
-        preventDefault: true,
-        run: (view) => {
-          bridges.get(view)?.save();
-          return true;
-        },
-      },
-    ]),
-  ),
-  EditorView.updateListener.of((update) => bridges.get(update.view)?.update(update)),
-];
+// Cmd+S is not bound here: the window's shortcut (`useShortcuts`) saves the store first and then the open scripts, and
+// the editor must let the key through to it (a second save from here would run ahead of the store's).
+const bridge: Extension = EditorView.updateListener.of((update) => bridges.get(update.view)?.update(update));
 
 function createState(doc: ScriptDocument, wanted: Wanted): EditorState {
   return EditorState.create({
@@ -197,7 +183,6 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     const view = new EditorView({ state: first.state, parent: host.current! });
     const report = () => latest.current.onDiagnostics(diagnosticsOf(view.state));
     bridges.set(view, {
-      save: () => latest.current.onSave(),
       update(update) {
         const current = shown.current;
         current.state = update.state;

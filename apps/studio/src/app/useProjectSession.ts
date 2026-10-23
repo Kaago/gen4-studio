@@ -225,7 +225,7 @@ export function useProjectSession({ bus, problems, scripts }: SessionParams) {
       for (const file of dirtyScripts) await scripts.current.save(file);
       const report = await buildRom(out);
       setLastRom(report.rom);
-      problems.applyReport(report.problems);
+      problems.applyBuildReport(report.problems);
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {

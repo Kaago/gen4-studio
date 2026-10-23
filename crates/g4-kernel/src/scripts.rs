@@ -15,7 +15,7 @@ use uxie::MapHeader;
 use uxie::script_file::GlobalScriptTable;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, guard_panic, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
 use crate::text::{Problem, Severity, TextArchiveDoc, text_winner, write_archive};
@@ -322,8 +322,10 @@ pub fn adopt(
     progress(AdoptProgress { done: 0, total });
     // rotom v0.7.0: src/project/compile.rs decompile_project (writes the sources and the
     // compile state)
-    let result = rotom::project::compile::decompile_project(root, &config)
-        .map_err(|e| rotom_error("decompile", e))?;
+    let result = guard_panic("rotom", || {
+        rotom::project::compile::decompile_project(root, &config)
+    })?
+    .map_err(|e| rotom_error("decompile", e))?;
     progress(AdoptProgress { done: total, total });
 
     // Last, so a failure before this point leaves no rotom.toml. Sources rotom already wrote stay,
@@ -426,6 +428,45 @@ fn restore_quirks(
     Ok(())
 }
 
+/// The problem for a text archive the encoder refused (`write_archive`'s
+/// `KernelError::InvalidProject`); any other error is not an archive's and is returned.
+fn archive_failure(
+    root: &Path,
+    json: &Path,
+    n: u16,
+    error: KernelError,
+) -> Result<Problem, KernelError> {
+    let KernelError::InvalidProject(why) = error else {
+        return Err(error);
+    };
+    Ok(Problem {
+        severity: Severity::Error,
+        file: relative(root, json),
+        line: 1,
+        col: 1,
+        message: format!(
+            "Textarchiv {n:04} lässt sich nicht kodieren: {}",
+            why.strip_prefix("text archive encode: ").unwrap_or(&why)
+        ),
+    })
+}
+
+/// The text of a failed source's problem: rotom's own, except for the one a user can act on
+/// without knowing rotom.
+fn failure_message(error: &rotom::CompileError) -> String {
+    // rotom v0.7.0: src/compiler/ir/lowerer.rs (the lowering error for a string literal or
+    // `format()` whose script file no saved header names: "cannot resolve text archive for
+    // '<file>': …")
+    if let rotom::CompileError::Lowering { message, .. } = error
+        && message.starts_with("cannot resolve text archive for")
+    {
+        return "Textliteral nicht auflösbar: kein gespeicherter Header verwendet diese \
+                Scriptdatei (Header mit dieser Scriptdatei speichern, dann erneut speichern)"
+            .to_owned();
+    }
+    error.to_string()
+}
+
 /// The archive number in "failed to load text archive N: no text archive found for ID N": uxie
 /// 0.9.7 src/workspace.rs `Workspace::load_archive_into_cache` raises the NotFound, rotom
 /// v0.7.0 src/lib.rs `compile_file_internal` (the warm step) wraps it in `CompileError::Io`.
@@ -517,7 +558,9 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         // src/compiler/batch_compile.rs compile_batch because only compile_project loads the
         // compile state (staleness, quirks) and writes it back, as the CLI does. It draws an
         // indicatif bar on stderr, which stays hidden unless stderr is a terminal.
-        let result = match rotom::project::compile::compile_project(root, &config, false) {
+        let result = match guard_panic("rotom", || {
+            rotom::project::compile::compile_project(root, &config, false)
+        })? {
             Ok(result) => result,
             // rotom v0.7.0: src/project/error.rs ProjectError::NoProjectSourceFiles: every
             // member is empty or binary, so there is nothing to compile.
@@ -563,7 +606,7 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
             file: relative(root, &failure.path),
             line,
             col,
-            message: failure.error.to_string(),
+            message: failure_message(&failure.error),
         });
     }
     compiled.sort_unstable();
@@ -585,9 +628,16 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
             let bytes = std::fs::read(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
             let member = project.member_path(AssetKind::TextArchive, n);
-            for mut problem in write_archive(root, &json, &member, &doc)? {
-                problem.file = relative(root, &problem.file);
-                problems.push(problem);
+            match write_archive(root, &json, &member, &doc) {
+                Ok(warnings) => {
+                    for mut problem in warnings {
+                        problem.file = relative(root, &problem.file);
+                        problems.push(problem);
+                    }
+                }
+                // rotom already wrote the script's member and appended to the JSON: report
+                // the refused archive and carry on, `touched_archives` keeps it.
+                Err(e) => problems.push(archive_failure(root, &json, n, e)?),
             }
         }
     }
@@ -801,13 +851,15 @@ pub fn new_script_file_reported(
 }
 
 /// The script slots (`#n`) a rotom source declares, with the span of their statement.
-fn declared_slots(text: &str) -> Vec<(u32, std::ops::Range<usize>)> {
+fn declared_slots(text: &str) -> Result<Vec<(u32, std::ops::Range<usize>)>, KernelError> {
     use rotom::compiler::ast::StatementKind;
     // rotom v0.7.0: src/compiler/parser.rs Parser::new_fallible (keeps parsing after an
     // error, so a half-written file still yields its scripts), parse_script_file
-    let mut parser = rotom::Parser::new_fallible(rotom::Lexer::new(text));
-    let Ok(file) = parser.parse_script_file() else {
-        return Vec::new();
+    let parsed = guard_panic("rotom", || {
+        rotom::Parser::new_fallible(rotom::Lexer::new(text)).parse_script_file()
+    })?;
+    let Ok(file) = parsed else {
+        return Ok(Vec::new());
     };
     let mut slots = Vec::new();
     for item in &file.items {
@@ -820,7 +872,7 @@ fn declared_slots(text: &str) -> Vec<(u32, std::ops::Range<usize>)> {
             );
         }
     }
-    slots
+    Ok(slots)
 }
 
 /// Appends `\nscript script_<N> #<N>:\n\tEnd\n` with N one above the highest `#n`, writes and
@@ -837,7 +889,7 @@ pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16
             "script file {file:04} is not a script"
         )));
     };
-    let next = declared_slots(&text)
+    let next = declared_slots(&text)?
         .iter()
         .map(|(id, _)| *id)
         .max()
@@ -913,7 +965,9 @@ fn line_of_slot(project: &Project, file: u16, slot: u32) -> u32 {
     let Ok(text) = std::fs::read_to_string(source_path(project, file, SourceKind::Script)) else {
         return 1;
     };
+    // A panicking parser is a missing line here, the lookup still resolves the file.
     let Some((_, span)) = declared_slots(&text)
+        .unwrap_or_default()
         .into_iter()
         .find(|(id, _)| *id == slot)
     else {
@@ -1274,6 +1328,109 @@ mod tests {
         // The JSON is not older than the member, so the editor and DSPRE keep using it.
         let modified = |p: &Path| std::fs::metadata(p).unwrap().modified().unwrap();
         assert!(modified(&json_path) >= modified(&member_path));
+    }
+
+    #[test]
+    fn a_refused_archive_is_a_located_german_problem_and_other_errors_stay_errors() {
+        // chatot only warns about an unmappable glyph (and rotom's analysis already rejects
+        // one in a literal), so the encoder refuses an archive in rare cases only (damaged
+        // JSON, a failed temp write): `compile` reports that like a compile problem, keeps
+        // the archive in `touched_archives` and returns Ok.
+        let json = Path::new("/p/expanded/textArchives/0433.json");
+        let problem = archive_failure(
+            Path::new("/p"),
+            json,
+            433,
+            KernelError::InvalidProject("text archive encode: Failed to encode JSON".into()),
+        )
+        .unwrap();
+        assert_eq!(problem.severity, crate::text::Severity::Error);
+        assert_eq!(problem.file, Path::new("expanded/textArchives/0433.json"));
+        assert_eq!((problem.line, problem.col), (1, 1));
+        assert_eq!(
+            problem.message,
+            "Textarchiv 0433 lässt sich nicht kodieren: Failed to encode JSON"
+        );
+        let crashed = archive_failure(
+            Path::new("/p"),
+            json,
+            433,
+            KernelError::Crashed("chatot ist abgestürzt: x".into()),
+        );
+        assert!(matches!(crashed, Err(KernelError::Crashed(_))));
+    }
+
+    #[test]
+    fn a_literal_with_an_unmappable_glyph_is_a_compile_problem_at_its_position() {
+        let (_s, p) = adopted();
+        let member_before = member(&p, 0);
+        write_source(
+            &p,
+            0,
+            &ScriptSource::Rotom(
+                "script Main #1:\n    Message \"Hallo \u{2013}\"\n    End\n".into(),
+            ),
+        )
+        .unwrap();
+        let report = compile(&p).unwrap();
+        assert!(report.compiled.is_empty(), "{report:?}");
+        let [problem] = report.problems.as_slice() else {
+            panic!("{:?}", report.problems);
+        };
+        assert_eq!(problem.file, Path::new("expanded/scripts/0000.rotom"));
+        assert_eq!((problem.line, problem.col), (2, 13), "{problem:?}");
+        assert!(problem.message.contains("Encoding error"), "{problem:?}");
+        assert_eq!(member(&p, 0), member_before);
+    }
+
+    /// Points header 1 of the fixture at script file `file` and text archive 433, like a saved
+    /// header edit does in `arm9.bin`.
+    fn save_header_for(p: &Project, file: u16) {
+        let arm9 = p.arm9_path();
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        let at = crate::test_support::PT_HEADER_TABLE_CPUE + crate::test_support::HEADER_SIZE;
+        bytes[at + 4..at + 6].copy_from_slice(&file.to_le_bytes());
+        bytes[at + 8..at + 10].copy_from_slice(&433u16.to_le_bytes());
+        std::fs::write(&arm9, bytes).unwrap();
+    }
+
+    #[test]
+    fn a_literal_needs_a_saved_header_for_its_script_file() {
+        let (_s, p) = adopted();
+        let file = new_script_file(&p, SourceKind::Script).unwrap();
+        assert_eq!(file, 3);
+        write_source(
+            &p,
+            file,
+            &ScriptSource::Rotom("script Main #1:\n    Message \"Hallo Welt\"\n    End\n".into()),
+        )
+        .unwrap();
+
+        // No header names script file 3 yet.
+        let report = compile(&p).unwrap();
+        assert!(report.compiled.is_empty(), "{report:?}");
+        assert!(report.touched_archives.is_empty());
+        let [problem] = report.problems.as_slice() else {
+            panic!("{:?}", report.problems);
+        };
+        assert_eq!(problem.file, Path::new("expanded/scripts/0003.rotom"));
+        assert_eq!(
+            problem.message,
+            "Textliteral nicht auflösbar: kein gespeicherter Header verwendet diese Scriptdatei \
+             (Header mit dieser Scriptdatei speichern, dann erneut speichern)"
+        );
+        assert_eq!(problem.line, 2, "{problem:?}");
+
+        // With the header saved, the same source compiles and appends the literal.
+        save_header_for(&p, file);
+        let report = compile(&p).unwrap();
+        assert_eq!(report.compiled, [3], "{report:?}");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.touched_archives, [433]);
+        let json =
+            std::fs::read_to_string(p.expanded_dir(AssetKind::TextArchive).join("0433.json"))
+                .unwrap();
+        assert!(json.contains("Hallo Welt"), "{json}");
     }
 
     #[test]

@@ -38,6 +38,9 @@ pub enum KernelError {
     Remembered(String),
     #[error("build: {0}")]
     Build(String),
+    /// A library (rotom, chatot) panicked; the message names it and carries the panic text.
+    #[error("{0}")]
+    Crashed(String),
     #[error("{0} changed on disk since it was loaded")]
     Stale(AssetId),
     /// The asset can be shown but not written back byte for byte, so editing is refused.
@@ -54,6 +57,21 @@ pub fn io_at(path: &Path) -> impl FnOnce(std::io::Error) -> KernelError + '_ {
         path: path.to_path_buf(),
         source,
     }
+}
+
+/// Runs a call into a third-party library (`tool` is "rotom" or "chatot") and turns a panic
+/// into [`KernelError::Crashed`] with the panic message, so one bad input cannot take the
+/// caller's lock with it. The libraries keep no state across calls that a panic could leave
+/// half-written in memory, hence `AssertUnwindSafe`.
+pub fn guard_panic<T>(tool: &str, call: impl FnOnce() -> T) -> Result<T, KernelError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).map_err(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unbekannter Fehler".to_owned());
+        KernelError::Crashed(format!("{tool} ist abgestürzt: {message}"))
+    })
 }
 
 #[cfg(test)]
@@ -102,6 +120,18 @@ mod tests {
         assert_eq!(
             KernelError::InvalidProject("header.yaml: missing gamecode".into()).to_string(),
             "invalid project metadata: header.yaml: missing gamecode"
+        );
+    }
+
+    #[test]
+    fn guard_panic_maps_a_panic_to_a_german_error_with_its_message() {
+        assert_eq!(guard_panic("rotom", || 7).unwrap(), 7);
+        let err = guard_panic("rotom", || -> u8 { panic!("index out of bounds") }).unwrap_err();
+        assert_eq!(err.to_string(), "rotom ist abgestürzt: index out of bounds");
+        let owned = guard_panic("chatot", || -> u8 { panic!("{}", String::from("kaputt")) });
+        assert_eq!(
+            owned.unwrap_err().to_string(),
+            "chatot ist abgestürzt: kaputt"
         );
     }
 }

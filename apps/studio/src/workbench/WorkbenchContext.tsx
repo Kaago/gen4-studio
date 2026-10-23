@@ -94,12 +94,8 @@ export interface WorkbenchData {
   onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   /** The archive and message a link to the text panel asked for; a new object with every request, so the same one can be asked for again. Null: none yet. */
   textTarget: TextTarget | null;
-  /** Opens a text archive (and one of its messages) in the text panel. */
-  onOpenText: (index: number, message?: number) => void;
   /** The project's scripts: status, open documents and their commands. Changes with its `revision`. */
   scripts: ScriptsApi;
-  /** Opens a script file (and moves to a 1-based line) in the script panel. */
-  onOpenScript: (file: number, line?: number) => void;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
   onDismissMessage: () => void;

@@ -154,18 +154,35 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
     Ok(())
 }
 
-/// Runs [`prepare`] (stale scripts compiled, stale text encoded; an error among their
-/// problems stops the build before anything is packed or written), packs every asset kind
-/// whose unpacked folder exists into its packed path, then builds
-/// the ROM with ds-rom into `out_rom`. All folders are packed in memory before the first
-/// file is written, so a pack error leaves the project untouched. Hidden entries below
-/// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
+/// Runs [`prepare_for_build`], then [`build_prepared`]: stale scripts are compiled and stale
+/// text encoded (an error among their problems stops the build before anything is packed or
+/// written), every asset kind whose unpacked folder exists is packed into its packed path,
+/// then the ROM is built with ds-rom into `out_rom`. All folders are packed in memory before
+/// the first file is written, so a pack error leaves the project untouched. Hidden entries
+/// below `files/` are an error (checked first), because ds-rom would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
+    let prepared = prepare_for_build(project, out_rom)?;
+    build_prepared(project, out_rom, prepared)
+}
+
+/// The first half of [`build`]: creates the output folder, rejects hidden entries below
+/// `files/` and runs [`prepare`]. It writes sources, members and compile state, so a caller
+/// that shares the project with an editor runs it exclusively; [`build_prepared`] only reads
+/// them.
+pub fn prepare_for_build(project: &Project, out_rom: &Path) -> Result<Prepared, KernelError> {
     if let Some(parent) = out_rom.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
     reject_hidden_files(&project.root.join("files"))?;
-    let prepared = prepare(project)?;
+    prepare(project)
+}
+
+/// The second half of [`build`]: packs the unpacked folders and builds the ROM.
+pub fn build_prepared(
+    project: &Project,
+    out_rom: &Path,
+    prepared: Prepared,
+) -> Result<BuildReport, KernelError> {
     let mut packed = Vec::new();
     let mut pending = Vec::new();
     // `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family.

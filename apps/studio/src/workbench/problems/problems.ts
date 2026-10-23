@@ -105,6 +105,16 @@ export class ProblemsStore {
     for (const [archive, list] of byArchive) this.replaceText(archive, list);
   }
 
+  /**
+   * Takes the problems of a build that succeeded. Any script that does not compile stops the build, so no compile error
+   * is left: the error rows of files the report does not name are stale and go. Warnings stay (a file that was not
+   * stale is not compiled again, so its warnings are not reported again); a file the report names is replaced as a whole.
+   */
+  applyBuildReport(problems: readonly ProblemDto[]): void {
+    for (const [file, rows] of [...this.compile]) this.replaceForFile(file, rows.filter((r) => r.severity === "warning").map((r) => ({ ...r, source: "compile" as const })));
+    this.applyReport(problems);
+  }
+
   /** Forgets everything (another project was opened). */
   clear(): void {
     if (this.compile.size === 0 && this.text.size === 0 && this.live.length === 0) return;

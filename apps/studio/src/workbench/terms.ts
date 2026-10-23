@@ -40,9 +40,9 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
   scriptFile: {
     label: "Scriptdatei", plural: "Scriptdateien",
     tech: "ScriptFile",
-    short: "Alle Scripts eines Headers in einer Datei; Events nennen die Nummer `#n` darin.",
+    short: "Alle Scripts eines Headers in einer Datei; Events nennen die Nummer #n darin.",
   },
-  script: { label: "Script", plural: "Scripts", tech: null, short: "Ein Ablauf in rotom, zum Beispiel `script Main #1`." },
+  script: { label: "Script", plural: "Scripts", tech: null, short: "Ein Ablauf in rotom, zum Beispiel script Main #1." },
   levelScript: {
     label: "Level-Script", plural: "Level-Scripts",
     tech: null,

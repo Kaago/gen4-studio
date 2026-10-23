@@ -33,18 +33,6 @@ export class ScriptDocuments {
     return this.docs.get(file);
   }
 
-  /** Replaces the text; a file that is not open is ignored (an editor can report a change after its document closed). */
-  setText(file: number, text: string): void {
-    const doc = this.docs.get(file);
-    if (doc) doc.text = text;
-  }
-
-  /** Records that the current text is on disk. */
-  markSaved(file: number): void {
-    const doc = this.docs.get(file);
-    if (doc) doc.savedText = doc.text;
-  }
-
   close(file: number): void {
     this.docs.delete(file);
   }

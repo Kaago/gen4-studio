@@ -14,7 +14,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde::{Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::error::{KernelError, io_at};
+use crate::error::{KernelError, guard_panic, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
 use crate::scripts::numbered_files;
@@ -293,7 +293,7 @@ pub fn validate(text: &str, file: &Path) -> Vec<Problem> {
         })
         .collect();
     // An error here (unknown glyph, bad command) is already reported by the encoder dry run.
-    if let Ok((row, px)) = measure_line_width(text, charmap, default_glyph_widths())
+    if let Ok((_row, px)) = measure_line_width(text, charmap, default_glyph_widths())
         && px > DIALOG_LINE_MAX_PX
     {
         problems.push(Problem {
@@ -301,10 +301,7 @@ pub fn validate(text: &str, file: &Path) -> Vec<Problem> {
             file: file.to_path_buf(),
             line: 1,
             col: 1,
-            message: format!(
-                "line {} is {px} px wide, the text box holds {DIALOG_LINE_MAX_PX} px",
-                row + 1
-            ),
+            message: format!("Zeile zu lang für das Textfeld (über {DIALOG_LINE_MAX_PX} px)"),
         });
     }
     problems
@@ -347,24 +344,33 @@ pub fn write_archive(
 
     std::fs::write(&tmp_json, &json).map_err(io_at(&tmp_json))?;
     // rotom v0.7.0 and DSPRE use the same chatot call, see docs/formats/text_archive.md.
-    let encoded = chatot::encode::encode_texts(
-        get_default_charmap(),
-        &TextSource {
-            txt: Some(vec![tmp_json.clone()]),
-            text_dir: None,
-        },
-        &BinarySource {
-            archive: Some(vec![tmp_member.clone()]),
-            archive_dir: None,
-        },
-        &Settings {
-            json: true,
-            lang: doc.lang.clone(),
-            newer_only: false,
-            msgenc_format: false,
-        },
-    );
+    let encoded = guard_panic("chatot", || {
+        chatot::encode::encode_texts(
+            get_default_charmap(),
+            &TextSource {
+                txt: Some(vec![tmp_json.clone()]),
+                text_dir: None,
+            },
+            &BinarySource {
+                archive: Some(vec![tmp_member.clone()]),
+                archive_dir: None,
+            },
+            &Settings {
+                json: true,
+                lang: doc.lang.clone(),
+                newer_only: false,
+                msgenc_format: false,
+            },
+        )
+    });
     let _ = std::fs::remove_file(&tmp_json);
+    let encoded = match encoded {
+        Ok(result) => result,
+        Err(crashed) => {
+            cleanup();
+            return Err(crashed);
+        }
+    };
     if let Err(e) = encoded {
         cleanup();
         return Err(KernelError::InvalidProject(format!(
@@ -688,6 +694,10 @@ mod tests {
         assert_eq!(long.len(), 1);
         assert_eq!(long[0].severity, Severity::Warning);
         assert_eq!(long[0].file, Path::new("0001.json"));
+        assert_eq!(
+            long[0].message,
+            "Zeile zu lang für das Textfeld (über 200 px)"
+        );
         assert!(validate("Hallo", Path::new("0001.json")).is_empty());
     }
 

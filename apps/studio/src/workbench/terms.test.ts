@@ -31,6 +31,10 @@ describe("terms", () => {
     for (const term of Object.values(TERMS)) expect(`${term.label}${term.plural}${term.short}`).not.toMatch(/Skript/);
   });
 
+  it("shows no raw markup in the short texts, which render as plain text", () => {
+    for (const term of Object.values(TERMS)) expect(term.short).not.toContain("`");
+  });
+
   it("has a plural for every term, the nouns the explorer counts with", () => {
     for (const term of Object.values(TERMS)) expect(term.plural).not.toBe("");
     expect([TERMS.place.plural, TERMS.header.plural, TERMS.map.plural, TERMS.room.plural]).toEqual(["Orte", "Header", "Karten", "Räume"]);

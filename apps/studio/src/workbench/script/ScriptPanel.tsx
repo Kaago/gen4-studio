@@ -220,7 +220,6 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
             lsp={lsp.client}
             uri={uri}
             onChange={onEditorChange}
-            onSave={onSave}
             onDiagnostics={onDiagnostics}
             theme="light"
           />
