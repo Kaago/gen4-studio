@@ -60,8 +60,9 @@ export class SceneHost {
     el.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.display = "block";
 
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#667788", 1.6));
-    const sun = new THREE.DirectionalLight("#ffffff", 1.5);
+    // Lighting, not design colours: neutral white sun and a cool-grey ground bounce (as in thumbnailRenderer).
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(-40, 100, 60);
     this.scene.add(sun);
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 8000);

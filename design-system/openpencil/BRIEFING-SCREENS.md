@@ -31,17 +31,17 @@ Referenz zum Ansehen: Seite „Screens: Start und Welt“, Frame „Welt bauen: 
 
 ## Werkzeuge und Regeln für OpenPencil (wichtig, sonst geht Arbeit verloren)
 
-1. Dokument: die `document_id` aus `list_documents` (Datei `/Users/POLTEP/Projekte/lab/editor/Editor_DesignSystem.fig`). Hole die Seiten-ID per `list_documents` über den **Seitennamen**. Gib bei jedem Aufruf `document_id` und `page_id` an.
+1. Dokument: die `document_id` aus `list_documents` (Datei `design-system/Editor_DesignSystem.fig`). Hole die Seiten-ID per `list_documents` über den **Seitennamen**. Gib bei jedem Aufruf `document_id` und `page_id` an.
 2. Baue **einen Screen pro `render`-Aufruf** als Frame `w={1440} h={900}` mit Namen „Bereich: Was passiert“ (z. B. „Pokédex: Staravia bearbeiten“). Lege Screens nebeneinander: x = n × 1520, y = 0 (zweite Reihe y = 1000).
 3. **Nach jedem Screen `save_file` aufrufen.** Danach `export_image` (maxEdge 1440) und das Bild **selbst kritisch prüfen**: Überlappungen, abgeschnittener Text, ungleiche Ausrichtung, leere Flächen, Lesbarkeit. Korrigiere per `render` mit `replace_id` (ersetzt den Frame an seiner Stelle). Höchstens 2 Korrekturdurchläufe pro Screen; viele Löschen/Neu-Zyklen machen OpenPencil instabil.
 4. Die erste Verwendung neuer Schriften/Symbole kann ein `RPC timeout` liefern; der Frame entsteht meist trotzdem. Prüfe mit `get_page_tree` (depth 1), bevor du neu renderst, und lösche halbe Frames.
 5. Wenn eine Seite „not found“ ist oder IDs nicht mehr stimmen: Das Dokument wurde neu geladen. `list_documents` erneut, neue Seiten-ID per Namen, mit `get_page_tree depth 1` prüfen, was gespeichert ist, fehlende Screens neu bauen.
-6. Wenn OpenPencil gar nicht antwortet (MCP-Fehler, Verbindung weg): App neu starten mit Bash `osascript -e 'quit app "OpenPencil"'; sleep 3; open -a OpenPencil /Users/POLTEP/Projekte/lab/editor/Editor_DesignSystem.fig`, 15 s warten (Bash: `sleep 15` ist erlaubt? Falls nicht, einfach einen harmlosen Aufruf wie `list_documents` wiederholen), dann weiter wie Punkt 5. Der MCP-Server ist Teil der App.
+6. Wenn OpenPencil gar nicht antwortet (MCP-Fehler, Verbindung weg): App neu starten mit Bash `osascript -e 'quit app "OpenPencil"'; sleep 3; open -a OpenPencil design-system/Editor_DesignSystem.fig`, 15 s warten (Bash: `sleep 15` ist erlaubt? Falls nicht, einfach einen harmlosen Aufruf wie `list_documents` wiederholen), dann weiter wie Punkt 5. Der MCP-Server ist Teil der App.
 7. **Farben**: Flächen, Text, Linien immer über `designVar('token')` binden (Token-Liste unten). **Symbole (`Icon`) und SVG-Pfade bekommen Hex-Werte** (OpenPencil bindet Variablen an Vektoren nicht zuverlässig); nimm die Hex-Werte des hellen Themas aus `HX` in der Bibliothek.
 8. Keine `Component`/`ComponentSet` in Screens anlegen (die Bibliothek existiert schon). Baue mit den JSX-Bausteinen.
 9. Schriften: UI `Atkinson Hyperlegible Next` (Basis 13 px, nie unter 12 px), Titel/Ortsnamen `Zen Maru Gothic` (700, sparsam), Code/IDs `Atkinson Hyperlegible Mono`, Spieltext in DS-Vorschauen `Pixelify Sans`. Symbole: Phosphor (`ph:name`, `ph:name-fill` für Marker).
 10. Gestrichelte Konturen immer mit `strokeDash={[a, b]} dashPattern={[a, b]}`; OpenPencil speichert nur `dashPattern`.
-11. Nach dem Speichern das Dokument schließen und `node design-system/scripts/fix_fig_text.mjs Editor_DesignSystem.fig --rgb555` ausführen (repariert Text-Glyphen, rastet Farben auf RGB555).
+11. Nach dem Speichern das Dokument schließen und `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555` ausführen (repariert Text-Glyphen, rastet Farben auf RGB555).
 12. Lange Texte in schmalen Zeilen: `T(text, { one: true })` kürzt einzeilig. Feste Breiten statt Umbruch-Chaos.
 
 ## JSX-Bausteinbibliothek

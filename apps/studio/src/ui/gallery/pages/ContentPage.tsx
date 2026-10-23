@@ -43,8 +43,8 @@ const tree: Node[] = [
 const areas: { area: Area; label: string; tech: string }[] = [
   { area: "welt", label: "Zweiblattdorf", tech: "0412" },
   { area: "geschichten", label: "Rivalin trifft", tech: "script 12" },
-  { area: "pokemon", label: "Staralili", tech: "#396" },
-  { area: "gegenstaende", label: "Trank", tech: "#17" },
+  { area: "pokemon", label: "Staralili", tech: "Nr. 396" },
+  { area: "gegenstaende", label: "Trank", tech: "Nr. 17" },
   { area: "texte", label: "Textarchiv 0412", tech: "msg 412" },
   { area: "technik", label: "Header-Patch", tech: "arm9" },
 ];

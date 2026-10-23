@@ -16,3 +16,10 @@
   background: var(--g4-flaeche-schau);
   color: var(--g4-text-primaer);
 }
+
+/* Fallback while the Script editor chunk loads. */
+.loading {
+  margin: 0;
+  padding: var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+}
