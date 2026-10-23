@@ -463,7 +463,7 @@ describe("roomResult", () => {
     const { lines } = roomResult({ ...report, inside_warp_reused: true, door_tiles: [{ map: 187, x: 8, y: 4 }] }, created);
     expect(lines[1]).toBe("Neuer Header 0593 „TESTZIMMER“ (Kopie von 0415) zeigt jetzt auf Raster 0131, Eventdatei 0020.");
     expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 (der kopierte Warp auf der Kachel, umgestellt) im neuen Raum.");
-    expect(lines[3]).toBe("Tür-Kachel gesetzt: Karte 0187, Kachel x 8, z 4.");
+    expect(lines[3]).toBe("Tür-Kachel gesetzt: Karte 0187, Kachel x 8, z 4 innerhalb der Karte.");
   });
 
   it("points_to_the_exits_section_when_no_entrance_was_made", () => {

@@ -13,15 +13,19 @@ export const popoverStyle: CSSProperties = {
   boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
 };
 
-/** While `open`, Escape and a press outside `ref`'s element call `close` (a popover or menu closes the way users expect). */
-export function useDismiss(open: boolean, ref: RefObject<HTMLElement | null>, close: () => void): void {
+/**
+ * While `open`, Escape and a press outside `ref`'s element call `close` (a popover or menu closes the way users expect).
+ * `ref` may be several elements (a popover rendered elsewhere than its button): a press inside any of them keeps it open.
+ */
+export function useDismiss(open: boolean, ref: RefObject<HTMLElement | null> | readonly RefObject<HTMLElement | null>[], close: () => void): void {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
     const onPress = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close();
+      const refs = Array.isArray(ref) ? ref : [ref];
+      if (!refs.some((r) => r.current?.contains(e.target as Node))) close();
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onPress);

@@ -536,7 +536,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[
     const reused = report.inside_warp_reused ? " (der kopierte Warp auf der Kachel, umgestellt)" : "";
     lines.push(`Eingang: Warp ${report.outside_warp} in ${TERMS.header.label} ${id4(spec.entrance.outside_header)}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${TERMS.room.label}.`);
   }
-  for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y}.`);
+  for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y} innerhalb der ${TERMS.map.label}.`);
   return {
     lines,
     next:

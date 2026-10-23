@@ -289,14 +289,20 @@ describe("WorldExplorer", () => {
       render(props());
       expect(container.querySelector('[role="dialog"]')).toBeNull();
       act(() => button("Begriffe")!.click());
-      const text = container.querySelector('[role="dialog"]')?.textContent ?? "";
+      // The box is rendered into the page body: the dock's panels would cut it off.
+      const box = document.querySelector('[role="dialog"][aria-label="Begriffe"]');
+      expect(container.contains(box)).toBe(false);
+      const text = box?.textContent ?? "";
       for (const term of Object.values(TERMS)) {
         expect(text).toContain(term.label);
         expect(text).toContain(term.short);
         if (term.tech) expect(text).toContain(term.tech);
       }
+      // A press inside the box keeps it open; Escape closes it.
+      act(() => void box?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+      expect(document.querySelector('[role="dialog"][aria-label="Begriffe"]')).not.toBeNull();
       act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.querySelector('[role="dialog"][aria-label="Begriffe"]')).toBeNull();
     });
   });
 
