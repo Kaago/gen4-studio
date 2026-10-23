@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventsDto, HeaderSummary } from "../api";
+import { pressKey } from "../ui/primitives/testUtils";
 import { ContextPanel } from "./ContextPanel";
 import type { ContextPanelProps } from "./ContextPanel";
 
@@ -67,6 +68,17 @@ describe("ContextPanel", () => {
     expect(row("Objekt 1 · ID 2").textContent).toContain("x 11, z 21");
     expect(row("Warp 0 → Header 0414 (T01R0201)")).toBeDefined();
     expect(row("Gebäude 2").textContent).toContain("Modell 22");
+  });
+
+  it("makes_the_list_reachable_by_keyboard_when_a_place_is_chosen_after_the_empty_state", () => {
+    show({ hasPlace: false, events: null });
+    expect(container.querySelectorAll("[role=option]")).toHaveLength(0);
+    show();
+    const options = [...container.querySelectorAll<HTMLElement>("[role=option]")];
+    expect(options.filter((o) => o.tabIndex === 0)).toHaveLength(1);
+    expect(options[0]!.tabIndex).toBe(0);
+    pressKey(options[0]!, "ArrowDown");
+    expect(options.filter((o) => o.tabIndex === 0)).toEqual([options[1]]);
   });
 
   it("selects_an_event_on_a_click_like_a_click_in_the_scene", () => {

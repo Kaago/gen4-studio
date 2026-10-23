@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 
 export type RovingListOptions = { orientation?: "vertical" | "horizontal" };
@@ -8,12 +8,17 @@ const ITEM = "[data-roving]";
 /**
  * Roving tabindex for a list: of all `[data-roving]` descendants exactly one has `tabindex="0"` (the one last focused,
  * else the selected one, else the first), the arrow keys of the orientation move it, Home and End jump to the ends.
- * The host must be mounted when the hook runs; rows may come and go afterwards.
+ * The host may mount after the first render (a panel that shows an empty state first) or be replaced by another element;
+ * the hook picks up whatever element `ref` holds after each render. Rows may come and go.
  */
 export function useRovingList(ref: RefObject<HTMLElement | null>, opts: RovingListOptions = {}): void {
   const orientation = opts.orientation ?? "vertical";
+  // The element the listeners sit on. A ref change triggers no render, so every render checks whether the ref holds another one.
+  const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    const host = ref.current;
+    if (ref.current !== host) setHost(ref.current);
+  });
+  useEffect(() => {
     if (!host) return;
     const items = () => [...host.querySelectorAll<HTMLElement>(ITEM)];
     const enabled = () => items().filter((el) => el.getAttribute("aria-disabled") !== "true");
@@ -59,5 +64,5 @@ export function useRovingList(ref: RefObject<HTMLElement | null>, opts: RovingLi
       host.removeEventListener("focusin", onFocusIn);
       observer.disconnect();
     };
-  }, [ref, orientation]);
+  }, [host, orientation]);
 }

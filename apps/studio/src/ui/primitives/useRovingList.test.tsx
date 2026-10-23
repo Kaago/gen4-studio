@@ -21,6 +21,20 @@ function List({ labels, selected, orientation }: { labels: string[]; selected?: 
   );
 }
 
+/** The host mounts only once `open` is true (the way a panel swaps an empty state for its list), so it is absent on the first render. */
+function LateList({ open, labels, keyed }: { open: boolean; labels: string[]; keyed?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useRovingList(ref);
+  if (!open) return <p>Noch nichts</p>;
+  return (
+    <div key={keyed} ref={ref} role="listbox" aria-label="Orte">
+      {labels.map((l) => (
+        <ListRow key={l} label={l} selected={false} onSelect={() => {}} />
+      ))}
+    </div>
+  );
+}
+
 describe("useRovingList", () => {
   let container: HTMLElement;
   let root: Root;
@@ -100,5 +114,23 @@ describe("useRovingList", () => {
     expect(tabStops()).toEqual(["B"]);
     await act(async () => root.render(<List labels={["A", "C"]} selected="C" />));
     expect(tabStops()).toEqual(["C"]);
+  });
+
+  it("wires_up_a_host_that_mounts_after_the_first_render", async () => {
+    await act(async () => root.render(<LateList open={false} labels={["A", "B", "C"]} />));
+    expect(rows()).toHaveLength(0);
+    await act(async () => root.render(<LateList open labels={["A", "B", "C"]} />));
+    expect(tabStops()).toEqual(["A"]);
+    pressKey(rows()[0]!, "ArrowDown");
+    expect(tabStops()).toEqual(["B"]);
+    expect(document.activeElement).toBe(rows()[1]);
+  });
+
+  it("wires_up_a_host_that_is_replaced_by_a_new_element", async () => {
+    await act(async () => root.render(<LateList open labels={["A", "B"]} keyed="one" />));
+    await act(async () => root.render(<LateList open labels={["A", "B"]} keyed="two" />));
+    expect(tabStops()).toEqual(["A"]);
+    pressKey(rows()[0]!, "ArrowDown");
+    expect(tabStops()).toEqual(["B"]);
   });
 });
