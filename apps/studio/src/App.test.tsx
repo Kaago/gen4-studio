@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history } from "./api";
+import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -67,6 +67,7 @@ vi.mock("./api", async (importOriginal) => ({
   undo: vi.fn(),
   redo: vi.fn(),
   history: vi.fn(),
+  getEvents: vi.fn(),
   runRom: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
@@ -500,12 +501,38 @@ describe("App wiring", () => {
     it("shows_place_header_and_the_pinned_event_in_the_breadcrumb", async () => {
       expect(hinge().querySelector("nav")?.textContent).toContain("Kein Ort gewählt");
       await select(listed[1]);
-      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Ort 1 0001");
-      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "warp", index: 0, header: 1 }));
-      expect(hinge().querySelector("nav")?.textContent).toContain("Warp 0");
+      // The overview does not know the matrix here, so the header counts as a room.
+      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Raum 0001");
+      vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 0, local_id: 5 } as never] });
+      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 0, header: 1 }));
+      // The title is the inspector's heading once the events of the file are read.
+      expect(getEvents).toHaveBeenCalledWith(101);
+      expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 0 · ID 5");
       // A crumb leads where it says.
-      await act(async () => hingeButton(/^Ort 1 0001/)!.click());
-      expect(hinge().querySelector("nav")?.textContent).not.toContain("Warp 0");
+      await act(async () => hingeButton(/^Raum 0001/)!.click());
+      expect(hinge().querySelector("nav")?.textContent).not.toContain("Objekt");
+    });
+
+    it("falls_back_to_the_short_event_title_when_the_events_cannot_be_read", async () => {
+      await select(listed[1]);
+      vi.mocked(getEvents).mockRejectedValue(new Error("kaputt"));
+      await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 3, header: 1 }));
+      expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 3");
+      expect(hinge().querySelector("nav")?.textContent).not.toContain("·");
+      // The inspector reports a failed read; the crumb stays quiet.
+      expect(alerts()).toEqual([]);
+    });
+
+    it("stops_going_back_in_the_history_at_the_first_undo_that_fails", async () => {
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
+      await act(async () => data().onEdited());
+      await tick(150);
+      vi.mocked(undo).mockResolvedValueOnce(null).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
+      const items = await historyItems();
+      await act(async () => items[3]!.click());
+      // The second step failed and was reported; the third and fourth never ran.
+      expect(undo).toHaveBeenCalledTimes(2);
+      expect(alerts()).toEqual([expect.stringContaining("kaputt")]);
     });
 
     it("counts_the_undo_steps_after_a_write_and_lists_their_labels_newest_first", async () => {
@@ -611,6 +638,11 @@ describe("App wiring", () => {
     it("does_not_run_a_rom_when_the_build_fails_or_is_cancelled", async () => {
       env.tauri = true;
       localStorage.setItem("g4.emulatorPath", "/emu");
+      // The first play asks for the path: a cancelled dialog builds and runs nothing.
+      vi.mocked(savePath).mockResolvedValueOnce(null);
+      await pressHinge(/Hier spielen/);
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(runRom).not.toHaveBeenCalled();
       vi.mocked(savePath).mockResolvedValue("/out.nds");
       // A ROM from an earlier build must not be started by a build that failed.
       built();
@@ -619,9 +651,41 @@ describe("App wiring", () => {
       vi.mocked(runRom).mockClear();
       vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 1, col: 1, message: "e", source: "compile" }] });
       await pressHinge(/Hier spielen/);
-      vi.mocked(savePath).mockResolvedValue(null);
-      await pressHinge(/Hier spielen/);
       expect(runRom).not.toHaveBeenCalled();
+    });
+
+    it("asks_for_the_output_path_on_the_first_play_only_and_builds_to_the_last_path_afterwards", async () => {
+      vi.mocked(savePath).mockResolvedValue("/chosen/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [] });
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledOnce();
+      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds");
+      // Button and Cmd+R now build to that path without a dialog.
+      vi.mocked(savePath).mockClear();
+      await pressHinge(/Hier spielen/);
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/emu");
+      vi.mocked(runRom).mockResolvedValue(1);
+      await press({ key: "r", metaKey: true });
+      expect(savePath).not.toHaveBeenCalled();
+      expect(buildRom).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(buildRom).mock.calls.map((c) => c[0])).toEqual(["/chosen/out.nds", "/chosen/out.nds", "/chosen/out.nds"]);
+      expect(runRom).toHaveBeenLastCalledWith("/emu", "/chosen/out.nds");
+      // The title bar's Bauen keeps asking.
+      await click("Bauen");
+      expect(savePath).toHaveBeenCalledOnce();
+    });
+
+    it("asks_again_after_another_project_was_opened", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      built();
+      await pressHinge(/Hier spielen/);
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledOnce();
+      vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      await pressHinge(/Hier spielen/);
+      expect(savePath).toHaveBeenCalledTimes(2);
     });
 
     it("shows_Baut_and_cannot_be_pressed_again_while_the_build_runs", async () => {

@@ -241,12 +241,15 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     await refreshDirty();
   }
 
-  /** Builds the ROM (saving first). Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build). */
-  async function onBuild(): Promise<string | null> {
+  /**
+   * Builds the ROM (saving first). Without `known` the output path is asked for; with it (the path of an earlier build) no dialog opens.
+   * Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build).
+   */
+  async function onBuild(known?: string): Promise<string | null> {
     let built: string | null = null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
-      const out = await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` });
+      const out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
       if (!out) return null;
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });

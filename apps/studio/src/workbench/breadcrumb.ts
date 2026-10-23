@@ -1,9 +1,10 @@
-import type { EventKind, HeaderSummary } from "../api";
+import type { EventKind, EventsDto, HeaderSummary, WarpDto } from "../api";
+import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
-import { placeOf } from "./places";
+import { UNNAMED_KEY, placeOf } from "./places";
 import type { Place } from "./places";
-import { id4 } from "./terms";
+import { TERMS, id4 } from "./terms";
 
 /** One link of the hinge's breadcrumb. `tech` is the grey identifier next to the label. */
 export interface Crumb {
@@ -20,25 +21,37 @@ export interface CrumbInput {
   pinned: InspectorModel;
   /** The name of the matrix a pinned cell belongs to, shown grey next to the cell. */
   matrixName?: string;
+  /** The events of the pinned event's file (what `useEvents` reads for the inspector): the crumb then has the inspector's heading. Null or missing: the short words. */
+  events?: EventsDto | null;
   /** Makes the crumbs links: each one leads where its label says. */
   goTo?: (target: NavTarget) => void;
 }
 
-/** The leading words of `eventTitle`: the pinned model knows the event's class and index, not its data. */
+/** The leading words of `eventTitle`, shown while the event's data is not there (yet). */
 const EVENT_WORD: Record<EventKind, string> = { warp: "Warp", object: "Objekt", coord: "Trigger", bg: "Hintergrund-Event" };
 
-/** At most three crumbs: place › header › selection (event, building, matrix cell or area data). */
-export function crumbsFor({ places, headers, selected, pinned, matrixName, goTo }: CrumbInput): Crumb[] {
+/** The heading of the pinned event as the inspector writes it (`eventTitle`) once its data is known, else the short form. */
+function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: number }, headers: HeaderSummary[], events: EventsDto | null | undefined): string {
+  const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
+  if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
+  const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
+  return eventTitle(pinned.eventKind, data, destination?.internal_name);
+}
+
+/** At most three crumbs: place › header (Außen or Raum, with its id) › selection (event, building, matrix cell or area data). */
+export function crumbsFor({ places, headers, selected, pinned, matrixName, events, goTo }: CrumbInput): Crumb[] {
   const header = selected === null ? undefined : headers.find((h) => h.id === selected);
   if (header === undefined) return [{ label: headers.length === 0 ? "Kein Projekt" : "Kein Ort gewählt" }];
   const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
   const crumbs: Crumb[] = [];
   const place = placeOf(places, header.id);
   if (place) crumbs.push({ label: place.name, onClick: link({ kind: "header", id: place.headers[0]!.header.id }) });
-  crumbs.push({ label: header.location_name.trim() || "Raum", tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
+  // The explorer's words, not the place's name again: an outside header is "Außen", a room "Raum" (a header of an unnamed place is always a room).
+  const outside = place !== undefined && place.key !== UNNAMED_KEY && place.headers.find((h) => h.header.id === header.id)?.kind === "outside";
+  crumbs.push({ label: outside ? TERMS.outside.label : TERMS.room.label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
-      crumbs.push({ label: `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`, tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
+      crumbs.push({ label: eventLabel(pinned, headers, events), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
       break;
     case "building":
       crumbs.push({ label: `Gebäude ${pinned.index}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });

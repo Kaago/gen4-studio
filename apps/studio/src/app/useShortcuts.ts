@@ -10,7 +10,7 @@ interface ShortcutHandlers {
   onSave: () => Promise<void>;
   /** "Hier spielen": save, build, run. Only asked for inside the app (in a browser Cmd+R reloads the page). */
   onPlay: () => Promise<void>;
-  step: (action: typeof undo) => Promise<void>;
+  step: (action: typeof undo) => Promise<unknown>;
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   onDeleteEvent: (file: number, kind: EventKind, index: number) => void | Promise<void>;
   unpinSelection: () => void;

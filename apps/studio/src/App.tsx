@@ -3,6 +3,8 @@ import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
 import { HAND_COMPONENTS, HeadersPanel, SCHAU_COMPONENTS } from "./workbench/panels";
 import { buildPlaces } from "./workbench/places";
+import { useEvents } from "./workbench/useEvents";
+import { useBusRevision } from "./bus/useBusEvent";
 import { crumbsFor } from "./workbench/breadcrumb";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
@@ -58,6 +60,9 @@ const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   technik: "Kommt mit 3c.2",
   einstellungen: "Kommt mit 3c.2",
 };
+
+/** For a read whose failure someone else reports. */
+const ignoreError = () => {};
 
 /** A script opens in a hand at least this high. */
 const SCRIPT_HAND_HEIGHT = 400;
@@ -185,18 +190,19 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
-  // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo.
+  // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo; the first one that fails ends it.
   const onUndoTo = useStableCallback(async (stepsBack: number) => {
-    for (let i = 0; i < stepsBack; i++) await step(undo);
+    for (let i = 0; i < stepsBack; i++) if (!(await step(undo))) return;
   });
   const onRedo = useStableCallback(() => void step(redo));
   // "Hier spielen": saves and builds; inside the app it then runs the ROM (asking for an emulator first when none is set). In the browser mode it only builds.
+  // It builds to the path of the last build without asking; only the first play asks for one (the title bar's "Bauen" always asks).
   const playing = useRef(false);
   const onPlay = useStableCallback(async () => {
     if (!session.info || session.busy || playing.current) return;
     playing.current = true;
     try {
-      const rom = await session.onBuild();
+      const rom = await session.onBuild(session.lastRom ?? undefined);
       if (rom === null) return;
       if (inTauri()) await session.onRun(rom);
       else toast.info("Im Browser-Modus wird nur gebaut");
@@ -306,9 +312,14 @@ function AppBody() {
   const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links]);
   const pinnedMatrix = pins.pinned.kind === "matrixCell" ? pins.pinned.matrix : null;
   const matrixName = pinnedMatrix === null ? undefined : overview.matrices.find((m) => m.index === pinnedMatrix)?.name;
+  // A pinned event is titled like the inspector heading: the events of its file come from the same hook the inspector's exits use,
+  // read again when events moved (a failed read is the inspector's to report; the crumb keeps its short words).
+  const pinnedEventFile = pins.pinned.kind === "event" ? pins.pinned.eventFile : null;
+  const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
+  const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, goTo: data.goTo }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, data.goTo],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo],
   );
   const onDragHeight = useStableCallback((height: number) => {
     // Dragging a collapsed hinge opens the hand to where it is dragged.

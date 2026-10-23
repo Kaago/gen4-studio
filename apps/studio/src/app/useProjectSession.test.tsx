@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuildReport, ProblemDto } from "../api";
-import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, save, saveScript, scriptsStatus } from "../api";
+import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, runRom, save, saveScript, scriptsStatus } from "../api";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus, EditEvent } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
@@ -26,6 +26,7 @@ vi.mock("../api", async (importOriginal) => ({
   scriptsStatus: vi.fn(),
   readScript: vi.fn(),
   saveScript: vi.fn(),
+  runRom: vi.fn(),
 }));
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
@@ -157,6 +158,31 @@ describe("useProjectSession with open scripts", () => {
     await build();
     expect(saveScript).not.toHaveBeenCalled();
     expect(buildRom).not.toHaveBeenCalled();
+  });
+
+  it("build_with_a_known_path_builds_there_without_asking_and_resolves_to_the_rom", async () => {
+    await act(async () => void (await session.onBuild("/kept/out.nds")));
+    expect(savePath).not.toHaveBeenCalled();
+    expect(buildRom).toHaveBeenCalledExactlyOnceWith("/kept/out.nds");
+    // Without one it still asks, and resolves to what was built (or null when nothing was).
+    let rom: string | null = "unset";
+    await act(async () => void (rom = await session.onBuild()));
+    expect(savePath).toHaveBeenCalledOnce();
+    expect(rom).toBe("/out.nds");
+    vi.mocked(savePath).mockResolvedValueOnce(null);
+    await act(async () => void (rom = await session.onBuild()));
+    expect(rom).toBeNull();
+  });
+
+  it("run_starts_the_given_rom_and_falls_back_to_the_last_one_built", async () => {
+    localStorage.setItem("g4.emulatorPath", "/emu");
+    vi.mocked(runRom).mockResolvedValue(1);
+    await act(async () => session.onRun("/given.nds"));
+    expect(runRom).toHaveBeenLastCalledWith("/emu", "/given.nds");
+    await build();
+    await act(async () => session.onRun());
+    expect(runRom).toHaveBeenLastCalledWith("/emu", "/out.nds");
+    localStorage.removeItem("g4.emulatorPath");
   });
 
   it("build_puts_compile_problems_of_the_saves_into_the_store_and_still_builds", async () => {

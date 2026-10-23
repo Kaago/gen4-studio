@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, MatrixSummary } from "../api";
+import type { EventsDto, HeaderSummary, MatrixSummary, ObjectDto, WarpDto } from "../api";
 import { crumbsFor } from "./breadcrumb";
 import type { Crumb } from "./breadcrumb";
 import { buildPlaces } from "./places";
@@ -20,19 +20,49 @@ const matrix = (index: number, has_headers: boolean): MatrixSummary => ({ index,
 
 const headers = [header(0, "Zweiblattdorf", 0), header(414, "Zweiblattdorf", 7), header(9, "", 9)];
 const places = buildPlaces(headers, [matrix(0, true), matrix(7, false), matrix(9, false)]);
-const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; goTo?: () => void } = {}) => crumbsFor({ places, headers, selected, pinned, ...extra });
+const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; goTo?: () => void; events?: EventsDto | null } = {}) => crumbsFor({ places, headers, selected, pinned, ...extra });
+const eventsOf = (file: number, over: Partial<EventsDto>): EventsDto => ({ event_file_id: file, locked: null, bg: [], objects: [], warps: [], coords: [], ...over });
+const object = { index: 2, local_id: 7 } as ObjectDto;
+const warp = { index: 1, x: 0, z: 0, dest_header_id: 0, dest_warp_id: 0, height: 0 } as WarpDto;
 
 describe("crumbsFor", () => {
-  it("lists_place_header_and_the_title_of_the_selected_event", () => {
-    const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "object", index: 2 });
+  it("lists_place_header_and_the_title_of_the_selected_event_as_the_inspector_writes_it", () => {
+    const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "object", index: 2 }, 414, { events: eventsOf(514, { objects: [object] }) });
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Zweiblattdorf", "0414"],
-      ["Objekt 2", "Eventdatei 0514"],
+      ["Raum", "0414"],
+      ["Objekt 2 · ID 7", "Eventdatei 0514"],
     ]);
   });
 
-  it("names_a_header_without_a_location_name_Raum_and_gives_its_id", () => {
+  it("names_the_destination_header_in_the_title_of_a_warp_like_the_event_editor", () => {
+    const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }) });
+    expect(crumbs[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
+  });
+
+  it("falls_back_to_the_short_words_while_the_data_of_the_event_is_missing", () => {
+    const pinned = { kind: "event", eventFile: 514, eventKind: "object", index: 2 } as const;
+    expect(pin(pinned)[2]?.label).toBe("Objekt 2");
+    expect(pin(pinned, 414, { events: null })[2]?.label).toBe("Objekt 2");
+    // The events of another file (the pin moved on, the read did not yet) and an index that is gone are not the event's data.
+    expect(pin(pinned, 414, { events: eventsOf(515, { objects: [object] }) })[2]?.label).toBe("Objekt 2");
+    expect(pin(pinned, 414, { events: eventsOf(514, {}) })[2]?.label).toBe("Objekt 2");
+    expect(pin({ ...pinned, eventKind: "coord", index: 0 })[2]?.label).toBe("Trigger 0");
+    expect(pin({ ...pinned, eventKind: "bg", index: 0 })[2]?.label).toBe("Hintergrund-Event 0");
+  });
+
+  it("calls_an_outside_header_Aussen_and_a_room_Raum_with_the_id_grey", () => {
+    expect(pin({ kind: "header", id: 0 }, 0).map((c) => [c.label, c.tech])).toEqual([
+      ["Zweiblattdorf", undefined],
+      ["Außen", "0000"],
+    ]);
+    expect(pin({ kind: "header", id: 414 }).map((c) => [c.label, c.tech])).toEqual([
+      ["Zweiblattdorf", undefined],
+      ["Raum", "0414"],
+    ]);
+  });
+
+  it("names_a_header_of_an_unnamed_place_Raum_and_gives_its_id", () => {
     const crumbs = pin({ kind: "header", id: 9 }, 9);
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Ohne Ortsnamen", undefined],
