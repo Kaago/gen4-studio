@@ -1,0 +1,61 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--g4-raum-4);
+  min-width: 0;
+}
+
+.label {
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.control {
+  min-height: var(--g4-dichte-steuer);
+  min-width: 0;
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.control::placeholder {
+  color: var(--g4-text-sekundaer);
+}
+
+.control:hover:not(:disabled) {
+  border-color: var(--g4-linie-stark);
+}
+
+.control[aria-invalid="true"],
+.control[aria-invalid="true"]:hover:not(:disabled) {
+  border-color: var(--g4-status-fehler);
+}
+
+.control:disabled {
+  background: var(--g4-flaeche-deck);
+  border-color: var(--g4-linie-leise);
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.multiline {
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  resize: vertical;
+}
+
+.hint {
+  margin: 0;
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.error {
+  margin: 0;
+  font: var(--g4-font-text-xs);
+  color: var(--g4-status-fehler);
+}

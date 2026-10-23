@@ -1,0 +1,53 @@
+.group {
+  display: inline-flex;
+  padding: var(--g4-raum-2);
+  gap: var(--g4-raum-2);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-deck);
+}
+
+.option {
+  display: inline-flex;
+  min-height: calc(var(--g4-dichte-steuer) - 2 * var(--g4-raum-2) - 2 * var(--g4-strich-standard));
+  min-width: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-6);
+  padding: 0 var(--g4-dichte-zeile-innen);
+  border: 0;
+  border-radius: var(--g4-radius-feld);
+  background: transparent;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--g4-dauer-kurz),
+    color var(--g4-dauer-kurz);
+}
+
+.option svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.option:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: var(--g4-flaeche-taste);
+}
+
+.option[aria-pressed="true"] {
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-akzent-text);
+  box-shadow: inset 0 0 0 var(--g4-strich-standard) var(--g4-auswahl-kante);
+}
+
+.option:disabled {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.s .option {
+  min-height: 20px;
+  padding: 0 var(--g4-raum-8);
+}

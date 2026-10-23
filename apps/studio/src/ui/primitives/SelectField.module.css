@@ -1,0 +1,111 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--g4-raum-4);
+  min-width: 0;
+}
+
+.label {
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.trigger {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.trigger:hover:not([data-disabled]) {
+  border-color: var(--g4-linie-stark);
+}
+
+.trigger[data-popup-open] {
+  border-color: var(--g4-akzent-grund);
+}
+
+.trigger[data-disabled] {
+  background: var(--g4-flaeche-deck);
+  border-color: var(--g4-linie-leise);
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.value {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.value svg,
+.item svg {
+  font-size: var(--g4-dichte-symbol);
+  flex: none;
+}
+
+.caret {
+  display: inline-flex;
+  flex: none;
+  color: var(--g4-text-sekundaer);
+}
+
+.positioner {
+  z-index: 10;
+  outline: none;
+}
+
+.popup {
+  min-width: var(--anchor-width);
+  box-sizing: border-box;
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-ueberlagerung);
+  color: var(--g4-text-primaer);
+  outline: none;
+  box-shadow: 0 var(--g4-raum-4) var(--g4-raum-16) color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.list {
+  max-height: var(--available-height);
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  align-items: center;
+  gap: var(--g4-raum-6);
+  padding: 0 var(--g4-raum-8) 0 var(--g4-raum-24);
+  border-radius: var(--g4-radius-feld);
+  font: var(--g4-font-text-s);
+  cursor: default;
+  user-select: none;
+  position: relative;
+}
+
+.item[data-highlighted] {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+  outline: none;
+}
+
+.mark {
+  position: absolute;
+  left: var(--g4-raum-6);
+  display: inline-flex;
+}

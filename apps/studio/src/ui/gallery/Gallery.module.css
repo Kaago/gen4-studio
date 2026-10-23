@@ -106,3 +106,17 @@
   align-items: center;
   gap: var(--g4-raum-12);
 }
+
+.note {
+  margin: 0;
+  max-width: 64ch;
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+  gap: var(--g4-raum-16) var(--g4-raum-24);
+  align-items: start;
+}

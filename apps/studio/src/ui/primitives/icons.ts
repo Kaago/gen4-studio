@@ -2,6 +2,7 @@
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
+  ArrowsHorizontal,
   ArrowSquareOut,
   Backpack,
   CaretDown,
@@ -102,6 +103,7 @@ export const icons = {
   check: Check,
   minus: Minus,
   history: ClockCounterClockwise,
+  scrub: ArrowsHorizontal,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;
