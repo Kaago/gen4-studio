@@ -20,7 +20,7 @@ describe("Reference", () => {
     container.remove();
   });
 
-  const chip = () => container.querySelector<HTMLElement>("button")!;
+  const chip = () => container.querySelector<HTMLButtonElement>("button")!;
   const rightClick = () => act(() => void chip().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })));
   const entries = () => [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
 
@@ -31,6 +31,14 @@ describe("Reference", () => {
     expect(chip().textContent).toContain("#396");
     act(() => chip().click());
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("a_disabled_reference_stays_visible_and_does_not_open", () => {
+    const onOpen = vi.fn();
+    act(() => root.render(<Reference area="welt" label="Scriptdatei 0040" onOpen={onOpen} disabled />));
+    expect(chip().disabled).toBe(true);
+    act(() => chip().click());
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it.each(["welt", "geschichten", "pokemon", "gegenstaende", "texte", "technik"] as const)("renders_the_%s_area_as_a_button", (area) => {

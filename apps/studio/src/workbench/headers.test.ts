@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { HeaderSummary } from "../api";
-import { filterHeaders, headerLabel, showsMatrix } from "./headers";
+import type { HeaderSummary, MatrixDto } from "../api";
+import { filterHeaders, headerLabel, mapOfHeader, showsMatrix } from "./headers";
 
 const header = (id: number, internal_name: string, location_name: string): HeaderSummary => ({
   id,
@@ -53,5 +53,25 @@ describe("showsMatrix", () => {
 
   it("marks nothing while no matrix is shown", () => {
     expect(showsMatrix(h, null)).toBe(false);
+  });
+});
+
+describe("mapOfHeader", () => {
+  const matrix = (over: Partial<MatrixDto>): MatrixDto => ({ index: 0, name: "m", width: 2, height: 1, maps: [10, 11], ...over });
+
+  it("takes_the_map_of_the_cell_that_names_the_header", () => {
+    expect(mapOfHeader(matrix({ headers: [411, 412] }), 412)).toBe(11);
+  });
+
+  it("takes_the_first_map_of_a_matrix_without_a_header_section", () => {
+    expect(mapOfHeader(matrix({ maps: [null, 11] }), 412)).toBe(11);
+  });
+
+  it("falls_back_to_the_first_map_when_no_cell_names_the_header", () => {
+    expect(mapOfHeader(matrix({ headers: [411, 411] }), 999)).toBe(10);
+  });
+
+  it("is_null_for_a_matrix_without_maps", () => {
+    expect(mapOfHeader(matrix({ maps: [null, null] }), 411)).toBeNull();
   });
 });

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
 import type { BuildingDto, MemberCounts } from "../../api";
-import { DraftInput } from "../DraftInput";
+import { Button, InspectorRow, NumberField, TextField } from "../../ui/primitives";
+import { id4 } from "../terms";
 import { BUILDING_FIELDS, BUILDING_POSITION_FIELDS, BUILDING_SCALE_FIELDS, buildingBackend, parseNumberField } from "./buildingFields";
 import type { BuildingFieldSpec } from "./buildingFields";
+import styles from "./Editor.module.css";
 import { EditSession } from "./headerCommit";
+import { InspectorHead } from "./InspectorHead";
 
 /** What the building editor needs from App besides the building's map and index. */
 export interface BuildingEditorContext {
@@ -23,17 +25,34 @@ export interface BuildingEditorContext {
   onError: (e: unknown) => void;
 }
 
-const row: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 96px", alignItems: "center", columnGap: 8, padding: "2px 0" };
-const input: CSSProperties = { width: "100%", fontFamily: "ui-monospace, monospace" };
-const muted: CSSProperties = { fontSize: 12, color: "#6b7280" };
-
 type Preview = { model: number; state: "loading" } | { model: number; state: "ok"; bytes: number } | { model: number; state: "error"; text: string };
 
-/** The building with the given index of `map`, as the backend holds it. */
-async function getBuilding(map: number, index: number): Promise<BuildingDto> {
-  const building = (await getMap(map)).buildings[index];
+/** The building with the given index of `map`, as the backend holds it, and how many buildings the map has. */
+async function readBuilding(map: number, index: number): Promise<{ building: BuildingDto; count: number }> {
+  const { buildings } = await getMap(map);
+  const building = buildings[index];
   if (!building) throw new Error(`Gebäude ${index} existiert in Karte ${map} nicht (mehr)`);
-  return building;
+  return { building, count: buildings.length };
+}
+
+/** A decimal number (positions and scales are fractions of a tile): a text field that refuses what is not a number and says how to write one. */
+function DecimalField({ label, value, onCommit }: { label: string; value: number; onCommit: (n: number) => void }) {
+  const [error, setError] = useState<string | undefined>();
+  // A new value from the model makes an old refusal moot.
+  useEffect(() => setError(undefined), [value]);
+  return (
+    <TextField
+      label={label}
+      value={String(value)}
+      error={error}
+      onCommit={(text) => {
+        const n = parseNumberField(text);
+        if (n === null) return setError("Das ist keine Zahl. Gib z. B. 1.5 ein.");
+        setError(undefined);
+        if (n !== value) onCommit(n);
+      }}
+    />
+  );
 }
 
 /**
@@ -48,11 +67,18 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // How many buildings the map has, for "Gebäude 3 von 5".
+  const [count, setCount] = useState<number | null>(null);
   const callbacks = useRef({ onChanged, onError });
   callbacks.current = { onChanged, onError };
   const session = useRef<EditSession<BuildingDto> | null>(null);
 
   useEffect(() => {
+    const getBuilding = async (m: number, i: number) => {
+      const read = await readBuilding(m, i);
+      setCount(read.count);
+      return read.building;
+    };
     const s = new EditSession<BuildingDto>(index, buildingBackend(map, { getBuilding, update: updateBuilding }), BUILDING_FIELDS, {
       onState: setBuilding,
       onRefused: () => setRefused((n) => n + 1),
@@ -91,69 +117,63 @@ export function BuildingEditor({ map, index, context }: { map: number; index: nu
   }, [modelId, areaDataId]);
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
-  const commitModel = (text: string) => {
-    const v = parseNumberField(text);
-    if (v !== null) commit("model_id", "Modell", Math.min(0xffff_ffff, Math.max(0, Math.round(v))));
-  };
-  const commitNumber = (spec: BuildingFieldSpec) => (text: string) => {
-    const v = parseNumberField(text);
-    if (v !== null) commit(spec.key, spec.label, v);
-  };
-
-  const title = `Gebäude ${index} · Karte ${String(map).padStart(4, "0")}`;
-  if (building === null) return <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>{title}</div>;
+  const title = count === null ? `Gebäude ${index + 1}` : `Gebäude ${index + 1} von ${count}`;
+  const subtitle = `Karte ${id4(map)}`;
+  if (building === null) {
+    return (
+      <div className={styles.panel}>
+        <InspectorHead title={title} subtitle={subtitle} />
+      </div>
+    );
+  }
   const modelMax = counts.BuildingModel === undefined ? undefined : Math.max(0, counts.BuildingModel - 1);
 
-  const numberRow = (spec: BuildingFieldSpec) => (
-    <label key={spec.key} style={row}>
-      <span>{spec.label}</span>
-      <DraftInput label={spec.label} type="number" step={spec.step} value={String(building[spec.key])} onCommit={commitNumber(spec)} style={input} />
-    </label>
+  const decimalRow = (spec: BuildingFieldSpec) => (
+    <InspectorRow key={spec.key} label={spec.label}>
+      <DecimalField label={spec.label} value={building[spec.key]} onCommit={(n) => commit(spec.key, spec.label, n)} />
+    </InspectorRow>
   );
+  const previewText =
+    preview === null || preview.model !== building.model_id
+      ? ""
+      : preview.state === "loading"
+        ? "Lade Modell …"
+        : preview.state === "ok"
+          ? `Modell geladen (${Math.max(1, Math.round(preview.bytes / 1024))} KB)`
+          : `Modell nicht geladen, die 3D-Ansicht zeigt eine Box: ${preview.text}`;
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div key={refused} style={{ marginTop: 8 }}>
-        <label style={row}>
-          <span>Modell</span>
-          <DraftInput
-            label={modelMax === undefined ? "Modellnummer" : `Modellnummer (außen 0 bis ${modelMax})`}
-            type="number"
-            min={0}
-            value={String(building.model_id)}
-            onCommit={commitModel}
-            style={input}
-          />
-        </label>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 6px" }}>
-          <button onClick={() => void Promise.resolve(onChanged(map, building.model_id)).then(() => check(building.model_id))} disabled={preview?.state === "loading"}>
-            Vorschau laden
-          </button>
-          <span style={{ ...muted, color: preview?.state === "error" ? "#b91c1c" : "#6b7280" }}>
-            {preview === null || preview.model !== building.model_id
-              ? ""
-              : preview.state === "loading"
-                ? "Lade Modell ..."
-                : preview.state === "ok"
-                  ? `Modell geladen (${Math.max(1, Math.round(preview.bytes / 1024))} KB)`
-                  : `Modell nicht geladen, die 3D-Ansicht zeigt eine Box: ${preview.text}`}
-          </span>
+    <div className={styles.panel}>
+      <InspectorHead title={title} subtitle={subtitle} />
+      <div className={styles.body}>
+        <div key={refused}>
+          <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>
+            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} />
+          </InspectorRow>
+          <div className={styles.actions}>
+            <Button kind="quiet" size="s" onClick={() => void Promise.resolve(onChanged(map, building.model_id)).then(() => check(building.model_id))} disabled={preview?.state === "loading"}>
+              Vorschau laden
+            </Button>
+            <span className={preview?.state === "error" ? `${styles.note} ${styles.error}` : styles.note}>{previewText}</span>
+          </div>
+          {BUILDING_POSITION_FIELDS.map(decimalRow)}
+          {BUILDING_SCALE_FIELDS.map(decimalRow)}
+          <InspectorRow label="Rotation" hint="Nur lesbar: Das Spiel ignoriert die Rotation von Karten-Gebäuden; sie bleibt unverändert erhalten.">
+            <span className={styles.mono}>{building.rotation.join(" ")}</span>
+          </InspectorRow>
         </div>
-        {BUILDING_POSITION_FIELDS.map(numberRow)}
-        {BUILDING_SCALE_FIELDS.map(numberRow)}
-        <div style={{ ...row, marginTop: 4 }} title="Das Spiel ignoriert die Rotation von Karten-Gebäuden; sie bleibt unverändert erhalten.">
-          <span>Rotation (nur lesbar)</span>
-          <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 11 }}>{building.rotation.join(" ")}</span>
+        <div className={styles.actions}>
+          <Button kind="secondary" onClick={() => void onAdd(map)}>
+            Neues Gebäude
+          </Button>
+          <Button kind="danger" onClick={() => void onDelete(map, index)}>
+            Löschen
+          </Button>
         </div>
+        <p className={styles.note}>
+          Ziehen in der 3D-Ansicht verschiebt das Gebäude in Halb-Kachel-Schritten. Neue Gebäude entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Gebäude nach Rückfrage.
+        </p>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={() => void onAdd(map)}>Neues Gebäude</button>
-        <button onClick={() => void onDelete(map, index)}>Löschen</button>
-      </div>
-      <p style={{ marginTop: 8, ...muted }}>
-        Ziehen in der 3D-Ansicht verschiebt das Gebäude in Halb-Kachel-Schritten. Neue Gebäude entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Gebäude nach Rückfrage.
-      </p>
     </div>
   );
 }

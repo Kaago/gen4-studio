@@ -1,15 +1,20 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
+import { Button, Section } from "../../ui/primitives";
 import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
-import { TERMS } from "../terms";
+import { TERMS, id4 } from "../terms";
 import type { WizardRequest } from "../WorkbenchContext";
+import styles from "./Editor.module.css";
 import { ExitsSection } from "./ExitsSection";
 import { Field } from "./Field";
-import { fieldValue, headerFieldSpecs, pickMax } from "./fields";
+import { fieldValue, pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
 import { HeaderSession } from "./headerCommit";
+import { headerSections } from "./headerSections";
+import type { HeaderSectionId } from "./headerSections";
+import { InspectorHead } from "./InspectorHead";
 import { LevelScriptSection } from "./LevelScriptSection";
 import { ADOPT_HINT } from "./scriptNav";
 
@@ -58,6 +63,14 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
+  // The form sections the user folded away (a closed section does not render its fields).
+  const [folded, setFolded] = useState<ReadonlySet<HeaderSectionId>>(new Set());
+  const toggle = (section: HeaderSectionId) =>
+    setFolded((current) => {
+      const next = new Set(current);
+      if (!next.delete(section)) next.add(section);
+      return next;
+    });
   const callbacks = useRef({ onChanged, onError });
   callbacks.current = { onChanged, onError };
   const session = useRef<HeaderSession | null>(null);
@@ -102,70 +115,77 @@ export function HeaderEditor({ id, context }: { id: number; context: HeaderEdito
   };
 
   const summary = headers.find((h) => h.id === id);
-  const title = `Header ${String(id).padStart(4, "0")}${summary ? ` · ${headerLabel(summary)}` : ""}`;
+  const fieldRow = (spec: FieldSpec, header: MapHeader) => {
+    const script = SCRIPT_FIELDS[spec.key];
+    const value = fieldValue(header, spec.key);
+    return (
+      <Field
+        key={spec.key}
+        spec={spec}
+        value={value}
+        max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined}
+        onCommit={commit}
+        headers={headers}
+        goTo={goTo}
+        open={script === undefined ? undefined : { run: () => onOpenScript(value), disabled: !scriptsAdopted || (script === "levelScript" && value === 0) }}
+        extra={
+          script === undefined ? undefined : (
+            <Button
+              kind="quiet"
+              size="s"
+              aria-label={script === "script" ? `Neue ${TERMS.scriptFile.label} anlegen` : `Neues ${TERMS.levelScript.label} anlegen`}
+              disabled={!scriptsAdopted}
+              onClick={() => void createFile(spec.key, script)}
+            >
+              Neu
+            </Button>
+          )
+        }
+      />
+    );
+  };
+
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-      {header === null ? (
-        <p style={{ color: "#6b7280" }}>Lade Header ...</p>
-      ) : (
-        <div key={refused} style={{ marginTop: 8 }}>
-          {headerFieldSpecs(headerFamily(header)).map((spec) => {
-            const kind = SCRIPT_FIELDS[spec.key];
-            const value = fieldValue(header, spec.key);
-            return (
-              <Fragment key={spec.key}>
-                <Field spec={spec} value={value} max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined} onCommit={commit} />
-                {kind !== undefined && (
-                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "2px 0" }}>
-                    {!scriptsAdopted && (
-                      <span role="note" style={{ fontSize: 12, color: "#6b7280", marginRight: "auto" }}>
-                        {ADOPT_HINT}
-                      </span>
-                    )}
-                    <button type="button" aria-label={`${spec.label} öffnen`} disabled={!scriptsAdopted || (kind === "levelScript" && value === 0)} onClick={() => onOpenScript(value)}>
-                      Öffnen
-                    </button>
-                    <button type="button" aria-label={kind === "script" ? `Neue ${TERMS.scriptFile.label} anlegen` : `Neues ${TERMS.levelScript.label} anlegen`} disabled={!scriptsAdopted} onClick={() => void createFile(spec.key, kind)}>
-                      Neu
-                    </button>
-                  </div>
+    <div className={styles.panel}>
+      <InspectorHead title={summary ? headerLabel(summary) : `${TERMS.header.label} ${id4(id)}`} subtitle={summary ? `${id4(id)} · ${summary.internal_name}` : id4(id)} />
+      <div className={styles.body}>
+        {header === null ? (
+          <p className={styles.note}>Lade Header …</p>
+        ) : (
+          <div key={refused}>
+            {headerSections(headerFamily(header)).map((section) => (
+              <Section key={section.id} title={section.title} open={!folded.has(section.id)} onToggle={() => toggle(section.id)}>
+                {section.specs.map((spec) => fieldRow(spec, header))}
+                {section.id === "texts" && !scriptsAdopted && (
+                  <p role="note" className={styles.note}>
+                    {ADOPT_HINT}
+                  </p>
                 )}
-              </Fragment>
-            );
-          })}
-        </div>
-      )}
-      {header !== null && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-          <button type="button" onClick={() => goTo({ kind: "area", id: fieldValue(header, "area_data_id") })}>
-            Area-Data {String(fieldValue(header, "area_data_id")).padStart(4, "0")} öffnen
-          </button>
-          <button type="button" onClick={() => goTo({ kind: "matrixCell", matrix: fieldValue(header, "matrix_id"), x: 0, y: 0 })} title="Zeigt die Matrix im Matrix-Panel">
-            Matrix {String(fieldValue(header, "matrix_id")).padStart(4, "0")} öffnen
-          </button>
-        </div>
-      )}
-      {summary && header !== null && (
-        <LevelScriptSection
-          // A header of another project or another level script file starts a fresh form.
-          key={`${id}:${fieldValue(header, "level_script_id")}`}
-          header={summary}
-          levelScriptId={fieldValue(header, "level_script_id")}
-          project={info}
-          adopted={scriptsAdopted}
-          revision={scriptsRevision}
-          onOpenScript={onOpenScript}
-          onCreate={() => createFile("level_script_id", "levelScript")}
-          onSaved={onLevelScriptSaved}
-          isCurrentProject={isCurrentProject}
-          onError={onError}
-        />
-      )}
-      {summary && (
-        <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
-      )}
-      <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
+              </Section>
+            ))}
+          </div>
+        )}
+        {summary && (
+          <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
+        )}
+        {summary && header !== null && (
+          <LevelScriptSection
+            // A header of another project or another level script file starts a fresh form.
+            key={`${id}:${fieldValue(header, "level_script_id")}`}
+            header={summary}
+            levelScriptId={fieldValue(header, "level_script_id")}
+            project={info}
+            adopted={scriptsAdopted}
+            revision={scriptsRevision}
+            onOpenScript={onOpenScript}
+            onCreate={() => createFile("level_script_id", "levelScript")}
+            onSaved={onLevelScriptSaved}
+            isCurrentProject={isCurrentProject}
+            onError={onError}
+          />
+        )}
+        <p className={styles.note}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,11 @@
+/* A flat tile until the map picture arrives; the picture itself is set from the thumbnail store. */
+.preview {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--g4-radius-feld);
+  background-color: var(--g4-flaeche-deck);
+  background-position: center;
+  background-size: cover;
+  image-rendering: pixelated;
+}

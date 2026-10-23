@@ -117,6 +117,11 @@ function typeMax(spec: FieldSpec): number {
   }
 }
 
+/** The storage width of the field: what a number field in front of it holds at most. */
+export function fieldBits(spec: FieldSpec): 8 | 16 {
+  return typeMax(spec) === 0xff ? 8 : 16;
+}
+
 /**
  * Rounds `value` to a whole number inside the field's storage range. `max` (a picker's
  * member count minus one) lowers the upper limit further; the backend still rejects values

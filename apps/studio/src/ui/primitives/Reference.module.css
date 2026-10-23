@@ -16,8 +16,13 @@
   transition: border-color var(--g4-dauer-kurz);
 }
 
-.chip:hover {
+.chip:hover:not(:disabled) {
   border-color: currentColor;
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .chip svg {

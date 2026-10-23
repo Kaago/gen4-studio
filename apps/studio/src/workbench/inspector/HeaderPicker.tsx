@@ -1,53 +1,56 @@
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import type { HeaderSummary } from "../../api";
-import { filterHeaders } from "../headers";
+import { Picker } from "../../ui/primitives";
+import type { PickerItem } from "../../ui/primitives";
+import { thumbnails } from "../../world/thumbnailStore";
+import type { ThumbnailCache } from "../../world/thumbnails";
+import { useThumbnail } from "../../world/useThumbnail";
+import { mapOfHeader } from "../headers";
+import { id4 } from "../terms";
+import { useMatrix } from "../useMatrix";
+import { useVisible } from "../useVisible";
+import styles from "./HeaderPicker.module.css";
 
-/** The most matches the list shows; a longer list asks for a narrower search. */
-const SHOWN = 40;
+const ignore = () => {};
 
-interface Props {
-  headers: HeaderSummary[];
-  current: number;
-  disabled?: boolean;
-  onPick: (id: number) => void;
-  /** Something to show at the right end of a header's row (the wizards add the warps that lead there); nothing by default. */
-  renderExtra?: (header: HeaderSummary) => ReactNode;
+/** The picture of a header's map, read and drawn only while the row is in view; a flat tile stands in until (or unless) it comes. */
+function HeaderPreview({ header, cache }: { header: HeaderSummary; cache: ThumbnailCache }) {
+  const tile = useRef<HTMLSpanElement>(null);
+  const visible = useVisible(tile, true);
+  const matrix = useMatrix(visible ? header.matrix_id : null, 0, ignore);
+  const map = matrix ? mapOfHeader(matrix, header.id) : null;
+  const picture = useThumbnail(cache, map, header.area_data_id, visible);
+  const style: CSSProperties = {};
+  if (typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
+  return <span ref={tile} className={styles.preview} style={style} /* dyn */ data-preview={header.id} />;
 }
 
-/** Searchable list of headers; picking one calls `onPick` with its id. */
-export function HeaderPicker({ headers, current, disabled, onPick, renderExtra }: Props) {
-  const [query, setQuery] = useState("");
-  const matches = useMemo(() => filterHeaders(headers, query), [headers, query]);
-  return (
-    <div>
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Zielheader suchen (Ort oder Kürzel)"
-        aria-label="Zielheader suchen"
-        disabled={disabled}
-        style={{ width: "100%", boxSizing: "border-box", padding: "2px 6px" }}
-      />
-      <ul style={{ listStyle: "none", margin: "4px 0 0", padding: 0, maxHeight: 140, overflowY: "auto", border: "1px solid #e5e7eb" }}>
-        {matches.slice(0, SHOWN).map((h) => (
-          <li key={h.id}>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onPick(h.id)}
-              style={{ all: "unset", boxSizing: "border-box", display: "block", width: "100%", padding: "1px 6px", cursor: disabled ? "default" : "pointer", fontWeight: h.id === current ? 700 : 400, opacity: disabled ? 0.6 : 1 }}
-            >
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>{String(h.id).padStart(4, "0")}</span> {h.location_name || h.internal_name}
-              {h.location_name ? <span style={{ color: "#6b7280" }}> ({h.internal_name})</span> : null}
-              {renderExtra && <span style={{ float: "right", color: "#6b7280" }}>{renderExtra(h)}</span>}
-            </button>
-          </li>
-        ))}
-        {matches.length === 0 && <li style={{ padding: "1px 6px", color: "#6b7280" }}>Kein Header gefunden</li>}
-        {matches.length > SHOWN && <li style={{ padding: "1px 6px", color: "#6b7280" }}>{matches.length - SHOWN} weitere, Suche eingrenzen</li>}
-      </ul>
-    </div>
+export interface HeaderPickerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  headers: readonly HeaderSummary[];
+  /** Called with the id of the header that was chosen. */
+  onPick: (id: number) => void;
+  title?: string;
+  /** The map pictures; the app-wide cache by default. */
+  cache?: ThumbnailCache;
+}
+
+/** Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id. */
+export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails }: HeaderPickerProps) {
+  const items = useMemo<PickerItem[]>(
+    () =>
+      open
+        ? headers.map((h) => ({
+            id: h.id,
+            label: h.location_name || h.internal_name,
+            tech: h.location_name ? `${id4(h.id)} · ${h.internal_name}` : id4(h.id),
+            area: "welt",
+            preview: <HeaderPreview header={h} cache={cache} />,
+          }))
+        : [],
+    [open, headers, cache],
   );
+  return <Picker open={open} onOpenChange={onOpenChange} title={title} items={items} placeholder="Ort, Kürzel oder Nummer suchen" onPick={(item) => onPick(Number(item.id))} />;
 }

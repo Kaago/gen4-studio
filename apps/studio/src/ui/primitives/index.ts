@@ -12,7 +12,7 @@ export { Kbd } from "./Kbd";
 export type { KbdProps } from "./Kbd";
 export { NumberField } from "./NumberField";
 export type { NumberFieldProps } from "./NumberField";
-export { formatNumber, parseNumber } from "./numberParse";
+export { checkNumber, formatNumber, parseNumber } from "./numberParse";
 export type { NumberBase } from "./numberParse";
 export { Segmented } from "./Segmented";
 export type { SegmentedOption, SegmentedProps } from "./Segmented";

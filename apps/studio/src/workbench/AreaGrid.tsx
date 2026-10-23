@@ -1,11 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, RefObject } from "react";
+import { memo, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
 import styles from "./AreaGrid.module.css";
 import { id4 } from "./terms";
+import { useVisible } from "./useVisible";
 import { GRID_GAP } from "./worldMap";
 
 export const cellKey = (x: number, y: number) => `${x},${y}`;
@@ -42,19 +43,6 @@ interface CellProps {
   cache: ThumbnailCache;
   onClick?: AreaGridProps["onCellClick"];
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
-}
-
-/** Whether the element is (nearly) in view; always true where there is no IntersectionObserver (tests). */
-function useVisible(ref: RefObject<HTMLElement | null>, active: boolean): boolean {
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
-  useEffect(() => {
-    const el = ref.current;
-    if (!active || !el || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => setVisible(entries[entries.length - 1]?.isIntersecting ?? false), { rootMargin: "128px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, active]);
-  return visible;
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */

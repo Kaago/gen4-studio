@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { EventFileChoice, HeaderPatchDto, HeaderSummary, MemberCounts, WarpLink } from "../../api";
 import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
-import { HeaderPicker } from "../inspector/HeaderPicker";
+import { HeaderSearch } from "./HeaderSearch";
 import { parseCellField } from "../matrix";
 import { TERMS, id4 } from "../terms";
 import { INTERNAL_NAME_MAX, internalName, specialHeader } from "./wizardSpecs";
@@ -146,7 +146,7 @@ export function HeaderChoice({ headers, links, counts, value, copySource, onChan
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={heading}>{TERMS.header.label} wählen</div>
-            <HeaderPicker
+            <HeaderSearch
               headers={headers}
               current={value.header ?? -1}
               onPick={(id) => set({ header: id })}

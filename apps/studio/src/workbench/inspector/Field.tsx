@@ -1,82 +1,99 @@
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
-import { draftToValue } from "./fields";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import type { HeaderSummary } from "../../api";
+import { Button, InspectorRow, NumberField, Picker, Reference, SelectField, Switch } from "../../ui/primitives";
+import type { NavTarget } from "../navigation";
+import styles from "./Editor.module.css";
+import { fieldBits } from "./fields";
 import type { FieldSpec } from "./fields";
-
-const row: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 96px", alignItems: "center", columnGap: 8, padding: "2px 0" };
-const input: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "2px 6px", fontFamily: "ui-monospace, monospace" };
+import { pickerItems, referenceFor } from "./referenceFor";
 
 export interface FieldProps {
   spec: FieldSpec;
   value: number;
+  /** Highest valid index of a `pick` field (`pickMax`); undefined while the archive's size is not known. */
   max: number | undefined;
   onCommit: (spec: FieldSpec, value: number) => void;
+  disabled?: boolean;
+  /** For the names a reference shows (the event file's header). */
+  headers?: readonly HeaderSummary[];
+  /** Where a click on a reference leads. */
+  goTo?: (target: NavTarget) => void;
+  /** Replaces the jump of a reference (script files open in the script panel, and only once rotom has them). */
+  open?: { run: () => void; disabled?: boolean };
+  /** More controls after the field (the buttons next to a script number). */
+  extra?: ReactNode;
 }
 
-/** One record field. Numbers are committed on blur or Enter, never on every keystroke. */
-export function Field({ spec, value, max, onCommit }: FieldProps) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+const NO_HEADERS: readonly HeaderSummary[] = [];
 
-  const latest = useRef({ draft, value, max, spec, onCommit });
-  latest.current = { draft, value, max, spec, onCommit };
+/**
+ * One record field as an inspector row. Numbers are committed on blur or Enter, never on every keystroke, and an entry
+ * the field cannot take is refused with its limit instead of being clamped (see `NumberField`); a switch and a select
+ * commit on the change. A `pick` field is a reference to the record the number names plus "Ändern…", which opens a picker
+ * over 0 to `max`; while `max` is unknown it is a plain number field.
+ */
+export function Field({ spec, value, max, onCommit, disabled, headers = NO_HEADERS, goTo, open, extra }: FieldProps) {
+  const [picking, setPicking] = useState(false);
+  const items = useMemo(() => (picking && max !== undefined ? pickerItems(spec, max, headers) : []), [picking, spec, max, headers]);
 
-  const pending = () => {
-    const { draft, spec, max } = latest.current;
-    return draftToValue(draft, spec, max);
-  };
-
-  const commit = () => {
-    const next = pending();
-    // A blank or non-numeric draft changes nothing; otherwise show what will be stored (clamped).
-    setDraft(String(next ?? value));
-    if (next !== null && next !== value) onCommit(spec, next);
-  };
-
-  // The inspector can swap the form for tile info while a field is still being typed in (hover
-  // does not blur it): write what was typed instead of losing it. The session belongs to this
-  // record, so this cannot reach another one.
-  useEffect(
-    () => () => {
-      if (spec.kind === "bool" || spec.kind === "select") return;
-      const next = pending();
-      const { value, spec: s, onCommit } = latest.current;
-      if (next !== null && next !== value) onCommit(s, next);
-    },
-    [],
-  );
-
-  const hint = spec.kind === "pick" && max !== undefined ? ` (0 bis ${max})` : "";
-  return (
-    <label style={row} title={`${spec.key}${hint}`}>
-      <span>{spec.label}</span>
-      {spec.kind === "bool" ? (
-        <input type="checkbox" checked={value !== 0} onChange={(e) => onCommit(spec, e.target.checked ? 1 : 0)} style={{ justifySelf: "start" }} />
-      ) : spec.kind === "select" ? (
-        <select value={value} onChange={(e) => onCommit(spec, Number(e.target.value))} style={input}>
-          {(spec.options ?? []).some((o) => o.value === value) ? null : <option value={value}>{`Wert ${value}`}</option>}
-          {(spec.options ?? []).map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={max}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") setDraft(String(value));
-          }}
-          style={input}
+  if (spec.kind === "bool") {
+    return (
+      <InspectorRow label={spec.label}>
+        <Switch label={spec.label} checked={value !== 0} onChange={(on) => onCommit(spec, on ? 1 : 0)} disabled={disabled} />
+      </InspectorRow>
+    );
+  }
+  if (spec.kind === "select") {
+    return (
+      <InspectorRow label={spec.label}>
+        <SelectField label={spec.label} value={value} options={spec.options ?? []} onChange={(next) => onCommit(spec, next)} disabled={disabled} />
+      </InspectorRow>
+    );
+  }
+  if (spec.kind === "pick" && max !== undefined) {
+    const reference = referenceFor(spec, value, headers);
+    const target = reference.target;
+    return (
+      <>
+        <InspectorRow label={spec.label} hint={`0 bis ${max}`}>
+          <div className={styles.inline}>
+            {open || target !== null ? (
+              <Reference
+                area={reference.area}
+                label={reference.label}
+                tech={reference.tech}
+                onOpen={open ? open.run : () => target && goTo?.(target)}
+                disabled={open?.disabled}
+              />
+            ) : (
+              <span className={styles.mono}>{reference.tech}</span>
+            )}
+            <Button kind="quiet" size="s" aria-label={`${spec.label} ändern…`} disabled={disabled} onClick={() => setPicking(true)}>
+              Ändern…
+            </Button>
+            {extra}
+          </div>
+        </InspectorRow>
+        <Picker
+          open={picking}
+          onOpenChange={setPicking}
+          title={`${spec.label} wählen`}
+          items={items}
+          placeholder="Nummer suchen"
+          onPick={(item) => onCommit(spec, Number(item.id))}
         />
-      )}
-    </label>
+      </>
+    );
+  }
+  return (
+    <InspectorRow label={spec.label}>
+      <div className={styles.inline}>
+        <div className={styles.grow}>
+          <NumberField label={spec.label} value={value} bits={fieldBits(spec)} max={spec.kind === "pick" ? max : undefined} onCommit={(n) => onCommit(spec, n)} disabled={disabled} />
+        </div>
+        {extra}
+      </div>
+    </InspectorRow>
   );
 }

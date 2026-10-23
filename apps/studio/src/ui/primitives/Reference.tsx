@@ -27,12 +27,14 @@ export type ReferenceProps = {
   onOpen: () => void;
   /** Where else the target is used; a right click lists them. An empty list says "Nirgends verwendet". */
   usedIn?: { label: string; onOpen: () => void }[];
+  /** The target cannot be opened right now (e.g. its tool is not ready); the chip stays visible but inert. */
+  disabled?: boolean;
 };
 
 /** A chip in the color of the target's area that jumps to it. */
-export function Reference({ area, label, tech, onOpen, usedIn }: ReferenceProps) {
+export function Reference({ area, label, tech, onOpen, usedIn, disabled }: ReferenceProps) {
   const chip = (
-    <button type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen}>
+    <button type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled}>
       <Icon name={areaIcon[area]} />
       <span className={styles.label}>{label}</span>
       {tech && <span className={styles.tech}>{tech}</span>}

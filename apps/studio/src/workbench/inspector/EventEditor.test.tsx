@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, resolveScript, updateEvent } from "../../api";
-import type { EventsDto, HeaderSummary, ObjectDto } from "../../api";
+import type { EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
 
@@ -53,10 +54,19 @@ describe("EventEditor scripts", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(ctx = context()) {
-    await act(async () => root.render(<EventEditor file={8} kind="object" index={2} context={ctx} />));
+  async function show(ctx = context(), kind: EventKind = "object", index = 2) {
+    await act(async () => root.render(<EventEditor file={8} kind={kind} index={index} context={ctx} />));
     await flush();
   }
+  const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
+  const typeAndBlur = async (label: string, text: string) => {
+    await act(async () => void field(label).focus());
+    typeInto(field(label), text);
+    await act(async () => void field(label).blur());
+    await flush();
+  };
+  const select = (label: string) => container.querySelector<HTMLElement>(`[role=combobox][aria-label='${label}']`)!;
+  const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
   const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
   const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
 
@@ -147,5 +157,75 @@ describe("EventEditor scripts", () => {
     await show();
     expect((button("Neues Script") as HTMLButtonElement).disabled).toBe(true);
     expect((button("Öffnen") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("names_the_event_by_its_title_and_its_place_among_the_events_of_its_class", async () => {
+    await show();
+    expect(container.querySelector("h2")?.textContent).toBe("Objekt 2 · ID 1");
+    // Header 9 is the selected one of the two that use event file 8.
+    expect(container.textContent).toContain("Figur 3 von 3 in H9");
+  });
+
+  it("changes_the_facing_through_a_select_and_writes_only_that_field", async () => {
+    await show();
+    expect(select("Blickrichtung").textContent).toContain("Unten");
+    openSelect(select("Blickrichtung"));
+    expect(options().map((o) => o.textContent)).toEqual(["Oben", "Unten", "Links", "Rechts"]);
+    await act(async () => void options()[2]!.click());
+    await flush();
+    expect(updateEvent).toHaveBeenCalledWith(8, "object", 2, { dir: 2 });
+    expect(onChanged).toHaveBeenCalledWith(8);
+  });
+
+  it("writes_a_typed_number_on_blur_and_refuses_one_outside_the_stored_range_without_clamping", async () => {
+    await show();
+    await typeAndBlur("x (Kachel)", "9");
+    expect(updateEvent).toHaveBeenCalledWith(8, "object", 2, { x: 9 });
+    await typeAndBlur("z (Kachel)", "70000");
+    expect(container.textContent).toContain("höchstens 65535");
+    expect(field("z (Kachel)").value).toBe("4");
+    expect(updateEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows_a_locked_event_file_with_its_reason_and_changes_nothing", async () => {
+    vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), locked: "uses common data" }));
+    await show();
+    expect(container.textContent).toContain("Gesperrt");
+    expect(container.textContent).toContain("schreibgeschützt: uses common data");
+    expect(field("x (Kachel)").disabled).toBe(true);
+    expect(select("Blickrichtung").hasAttribute("data-disabled") || select("Blickrichtung").getAttribute("aria-disabled") === "true").toBe(true);
+    expect((button("Löschen") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  describe("a warp", () => {
+    const warp = (dest: number): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: dest, dest_warp_id: 0, height: 0 });
+    const withWarp = (dest: number) => vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), warps: [warp(dest)] }));
+
+    it("shows_the_destination_as_a_reference_that_leads_to_the_header", async () => {
+      const goTo = vi.fn();
+      withWarp(1);
+      await show(context({ goTo }), "warp", 0);
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
+      await click(button("H10001 · H1"));
+      expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
+    });
+
+    it("picks_another_destination_header_in_the_picker_by_number", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0);
+      await click(container.querySelector("button[aria-label='Zielheader ändern…']") ?? undefined);
+      typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0009");
+      expect(options().map((o) => o.textContent)).toEqual(["H90009"]);
+      await click(options()[0]);
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "warp", 0, { dest_header_id: 9 });
+    });
+
+    it("says_a_door_to_a_header_that_does_not_exist_leads_nowhere_and_how_to_fix_it", async () => {
+      withWarp(9999);
+      await show(context(), "warp", 0);
+      expect(container.textContent).toContain("Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür.");
+      expect(button("unbekannt (9999)")).toBeUndefined();
+    });
   });
 });

@@ -1,18 +1,19 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
-import type { BgDto, EventKind, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import type { BgDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import { Button, InspectorRow, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
-import { KIND_LABELS, eventTitle, lockedText, warpDestinationLabel } from "../../world/events";
-import { DraftInput } from "../DraftInput";
-import { parseNumberField } from "./buildingFields";
-import { AddEvent } from "./AddEvent";
-import { EVENT_FIELDS, clampEventValue, eventBackend, eventFieldSpecs } from "./eventFields";
-import type { EventFieldSpec } from "./eventFields";
+import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
+import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
+import { AddEvent } from "./AddEvent";
+import styles from "./Editor.module.css";
+import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventSubtitle } from "./eventFields";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
+import { InspectorHead } from "./InspectorHead";
+import { referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 
 /** What the event editor needs from App besides the event's file, class and index. */
@@ -41,20 +42,21 @@ export interface EventEditorContext {
   onError: (e: unknown) => void;
 }
 
-const row: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 96px", alignItems: "center", columnGap: 8, padding: "2px 0" };
-const input: CSSProperties = { width: "100%", fontFamily: "ui-monospace, monospace" };
-const muted: CSSProperties = { fontSize: 12, color: "#6b7280" };
+const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", pick: "header" } as const;
 
 /**
- * Editable form of one event: its fields by class, a warp's destination header as a searchable
- * picker with "Zum Ziel", add and delete. Each committed field is one undoable change. Render it
- * with `key` per (file, class, index): all reads and writes of an instance belong to that one event
- * (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
+ * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
+ * add and delete. Each committed field is one undoable change. Render it with `key` per (file, class, index): all
+ * reads and writes of an instance belong to that one event (see `EditSession`). A locked event file is shown with
+ * its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context }: { file: number; kind: EventKind; index: number; context: EventEditorContext }) {
   const { headers, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
+  // How many events of this class the file has, for "Figur 3 von 5".
+  const [total, setTotal] = useState<number | null>(null);
+  const [picking, setPicking] = useState(false);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
   const callbacks = useRef({ onChanged, onError });
@@ -62,7 +64,11 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
   const session = useRef<EditSession<EventData> | null>(null);
 
   useEffect(() => {
-    const backend = eventBackend(file, kind, { getEvents, update: updateEvent, onEvents: (events) => setLocked(events.locked) });
+    const onEvents = (events: EventsDto) => {
+      setLocked(events.locked);
+      setTotal(kind === "warp" ? events.warps.length : kind === "object" ? events.objects.length : kind === "coord" ? events.coords.length : events.bg.length);
+    };
+    const backend = eventBackend(file, kind, { getEvents, update: updateEvent, onEvents });
     const s = new EditSession<EventData>(index, backend, EVENT_FIELDS, {
       onState: setEvent,
       onRefused: () => setRefused((n) => n + 1),
@@ -78,10 +84,6 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
   }, [file, kind, index, revision]);
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
-  const commitSpec = (spec: EventFieldSpec) => (text: string) => {
-    const v = parseNumberField(text);
-    if (v !== null) commit(spec.key, spec.label, clampEventValue(spec, v));
-  };
 
   // The header whose script file the event's scripts live in (headers may share an event file).
   const owner = headerOfEventFile(headers, file, selected);
@@ -99,82 +101,100 @@ export function EventEditor({ file, kind, index, context }: { file: number; kind
     onOpenScript(owner.script_file_id);
   };
 
-  const title = `${KIND_LABELS[kind]} ${index} · Event-Datei ${String(file).padStart(4, "0")}`;
-  if (event === null) return <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>{title}</div>;
+  const subtitle = eventSubtitle(kind, index, total, owner ? headerLabel(owner) : null);
+  if (event === null) {
+    return (
+      <div className={styles.panel}>
+        <InspectorHead title={`${KIND_LABELS[kind]} ${index}`} subtitle={subtitle} />
+      </div>
+    );
+  }
   const readOnly = locked !== null;
   const warp = kind === "warp" ? (event as WarpDto) : null;
-  const destination = warp ? warpDestinationLabel(warp.dest_header_id, headers) : null;
   const destHeader = warp ? headers.find((h) => h.id === warp.dest_header_id) : undefined;
+  const destination = warp ? referenceFor(DESTINATION, warp.dest_header_id, headers) : null;
+  const destinationTarget = destination?.target ?? null;
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={{ fontSize: 14, fontWeight: 600 }}>{eventTitle(kind, event, destHeader?.internal_name)}</div>
-      <div style={{ ...muted, marginTop: 2 }}>{title}</div>
-      {locked !== null && (
-        <div role="status" style={{ marginTop: 8, color: "#b91c1c" }}>
-          {lockedText(locked)}
-        </div>
-      )}
-      <div key={refused} style={{ marginTop: 8 }}>
-        {eventFieldSpecs(kind, family).map((spec) => (
-          <Fragment key={spec.key}>
-            <label style={row}>
-              <span>{spec.label}</span>
-              <DraftInput
-                label={spec.label}
-                type="number"
-                min={spec.min}
-                max={spec.max}
-                value={String(EVENT_FIELDS.value(event, spec.key))}
-                onCommit={commitSpec(spec)}
-                disabled={readOnly}
-                style={input}
-              />
-            </label>
-            {spec.key === "script" && (
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "2px 0" }}>
-                {!scriptsAdopted && (
-                  <span role="note" style={{ ...muted, marginRight: "auto" }}>
-                    {ADOPT_HINT}
-                  </span>
-                )}
-                <button type="button" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
-                  Öffnen
-                </button>
-                <button type="button" disabled={!scriptsAdopted || readOnly} onClick={() => void newScript()} title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}>
-                  Neues Script
-                </button>
-              </div>
-            )}
-          </Fragment>
-        ))}
-        {(kind === "object" || kind === "bg") && (
-          <div style={row} title="Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">
-            <span>y (nur lesbar)</span>
-            <span style={{ fontFamily: "ui-monospace, monospace" }}>{(event as ObjectDto | BgDto).y}</span>
+    <div className={styles.panel}>
+      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name)} subtitle={subtitle} locked={readOnly} />
+      <div className={styles.body}>
+        {locked !== null && (
+          <div className={styles.pad}>
+            <Notice kind="warning" title="Eventdatei gesperrt">
+              {lockedText(locked)}
+            </Notice>
           </div>
         )}
-      </div>
-      {warp && destination && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ flex: 1, minWidth: 0, color: destination.known ? "#111827" : "#b91c1c" }}>Ziel: {destination.text}</span>
-            <button type="button" disabled={destHeader === undefined} onClick={() => destHeader && goTo({ kind: "header", id: destHeader.id })} title="Wählt den Zielheader in der Liste">
-              Zum Ziel
-            </button>
-          </div>
-          <HeaderPicker headers={headers} current={warp.dest_header_id} disabled={readOnly} onPick={(id) => commit("dest_header_id", "Zielheader", id)} />
+        <div key={refused}>
+          {eventFieldSpecs(kind, family).map((spec) => {
+            const value = EVENT_FIELDS.value(event, spec.key);
+            return (
+              <InspectorRow key={spec.key} label={spec.label}>
+                {spec.options ? (
+                  <SelectField label={spec.label} value={value} options={spec.options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
+                ) : (
+                  <div className={styles.inline}>
+                    <div className={styles.grow}>
+                      <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} />
+                    </div>
+                    {spec.key === "script" && (
+                      <>
+                        <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
+                          Öffnen
+                        </Button>
+                        <Button
+                          kind="quiet"
+                          size="s"
+                          disabled={!scriptsAdopted || readOnly}
+                          onClick={() => void newScript()}
+                          title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}
+                        >
+                          Neues Script
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </InspectorRow>
+            );
+          })}
+          {!scriptsAdopted && eventFieldSpecs(kind, family).some((s) => s.key === "script") && (
+            <p role="note" className={styles.note}>
+              {ADOPT_HINT}
+            </p>
+          )}
+          {(kind === "object" || kind === "bg") && (
+            <InspectorRow label="y" hint="Nur lesbar: Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">
+              <span className={styles.mono}>{(event as ObjectDto | BgDto).y}</span>
+            </InspectorRow>
+          )}
         </div>
-      )}
-      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-        <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
-        <button type="button" disabled={readOnly} onClick={() => void onDelete(file, kind, index)}>
-          Löschen
-        </button>
+        {warp && destination && (
+          <InspectorRow label="Ziel" hint={destinationTarget === null ? "Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür." : undefined}>
+            <div className={styles.inline}>
+              {destinationTarget !== null ? (
+                <Reference area={destination.area} label={destination.label} tech={destination.tech} onOpen={() => goTo(destinationTarget)} />
+              ) : (
+                <span className={styles.error}>{`${destination.label} (${destination.tech})`}</span>
+              )}
+              <Button kind="quiet" size="s" aria-label="Zielheader ändern…" disabled={readOnly} onClick={() => setPicking(true)}>
+                Ändern…
+              </Button>
+            </div>
+          </InspectorRow>
+        )}
+        {warp && <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={(id) => commit("dest_header_id", "Zielheader", id)} />}
+        <div className={styles.actions}>
+          <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
+          <Button kind="danger" size="s" disabled={readOnly} onClick={() => void onDelete(file, kind, index)}>
+            Löschen
+          </Button>
+        </div>
+        <p className={styles.note}>
+          Ziehen in der 3D-Ansicht verschiebt das Event um ganze Kacheln, Esc bricht das Ziehen ab. Neue Events entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Event nach Rückfrage.
+        </p>
       </div>
-      <p style={{ marginTop: 8, ...muted }}>
-        Ziehen in der 3D-Ansicht verschiebt das Event um ganze Kacheln, Esc bricht das Ziehen ab. Neue Events entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Event nach Rückfrage.
-      </p>
     </div>
   );
 }

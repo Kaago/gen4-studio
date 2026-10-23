@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, MemberCounts } from "../../api";
+import { id4 } from "../terms";
 import { areaFieldSpecs, AREA_FIELDS, areaValue } from "./areaFields";
+import styles from "./Editor.module.css";
 import { Field } from "./Field";
 import { pickMax } from "./fields";
 import type { FieldSpec } from "./fields";
 import { EditSession } from "./headerCommit";
+import { InspectorHead } from "./InspectorHead";
 
 /** What the area data editor needs from App besides the area data id. */
 export interface AreaEditorContext {
@@ -54,26 +57,22 @@ export function AreaEditor({ id, context }: { id: number; context: AreaEditorCon
   const commit = (spec: FieldSpec, value: number) => void session.current?.commit(spec.key, spec.label, value);
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#111827" }}>
-      <div style={{ fontSize: 14, fontWeight: 600 }}>Area-Data {String(id).padStart(4, "0")}</div>
-      {area === null ? (
-        <p style={{ color: "#6b7280" }}>Lade Area-Data ...</p>
-      ) : (
-        <div key={refused} style={{ marginTop: 8 }}>
-          {areaFieldSpecs(area.family).map((spec) => (
-            <Field
-              key={spec.key}
-              spec={spec}
-              value={areaValue(area, spec.key)}
-              max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined}
-              onCommit={commit}
-            />
-          ))}
-        </div>
-      )}
-      <p style={{ marginTop: 12, fontSize: 12, color: "#6b7280" }}>
-        Das Karten-Tileset bestimmt die Texturen aller Karten, deren Header diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
-      </p>
+    <div className={styles.panel}>
+      <InspectorHead title={`Area-Data ${id4(id)}`} subtitle="Tilesets und Licht" />
+      <div className={styles.body}>
+        {area === null ? (
+          <p className={styles.note}>Lade Area-Data …</p>
+        ) : (
+          <div key={refused}>
+            {areaFieldSpecs(area.family).map((spec) => (
+              <Field key={spec.key} spec={spec} value={areaValue(area, spec.key)} max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined} onCommit={commit} />
+            ))}
+          </div>
+        )}
+        <p className={styles.note}>
+          Das Karten-Tileset bestimmt die Texturen aller Karten, deren Header diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
+        </p>
+      </div>
     </div>
   );
 }

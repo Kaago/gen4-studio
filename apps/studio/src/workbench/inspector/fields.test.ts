@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
 import type { FieldSpec } from "./fields";
-import { clampField, draftToValue, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
+import { clampField, draftToValue, fieldBits, fieldValue, headerFieldSpecs, pickMax, withField } from "./fields";
 
 const pt: MapHeaderPt = {
   area_data_id: 1,
@@ -79,6 +79,16 @@ describe("clampField", () => {
     // The type range still applies.
     expect(clampField({ key: "area_data_id", label: "", kind: "pick", pick: "areaData" }, 500, 1000)).toBe(255);
     expect(clampField(spec, 1, -1)).toBe(0);
+  });
+});
+
+describe("fieldBits", () => {
+  it("is_the_storage_width_of_the_number_a_field_holds", () => {
+    expect(fieldBits({ key: "weather_id", label: "", kind: "u8" })).toBe(8);
+    expect(fieldBits({ key: "music_day_id", label: "", kind: "u16" })).toBe(16);
+    // A picker is as wide as the field it is stored in: the area data id is a byte, the others are words.
+    expect(fieldBits({ key: "area_data_id", label: "", kind: "pick", pick: "areaData" })).toBe(8);
+    expect(fieldBits({ key: "matrix_id", label: "", kind: "pick", pick: "matrix" })).toBe(16);
   });
 });
 

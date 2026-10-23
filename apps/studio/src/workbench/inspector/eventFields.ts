@@ -1,5 +1,6 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
 import { KIND_LABELS, eventAt } from "../../world/events";
+import { KIND_SINGULAR } from "../context";
 import { TERMS } from "../terms";
 import type { EventData } from "../../world/events";
 import type { RecordBackend, RecordFields } from "./headerCommit";
@@ -13,7 +14,17 @@ export interface EventFieldSpec {
   label: string;
   min: number;
   max: number;
+  /** Named choices (a facing): the field is a select, and a stored value without a name is still shown. */
+  options?: { value: number; label: string }[];
 }
+
+/** The way an object faces; the game stores it as 0 to 3. */
+export const FACINGS = [
+  { value: 0, label: "Oben" },
+  { value: 1, label: "Unten" },
+  { value: 2, label: "Links" },
+  { value: 3, label: "Rechts" },
+];
 
 const U16 = { min: 0, max: 0xffff };
 const I16 = { min: -0x8000, max: 0x7fff };
@@ -55,7 +66,7 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "local_id", label: "Lokale ID", ...U16 },
         { key: "graphics_id", label: "Grafik", ...U16 },
         { key: "movement_type", label: "Bewegung", ...U16 },
-        { key: "dir", label: "Richtung (0 oben, 1 unten, 2 links, 3 rechts)", ...I16 },
+        { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS },
         { key: "script", label: TERMS.script.label, ...U16 },
       ];
     case "coord":
@@ -63,6 +74,11 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
     case "bg":
       return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
+}
+
+/** "Figur 3 von 5 in Zweiblattdorf": the place of an event among those of its class, and where; `total` and `place` are left out while unknown. */
+export function eventSubtitle(kind: EventKind, index: number, total: number | null, place: string | null): string {
+  return `${KIND_SINGULAR[kind]} ${index + 1}${total === null ? "" : ` von ${total}`}${place ? ` in ${place}` : ""}`;
 }
 
 /** `n` rounded to a whole number inside the range of `spec`. */

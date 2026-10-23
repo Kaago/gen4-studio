@@ -1,5 +1,5 @@
-import type { CSSProperties } from "react";
 import type { BgDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
+import { EmptyState } from "../ui/primitives";
 import { eventDetails, eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 import type { TileInfo } from "../world/hover";
@@ -9,10 +9,14 @@ import { BuildingEditor } from "./inspector/BuildingEditor";
 import type { BuildingEditorContext } from "./inspector/BuildingEditor";
 import { EventEditor } from "./inspector/EventEditor";
 import type { EventEditorContext } from "./inspector/EventEditor";
+import styles from "./inspector/Editor.module.css";
+import { eventSubtitle } from "./inspector/eventFields";
 import { HeaderEditor } from "./inspector/HeaderEditor";
 import type { HeaderEditorContext } from "./inspector/HeaderEditor";
+import { InspectorHead } from "./inspector/InspectorHead";
 import { MatrixCellEditor } from "./inspector/MatrixCellEditor";
 import type { MatrixCellContext } from "./inspector/MatrixCellEditor";
+import { id4 } from "./terms";
 
 /** What the inspector shows. */
 export type InspectorModel =
@@ -49,8 +53,6 @@ export type InspectorModel =
       info: TileInfo;
     };
 
-const box: CSSProperties = { padding: 16, fontFamily: "system-ui, sans-serif", fontSize: 14, color: "#4b5563" };
-
 export function Inspector({
   model,
   headerEditor,
@@ -78,23 +80,27 @@ export function Inspector({
     case "matrixCell":
       return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} />;
     case "none":
-      return <div style={box}>Nichts ausgewählt. Mit der Maus über ein Tile fahren oder einen Marker anklicken.</div>;
+      return (
+        <div className={styles.panel}>
+          <EmptyState what="Nichts ausgewählt." why="Wähle links einen Ort, klicke in der Schau einen Marker an oder fahre mit der Maus über eine Kachel." />
+        </div>
+      );
     case "eventHover":
       return (
-        <div style={box}>
-          <div style={{ color: "#111827" }}>{eventTitle(model.eventKind, model.data, model.destName)}</div>
-          <div style={{ marginTop: 4, fontSize: 12 }}>{eventDetails(model.eventKind, model.data)}</div>
+        <div className={styles.panel}>
+          <InspectorHead title={eventTitle(model.eventKind, model.data, model.destName)} subtitle={eventSubtitle(model.eventKind, model.data.index, null, null)} viewOnly />
+          <p className={styles.note}>{eventDetails(model.eventKind, model.data)}</p>
         </div>
       );
     case "tile":
       return (
-        <div style={box}>
-          <div style={{ color: "#111827" }}>{tileSummary(model.map, model.x, model.y, model.info)}</div>
-          <div style={{ marginTop: 4, fontSize: 12 }}>
-            Matrix-Position x {model.absX}, z {model.absZ} · Kollision 0x
-            {model.info.collision.toString(16).toUpperCase().padStart(2, "0")}
+        <div className={styles.panel}>
+          <InspectorHead title={`Kachel x ${model.x}, y ${model.y}`} subtitle={`Karte ${id4(model.map)}`} viewOnly />
+          <p className={styles.note}>{tileSummary(model.map, model.x, model.y, model.info)}</p>
+          <p className={styles.note}>
+            Matrix-Position x {model.absX}, z {model.absZ} · Kollision 0x{model.info.collision.toString(16).toUpperCase().padStart(2, "0")}
             {model.info.class ? ` · Klasse ${model.info.class}` : ""}
-          </div>
+          </p>
         </div>
       );
   }
