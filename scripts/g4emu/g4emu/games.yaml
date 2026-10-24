@@ -2,7 +2,8 @@
 # {u32 header; i32 warp; u32 x; u32 y} at (u32 @ pointer) + offset.
 # battle: a BattleMon record has eight bytes 06 (neutral stat boosts) at +0x18, the species (u16)
 # at +0 and the level (u8) at +0x34; records lie on 4-byte boundaries, 0xC0 apart (player, enemy).
-# battle_pointer: u32 that is 0 outside a battle (CPUD only; measured in 3b.3b).
+# battle_pointer: u32 that is 0 outside a battle and != 0 from the encounter until the battle
+# screen closes (CPUD and IPKD measured in 3b.3b; IPKE not measured, so it has none).
 # home_header: where a lost battle without a party ends (the game warps home).
 CPUD:
   name: Platin DE
@@ -20,6 +21,7 @@ IPKD:
   start_header: 64
   continue_frames: 1000  # overworld fully visible at ~955, controllable from ~945; pointer valid from 193
   battle: { signature: "06x8@0x18", species_at: 0, level_at: 0x34 }
+  battle_pointer: 0x0211DB34  # wild loss and trainer win measured; 0 ~32 frames after the hits go
   home_header: 63
 IPKE:
   name: HeartGold US

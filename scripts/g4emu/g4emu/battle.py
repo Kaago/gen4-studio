@@ -7,6 +7,9 @@ search looks for the boosts on 4-byte boundaries and checks species and level. M
 (docs/research/2026-10-23-3b3/encounter-mechanics-3b3b.md §4.5): no hit in the field, exactly the
 wild Pokémon in a battle without a party. With a party the player's BattleMon matches as well
 (0xC0 before the enemy), so a battle is "at least one hit" and the caller picks the hit it wants.
+A lowered stat erases the signature in the middle of a battle, so the end of a battle is not
+"no hit": games with `battle_pointer` end when it reads 0, the others when no record seen in
+the battle still holds its species and level (`record_holds`).
 """
 
 from __future__ import annotations
@@ -77,7 +80,23 @@ def scan(ram: bytes | bytearray | memoryview, game: Game) -> tuple[list[Hit], bo
     """The hits and whether a battle runs: at least one hit and, where calibrated, pointer != 0."""
     spec = game.battle or DEFAULT_SPEC
     hits = find_enemy(ram, spec)
+    # pointer_value is None for a game without `battle_pointer`, and None != 0: hits alone count.
     return hits, bool(hits) and pointer_value(ram, spec) != 0
+
+
+def record_holds(
+    ram: bytes | bytearray | memoryview, hit: Hit, spec: BattleSpec = DEFAULT_SPEC
+) -> bool:
+    """Whether the record of `hit` still has its species and level (stat boosts may differ).
+
+    A lowered stat changes only the boosts; after the battle the heap is reused and species or
+    level change (measured after a HeartGold win: the player record kept the species, level 168).
+    """
+    offset, species, level = hit
+    if offset + max(spec.species_at + 2, spec.level_at + 1) > len(ram):
+        return False
+    (now,) = struct.unpack_from("<H", ram, offset + spec.species_at)
+    return now == species and ram[offset + spec.level_at] == level
 
 
 def in_battle(ram: bytes | bytearray | memoryview, game: Game) -> bool:

@@ -172,6 +172,13 @@ def ipkd() -> Game:
 
 
 @pytest.fixture
+def ipke() -> Game:
+    from g4emu.games import load_games
+
+    return load_games()["IPKE"]
+
+
+@pytest.fixture
 def make_rom(tmp_path: Path):
     def make(code: str = "CPUD") -> Path:
         rom = tmp_path / "game.nds"

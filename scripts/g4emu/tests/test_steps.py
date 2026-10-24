@@ -117,6 +117,7 @@ def test_every_parsed_step_has_a_handler():
 
 ENEMY = 0x022C59C8  # where Platin put the wild Mewtwo in the 3b.3b measurement
 BATTLE_POINTER = 0x02101F88
+HG_BATTLE_POINTER = 0x0211DB34  # IPKD, measured in the 3b.3b fix round
 
 
 def _ram_with(*records: tuple[int, bytes]) -> bytearray:
@@ -131,11 +132,13 @@ def _start_battle(fake_emu, frame: int, *mons: tuple[int, int], at: int = ENEMY)
     for i, (species, level) in enumerate(mons):
         fake_emu.poke(frame, at + i * 0xC0, battle_mon(species, level))
     fake_emu.poke(frame, BATTLE_POINTER, (0x022CE7A4).to_bytes(4, "little"))
+    fake_emu.poke(frame, HG_BATTLE_POINTER, (0x021BD880).to_bytes(4, "little"))
 
 
 def _end_battle(fake_emu, frame: int, count: int = 1, at: int = ENEMY) -> None:
     fake_emu.poke(frame, at, bytes(0xC0 * count))
     fake_emu.poke(frame, BATTLE_POINTER, bytes(4))
+    fake_emu.poke(frame, HG_BATTLE_POINTER, bytes(4))
 
 
 def test_find_enemy_hits_exactly_the_signature():
@@ -157,7 +160,7 @@ def test_find_enemy_hits_exactly_the_signature():
     ]
 
 
-def test_in_battle_requires_a_hit(cpud, ipkd):
+def test_in_battle_requires_a_hit(cpud, ipke):
     """Ruling R1: at least one hit (the player's BattleMon matches too); CPUD needs the pointer."""
     pointer = (BATTLE_POINTER, (0x022CE7A4).to_bytes(4, "little"))
     near = battle_mon(150, 5, boosts=b"\x06" * 7 + b"\x05")
@@ -167,8 +170,8 @@ def test_in_battle_requires_a_hit(cpud, ipkd):
     assert not battle.in_battle(_ram_with((ENEMY, battle_mon(150, 5))), cpud)  # pointer 0
     two = _ram_with(pointer, (ENEMY - 0xC0, battle_mon(448, 100)), (ENEMY, battle_mon(150, 5)))
     assert battle.in_battle(two, cpud)
-    assert battle.in_battle(_ram_with((ENEMY, battle_mon(150, 5))), ipkd)  # no pointer in HGSS
-    assert not battle.in_battle(_ram_with((ENEMY, near)), ipkd)
+    assert battle.in_battle(_ram_with((ENEMY, battle_mon(150, 5))), ipke)  # IPKE: no pointer
+    assert not battle.in_battle(_ram_with((ENEMY, near)), ipke)
 
 
 def test_battle_config_comes_from_games_yaml(cpud, ipkd):
@@ -177,8 +180,9 @@ def test_battle_config_comes_from_games_yaml(cpud, ipkd):
     assert cpud.battle.signature == b"\x06" * 8 and cpud.battle.signature_at == 0x18
     assert (cpud.battle.species_at, cpud.battle.level_at) == (0, 0x34)
     assert cpud.battle.pointer == BATTLE_POINTER and cpud.home_header == 414
-    assert ipkd.battle.pointer is None and ipkd.home_header == 63
-    assert load_games()["IPKE"].home_header == 63
+    assert ipkd.battle.pointer == HG_BATTLE_POINTER and ipkd.home_header == 63
+    ipke = load_games()["IPKE"]
+    assert ipke.battle.pointer is None and ipke.home_header == 63
 
 
 def test_parse_signature():
@@ -219,6 +223,7 @@ def test_expect_battle_picks_the_matching_hit_of_two(fake_emu, cpud, tmp_path):
 
 
 def test_expect_battle_times_out_cleanly(fake_emu, ipkd, tmp_path):
+    # (IPKD has a pointer since the fix round; without hits it times out all the same.)
     with pytest.raises(StepFailed, match="kein Kampf nach 100 Bildern"):
         run_step(fake_emu, ipkd, Step("expect-battle", ["150", "5", "100"]), tmp_path)
     assert 100 <= fake_emu.frame < 110
@@ -358,3 +363,42 @@ def test_win_battle_succeeds_on_the_same_map(fake_emu, ipkd, tmp_path):
     _end_battle(fake_emu, 100)
     out = run_step(fake_emu, ipkd, Step("win-battle", []), tmp_path)
     assert out["header"] == 540
+
+
+def test_end_battle_keeps_pressing_a_through_stat_changes(fake_emu, cpud, tmp_path):
+    """Platin: over means battle pointer 0; a vanished signature alone does not end the step."""
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    _start_battle(fake_emu, 0, (448, 100), (150, 5), at=ENEMY - 0xC0)
+    fake_emu.poke(100, ENEMY - 0xC0 + 0x18, b"\x05")  # Growl on the player's mon
+    fake_emu.poke(100, ENEMY + 0x18, b"\x05")  # and a lowered stat on the enemy: no hit left
+    _end_battle(fake_emu, 400, count=2, at=ENEMY - 0xC0)
+    out = run_step(fake_emu, cpud, Step("end-battle", []), tmp_path)
+    assert out["header"] == 593 and out["frame"] >= 400 + 60
+    pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
+    assert 390 <= pressed[-1] < 400  # A kept coming while only the signature was gone
+
+
+def test_end_battle_without_pointer_waits_for_the_records_to_go(fake_emu, ipke, tmp_path):
+    """No pointer (IPKE): the battle is over once no hit is left and every record seen in the
+    battle lost its species and level; a lowered stat keeps species and level."""
+    fake_emu.attach(ipke, Location(540, 0, 16, 15))
+    _start_battle(fake_emu, 0, (445, 100), (150, 5), at=ENEMY - 0xC0)
+    fake_emu.poke(100, ENEMY - 0xC0 + 0x18, b"\x05")
+    fake_emu.poke(100, ENEMY + 0x18, b"\x05")
+    fake_emu.poke(400, ENEMY - 0xC0 + 0x34, b"\xa8")  # as measured after a HG win: level 168
+    fake_emu.poke(400, ENEMY, battle_mon(76, 0))  # and the enemy slot reused
+    out = run_step(fake_emu, ipke, Step("end-battle", []), tmp_path)
+    assert out["header"] == 540 and out["frame"] >= 400 + 60
+    pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
+    assert 390 <= pressed[-1] < 400
+
+
+def test_end_battle_without_pointer_follows_the_next_enemy(fake_emu, ipke, tmp_path):
+    """A trainer's second Pokémon takes the enemy slot: new hit, the battle goes on."""
+    fake_emu.attach(ipke, Location(540, 0, 16, 15))
+    _start_battle(fake_emu, 0, (150, 5))
+    fake_emu.poke(200, ENEMY, battle_mon(151, 7))
+    fake_emu.poke(400, ENEMY, bytes(0xC0))
+    run_step(fake_emu, ipke, Step("end-battle", []), tmp_path)
+    pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
+    assert 390 <= pressed[-1] < 400

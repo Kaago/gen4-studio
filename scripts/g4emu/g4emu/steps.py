@@ -363,24 +363,43 @@ def _mash(
     return {"button": button, "frames": frames}
 
 
+def battle_over(ram, game: Game, seen: set) -> bool:
+    """The battle that put the records `seen` into RAM is over.
+
+    With `battle_pointer` (CPUD, IPKD): the pointer reads 0, whatever the signature says (a
+    lowered stat erases it mid-battle). Without (IPKE): no hit is left and no record seen in the
+    battle still holds its species and level.
+    """
+    from g4emu.battle import pointer_value, record_holds, scan
+
+    spec = game.battle
+    value = pointer_value(ram, spec)
+    if value is not None:
+        return value == 0
+    hits, _ = scan(ram, game)
+    return not hits and not any(record_holds(ram, hit, spec) for hit in seen)
+
+
 def end_battle(emu: Emu, game: Game, timeout: int) -> Location:
     """Press A every 8 frames until the battle is over, then wait for a stable header.
 
-    The battle must be seen first (a hit plus, in Platin, the battle pointer). Over means no
-    battle and a readable location with the same header for END_STABLE_FRAMES frames; no A is
-    pressed after the battle ended (an A would talk to the trainer again).
+    The battle must be seen first (`in_battle`). Over is `battle_over`; then no A is pressed any
+    more (an A would talk to the trainer again) and the location must show the same header for
+    END_STABLE_FRAMES frames. Should the battle come back (`battle_over` false), A resumes.
     """
-    from g4emu.battle import in_battle
+    from g4emu.battle import scan
     from g4emu.games import read_location
 
     start = emu.frame
-    seen = over = False
+    seen: set = set()  # hits seen while the battle ran
+    over = False
     stable: tuple[int, int] | None = None  # (header, since frame)
     while emu.frame - start < timeout:
         ram = emu.ram()
-        active = in_battle(ram, game)
-        seen = seen or active
-        over = seen and not active
+        hits, active = scan(ram, game)
+        if active or seen:
+            seen.update(hits)
+        over = bool(seen) and battle_over(ram, game, seen)
         if over:
             loc = read_location(ram, game)
             if loc is None:
