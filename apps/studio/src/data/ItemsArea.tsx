@@ -1,12 +1,12 @@
-import { memo, useCallback } from "react";
+import { memo } from "react";
 import type { ReactNode } from "react";
-import type { DataRowDto, ItemEntryDto, ItemRowExtra } from "../api";
 import { dataStatus } from "../app/statusContext";
-import { DataList, RowIcon } from "./DataList";
-import { DataListPane, DataPanel, chosenHead } from "./DataParts";
+import { DataListPane, DataPanel } from "./DataParts";
 import type { DataPart } from "./DataParts";
 import type { DataSub } from "./dataModel";
-import { itemIcon, itemIconKey } from "./icons";
+import { ItemHand } from "./items/ItemHand";
+import { ItemsList } from "./items/ItemsList";
+import { ItemView } from "./items/ItemView";
 import { dataAreaProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
@@ -21,24 +21,9 @@ export const ItemsArea = memo(function ItemsArea({ context, children }: { contex
   return <Provider value={model}>{children}</Provider>;
 });
 
-/** The bag icon of an item row: only with the item table (`entry`), and only where the icon archive has the icon. */
-function ItemIcon({ row, label, entry }: { row: DataRowDto; label: string; entry: ItemEntryDto | undefined }) {
-  const hasIcon = entry !== undefined && (row.extra as ItemRowExtra | null)?.icon === true;
-  return <RowIcon iconKey={hasIcon ? itemIconKey(entry) : null} load={() => (hasIcon ? itemIcon(row.index, entry) : Promise.resolve(null))} label={label} area="gegenstaende" />;
-}
-
-/** The plain list of the items (Task 16 brings its own). The rows get the item table through their `leading`, not each from the model. */
-function ItemRows() {
-  const { itemTable } = useDataArea("gegenstaende");
-  const leading = useCallback((row: DataRowDto, label: string) => <ItemIcon row={row} label={label} entry={itemTable?.[row.index]} />, [itemTable]);
-  return <DataList area="gegenstaende" label="Gegenstände" attr="data-item" leading={leading} />;
-}
-
-const Chosen = chosenHead("gegenstaende");
-
-/** The part of the area; the mount point of the items editor (Task 16 replaces the entry). */
+/** The part of the area: the items editor (list, view and hand in `data/items/`). */
 export const ITEM_PARTS: Partial<Record<DataSub, DataPart>> = {
-  items: { List: ItemRows, View: Chosen, Hand: Chosen },
+  items: { List: ItemsList, View: ItemView, Hand: ItemHand },
 };
 
 /** The list column of the Gegenstände area. */

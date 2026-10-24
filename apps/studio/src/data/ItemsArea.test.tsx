@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataList, getItemIcon, itemTable, nameTables } from "../api";
+import { dataGet, dataList, getItemIcon, itemTable, nameTables, refs } from "../api";
 import { readShellState } from "../ui/frame/shellState";
 import { ITEMS, ITEM_TABLE, NAMES, dataHarness, flush, item } from "./dataTesting";
 import { resetIcons } from "./icons";
@@ -14,6 +14,8 @@ vi.mock("../api", async (importOriginal) => ({
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
   getItemIcon: vi.fn(),
+  dataGet: vi.fn(),
+  refs: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,6 +29,9 @@ describe("ItemsArea", () => {
     vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
     vi.mocked(itemTable).mockReset().mockResolvedValue(ITEM_TABLE);
     vi.mocked(getItemIcon).mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
+    // The view of a chosen item reads it and its uses.
+    vi.mocked(dataGet).mockReset().mockResolvedValue({ kind: "item", fields: [], description: null, shared_with: [], locked: null, raw_locked: null });
+    vi.mocked(refs).mockReset().mockResolvedValue([]);
     URL.createObjectURL = vi.fn(() => "blob:icon");
     URL.revokeObjectURL = vi.fn();
     Element.prototype.scrollIntoView = () => {};
@@ -47,7 +52,7 @@ describe("ItemsArea", () => {
   });
   afterEach(() => h.unmount());
 
-  const rows = () => [...h.container.querySelectorAll("[data-item]")].map((r) => Number(r.getAttribute("data-item")));
+  const rows = () => [...h.container.querySelectorAll("[role=listbox] [data-item]")].map((r) => Number(r.getAttribute("data-item")));
 
   it("lists_the_items_by_id_with_name_number_and_icon_and_has_no_switcher", async () => {
     h.show(h.base());
