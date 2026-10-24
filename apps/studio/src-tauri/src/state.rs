@@ -1,5 +1,5 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -70,7 +70,9 @@ pub type ChecksProgress = (String, u32, u32);
 pub struct ChecksState {
     /// The last report that was current when it finished; never one of an older generation.
     pub last: Option<ChecksReport>,
-    pub running: bool,
+    /// Set while a pass runs; shared with it, which clears it when it ends in any way
+    /// (finished, dropped or panicked, see [`PassGuard`]).
+    running: Arc<AtomicBool>,
     /// Set when a pass was discarded because the store changed during it: run again.
     pub rerun: bool,
     /// When the store last changed ([`ChecksState::store_changed`]): the automatic cheap run
@@ -94,13 +96,27 @@ impl ChecksState {
     pub fn new() -> ChecksState {
         ChecksState {
             last: None,
-            running: false,
+            running: Arc::new(AtomicBool::new(false)),
             rerun: false,
             debounce: Instant::now(),
             ignore: IgnoreSet::default(),
             progress: Arc::new(Mutex::new(None)),
             cache: Some(SnapshotCache::default()),
         }
+    }
+
+    /// Whether a pass runs.
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
+
+    /// The last report if it is of the store's current generation `store_generation`
+    /// (`Store::change_generation`); `None` when there is none or the store changed since,
+    /// so a caller never shows findings of an older state.
+    pub fn current_report(&self, store_generation: u64) -> Option<&ChecksReport> {
+        self.last
+            .as_ref()
+            .filter(|report| report.generation == store_generation)
     }
 
     /// How far the running pass got; `None` when none runs or it reported nothing yet.
@@ -144,7 +160,7 @@ pub struct PassInput {
     overlay: Overlay,
     cache: SnapshotCache,
     ignore: IgnoreSet,
-    progress: Arc<Mutex<Option<ChecksProgress>>>,
+    guard: PassGuard,
 }
 
 /// A finished pass, for [`AppState::finish_checks`].
@@ -152,6 +168,23 @@ pub struct PassResult {
     project: Arc<Project>,
     cache: SnapshotCache,
     report: ChecksReport,
+    guard: PassGuard,
+}
+
+/// Marks a pass running from [`AppState::begin_checks`] until it is dropped: with its
+/// [`PassInput`] or [`PassResult`], whether the pass finished, was abandoned or panicked. Then
+/// the session's `running` and progress are cleared; the cache the pass held is lost (the
+/// next pass starts with an empty one) and no report is kept.
+struct PassGuard {
+    running: Arc<AtomicBool>,
+    progress: Arc<Mutex<Option<ChecksProgress>>>,
+}
+
+impl Drop for PassGuard {
+    fn drop(&mut self) {
+        *lock(&self.progress) = None;
+        self.running.store(false, Ordering::SeqCst);
+    }
 }
 
 impl PassInput {
@@ -159,7 +192,7 @@ impl PassInput {
     /// progress where `checks_status` reads it.
     pub fn run(self, groups: &[Group]) -> PassResult {
         let snap = Snapshot::build(Arc::clone(&self.project), self.overlay, self.cache);
-        let progress = &self.progress;
+        let progress = &self.guard.progress;
         let report = Runner::run(
             &snap,
             Project::limits(),
@@ -171,12 +204,13 @@ impl PassInput {
             project: self.project,
             cache: snap.into_cache(),
             report,
+            guard: self.guard,
         }
     }
 
     /// Writes the progress of this pass.
     pub fn report_progress(&self, label: &str, done: u32, total: u32) {
-        report_progress(&self.progress, label, done, total);
+        report_progress(&self.guard.progress, label, done, total);
     }
 }
 
@@ -199,23 +233,28 @@ impl AppState {
     /// `spawn_blocking`, or the bridge's request thread): the overlay is taken under the
     /// session lock, the snapshot is built and checked without it, and the result is kept
     /// only when the store is still at the overlay's generation.
+    ///
+    /// A pass that panics re-raises the panic after its input was dropped, which clears
+    /// `running` and the progress ([`PassGuard`]): no report is kept and no rerun is asked
+    /// for, so a pass that always panics is not started again by itself.
     pub fn run_checks_pass(&self, groups: &[Group]) -> PassOutcome {
+        self.run_checks_pass_with(groups, PassInput::run)
+    }
+
+    /// [`AppState::run_checks_pass`] with the run itself given (tests make it panic).
+    fn run_checks_pass_with(
+        &self,
+        groups: &[Group],
+        run: impl FnOnce(PassInput, &[Group]) -> PassResult,
+    ) -> PassOutcome {
         let input = match self.begin_checks() {
             Ok(input) => input,
             Err(outcome) => return outcome,
         };
-        let project = Arc::clone(&input.project);
-        match catch_unwind(AssertUnwindSafe(|| input.run(groups))) {
+        match catch_unwind(AssertUnwindSafe(|| run(input, groups))) {
             Ok(result) => self.finish_checks(result),
-            Err(panic) => {
-                // Not left running forever: the session gets an empty cache and no report.
-                self.finish_checks(PassResult {
-                    project,
-                    cache: SnapshotCache::default(),
-                    report: ChecksReport::default(),
-                });
-                resume_unwind(panic)
-            }
+            // The input is gone with the unwinding: its guard cleared `running`.
+            Err(panic) => resume_unwind(panic),
         }
     }
 
@@ -228,10 +267,10 @@ impl AppState {
             return Err(PassOutcome::NoSession);
         };
         let checks = &mut session.checks;
-        if checks.running {
+        if checks.running() {
             return Err(PassOutcome::Busy);
         }
-        checks.running = true;
+        checks.running.store(true, Ordering::SeqCst);
         checks.rerun = false;
         *lock(&checks.progress) = None;
         Ok(PassInput {
@@ -239,29 +278,36 @@ impl AppState {
             overlay: session.store.snapshot_overlay(),
             cache: checks.cache.take().unwrap_or_default(),
             ignore: checks.ignore.clone(),
-            progress: Arc::clone(&checks.progress),
+            guard: PassGuard {
+                running: Arc::clone(&checks.running),
+                progress: Arc::clone(&checks.progress),
+            },
         })
     }
 
     /// Ends a pass under the session lock: keeps its cache, and its report when the store is
     /// still at its generation; else discards it and sets [`ChecksState::rerun`]. A session
-    /// closed or replaced meanwhile gets nothing.
+    /// closed or replaced meanwhile gets nothing. Either way the pass no longer runs.
     pub fn finish_checks(&self, result: PassResult) -> PassOutcome {
+        let PassResult {
+            project,
+            cache,
+            report,
+            guard: pass,
+        } = result;
         let mut guard = self.lock_session();
-        let Some(session) = guard
-            .as_mut()
-            .filter(|s| Arc::ptr_eq(&s.project, &result.project))
-        else {
+        let Some(session) = guard.as_mut().filter(|s| Arc::ptr_eq(&s.project, &project)) else {
             return PassOutcome::NoSession;
         };
-        let current = result.report.is_current(&session.store);
+        let current = report.is_current(&session.store);
         let checks = &mut session.checks;
-        checks.running = false;
-        *lock(&checks.progress) = None;
-        checks.cache = Some(result.cache);
+        // Under the session lock: a status query never sees the pass ended without its
+        // report and cache in place.
+        drop(pass);
+        checks.cache = Some(cache);
         if current {
-            checks.last = Some(result.report.clone());
-            PassOutcome::Done(result.report)
+            checks.last = Some(report.clone());
+            PassOutcome::Done(report)
         } else {
             checks.rerun = true;
             PassOutcome::Stale
@@ -359,7 +405,7 @@ mod tests {
         assert_eq!(report.groups, Group::ALL.to_vec());
         let checks = &session.checks;
         assert_eq!(checks.last.as_ref().unwrap().generation, report.generation);
-        assert!(!checks.running && !checks.rerun);
+        assert!(!checks.running() && !checks.rerun);
         assert!(checks.progress().is_none());
         assert!(checks.cache.is_some());
     }
@@ -369,7 +415,7 @@ mod tests {
         let fixture = g4_kernel::test_support::synthetic_project();
         let state = open_state(&fixture);
         let input = state.begin_checks().unwrap();
-        assert!(state.lock_session().as_ref().unwrap().checks.running);
+        assert!(state.lock_session().as_ref().unwrap().checks.running());
         // The store changes while the pass runs without the lock.
         add_warp(&state);
         let result = input.run(&[Group::Cheap]);
@@ -378,7 +424,7 @@ mod tests {
             let guard = state.lock_session();
             let checks = &guard.as_ref().unwrap().checks;
             assert!(checks.last.is_none(), "a stale report is never kept");
-            assert!(checks.rerun && !checks.running);
+            assert!(checks.rerun && !checks.running());
             assert!(checks.cache.is_some());
         }
         // The rerun is current.
@@ -447,6 +493,98 @@ mod tests {
         worker::<PassInput>();
         worker::<PassResult>();
         shared::<Snapshot>();
+    }
+
+    #[test]
+    fn a_panicking_pass_keeps_no_report_and_asks_for_no_rerun() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        // Store generation 0, as after opening: an empty report of generation 0 would look
+        // current.
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            state.run_checks_pass_with(&Group::ALL, |input, _| {
+                input.report_progress("texts", 3, 10);
+                panic!("reading the texts failed");
+            })
+        }));
+        assert!(panicked.is_err());
+        {
+            let guard = state.lock_session();
+            let checks = &guard.as_ref().unwrap().checks;
+            assert!(checks.last.is_none());
+            assert!(!checks.running() && !checks.rerun);
+            assert!(checks.progress().is_none());
+        }
+        // The same after a change (generation 1): no stale report, no rerun loop.
+        add_warp(&state);
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            state.run_checks_pass_with(&Group::ALL, |_, _| panic!("again"))
+        }));
+        assert!(panicked.is_err());
+        {
+            let guard = state.lock_session();
+            let checks = &guard.as_ref().unwrap().checks;
+            assert!(checks.last.is_none() && !checks.running() && !checks.rerun);
+        }
+        // The next pass runs normally.
+        assert!(matches!(
+            state.run_checks_pass(&Group::ALL),
+            PassOutcome::Done(_)
+        ));
+    }
+
+    #[test]
+    fn an_abandoned_pass_stops_running() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        let input = state.begin_checks().unwrap();
+        input.report_progress("texts", 1, 2);
+        assert!(matches!(state.begin_checks(), Err(PassOutcome::Busy)));
+        drop(input);
+        {
+            let guard = state.lock_session();
+            let checks = &guard.as_ref().unwrap().checks;
+            assert!(!checks.running() && checks.progress().is_none());
+        }
+        // Also a result that never reaches `finish_checks`.
+        let result = state.begin_checks().unwrap().run(&[Group::Cheap]);
+        assert!(state.lock_session().as_ref().unwrap().checks.running());
+        drop(result);
+        assert!(!state.lock_session().as_ref().unwrap().checks.running());
+        assert!(matches!(
+            state.run_checks_pass(&[Group::Cheap]),
+            PassOutcome::Done(_)
+        ));
+    }
+
+    #[test]
+    fn only_a_report_of_the_current_generation_is_shown() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        assert!(matches!(
+            state.run_checks_pass(&[Group::Cheap]),
+            PassOutcome::Done(_)
+        ));
+        let generation = |state: &AppState| {
+            state
+                .lock_session()
+                .as_ref()
+                .unwrap()
+                .store
+                .change_generation()
+        };
+        let now = generation(&state);
+        {
+            let guard = state.lock_session();
+            let checks = &guard.as_ref().unwrap().checks;
+            assert_eq!(checks.current_report(now).unwrap().generation, now);
+        }
+        add_warp(&state);
+        let now = generation(&state);
+        let guard = state.lock_session();
+        let checks = &guard.as_ref().unwrap().checks;
+        assert!(checks.last.is_some());
+        assert!(checks.current_report(now).is_none());
     }
 
     #[test]
