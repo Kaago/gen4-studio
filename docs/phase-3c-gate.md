@@ -206,7 +206,7 @@ Beim Nutzer:
 
 Kleinigkeiten, nicht behoben:
 
-- Kernel, nicht 3c: Auf einem Projekt mit Patch „Dynamische Header“ löst der Compile ein Textliteral nicht auf („Textliteral nicht auflösbar …“), obwohl der gespeicherte Header in `unpacked/dynamicHeaders` die Scriptdatei nennt (gesehen auf `pt-3a-3c`, Header 0001, Scriptdatei 1124; ohne Patch auf `pt-3b2-3c` geht es).
+- Kernel, nicht 3c: Auf einem Projekt mit Patch „Dynamische Header“ löst der Compile ein Textliteral nicht auf („Textliteral nicht auflösbar …“), obwohl der gespeicherte Header in `unpacked/dynamicHeaders` die Scriptdatei nennt (gesehen auf `pt-3a-3c`, Header 0001, Scriptdatei 1124; ohne Patch auf `pt-3b2-3c` geht es). Behoben in ac7c1f2: rotoms `compile_project` las die Header über uxie aus der alten Tabelle in `arm9.bin` (nur 559 bzw. 540 Einträge); der Kernel kompiliert jetzt mit seiner eigenen Header-Tabelle (`scripts/project_compile.rs`). Gegenprobe auf `pt-dynhdr-bug`: `save_script` 1124 ohne Probleme, Archiv 0023 bekommt Nachricht 101 „Hallo aus dem Studio!“.
 - Die 3D-Ansicht zeigt immer das ganze Raster, Treffer für Hover und Werkzeuge gibt es nur über geladenen Karten; nach einem Wechsel des Headers zeigt der Inspector noch den letzten Kachel-Hover einer anderen Karte („Nur Ansicht“).
 - „Werkzeuge“: ↑ und ↓ tun nichts (die Liste ist waagrecht, in Kompakt stehen die Werkzeuge in zwei Reihen).
 - Dockview meldet über seine Live-Region auf Englisch („Weltkarte opened“, „Probleme opened“).
