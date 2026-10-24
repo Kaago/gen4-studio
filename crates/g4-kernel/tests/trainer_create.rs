@@ -57,7 +57,10 @@ fn vanilla_creates_trainers_behind_the_sight_slot() {
     scripts::adopt(&project, &mut |_| {}).unwrap();
     assert_eq!(scripts::battle_script_file(&project).unwrap(), battle_file);
     let vanilla = source(&project, battle_file);
-    assert!(vanilla.contains(&format!("script script_1 {slots}:")), "{slots}");
+    assert!(
+        vanilla.contains(&format!("script script_1 {slots}:")),
+        "{slots}"
+    );
     let member = project.member_path(AssetKind::Script, battle_file);
     let old_member = std::fs::read(&member).unwrap();
 
@@ -132,7 +135,10 @@ fn vanilla_creates_trainers_behind_the_sight_slot() {
     let mut names = NameTables::new();
     store.trainer(seen).unwrap();
     assert_eq!(store.locked(trainer(seen)), Some(PLACEHOLDER_REASON));
-    let bank = names.names(&mut store, Bank::TrainerNames).unwrap().to_vec();
+    let bank = names
+        .names(&mut store, Bank::TrainerNames)
+        .unwrap()
+        .to_vec();
     assert_eq!(bank.len(), usize::from(seen) + 2);
     assert_eq!(trainer_name::unwrap(&bank[usize::from(seen)]), "-");
     for (id, name) in created {

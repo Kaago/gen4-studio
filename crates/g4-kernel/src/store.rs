@@ -1163,7 +1163,11 @@ impl Store {
     /// [`Location::MemberPair`]) at the end of both archives and returns its index. Both
     /// archives must end at the same index; when the party cannot be written, the new
     /// properties file is removed again. Not undoable.
-    pub(crate) fn append_trainer(&mut self, props: &[u8], party: &[u8]) -> Result<u16, KernelError> {
+    pub(crate) fn append_trainer(
+        &mut self,
+        props: &[u8],
+        party: &[u8],
+    ) -> Result<u16, KernelError> {
         let (index, _) = self.next_member(AssetKind::TrainerProperties)?;
         let (party_index, _) = self.next_member(AssetKind::TrainerParty)?;
         if index != party_index {

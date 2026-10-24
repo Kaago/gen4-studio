@@ -481,7 +481,11 @@ impl Progress {
                 )
             })
             .collect();
-        done.extend(self.created.iter().map(|t| format!("trainer {t} was written")));
+        done.extend(
+            self.created
+                .iter()
+                .map(|t| format!("trainer {t} was written")),
+        );
         if done.is_empty() {
             return error;
         }
@@ -668,7 +672,10 @@ mod tests {
         let mut f = fixture(true);
         let err = f.create(1, "Bartholomeus").unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
-        assert!(err.to_string().contains(&NAME_MAX_CHARS.to_string()), "{err}");
+        assert!(
+            err.to_string().contains(&NAME_MAX_CHARS.to_string()),
+            "{err}"
+        );
         assert_eq!(f.count(), 3);
         assert_eq!(f.create(1, "Maximil").unwrap().id, 3);
     }
@@ -741,7 +748,10 @@ mod tests {
             }
         );
         assert_eq!(f.source(), BATTLE.replace("#[1-3]", "#[1-3, 5-6]"));
-        assert_eq!(f.member(AssetKind::Script, f.meta.battle_file)[24..], old[16..]);
+        assert_eq!(
+            f.member(AssetKind::Script, f.meta.battle_file)[24..],
+            old[16..]
+        );
         let compiled = scripts::compile(&f.project).unwrap();
         assert!(compiled.problems.is_empty(), "{:?}", compiled.problems);
     }
@@ -821,10 +831,7 @@ mod tests {
         f.set_texts(1, &[(1, "Oh.")]).unwrap();
         assert_eq!(f.table()[5..], [(1, 0), (1, 2), (1, 1)]);
         assert_eq!(f.offsets(), [0, 20, 8]);
-        assert_eq!(
-            f.texts(BATTLE_TEXTS)[5..],
-            [lets, lost, "Oh."]
-        );
+        assert_eq!(f.texts(BATTLE_TEXTS)[5..], [lets, lost, "Oh."]);
         // Nothing new, nothing recorded; an empty new kind is skipped.
         let lets = lets.to_owned();
         let out = f.set_texts(1, &[(0, &lets), (5, "")]).unwrap();

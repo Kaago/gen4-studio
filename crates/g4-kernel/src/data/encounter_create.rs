@@ -88,9 +88,8 @@ pub fn split_encounter_file(
             headers.len()
         ))
     })?;
-    let file = encounter_file(current).ok_or_else(|| {
-        KernelError::Refused(format!("header {header} has no encounter file"))
-    })?;
+    let file = encounter_file(current)
+        .ok_or_else(|| KernelError::Refused(format!("header {header} has no encounter file")))?;
     let copy = create_encounter_file(project, store, Some(file))?;
     let label = format!("Begegnungsdatei {copy} für Header {header} abgespalten");
     let (_, change) = store
@@ -154,7 +153,10 @@ mod tests {
     fn create_encounter_file_appends_a_member_of_the_right_size() {
         let (_s, project, mut store) = fixture();
         let first = PT_ENCOUNTER_MEMBERS as u16;
-        assert_eq!(create_encounter_file(&project, &mut store, None).unwrap(), first);
+        assert_eq!(
+            create_encounter_file(&project, &mut store, None).unwrap(),
+            first
+        );
         assert_eq!(member(&project, first), [0; 424]);
         // A copy holds the editor's version, its unsaved edit included.
         store
@@ -188,7 +190,10 @@ mod tests {
     #[test]
     fn split_encounter_file_is_one_history_step_for_the_header() {
         let (_s, project, mut store) = fixture();
-        assert_eq!((wild(&mut store, 0), wild(&mut store, 1)), (Some(0), Some(0)));
+        assert_eq!(
+            (wild(&mut store, 0), wild(&mut store, 1)),
+            (Some(0), Some(0))
+        );
         let (copy, change) = split_encounter_file(&project, &mut store, 0).unwrap();
         assert_eq!(copy, PT_ENCOUNTER_MEMBERS as u16);
         assert!(change.is_some());

@@ -1226,7 +1226,10 @@ fn extension_mismatch(old: &[u8], new: &[u8], seen: u32, added: &[u32]) -> Optio
 
 /// Problems of `report` (errors and warnings) in the rotom source of `file`.
 fn all_problems_in(project: &Project, report: &CompileReport, file: u16) -> Vec<Problem> {
-    let path = relative(&project.root, &source_path(project, file, SourceKind::Script));
+    let path = relative(
+        &project.root,
+        &source_path(project, file, SourceKind::Script),
+    );
     report
         .problems
         .iter()
@@ -2370,7 +2373,10 @@ AlreadyGiven:
     #[test]
     fn trainer_scripts_yaml_names_the_battle_file_and_the_sight_script() {
         let pt = trainer_script_meta(Family::Pt).unwrap();
-        assert_eq!((pt.battle_file, pt.seen_script, pt.seen_id()), (1114, 3928, 929));
+        assert_eq!(
+            (pt.battle_file, pt.seen_script, pt.seen_id()),
+            (1114, 3928, 929)
+        );
         let hgss = trainer_script_meta(Family::Hgss).unwrap();
         assert_eq!(
             (hgss.battle_file, hgss.seen_script, hgss.seen_id()),
@@ -2393,7 +2399,10 @@ AlreadyGiven:
             parse_slot_list("#[1-3, 5]:"),
             Some((vec![1, 2, 3, 5], "#[1-3, 5]".len()))
         );
-        assert_eq!(parse_slot_list("#[13, 15-16]"), Some((vec![13, 15, 16], 12)));
+        assert_eq!(
+            parse_slot_list("#[13, 15-16]"),
+            Some((vec![13, 15, 16], 12))
+        );
         assert_eq!(parse_slot_list("x"), None);
     }
 
