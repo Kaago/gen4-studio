@@ -1458,9 +1458,8 @@ describe("App wiring", () => {
       expect(readShellState().sub.pokemon).toBe("pokedex");
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true, bubbles: true, cancelable: true })));
       expect(readShellState().sub.pokemon).toBe("trainer");
-      // Begegnungen is still locked.
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", metaKey: true, bubbles: true, cancelable: true })));
-      expect(readShellState().sub.pokemon).toBe("trainer");
+      expect(readShellState().sub.pokemon).toBe("encounters");
     });
 
     it("resets_the_layout_of_the_world_deck", async () => {

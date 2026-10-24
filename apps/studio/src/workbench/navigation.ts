@@ -23,11 +23,13 @@ export type NavTarget =
   /** An item by item id (a data member without the item table). */
   | { kind: "item"; id: number }
   /** A trainer in the trainers of the Pokémon area. */
-  | { kind: "trainer"; index: number };
+  | { kind: "trainer"; index: number }
+  /** An encounter file in the Begegnungen of the Pokémon area. */
+  | { kind: "encounter"; index: number };
 
 /** The part of a data area a link opens, and the member it selects there. */
 export interface DataNav {
-  sub: "pokedex" | "trainer" | "moves" | "items";
+  sub: "pokedex" | "trainer" | "encounters" | "moves" | "items";
   index: number;
   /** The tab of the Pokédex editor to show. */
   tab?: SpeciesTab;
@@ -84,6 +86,8 @@ export function nextSelection(state: NavState, target: NavTarget): NavResult {
         : { area: "pokemon", ...keep, panel: "pokemonEdit", data: { sub: "pokedex", index: target.index, tab: target.tab } };
     case "trainer":
       return { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "trainer", index: target.index } };
+    case "encounter":
+      return { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "encounters", index: target.index } };
     case "move":
       return { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "moves", index: target.index } };
     case "item":
@@ -94,7 +98,7 @@ export function nextSelection(state: NavState, target: NavTarget): NavResult {
 }
 
 /** Where a target of the world leads (see `nextSelection`). */
-function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "move" | "item" }>): Omit<NavResult, "area"> {
+function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "encounter" | "move" | "item" }>): Omit<NavResult, "area"> {
   const known = (id: number | null | undefined): id is number => typeof id === "number" && (state.headers === undefined || state.headers.some((h) => h.id === id));
   const toHeader = (id: number): Omit<NavResult, "area"> => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
   // A header that the target needs selected first, unless it already is (null: keep the selection).

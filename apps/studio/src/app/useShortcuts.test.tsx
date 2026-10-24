@@ -75,7 +75,7 @@ describe("useShortcuts", () => {
     expect(handlers.unpinSelection).not.toHaveBeenCalled();
   });
 
-  it("switches_the_part_of_the_pokemon_area_on_cmd_1_to_4_and_a_locked_part_does_nothing", async () => {
+  it("switches_the_part_of_the_pokemon_area_on_cmd_1_to_4", async () => {
     handlers.area = "pokemon";
     const event = new KeyboardEvent("keydown", { key: "4", metaKey: true, bubbles: true, cancelable: true });
     await act(async () => void document.body.dispatchEvent(event));
@@ -87,9 +87,8 @@ describe("useShortcuts", () => {
     await press({ key: "2", metaKey: true });
     expect(handlers.onSub).toHaveBeenLastCalledWith("trainer");
     handlers.onSub.mockClear();
-    // Begegnungen is still locked: its key does nothing.
     await press({ key: "3", metaKey: true });
-    expect(handlers.onSub).not.toHaveBeenCalled();
+    expect(handlers.onSub).toHaveBeenLastCalledWith("encounters");
   });
 
   it("does_not_switch_parts_outside_the_pokemon_area_or_while_a_wizard_is_open", async () => {

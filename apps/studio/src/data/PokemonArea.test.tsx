@@ -86,12 +86,13 @@ describe("PokemonArea", () => {
     expect(h.trail()).toEqual(["Pokémon", "Pokédex"]);
     expect(switcher().textContent).toContain("Pokédex");
     const entries = openMenu(switcher());
-    const starts = ["Pokédex", "Trainer", "Begegnungen, kommt mit Phase 3b.3b", "Attacken"];
+    const starts = ["Pokédex", "Trainer", "Begegnungen", "Attacken"];
     expect(entries.map((e, i) => e.textContent?.startsWith(starts[i]!))).toEqual([true, true, true, true]);
     // The Pokédex counts its species; the moves are not read yet.
     expect(entries[0]?.textContent).toContain("4");
     expect(entries[1]?.getAttribute("aria-disabled")).toBeNull();
-    expect(entries[2]?.getAttribute("aria-disabled")).toBe("true");
+    // Every part is open (Begegnungen since 3b.3b).
+    expect(entries.map((e) => e.getAttribute("aria-disabled"))).toEqual([null, null, null, null]);
     await act(async () => entries[3]!.click());
     await flush();
     expect(dataList).toHaveBeenCalledWith("move");

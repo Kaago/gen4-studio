@@ -104,6 +104,23 @@ describe("DataStore", () => {
     expect(await readsAfter(null)).toEqual(["item", "move", "names", "species", "trainer"]);
   });
 
+  it("reads_the_encounter_files_again_when_the_headers_changed_their_users", async () => {
+    const store = new DataStore();
+    store.need(projectPt, "encounter");
+    await settle();
+    const reads = () => vi.mocked(dataList).mock.calls.filter((c) => c[0] === "encounter").length;
+    expect(reads()).toBe(1);
+    store.onEvent({ topic: "headerTable" });
+    await settle();
+    store.onEvent({ topic: "dataChanged", kind: "encounter", index: null });
+    await settle();
+    expect(reads()).toBe(3);
+    // Their labels are the headers' places, no name table.
+    store.onEvent({ topic: "textData", archive: 100 });
+    await settle();
+    expect(reads()).toBe(3);
+  });
+
   it("reads_the_trainer_rows_again_when_events_or_headers_changed_and_any_text_in_a_game_of_unknown_banks", async () => {
     const store = new DataStore();
     store.need(projectPt, "trainer");

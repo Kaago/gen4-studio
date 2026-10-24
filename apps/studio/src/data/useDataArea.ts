@@ -134,6 +134,7 @@ const NO_NAMES: NameTablesDto = {
   archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
 };
 const NO_ROWS: readonly DataRowDto[] = [];
+const NO_HEADERS: readonly HeaderSummary[] = [];
 const NO_DATA: DataSnapshot = { project: null, names: null, rows: {}, itemTable: undefined, locked: null, errors: {} };
 
 type Search = { query: string; filter: ListFilter };
@@ -174,9 +175,14 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
 
   const hasTable = data.itemTable !== null && data.itemTable !== undefined;
   const rows = (kind === null ? undefined : data.rows[kind]) ?? NO_ROWS;
-  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable))), [kind, rows, hasTable]);
+  // An encounter file is named by the places of its headers: only that list reads them (a new header table relabels nothing else).
+  const placeHeaders = kind === "encounter" ? headers : NO_HEADERS;
+  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable, placeHeaders))), [kind, rows, hasTable, placeHeaders]);
   const labelByIndex = useMemo(() => new Map(rows.map((row, i) => [row.index, labels[i] ?? ""])), [rows, labels]);
-  const labelOf = useCallback((row: DataRowDto) => labelByIndex.get(row.index) ?? (kind === null ? row.name : rowLabel(kind, row, hasTable)), [labelByIndex, kind, hasTable]);
+  const labelOf = useCallback(
+    (row: DataRowDto) => labelByIndex.get(row.index) ?? (kind === null ? row.name : rowLabel(kind, row, hasTable, placeHeaders)),
+    [labelByIndex, kind, hasTable, placeHeaders],
+  );
   const shown = useMemo(() => (kind === null ? NO_ROWS : filterRows(kind, rows, labels, search.query, search.filter)), [kind, rows, labels, search]);
   const row = useMemo(() => (selected === null ? null : (rows.find((r) => r.index === selected) ?? null)), [rows, selected]);
 
@@ -271,13 +277,15 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   return { model, search: searchModel };
 }
 
-/** Where a member of a part leads (the breadcrumb's last crumb); null for a part without members yet. */
+/** Where a member of a part leads (the breadcrumb's last crumb). */
 function targetOf(sub: DataSub, index: number): NavTarget | null {
   switch (sub) {
     case "pokedex":
       return { kind: "species", index };
     case "trainer":
       return { kind: "trainer", index };
+    case "encounters":
+      return { kind: "encounter", index };
     case "moves":
       return { kind: "move", index };
     case "items":

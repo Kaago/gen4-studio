@@ -1,6 +1,7 @@
-import type { DataRowDto, ItemRowExtra, MoveRowExtra, SpeciesRowExtra } from "../api";
+import type { DataRowDto, HeaderSummary, ItemRowExtra, MoveRowExtra, SpeciesRowExtra } from "../api";
 import type { DataSelectKey, PokemonSub } from "../ui/frame/shellState";
 import { typeName } from "../ui/primitives/pokemonTypes";
+import { encounterRowLabel } from "./encounters/encounterModel";
 import { PLACEHOLDER_REASON, PLACEHOLDER_TEXT, trainerRowLabel } from "./trainer/trainerModel";
 
 /** The two data areas of the atlas. */
@@ -10,12 +11,12 @@ export type DataSub = PokemonSub | "items";
 /** The data lists the areas show (and the palette lists). */
 export type ListKind = "species" | "move" | "item" | "trainer" | "encounter";
 
-/** The list each part shows (Begegnungen: its list comes with Task 7, the part is locked until then). */
+/** The list each part shows. */
 export const SUB_KIND: Record<DataSub, ListKind | null> = { pokedex: "species", trainer: "trainer", encounters: "encounter", moves: "move", items: "item" };
 export const SUB_LABEL: Record<DataSub, string> = { pokedex: "Pokédex", trainer: "Trainer", encounters: "Begegnungen", moves: "Attacken", items: "Gegenstände" };
 export const SUB_SHORTCUT: Record<PokemonSub, string> = { pokedex: "⌘1", trainer: "⌘2", encounters: "⌘3", moves: "⌘4" };
-/** Why a part cannot be opened yet; it shows in the switcher, but locked. */
-export const SUB_LOCKED: Partial<Record<DataSub, string>> = { encounters: "kommt mit Phase 3b.3b" };
+/** Why a part cannot be opened yet; it shows in the switcher, but locked (none since the Begegnungen came with 3b.3b). */
+export const SUB_LOCKED: Partial<Record<DataSub, string>> = {};
 export const isSubLocked = (sub: DataSub): boolean => SUB_LOCKED[sub] !== undefined;
 
 /** Where each part keeps its selection in the shell state. */
@@ -45,12 +46,14 @@ const FALLBACK: Record<ListKind, { pattern: RegExp; word: string }> = {
 
 /**
  * The name a row shows: the name from the text archives, else what it is with its number ("Art 0520", "Attacke 0469",
- * "Gegenstand 0099"); an item without the item table is a data member without a name ("Daten 0017").
+ * "Gegenstand 0099"); an item without the item table is a data member without a name ("Daten 0017"). An encounter file is named by the
+ * places of the `headers` that use it ("Route 201"), else "Begegnungen 0012".
  */
-export function rowLabel(kind: ListKind, row: DataRowDto, itemTable: boolean): string {
+export function rowLabel(kind: ListKind, row: DataRowDto, itemTable: boolean, headers: readonly HeaderSummary[] = []): string {
   if (kind === "item" && !itemTable) return `Daten ${id4(row.index)}`;
   // "Wanderer Jens": class and name, as the game says it before a battle.
   if (kind === "trainer") return trainerRowLabel(row);
+  if (kind === "encounter") return encounterRowLabel(row, headers);
   const name = row.name.trim();
   const fallback = FALLBACK[kind];
   if (name === "" || fallback.pattern.test(name)) return `${fallback.word} ${id4(row.index)}`;

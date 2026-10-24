@@ -14,11 +14,13 @@ import styles from "./Pokedex.module.css";
 /** The kinds whose change can add or drop a reference to a species. */
 const REFERRING: readonly DataKind[] = ["encounter", "trainer", "evolution"];
 
-/** Where a reference leads in the app; null for a target without an editor yet (the encounters come with Task 7 of 3b.3b). */
+/** Where a reference leads in the app (an encounter file a header uses leads to that place; one nobody uses to the Begegnungen). */
 function navTarget(nav: NavTargetDto): NavTarget | null {
   switch (nav.kind) {
     case "trainer":
       return { kind: "trainer", index: nav.index };
+    case "encounter":
+      return { kind: "encounter", index: nav.index };
     case "header":
       return { kind: "header", id: nav.id };
     case "event":

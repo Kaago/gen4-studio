@@ -99,6 +99,15 @@ describe("ProblemsPanel", () => {
     expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 12 });
   });
 
+  it("an_encounter_problem_says_its_warning_in_german_and_opens_the_file", () => {
+    const message = "grass slot 2: species 396 at level 0";
+    act(() => store.replaceData("encounters/0140", [problem("encounters/0140", 3, message, "warning", "encounter")]));
+    const row = bodyRows()[0]!;
+    expect(cells(row).map((c) => c.textContent)).toEqual(["", "Begegnungen 0140", "3:3", "Gras Platz 3: Art 0396 auf Level 0", "Begegnungen"]);
+    act(() => fileButton(row).click());
+    expect(goTo).toHaveBeenCalledWith({ kind: "encounter", index: 140 });
+  });
+
   it("a_problem_of_an_unknown_file_is_shown_with_a_disabled_reference", () => {
     act(() => store.replaceForFile("rotom.toml", [problem("rotom.toml", 1, "kaputt")]));
     const button = fileButton(bodyRows()[0]!);

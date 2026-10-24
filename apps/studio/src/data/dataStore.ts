@@ -92,12 +92,13 @@ export class DataStore {
 
   /** Every list the palette searches. */
   needAll(project: ProjectInfo): void {
-    for (const kind of ["species", "move", "item", "trainer"] as const) this.need(project, kind);
+    for (const kind of ["species", "move", "item", "trainer", "encounter"] as const) this.need(project, kind);
   }
 
   /**
    * Reads again what an event says may have changed, when it was asked for: a data member's list, the names and rows of a text archive,
-   * and the trainer rows when events or headers changed (their places are the headers whose object events start the battle).
+   * the trainer rows when events or headers changed (their places are the headers whose object events start the battle), and the encounter
+   * files when the headers changed (their users are the headers whose `wild_pokemon` names them).
    */
   onEvent(event: EditEvent): void {
     if (event.topic === "dataChanged") {
@@ -107,6 +108,7 @@ export class DataStore {
       for (const part of namedBy(this.snapshot.names?.archives, event.archive, trainerNameArchive(this.snapshot.project))) this.changed(part);
     } else if (event.topic === "eventData" || event.topic === "headerTable") {
       this.changed("trainer");
+      if (event.topic === "headerTable") this.changed("encounter");
     }
   }
 
@@ -167,6 +169,7 @@ export function useDataSnapshot(store: DataStore): DataSnapshot {
 export interface DataLists {
   species: readonly DataRowDto[];
   trainers: readonly DataRowDto[];
+  encounters: readonly DataRowDto[];
   moves: readonly DataRowDto[];
   items: readonly DataRowDto[];
   itemTable: boolean;
@@ -185,6 +188,13 @@ export function useDataLists(store: DataStore, project: ProjectInfo | null): Dat
     const { rows, itemTable } = snapshot;
     // Items wait for the item table: without it they would be listed as data members ("Daten 0017") for a moment.
     const items = itemTable === undefined ? NONE : (rows.item ?? NONE);
-    return { species: rows.species ?? NONE, trainers: rows.trainer ?? NONE, moves: rows.move ?? NONE, items, itemTable: itemTable !== null && itemTable !== undefined };
+    return {
+      species: rows.species ?? NONE,
+      trainers: rows.trainer ?? NONE,
+      encounters: rows.encounter ?? NONE,
+      moves: rows.move ?? NONE,
+      items,
+      itemTable: itemTable !== null && itemTable !== undefined,
+    };
   }, [snapshot, project]);
 }

@@ -4,6 +4,9 @@ import { dataStatus } from "../app/statusContext";
 import { DataListPane, DataPanel } from "./DataParts";
 import type { DataPart } from "./DataParts";
 import type { DataSub } from "./dataModel";
+import { EncounterHand } from "./encounters/EncounterHand";
+import { EncounterList } from "./encounters/EncounterList";
+import { EncounterView } from "./encounters/EncounterView";
 import { MoveHand } from "./moves/MoveHand";
 import { MovesList } from "./moves/MovesList";
 import { MoveView } from "./moves/MoveView";
@@ -33,20 +36,11 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
   );
 });
 
-/**
- * The mount point of the Begegnungen (Task 7 of 3b.3b): their list, view and hand go here, and `encounters` leaves `SUB_LOCKED` in
- * `dataModel.ts`. The list kind (`encounter`), the selection (`selected.encounters`) and the store's reads are in place already.
- */
-const ENCOUNTER_PART: DataPart | null = null;
-
-/**
- * The parts of the Pokémon area by their switcher entry: the Pokédex, the trainers, the encounters (`ENCOUNTER_PART`, locked until it
- * comes) and the moves.
- */
+/** The parts of the Pokémon area by their switcher entry: the Pokédex, the trainers, the encounter files and the moves. */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
   trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand },
-  ...(ENCOUNTER_PART === null ? {} : { encounters: ENCOUNTER_PART }),
+  encounters: { List: EncounterList, View: EncounterView, Hand: EncounterHand },
   moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };
 

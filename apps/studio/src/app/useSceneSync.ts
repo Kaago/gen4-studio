@@ -169,8 +169,10 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
   }, []);
 
   const onHeaderChanged = useCallback(async () => {
+    // The field „Begegnungen“ names an encounter file: its list and document name their users anew.
+    bus.emit({ topic: "dataChanged", kind: "encounter", index: null });
     await Promise.all([syncHeaders(), refreshDirty()]);
-  }, [syncHeaders, refreshDirty]);
+  }, [bus, syncHeaders, refreshDirty]);
 
   const onMatrixEdited = useCallback(
     async (index: number) => {
