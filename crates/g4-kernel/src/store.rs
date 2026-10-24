@@ -1904,6 +1904,53 @@ impl Store {
         self.assets.len()
     }
 
+    /// What the checks' snapshot needs from the store, the only part of a check run done under
+    /// the store lock (budget 5 ms, see [`crate::checks::snapshot`]): the change generation,
+    /// the bytes of every loaded asset whose value changed and differs from what was last
+    /// read from or written to disk, the documents of the changed text archives (cloned, not
+    /// serialized), the text generations, and the lock reason of every loaded locked asset.
+    /// Nothing is read from disk; everything else the snapshot reads there. An asset whose
+    /// value cannot be serialized is named in `unwritable` instead.
+    pub fn snapshot_overlay(&self) -> crate::checks::Overlay {
+        let family = self.project.family;
+        let mut overlay = crate::checks::Overlay {
+            generation: self.change_generation,
+            ..Default::default()
+        };
+        for (&id, asset) in &self.assets {
+            if let Some(reason) = &asset.locked {
+                // Never edited: its value is the bytes it was read with.
+                overlay.locked.push((id, reason.clone()));
+                continue;
+            }
+            if !self.changed_at.contains_key(&id) {
+                continue;
+            }
+            if let Loaded::TextArchive(doc) = &asset.current {
+                overlay.text_docs.push((id.index, doc.clone()));
+                continue;
+            }
+            match asset.current.to_bytes(family) {
+                // Saved since its last change: the disk holds the same.
+                Ok(bytes) if asset.saved_bytes.as_deref() == Some(bytes.as_slice()) => {}
+                Ok(bytes) => overlay.assets.push((id, bytes)),
+                Err(e) => overlay.unwritable.push((id, e.to_string())),
+            }
+        }
+        overlay.text_generations = self
+            .text_generations
+            .iter()
+            .map(|(&index, &generation)| (index, generation))
+            .collect();
+        let order = |id: &AssetId| (id.kind.slot(), id.index);
+        overlay.assets.sort_by_key(|(id, _)| order(id));
+        overlay.locked.sort_by_key(|(id, _)| order(id));
+        overlay.unwritable.sort_by_key(|(id, _)| order(id));
+        overlay.text_docs.sort_by_key(|(index, _)| *index);
+        overlay.text_generations.sort_unstable();
+        overlay
+    }
+
     /// The store's value of `id` (unsaved edits included) if it is loaded; loads nothing.
     pub(crate) fn peek(&self, id: AssetId) -> Option<&Loaded> {
         self.assets.get(&id).map(|a| &a.current)

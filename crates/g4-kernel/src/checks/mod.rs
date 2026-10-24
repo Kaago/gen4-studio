@@ -2,18 +2,20 @@
 //! would break the game, each with a code, a severity, a subject and optional fixes.
 //!
 //! This module holds the shared types, the limits metadata ([`limits`]) and the registry of
-//! checks. The snapshot a run reads is built in `snapshot`, the checks themselves register in
-//! [`Registry::all`]. See `docs/formats/check_limits.md` for the limits.
+//! checks. The snapshot a run reads is built in [`snapshot`], the [`Runner`] runs the checks
+//! that register in [`Registry::all`]. See `docs/formats/check_limits.md` for the limits.
 
 use std::path::PathBuf;
 
 use serde::Serialize;
 
 pub mod limits;
+pub mod runner;
 pub mod snapshot;
 
 pub use limits::Limits;
-pub use snapshot::Snapshot;
+pub use runner::{ChecksReport, IgnoreKey, IgnoreSet, Runner};
+pub use snapshot::{Overlay, ScriptEntry, Snapshot, SnapshotCache, TextEntry, Unreadable};
 
 pub use crate::text::Severity;
 
@@ -68,6 +70,11 @@ pub enum Group {
     Cheap,
     PerScript,
     PerArchive,
+}
+
+impl Group {
+    /// Every group, in the order a run takes them.
+    pub const ALL: [Group; 3] = [Group::Cheap, Group::PerScript, Group::PerArchive];
 }
 
 /// One result of a check.
