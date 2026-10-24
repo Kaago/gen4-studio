@@ -2,6 +2,7 @@
 //! Warp 2"), in the words of the workbench (`assets.ts`, `terms.ts`, the breadcrumb).
 
 use g4_kernel::checks::Subject;
+use g4_kernel::project::{AssetId, AssetKind};
 
 use crate::commands::data::labels;
 
@@ -13,6 +14,20 @@ pub fn subject_label(subject: Subject, key: &str) -> String {
         Some(spot) => format!("{name} · {spot}"),
         None => name,
     }
+}
+
+/// The German name of an asset a fix changes ("Textarchiv 0433", "Scriptdatei 0005"): that of
+/// its subject; a kind no fix changes keeps the kernel's name.
+pub fn asset_label(asset: AssetId) -> String {
+    let n = asset.index;
+    let subject = match asset.kind {
+        AssetKind::TextArchive => Subject::TextArchive(n),
+        AssetKind::Script => Subject::ScriptFile(n),
+        AssetKind::Encounter => Subject::Encounter(n),
+        AssetKind::Event => Subject::EventFile(n),
+        _ => return asset.to_string(),
+    };
+    subject_name(subject)
 }
 
 /// "Eventdatei 0411", "Projekt".

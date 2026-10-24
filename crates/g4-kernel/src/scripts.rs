@@ -940,11 +940,7 @@ pub fn add_script(project: &Project, file: u16) -> Result<u16, KernelError> {
 /// [`add_script`] that also names the text archives its compile changed
 /// ([`CompileReport::touched_archives`]), for a store that must reload them.
 pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16>), KernelError> {
-    let ScriptSource::Rotom(text) = read_source(project, file)? else {
-        return Err(KernelError::InvalidProject(format!(
-            "script file {file:04} is not a script"
-        )));
-    };
+    let text = rotom_source(project, file)?;
     let next = declared_slots(&text)?
         .iter()
         .map(|(id, _)| *id)
@@ -952,9 +948,54 @@ pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16
         .map_or(1, |id| id + 1);
     let n = u16::try_from(next)
         .map_err(|_| KernelError::InvalidProject("no free script slot".into()))?;
-    // Script names are unique per file in rotom, so the name carries the slot (the
-    // decompiler's `script_<n>`).
-    let appended = format!("{text}\nscript script_{n} #{n}:\n\tEnd\n");
+    append_script(project, file, text, n).map(|touched| (n, touched))
+}
+
+/// [`add_script_reported`] for script `#n` itself rather than the next free one (rotom fills
+/// the jump table entries of the slots no script declares). Refuses a slot the file has.
+pub fn add_script_at_reported(
+    project: &Project,
+    file: u16,
+    n: u16,
+) -> Result<Vec<u16>, KernelError> {
+    let text = rotom_source(project, file)?;
+    if declared_slots(&text)?
+        .iter()
+        .any(|(id, _)| *id == u32::from(n))
+    {
+        return Err(KernelError::Refused(format!(
+            "script file {file:04} already has script #{n}"
+        )));
+    }
+    append_script(project, file, text, n)
+}
+
+/// The rotom source of script file `file`; a level script or binary is refused.
+fn rotom_source(project: &Project, file: u16) -> Result<String, KernelError> {
+    match read_source(project, file)? {
+        ScriptSource::Rotom(text) => Ok(text),
+        _ => Err(KernelError::InvalidProject(format!(
+            "script file {file:04} is not a script"
+        ))),
+    }
+}
+
+/// The empty script `#n` as [`add_script`] appends it (without the blank line before it).
+/// Script names are unique per file in rotom, so the name carries the slot (the decompiler's
+/// `script_<n>`).
+pub fn script_stub(n: u16) -> String {
+    format!("script script_{n} #{n}:\n\tEnd\n")
+}
+
+/// Appends [`script_stub`]`(n)` to `text`, the source of `file`, writes and compiles; returns
+/// the text archives the compile changed. A compile error in the file puts `text` back.
+fn append_script(
+    project: &Project,
+    file: u16,
+    text: String,
+    n: u16,
+) -> Result<Vec<u16>, KernelError> {
+    let appended = format!("{text}\n{}", script_stub(n));
     write_source(project, file, &ScriptSource::Rotom(appended))?;
     let restore = |project: &Project| {
         let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));
@@ -965,7 +1006,7 @@ pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16
         restore(project);
         return Err(KernelError::Compile(errors));
     }
-    Ok((n, report.touched_archives))
+    Ok(report.touched_archives)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2116,6 +2157,34 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn add_script_at_creates_that_slot_and_refuses_one_the_file_has() {
+        let (_s, p) = adopted();
+        let file = new_script_file(&p, SourceKind::Script).unwrap();
+        // #950 of a file with #1: rotom fills the jump table entries in between.
+        add_script_at_reported(&p, file, 950).unwrap();
+        let ScriptSource::Rotom(text) = read_source(&p, file).unwrap() else {
+            panic!("a script")
+        };
+        assert!(text.ends_with(&format!("\n{}", script_stub(950))), "{text}");
+        assert_eq!(compile(&p).unwrap().problems, []);
+        // 950 jump table entries of 4 bytes, then the end marker 0xFD13.
+        let member = member(&p, file);
+        assert_eq!(member[950 * 4..950 * 4 + 2], [0x13, 0xFD]);
+        // The next free one is now #951.
+        assert_eq!(add_script(&p, file).unwrap(), 951);
+
+        // A slot the file has is refused, and the source stays as it is.
+        let before = read_source(&p, file).unwrap();
+        let err = add_script_at_reported(&p, file, 1).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("script file {file:04} already has script #1")
+        );
+        assert_eq!(read_source(&p, file).unwrap(), before);
+        assert!(add_script_at_reported(&p, 1, 5).is_err(), "a level script");
     }
 
     /// The two sample scripts of `docs/phase-3b2-gate.md` (parts B and C) compile as printed, on

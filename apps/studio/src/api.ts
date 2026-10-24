@@ -422,9 +422,11 @@ export interface AssetId {
  * and for an "error" of an undo or redo that could not restore that asset.
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
+ * "finding_stale": `planFix` / `applyFix` on a finding that is no longer reported as it was sent (its subject changed); nothing
+ * was changed.
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -440,7 +442,8 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "tool_missing" ||
       o.code === "partial" ||
       o.code === "error" ||
-      o.code === "compile") &&
+      o.code === "compile" ||
+      o.code === "finding_stale") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))

@@ -4,6 +4,8 @@
 //! `set_check_enabled` write the ignore file `g4-checks.json` at once (a scenario opens a fresh
 //! session per batch, so nothing may wait for `save`) and answer the last report sorted out
 //! anew, so the UI needs no run; switching a check on runs the groups of that report again.
+//! `plan_fix` shows what a fix of a finding would change, `apply_fix` applies it (see
+//! `g4_kernel::checks::fix`); both take the finding's row as it came.
 //!
 //! A finding is a Problems row of source `check` (severity `info` too) with the fields of
 //! [`CheckFieldsDto`]; its German label and where it leads are made here. Tauri runs the
@@ -13,13 +15,15 @@
 mod label;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{
     ChecksReport, Finding, FixId, Group, IgnoreKey, IgnoreSet, MapCell, Registry, Severity,
-    Subject, fingerprint_text, parse_fingerprint,
+    Snapshot, SnapshotCache, Subject, fingerprint_text, fix as fixes, parse_fingerprint,
 };
 use g4_kernel::error::KernelError;
+use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -305,8 +309,9 @@ fn change_ignore(
     Ok(status(session))
 }
 
-/// The key a finding is sent back with; the fingerprint as its 16 hex digits.
-fn ignore_key(
+/// The key a finding is sent back with to ignore or fix it; the fingerprint as its 16 hex
+/// digits.
+fn finding_key(
     code: &str,
     subject: Subject,
     key: &str,
@@ -357,7 +362,7 @@ pub fn ignore_finding_impl(
     key: &str,
     fingerprint: &str,
 ) -> Result<ChecksReportDto, CmdError> {
-    let key = ignore_key(code, subject, key, fingerprint)?;
+    let key = finding_key(code, subject, key, fingerprint)?;
     change_ignore(state, |ignore, checks, _| {
         let severity = severity_of(&key, checks.last.as_ref())?;
         ignore.ignore(key, severity)?;
@@ -373,7 +378,7 @@ pub fn unignore_finding_impl(
     key: &str,
     fingerprint: &str,
 ) -> Result<ChecksReportDto, CmdError> {
-    let key = ignore_key(code, subject, key, fingerprint)?;
+    let key = finding_key(code, subject, key, fingerprint)?;
     change_ignore(state, |ignore, _, _| {
         ignore.unignore(&key);
         Ok(())
@@ -428,6 +433,100 @@ pub fn set_check_enabled_impl(
         Some(groups) => run_checks_with(state, &groups, AppState::run_checks_pass),
         None => Ok(answer),
     }
+}
+
+/// A finding as the UI sends it to `plan_fix` and `apply_fix`: its row as `run_checks` answered
+/// it, of which only `code`, `subject`, `key` and `fingerprint` are read.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FindingArg {
+    pub code: String,
+    pub subject: Subject,
+    pub key: String,
+    pub fingerprint: String,
+}
+
+/// What a fix changes in one asset: `label` is its German name ("Textarchiv 0433"); `before`
+/// and `after` as the kernel's `FixChange` has them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixChangeDto {
+    pub asset: AssetId,
+    pub label: String,
+    pub before: String,
+    pub after: String,
+}
+
+/// What a fix would change; `irreversible` ones (`create_script`) undo cannot take back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixPlanDto {
+    pub changes: Vec<FixChangeDto>,
+    pub irreversible: bool,
+}
+
+/// What a fix changed, and whether the finding is still there ("Nicht behoben").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixResultDto {
+    pub changed: Vec<AssetId>,
+    pub remaining: bool,
+}
+
+impl FindingArg {
+    fn key(&self) -> Result<IgnoreKey, CmdError> {
+        finding_key(&self.code, self.subject, &self.key, &self.fingerprint)
+    }
+}
+
+/// What `fix` of `finding` would change. The snapshot is taken under the session lock, the
+/// finding checked and the plan made without it. `finding_stale` when the finding is no longer
+/// reported as it was sent.
+pub fn plan_fix_impl(
+    state: &AppState,
+    finding: &FindingArg,
+    fix: FixId,
+) -> Result<FixPlanDto, CmdError> {
+    let key = finding.key()?;
+    let (project, overlay) = {
+        let mut guard = lock(state)?;
+        let session = session(&mut guard)?;
+        (
+            Arc::clone(&session.project),
+            session.store.snapshot_overlay(),
+        )
+    };
+    let snap = Snapshot::build(project, overlay, SnapshotCache::default());
+    let plan = fixes::plan_fix(&snap, &key, fix)?;
+    Ok(FixPlanDto {
+        changes: plan
+            .changes
+            .into_iter()
+            .map(|c| FixChangeDto {
+                label: label::asset_label(c.asset),
+                asset: c.asset,
+                before: c.before,
+                after: c.after,
+            })
+            .collect(),
+        irreversible: plan.irreversible,
+    })
+}
+
+/// Applies `fix` of `finding` under the session lock: the finding is checked again on the
+/// current state (`finding_stale` and nothing written when it changed), then changed as one
+/// undoable step "Behoben: <code>" (`create_script`: written at once), then its subject checked
+/// again.
+pub fn apply_fix_impl(
+    state: &AppState,
+    finding: &FindingArg,
+    fix: FixId,
+) -> Result<FixResultDto, CmdError> {
+    let key = finding.key()?;
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix)?;
+    session.after_write();
+    Ok(FixResultDto {
+        changed: result.changed,
+        remaining: result.remaining,
+    })
 }
 
 #[tauri::command]
@@ -487,6 +586,26 @@ pub async fn set_check_enabled(
     .await
 }
 
+/// Reads the subject from the disk: on the blocking pool.
+#[tauri::command]
+pub async fn plan_fix(
+    app: tauri::AppHandle,
+    finding: FindingArg,
+    fix: FixId,
+) -> Result<FixPlanDto, CmdError> {
+    off_main(app, move |state| plan_fix_impl(state, &finding, fix)).await
+}
+
+/// `create_script` compiles the scripts: on the blocking pool.
+#[tauri::command]
+pub async fn apply_fix(
+    app: tauri::AppHandle,
+    finding: FindingArg,
+    fix: FixId,
+) -> Result<FixResultDto, CmdError> {
+    off_main(app, move |state| apply_fix_impl(state, &finding, fix)).await
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -496,12 +615,14 @@ mod tests {
     use g4_kernel::checks::{
         FixId, Group, IGNORE_FILE, MapCell, Severity, Subject, fingerprint_text,
     };
+    use g4_kernel::project::AssetKind;
     use g4_kernel::store::MapHeader;
     use serde_json::{Value, json};
 
     use super::*;
     use crate::commands::{
-        get_header_impl, open_project_impl, open_synthetic, set_header_impl, subject_to_nav,
+        TextEdit, dirty_impl, edit_text_archive_impl, get_header_impl, history_impl,
+        open_project_impl, open_synthetic, set_header_impl, subject_to_nav, undo_impl,
     };
     use crate::state::{AppState, PassOutcome};
 
@@ -1127,5 +1248,139 @@ mod tests {
             .unwrap();
         assert!(err.message.contains(IGNORE_FILE), "{}", err.message);
         assert!(other.lock_session().is_none());
+    }
+
+    #[test]
+    fn a_fix_change_names_its_asset_in_german() {
+        let id = |kind, index| AssetId { kind, index };
+        let cases = [
+            (id(AssetKind::TextArchive, 433), "Textarchiv 0433"),
+            (id(AssetKind::Script, 5), "Scriptdatei 0005"),
+            (id(AssetKind::Encounter, 12), "Begegnungen 0012"),
+            (id(AssetKind::Event, 411), "Eventdatei 0411"),
+            // No fix changes a map: the kernel's name.
+            (id(AssetKind::Map, 3), "map 0003"),
+        ];
+        for (asset, want) in cases {
+            assert_eq!(label::asset_label(asset), want);
+        }
+    }
+
+    /// Wider than the text window (216 px) on one line, every word narrower than it.
+    const LONG: &str = "Welcome to Twinleaf Town, where a fresh breeze always blows and the grass smells sweet in the morning sun.";
+
+    /// Message 1 of text archive 433 (header 0's dialog archive) set to [`LONG`]: one
+    /// `text.too-wide`, as `run_checks` answers it.
+    fn too_wide() -> (g4_kernel::test_support::Synthetic, AppState, ProblemDto) {
+        let (fixture, state) = open_synthetic();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 1,
+                text: LONG.into(),
+            },
+        )
+        .unwrap();
+        let report = run_checks_impl(&state, CheckScope::All).unwrap();
+        let found = rows(&report, "text.too-wide");
+        assert_eq!(found.len(), 1);
+        let row = found[0].clone();
+        (fixture, state, row)
+    }
+
+    fn finding_arg(row: &ProblemDto) -> FindingArg {
+        let (code, subject, key, fingerprint) = key_of(row);
+        FindingArg {
+            code,
+            subject,
+            key,
+            fingerprint,
+        }
+    }
+
+    #[test]
+    fn plan_fix_shows_the_change_and_apply_fix_makes_one_undoable_step() {
+        let (_fixture, state, row) = too_wide();
+        let finding = finding_arg(&row);
+        let history = history_impl(&state).unwrap();
+
+        let plan = json_of(&plan_fix_impl(&state, &finding, FixId::Wrap).unwrap());
+        assert_eq!(plan["irreversible"], false);
+        let changes = plan["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 1);
+        let change = changes[0].as_object().unwrap();
+        let keys: Vec<&str> = change.keys().map(String::as_str).collect();
+        assert_eq!(keys, ["asset", "label", "before", "after"]);
+        assert_eq!(
+            change["asset"],
+            json!({ "kind": "TextArchive", "index": 433 })
+        );
+        assert_eq!(change["label"], "Textarchiv 0433");
+        assert_eq!(change["before"], LONG);
+        // Pages: separated by an empty line.
+        assert!(
+            change["after"].as_str().unwrap().contains("\n\n"),
+            "{change:?}"
+        );
+        // A plan changes nothing.
+        assert_eq!(history_impl(&state).unwrap(), history);
+
+        let result = apply_fix_impl(&state, &finding, FixId::Wrap).unwrap();
+        assert_eq!(
+            json_of(&result),
+            json!({ "changed": [{ "kind": "TextArchive", "index": 433 }], "remaining": false })
+        );
+        let after = run_checks_impl(&state, CheckScope::All).unwrap();
+        assert!(rows(&after, "text.too-wide").is_empty());
+        assert_eq!(
+            history_impl(&state).unwrap().undo.last().unwrap(),
+            "Behoben: text.too-wide"
+        );
+
+        // Undo brings the finding back as it was.
+        undo_impl(&state).unwrap();
+        let back = run_checks_impl(&state, CheckScope::All).unwrap();
+        assert_eq!(rows(&back, "text.too-wide"), [&row]);
+    }
+
+    #[test]
+    fn apply_fix_on_a_subject_changed_since_the_plan_is_refused_and_writes_nothing() {
+        let (_fixture, state, row) = too_wide();
+        let finding = finding_arg(&row);
+        plan_fix_impl(&state, &finding, FixId::Wrap).unwrap();
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 1,
+                text: format!("{LONG}!"),
+            },
+        )
+        .unwrap();
+        let dirty = dirty_impl(&state).unwrap();
+        let history = history_impl(&state).unwrap();
+
+        let err = apply_fix_impl(&state, &finding, FixId::Wrap).unwrap_err();
+        assert_eq!(err.code, "finding_stale");
+        assert_eq!(err.message, "finding is no longer current");
+        assert_eq!(dirty_impl(&state).unwrap(), dirty);
+        assert_eq!(history_impl(&state).unwrap(), history);
+        let err = plan_fix_impl(&state, &finding, FixId::Wrap).unwrap_err();
+        assert_eq!(err.code, "finding_stale");
+
+        // A fix the finding does not offer, and a fingerprint that is no fingerprint.
+        let err = apply_fix_impl(&state, &finding, FixId::SwapMinMax).unwrap_err();
+        assert_eq!(
+            err.message,
+            "fix swap_min_max is not offered for code text.too-wide"
+        );
+        let broken = FindingArg {
+            fingerprint: "not hex".into(),
+            ..finding
+        };
+        let err = apply_fix_impl(&state, &broken, FixId::Wrap).unwrap_err();
+        assert!(err.message.contains("not hex"), "{}", err.message);
+        assert_eq!(history_impl(&state).unwrap(), history);
     }
 }

@@ -11,7 +11,7 @@ use super::roots::Roots;
 use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
-use g4_kernel::checks::Subject;
+use g4_kernel::checks::{FixId, Subject};
 use g4_kernel::map_import::{Part, Source};
 use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
@@ -130,6 +130,8 @@ pub const COMMANDS: &[&str] = &[
     "unignore_finding",
     "accept_baseline",
     "set_check_enabled",
+    "plan_fix",
+    "apply_fix",
 ];
 
 /// Import files must lie under the bridge's import roots; a map of the project needs nothing.
@@ -546,6 +548,16 @@ pub fn dispatch(
             { code: String, enabled: bool },
             |a| set_check_enabled_impl(state, &a.code, a.enabled)
         ),
+        "plan_fix" => run!(
+            json, "plan_fix", args,
+            { finding: FindingArg, fix: FixId },
+            |a| plan_fix_impl(state, &a.finding, a.fix)
+        ),
+        "apply_fix" => run!(
+            json, "apply_fix", args,
+            { finding: FindingArg, fix: FixId },
+            |a| apply_fix_impl(state, &a.finding, a.fix)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -807,6 +819,16 @@ mod tests {
                 "set_check_enabled",
                 json!({ "code": "warp.never-fires", "enabled": false }),
             ),
+            (
+                "plan_fix",
+                json!({ "finding": { "code": "text.too-wide", "subject": { "kind": "textArchive", "index": 433 },
+                        "key": "message:1:line:1", "fingerprint": "00000000000000ff" }, "fix": "wrap" }),
+            ),
+            (
+                "apply_fix",
+                json!({ "finding": { "code": "text.too-wide", "subject": { "kind": "textArchive", "index": 433 },
+                        "key": "message:1:line:1", "fingerprint": "00000000000000ff" }, "fix": "wrap" }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -997,6 +1019,57 @@ mod tests {
         ));
         assert_eq!(back["ignored"], json!([]));
         assert_eq!(back["findings"], report["findings"]);
+    }
+
+    /// The 3b.4 scenarios send a finding as `run_checks` answered it (`${r.findings.0}`).
+    #[test]
+    fn fixes_take_the_finding_as_run_checks_answers_it() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let long = "Welcome to Twinleaf Town, where a fresh breeze always blows and the grass smells sweet in the morning sun.";
+        call(
+            &state,
+            &roots,
+            "edit_text_archive",
+            json!({ "index": 433, "edit": { "Set": { "index": 1, "text": long } } }),
+        );
+        let wide = |report: &Value| -> Vec<Value> {
+            report["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|f| f["code"] == "text.too-wide")
+                .cloned()
+                .collect()
+        };
+        let report = json_of(call(&state, &roots, "run_checks", json!({})));
+        let found = wide(&report);
+        assert_eq!(found.len(), 1, "{report}");
+        // The whole row, with label, args, fixes and the rest the backend does not read.
+        let args = json!({ "finding": found[0], "fix": "wrap" });
+
+        let plan = json_of(call(&state, &roots, "plan_fix", args.clone()));
+        assert_eq!(plan["irreversible"], false);
+        assert_eq!(
+            plan["changes"][0]["asset"],
+            json!({ "kind": "TextArchive", "index": 433 })
+        );
+        let result = json_of(call(&state, &roots, "apply_fix", args.clone()));
+        assert_eq!(
+            result,
+            json!({ "changed": [{ "kind": "TextArchive", "index": 433 }], "remaining": false })
+        );
+        let after = json_of(call(&state, &roots, "run_checks", json!({})));
+        assert!(wide(&after).is_empty(), "{after}");
+
+        // Applied once: the finding is gone, a second time is refused.
+        match dispatch(&state, &roots, "apply_fix", args) {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!(e.code, "finding_stale");
+                assert_eq!(e.message, "finding is no longer current");
+            }
+            other => panic!("expected finding_stale, got {other:?}"),
+        }
     }
 
     #[test]

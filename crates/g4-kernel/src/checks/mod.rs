@@ -23,6 +23,7 @@ use crate::project::{AssetId, AssetKind};
 mod data;
 #[cfg(test)]
 mod fake;
+pub mod fix;
 mod ignore;
 pub mod limits;
 pub mod runner;
@@ -33,6 +34,7 @@ mod world;
 
 pub(crate) use scripts::ScriptFacts;
 
+pub use fix::{FixChange, FixPlan, FixResult, apply_fix, plan_fix};
 pub use ignore::{
     IGNORE_FILE, IgnoreFile, IgnoreKey, IgnoreSet, fingerprint_text, parse_fingerprint,
 };

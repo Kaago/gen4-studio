@@ -13,7 +13,9 @@ use crate::commands::ProblemDto;
 /// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
 /// `"partial"` (a wizard or creating command failed after it had created members, which
 /// stay),
-/// `"compile"` (scripts or texts did not compile; `problems` lists them) or `"error"`;
+/// `"compile"` (scripts or texts did not compile; `problems` lists them),
+/// `"finding_stale"` (`plan_fix` / `apply_fix`: the finding is no longer reported as it was
+/// sent; nothing was changed) or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"`.
@@ -60,6 +62,7 @@ impl From<KernelError> for CmdError {
             KernelError::ReadOnly { asset, .. } => ("read_only", Some(*asset)),
             KernelError::Restore { asset, .. } => ("error", Some(*asset)),
             KernelError::ToolMissing { .. } => ("tool_missing", None),
+            KernelError::FindingStale => ("finding_stale", None),
             // Something was written before the failure and stays; the text names it.
             KernelError::Partial(_) => ("partial", None),
             _ => ("error", None),
@@ -155,6 +158,12 @@ mod tests {
         let other = CmdError::from(KernelError::NotEditable(AssetKind::Map));
         assert_eq!(other.code, "error");
         assert!(other.asset.is_none());
+
+        // A fix of a finding that changed since: its own code, not "stale" (a file on disk).
+        let finding = CmdError::from(KernelError::FindingStale);
+        assert_eq!(finding.code, "finding_stale");
+        assert!(finding.asset.is_none());
+        assert_eq!(finding.message, "finding is no longer current");
 
         let timeout = CmdError::from(KernelError::ToolTimeout {
             name: "apicula",

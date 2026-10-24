@@ -33,7 +33,7 @@ fn dialog_archives(src: &dyn Source) -> Result<BTreeSet<u16>, Skipped> {
 
 /// How a line of a message ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum End {
+pub(super) enum End {
     /// `\n`: the next line of the window.
     Line,
     /// `\r` (clear) or `\f` (scroll): a new page.
@@ -45,7 +45,7 @@ enum End {
 /// The lines of a message in chatot text form, split at the hard breaks `\n`, `\r` and
 /// `\f` (backslash and letter) the way chatot's tokenizer reads them: a backslash takes the
 /// next character with it, so `\\n` is a backslash and an `n`.
-fn lines(text: &str) -> Vec<(String, End)> {
+pub(super) fn lines(text: &str) -> Vec<(String, End)> {
     let mut out = Vec::new();
     let mut line = String::new();
     let mut chars = text.chars();

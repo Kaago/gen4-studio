@@ -1,4 +1,4 @@
-import type { ProblemDto } from "./api";
+import type { AssetId, ProblemDto } from "./api";
 import type { NavTargetDto } from "./api.data";
 import { invoke } from "./platform/transport";
 
@@ -9,6 +9,10 @@ import { invoke } from "./platform/transport";
  * A finding is a Problems row of source `check` with the fields of `CheckProblemDto`. Its `message` is the kernel's English
  * sentence; the UI words its own from `code` and `args`. Ignoring writes `<project>/g4-checks.json` at once (no `save`); errors
  * cannot be ignored and checks that report errors cannot be switched off (the commands reject with code "error").
+ *
+ * A fix (`planFix`, `applyFix`) checks the finding again on the current state first: when it is no longer reported as it was sent
+ * (its subject changed), the command rejects with code "finding_stale" and changes nothing. A fix the finding does not offer is
+ * rejected with code "error" ("fix wrap is not offered for code warp.dest-warp").
  */
 
 /** All groups (the default; the backend also takes `"full"`) or the cheap group only, the run 300 ms after an edit. */
@@ -114,3 +118,39 @@ export const acceptBaseline = () => invoke<ChecksReportDto>("accept_baseline");
 
 /** Switches a check on (the checks run again) or off (its findings leave the report at once). */
 export const setCheckEnabled = (code: string, enabled: boolean) => invoke<ChecksReportDto>("set_check_enabled", { code, enabled });
+
+/** What a fix changes in one asset: `label` names it in German ("Textarchiv 0433"); `before` and `after` are shown side by side. */
+export interface FixChangeDto {
+  asset: AssetId;
+  label: string;
+  /**
+   * `wrap`: the message as pages, the lines of a page joined by "\n", pages by an empty line; `append_message`: the last message and
+   * the new empty ones, "2: Sandgem Town" / "3:"; `swap_min_max`: "min 30\nmax 20"; `create_script`: "" and the rotom source added.
+   */
+  before: string;
+  after: string;
+}
+
+/** What a fix would change. `irreversible` (`create_script`): written at once, undo cannot take it back. */
+export interface FixPlanDto {
+  changes: FixChangeDto[];
+  irreversible: boolean;
+}
+
+/** What a fix changed, and whether its check still reports the finding (same code, subject and key) afterwards: „Nicht behoben“. */
+export interface FixResultDto {
+  changed: AssetId[];
+  remaining: boolean;
+}
+
+/** The finding as the backend reads it for a fix. */
+const fixArgs = (finding: FindingKey, fix: FixId) => ({
+  finding: { code: finding.code, subject: finding.subject, key: finding.key, fingerprint: finding.fingerprint },
+  fix,
+});
+
+/** What `fix` of `finding` would change; changes nothing. */
+export const planFix = (finding: FindingKey, fix: FixId) => invoke<FixPlanDto>("plan_fix", fixArgs(finding, fix));
+
+/** Applies `fix` of `finding` as one undoable step „Behoben: <code>“ (`create_script`: written at once) and checks the subject again. */
+export const applyFix = (finding: FindingKey, fix: FixId) => invoke<FixResultDto>("apply_fix", fixArgs(finding, fix));

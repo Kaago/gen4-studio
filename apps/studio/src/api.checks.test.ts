@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { acceptBaseline, checksStatus, ignoreFinding, runChecks, setCheckEnabled, unignoreFinding } from "./api";
-import type { CheckProblemDto, ChecksReportDto, NavTargetDto } from "./api";
+import { acceptBaseline, applyFix, checksStatus, ignoreFinding, isCmdError, planFix, runChecks, setCheckEnabled, unignoreFinding } from "./api";
+import type { CheckProblemDto, ChecksReportDto, FixPlanDto, FixResultDto, NavTargetDto } from "./api";
 import type { NavTarget } from "./workbench/navigation";
 
 /** A finding as `run_checks` answers it (see `commands/checks.rs`). */
@@ -77,5 +77,46 @@ describe("checks commands", () => {
 
   it("navigates like the workbench: a NavTargetDto is a NavTarget and back", () => {
     expectTypeOf<NavTargetDto>().toEqualTypeOf<NavTarget>();
+  });
+});
+
+describe("fix commands", () => {
+  /** A `text.too-wide` finding as `run_checks` answers it. */
+  const wide: CheckProblemDto = {
+    ...finding,
+    code: "text.too-wide",
+    subject: { kind: "textArchive", index: 433 },
+    key: "message:1:line:1",
+    label: "Textarchiv 0433 · Nachricht 1 · Zeile 1",
+    args: ["433", "1", "1", "530", "216"],
+    target: { kind: "textArchive", index: 433, message: 1 },
+    fixes: [{ id: "wrap", label: "Umbrechen", irreversible: false }],
+  };
+  const sent = { finding: { code: "text.too-wide", subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1", fingerprint: "c0ffee00deadbeef" }, fix: "wrap" };
+
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("plans a fix by the finding's key and the fix id, nothing else, and passes the plan through", async () => {
+    const plan: FixPlanDto = {
+      changes: [{ asset: { kind: "TextArchive", index: 433 }, label: "Textarchiv 0433", before: "Welcome to Twinleaf Town, where", after: "Welcome to\nTwinleaf Town,\n\nwhere" }],
+      irreversible: false,
+    };
+    invoke.mockResolvedValue(plan);
+    await expect(planFix(wide, "wrap")).resolves.toEqual(plan);
+    expect(invoke).toHaveBeenLastCalledWith("plan_fix", sent);
+  });
+
+  it("applies a fix the same way and resolves with what changed and whether the finding remains", async () => {
+    const result: FixResultDto = { changed: [{ kind: "TextArchive", index: 433 }], remaining: false };
+    invoke.mockResolvedValue(result);
+    await expect(applyFix(wide, "wrap")).resolves.toEqual(result);
+    expect(invoke).toHaveBeenLastCalledWith("apply_fix", sent);
+  });
+
+  it("rejects with a CmdError of code finding_stale when the finding changed since", async () => {
+    invoke.mockRejectedValue({ code: "finding_stale", message: "finding is no longer current", asset: null, problems: [] });
+    await expect(applyFix(wide, "wrap")).rejects.toSatisfy((e: unknown) => isCmdError(e) && e.code === "finding_stale");
   });
 });
