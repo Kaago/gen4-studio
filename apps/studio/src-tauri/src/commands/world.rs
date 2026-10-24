@@ -118,6 +118,10 @@ pub struct ObjectDto {
     pub script: u16,
     /// Facing: 0 up, 1 down, 2 left, 3 right.
     pub dir: i16,
+    /// 1: a trainer who sees the player within `sight` tiles; 0: none.
+    pub trainer_type: u16,
+    /// The sight range in tiles (object `data[0]`).
+    pub sight: u16,
     pub x: u16,
     pub z: u16,
     pub y: i32,
@@ -205,6 +209,8 @@ impl EventsDto {
                     movement_type: e.movement_type,
                     script: e.script,
                     dir: e.dir,
+                    trainer_type: e.trainer_type,
+                    sight: e.data[0],
                     x: e.x,
                     z: e.z,
                     y: e.y,
@@ -463,11 +469,11 @@ mod tests {
                     local_id: 7,
                     graphics_id: 9,
                     movement_type: 3,
-                    trainer_type: 0,
+                    trainer_type: 1,
                     hidden_flag: 0,
                     script: 2001,
                     dir: 0,
-                    data: [0; 3],
+                    data: [4, 7, 8],
                     movement_range_x: 0,
                     movement_range_z: 0,
                     x: 12,
@@ -509,6 +515,7 @@ mod tests {
             (0, 7, 9, 2001)
         );
         assert_eq!((o.movement_type, o.x, o.z, o.y), (3, 12, 13, -1));
+        assert_eq!((o.trainer_type, o.sight), (1, 4));
         let c = &ev.coords[0];
         assert_eq!((c.script, c.x, c.z, c.width, c.length), (9000, 3, -2, 2, 1));
         let b = &ev.bg[0];

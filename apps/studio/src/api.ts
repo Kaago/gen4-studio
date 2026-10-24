@@ -179,6 +179,10 @@ export interface ObjectDto {
   script: number;
   /** Facing: 0 up, 1 down, 2 left, 3 right. */
   dir: number;
+  /** 1: a trainer who sees the player within `sight` tiles; 0: none. */
+  trainer_type: number;
+  /** The sight range in tiles (object `data[0]`). */
+  sight: number;
   x: number;
   z: number;
   y: number;
@@ -327,6 +331,10 @@ export interface EventPatch {
   height?: number;
   width?: number;
   length?: number;
+  /** Objects only: 1 = the trainer sees the player, 0 = only talking starts the battle. */
+  trainer_type?: number;
+  /** Objects only: the sight range in tiles (object `data[0]`). */
+  sight?: number;
 }
 /** A decoded overworld sprite: RGBA8, row-major, row 0 is the top. */
 export interface SpriteDto {

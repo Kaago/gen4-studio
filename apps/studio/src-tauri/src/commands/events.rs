@@ -43,7 +43,8 @@ impl EventKind {
 /// The fields of an event the editor changes; `None` leaves a field as it is. A field the kind
 /// does not have is ignored. `x` and `z` are cut to the kind's field type (`u16` for warps and
 /// objects, `i16` for coordinate triggers, `i32` for background events); a value outside it
-/// refuses the whole call.
+/// refuses the whole call. Objects only: `trainer_type` (1 = the trainer sees the player, 0 = only
+/// talking starts the battle) and `sight`, the range in tiles stored in object `data[0]`.
 #[derive(Debug, Default, Deserialize)]
 pub struct EventPatch {
     pub x: Option<i32>,
@@ -59,6 +60,8 @@ pub struct EventPatch {
     pub height: Option<u32>,
     pub width: Option<u16>,
     pub length: Option<u16>,
+    pub trainer_type: Option<u16>,
+    pub sight: Option<u16>,
 }
 
 /// `v` as the field type `T`, or `OutOfRange` (`max` is the largest value `T` holds).
@@ -101,6 +104,8 @@ impl EventPatch {
             && s.height.is_none()
             && s.width.is_none()
             && s.length.is_none()
+            && s.trainer_type.is_none()
+            && s.sight.is_none()
     }
 
     /// Applies the patch to event `index` of `kind`, or fails without changing anything.
@@ -159,6 +164,12 @@ impl EventPatch {
                 }
                 if let Some(v) = self.local_id {
                     next.local_id = v;
+                }
+                if let Some(v) = self.trainer_type {
+                    next.trainer_type = v;
+                }
+                if let Some(v) = self.sight {
+                    next.data[0] = v;
                 }
                 *slot = next;
             }
@@ -506,6 +517,60 @@ mod tests {
             ),
             (12, 13, 0, 0, 0, 0, 0)
         );
+    }
+
+    #[test]
+    fn event_patch_sets_trainer_type_and_sight() {
+        let (_s, state) = open_synthetic();
+        add_event_impl(&state, 0, EventKind::Object, 12, 13).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 1).unwrap();
+        let o = &get_events_impl(&state, 0).unwrap().objects[0];
+        assert_eq!((o.trainer_type, o.sight), (0, 0));
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            0,
+            patch(|p| {
+                p.trainer_type = Some(1);
+                p.sight = Some(5);
+            }),
+        )
+        .unwrap();
+        let o = &get_events_impl(&state, 0).unwrap().objects[0];
+        assert_eq!((o.trainer_type, o.sight, o.x, o.script), (1, 5, 12, 0));
+        // The sight is object data[0]; data[1] and data[2] stay.
+        {
+            let mut guard = lock(&state).unwrap();
+            let file = session(&mut guard).unwrap().store.event(0).unwrap();
+            assert_eq!(file.object_events[0].data, [5, 0, 0]);
+            assert_eq!(file.object_events[0].trainer_type, 1);
+        }
+        // A sight change alone is an edit, not a move, and is undoable.
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            0,
+            patch(|p| p.sight = Some(2)),
+        )
+        .unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().objects[0].sight, 2);
+        undo_impl(&state).unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().objects[0].sight, 5);
+        // Other kinds ignore both fields.
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Warp,
+            0,
+            patch(|p| {
+                p.trainer_type = Some(1);
+                p.sight = Some(3);
+            }),
+        )
+        .unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().warps[0].x, 1);
     }
 
     #[test]

@@ -15,8 +15,8 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const header = (id: number, event: number, script: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0, script_file_id: script, level_script_id: 0 });
-const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, x: 3, z: 4, y: 0 };
-const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
+const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
+const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
 
 describe("EventEditor scripts", () => {
   let container: HTMLElement;

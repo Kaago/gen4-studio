@@ -26,6 +26,15 @@ export const FACINGS = [
   { value: 3, label: "Rechts" },
 ];
 
+/** Whether an object is a trainer who sees the player (`trainer_type`); other stored values stay visible. */
+export const SIGHTLINES = [
+  { value: 0, label: "Aus" },
+  { value: 1, label: "Trainer sieht dich" },
+];
+
+/** Largest sight range in tiles the field offers. */
+export const SIGHT_MAX = 15;
+
 const U16 = { min: 0, max: 0xffff };
 const I16 = { min: -0x8000, max: 0x7fff };
 
@@ -68,6 +77,8 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "movement_type", label: "Bewegung", ...U16 },
         { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS },
         { key: "script", label: TERMS.script.label, ...U16 },
+        { key: "trainer_type", label: "Sichtlinie", ...U16, options: SIGHTLINES },
+        { key: "sight", label: "Sichtweite", min: 0, max: SIGHT_MAX },
       ];
     case "coord":
       return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
@@ -81,7 +92,7 @@ export function eventSubtitle(kind: EventKind, index: number, total: number | nu
   return `${KIND_SINGULAR[kind]} ${index + 1}${total === null ? "" : ` von ${total}`}${place ? ` in ${place}` : ""}`;
 }
 
-const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length"];
+const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];
 
 function value(e: EventData, key: string): number {
   return Number((e as unknown as Record<string, unknown>)[key]);
