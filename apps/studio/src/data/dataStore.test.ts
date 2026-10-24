@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, itemTable, nameTables } from "../api";
 import { DataStore } from "./dataStore";
-import { dataChangedOf } from "./dataBus";
+import { dataChangedOf, editEventsOf } from "./dataBus";
 import { ITEMS, ITEM_TABLE, MOVES, NAMES, SPECIES, projectDp, projectPt } from "./dataTesting";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -154,5 +154,11 @@ describe("dataChangedOf", () => {
     // The text table and offsets hold every trainer's texts: any trainer may have changed.
     expect(dataChangedOf({ kind: "TrainerTextTable", index: 0 })).toEqual({ topic: "dataChanged", kind: "trainer", index: null });
     expect(dataChangedOf({ kind: "Map", index: 3 })).toBeNull();
+  });
+
+  it("announces a text archive a data edit changed as textData, a data member as dataChanged", () => {
+    expect(editEventsOf({ kind: "TextArchive", index: 618 })).toEqual([{ topic: "textData", archive: 618 }]);
+    expect(editEventsOf({ kind: "Trainer", index: 5 })).toEqual([{ topic: "dataChanged", kind: "trainer", index: 5 }]);
+    expect(editEventsOf({ kind: "Map", index: 3 })).toEqual([]);
   });
 });

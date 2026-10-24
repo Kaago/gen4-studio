@@ -221,11 +221,12 @@ impl RefIndex {
         let (generation, changed) = store.changes_since(built.generation);
         let changed = with_dependents(changed);
         if !changed.is_empty() {
-            // Only sources the store does not hold are read from the disk (in practice the
-            // store holds every asset it reports as changed, so nothing is opened).
+            // Only sources the store does not hold are read from the disk: a trainer's two
+            // member sources come from its loaded `Trainer` asset (`loaded_trainer_refs`), every
+            // other changed source is held as itself, so in practice nothing is opened.
             let kinds: Vec<AssetKind> = changed
                 .iter()
-                .filter(|&&id| store.peek(id).is_none())
+                .filter(|&&id| store.peek(id).is_none() && loaded_trainer_refs(store, id).is_none())
                 .map(|id| id.kind)
                 .collect();
             let disk = Disk::open(store.project(), &kinds)?;

@@ -7,11 +7,10 @@
 use std::path::Path;
 
 use g4_kernel::data::encounter_create;
-use g4_kernel::data::names::{Bank, bank_index};
 use g4_kernel::data::trainer_create::{
     self, CreateTrainerReport, TrainerText, TrainerTextsOutcome,
 };
-use g4_kernel::project::{AssetId, AssetKind};
+use g4_kernel::project::AssetKind;
 use tauri::State;
 
 use super::dto::{SplitDto, TrainerTextsDto};
@@ -80,21 +79,15 @@ pub fn set_trainer_texts_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     unlocked_family(&session.project)?;
-    let project = &session.project;
-    let archive = bank_index(project.family, project.language, Bank::BattleTexts);
-    let TrainerTextsOutcome { change, problems } =
+    super::trainer::refuse_placeholder(&session.store, trainer)?;
+    let (ids, before) = super::trainer::text_parts_before(session)?;
+    let TrainerTextsOutcome { problems, .. } =
         trainer_create::set_trainer_texts(&mut session.store, &mut session.names, trainer, texts)?;
     session.after_write();
-    let changed: Vec<AssetId> = match (change, archive) {
-        (Some(_), Some(archive)) => vec![
-            asset(AssetKind::TextArchive, archive),
-            asset(AssetKind::TrainerTextTable, 0),
-            asset(AssetKind::TrainerTextOffsets, 0),
-        ],
-        _ => Vec::new(),
-    };
     Ok(TrainerTextsDto {
-        changed,
+        // Only the parts whose bytes changed (an update of an existing text touches the
+        // archive alone).
+        changed: super::trainer::changed(&session.store, &ids, &before),
         problems: problems
             .iter()
             .map(|p| ProblemDto::from_kernel(p, Path::new(""), "trainer"))

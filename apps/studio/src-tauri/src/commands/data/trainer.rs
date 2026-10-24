@@ -264,6 +264,42 @@ pub fn trainer_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdE
     })
 }
 
+/// Refuses any change to the placeholder trainer of the sight script slot (read-only).
+pub fn refuse_placeholder(store: &Store, index: u16) -> Result<(), CmdError> {
+    if store.placeholder_trainer() == Some(index) {
+        return Err(KernelError::ReadOnly {
+            asset: trainer_id(index),
+            reason: PLACEHOLDER_REASON.to_owned(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// Assets and their bytes before a change (`None`: not loaded), for [`changed`].
+pub type Before = ([AssetId; 3], Vec<Option<Vec<u8>>>);
+
+/// The three parts battle texts are written to (battle text archive, `trtbl`, `trtblofs`),
+/// loaded, with their bytes before the change (compare with [`changed`]).
+pub fn text_parts_before(session: &mut Session) -> Result<Before, CmdError> {
+    let project = &session.project;
+    let archive = bank_index(project.family, project.language, Bank::BattleTexts)
+        .ok_or("the game has no battle text bank")?;
+    let ids = [
+        asset(AssetKind::TextArchive, archive),
+        asset(AssetKind::TrainerTextTable, 0),
+        asset(AssetKind::TrainerTextOffsets, 0),
+    ];
+    session.store.text_archive(archive)?;
+    session.store.trainer_text_table(0)?;
+    session.store.trainer_text_offsets(0)?;
+    let before = ids
+        .iter()
+        .map(|&id| session.store.current_bytes(id))
+        .collect::<Result<_, _>>()?;
+    Ok((ids, before))
+}
+
 /// The value `value` as `T` for field `field`.
 fn narrow<T: TryFrom<i64>>(value: i64, field: &str) -> Result<T, CmdError> {
     T::try_from(value).map_err(|_| format!("{value} does not fit {field}").into())
@@ -274,7 +310,7 @@ fn word(on: bool) -> &'static str {
 }
 
 /// The assets of `ids` whose bytes differ from `before` (taken before the change).
-fn changed(store: &Store, ids: &[AssetId], before: &[Option<Vec<u8>>]) -> Vec<AssetId> {
+pub fn changed(store: &Store, ids: &[AssetId], before: &[Option<Vec<u8>>]) -> Vec<AssetId> {
     ids.iter()
         .zip(before)
         .filter(|(id, old)| store.current_bytes(**id).ok().flatten() != **old)
@@ -291,6 +327,9 @@ pub fn apply(
     label: Option<String>,
 ) -> Result<Vec<AssetId>, CmdError> {
     let id = trainer_id(index);
+    // The placeholder is never edited, whatever the patch (its name and texts live outside the
+    // locked asset, so the store alone would not refuse them).
+    refuse_placeholder(&session.store, index)?;
     let family = session.project.family;
     let doc = session.store.trainer(index)?.clone();
     let who = title(session, index, doc.class);
@@ -332,13 +371,6 @@ pub fn apply(
         DataPatch::TrainerName { name } => {
             if name_units(&name) > NAME_MAX_CHARS + 1 {
                 return Err(KernelError::Refused(NAME_TOO_LONG.to_owned()).into());
-            }
-            if session.store.placeholder_trainer() == Some(index) {
-                return Err(KernelError::ReadOnly {
-                    asset: id,
-                    reason: PLACEHOLDER_REASON.to_owned(),
-                }
-                .into());
             }
             let project = &session.project;
             let archive = bank_index(project.family, project.language, Bank::TrainerNames)
@@ -421,22 +453,7 @@ pub fn apply(
                 .edit_trainer(index, &label, |t| t.party = mons)?))
         }
         DataPatch::TrainerTexts { texts } => {
-            let project = &session.project;
-            let archive = bank_index(project.family, project.language, Bank::BattleTexts)
-                .ok_or("the game has no battle text bank")?;
-            let ids = [
-                asset(AssetKind::TextArchive, archive),
-                asset(AssetKind::TrainerTextTable, 0),
-                asset(AssetKind::TrainerTextOffsets, 0),
-            ];
-            // Loads the three parts, so their bytes can be compared afterwards.
-            session.store.text_archive(archive)?;
-            session.store.trainer_text_table(0)?;
-            session.store.trainer_text_offsets(0)?;
-            let before: Vec<Option<Vec<u8>>> = ids
-                .iter()
-                .map(|&id| session.store.current_bytes(id))
-                .collect::<Result<_, _>>()?;
+            let (ids, before) = text_parts_before(session)?;
             let texts = texts
                 .into_iter()
                 .map(|t| TrainerText {

@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataEdit, dataGet, dataList, encounterProblemFile, itemTable, nameTables } from "../api";
+import { dataEdit, dataGet, dataList, encounterProblemFile, itemTable, nameTables, trainerProblemFile } from "../api";
 import type { DataDocDto, ProblemDto } from "../api";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { NAMES, dataHarness, flush } from "./dataTesting";
@@ -93,6 +93,90 @@ describe("useDataDoc with Problems rows", () => {
     await flush();
     // The edit announced the member; the read after it replaced the rows instead of adding to them.
     expect(problems.list().map((p) => p.message)).toEqual(["grass slot 2: level 0"]);
+    h.unmount();
+  });
+});
+
+type TrainerDoc = Extract<DataDocDto, { kind: "trainer" }>;
+
+const trainerDoc = (text: string, problems: ProblemDto[]): TrainerDoc => ({
+  kind: "trainer",
+  class: 1,
+  name: "Jens",
+  format: { moves: false, items: false },
+  ai: 1,
+  battle_type: 0,
+  items: [0, 0, 0, 0],
+  party: [],
+  texts: [{ kind: 0, archive: 617, message: 2, text }],
+  texts_locked: null,
+  events: [],
+  name_archive: 618,
+  text_archive: 617,
+  problems,
+  placeholder: false,
+  locked: null,
+  raw_locked: null,
+});
+
+const TRAINER_SPEC: DocSpec<TrainerDoc> = {
+  area: "pokemon",
+  kind: "trainer",
+  parts: ["trainer"],
+  accept: (doc) => (doc.kind === "trainer" ? doc : null),
+  wrongKind: "kein Trainer",
+  // The name and the battle texts live in text archives: a change there must read the trainer again.
+  texts: (doc) => [doc.name_archive, doc.text_archive],
+  problems: (doc, index) => ({ file: trainerProblemFile(index), rows: doc.problems }),
+};
+
+let fixText: (() => Promise<boolean>) | null = null;
+let shown: TrainerDoc | null = null;
+
+function TrainerProbe() {
+  const doc = useDataDoc(TRAINER_SPEC, 928);
+  shown = doc.doc;
+  fixText = () => doc.update(928, () => ({ patch: { TrainerTexts: { texts: [{ kind: 0, text: "Los!\\r" }] } }, label: "Wanderer Jens: Kampftext" }));
+  return null;
+}
+
+describe("useDataDoc with a text-only change", () => {
+  it("reads the trainer again when the edit changed only a text archive, and its Problems row goes", async () => {
+    const row: ProblemDto = { severity: "warning", file: trainerProblemFile(928), line: 1, col: 1, message: "trainer 928: no \\r", source: "trainer" };
+    let backend = trainerDoc("Los!", [row]);
+    vi.mocked(dataList).mockReset().mockResolvedValue([]);
+    vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
+    vi.mocked(itemTable).mockReset().mockResolvedValue(null);
+    vi.mocked(dataGet).mockReset().mockImplementation(async () => backend);
+    // The backend changed the battle text archive alone (the kind existed): no data member.
+    vi.mocked(dataEdit).mockReset().mockImplementation(async () => {
+      backend = trainerDoc("Los!\\r", []);
+      return [{ kind: "TextArchive", index: 617 }];
+    });
+    const problems = new ProblemsStore();
+    const h = dataHarness((props) => (
+      <PokemonArea context={props}>
+        <TrainerProbe />
+      </PokemonArea>
+    ));
+    const events: unknown[] = [];
+    h.bus.subscribe(
+      () => true,
+      (event) => void events.push(event),
+    );
+    h.show(h.base({ problems }));
+    await flush();
+    expect(problems.list().map((p) => `${p.source}:${p.file}`)).toEqual(["trainer:trainers/0928"]);
+    const reads = vi.mocked(dataGet).mock.calls.length;
+    await act(async () => {
+      await fixText?.();
+    });
+    await flush();
+    expect(events).toContainEqual({ topic: "textData", archive: 617 });
+    // Read again beyond the read the edit makes to build its patch: the text and the rows follow the backend.
+    expect(vi.mocked(dataGet).mock.calls.length).toBeGreaterThanOrEqual(reads + 2);
+    expect(shown?.texts[0]?.text).toBe("Los!\\r");
+    expect(problems.list()).toEqual([]);
     h.unmount();
   });
 });

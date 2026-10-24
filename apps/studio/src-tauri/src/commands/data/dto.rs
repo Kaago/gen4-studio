@@ -538,8 +538,8 @@ pub enum TargetDto {
     Encounter { index: u16 },
 }
 
-/// Where a reference leads: the shapes of the frontend's `NavTarget`. `encounter` and
-/// `trainer` have no editor before 3b.3b; the UI shows them disabled.
+/// Where a reference leads: the shapes of the frontend's `NavTarget` (`encounter` and
+/// `trainer` open the editors of 3b.3b).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NavTargetDto {

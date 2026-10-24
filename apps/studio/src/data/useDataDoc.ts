@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { dataEdit, dataGet, errorText } from "../api";
 import type { DataDocDto, DataKind, DataPatch, ProblemDto, ProjectInfo } from "../api";
-import { dataChangedOf } from "./dataBus";
+import { editEventsOf } from "./dataBus";
 import type { DataArea } from "./dataModel";
 import { useDataArea } from "./useDataArea";
 
@@ -196,10 +196,8 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
         writes.current = [...writes.current, { seq: ++written.current, member: targetMember, project: owner, patch: made.patch }];
         setEditError(null);
         if (changed.length > 0) {
-          for (const asset of changed) {
-            const event = dataChangedOf(asset);
-            if (event) latest.current.bus.emit(event);
-          }
+          // Data members announce `dataChanged`, text archives (a trainer's name, its battle texts) `textData`.
+          for (const asset of changed) for (const event of editEventsOf(asset)) latest.current.bus.emit(event);
           latest.current.onEdited();
         }
         return true;

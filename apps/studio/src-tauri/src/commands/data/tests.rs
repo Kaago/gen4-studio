@@ -696,6 +696,86 @@ fn trainer_format_on_fills_default_moves_in_one_step() {
     assert_eq!(party(&state, 1)[0].item, Some(0));
 }
 
+/// The trainer `index` as the store holds it must encode to bytes that decode to the same
+/// trainer and encode again unchanged (`encode(decode(p, q)) == (p, q)`).
+fn assert_trainer_round_trips(state: &AppState, index: u16) {
+    use g4_formats::data::trainer_doc::{Checked, TrainerDoc};
+    let raw = data_raw_impl(state, DataKind::Trainer, index).unwrap();
+    let len = u32::from_le_bytes(raw.bytes[..4].try_into().unwrap()) as usize;
+    let (props, party) = raw.bytes[4..].split_at(len);
+    match TrainerDoc::check(props, party, g4_formats::game::Family::Pt) {
+        Checked::Exact(_) => {}
+        other => panic!("trainer {index}: {other:?}"),
+    }
+}
+
+#[test]
+fn six_pokemon_moves_off_undo_and_on_follow_the_game_rule() {
+    let (_fixture, state) = open_synthetic();
+    let format = |moves: Option<bool>| DataPatch::TrainerFormat { moves, items: None };
+    // Trainer 2 has moves and items; give it six Pokémon with moves of their own.
+    let custom = |i: u16| [20 + i, 21, 22, 3];
+    let six: Vec<PartyMonDto> = (0..6u16)
+        .map(|i| PartyMonDto {
+            iv_or_difficulty: 10 * i as u8,
+            level: [3, 5, 9, 12, 40, 100][usize::from(i)],
+            species: 1 + i,
+            item: Some(25),
+            moves: Some(custom(i)),
+            ball_capsule: Some(0),
+            ..PartyMonDto::default()
+        })
+        .collect();
+    data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        2,
+        DataPatch::TrainerParty { party: six },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        last_label(&state),
+        "Pokémon Trainer Mia: Team 3 → 6 Pokémon"
+    );
+    assert_trainer_round_trips(&state, 2);
+    let moves = |state: &AppState| party(state, 2).iter().map(|m| m.moves).collect::<Vec<_>>();
+    let mine: Vec<_> = (0..6).map(|i| Some(custom(i))).collect();
+    assert_eq!(moves(&state), mine);
+
+    // Off drops the moves of all six in one step; undo brings the custom moves back.
+    let steps = history_impl(&state).unwrap().undo.len();
+    data_edit_impl(&state, DataKind::Trainer, 2, format(Some(false)), None).unwrap();
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
+    assert_eq!(moves(&state), vec![None; 6]);
+    assert_trainer_round_trips(&state, 2);
+    undo_impl(&state).unwrap();
+    assert_eq!(moves(&state), mine);
+    assert_trainer_round_trips(&state, 2);
+
+    // Off and on again: the moves the game gives (Pound at 1, Karate Chop at 5 in every
+    // synthetic learnset), not the custom ones.
+    data_edit_impl(&state, DataKind::Trainer, 2, format(Some(false)), None).unwrap();
+    data_edit_impl(&state, DataKind::Trainer, 2, format(Some(true)), None).unwrap();
+    let rule = [
+        Some([1, 0, 0, 0]),
+        Some([1, 2, 0, 0]),
+        Some([1, 2, 0, 0]),
+        Some([1, 2, 0, 0]),
+        Some([1, 2, 0, 0]),
+        Some([1, 2, 0, 0]),
+    ];
+    assert_eq!(moves(&state), rule);
+    assert_trainer_round_trips(&state, 2);
+    // Items stayed; the levels and species too.
+    let now = party(&state, 2);
+    assert!(now.iter().all(|m| m.item == Some(25)));
+    assert_eq!(
+        now.iter().map(|m| m.species).collect::<Vec<_>>(),
+        [1, 2, 3, 4, 5, 6]
+    );
+}
+
 #[test]
 fn trainer_name_over_seven_chars_is_refused() {
     let (_fixture, state) = open_synthetic();
@@ -975,17 +1055,39 @@ fn create_trainer_command_reports_placeholder() {
     let rows = data_list_impl(&state, DataKind::Trainer, None).unwrap();
     assert_eq!(rows.len(), 6);
     assert!(rows[4].locked.is_some());
-    // The placeholder refuses edits.
+    // The placeholder refuses edits, its name and texts too; the lock comes before the name
+    // length check.
     for patch in [
         DataPatch::TrainerName { name: "X".into() },
+        DataPatch::TrainerName {
+            name: "Bartholomeus".into(),
+        },
         DataPatch::Trainer {
             field: "ai".into(),
             value: 1,
+        },
+        DataPatch::TrainerTexts {
+            texts: vec![TrainerTextInDto {
+                kind: 0,
+                text: "x\\r".into(),
+            }],
         },
     ] {
         let err = data_edit_impl(&state, DataKind::Trainer, 4, patch, None).unwrap_err();
         assert_eq!(err.code, "read_only", "{}", err.message);
     }
+    let steps = history_impl(&state).unwrap().undo.len();
+    let err = set_trainer_texts_impl(
+        &state,
+        4,
+        vec![g4_kernel::data::trainer_create::TrainerText {
+            kind: 0,
+            text: "x\\r".into(),
+        }],
+    )
+    .unwrap_err();
+    assert_eq!(err.code, "read_only", "{}", err.message);
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps);
 }
 
 #[test]
@@ -1013,6 +1115,18 @@ fn set_trainer_texts_reports_problems_and_encounter_files_split() {
         (out.problems[0].source, out.problems[0].file.as_str()),
         ("trainer", "trainers/0002")
     );
+    // A text the trainer has already changes the archive alone; that is all it reports.
+    let out = set_trainer_texts_impl(
+        &state,
+        1,
+        vec![g4_kernel::data::trainer_create::TrainerText {
+            kind: 0,
+            text: "Los!\\r".into(),
+        }],
+    )
+    .unwrap();
+    assert_eq!(out.changed, [id(AssetKind::TextArchive, 617)]);
+    assert!(out.problems.is_empty(), "{:?}", out.problems);
 
     let index = create_encounter_file_impl(&state, Some(0)).unwrap();
     assert_eq!(index, 2);
