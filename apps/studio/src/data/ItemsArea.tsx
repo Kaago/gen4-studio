@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { DataRowDto, ItemEntryDto, ItemRowExtra } from "../api";
 import { dataStatus } from "../app/statusContext";
@@ -21,39 +21,38 @@ export const ItemsArea = memo(function ItemsArea({ context, children }: { contex
   return <Provider value={model}>{children}</Provider>;
 });
 
-/** The bag icon of an item row: only with the item table, and only where the icon archive has the icon. */
-function ItemIcon({ row, label }: { row: DataRowDto; label: string }) {
-  const { itemTable } = useDataArea("gegenstaende");
-  const entry: ItemEntryDto | undefined = itemTable?.[row.index];
+/** The bag icon of an item row: only with the item table (`entry`), and only where the icon archive has the icon. */
+function ItemIcon({ row, label, entry }: { row: DataRowDto; label: string; entry: ItemEntryDto | undefined }) {
   const hasIcon = entry !== undefined && (row.extra as ItemRowExtra | null)?.icon === true;
   return <RowIcon iconKey={hasIcon ? itemIconKey(entry) : null} load={() => (hasIcon ? itemIcon(row.index, entry) : Promise.resolve(null))} label={label} area="gegenstaende" />;
 }
 
-const itemLeading = (row: DataRowDto, label: string) => <ItemIcon row={row} label={label} />;
-
-function ItemList() {
-  return <DataList area="gegenstaende" label="Gegenstände" attr="data-item" leading={itemLeading} />;
+/** The plain list of the items (Task 16 brings its own). The rows get the item table through their `leading`, not each from the model. */
+function ItemRows() {
+  const { itemTable } = useDataArea("gegenstaende");
+  const leading = useCallback((row: DataRowDto, label: string) => <ItemIcon row={row} label={label} entry={itemTable?.[row.index]} />, [itemTable]);
+  return <DataList area="gegenstaende" label="Gegenstände" attr="data-item" leading={leading} />;
 }
 
 const Chosen = chosenHead("gegenstaende");
 
 /** The part of the area; the mount point of the items editor (Task 16 replaces the entry). */
 export const ITEM_PARTS: Partial<Record<DataSub, DataPart>> = {
-  items: { List: ItemList, View: Chosen, Hand: Chosen },
+  items: { List: ItemRows, View: Chosen, Hand: Chosen },
 };
 
 /** The list column of the Gegenstände area. */
-export function ItemsList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function ItemsAreaList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return <DataListPane area="gegenstaende" parts={ITEM_PARTS} open={open} onToggle={onToggle} />;
 }
 
 /** The view (Schau) of the Gegenstände area: the chosen item. */
-export function ItemView() {
+export function ItemsView() {
   return <DataPanel area="gegenstaende" parts={ITEM_PARTS} place="View" />;
 }
 
 /** The hand of the Gegenstände area: the editor of the chosen item. */
-export function ItemHand() {
+export function ItemsHand() {
   return <DataPanel area="gegenstaende" parts={ITEM_PARTS} place="Hand" />;
 }
 

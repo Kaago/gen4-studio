@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { RowDataAttrs } from "../../ui/primitives";
 import styles from "./TextTable.module.css";
@@ -86,22 +86,37 @@ export const TextTable = memo(function TextTable({ label, kind, columns, count, 
   const end = Math.min(count, first + inView + BUFFER / 2);
   const active = selected !== null && selected < count ? selected : 0;
 
-  /** Scrolls the least distance that shows row `index` in full. */
+  /**
+   * Scrolls the least distance that shows row `index` in full. Measures the body and a row as they are laid out now: on the render that
+   * mounts the table the measured sizes are not in state yet.
+   */
   function reveal(index: number) {
     const el = body.current;
     if (!el) return;
-    const top = index * height;
+    const laidOut = el.querySelector<HTMLElement>("[data-row]")?.offsetHeight ?? 0;
+    const rowHeight = laidOut > 0 ? laidOut : height;
+    const viewNow = el.clientHeight > 0 ? el.clientHeight : VIEW_FALLBACK_ROWS * rowHeight;
+    const top = index * rowHeight;
     let next = el.scrollTop;
     if (top < next) next = top;
-    else if (top + height > next + view) next = top + height - view;
+    else if (top + rowHeight > next + viewNow) next = top + rowHeight - viewNow;
     if (next !== el.scrollTop) el.scrollTop = next;
     setScrollTop(next);
   }
 
-  // A selection made elsewhere (a link, a hit, a new message) comes into view.
-  useEffect(() => {
-    if (selected !== null && selected < count) reveal(selected);
-  }, [selected, count]);
+  // A selection made elsewhere (a link, a hit, a new message) comes into view, before the paint, and again when the sizes arrive: it
+  // counts as done only once the table is laid out (a hidden area's table has no height yet).
+  const revealed = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (selected === null || selected >= count) {
+      revealed.current = null;
+      return;
+    }
+    const shownKey = `${selected}:${count}`;
+    if (revealed.current === shownKey) return;
+    reveal(selected);
+    if ((body.current?.clientHeight ?? 0) > 0) revealed.current = shownKey;
+  }, [selected, count, height, viewHeight]);
 
   useLayoutEffect(() => {
     if (focusAfter.current === null) return;

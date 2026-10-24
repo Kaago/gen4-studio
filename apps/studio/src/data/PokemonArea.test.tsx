@@ -2,7 +2,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, getMonIcon, itemTable, nameTables } from "../api";
-import { readShellState } from "../ui/frame/shellState";
+import { readShellState, writeShellState } from "../ui/frame/shellState";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { MOVES, NAMES, SPECIES, dataHarness, flush, move, openMenu, projectDp, species } from "./dataTesting";
 import { resetIcons } from "./icons";
@@ -197,6 +197,64 @@ describe("PokemonArea", () => {
     h.show(h.base({ target: { sub: "pokedex", index: 400 } }));
     await flush();
     expect(rowOf("data-species", 400)?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  describe("with a laid-out list", () => {
+    // jsdom has no layout: the list is 240 px high, a row 24 px (the compact density), as a browser would measure them.
+    const LIST = 240;
+    const ROW = 24;
+    const restore: (() => void)[] = [];
+    const stub = (name: "clientHeight" | "offsetHeight", get: (el: HTMLElement) => number) => {
+      // `clientHeight` is jsdom's on Element, `offsetHeight` on HTMLElement: put back what was there, or nothing.
+      const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get(this: HTMLElement) { return get(this); } });
+      restore.push(() => (before ? Object.defineProperty(HTMLElement.prototype, name, before) : delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name]));
+    };
+    const listbox = () => h.q<HTMLElement>('[role=listbox][aria-label="Pokédex"]')!;
+    const many = () => Array.from({ length: 508 }, (_, i) => species(i, `Art Nummer ${i}`));
+
+    beforeEach(() => {
+      vi.mocked(dataList).mockImplementation(async (kind) => (kind === "species" ? many() : kind === "move" ? MOVES : []));
+      stub("clientHeight", (el) => (el.getAttribute("role") === "listbox" ? LIST : 0));
+      stub("offsetHeight", (el) => (el.hasAttribute("data-pos") ? ROW : 0));
+    });
+    afterEach(() => {
+      while (restore.length > 0) restore.pop()!();
+    });
+
+    it("scrolls_a_selection_it_mounts_with_into_view_with_the_measured_sizes", async () => {
+      writeShellState({ ...readShellState(), selected: { pokedex: 400 } });
+      h.show(h.base());
+      await flush();
+      // Row 400 ends at 401 × 24 px; the list shows 240 px of it.
+      expect(listbox().scrollTop).toBe(401 * ROW - LIST);
+      expect(rowOf("data-species", 400)).not.toBeNull();
+      // Coming back to the Pokédex from another part mounts the list again: the selection is in view again.
+      await switchTo("Attacken");
+
+      await switchTo("Pokédex");
+      expect(listbox().scrollTop).toBe(401 * ROW - LIST);
+    });
+
+    it("keeps_the_focused_row_when_the_list_scrolls_away_from_it", async () => {
+      h.show(h.base());
+      await flush();
+      rowOf("data-species", 0)!.focus();
+      const list = listbox();
+      list.scrollTop = 300 * ROW;
+      act(() => void list.dispatchEvent(new Event("scroll")));
+      expect(rowOf("data-species", 300)).not.toBeNull();
+      expect(document.activeElement?.getAttribute("data-species")).toBe("0");
+      expect(rowOf("data-species", 0)?.getAttribute("tabindex")).toBe("0");
+    });
+  });
+
+  it("tells_assistive_technology_where_a_rendered_row_stands_in_the_whole_list", async () => {
+    h.show(h.base());
+    await flush();
+    const staravia = rowOf("data-species", 397)!;
+    expect(staravia.getAttribute("aria-setsize")).toBe("4");
+    expect(staravia.getAttribute("aria-posinset")).toBe("3");
   });
 
   it("reads_the_moves_again_when_one_changed", async () => {

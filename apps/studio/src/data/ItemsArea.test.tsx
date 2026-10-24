@@ -5,7 +5,7 @@ import { dataList, getItemIcon, itemTable, nameTables } from "../api";
 import { readShellState } from "../ui/frame/shellState";
 import { ITEMS, ITEM_TABLE, NAMES, dataHarness, flush, item } from "./dataTesting";
 import { resetIcons } from "./icons";
-import { ItemHand, ItemView, ItemsArea, ItemsList, ItemsStatus } from "./ItemsArea";
+import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "./ItemsArea";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -32,12 +32,12 @@ describe("ItemsArea", () => {
     Element.prototype.scrollIntoView = () => {};
     h = dataHarness((props) => (
       <ItemsArea context={props}>
-        <ItemsList open onToggle={() => {}} />
+        <ItemsAreaList open onToggle={() => {}} />
         <section data-view="">
-          <ItemView />
+          <ItemsView />
         </section>
         <section data-hand="">
-          <ItemHand />
+          <ItemsHand />
         </section>
         <p data-status="">
           <ItemsStatus />
@@ -70,6 +70,20 @@ describe("ItemsArea", () => {
     expect(h.q('[data-item="17"]')?.textContent).toContain("Daten 0017");
     expect(h.q('[data-item="17"] [data-sprite=picture]')).toBeNull();
     expect(getItemIcon).not.toHaveBeenCalled();
+  });
+
+  it("waits_for_the_item_table_before_it_names_the_rows", async () => {
+    let answer: (table: typeof ITEM_TABLE) => void = () => {};
+    vi.mocked(itemTable).mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    h.show(h.base());
+    await flush();
+    // The rows are there, the table is not: no "Daten 0017" before "Trank".
+    expect(rows()).toEqual([]);
+    expect(h.container.textContent).not.toContain("Daten");
+    expect(h.container.textContent).toContain("Lädt");
+    await act(async () => answer(ITEM_TABLE));
+    await flush();
+    expect(h.q('[data-item="17"]')?.textContent).toContain("Trank");
   });
 
   it("puts_the_pocket_into_the_breadcrumb_and_a_click_on_it_shows_that_pocket_only", async () => {

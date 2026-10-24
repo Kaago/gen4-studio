@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
-import { ItemHand, ItemView, ItemsArea, ItemsList, ItemsStatus } from "../data/ItemsArea";
+import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "../data/PokemonArea";
 import type { DataArea } from "../data/dataModel";
 import type { DataStore } from "../data/dataStore";
@@ -379,7 +379,7 @@ export function ItemsListPane() {
   const { state, setListOpen } = useShell();
   const listOpen = state.listOpen.gegenstaende;
   const onToggle = useStableCallback(() => setListOpen("gegenstaende", !listOpen));
-  return <ItemsList open={listOpen} onToggle={onToggle} />;
+  return <ItemsAreaList open={listOpen} onToggle={onToggle} />;
 }
 
 /**
@@ -401,7 +401,7 @@ export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> =
     hand: { pokemonEdit: PokemonHand },
   },
   gegenstaende: {
-    schau: { itemView: ItemView },
-    hand: { itemEdit: ItemHand },
+    schau: { itemView: ItemsView },
+    hand: { itemEdit: ItemsHand },
   },
 };

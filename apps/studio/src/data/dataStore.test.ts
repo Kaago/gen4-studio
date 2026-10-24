@@ -52,11 +52,26 @@ describe("DataStore", () => {
     expect(dataList).toHaveBeenCalledTimes(2);
     // A learnset is no part of the species rows.
     store.onEvent({ topic: "dataChanged", kind: "learnset", index: 397 });
-    // Names come from the text archives.
-    store.onEvent({ topic: "textData", archive: 412 });
     await settle();
     expect(dataList).toHaveBeenCalledTimes(2);
+    // Names come from the text archives (and the rows carry them).
+    store.onEvent({ topic: "textData", archive: 412 });
+    await settle();
+    expect(dataList).toHaveBeenCalledTimes(3);
     expect(nameTables).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads_the_names_and_the_lists_it_has_again_when_a_text_archive_changed", async () => {
+    const store = new DataStore();
+    store.need(projectPt, "species");
+    await settle();
+    // A name edited in the texts: the rows carry the names, so they are read again too.
+    vi.mocked(dataList).mockResolvedValue([{ ...SPECIES[2]!, name: "Staravia neu" }]);
+    store.onEvent({ topic: "textData", archive: 412 });
+    await settle();
+    expect(store.get().rows.species?.[0]?.name).toBe("Staravia neu");
+    // A list never asked for is not read.
+    expect(vi.mocked(dataList).mock.calls.map((c) => c[0])).toEqual(["species", "species"]);
   });
 
   it("reads_a_list_again_that_changed_while_it_was_being_read", async () => {

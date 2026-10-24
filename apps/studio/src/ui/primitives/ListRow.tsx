@@ -26,6 +26,9 @@ export type ListRowProps = {
   title?: string;
   /** Not selectable (`aria-disabled`, no click, skipped by the arrow keys); `title` can say why. */
   disabled?: boolean;
+  /** In a list that renders only some of its rows: how many rows it has, and this row's place among them (1-based). */
+  ariaSetSize?: number;
+  ariaPosInSet?: number;
 };
 
 /** Enter and Space select, but only when the row itself has focus (not a control inside `trailing`). */
@@ -42,7 +45,7 @@ export function rowClass(selected: boolean, disabled: boolean | undefined): stri
 }
 
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
+export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet }: ListRowProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const subtitleId = `${id}-subtitle`;
@@ -56,6 +59,8 @@ export function ListRow({ label, tech, icon, leading, subtitle, selected, onSele
       aria-labelledby={named ? labelId : undefined}
       aria-describedby={subtitle !== undefined ? subtitleId : undefined}
       aria-disabled={disabled ? true : undefined}
+      aria-setsize={ariaSetSize}
+      aria-posinset={ariaPosInSet}
       title={title}
       data-roving=""
       className={rowClass(selected, disabled)}

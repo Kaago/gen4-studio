@@ -162,8 +162,10 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   }, [row, labelOf, sub, switcher, pocket, goTo, setSearch]);
   useEffect(() => onTrail?.(crumbs), [crumbs, onTrail]);
 
-  const error = kind === null ? null : (data.errors[kind] ?? data.errors.names ?? null);
-  const loading = project !== null && kind !== null && data.rows[kind] === undefined && data.locked === null && error === null;
+  const error = kind === null ? null : (data.errors[kind] ?? data.errors.names ?? (kind === "item" ? data.errors.itemTable : undefined) ?? null);
+  // Items wait for the item table too: without it they would show as data members ("Daten 0017") for a moment.
+  const waiting = kind !== null && (data.rows[kind] === undefined || (kind === "item" && data.itemTable === undefined));
+  const loading = project !== null && waiting && data.locked === null && error === null;
 
   return useMemo<DataAreaModel>(
     () => ({

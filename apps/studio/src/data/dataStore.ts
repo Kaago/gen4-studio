@@ -84,7 +84,8 @@ export class DataStore {
       const part = PART_OF[event.kind];
       if (part !== undefined) this.changed(part);
     } else if (event.topic === "textData") {
-      this.changed("names");
+      // The names come from the text archives, and every row carries its name.
+      for (const part of ["names", "species", "move", "item"] as const) this.changed(part);
     }
   }
 
@@ -160,6 +161,8 @@ export function useDataLists(store: DataStore, project: ProjectInfo | null): Dat
   return useMemo(() => {
     if (snapshot === null || project === null || snapshot.project !== project) return null;
     const { rows, itemTable } = snapshot;
-    return { species: rows.species ?? NONE, moves: rows.move ?? NONE, items: rows.item ?? NONE, itemTable: itemTable !== null && itemTable !== undefined };
+    // Items wait for the item table: without it they would be listed as data members ("Daten 0017") for a moment.
+    const items = itemTable === undefined ? NONE : (rows.item ?? NONE);
+    return { species: rows.species ?? NONE, moves: rows.move ?? NONE, items, itemTable: itemTable !== null && itemTable !== undefined };
   }, [snapshot, project]);
 }

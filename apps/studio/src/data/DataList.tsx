@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { DataRowDto } from "../api";
 import { Button, EmptyState, ListRow, Sprite, TextField } from "../ui/primitives";
@@ -27,11 +27,13 @@ export interface DataListProps extends DataListRows {
 }
 
 /** One row. Memoised: a selection or search renders the rows whose props changed, not all of them. */
-const DataRow = memo(function DataRow({ row, pos, label, selected, onSelect, rows }: { row: DataRowDto; pos: number; label: string; selected: boolean; onSelect: (index: number) => void; rows: DataListRows }) {
+const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSelect, rows }: { row: DataRowDto; pos: number; count: number; label: string; selected: boolean; onSelect: (index: number) => void; rows: DataListRows }) {
   // `data-pos`: the row's place in the shown rows, for the windowed list's keys.
   const attrs = { [rows.attr]: row.index, "data-pos": pos } as RowDataAttrs;
   return (
     <ListRow
+      ariaSetSize={count}
+      ariaPosInSet={pos + 1}
       label={label}
       tech={row.tech}
       leading={rows.leading?.(row, label)}
@@ -126,36 +128,44 @@ function WindowedRows({ label, shown, selected, onSelect, labelOf, rows }: { lab
   const start = Math.max(0, first - BUFFER / 2);
   const end = Math.min(count, first + inView + BUFFER / 2);
 
-  /** Scrolls the least distance that shows the row at `pos` in full. */
+  /**
+   * Scrolls the least distance that shows the row at `pos` in full. Measures the list and a row as they are laid out now: on the render
+   * that mounts the list the measured sizes are not in state yet (a remount after a part switch, a link to a list never shown).
+   */
   function reveal(pos: number) {
     const el = body.current;
     if (!el) return;
-    const top = pos * height;
+    const laidOut = el.querySelector<HTMLElement>("[data-pos]")?.offsetHeight ?? 0;
+    const rowHeight = laidOut > 0 ? laidOut : height;
+    const viewNow = el.clientHeight > 0 ? el.clientHeight : VIEW_FALLBACK_ROWS * rowHeight;
+    const top = pos * rowHeight;
     let next = el.scrollTop;
     if (top < next) next = top;
-    else if (top + height > next + view) next = top + height - view;
+    else if (top + rowHeight > next + viewNow) next = top + rowHeight - viewNow;
     if (next !== el.scrollTop) el.scrollTop = next;
     setScrollTop(next);
   }
 
-  // A selection made elsewhere comes into view once (not when the user scrolls away from it later).
-  const revealed = useRef<number | null>(null);
-  useEffect(() => {
+  // A selection made elsewhere, or one a search moved (cleared), comes into view once per place (not when the user scrolls away from it
+  // later). Before the paint, and again when the sizes arrive: it counts as done only once the list is laid out (a hidden area's list has
+  // no height yet).
+  const revealed = useRef<string | null>(null);
+  useLayoutEffect(() => {
     if (selected === null || selectedPos < 0) {
       revealed.current = null;
       return;
     }
-    if (revealed.current === selected) return;
-    revealed.current = selected;
+    const place = `${selected}:${selectedPos}`;
+    if (revealed.current === place) return;
     reveal(selectedPos);
-  }, [selected, selectedPos]);
+    if ((body.current?.clientHeight ?? 0) > 0) revealed.current = place;
+  }, [selected, selectedPos, height, viewHeight]);
 
-  // The tab stop: one rendered row; the others leave the tab order.
+  // The tab stop: the row that holds it is always rendered (see `extra` below); the others leave the tab order.
   useLayoutEffect(() => {
     const el = body.current;
     if (!el) return;
-    const stop = tabStop >= start && tabStop < end ? tabStop : start;
-    for (const row of el.querySelectorAll<HTMLElement>("[data-pos]")) row.tabIndex = Number(row.dataset.pos) === stop ? 0 : -1;
+    for (const row of el.querySelectorAll<HTMLElement>("[data-pos]")) row.tabIndex = Number(row.dataset.pos) === tabStop ? 0 : -1;
     if (focusAfter.current !== null) {
       el.querySelector<HTMLElement>(`[data-pos="${focusAfter.current}"]`)?.focus();
       focusAfter.current = null;
@@ -177,11 +187,19 @@ function WindowedRows({ label, shown, selected, onSelect, labelOf, rows }: { lab
     focusAfter.current = next;
   }
 
-  const items: ReactNode[] = [];
-  for (let pos = start; pos < end; pos++) {
+  const item = (pos: number) => {
     const row = shown[pos]!;
-    items.push(<DataRow key={row.index} row={row} pos={pos} label={labelOf(row)} selected={row.index === selected} onSelect={onSelect} rows={rows} />);
-  }
+    return <DataRow key={row.index} row={row} pos={pos} count={count} label={labelOf(row)} selected={row.index === selected} onSelect={onSelect} rows={rows} />;
+  };
+  // The row with the tab stop stays rendered when the list scrolls away from it: a focused row must not vanish (the focus would drop to
+  // the page), and Tab must find the list's stop. It stands just outside the window, in place of one spacer row.
+  const extra = tabStop < count && (tabStop < start || tabStop >= end) ? tabStop : null;
+  const above = extra !== null && extra < start ? 1 : 0;
+  const below = extra !== null && extra >= end ? 1 : 0;
+  const items: ReactNode[] = [];
+  if (above) items.push(item(extra!));
+  for (let pos = start; pos < end; pos++) items.push(item(pos));
+  if (below) items.push(item(extra!));
   return (
     <div
       ref={body}
@@ -195,9 +213,9 @@ function WindowedRows({ label, shown, selected, onSelect, labelOf, rows }: { lab
         if (pos !== undefined) setActive(Number(pos));
       }}
     >
-      <div aria-hidden="true" style={{ height: start * height } /* dyn */} />
+      <div aria-hidden="true" style={{ height: (start - above) * height } /* dyn */} />
       {items}
-      <div aria-hidden="true" style={{ height: (count - end) * height } /* dyn */} />
+      <div aria-hidden="true" style={{ height: (count - end - below) * height } /* dyn */} />
     </div>
   );
 }
