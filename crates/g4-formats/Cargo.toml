@@ -10,3 +10,6 @@ thiserror = "2"
 [features]
 # Fixtures (BTX0 builder) for this crate's and downstream tests.
 test-support = []
+
+[dev-dependencies]
+proptest = "1"
