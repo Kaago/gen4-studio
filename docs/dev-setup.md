@@ -131,6 +131,12 @@ ohne Fehler `0 tests`. `cargo test -p g4-kernel --features test-support` genügt
 Studio-Crate das Feature für `g4-kernel` ein; `--all-features` macht das explizit und ist der Standardbefehl für die Prüfung
 vor jedem Commit.
 
+**In einem Git-Worktree** nur auf Workspace-Ebene bauen und testen: `cargo test --workspace --all-features <Namensfilter>`
+(mehrere Filter nach `--` gehen auch). Befehle je Paket (`-p g4-kernel`, `-p g4-formats`) und `--test <name>` ändern die
+Feature-Menge von rotom; dessen `build.rs` läuft dann neu und lädt dabei `db-latest.zip` aus dem Netz (siehe „rotom und
+rotom-lsp“). In den Worktrees von 3b.3a, deren `target/` die rotom-Build-Ausgabe aus dem Haupt-Checkout übernommen hatte,
+scheiterte genau dieser Download („headers' total size surpassed max_headers_size“). Der Namensfilter läuft dieselben Tests.
+
 ### Gated Tests
 
 Tests mit ROM-Daten laufen nur, wenn die Umgebungsvariablen gesetzt sind; sonst melden sie `skipped: ...` auf stderr und
@@ -157,7 +163,78 @@ G4_DSROM_CLI="$PWD/../Roms/_tools/dsrom" \
 ```
 
 `vanilla_rebuild_matches_dsrom_cli` baut dasselbe Projekt mit der Referenz-CLI und mit `g4_kernel::build::build` und verlangt
-byte-identische ROMs. Bei Änderungen an Build- oder Pack-Code ist dieser Lauf Pflicht.
+byte-identische ROMs. Bei Änderungen an Build- oder Pack-Code ist dieser Lauf Pflicht. Seit 3b.3a packt der Build auch die
+Daten-Ordner (Begegnungen, Trainer, Pokémon-Basisdaten, Lernsets, Entwicklungen, Attacken, Gegenstände, Trainer-Texttabellen,
+Item- und Pokémon-Symbole); der Test prüft, dass die zehn Daten-Archivarten mit ihrer vollen Member-Zahl gepackt sind und das
+ROM trotzdem byte-identisch bleibt. Aus einem
+Git-Worktree zeigt `$PWD/../Roms` ins Leere: dort `G4_DSROM_CLI=/<absoluter Pfad zu Roms>/_tools/dsrom` setzen (ebenso
+`G4_TEST_PROJECT` und `G4_ROMS_DIR` absolut).
+
+#### Daten-Archive und das uxie-Orakel (3b.3a)
+
+Die Codecs der Daten-Archive in `g4-formats/src/data/` sind eigene (Rohbytes mit Feldkarte); uxie 0.9.7 ist nur noch
+Test-Orakel (Dev-Abhängigkeit von `g4-formats`, in `g4-kernel` weiter regulär). Grund: uxie lehnt 172 von 471 Vanilla-Attacken
+ab und schreibt sie mit 14 statt 16 Byte, sein Begegnungs-Writer ist unbrauchbar; Personal, Items und Trainer-Eigenschaften
+liest es dagegen Feld für Feld richtig. Die gated Tests dazu:
+
+| Test | Datei | Prüft |
+|---|---|---|
+| `vanilla_fixed_records_round_trip`, `vanilla_variable_records_round_trip`, `vanilla_trainer_parties_round_trip_with_their_properties` | `crates/g4-formats/tests/vanilla_data.rs` | `write(read(x)) == x` für jeden Member der zehn Archivarten; die Member-Zahl muss stimmen (Platin / HGSS: encounters 183/142, trainerProperties und trainerParty 928/738, personalPokeData, learnsets, evolutions je 508, moveData 471, itemData 446/514, trainerTextTable und trainerTextOffset je 1). Ein Ordner ohne Member oder mit anderen Dateien als `NNNN` lässt den Test fehlschlagen |
+| `vanilla_personal_matches_uxie`, `vanilla_items_match_uxie`, `vanilla_trainer_properties_match_uxie` | ebenda | das uxie-Orakel: jedes Feld der eigenen Codecs gegen die Getter von uxie (Items auch die einzelnen Flags „Wirkung im Team“) |
+| `vanilla_pt_water_slots_have_min_le_max` | ebenda | nur Platin (HGSS meldet „skipped: not a Platinum project“): 1080 belegte Wasser-Slots, alle mit min ≤ max |
+| `vanilla_arm9_tables_are_plausible` | `crates/g4-kernel/tests/arm9_tables.rs` | Item-Tabelle, TM/VM-Liste und Paletten der Pokémon-Symbole aus `metadata/arm9_tables.yaml` sind plausibel (CPUD, IPKD, IPKE) |
+| `vanilla_data_members_load_unlocked_and_byte_identical` | `crates/g4-kernel/tests/store.rs` | jeder Daten-Member lädt ungesperrt und byte-identisch in den Store |
+| `vanilla_name_counts_match_task0`, `every_vanilla_trainer_name_round_trips` | `crates/g4-kernel/tests/names.rs` | Namenszahlen der Textarchive, Trainernamen hin und zurück |
+| `vanilla_index_builds_under_a_second`, `vanilla_dirty_stays_fast_after_index_build`, `vanilla_route_201_encounters_reference_known_species` | `crates/g4-kernel/tests/refs.rs` | Referenzindex |
+| `vanilla_item_icon_of_potion_decodes_to_a_non_empty_png`, `vanilla_every_item_with_an_icon_decodes`, `vanilla_mon_icon_of_bulbasaur_uses_palette_one`, `vanilla_every_species_and_form_icon_decodes` | `crates/g4-kernel/tests/icons.rs` | Item- und Pokémon-Symbole (NCGR/NCLR) |
+| `vanilla_data_commands_on_copy` | `apps/studio/src-tauri/src/commands/data/tests.rs` | die Datenbefehle auf `vanilla_copy()` |
+
+Zum Beispiel nur die Round-Trips und das Orakel, je Projekt:
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test --workspace --all-features -- vanilla_fixed_records vanilla_variable_records vanilla_trainer_parties \
+  vanilla_personal_matches_uxie vanilla_items_match_uxie vanilla_trainer_properties_match_uxie vanilla_pt_water_slots --nocapture
+```
+
+#### proptest
+
+`proptest` 1 ist Dev-Abhängigkeit von `g4-formats` und `g4-kernel`; die Tests laufen ohne Projekt im normalen
+`cargo test --workspace --all-features`:
+
+- `g4-formats/src/data/`: Round-Trip über zufällige Bytes je Codec (Personal, Entwicklung, Attacke, Gegenstand, Begegnung,
+  Trainer-Texttabelle), Lernsets aus beliebigen terminierten Bytes hin und zurück (eine geänderte Länge ergibt immer ein
+  terminiertes Vielfaches von 4), `read(write(d)) == d` für die Party in jedem Format, Setter-Isolation im Record-Kern
+  (`setter_changes_only_its_own_bytes`, `set_bits_changes_only_the_masked_bits`: ein Setter ändert nur seine Bytes bzw. Bits).
+- `g4-kernel/tests/transaction.rs`: `undo_redo_are_inverse_over_mixed_kinds` (64 zufällige Folgen aus Edits, Undo und Redo über
+  gemischte Arten).
+- `g4-kernel/tests/refs.rs`: `incremental_equals_full_rebuild` (48 Folgen: der inkrementelle Referenzindex gleicht dem voll
+  neu gebauten).
+- `g4-kernel/tests/names.rs`: `trainer_name_wrap_unwrap_round_trip`.
+
+Die beiden Kernel-Tests mit eigenem `TestRunner` schreiben keine `proptest-regressions`-Dateien; ein Fehlschlag steht nur in
+der Ausgabe (mit dem geschrumpften Fall).
+
+#### Daten im gebauten ROM prüfen: `g4k check-data`
+
+`g4k check-data <rom.nds> --expect KIND:MEMBER:FIELD=VALUE …` liest die Daten-NARCs aus einem gebauten ROM (Pfade aus
+`archives.yaml` für den Spielcode im ROM-Kopf) und vergleicht einzelne Felder:
+
+- KIND `species` und `item` liest uxie (unabhängig von den eigenen Codecs), `move` und `learnset` die eigenen Codecs (uxie
+  lehnt Attacken ab, siehe oben). Die Feldnamen sind die der Codecs (`attack`, `power`, `price` …); ein Lernset hat nur `len`
+  (Zahl der Einträge).
+- MEMBER ist der Member im Archiv, bei `item` also der Datenmember, nicht die Item-ID (in Platin ist Trank beides 17).
+- Exit 0, wenn alles stimmt (stdout „species 397 attack: 85“ je Erwartung und „N expectation(s) met“); Exit 1 bei einer
+  Abweichung oder einem unlesbaren Member (stderr „species 397 attack: expected 75, found 85“); Exit 2 bei einem falsch
+  geschriebenen `--expect`, bevor das ROM gelesen wird.
+
+```sh
+cargo build --workspace --all-features --bin g4k
+target/debug/g4k check-data <Kopie>/out.nds --expect species:397:attack=85 --expect learnset:397:len=13
+```
+
+Szenarien rufen es im Abschnitt `check:` auf (Beispiel `scripts/agent/scenarios/pt-daten.yaml`, Beschreibung in
+[docs/agent-gate.md](agent-gate.md), „Szenario“).
 
 Messlauf, nicht Teil des normalen Durchlaufs (`#[ignore]`): `G4_APICULA=... cargo test -p studio --release -- --ignored
 --nocapture bench_matrix_models` lädt eine große Matrix (Standard: Header 3, Platin Matrix 0) und gibt die Zeiten aus;
@@ -220,7 +297,7 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 
 Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
 
-Dauer: bei warmem Build-Cache etwa 20 bis 25 Minuten (zuletzt vor 3b.2 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, der aktuelle Lauf steht in [docs/phase-3b2-gate.md](phase-3b2-gate.md); die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+Dauer: bei warmem Build-Cache etwa 20 bis 25 Minuten (zuletzt vor 3b.2 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; der letzte gemessene Lauf steht in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s), der nächste in [docs/phase-3b3-gate.md](phase-3b3-gate.md); die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
 
 ## Agent-Testumgebung
 
