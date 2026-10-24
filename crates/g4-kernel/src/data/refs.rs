@@ -176,26 +176,33 @@ impl RefIndex {
 
     /// Recomputes the references of the sources the store changed since the index was
     /// built or last refreshed and returns them (only sources; other changed assets are
-    /// skipped). Does nothing on an index not built yet: it stays lazy.
+    /// skipped). Does nothing on an index not built yet: it stays lazy. On an error the
+    /// index stays as it was, so the next call tries the same sources again.
     pub fn refresh(&mut self, store: &Store) -> Result<Vec<AssetId>, KernelError> {
         let Some(built) = &mut self.built else {
             return Ok(Vec::new());
         };
         let (generation, changed) = store.changes_since(built.generation);
         let changed = with_dependents(changed);
-        built.generation = generation;
-        if changed.is_empty() {
-            return Ok(changed);
-        }
-        let kinds: Vec<AssetKind> = changed.iter().map(|id| id.kind).collect();
-        let disk = Disk::open(store.project(), &kinds)?;
-        for (id, refs) in collect_refs(store, &disk, &changed)? {
-            if refs.is_empty() {
-                built.sources.remove(&key(id));
-            } else {
-                built.sources.insert(key(id), refs);
+        if !changed.is_empty() {
+            // Only sources the store does not hold are read from the disk (in practice the
+            // store holds every asset it reports as changed, so nothing is opened).
+            let kinds: Vec<AssetKind> = changed
+                .iter()
+                .filter(|&&id| store.peek(id).is_none())
+                .map(|id| id.kind)
+                .collect();
+            let disk = Disk::open(store.project(), &kinds)?;
+            // Everything is read before the index changes: a failure leaves it untouched.
+            for (id, refs) in collect_refs(store, &disk, &changed)? {
+                if refs.is_empty() {
+                    built.sources.remove(&key(id));
+                } else {
+                    built.sources.insert(key(id), refs);
+                }
             }
         }
+        built.generation = generation;
         Ok(changed)
     }
 
