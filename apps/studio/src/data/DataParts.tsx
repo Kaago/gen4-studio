@@ -16,11 +16,11 @@ export interface DataPart {
   count?: (rows: readonly DataRowDto[]) => string;
 }
 
-/** What the view and the hand say while nothing of a part is chosen. */
-export const NOTHING_CHOSEN: Record<DataSub, { what: string; why: string }> = {
-  pokedex: { what: "Kein Pokémon gewählt.", why: "Wähle links eine Art; hier erscheinen Werte und Fundorte." },
-  moves: { what: "Keine Attacke gewählt.", why: "Wähle links eine Attacke; hier erscheinen ihre Werte und wer sie lernt." },
-  items: { what: "Kein Gegenstand gewählt.", why: "Wähle links einen Gegenstand; hier erscheinen Preis, Tasche und Beschreibung." },
+/** What the view and the hand say while nothing of a part is chosen; `first`: the view's button that chooses the first member. */
+export const NOTHING_CHOSEN: Record<DataSub, { what: string; why: string; first?: string }> = {
+  pokedex: { what: "Kein Pokémon gewählt.", why: "Wähle links eine Art; hier erscheinen Werte und Fundorte.", first: "Erste Art zeigen" },
+  moves: { what: "Keine Attacke gewählt.", why: "Wähle links eine Attacke; hier erscheinen ihre Werte und wer sie lernt.", first: "Erste Attacke zeigen" },
+  items: { what: "Kein Gegenstand gewählt.", why: "Wähle links einen Gegenstand; hier erscheinen Preis, Tasche und Beschreibung.", first: "Ersten Gegenstand zeigen" },
   trainer: { what: "Kein Trainer gewählt.", why: `Trainer ${SUB_LOCKED.trainer ?? ""}.` },
   encounters: { what: "Keine Begegnung gewählt.", why: `Begegnungen ${SUB_LOCKED.encounters ?? ""}.` },
 };
@@ -61,19 +61,24 @@ export function DataListPane({ area, parts, open, onToggle }: { area: DataArea; 
   );
 }
 
-/** The view or the hand of a data area: the part's own, once something is chosen; before that, what to do. */
+/**
+ * The view or the hand of a data area: the part's own, once something is chosen; before that, what to do, and in the view a button that
+ * shows the first member (the first above 0: member 0 is the games' empty entry, "-----", "Keines").
+ */
 export function DataPanel({ area, parts, place }: { area: DataArea; parts: Partial<Record<DataSub, DataPart>>; place: "View" | "Hand" }) {
-  const { sub, row } = useDataArea(area);
+  const { sub, row, rows, select } = useDataArea(area);
   const blocked = useBlocked(area);
   const Part = parts[sub]?.[place];
   const nothing = NOTHING_CHOSEN[sub];
+  const first = rows.find((r) => r.index > 0) ?? rows[0];
+  const action = place === "View" && nothing.first && first ? { label: nothing.first, onClick: () => select(first.index) } : undefined;
   return (
     <div className={place === "View" ? styles.view : styles.hand} data-data-panel={place === "View" ? "view" : "hand"}>
       {blocked !== null ? (
         <div className={styles.empty}>{blocked}</div>
       ) : row === null || !Part ? (
         <div className={styles.empty}>
-          <EmptyState what={nothing.what} why={nothing.why} />
+          <EmptyState what={nothing.what} why={nothing.why} action={action} />
         </div>
       ) : (
         <Part />

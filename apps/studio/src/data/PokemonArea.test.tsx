@@ -8,6 +8,7 @@ import { MOVES, NAMES, SPECIES, dataHarness, flush, move, openMenu, projectDp, s
 import { resetIcons } from "./icons";
 import { staraviaDoc } from "./pokedex/pokedexTesting";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "./PokemonArea";
+import { useDataArea } from "./useDataArea";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -135,6 +136,43 @@ describe("PokemonArea", () => {
     expect(h.q("[data-view]")?.textContent).toContain("Staravia");
     // The editor of the Pokédex: its tabs, named after the species.
     expect(h.q("[data-hand] [role=tablist]")?.getAttribute("aria-label")).toBe("Staravia bearbeiten");
+  });
+
+  it("offers_to_show_the_first_species_while_nothing_is_chosen", async () => {
+    h.show(h.base());
+    await flush();
+    // The first row with a number above 0 (member 0 is the game's empty species "-----").
+    await act(async () => h.button("Erste Art zeigen")!.click());
+    await flush();
+    expect(h.q("[data-view]")?.textContent).toContain("Bisasam");
+    expect(h.button("Erste Art zeigen")).toBeUndefined();
+  });
+
+  it("renders_a_search_in_the_list_but_not_in_the_view_and_the_hand", async () => {
+    // The view and the hand read the area's model; a search changes the list only, so they must not render again for it (Spec §9: a
+    // list renders in under 50 ms, and the hand of a species alone took about 30 ms per keystroke).
+    const renders = { model: 0 };
+    function Probe() {
+      useDataArea("pokemon");
+      renders.model++;
+      return null;
+    }
+    h.unmount();
+    h = dataHarness((props) => (
+      <PokemonArea context={props}>
+        <PokemonList open onToggle={() => {}} />
+        <Probe />
+      </PokemonArea>
+    ));
+    h.show(h.base());
+    await flush();
+    const before = renders.model;
+    const search = h.q<HTMLInputElement>('input[aria-label="Pokédex durchsuchen"]')!;
+    typeInto(search, "stara");
+    expect([...h.container.querySelectorAll("[data-species]")].map((r) => r.getAttribute("data-species"))).toEqual(["396", "397"]);
+    typeInto(search, "");
+    expect(h.container.querySelectorAll("[data-species]")).toHaveLength(4);
+    expect(renders.model).toBe(before);
   });
 
   it("says_no_project_without_one", async () => {

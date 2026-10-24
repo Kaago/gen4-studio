@@ -110,6 +110,9 @@ describe("ItemsArea", () => {
     h.show(h.base());
     await flush();
     expect(h.q("[data-view]")?.textContent).toContain("Kein Gegenstand gewählt.");
+    await act(async () => h.button("Ersten Gegenstand zeigen")!.click());
+    await flush();
+    expect(h.q('[data-item="1"]')?.getAttribute("aria-selected")).toBe("true");
   });
 
   it("opens_the_item_a_link_asks_for", async () => {
