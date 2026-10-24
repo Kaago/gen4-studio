@@ -462,7 +462,7 @@ fn place_trainer(state: &AppState, file: u16, trainer: u16) {
     use crate::commands::{
         EventKind, add_event_impl, get_header_impl, set_header_impl, update_event_impl,
     };
-    add_event_impl(state, file, EventKind::Object, 3, 4).unwrap();
+    add_event_impl(state, file, EventKind::Object, 3, 4, None, None).unwrap();
     let patch = serde_json::from_value(json!({ "script": 3000 + trainer - 1 })).unwrap();
     update_event_impl(state, file, EventKind::Object, 0, patch).unwrap();
     let g4_kernel::store::MapHeader::Pt(mut header) = get_header_impl(state, 0).unwrap() else {

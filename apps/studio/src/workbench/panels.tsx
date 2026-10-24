@@ -1,6 +1,6 @@
-import { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { ProjectInfo } from "../api";
+import type { DataRowDto, ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
@@ -37,6 +37,7 @@ import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
 import { ToolsPanel } from "./ToolsPanel";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
+import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
 
@@ -203,6 +204,20 @@ export function ToolsTab() {
   return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
 }
 
+/**
+ * The trainer rows of `project` as the data store holds them (null while they are not read); renders the caller only when they change. The
+ * store reads them when someone needs them (`DataStore.need`), and again when trainers, their names or the events change.
+ */
+function useTrainerRows(store: DataStore, project: ProjectInfo | null): readonly DataRowDto[] | null {
+  return useSyncExternalStore(store.subscribe, () => {
+    const snapshot = store.get();
+    return snapshot.project === project ? (snapshot.rows.trainer ?? null) : null;
+  });
+}
+
+/** Diamond and Pearl have no data editors (their trainers are not read): the world names no trainers there. */
+const namesTrainers = (info: ProjectInfo | null): info is ProjectInfo => info !== null && info.family !== "Dp";
+
 export function ContextTab() {
   const d = useWorkbench();
   // The events of the shown place, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
@@ -211,8 +226,14 @@ export function ContextTab() {
   const [failedFile, setFailedFile] = useState<number | null>(null);
   const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
   const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
-  const { goTo, onSelectEvent, onSelectBuilding } = d;
+  const { goTo, onSelectEvent, onSelectBuilding, dataStore, info } = d;
   const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  // Trainer figures are named by class and name: the trainer rows are read once the place has one.
+  const hasTrainers = events?.objects.some((o) => trainerOfScript(o.script) !== null) ?? false;
+  useEffect(() => {
+    if (hasTrainers && namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [hasTrainers, info, dataStore]);
+  const trainers = useTrainerRows(dataStore, info);
   return (
     <ContextPanel
       hasPlace={d.matrix !== null}
@@ -225,6 +246,7 @@ export function ContextTab() {
       onSelectBuilding={onSelectBuilding}
       onOpenHeader={onOpenHeader}
       loading={loading}
+      trainers={trainers}
     />
   );
 }
@@ -245,6 +267,12 @@ export function InspectorPanel() {
   const openProject = useRef(d.info);
   openProject.current = d.info;
   const isCurrentProject = useCallback((project: ProjectInfo | null) => openProject.current === project, []);
+  // The trainer field of an object event: the rows are read when the field needs them (a trainer script, or its picker opens).
+  const { dataStore, info } = d;
+  const trainers = useTrainerRows(dataStore, info);
+  const needTrainers = useCallback(() => {
+    if (namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [dataStore, info]);
   return (
     <Inspector
       model={inspector}
@@ -291,6 +319,8 @@ export function InspectorPanel() {
         scriptsAdopted: d.scripts.status?.adopted === true,
         onOpenScript: openScript,
         onAddScript: d.scripts.add,
+        trainers,
+        needTrainers,
         onError: d.onError,
       }}
       matrixEditor={{
@@ -349,7 +379,20 @@ export function TextEditTab() {
  * and status parts read them. Each area reads its lists from the store the first time it shows; the contexts are memoised, so an area
  * renders again only when one of its inputs changes.
  */
-export function DataAreaHost({ store, target, onTrail, children }: { store: DataStore; target: DataNav | null; onTrail: (area: DataArea, crumbs: Crumb[]) => void; children?: ReactNode }) {
+export function DataAreaHost({
+  store,
+  target,
+  onTrail,
+  onPlaceTrainer,
+  children,
+}: {
+  store: DataStore;
+  target: DataNav | null;
+  onTrail: (area: DataArea, crumbs: Crumb[]) => void;
+  /** „In der Welt platzieren“ of a trainer (must keep its identity). */
+  onPlaceTrainer?: (id: number) => void;
+  children?: ReactNode;
+}) {
   const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
@@ -361,8 +404,8 @@ export function DataAreaHost({ store, target, onTrail, children }: { store: Data
   const reload = useStableCallback((file: number) => scripts.reload(file));
   const scriptFiles = useMemo(() => ({ saveIfDirty, reload }), [saveIfDirty, reload]);
   const pokemon = useMemo<DataAreaProps>(
-    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles }),
-    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles],
+    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer }),
+    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer],
   );
   const items = useMemo<DataAreaProps>(
     () => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail, dirty, onEdited, bus, headers, problems }),

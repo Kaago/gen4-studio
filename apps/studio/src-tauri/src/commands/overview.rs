@@ -169,7 +169,7 @@ mod tests {
         let (_f, state) = open_synthetic();
         assert!(list_warps_impl(&state).unwrap().links.is_empty());
 
-        add_event_impl(&state, 1, EventKind::Warp, 5, 6).unwrap();
+        add_event_impl(&state, 1, EventKind::Warp, 5, 6, None, None).unwrap();
         update_event_impl(
             &state,
             1,
@@ -201,7 +201,7 @@ mod tests {
     fn an_unreadable_event_file_is_reported_not_fatal() {
         let (fixture, state) = open_synthetic();
         reload_asset_impl(&state, AssetKind::Event, 0).unwrap();
-        add_event_impl(&state, 0, EventKind::Warp, 1, 2).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 2, None, None).unwrap();
         std::fs::write(
             fixture.dir.path().join("unpacked/eventFiles/0001"),
             [1u8, 2, 3],

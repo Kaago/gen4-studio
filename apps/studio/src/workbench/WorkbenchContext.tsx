@@ -6,6 +6,7 @@ import type { Depth, Tool } from "../ui/frame/shellState";
 import type { MapBuildings, TileClick } from "../world/scene/types";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
+import type { DataStore } from "../data/dataStore";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
@@ -115,6 +116,8 @@ export interface WorkbenchData {
   scripts: ScriptsApi;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
+  /** The data lists of the project (a stable object): the world names trainer figures from its trainer rows. */
+  dataStore: DataStore;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

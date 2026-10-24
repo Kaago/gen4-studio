@@ -357,8 +357,8 @@ pub fn dispatch(
         "lsp_stop" => run!(json, "lsp_stop", args, {}, |_a| Ok::<(), CmdError>(())),
         "add_event" => run!(
             json, "add_event", args,
-            { event_file: u16, kind: EventKind, x: i32, z: i32 },
-            |a| add_event_impl(state, a.event_file, a.kind, a.x, a.z)
+            { event_file: u16, kind: EventKind, x: i32, z: i32, patch: Option<EventPatch>, label: Option<String> },
+            |a| add_event_impl(state, a.event_file, a.kind, a.x, a.z, a.patch, a.label.as_deref())
         ),
         "delete_event" => run!(
             json, "delete_event", args,
@@ -641,7 +641,7 @@ mod tests {
             ("lsp_stop", json!({})),
             (
                 "add_event",
-                json!({ "eventFile": 1, "kind": "warp", "x": 1, "z": 1 }),
+                json!({ "eventFile": 1, "kind": "object", "x": 1, "z": 1, "patch": { "script": 3929, "trainer_type": 1, "sight": 3 }, "label": "Trainer Jens platziert" }),
             ),
             (
                 "delete_event",
@@ -944,6 +944,32 @@ mod tests {
                 other => panic!("{name}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn add_event_takes_an_optional_patch_and_label_in_the_same_undo_step() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        // The old keys alone still work.
+        call(
+            &state,
+            &roots,
+            "add_event",
+            json!({ "eventFile": 0, "kind": "object", "x": 1, "z": 1 }),
+        );
+        call(
+            &state,
+            &roots,
+            "add_event",
+            json!({ "eventFile": 0, "kind": "object", "x": 2, "z": 1,
+                    "patch": { "script": 3929, "trainer_type": 1, "sight": 3 }, "label": "Trainer Jens platziert" }),
+        );
+        let o = &get_events_impl(&state, 0).unwrap().objects[1];
+        assert_eq!((o.x, o.script, o.trainer_type, o.sight), (2, 3929, 1, 3));
+        assert_eq!(
+            history_impl(&state).unwrap().undo,
+            ["add event", "Trainer Jens platziert"]
+        );
     }
 
     #[test]

@@ -351,8 +351,12 @@ export const getObjectSprite = shareInflight((graphicsId: number, facing: number
 /** Changes fields of event `index` of class `kind` in an event file (one undoable change). */
 export const updateEvent = (eventFile: number, kind: EventKind, index: number, patch: EventPatch) =>
   invoke<void>("update_event", { eventFile, kind, index, patch });
-/** Appends an event of class `kind` on absolute matrix tile (x, z) and resolves to its index within the class (one undoable change). */
-export const addEvent = (eventFile: number, kind: EventKind, x: number, z: number) => invoke<number>("add_event", { eventFile, kind, x, z });
+/**
+ * Appends an event of class `kind` on absolute matrix tile (x, z) and resolves to its index within the class (one undoable change). `patch`
+ * is applied to the new event in the same change, named `label` (placing a trainer: script, sightline and sight in one undo step).
+ */
+export const addEvent = (eventFile: number, kind: EventKind, x: number, z: number, patch?: EventPatch, label?: string) =>
+  invoke<number>("add_event", { eventFile, kind, x, z, ...(patch === undefined ? {} : { patch }), ...(label === undefined ? {} : { label }) });
 /** Removes an event; the ones of its class after it move up by one (one undoable change). */
 export const deleteEvent = (eventFile: number, kind: EventKind, index: number) => invoke<void>("delete_event", { eventFile, kind, index });
 /** Changes fields of building `index` of map `map` (one undoable change). */

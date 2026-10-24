@@ -37,6 +37,14 @@ describe("groupEvents", () => {
     expect(doors?.rows[0]?.title).toBe("Warp 0 → Header 0414 (T01R0201)");
   });
 
+  it("titles_a_trainer_figure_by_class_and_name_when_asked", () => {
+    const trainer = { ...events().objects[0]!, script: 3355 };
+    const figures = groupEvents(events({ objects: [trainer, events().objects[1]!] }), undefined, (script) => (script === 3355 ? "Teenager Sebastian" : null))[0]!;
+    expect(figures.rows[0]).toEqual({ index: 0, title: "Objekt 0 · Teenager Sebastian", tech: "x 10, z 20" });
+    // A figure that starts no battle keeps its title.
+    expect(figures.rows[1]?.title).toBe("Objekt 1 · ID 2");
+  });
+
   it("is_empty_for_a_file_without_events", () => {
     expect(groupEvents(events({ bg: [], objects: [], warps: [], coords: [] }))).toEqual([]);
   });

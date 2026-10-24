@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import {
   addBuilding,
+  addEvent,
   addScript,
   adoptScripts,
   createTextArchive,
@@ -193,6 +194,18 @@ describe("building commands", () => {
     await expect(getBuildingGlb(9, 0)).rejects.toMatchObject({ message: "building model 9 does not exist" });
     invoke.mockResolvedValue(new ArrayBuffer(1));
     await expect(getBuildingGlb(9, 0)).resolves.toBeInstanceOf(ArrayBuffer);
+  });
+});
+
+describe("event commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("add_event sends the patch and label only when given", async () => {
+    invoke.mockResolvedValue(2);
+    expect(await addEvent(7, "object", 9, 5)).toBe(2);
+    expect(invoke).toHaveBeenLastCalledWith("add_event", { eventFile: 7, kind: "object", x: 9, z: 5 });
+    await addEvent(7, "object", 9, 5, { script: 3929, trainer_type: 1, sight: 3 }, "Trainer Jens platziert");
+    expect(invoke).toHaveBeenLastCalledWith("add_event", { eventFile: 7, kind: "object", x: 9, z: 5, patch: { script: 3929, trainer_type: 1, sight: 3 }, label: "Trainer Jens platziert" });
   });
 });
 

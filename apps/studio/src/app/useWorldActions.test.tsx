@@ -135,6 +135,14 @@ describe("useWorldActions.onAddEvent", () => {
     expect(setPinned).toHaveBeenCalledWith({ kind: "event", eventFile: 7, eventKind: "object", index: 2 });
   });
 
+  it("hands_a_placement_patch_and_label_to_the_one_add_event_call", async () => {
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onAddEvent("object", { x: 9, z: 5 }, { patch: { script: 3929, trainer_type: 1, sight: 3 }, label: "Trainer Jens platziert" }));
+    expect(addEvent).toHaveBeenCalledTimes(1);
+    expect(addEvent).toHaveBeenCalledWith(7, "object", 9, 5, { script: 3929, trainer_type: 1, sight: 3 }, "Trainer Jens platziert");
+    expect(setPinned).toHaveBeenCalledWith({ kind: "event", eventFile: 7, eventKind: "object", index: 2 });
+  });
+
   it("prefers_the_clicked_tile_to_the_hovered_one", async () => {
     act(() => root.render(<Probe />));
     act(() => actions.onInspect(at(12, 7)));

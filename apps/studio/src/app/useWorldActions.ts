@@ -2,8 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { ask } from "../platform/dialogs";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, setPermission, updateBuilding } from "../api";
-import type { EventKind, HeaderSummary, MatrixDto } from "../api";
+import type { EventKind, EventPatch, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "./message";
+
+/** Fields a new event gets in the undo step that adds it, and that step's name ("Trainer Jens platziert"). */
+export interface EventPlacement {
+  patch: EventPatch;
+  label: string;
+}
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
 import { DOOR, DOOR_COLLISION, readWarpTile } from "../workbench/warpTile";
@@ -193,9 +199,9 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
   );
 
   // A new event goes on the clicked tile `at` (a click with an event tool), else on the tile the pointer was last over, in the event file of the selected header;
-  // it is selected afterwards.
+  // it is selected afterwards. `placement` sets fields of the new event in the same undo step (a trainer placed from the Pokémon area).
   const onAddEvent = useCallback(
-    async (kind: EventKind, at?: { x: number; z: number }) => {
+    async (kind: EventKind, at?: { x: number; z: number }, placement?: EventPlacement) => {
       const shown = matrixRef.current;
       const file = headersRef.current.find((h) => h.id === selectedRef.current)?.event_file_id ?? null;
       if (!shown || file === null) return;
@@ -211,7 +217,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
       }
       let added = false;
       try {
-        const index = await addEvent(file, kind, tile.x, tile.z);
+        const index = placement ? await addEvent(file, kind, tile.x, tile.z, placement.patch, placement.label) : await addEvent(file, kind, tile.x, tile.z);
         setPinned({ kind: "event", eventFile: file, eventKind: kind, index });
         added = true;
       } catch (e) {

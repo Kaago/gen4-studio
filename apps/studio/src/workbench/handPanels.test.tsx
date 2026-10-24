@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents } from "../api";
 import type { EventsDto, HeaderSummary } from "../api";
 import { createEditBus } from "../bus/editBus";
+import { DataStore } from "../data/dataStore";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { ContextTab, ToolsTab } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
@@ -63,6 +64,7 @@ describe("the hand's panels on the workbench context", () => {
       onSelectEvent,
       onSelectBuilding,
       goTo,
+      dataStore: new DataStore(),
       ...over,
     } as unknown as WorkbenchData;
     await act(async () =>

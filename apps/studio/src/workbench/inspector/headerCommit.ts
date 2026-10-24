@@ -62,11 +62,20 @@ export class EditSession<T> {
    * has the value afterwards: false when nothing was loaded yet or the write was refused.
    */
   commit(key: string, label: string, value: number): Promise<boolean> {
+    return this.commitAll({ [key]: value }, label);
+  }
+
+  /**
+   * Sets several fields in ONE write (one undoable change, e.g. a trainer's script with its sightline). Fields the record already has
+   * are no change; when none is left nothing is recorded. Resolves like `commit`.
+   */
+  commitAll(values: Readonly<Record<string, number>>, label: string): Promise<boolean> {
     return this.enqueue(async () => {
       const base = this.base;
       if (!base) return false;
-      if (this.fields.value(base, key) === value) return true;
-      const next = this.fields.with(base, key, value);
+      const changed = Object.entries(values).filter(([key, value]) => this.fields.value(base, key) !== value);
+      if (changed.length === 0) return true;
+      const next = changed.reduce<T>((record, [key, value]) => this.fields.with(record, key, value), base);
       try {
         await this.backend.set(this.id, next, label);
       } catch (e) {
