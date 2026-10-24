@@ -4,6 +4,7 @@ pub mod dynamic_headers;
 pub mod error;
 pub mod export;
 mod fsutil;
+pub mod map_import;
 pub mod project;
 pub mod run;
 pub mod scripts;

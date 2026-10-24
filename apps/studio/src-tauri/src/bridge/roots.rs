@@ -25,7 +25,13 @@ fn is_saves(path: &Path) -> bool {
 /// one of them after symlinks are resolved, and must not lead through an original.
 pub struct Roots {
     dirs: Vec<PathBuf>,
+    /// Extra folders map part imports may read from (`G4_IMPORT_ROOT`, separated by `:`),
+    /// canonical; folders that do not exist are left out.
+    import_dirs: Vec<PathBuf>,
 }
+
+/// Environment variable with extra folders for map part imports.
+pub const IMPORT_ROOT_VAR: &str = "G4_IMPORT_ROOT";
 
 impl Roots {
     /// Canonicalizes each dir; refuses an empty list, a missing dir and any dir with a
@@ -52,7 +58,45 @@ impl Roots {
                 Ok(canonical)
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(Roots { dirs })
+        let import_dirs = std::env::var_os(IMPORT_ROOT_VAR)
+            .map(|v| {
+                std::env::split_paths(&v)
+                    .filter_map(|p| p.canonicalize().ok())
+                    .filter(|p| p.is_dir() && !is_locked(p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Roots { dirs, import_dirs })
+    }
+
+    /// Map part import: the canonical path of an existing file under a root (the project and
+    /// its siblings) or under an import root (`G4_IMPORT_ROOT`), never through an original or
+    /// the save games.
+    pub fn read_path(&self, path: &str) -> Result<PathBuf, CmdError> {
+        let canonical = canonicalize(Path::new(path), path)?;
+        if !canonical.is_file() {
+            return Err(CmdError::from(format!("Keine Datei: {path}")));
+        }
+        if self
+            .import_dirs
+            .iter()
+            .any(|root| canonical.starts_with(root))
+        {
+            if is_locked(&canonical) {
+                return Err(locked(path));
+            }
+            if is_saves(&canonical) {
+                return Err(saves(path));
+            }
+            return Ok(canonical);
+        }
+        self.check_canonical(&canonical, path)?;
+        Ok(canonical)
+    }
+
+    /// Map part export: the same rules as a ROM build target (`check_output`).
+    pub fn write_path(&self, path: &str) -> Result<PathBuf, CmdError> {
+        self.check_output(path)
     }
 
     /// `open_project`: the canonical project dir, if it lies under a root.
@@ -328,6 +372,53 @@ mod tests {
                 err.message
             );
         }
+    }
+
+    #[test]
+    fn read_path_accepts_files_under_the_root_only() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let roots = roots_in(&root);
+        let inside = root.path().join("m.nsbmd");
+        fs::write(&inside, b"BMD0").unwrap();
+        assert_eq!(
+            roots.read_path(inside.to_str().unwrap()).unwrap(),
+            inside.canonicalize().unwrap()
+        );
+        // A folder is not a file.
+        let err = roots.read_path(root.path().to_str().unwrap()).unwrap_err();
+        assert!(err.message.starts_with("Keine Datei"), "{}", err.message);
+        // Outside, through a symlink, and inside an original.
+        let outside = other.path().join("m.nsbmd");
+        fs::write(&outside, b"BMD0").unwrap();
+        let link = root.path().join("link.nsbmd");
+        symlink(&outside, &link).unwrap();
+        for path in [&outside, &link] {
+            let err = roots.read_path(path.to_str().unwrap()).unwrap_err();
+            assert!(
+                err.message.starts_with("Pfad liegt außerhalb"),
+                "{}",
+                err.message
+            );
+        }
+        let locked = root.path().join("X_DSPRE_contents");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("m.per"), [0u8; 2048]).unwrap();
+        let err = roots
+            .read_path(locked.join("m.per").to_str().unwrap())
+            .unwrap_err();
+        assert!(err.message.starts_with("Originale"), "{}", err.message);
+        // Export follows the build target rules.
+        assert!(
+            roots
+                .write_path(other.path().join("x.per").to_str().unwrap())
+                .is_err()
+        );
+        assert!(
+            roots
+                .write_path(root.path().join("x.per").to_str().unwrap())
+                .is_ok()
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ use g4_formats::data::learnset::Learnset;
 use g4_formats::data::moves::Move;
 use g4_formats::data::record::{FieldKind, RawRecord};
 use g4_formats::game::{Family, Language};
-use g4_formats::map::Cell;
+use g4_formats::map::{Cell, MapFile};
 use g4_formats::narc::Narc;
 use g4_kernel::build::{build, extract_rom};
 use g4_kernel::error::KernelError;
@@ -249,7 +249,12 @@ enum DataKind {
     Move,
     Item,
     Learnset,
+    /// A map file: SHA-1 of its model or permissions (hex).
+    Map,
 }
+
+/// Fields of a map file: SHA-1 of a part, lowercase hex.
+const MAP_FIELDS: &[&str] = &["model_sha1", "per_sha1"];
 
 /// Fields of a species, read with `uxie::PersonalData` (names as in `Personal::FIELDS`).
 const SPECIES_FIELDS: &[&str] = &[
@@ -304,6 +309,7 @@ impl DataKind {
             DataKind::Move => "move",
             DataKind::Item => "item",
             DataKind::Learnset => "learnset",
+            DataKind::Map => "map",
         }
     }
 
@@ -313,6 +319,7 @@ impl DataKind {
             DataKind::Move => AssetKind::Move,
             DataKind::Item => AssetKind::Item,
             DataKind::Learnset => AssetKind::Learnset,
+            DataKind::Map => AssetKind::Map,
         }
     }
 
@@ -327,12 +334,13 @@ impl DataKind {
                 .map(|f| f.name)
                 .collect(),
             DataKind::Learnset => vec!["len"],
+            DataKind::Map => MAP_FIELDS.to_vec(),
         }
     }
 
-    /// The value of `field` in the member `bytes`.
-    fn read(self, bytes: &[u8], field: &str) -> Result<i64, String> {
-        match self {
+    /// The value of `field` in the member `bytes`, as text (a number or a hex digest).
+    fn read(self, bytes: &[u8], field: &str, family: Family) -> Result<String, String> {
+        let number = match self {
             DataKind::Species => species_field(bytes, field),
             DataKind::Item => item_field(bytes, field),
             DataKind::Move => move_field(bytes, field),
@@ -343,6 +351,17 @@ impl DataKind {
                     _ => Err(format!("learnset has no field {field}")),
                 }
             }
+            DataKind::Map => return map_field(bytes, field, family),
+        };
+        number.map(|v| v.to_string())
+    }
+
+    /// Whether `value` is a valid expected value for this kind.
+    fn parse_value(self, value: &str) -> Option<String> {
+        match self {
+            DataKind::Map => (value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+                .then(|| value.to_ascii_lowercase()),
+            _ => value.parse::<i64>().ok().map(|v| v.to_string()),
         }
     }
 }
@@ -353,7 +372,8 @@ struct Expectation {
     kind: DataKind,
     member: u16,
     field: String,
-    value: i64,
+    /// A number, or 40 hex digits for a map part digest.
+    value: String,
 }
 
 impl fmt::Display for Expectation {
@@ -377,9 +397,10 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
         "move" => DataKind::Move,
         "item" => DataKind::Item,
         "learnset" => DataKind::Learnset,
+        "map" => DataKind::Map,
         _ => {
             return Err(format!(
-                "{text}: unknown kind {kind} (species, move, item, learnset)"
+                "{text}: unknown kind {kind} (species, move, item, learnset, map)"
             ));
         }
     };
@@ -397,10 +418,30 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
             .parse()
             .map_err(|_| format!("{text}: member {member} is not a number"))?,
         field: field.to_owned(),
-        value: value
-            .parse()
-            .map_err(|_| format!("{text}: value {value} is not a number"))?,
+        value: kind.parse_value(value).ok_or_else(|| match kind {
+            DataKind::Map => format!("{text}: value {value} is not 40 hex digits"),
+            _ => format!("{text}: value {value} is not a number"),
+        })?,
     })
+}
+
+/// SHA-1 (lowercase hex) of the model or the permissions of a map file.
+fn map_field(bytes: &[u8], field: &str, family: Family) -> Result<String, String> {
+    use sha1::{Digest, Sha1};
+    let map = MapFile::read(bytes, family).map_err(|e| e.to_string())?;
+    let part: Vec<u8> = match field {
+        "model_sha1" => map.model,
+        "per_sha1" => map
+            .permissions
+            .iter()
+            .flat_map(|c| [c.kind, c.collision])
+            .collect(),
+        _ => return Err(format!("map has no field {field}")),
+    };
+    Ok(Sha1::digest(&part)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 fn species_field(bytes: &[u8], field: &str) -> Result<i64, String> {
@@ -524,7 +565,7 @@ fn check_data(rom: &Path, expectations: &[Expectation]) -> Result<(), Failure> {
     for e in expectations {
         let members = &narcs[&e.kind].members;
         let found = match members.get(usize::from(e.member)) {
-            Some(bytes) => e.kind.read(bytes, &e.field),
+            Some(bytes) => e.kind.read(bytes, &e.field, family),
             None => Err(format!("the archive has {} members", members.len())),
         };
         match found {
@@ -566,9 +607,14 @@ mod tests {
                 bytes[..2].copy_from_slice(&0xFFFFu16.to_le_bytes());
             }
             for field in kind.fields() {
-                assert_eq!(kind.read(&bytes, field), Ok(0), "{} {field}", kind.name());
+                assert_eq!(
+                    kind.read(&bytes, field, Family::Pt),
+                    Ok("0".to_owned()),
+                    "{} {field}",
+                    kind.name()
+                );
                 let e = parse_expectation(&format!("{}:7:{field}=-3", kind.name())).unwrap();
-                assert_eq!((e.kind, e.member, e.value), (kind, 7, -3));
+                assert_eq!((e.kind, e.member, e.value.as_str()), (kind, 7, "-3"));
             }
         }
     }
@@ -583,6 +629,9 @@ mod tests {
             "species:x:attack=85",
             "species:1:attack=x",
             "learnset:1:entries=3",
+            "map:1:model_sha1=abc",
+            "map:1:model_sha1=-3",
+            "map:1:bdhc_sha1=0000000000000000000000000000000000000000",
         ] {
             assert!(parse_expectation(text).is_err(), "{text}");
         }

@@ -7,6 +7,7 @@ pub mod matrix;
 pub mod narc;
 pub mod ncgr;
 pub mod nclr;
+pub mod nsbmd_header;
 pub mod nsbtx;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

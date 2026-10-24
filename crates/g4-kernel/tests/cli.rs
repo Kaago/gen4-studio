@@ -302,3 +302,53 @@ fn check_data_rejects_an_unknown_field_before_reading() {
         .code(2)
         .stderr(contains("species has no field power"));
 }
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    Sha1::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn check_data_compares_the_model_hash_in_the_rom() {
+    let maps = [
+        g4_kernel::test_support::synthetic_map_bytes(1),
+        g4_kernel::test_support::synthetic_map_bytes(7),
+    ];
+    let rom = rom_with_files(
+        "CPUE",
+        &[(
+            "fielddata/land_data/land_data.narc",
+            narc(&[&maps[0], &maps[1]]),
+        )],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.nds");
+    std::fs::write(&path, rom).unwrap();
+    let model = sha1_hex(&[7u8; 6]);
+    let per = sha1_hex(&maps[1][16..16 + 2048]);
+    g4k()
+        .args(["check-data"])
+        .arg(&path)
+        .args([
+            "--expect",
+            &format!("map:1:model_sha1={}", model.to_uppercase()),
+        ])
+        .args(["--expect", &format!("map:1:per_sha1={per}")])
+        .assert()
+        .success()
+        .stdout(contains(format!("map 1 model_sha1: {model}")))
+        .stdout(contains("2 expectation(s) met"));
+    let other = sha1_hex(&[1u8; 6]);
+    g4k()
+        .args(["check-data"])
+        .arg(&path)
+        .args(["--expect", &format!("map:1:model_sha1={other}")])
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "map 1 model_sha1: expected {other}, found {model}"
+        )));
+}
