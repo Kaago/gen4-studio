@@ -615,7 +615,7 @@ impl Project {
         })
     }
 
-    fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
+    pub(crate) fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
         let path = self.root.join(self.require_packed(kind)?);
         let bytes = std::fs::read(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)

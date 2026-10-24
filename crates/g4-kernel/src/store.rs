@@ -127,7 +127,7 @@ impl Loaded {
     }
 
     /// `lang` is the locale key of the text language shown in the editor.
-    fn from_bytes(
+    pub(crate) fn from_bytes(
         kind: AssetKind,
         bytes: &[u8],
         family: Family,
@@ -614,6 +614,12 @@ pub struct Store {
     /// Per text archive, a counter that rises whenever the store's version of it may have
     /// changed (see [`Store::text_generation`]); an archive never touched is not in the map.
     text_generations: HashMap<u16, u64>,
+    /// Rises with every change of an asset's value the store reports (see
+    /// [`Store::changes_since`]); 0 before the first one.
+    change_generation: u64,
+    /// Per asset, the `change_generation` of its latest change; an asset never changed is
+    /// not in the map.
+    changed_at: HashMap<AssetId, u64>,
 }
 
 /// A message text and its lowercase form, for case-insensitive search.
@@ -677,6 +683,8 @@ impl Store {
             unpacked: HashSet::new(),
             text_index: HashMap::new(),
             text_generations: HashMap::new(),
+            change_generation: 0,
+            changed_at: HashMap::new(),
         }
     }
 
@@ -872,7 +880,7 @@ impl Store {
             if let Some(asset) = self.assets.get_mut(&edit.asset) {
                 asset.current = edit.edited;
             }
-            self.bump_text_generation(edit.asset);
+            self.note_change(edit.asset);
             parts.push(Part {
                 asset: edit.asset,
                 before: edit.before,
@@ -1002,6 +1010,7 @@ impl Store {
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
         let (index, path) = self.next_member(kind)?;
         write_atomic(&self.project.root, &path, bytes)?;
+        self.note_change(AssetId { kind, index });
         Ok(index)
     }
 
@@ -1164,6 +1173,7 @@ impl Store {
         self.assets.remove(&HEADER_TABLE);
         self.forget_history(HEADER_TABLE);
         self.load(HEADER_TABLE)?;
+        self.note_change(HEADER_TABLE);
         Ok(())
     }
 
@@ -1267,6 +1277,7 @@ impl Store {
                 part.after.extend_from_slice(&chunk);
             }
         }
+        self.note_change(HEADER_TABLE);
         Ok(id)
     }
 
@@ -1483,7 +1494,7 @@ impl Store {
                 locked: None,
             },
         );
-        self.bump_text_generation(text_id(index));
+        self.note_change(text_id(index));
         Ok(index)
     }
 
@@ -1559,11 +1570,43 @@ impl Store {
         self.text_generations.get(&index).copied().unwrap_or(0)
     }
 
-    /// Raises the generation of `id` if it is a text archive.
-    fn bump_text_generation(&mut self, id: AssetId) {
+    /// Records that the store's value of `id` may have changed: raises the change
+    /// generation (see [`Store::changes_since`]) and, for a text archive, its text
+    /// generation.
+    fn note_change(&mut self, id: AssetId) {
         if id.kind == AssetKind::TextArchive {
             *self.text_generations.entry(id.index).or_insert(0) += 1;
         }
+        self.change_generation += 1;
+        self.changed_at.insert(id, self.change_generation);
+    }
+
+    /// The current change generation and every asset whose value may have changed after
+    /// generation `generation`, in `AssetKind::ALL` order, ascending by index. Reported are
+    /// edits (each part of a transaction), undo and redo, `reload_from_disk`,
+    /// `accept_disk_as_base` and created members (new maps, matrices, event files, text
+    /// archives, headers: the header table). Saving changes no value and is not reported.
+    /// Derived indexes keep the generation they last saw and ask again with it; generation
+    /// 0 lists every asset changed so far. Only meaningful within one store.
+    pub fn changes_since(&self, generation: u64) -> (u64, Vec<AssetId>) {
+        let mut ids: Vec<AssetId> = self
+            .changed_at
+            .iter()
+            .filter(|&(_, &at)| at > generation)
+            .map(|(&id, _)| id)
+            .collect();
+        ids.sort_by_key(|id| (id.kind.slot(), id.index));
+        (self.change_generation, ids)
+    }
+
+    /// Number of assets the store holds (loaded from disk or created).
+    pub fn loaded_count(&self) -> usize {
+        self.assets.len()
+    }
+
+    /// The store's value of `id` (unsaved edits included) if it is loaded; loads nothing.
+    pub(crate) fn peek(&self, id: AssetId) -> Option<&Loaded> {
+        self.assets.get(&id).map(|a| &a.current)
     }
 
     /// Forgets the search index entry of `id` if it is a text archive.
@@ -1616,7 +1659,7 @@ impl Store {
         );
         self.forget_history(id);
         self.drop_text_index(id);
-        self.bump_text_generation(id);
+        self.note_change(id);
         Ok(())
     }
 
@@ -1652,7 +1695,7 @@ impl Store {
         }
         self.forget_history(id);
         self.drop_text_index(id);
-        self.bump_text_generation(id);
+        self.note_change(id);
         Ok(())
     }
 
@@ -1703,7 +1746,7 @@ impl Store {
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.current = value;
             }
-            self.bump_text_generation(id);
+            self.note_change(id);
         }
         Ok(change.parts.iter().map(|p| p.asset).collect())
     }

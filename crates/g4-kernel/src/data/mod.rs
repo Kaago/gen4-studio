@@ -1,9 +1,11 @@
 //! Kernel side of the data editors (Pokémon, moves, items, trainers, encounters): the
-//! read-only arm9 tables, the text banks per family and language, and the form names
-//! (`metadata/species_forms.yaml`, read by the name tables in `names`).
+//! read-only arm9 tables, the text banks per family and language, the form names
+//! (`metadata/species_forms.yaml`, read by the name tables in `names`) and the reference
+//! index (`refs`).
 
 pub mod arm9;
 pub mod names;
+pub mod refs;
 pub mod text_banks;
 
 #[cfg(test)]
