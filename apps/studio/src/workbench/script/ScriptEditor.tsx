@@ -75,6 +75,11 @@ const bridges = new WeakMap<EditorView, Bridge>();
 // the editor must let the key through to it (a second save from here would run ahead of the store's).
 const bridge: Extension = EditorView.updateListener.of((update) => bridges.get(update.view)?.update(update));
 
+/** A shown document starts where its cursor is (a jump from an event or a problem), not at line 1: a new state does not scroll by itself. */
+function revealCursor(view: EditorView) {
+  if (view.state.selection.main.head > 0) view.dispatch({ scrollIntoView: true });
+}
+
 function createState(doc: ScriptDocument, wanted: Wanted): EditorState {
   return EditorState.create({
     doc: doc.text,
@@ -169,6 +174,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     });
     viewRef.current = view;
     report();
+    revealCursor(view);
     return () => {
       bridges.delete(view);
       viewRef.current = null;
@@ -185,6 +191,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
       shown.current = doc;
       doc.state = reconfigured(doc.state ?? createState(doc, wantedRef.current), wantedRef.current);
       view.setState(doc.state);
+      revealCursor(view);
       switched = true;
     }
     // The client, uri or theme of the shown document changed.

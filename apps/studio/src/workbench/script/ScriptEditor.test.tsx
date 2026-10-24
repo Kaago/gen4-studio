@@ -140,6 +140,26 @@ describe("ScriptEditor", () => {
     expect(view().state.selection.main.head).toBe(8);
   });
 
+  it("scrolls_to_the_cursor_of_a_document_when_it_is_first_shown_or_shown_again", () => {
+    // "Öffnen" at an event opens the file with the cursor on the script: the view must go there, not stay at line 1.
+    const scrolled = vi.spyOn(EditorView.prototype, "dispatch");
+    const scrolls = () => scrolled.mock.calls.filter(([spec]) => (spec as { scrollIntoView?: boolean } | undefined)?.scrollIntoView === true).length;
+    const a = docs.open(1, "script", "one\ntwo\nthree\n");
+    a.cursor = 8;
+    render(a);
+    expect(view().state.selection.main.head).toBe(8);
+    expect(scrolls()).toBe(1);
+    const b = docs.open(2, "script", "beta\ngamma\n");
+    b.cursor = 5;
+    render(b);
+    expect(scrolls()).toBe(2);
+    // A document at its start needs no scrolling.
+    const c = docs.open(3, "script", "c");
+    render(c);
+    expect(scrolls()).toBe(2);
+    scrolled.mockRestore();
+  });
+
   it("shows_text_that_was_replaced_from_outside_without_reporting_it_as_an_edit", () => {
     const doc = docs.open(1, "script", "old");
     render(doc);
