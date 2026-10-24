@@ -39,6 +39,11 @@ export interface DocSpec<D> {
    * file's rows in the Problems list, so they never pile up. Without it the document has none.
    */
   problems?(doc: D, index: number): { file: string; rows: readonly ProblemDto[] };
+  /**
+   * World topics that also change the document (a trainer's „Steht in der Welt“ names the object events that start its battle): each of
+   * them reads it again. Without it only `dataChanged` and `textData` do.
+   */
+  rereadOn?: readonly ("eventData" | "headerTable")[];
 }
 
 export interface DataDoc<D> {
@@ -158,6 +163,14 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
       if (event.topic === "dataChanged" && specRef.current.parts.includes(event.kind) && (event.index === null || event.index === member)) void read(index);
     });
   }, [bus, index, member, read]);
+
+  // The world changed what the document shows about it (a figure placed, moved or undone for a trainer).
+  useEffect(() => {
+    const topics = specRef.current.rereadOn;
+    if (index === null || !topics || topics.length === 0) return;
+    const offs = topics.map((topic) => bus.subscribe(topic, () => void read(index)));
+    return () => offs.forEach((off) => off());
+  }, [bus, index, read]);
 
   // A text edited behind the editor (the texts, undo, a save that compiled scripts): its description or name may have changed.
   const shownTexts = useRef<readonly (number | null)[] | null>(null);

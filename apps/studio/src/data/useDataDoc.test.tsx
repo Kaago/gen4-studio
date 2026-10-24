@@ -7,6 +7,7 @@ import { NAMES, dataHarness, flush } from "./dataTesting";
 import { PokemonArea } from "./PokemonArea";
 import { useDataDoc } from "./useDataDoc";
 import type { DocSpec } from "./useDataDoc";
+import { useTrainer } from "./trainer/useTrainer";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -177,6 +178,45 @@ describe("useDataDoc with a text-only change", () => {
     expect(vi.mocked(dataGet).mock.calls.length).toBeGreaterThanOrEqual(reads + 2);
     expect(shown?.texts[0]?.text).toBe("Los!\\r");
     expect(problems.list()).toEqual([]);
+    h.unmount();
+  });
+});
+
+let placedShown: TrainerDoc | null = null;
+
+function PlacedProbe() {
+  placedShown = useTrainer(928).doc;
+  return null;
+}
+
+describe("useTrainer after a change in the world", () => {
+  it("reads the trainer again when events changed: „Steht in der Welt“ follows a placed figure", async () => {
+    let backend = trainerDoc("Los!\\r", []);
+    vi.mocked(dataList).mockReset().mockResolvedValue([]);
+    vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
+    vi.mocked(itemTable).mockReset().mockResolvedValue(null);
+    vi.mocked(dataGet).mockReset().mockImplementation(async () => backend);
+    const h = dataHarness((props) => (
+      <PokemonArea context={props}>
+        <PlacedProbe />
+      </PokemonArea>
+    ));
+    h.show(h.base());
+    await flush();
+    expect(placedShown?.events).toEqual([]);
+    // The world placed a figure with the trainer's script (or undo took it back): only `eventData` says so.
+    const placed: TrainerDoc["events"][number] = {
+      source: { kind: "Event", index: 328 },
+      field: "script",
+      slot: 13,
+      label: "Eventdatei 0328, Objekt 13",
+      source_name: "Eventdatei 0328",
+      nav: { kind: "event", eventFile: 328, eventKind: "object", index: 13 },
+    };
+    backend = { ...backend, events: [placed] };
+    act(() => h.bus.emit({ topic: "eventData" }));
+    await flush();
+    expect(placedShown?.events).toEqual([placed]);
     h.unmount();
   });
 });
