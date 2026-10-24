@@ -20,6 +20,8 @@ use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
 use crate::text::{Problem, Severity, TextArchiveDoc, text_winner, write_archive};
 
+mod project_compile;
+
 pub const ROTOM_TOML: &str = "rotom.toml";
 
 const DATABASE_DIR: &str = ".rotom/command_database";
@@ -593,19 +595,10 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
     let mut problems = Vec::new();
     let mut tried = std::collections::BTreeSet::new();
     let failures = loop {
-        // rotom v0.7.0: src/project/compile.rs compile_project. Chosen over
-        // src/compiler/batch_compile.rs compile_batch because only compile_project loads the
-        // compile state (staleness, quirks) and writes it back, as the CLI does. It draws an
-        // indicatif bar on stderr, which stays hidden unless stderr is a terminal.
-        let result = match guard_panic("rotom", || {
-            rotom::project::compile::compile_project(root, &config, false)
-        })? {
-            Ok(result) => result,
-            // rotom v0.7.0: src/project/error.rs ProjectError::NoProjectSourceFiles: every
-            // member is empty or binary, so there is nothing to compile.
-            Err(rotom::project::ProjectError::NoProjectSourceFiles) => break Vec::new(),
-            Err(e) => return Err(rotom_error("compile", e)),
-        };
+        // rotom's compile_project with the kernel's header table (see `project_compile`): it
+        // keeps the compile state (staleness, quirks) as the CLI does. No source at all (every
+        // member is empty or binary) is an empty result.
+        let result = project_compile::compile_project(project, &config)?;
         restore_quirks(&state_path, &quirks)?;
         for done in &result.successes {
             compiled.extend(file_number(&done.output));
@@ -1512,6 +1505,90 @@ mod tests {
         assert_eq!(report.compiled, [0], "{report:?}");
         assert!(report.problems.is_empty(), "{:?}", report.problems);
         assert!(compile(store.project()).unwrap().compiled.is_empty());
+    }
+
+    /// With the Dynamic Headers patch applied, the saved header lives in
+    /// `unpacked/dynamicHeaders/NNNN`; the old table in `arm9.bin` is left behind and must not
+    /// decide where a text literal goes.
+    #[test]
+    fn a_literal_resolves_through_the_dynamic_header_files() {
+        use crate::store::{MapHeader, Store};
+
+        let (_s, p) = adopted();
+        let file = new_script_file(&p, SourceKind::Script).unwrap();
+        write_source(
+            &p,
+            file,
+            &ScriptSource::Rotom("script Main #1:\n    Message \"Hallo Welt\"\n    End\n".into()),
+        )
+        .unwrap();
+        let arm9_before = std::fs::read(p.arm9_path()).unwrap();
+        let mut store = Store::new(std::sync::Arc::new(p));
+        store.apply_dynamic_headers().unwrap();
+        store
+            .edit_header(1, "script", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.script_file_id = file;
+                    h.text_archive_id = 433;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store.save().unwrap();
+        let p = store.project();
+        // The patch rewrote code in `arm9.bin`, but the old table there still names no header
+        // with script file 3.
+        let at = crate::test_support::PT_HEADER_TABLE_CPUE + crate::test_support::HEADER_SIZE;
+        assert_eq!(
+            std::fs::read(p.arm9_path()).unwrap()[at..at + 24],
+            arm9_before[at..at + 24]
+        );
+
+        let report = compile(p).unwrap();
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.compiled, [file], "{report:?}");
+        assert_eq!(report.touched_archives, [433]);
+        let json =
+            std::fs::read_to_string(p.expanded_dir(AssetKind::TextArchive).join("0433.json"))
+                .unwrap();
+        assert!(json.contains("Hallo Welt"), "{json}");
+    }
+
+    /// A header the patch made possible (past the old table) also maps its script file.
+    #[test]
+    fn a_literal_resolves_through_a_new_dynamic_header() {
+        use crate::store::{MapHeader, Store};
+
+        let (_s, p) = adopted();
+        let file = new_script_file(&p, SourceKind::Script).unwrap();
+        write_source(
+            &p,
+            file,
+            &ScriptSource::Rotom("script Main #1:\n    Message \"Neuer Ort\"\n    End\n".into()),
+        )
+        .unwrap();
+        let mut store = Store::new(std::sync::Arc::new(p));
+        store.apply_dynamic_headers().unwrap();
+        // Past the 559 headers uxie reads from the old table in `arm9.bin`.
+        let mut id = 0;
+        while usize::from(id) < 600 {
+            id = store.create_header(1, "NEU").unwrap();
+        }
+        store
+            .edit_header(id, "script", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.script_file_id = file;
+                    h.text_archive_id = 433;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store.save().unwrap();
+
+        let report = compile(store.project()).unwrap();
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.compiled, [file], "{report:?}");
+        assert_eq!(report.touched_archives, [433]);
     }
 
     #[test]
