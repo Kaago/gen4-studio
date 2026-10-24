@@ -180,26 +180,26 @@ export const syntax = {
   dunkel: { befehl: '#94ADF7', schluesselwort: '#D6C6F7', zeichenkette: '#B5E7C6', zahl: '#FFC6B5', flag: '#E7D6B5', kommentar: '#ADB5C6', fehler: '#F7949C' },
 } as const;
 
-/** Pokémon-Typen der 4. Generation, RGB555-gerastert, mit lesbarer Schriftfarbe. */
+/** Pokémon-Typen der 4. Generation (Szene-Gruppe `typ`, Reihenfolge der Spieldaten), RGB555-gerastert, mit lesbarer Schriftfarbe. */
 export const typen = {
-  'Normal': { grund: '#A5A57B', schrift: '#182131' },
-  'Feuer': { grund: '#EF8431', schrift: '#182131' },
-  'Wasser': { grund: '#6B8CEF', schrift: '#182131' },
-  'Pflanze': { grund: '#7BC652', schrift: '#182131' },
-  'Elektro': { grund: '#F7CE31', schrift: '#182131' },
-  'Eis': { grund: '#94D6D6', schrift: '#182131' },
-  'Kampf': { grund: '#BD3129', schrift: '#FFFFFF' },
-  'Gift': { grund: '#9C429C', schrift: '#FFFFFF' },
-  'Boden': { grund: '#DEBD6B', schrift: '#182131' },
-  'Flug': { grund: '#A58CEF', schrift: '#182131' },
-  'Psycho': { grund: '#F75A84', schrift: '#182131' },
-  'Käfer': { grund: '#A5B521', schrift: '#182131' },
-  'Gestein': { grund: '#B59C39', schrift: '#182131' },
-  'Geist': { grund: '#735A94', schrift: '#FFFFFF' },
-  'Drache': { grund: '#7339F7', schrift: '#FFFFFF' },
-  'Unlicht': { grund: '#735A4A', schrift: '#FFFFFF' },
-  'Stahl': { grund: '#B5B5CE', schrift: '#182131' },
-  '???': { grund: '#6B9C8C', schrift: '#182131' },
+  normal: { grund: '#A5A57B', schrift: '#182131' },
+  kampf: { grund: '#BD3129', schrift: '#FFFFFF' },
+  flug: { grund: '#A58CEF', schrift: '#182131' },
+  gift: { grund: '#9C429C', schrift: '#FFFFFF' },
+  boden: { grund: '#DEBD6B', schrift: '#182131' },
+  gestein: { grund: '#B59C39', schrift: '#182131' },
+  kaefer: { grund: '#A5B521', schrift: '#182131' },
+  geist: { grund: '#735A94', schrift: '#FFFFFF' },
+  stahl: { grund: '#B5B5CE', schrift: '#182131' },
+  fragezeichen: { grund: '#6B9C8C', schrift: '#182131' },
+  feuer: { grund: '#EF8431', schrift: '#182131' },
+  wasser: { grund: '#6B8CEF', schrift: '#182131' },
+  pflanze: { grund: '#7BC652', schrift: '#182131' },
+  elektro: { grund: '#F7CE31', schrift: '#182131' },
+  psycho: { grund: '#F75A84', schrift: '#182131' },
+  eis: { grund: '#94D6D6', schrift: '#182131' },
+  drache: { grund: '#7339F7', schrift: '#FFFFFF' },
+  unlicht: { grund: '#735A4A', schrift: '#FFFFFF' },
 } as const;
 
 /** Prüft, ob eine Farbe im DS-Farbraum liegt (RGB555), und rastet sie sonst ein. */

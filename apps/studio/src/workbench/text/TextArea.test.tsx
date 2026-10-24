@@ -101,6 +101,25 @@ describe("TextArea", () => {
     expect(editTextArchive).toHaveBeenCalledTimes(1);
   });
 
+  it("tells the data areas which archive an edit or a new archive changed (names and descriptions live there)", async () => {
+    await h.open433();
+    h.click(h.messageRow(1));
+    h.type(h.textarea()!, "Zweiblattdorf");
+    h.blur(h.textarea()!);
+    await flush();
+    expect(h.events).toContainEqual({ topic: "textData", archive: 433 });
+    // A refused edit changed nothing.
+    h.events.length = 0;
+    vi.mocked(editTextArchive).mockRejectedValueOnce({ code: "error", message: "nein", asset: null });
+    h.type(h.textarea()!, "Zweiblattdorf neu");
+    h.blur(h.textarea()!);
+    await flush();
+    expect(h.events.filter((e) => e.topic === "textData")).toEqual([]);
+    h.click(h.button("Textarchiv anlegen"));
+    await flush();
+    expect(h.events).toContainEqual({ topic: "textData", archive: 435 });
+  });
+
   it("stores a typed or pasted line break as the escape the archive uses", async () => {
     await h.open433();
     h.click(h.messageRow(1));

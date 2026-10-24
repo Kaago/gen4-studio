@@ -68,6 +68,30 @@ describe("shell state", () => {
     expect(read.recent).toEqual([]);
   });
 
+  it("reads_v1_without_the_data_fields_with_their_defaults", () => {
+    // A state written before the data areas: no `sub`, no `selected`.
+    localStorage.setItem(KEY, JSON.stringify({ area: "texte", depth: "bauen", recent: [] }));
+    const read = readShellState();
+    expect(read.area).toBe("texte");
+    expect(read.sub).toEqual({ pokemon: "pokedex" });
+    expect(read.selected).toEqual({});
+  });
+
+  it("reads_v1_with_the_sub_area_and_the_selection_per_sub_area", () => {
+    localStorage.setItem(KEY, JSON.stringify({ area: "pokemon", sub: { pokemon: "moves" }, selected: { pokedex: 397, moves: 17, items: 4 } }));
+    const read = readShellState();
+    expect(read.area).toBe("pokemon");
+    expect(read.sub.pokemon).toBe("moves");
+    expect(read.selected).toEqual({ pokedex: 397, moves: 17, items: 4 });
+  });
+
+  it("drops_an_unknown_sub_area_and_selections_that_are_no_index", () => {
+    localStorage.setItem(KEY, JSON.stringify({ sub: { pokemon: "shops" }, selected: { pokedex: -1, moves: 1.5, items: "4", other: 3 } }));
+    const read = readShellState();
+    expect(read.sub.pokemon).toBe("pokedex");
+    expect(read.selected).toEqual({});
+  });
+
   it("drops_recent_entries_that_are_not_projects", () => {
     localStorage.setItem(KEY, JSON.stringify({ recent: [project(1), { path: 3 }, null, "x", { path: "/q", name: "q", game: "g" }, project(2)] }));
     expect(readShellState().recent.map((p) => p.path)).toEqual(["/p/1", "/p/2"]);

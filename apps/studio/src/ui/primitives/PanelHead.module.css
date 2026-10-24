@@ -16,6 +16,11 @@
   color: var(--g4-text-primaer);
 }
 
+/* With a switcher the heading is a menu button; its text sits where the title text would. */
+.title > button {
+  margin-left: calc(-1 * var(--g4-raum-8));
+}
+
 .subtitle {
   min-width: 0;
   overflow: hidden;

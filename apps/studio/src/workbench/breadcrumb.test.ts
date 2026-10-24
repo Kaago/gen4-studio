@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto, HeaderSummary, MatrixSummary, ObjectDto, WarpDto } from "../api";
-import { crumbsFor, textCrumbs } from "./breadcrumb";
+import { crumbsFor, dataCrumbs, textCrumbs } from "./breadcrumb";
 import type { Crumb } from "./breadcrumb";
 import { buildPlaces } from "./places";
 import type { InspectorModel } from "./Inspector";
@@ -135,5 +135,51 @@ describe("textCrumbs", () => {
       { kind: "textArchive", index: 412, message: 5 },
     ]);
     expect(textCrumbs({ archive: 412, message: 5 }).every((c) => c.onClick === undefined)).toBe(true);
+  });
+});
+
+describe("dataCrumbs", () => {
+  const labels = (crumbs: Crumb[]) => crumbs.map((c) => c.label);
+  const switcher = (value: string, onChange = vi.fn()) => ({
+    items: [
+      { id: "pokedex", label: "Pokédex", count: 508, shortcut: "⌘1" },
+      { id: "trainer", label: "Trainer", shortcut: "⌘2", disabled: true, hint: "kommt mit Phase 3b.3b" },
+      { id: "moves", label: "Attacken", count: 471, shortcut: "⌘4" },
+    ],
+    value,
+    onChange,
+  });
+
+  it("names_area_sub_area_and_selection_and_makes_the_sub_area_the_switcher_menu", () => {
+    const onChange = vi.fn();
+    const crumbs = dataCrumbs({ area: "pokemon", switcher: switcher("pokedex", onChange), selection: { label: "Staravia", target: { kind: "species", index: 397 } } });
+    expect(labels(crumbs)).toEqual(["Pokémon", "Pokédex", "Staravia"]);
+    const menu = crumbs[1]?.menu ?? [];
+    expect(menu.map((m) => m.label)).toEqual(["Pokédex", "Trainer, kommt mit Phase 3b.3b", "Attacken"]);
+    expect(menu.map((m) => m.checked)).toEqual([true, false, false]);
+    expect(menu[1]?.disabled).toBe(true);
+    menu[2]?.onSelect();
+    expect(onChange).toHaveBeenCalledWith("moves");
+    // A locked part does not switch.
+    menu[1]?.onSelect();
+    expect(onChange).toHaveBeenCalledOnce();
+  });
+
+  it("is_area_and_sub_area_without_a_selection_and_links_the_selection_with_a_goTo", () => {
+    expect(labels(dataCrumbs({ area: "pokemon", switcher: switcher("moves"), selection: null }))).toEqual(["Pokémon", "Attacken"]);
+    const goTo = vi.fn();
+    const crumbs = dataCrumbs({ area: "pokemon", switcher: switcher("moves"), selection: { label: "Flügelschlag", target: { kind: "move", index: 17 } }, goTo });
+    crumbs[2]?.onClick?.();
+    expect(goTo).toHaveBeenCalledWith({ kind: "move", index: 17 });
+  });
+
+  it("puts_the_pocket_of_the_item_between_area_and_item_and_a_click_on_it_sets_the_filter", () => {
+    const onPocket = vi.fn();
+    const crumbs = dataCrumbs({ area: "gegenstaende", pocket: { label: "Tasche Medizin", onClick: onPocket }, selection: { label: "Trank", target: { kind: "item", id: 17 } } });
+    expect(labels(crumbs)).toEqual(["Gegenstände", "Tasche Medizin", "Trank"]);
+    expect(crumbs[1]?.menu).toBeUndefined();
+    crumbs[1]?.onClick?.();
+    expect(onPocket).toHaveBeenCalledOnce();
+    expect(dataCrumbs({ area: "gegenstaende", pocket: null, selection: null })).toEqual([{ label: "Gegenstände" }]);
   });
 });

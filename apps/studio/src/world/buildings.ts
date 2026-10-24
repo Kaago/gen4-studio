@@ -1,4 +1,5 @@
 import type { BuildingDto } from "../api";
+import type { AreaId, PokemonSub } from "../ui/frame/shellState";
 import { snapTo } from "./drag";
 import { MAP_SIZE, MODEL_SCALE } from "./layout";
 
@@ -48,7 +49,11 @@ export function isTypingTarget(target: { tagName?: string; isContentEditable?: b
   return target.isContentEditable === true || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
-export type ShortcutAction = "open" | "palette" | "save" | "undo" | "redo" | "play";
+/** The app-level actions, and the four parts of the Pokémon area (⌘1 to ⌘4, only there). */
+export type ShortcutAction = "open" | "palette" | "save" | "undo" | "redo" | "play" | PokemonSub;
+
+/** The part of the Pokémon area each digit key shows. */
+const SUB_KEYS: Readonly<Record<string, PokemonSub>> = { "1": "pokedex", "2": "trainer", "3": "encounters", "4": "moves" };
 
 /**
  * Every app-level shortcut as the settings list it (read only): its keys as shown and what it does. A record over `ShortcutAction`, so no
@@ -61,12 +66,16 @@ export const SHORTCUTS: Readonly<Record<ShortcutAction, { keys: string; label: s
   undo: { keys: "⌘Z", label: "Rückgängig" },
   redo: { keys: "⇧⌘Z", label: "Wiederholen" },
   play: { keys: "⌘R", label: "Hier spielen (nur in der App)" },
+  pokedex: { keys: "⌘1", label: "Pokédex (im Bereich Pokémon)" },
+  trainer: { keys: "⌘2", label: "Trainer (im Bereich Pokémon)" },
+  encounters: { keys: "⌘3", label: "Begegnungen (im Bereich Pokémon)" },
+  moves: { keys: "⌘4", label: "Attacken (im Bereich Pokémon)" },
 };
 
 /**
  * The app-level shortcut a key event asks for (Cmd/Ctrl+O, +K, +S, +Z, +Shift+Z, and +R for "Hier spielen" inside the app), or null; none
  * while typing in a field, where Z must stay the text field's own undo. `inApp` is whether the page runs in the Tauri window: in a browser
- * Cmd+R reloads the page and is not ours.
+ * Cmd+R reloads the page and is not ours. Cmd/Ctrl+1 to 4 choose the part of the Pokémon area while `area` is "pokemon".
  */
 export function shortcutAction(e: {
   key: string;
@@ -76,9 +85,12 @@ export function shortcutAction(e: {
   altKey: boolean;
   shiftKey: boolean;
   inApp?: boolean;
+  area?: AreaId;
 }): ShortcutAction | null {
   if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
   const key = e.key.toLowerCase();
+  const sub = SUB_KEYS[key];
+  if (sub !== undefined) return e.area === "pokemon" && !e.shiftKey ? sub : null;
   if (key === "s") return "save";
   if (key === "o" && !e.shiftKey) return "open";
   if (key === "k" && !e.shiftKey) return "palette";
@@ -88,9 +100,13 @@ export function shortcutAction(e: {
   return null;
 }
 
-/** Whether a key event asks to delete the selected building: Delete or Backspace, unmodified, not typed into a field. */
-export function wantsDelete(e: { key: string; target: { tagName?: string; isContentEditable?: boolean } | null; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): boolean {
+/**
+ * Whether a key event asks to delete the selected building: Delete or Backspace, unmodified, not typed into a field, and, when `area` is
+ * given, only in the world (another area's Delete is its own).
+ */
+export function wantsDelete(e: { key: string; target: { tagName?: string; isContentEditable?: boolean } | null; metaKey: boolean; ctrlKey: boolean; altKey: boolean; area?: AreaId }): boolean {
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.area !== undefined && e.area !== "welt") return false;
   return (e.key === "Delete" || e.key === "Backspace") && !isTypingTarget(e.target);
 }
 

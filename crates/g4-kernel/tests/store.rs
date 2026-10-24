@@ -53,12 +53,12 @@ fn undo_reports_the_asset_it_restored() {
         Ok(())
     })
     .unwrap();
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert_eq!(st.undo(), Some(map_id(1)));
-    assert_eq!(st.undo(), None);
-    assert_eq!(st.redo(), Some(map_id(1)));
-    assert_eq!(st.redo(), Some(matrix_id(0)));
-    assert_eq!(st.redo(), None);
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert_eq!(st.undo().unwrap(), [map_id(1)]);
+    assert!(st.undo().unwrap().is_empty());
+    assert_eq!(st.redo().unwrap(), [map_id(1)]);
+    assert_eq!(st.redo().unwrap(), [matrix_id(0)]);
+    assert!(st.redo().unwrap().is_empty());
 }
 
 #[test]
@@ -76,19 +76,25 @@ fn accept_disk_as_base_drops_only_the_history_of_that_asset() {
     .unwrap();
     st.edit_map(0, "map third", |m| m.set_cell(0, 2, cell(2)))
         .unwrap();
-    assert_eq!(st.undo(), Some(map_id(0))); // one map changeset on the redo stack
+    assert_eq!(st.undo().unwrap(), [map_id(0)]); // one map changeset on the redo stack
     let path = s.dir.path().join("unpacked/maps/0000");
     let mut theirs = std::fs::read(&path).unwrap();
     theirs[16 + 2 * (6 * 32 + 5) + 1] = 0x80;
     std::fs::write(&path, &theirs).unwrap();
     st.accept_disk_as_base(map_id(0)).unwrap();
-    assert!(st.redo().is_none(), "the map's redo entry is gone");
+    assert!(
+        st.redo().unwrap().is_empty(),
+        "the map's redo entry is gone"
+    );
     assert_eq!(
-        st.undo(),
-        Some(matrix_id(0)),
+        st.undo().unwrap(),
+        [matrix_id(0)],
         "other assets keep their history"
     );
-    assert!(st.undo().is_none(), "the map's undo entries are gone");
+    assert!(
+        st.undo().unwrap().is_empty(),
+        "the map's undo entries are gone"
+    );
     // The store keeps my version of the map and saving overwrites the external edit.
     assert!(st.is_dirty(map_id(0)));
 }
@@ -114,9 +120,9 @@ fn edit_marks_dirty_and_undo_clears_it() {
     .unwrap();
     assert!(st.is_dirty(id));
     assert_eq!(st.dirty(), vec![id]);
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
-    assert!(st.redo().is_some());
+    assert!(!st.redo().unwrap().is_empty());
     assert_eq!(st.map(1).unwrap().cell(4, 4).unwrap().collision, 0x80);
 }
 
@@ -293,7 +299,7 @@ fn invalid_edit_is_rolled_back() {
     assert!(matches!(err, KernelError::Format(_)));
     assert!(!st.is_dirty(id));
     assert_eq!(*st.map(1).unwrap(), before);
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -307,7 +313,7 @@ fn invalid_matrix_edit_is_rolled_back() {
     assert!(matches!(err, Err(KernelError::Format(_))));
     assert_eq!(*st.matrix(0).unwrap(), before);
     assert!(st.dirty().is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -318,7 +324,7 @@ fn edit_that_changes_nothing_records_no_changeset() {
     st.edit_map(1, "same cell", |m| m.set_cell(2, 2, same))
         .unwrap();
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -333,9 +339,9 @@ fn new_edit_after_undo_clears_redo() {
         collision: 0,
     };
     st.edit_map(1, "a", |m| m.set_cell(0, 0, a)).unwrap();
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     st.edit_map(1, "b", |m| m.set_cell(0, 0, b)).unwrap();
-    assert!(st.redo().is_none());
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(st.map(1).unwrap().cell(0, 0).unwrap(), b);
 }
 
@@ -361,12 +367,12 @@ fn undo_and_redo_walk_the_history_in_order() {
         })
         .unwrap();
     assert_ne!(c1, c2);
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert_eq!(st.undo(), Some(map_id(0)));
-    assert_eq!(st.undo(), None);
-    assert_eq!(st.redo(), Some(map_id(0)));
-    assert_eq!(st.redo(), Some(matrix_id(0)));
-    assert_eq!(st.redo(), None);
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert_eq!(st.undo().unwrap(), [map_id(0)]);
+    assert!(st.undo().unwrap().is_empty());
+    assert_eq!(st.redo().unwrap(), [map_id(0)]);
+    assert_eq!(st.redo().unwrap(), [matrix_id(0)]);
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(
         st.dirty(),
         vec![
@@ -395,7 +401,7 @@ fn undo_after_save_makes_the_asset_dirty_again() {
     .unwrap();
     st.save().unwrap();
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(st.is_dirty(map_id(1)));
     let report = st.save().unwrap();
     assert_eq!(report.written, vec![map_id(1)]);
@@ -534,7 +540,7 @@ fn failing_edit_closure_is_rolled_back() {
         KernelError::Format(FormatError::OutOfRange { .. })
     ));
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -580,7 +586,7 @@ fn failing_event_closure_is_rolled_back() {
         .unwrap_err();
     assert!(matches!(err, KernelError::Format(_)));
     assert!(st.event(0).unwrap().warp_events.is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -621,8 +627,8 @@ fn event_edit_round_trips_and_validates_warp_height() {
     assert_eq!(st.event(0).unwrap().warp_events[0].height, 0);
     assert!(!st.is_dirty(event_id(0)));
     // The rejected edit left no changeset: the only undo step is the first edit.
-    assert!(st.undo().is_some());
-    assert!(st.undo().is_none());
+    assert!(!st.undo().unwrap().is_empty());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -640,10 +646,10 @@ fn event_edit_undo_redo_and_dirty_follow_the_bytes() {
     })
     .unwrap();
     assert!(st.is_dirty(event_id(1)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(event_id(1)));
     assert!(st.event(1).unwrap().warp_events.is_empty());
-    assert!(st.redo().is_some());
+    assert!(!st.redo().unwrap().is_empty());
     assert_eq!(st.event(1).unwrap().warp_events.len(), 1);
 }
 
@@ -664,7 +670,10 @@ fn assert_event_locked(s: &common::Synthetic, st: &mut Store, bytes: &[u8], reas
         "{err}"
     );
     assert!(st.locked(event_id(0)).is_some_and(|r| r.contains(reason)));
-    assert!(st.undo().is_none(), "a refused edit leaves no changeset");
+    assert!(
+        st.undo().unwrap().is_empty(),
+        "a refused edit leaves no changeset"
+    );
     assert!(!st.is_dirty(event_id(0)));
     assert!(st.dirty().is_empty());
     assert!(st.save().unwrap().written.is_empty());
@@ -755,7 +764,7 @@ fn map_tileset_index_follows_unsaved_edits_and_tolerates_a_missing_area() {
     })
     .unwrap();
     assert_eq!(st.map_tileset_index(0).unwrap(), Some(9));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert_eq!(st.map_tileset_index(0).unwrap(), Some(0));
 }
 
@@ -835,8 +844,8 @@ fn stale_recovery_reload_and_accept() {
     assert!(!st.is_dirty(id));
     assert_eq!(st.map(0).unwrap().cell(5, 6).unwrap().collision, 0x80); // theirs
     assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap(), original); // mine gone
-    assert!(st.undo().is_none());
-    assert!(st.redo().is_none());
+    assert!(st.undo().unwrap().is_empty());
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), theirs);
 
     // Second round: keep mine.
@@ -864,7 +873,7 @@ fn stale_recovery_reload_and_accept() {
     assert!(st.dirty().is_empty());
     // The base changed under my edits, so undoing them would write the old base over the
     // external edit: the asset's history is gone.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
 }
 
@@ -898,11 +907,11 @@ fn reload_discards_only_the_changesets_of_that_asset() {
         )
     })
     .unwrap();
-    assert!(st.undo().is_some()); // leaves one undone map changeset on the redo stack
+    assert!(!st.undo().unwrap().is_empty()); // leaves one undone map changeset on the redo stack
     st.reload_from_disk(map_id(0)).unwrap();
-    assert!(st.redo().is_none());
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert!(st.undo().is_none());
+    assert!(st.redo().unwrap().is_empty());
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert!(st.undo().unwrap().is_empty());
     assert!(st.dirty().is_empty());
 }
 
@@ -923,7 +932,7 @@ fn reload_of_a_deleted_member_fails_without_touching_the_store() {
     std::fs::remove_file(s.dir.path().join("unpacked/maps/0000")).unwrap();
     assert!(st.reload_from_disk(map_id(0)).is_err());
     assert!(st.is_dirty(map_id(0)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -955,7 +964,7 @@ fn accept_disk_as_base_of_a_deleted_member_recreates_it_on_save() {
     assert!(st.dirty().is_empty());
     assert_eq!(&recreated, st.map(0).unwrap());
     // The base changed, so the edit made against the old one is no longer undoable.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
 }
 
@@ -997,7 +1006,7 @@ fn reload_of_garbage_on_disk_keeps_my_changes() {
     assert!(st.reload_from_disk(map_id(0)).is_err());
     assert!(st.is_dirty(map_id(0)));
     assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap().kind, 1);
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -1132,7 +1141,7 @@ fn create_and_duplicate_unpack_the_archive_first_and_never_overwrite() {
     assert!(st.duplicate_map(0).is_err());
     assert_eq!(std::fs::read(&stray).unwrap(), b"keep");
     // New members are not undoable and leave nothing dirty.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(st.dirty().is_empty());
 }
 
@@ -1479,7 +1488,7 @@ fn apply_dynamic_headers_reloads_the_table() {
     assert!(st.dynamic_headers_applied().unwrap());
     assert_eq!(st.header_table().unwrap(), before.as_slice());
     assert!(st.dirty().is_empty());
-    assert_eq!(st.undo(), None);
+    assert!(st.undo().unwrap().is_empty());
     // The patch cannot be applied twice.
     assert!(st.apply_dynamic_headers().is_err());
 }
@@ -1630,7 +1639,7 @@ fn undo_after_create_header_keeps_the_new_header() {
     let old = matrix_of(&mut st, 0);
     set_matrix(&mut st, 0, 5);
     assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), old);
     assert!(st.dirty().is_empty());
@@ -1643,7 +1652,7 @@ fn undo_after_create_header_keeps_the_new_header() {
         &8u16.to_le_bytes()
     );
     // Redo of the edit that was undone keeps all three headers as well.
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
 }
 
@@ -1653,9 +1662,9 @@ fn redo_after_create_header_keeps_the_new_header() {
     st.apply_dynamic_headers().unwrap();
     let old = matrix_of(&mut st, 0);
     set_matrix(&mut st, 0, 5);
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
-    assert_eq!(st.redo(), Some(header_table_id()));
+    assert_eq!(st.redo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), 5);
     assert_eq!(st.dirty(), vec![header_table_id()]);
@@ -1667,7 +1676,7 @@ fn redo_after_create_header_keeps_the_new_header() {
     );
     assert_eq!(std::fs::read(dir.join("0002")).unwrap().len(), 24);
     // And back: undo restores the old value, still with three headers.
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), old);
 }
@@ -1864,4 +1873,396 @@ fn reload_of_an_undecodable_text_archive_fails_and_drops_its_index_entry() {
     let err = st.reload_from_disk(text_id(433)).unwrap_err().to_string();
     assert!(err.contains("textArchives/0433.json"), "{err}");
     assert!(st.search_text("twinleaf", 10).unwrap().is_empty());
+}
+
+// ---- Data kinds (personal, learnset, evolution, move, item, encounter, trainer texts) ----
+
+use g4_formats::data::encounter::Encounters;
+use g4_formats::data::evolution::EvoEntry;
+use g4_formats::data::learnset::LearnEntry;
+use g4_formats::data::record::RawRecord;
+use g4_kernel::store::ChangeId;
+
+/// A store over the synthetic project with nothing unpacked yet.
+fn data_store() -> (common::Synthetic, Store) {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    (s, Store::new(Arc::new(p)))
+}
+
+/// One editable data kind of the fixture, for the four tests every kind runs.
+struct DataCase {
+    kind: AssetKind,
+    /// Members of the kind in the fixture.
+    count: usize,
+    /// The member the edit tests change.
+    index: u16,
+    /// The member the lock test reads with a wrong length, and the bytes it writes there
+    /// first (`None`: the fixture's member is already too long).
+    locked: u16,
+    wrong: Option<Vec<u8>>,
+    /// The lock reason, verbatim.
+    reason: &'static str,
+    /// Reads the member through the typed getter, serialized.
+    read: fn(&mut Store, u16) -> Result<Vec<u8>, KernelError>,
+    /// One edit through the typed edit function of the store, labelled "edit".
+    edit: fn(&mut Store, u16) -> Result<Option<ChangeId>, KernelError>,
+}
+
+impl DataCase {
+    fn id(&self, index: u16) -> AssetId {
+        AssetId {
+            kind: self.kind,
+            index,
+        }
+    }
+}
+
+fn personal_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Personal,
+        count: common::PT_SPECIES_MEMBERS,
+        index: 3,
+        locked: 3,
+        wrong: Some(vec![0; 45]),
+        reason: "personal data 0003: 45 bytes, expected 44",
+        read: |st, i| st.personal(i).map(|p| p.write()),
+        edit: |st, i| st.edit_personal(i, "edit", |p| p.set_hp(p.hp() + 1)),
+    }
+}
+
+fn learnset_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Learnset,
+        count: common::PT_SPECIES_MEMBERS,
+        index: 3,
+        locked: 4,
+        wrong: Some(vec![0x01, 0x02, 0x02]),
+        reason: "learnset 0004: 3 bytes, expected 4",
+        read: |st, i| st.learnset(i).map(|l| l.write()),
+        edit: |st, i| {
+            st.edit_learnset(i, "edit", |l| {
+                l.entries.push(LearnEntry {
+                    move_id: 3,
+                    level: 9,
+                })
+            })
+        },
+    }
+}
+
+fn evolution_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Evolution,
+        count: common::PT_SPECIES_MEMBERS,
+        index: 1,
+        locked: 2,
+        wrong: Some(vec![0; 40]),
+        reason: "evolution data 0002: 40 bytes, expected 44",
+        read: |st, i| st.evolution(i).map(|e| e.write()),
+        edit: |st, i| {
+            st.edit_evolution(i, "edit", |e| {
+                e.set_entry(
+                    0,
+                    EvoEntry {
+                        method: 4,
+                        param: 30,
+                        target: 3,
+                    },
+                )
+            })
+        },
+    }
+}
+
+fn move_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Move,
+        count: common::PT_MOVE_MEMBERS,
+        index: 1,
+        locked: 2,
+        wrong: Some(vec![0; 14]),
+        reason: "move 0002: 14 bytes, expected 16",
+        read: |st, i| st.move_data(i).map(|m| m.write()),
+        edit: |st, i| st.edit_move(i, "edit", |m| m.set_power(m.power() + 5)),
+    }
+}
+
+fn item_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Item,
+        count: common::PT_ITEM_MEMBERS,
+        index: 1,
+        locked: common::LONG_ITEM,
+        wrong: None,
+        reason: "item 0017: 36 bytes, expected 34",
+        read: |st, i| st.item(i).map(|it| it.write()),
+        edit: |st, i| st.edit_item(i, "edit", |it| it.set_price(4321)),
+    }
+}
+
+fn encounter_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::Encounter,
+        count: common::PT_ENCOUNTER_MEMBERS,
+        index: 1,
+        locked: 0,
+        wrong: Some(vec![0; 196]),
+        reason: "encounter file 0000: 196 bytes, expected 424",
+        read: |st, i| st.encounter(i).map(|e| e.write()),
+        edit: |st, i| {
+            st.edit_encounter(i, "edit", |e| match e {
+                Encounters::Pt(e) => e.set_grass_rate(25),
+                Encounters::Hgss(_) => {}
+            })
+        },
+    }
+}
+
+fn trainer_text_table_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::TrainerTextTable,
+        count: 1,
+        index: 0,
+        locked: 0,
+        wrong: Some(vec![1, 0, 0, 0, 1, 0]),
+        reason: "trainer text table 0000: 6 bytes, expected 8",
+        read: |st, i| st.trainer_text_table(i).map(|t| t.write()),
+        edit: |st, i| st.edit_trainer_text_table(i, "edit", |t| t.entries.push((2, 0))),
+    }
+}
+
+fn trainer_text_offsets_case() -> DataCase {
+    DataCase {
+        kind: AssetKind::TrainerTextOffsets,
+        count: 1,
+        index: 0,
+        locked: 0,
+        wrong: Some(vec![0; 5]),
+        reason: "trainer text offsets 0000: 5 bytes, expected 6",
+        read: |st, i| st.trainer_text_offsets(i).map(|o| o.write()),
+        edit: |st, i| st.edit_trainer_text_offsets(i, "edit", |o| o.offsets[1] = 8),
+    }
+}
+
+fn check_loads_byte_identical(case: DataCase) {
+    let (_s, mut st) = data_store();
+    let id = case.id(case.index);
+    assert_eq!(st.current_bytes(id).unwrap(), None, "nothing loaded yet");
+    assert_eq!(st.saved_bytes(id), None, "nothing loaded yet");
+    let bytes = (case.read)(&mut st, case.index).unwrap();
+    assert_eq!(st.saved_bytes(id), Some(bytes.as_slice()));
+    let path = st.project().member_path(case.kind, case.index);
+    assert_eq!(bytes, std::fs::read(path).unwrap());
+    assert_eq!(st.current_bytes(id).unwrap(), Some(bytes));
+    assert_eq!(st.locked(id), None);
+    assert!(!st.is_dirty(id));
+    assert_eq!(st.member_count(case.kind).unwrap(), case.count);
+}
+
+fn check_edit_records_undo_and_dirty(case: DataCase) {
+    let (_s, mut st) = data_store();
+    let id = case.id(case.index);
+    let before = (case.read)(&mut st, case.index).unwrap();
+    assert!((case.edit)(&mut st, case.index).unwrap().is_some());
+    let after = (case.read)(&mut st, case.index).unwrap();
+    assert_ne!(after, before);
+    assert_eq!(
+        st.saved_bytes(id),
+        Some(before.as_slice()),
+        "the baseline stays"
+    );
+    assert_eq!(st.dirty(), vec![id]);
+    assert_eq!(st.history(), (vec!["edit".to_owned()], vec![]));
+    assert_eq!(st.undo().unwrap(), vec![id]);
+    assert_eq!((case.read)(&mut st, case.index).unwrap(), before);
+    assert!(st.dirty().is_empty());
+    assert_eq!(st.redo().unwrap(), vec![id]);
+    assert_eq!((case.read)(&mut st, case.index).unwrap(), after);
+    assert_eq!(st.dirty(), vec![id]);
+}
+
+fn check_save_writes_member_atomically(case: DataCase) {
+    let (_s, mut st) = data_store();
+    let id = case.id(case.index);
+    (case.edit)(&mut st, case.index).unwrap();
+    let edited = st.current_bytes(id).unwrap().unwrap();
+    let path = st.project().member_path(case.kind, case.index);
+    let report = st.save().unwrap();
+    assert_eq!(report.written, vec![id]);
+    assert_eq!(std::fs::read(&path).unwrap(), edited);
+    assert_eq!(st.saved_bytes(id), Some(edited.as_slice()));
+    assert!(dot_entries(path.parent().unwrap()).is_empty());
+    assert!(!st.is_dirty(id));
+    // A file changed on disk after the save is not overwritten by the next one (undo makes
+    // the asset dirty again).
+    assert_eq!(st.undo().unwrap(), vec![id]);
+    std::fs::write(&path, &edited[..edited.len() - 1]).unwrap();
+    assert!(matches!(st.save().unwrap_err(), KernelError::Stale(s) if s == id));
+}
+
+fn check_wrong_length(case: DataCase) {
+    let (_s, mut st) = data_store();
+    let id = case.id(case.locked);
+    st.project().ensure_unpacked(case.kind).unwrap();
+    let path = st.project().member_path(case.kind, case.locked);
+    let good = std::fs::read(st.project().member_path(case.kind, case.index)).unwrap();
+    if let Some(wrong) = &case.wrong {
+        std::fs::write(&path, wrong).unwrap();
+    }
+    let raw = std::fs::read(&path).unwrap();
+    let err = (case.read)(&mut st, case.locked).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::ReadOnly { asset, reason } if *asset == id && reason == case.reason),
+        "{err}"
+    );
+    assert_eq!(st.locked(id), Some(case.reason));
+    assert_eq!(st.current_bytes(id).unwrap(), Some(raw.clone()));
+    let err = (case.edit)(&mut st, case.locked).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::ReadOnly { asset, .. } if *asset == id),
+        "{err}"
+    );
+    assert!(!st.is_dirty(id));
+    assert!(st.save().unwrap().written.is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), raw);
+    // A member of the right length on disk unlocks it again.
+    std::fs::write(&path, &good).unwrap();
+    st.reload_from_disk(id).unwrap();
+    assert_eq!((case.read)(&mut st, case.locked).unwrap(), good);
+    assert_eq!(st.locked(id), None);
+}
+
+macro_rules! data_kind_tests {
+    ($($module:ident => $case:expr;)*) => {$(
+        mod $module {
+            use super::*;
+
+            #[test]
+            fn loads_byte_identical() {
+                check_loads_byte_identical($case);
+            }
+
+            #[test]
+            fn edit_records_undo_and_dirty() {
+                check_edit_records_undo_and_dirty($case);
+            }
+
+            #[test]
+            fn save_writes_member_atomically() {
+                check_save_writes_member_atomically($case);
+            }
+
+            #[test]
+            fn wrong_length_member_is_locked_with_reason_and_raw_bytes() {
+                check_wrong_length($case);
+            }
+        }
+    )*};
+}
+
+data_kind_tests! {
+    personal => personal_case();
+    learnset => learnset_case();
+    evolution => evolution_case();
+    move_data => move_case();
+    item => item_case();
+    encounter => encounter_case();
+    trainer_text_table => trainer_text_table_case();
+    trainer_text_offsets => trainer_text_offsets_case();
+}
+
+/// Every member of every editable data kind of a vanilla project loads through the store,
+/// unlocked and byte-identical to its file. Reads only: DSPRE unpacked every folder, so the
+/// store unpacks nothing.
+#[test]
+fn vanilla_data_members_load_unlocked_and_byte_identical() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let mut st = Store::new(project.clone());
+    for case in [
+        personal_case(),
+        learnset_case(),
+        evolution_case(),
+        move_case(),
+        item_case(),
+        encounter_case(),
+        trainer_text_table_case(),
+        trainer_text_offsets_case(),
+    ] {
+        assert!(project.unpacked_dir(case.kind).is_dir(), "{:?}", case.kind);
+        let count = st.member_count(case.kind).unwrap();
+        assert!(count > 0, "{:?} has no members", case.kind);
+        for index in 0..count as u16 {
+            let id = case.id(index);
+            let bytes = (case.read)(&mut st, index).unwrap_or_else(|e| panic!("{id}: {e}"));
+            assert_eq!(
+                bytes,
+                std::fs::read(project.member_path(case.kind, index)).unwrap(),
+                "{id}"
+            );
+            assert_eq!(st.locked(id), None, "{id}");
+        }
+        eprintln!("{:?}: {count} members", case.kind);
+    }
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn trainer_properties_and_party_stay_read_only() {
+    let (s, mut st) = data_store();
+    for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
+        assert_eq!(st.member_count(kind).unwrap(), common::PT_TRAINER_MEMBERS);
+        assert!(matches!(
+            st.reload_from_disk(AssetId { kind, index: 0 }),
+            Err(KernelError::NotEditable(k)) if k == kind
+        ));
+    }
+    assert!(!s.dir.path().join("unpacked/trainerProperties").exists());
+}
+
+#[test]
+fn moves_and_tm_bits_are_copied_in_one_transaction() {
+    let (_s, mut st) = data_store();
+    let label = "Ivysaur: TM/VM und Lernset wie Bulbasaur";
+    let ((), change) = st
+        .transaction(label, |tx| {
+            let source = tx.personal(1)?.clone();
+            let mut learnset = tx.learnset(1)?.clone();
+            learnset.entries.push(LearnEntry {
+                move_id: 3,
+                level: 20,
+            });
+            tx.edit_personal(2, |p| {
+                for n in 0..100 {
+                    p.set_tm(n, source.tm(n));
+                }
+            })?;
+            tx.edit_learnset(2, |l| l.entries = learnset.entries)?;
+            // Inside the transaction the getter sees the edited value.
+            assert!(tx.personal(2)?.tm(0));
+            Ok(())
+        })
+        .unwrap();
+    assert!(change.is_some());
+    assert_eq!(st.history(), (vec![label.to_owned()], vec![]));
+    let personal = |index| AssetId {
+        kind: AssetKind::Personal,
+        index,
+    };
+    let learnset = |index| AssetId {
+        kind: AssetKind::Learnset,
+        index,
+    };
+    assert_eq!(st.dirty(), vec![personal(2), learnset(2)]);
+    assert_eq!(
+        st.personal(2).unwrap().tm_bits(),
+        st.personal(1).unwrap().tm_bits()
+    );
+    assert_eq!(st.learnset(2).unwrap().entries.len(), 3);
+    assert_eq!(st.undo().unwrap(), vec![personal(2), learnset(2)]);
+    assert!(st.dirty().is_empty());
+    assert!(!st.personal(2).unwrap().tm(0));
 }

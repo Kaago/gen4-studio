@@ -48,6 +48,26 @@ describe("TextTable", () => {
   const scroller = () => container.querySelector<HTMLElement>("[data-text-table-body]")!;
   const key = (el: Element, k: string) => act(() => void el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })));
 
+  it("scrolls a selection it mounts with into view with the sizes as laid out", () => {
+    // jsdom has no layout: the body is 240 px high, a row 24 px (the compact density), as a browser would measure them.
+    const restore: (() => void)[] = [];
+    const stub = (name: "clientHeight" | "offsetHeight", get: (el: HTMLElement) => number) => {
+      const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get(this: HTMLElement) { return get(this); } });
+      restore.push(() => (before ? Object.defineProperty(HTMLElement.prototype, name, before) : delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name]));
+    };
+    stub("clientHeight", (el) => (el.hasAttribute("data-text-table-body") ? 240 : 0));
+    stub("offsetHeight", (el) => (el.hasAttribute("data-row") ? 24 : 0));
+    try {
+      act(() => root.render(<Table count={800} initial={400} />));
+      // Row 400 ends at 401 × 24 px; the body shows 240 px of it.
+      expect(scroller().scrollTop).toBe(401 * 24 - 240);
+      expect(row(400)).not.toBeNull();
+    } finally {
+      while (restore.length > 0) restore.pop()!();
+    }
+  });
+
   it("is a grid with a header row and named columns", () => {
     act(() => root.render(<Table count={3} />));
     const grid = container.querySelector('[role="grid"]');

@@ -13,7 +13,8 @@ use crate::commands::ProblemDto;
 /// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
 /// `"partial"` (a wizard command failed after it had created members, which stay),
 /// `"compile"` (scripts or texts did not compile; `problems` lists them) or `"error"`;
-/// `asset` is set for `"stale"` and `"read_only"` and serializes as `null` otherwise.
+/// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
+/// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"`.
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
@@ -56,6 +57,7 @@ impl From<KernelError> for CmdError {
         let (code, asset) = match &e {
             KernelError::Stale(id) => ("stale", Some(*id)),
             KernelError::ReadOnly { asset, .. } => ("read_only", Some(*asset)),
+            KernelError::Restore { asset, .. } => ("error", Some(*asset)),
             KernelError::ToolMissing { .. } => ("tool_missing", None),
             _ => ("error", None),
         };
@@ -134,6 +136,17 @@ mod tests {
         assert_eq!(
             locked.message,
             "map 0000 is read-only: 17 bytes read, 16 would be written"
+        );
+
+        let restore = CmdError::from(KernelError::Restore {
+            asset: id,
+            reason: "it is not loaded".into(),
+        });
+        assert_eq!(restore.code, "error");
+        assert_eq!(restore.asset, Some(id));
+        assert_eq!(
+            restore.message,
+            "map 0000 cannot be restored: it is not loaded"
         );
 
         let other = CmdError::from(KernelError::NotEditable(AssetKind::Map));

@@ -971,8 +971,8 @@ mod tests {
         );
 
         // Two edits (matrix, header) are undone; the new members stay.
-        assert!(undo_impl(&state).unwrap().is_some());
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(get_header_impl(&state, 1).unwrap().matrix_id(), 0);
         let m = get_matrix_impl(&state, 1).unwrap();
         assert_eq!((m.width, m.height, m.maps), (1, 1, vec![None]));
@@ -1213,7 +1213,7 @@ mod tests {
         // The two warps and the header change are three undo steps (the matrix edit is a
         // fourth).
         for _ in 0..3 {
-            assert!(undo_impl(&state).unwrap().is_some());
+            assert!(!undo_impl(&state).unwrap().is_empty());
         }
         assert!(get_events_impl(&state, 0).unwrap().warps.is_empty());
         assert!(get_events_impl(&state, 2).unwrap().warps.is_empty());
@@ -1426,8 +1426,8 @@ mod tests {
         // The source map of the room keeps its tile.
         assert_ne!(tile(&state, 2, 16, 30), [0x69, 0x80]);
         // Both tiles are undo steps of their own, after the warps.
-        assert!(undo_impl(&state).unwrap().is_some());
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_ne!(tile(&state, 0, 5, 6), [0x69, 0x80]);
         assert_eq!(warps(&state, 0).len(), 1);
     }
@@ -1694,8 +1694,8 @@ mod tests {
         assert_eq!(names.len(), 3 * 16);
         assert_eq!(&names[32..37], b"T_NEW");
         // The new header is not undoable, the two edits (matrix, header) are.
-        assert!(undo_impl(&state).unwrap().is_some());
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(header_count(&state), 3);
         assert_eq!(get_header_impl(&state, 2).unwrap().matrix_id(), 0);
     }

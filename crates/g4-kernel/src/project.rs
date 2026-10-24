@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -45,12 +45,39 @@ pub enum AssetKind {
     /// does not edit it (scripts are rotom sources, see the `scripts` module); `build` packs
     /// `unpacked/scripts`.
     Script,
+    /// Wild encounters of one encounter file (`encounters`).
+    Encounter,
+    /// Base stats and TM/HM bits of one species or form (`personalPokeData`).
+    Personal,
+    /// Level-up moves of one species or form (`learnsets`).
+    Learnset,
+    /// Evolutions of one species or form (`evolutions`).
+    Evolution,
+    /// One move (`moveData`).
+    Move,
+    /// One item data member (`itemData`); item ids map to members through the arm9 item
+    /// table.
+    Item,
+    /// One trainer's class, items, AI and party size (`trainerProperties`).
+    TrainerProperties,
+    /// One trainer's party (`trainerParty`); decodable only with its properties.
+    TrainerParty,
+    /// The trainer message table (`trainerTextTable`, one member).
+    TrainerTextTable,
+    /// Per-trainer offsets into the trainer message table (`trainerTextOffset`, one member).
+    TrainerTextOffsets,
+    /// The item bag icons (`itemIcons`): NANR/NCER members, then NCGR and NCLR members the
+    /// item table points at. Read only: counted and located, never edited (see `data::icons`).
+    ItemIcons,
+    /// The Pokémon menu icons (`monIcons`): the NCLR, animation members, then one NCGR per
+    /// icon. Read only like the item icons.
+    MonIcons,
 }
 
 impl AssetKind {
-    /// Every kind, in the order archives are unpacked, packed and listed; the store-only
-    /// kinds come last.
-    pub const ALL: [AssetKind; 12] = [
+    /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
+    /// the store-only kinds and the scripts, then the data kinds.
+    pub const ALL: [AssetKind; 24] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -63,6 +90,18 @@ impl AssetKind {
         AssetKind::HeaderTable,
         AssetKind::DynamicHeaders,
         AssetKind::Script,
+        AssetKind::Encounter,
+        AssetKind::Personal,
+        AssetKind::Learnset,
+        AssetKind::Evolution,
+        AssetKind::Move,
+        AssetKind::Item,
+        AssetKind::TrainerProperties,
+        AssetKind::TrainerParty,
+        AssetKind::TrainerTextTable,
+        AssetKind::TrainerTextOffsets,
+        AssetKind::ItemIcons,
+        AssetKind::MonIcons,
     ];
 
     /// Human-readable name used in error messages.
@@ -80,6 +119,18 @@ impl AssetKind {
             AssetKind::HeaderTable => "header table",
             AssetKind::DynamicHeaders => "dynamic headers",
             AssetKind::Script => "script file",
+            AssetKind::Encounter => "encounter file",
+            AssetKind::Personal => "personal data",
+            AssetKind::Learnset => "learnset",
+            AssetKind::Evolution => "evolution data",
+            AssetKind::Move => "move",
+            AssetKind::Item => "item",
+            AssetKind::TrainerProperties => "trainer properties",
+            AssetKind::TrainerParty => "trainer party",
+            AssetKind::TrainerTextTable => "trainer text table",
+            AssetKind::TrainerTextOffsets => "trainer text offsets",
+            AssetKind::ItemIcons => "item icons",
+            AssetKind::MonIcons => "menu icons",
         }
     }
 
@@ -98,6 +149,18 @@ impl AssetKind {
             AssetKind::HeaderTable => 9,
             AssetKind::DynamicHeaders => 10,
             AssetKind::Script => 11,
+            AssetKind::Encounter => 12,
+            AssetKind::Personal => 13,
+            AssetKind::Learnset => 14,
+            AssetKind::Evolution => 15,
+            AssetKind::Move => 16,
+            AssetKind::Item => 17,
+            AssetKind::TrainerProperties => 18,
+            AssetKind::TrainerParty => 19,
+            AssetKind::TrainerTextTable => 20,
+            AssetKind::TrainerTextOffsets => 21,
+            AssetKind::ItemIcons => 22,
+            AssetKind::MonIcons => 23,
         }
     }
 }
@@ -124,6 +187,9 @@ impl std::fmt::Display for AssetId {
 struct ArchiveEntry {
     packed: String,
     packed_jp: Option<String>,
+    /// Paths for single games of the family, keyed by the first three characters of the
+    /// game code (SoulSilver `IPG`, Pearl `APA`); they take precedence over `packed_jp`.
+    by_game: Option<BTreeMap<String, String>>,
     unpacked: String,
 }
 
@@ -142,6 +208,18 @@ struct FamilyArchives {
     /// Only Platinum and HGSS have the Dynamic Headers NARC.
     dynamic_headers: Option<ArchiveEntry>,
     scripts: ArchiveEntry,
+    encounters: ArchiveEntry,
+    personal: ArchiveEntry,
+    learnsets: ArchiveEntry,
+    evolutions: ArchiveEntry,
+    moves: ArchiveEntry,
+    items: ArchiveEntry,
+    trainer_properties: ArchiveEntry,
+    trainer_party: ArchiveEntry,
+    trainer_text_table: ArchiveEntry,
+    trainer_text_offsets: ArchiveEntry,
+    item_icons: ArchiveEntry,
+    mon_icons: ArchiveEntry,
 }
 
 /// DSPRE folder names of the optional archives. They are also reported for families
@@ -174,11 +252,17 @@ pub enum Location {
 pub struct ArchiveMap {
     /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
     /// the kind has none, like the header table).
-    entries: [Option<(PathBuf, String)>; 12],
+    entries: [Option<(PathBuf, String)>; AssetKind::ALL.len()],
 }
 
 impl ArchiveMap {
-    fn for_game(family: Family, language: Language) -> Result<ArchiveMap, KernelError> {
+    /// The archives of `game_code` (family and language derived from it by the caller).
+    /// Public for tools that read a built ROM without a project (`g4k check-data`).
+    pub fn for_game(
+        family: Family,
+        language: Language,
+        game_code: &str,
+    ) -> Result<ArchiveMap, KernelError> {
         let mut all: HashMap<String, FamilyArchives> = serde_yaml::from_str(ARCHIVES_YAML)
             .map_err(|e| KernelError::InvalidProject(format!("archives.yaml: {e}")))?;
         let key = match family {
@@ -190,9 +274,11 @@ impl ArchiveMap {
             KernelError::InvalidProject(format!("archives.yaml: no entry for {key}"))
         })?;
         let japanese = language == Language::Japanese;
-        let resolve = |e: ArchiveEntry| {
-            let packed = match (e.packed_jp, japanese) {
-                (Some(jp), true) => jp,
+        let game = game_code.get(..3).unwrap_or(game_code);
+        let resolve = |mut e: ArchiveEntry| {
+            let packed = match (e.by_game.as_mut().and_then(|m| m.remove(game)), e.packed_jp) {
+                (Some(path), _) => path,
+                (None, Some(jp)) if japanese => jp,
                 _ => e.packed,
             };
             (PathBuf::from(packed), e.unpacked)
@@ -211,6 +297,18 @@ impl ArchiveMap {
                 None,
                 archives.dynamic_headers.map(resolve),
                 Some(resolve(archives.scripts)),
+                Some(resolve(archives.encounters)),
+                Some(resolve(archives.personal)),
+                Some(resolve(archives.learnsets)),
+                Some(resolve(archives.evolutions)),
+                Some(resolve(archives.moves)),
+                Some(resolve(archives.items)),
+                Some(resolve(archives.trainer_properties)),
+                Some(resolve(archives.trainer_party)),
+                Some(resolve(archives.trainer_text_table)),
+                Some(resolve(archives.trainer_text_offsets)),
+                Some(resolve(archives.item_icons)),
+                Some(resolve(archives.mon_icons)),
             ],
         })
     }
@@ -339,6 +437,8 @@ pub struct Project {
     pub family: Family,
     pub language: Language,
     pub archives: ArchiveMap,
+    /// The arm9 tables, read once on first use (`data::arm9`).
+    pub(crate) arm9_tables: crate::data::arm9::Arm9Cache,
 }
 
 impl Project {
@@ -360,13 +460,14 @@ impl Project {
             .ok_or_else(|| KernelError::UnknownGame(game_code.clone()))?;
         let language = Language::from_game_code(&game_code)
             .ok_or_else(|| KernelError::UnknownGame(game_code.clone()))?;
-        let archives = ArchiveMap::for_game(family, language)?;
+        let archives = ArchiveMap::for_game(family, language, &game_code)?;
         Ok(Project {
             root,
             game_code,
             family,
             language,
             archives,
+            arm9_tables: Default::default(),
         })
     }
 
@@ -531,7 +632,7 @@ impl Project {
         })
     }
 
-    fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
+    pub(crate) fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
         let path = self.root.join(self.require_packed(kind)?);
         let bytes = std::fs::read(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)
@@ -863,22 +964,20 @@ mod tests {
 
     #[test]
     fn embedded_metadata_parses_and_resolves_every_family() {
-        for (family, language) in [
-            (Family::Dp, Language::English),
-            (Family::Dp, Language::Japanese),
-            (Family::Pt, Language::German),
-            (Family::Hgss, Language::English),
-        ] {
-            let map = ArchiveMap::for_game(family, language).unwrap();
+        for code in ["ADAE", "APAE", "ADAJ", "CPUD", "IPKE", "IPGD"] {
+            let family = Family::from_game_code(code).unwrap();
+            let language = Language::from_game_code(code).unwrap();
+            let map = ArchiveMap::for_game(family, language, code).unwrap();
             // Only HGSS has interior building models and only Platinum and HGSS the
-            // Dynamic Headers NARC; every other archive kind exists everywhere. The header
-            // table is store-only and never has an archive.
+            // Dynamic Headers NARC; every other archive kind exists everywhere, the ten data
+            // kinds and the two icon kinds included. The header table is store-only and never
+            // has an archive.
             let expected = match family {
-                Family::Dp => 9,
-                Family::Pt => 10,
-                Family::Hgss => 11,
+                Family::Dp => 9 + 12,
+                Family::Pt => 10 + 12,
+                Family::Hgss => 11 + 12,
             };
-            assert_eq!(map.kinds().count(), expected, "{family:?}");
+            assert_eq!(map.kinds().count(), expected, "{code}");
             for kind in AssetKind::ALL {
                 let exists = map.packed(kind).is_some();
                 assert_eq!(
@@ -893,6 +992,54 @@ mod tests {
                 assert!(!map.unpacked_name(kind).is_empty());
             }
         }
+        // Paths of single games (`by_game`, by the first three characters of the code).
+        let packed = |code: &str, kind: AssetKind| {
+            let family = Family::from_game_code(code).unwrap();
+            let language = Language::from_game_code(code).unwrap();
+            let map = ArchiveMap::for_game(family, language, code).unwrap();
+            map.packed(kind).unwrap().to_str().unwrap().to_owned()
+        };
+        assert_eq!(packed("IPKE", AssetKind::Encounter), "files/a/0/3/7");
+        assert_eq!(packed("IPGE", AssetKind::Encounter), "files/a/1/3/6");
+        assert_eq!(packed("IPGJ", AssetKind::Encounter), "files/a/1/3/6");
+        assert_eq!(packed("IPGE", AssetKind::Personal), "files/a/0/0/2");
+        assert_eq!(
+            packed("ADAE", AssetKind::Encounter),
+            "files/fielddata/encountdata/d_enc_data.narc"
+        );
+        assert_eq!(
+            packed("APAE", AssetKind::Encounter),
+            "files/fielddata/encountdata/p_enc_data.narc"
+        );
+        assert_eq!(
+            packed("APAD", AssetKind::Personal),
+            "files/poketool/personal_pearl/personal.narc"
+        );
+        assert_eq!(
+            packed("ADAD", AssetKind::Personal),
+            "files/poketool/personal/personal.narc"
+        );
+        assert_eq!(
+            packed("CPUD", AssetKind::Personal),
+            "files/poketool/personal/pl_personal.narc"
+        );
+        assert_eq!(
+            packed("CPUD", AssetKind::Item),
+            "files/itemtool/itemdata/pl_item_data.narc"
+        );
+        assert_eq!(
+            packed("IPKD", AssetKind::TrainerTextOffsets),
+            "files/a/1/3/1"
+        );
+        // `by_game` wins over `packed_jp`; a Japanese Diamond still gets its `packed_jp` maps.
+        assert_eq!(
+            packed("APAJ", AssetKind::Encounter),
+            "files/fielddata/encountdata/p_enc_data.narc"
+        );
+        assert_eq!(
+            packed("ADAJ", AssetKind::Map),
+            "files/fielddata/land_data/land_data.narc"
+        );
         let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML).unwrap();
         assert_eq!(tables["CPUE"], 0xE601C);
         assert_eq!(tables["IPKD"], 0xF6B94);

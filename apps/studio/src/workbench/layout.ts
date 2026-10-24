@@ -1,11 +1,26 @@
 import type { AreaId } from "../ui/frame/shellState";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
-export type PanelId = "headers" | "world" | "matrix" | "worldmap" | "tools" | "inspector" | "script" | "problems" | "context" | "textView" | "textEdit";
+export type PanelId =
+  | "headers"
+  | "world"
+  | "matrix"
+  | "worldmap"
+  | "tools"
+  | "inspector"
+  | "script"
+  | "problems"
+  | "context"
+  | "textView"
+  | "textEdit"
+  | "pokemonView"
+  | "pokemonEdit"
+  | "itemView"
+  | "itemEdit";
 
 /** The areas that have a deck (a list and two docks); the others show a pane. */
-export type DeckArea = "welt" | "texte";
-export const DECK_AREAS: readonly DeckArea[] = ["welt", "texte"];
+export type DeckArea = "welt" | "texte" | "pokemon" | "gegenstaende";
+export const DECK_AREAS: readonly DeckArea[] = ["welt", "texte", "pokemon", "gegenstaende"];
 export const isDeckArea = (area: AreaId): area is DeckArea => (DECK_AREAS as readonly AreaId[]).includes(area);
 
 /** The two docks of a deck: the view (Schau, above the hinge) and the hand (below it). */
@@ -22,7 +37,9 @@ export interface PanelSpec {
 /**
  * The panels of each dock of each area with a deck. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit
  * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v8`): a layout stored by
- * an older panel set is not read, not migrated. The problems are a panel of both hands; each area's dock is its own dockview, so the ids do not clash.
+ * an older panel set is not read, not migrated. The problems are a panel of the hands of Welt and Texte (the data areas have nothing to compile);
+ * each area's dock is its own dockview, so the ids do not clash. The data areas have one panel per dock: the view of the selected member and
+ * its editor, whatever part of the area shows.
  */
 export const DECK_PANELS: Record<DeckArea, Record<DeckId, PanelSpec[]>> = {
   welt: {
@@ -46,6 +63,14 @@ export const DECK_PANELS: Record<DeckArea, Record<DeckId, PanelSpec[]>> = {
       { id: "textEdit", title: "Nachrichten", position: { direction: "within" } },
       { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "textEdit" } },
     ],
+  },
+  pokemon: {
+    schau: [{ id: "pokemonView", title: "Übersicht", position: { direction: "within" } }],
+    hand: [{ id: "pokemonEdit", title: "Bearbeiten", position: { direction: "within" } }],
+  },
+  gegenstaende: {
+    schau: [{ id: "itemView", title: "Übersicht", position: { direction: "within" } }],
+    hand: [{ id: "itemEdit", title: "Bearbeiten", position: { direction: "within" } }],
   },
 };
 

@@ -251,7 +251,7 @@ mod tests {
         assert!(dirty_impl(&state).unwrap().is_empty());
 
         // Undo brings the old text back.
-        assert_eq!(undo_impl(&state).unwrap(), Some(archive_id()));
+        assert_eq!(undo_impl(&state).unwrap(), [archive_id()]);
         assert_eq!(
             get_text_archive_impl(&state, ARCHIVE).unwrap().messages[1].text,
             "Twinleaf Town"
@@ -304,7 +304,7 @@ mod tests {
         // The last message of an archive stays.
         let (_f, state) = open_synthetic();
         let created = create_text_archive_impl(&state).unwrap();
-        assert_eq!(created, 434);
+        assert_eq!(created, 698);
         let err = edit_text_archive_impl(&state, created, TextEdit::RemoveLast).unwrap_err();
         assert_eq!(err.code, "error");
         assert_eq!(
@@ -320,7 +320,7 @@ mod tests {
     fn create_text_archive_returns_the_next_index() {
         let (_f, state) = open_synthetic();
         let index = create_text_archive_impl(&state).unwrap();
-        assert_eq!(index, 434);
+        assert_eq!(index, 698);
         let doc = get_text_archive_impl(&state, index).unwrap();
         assert_eq!(doc.messages[0].text, "Neuer Text");
         assert!(dirty_impl(&state).unwrap().is_empty());

@@ -1,0 +1,53 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--g4-radius-plakette);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.s {
+  min-width: 52px;
+  padding: 0 var(--g4-raum-6);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.m {
+  min-width: 64px;
+  padding: var(--g4-raum-2) var(--g4-raum-8);
+  font: var(--g4-font-text-s-betont);
+}
+
+/* The type colours are game colours: the same in both themes (Szene group `typ`). */
+.normal { background: var(--g4-szene-typ-normal-grund); color: var(--g4-szene-typ-normal-schrift); }
+.kampf { background: var(--g4-szene-typ-kampf-grund); color: var(--g4-szene-typ-kampf-schrift); }
+.flug { background: var(--g4-szene-typ-flug-grund); color: var(--g4-szene-typ-flug-schrift); }
+.gift { background: var(--g4-szene-typ-gift-grund); color: var(--g4-szene-typ-gift-schrift); }
+.boden { background: var(--g4-szene-typ-boden-grund); color: var(--g4-szene-typ-boden-schrift); }
+.gestein { background: var(--g4-szene-typ-gestein-grund); color: var(--g4-szene-typ-gestein-schrift); }
+.kaefer { background: var(--g4-szene-typ-kaefer-grund); color: var(--g4-szene-typ-kaefer-schrift); }
+.geist { background: var(--g4-szene-typ-geist-grund); color: var(--g4-szene-typ-geist-schrift); }
+.stahl { background: var(--g4-szene-typ-stahl-grund); color: var(--g4-szene-typ-stahl-schrift); }
+.fragezeichen { background: var(--g4-szene-typ-fragezeichen-grund); color: var(--g4-szene-typ-fragezeichen-schrift); }
+.feuer { background: var(--g4-szene-typ-feuer-grund); color: var(--g4-szene-typ-feuer-schrift); }
+.wasser { background: var(--g4-szene-typ-wasser-grund); color: var(--g4-szene-typ-wasser-schrift); }
+.pflanze { background: var(--g4-szene-typ-pflanze-grund); color: var(--g4-szene-typ-pflanze-schrift); }
+.elektro { background: var(--g4-szene-typ-elektro-grund); color: var(--g4-szene-typ-elektro-schrift); }
+.psycho { background: var(--g4-szene-typ-psycho-grund); color: var(--g4-szene-typ-psycho-schrift); }
+.eis { background: var(--g4-szene-typ-eis-grund); color: var(--g4-szene-typ-eis-schrift); }
+.drache { background: var(--g4-szene-typ-drache-grund); color: var(--g4-szene-typ-drache-schrift); }
+.unlicht { background: var(--g4-szene-typ-unlicht-grund); color: var(--g4-szene-typ-unlicht-schrift); }
+
+/* A type number the 4th generation does not know ("Typ 19"): no game colour, the UI's quiet surface. */
+.unknown {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+}
+
+@media (forced-colors: active) {
+  .badge {
+    border: var(--g4-strich-standard) solid CanvasText;
+  }
+}

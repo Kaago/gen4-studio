@@ -94,3 +94,34 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
 }
+
+.label {
+  min-width: 0;
+  flex: 1;
+}
+
+/* A count or a shortcut at the end of the item. */
+.detail {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  margin-left: var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.item[data-highlighted] .detail {
+  color: inherit;
+}
+
+.item[data-disabled] .detail {
+  color: var(--g4-text-deaktiviert);
+}
+
+/* The check of a choice; it keeps its place on the items not chosen, so the labels line up. */
+.check {
+  display: inline-flex;
+  width: var(--g4-dichte-symbol);
+  flex: none;
+}

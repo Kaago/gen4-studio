@@ -59,6 +59,9 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
 /** An id as the Gate documents and the lists write it: four digits. */
 export const id4 = (n: number) => String(n).padStart(4, "0");
 
+/** The number of a member as a card writes it, spelled out (no "Nr."): "Nummer 0017". */
+export const numberText = (n: number) => `Nummer ${id4(n)}`;
+
 /** How an id is written next to a member; the header stays "Header" (the word the Gate documents use), the rest follows the technical name. */
 const ID_NAME: Partial<Record<TermKey, string>> = { header: "Header" };
 

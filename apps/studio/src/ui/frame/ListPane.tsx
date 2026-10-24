@@ -1,12 +1,15 @@
 import { useRef } from "react";
 import type { ReactNode } from "react";
 import { PanelHead } from "../primitives";
+import type { PanelHeadSwitcher } from "../primitives";
 import styles from "./ListPane.module.css";
 
 export type ListPaneProps = {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
+  /** The parts of the area; the head's title becomes a menu that switches between them. */
+  switcher?: PanelHeadSwitcher;
   /** Whether the list shows (272 px) or is folded to its 8 px grip. */
   open: boolean;
   onToggle: () => void;
@@ -18,13 +21,13 @@ export type ListPaneProps = {
  * grip folds the list (Enter or Space on it too); a click on the folded grip opens it. The content stays mounted while
  * folded, so a search, the opened places and the scroll position survive.
  */
-export function ListPane({ title, subtitle, actions, open, onToggle, children }: ListPaneProps) {
+export function ListPane({ title, subtitle, actions, switcher, open, onToggle, children }: ListPaneProps) {
   // Whether the list was open when the current press began: the double click that opened the list must not fold it again.
   const openAtPress = useRef(true);
   return (
     <div className={styles.pane} data-open={open}>
       <section className={styles.body} aria-label={title} hidden={!open}>
-        <PanelHead title={title} subtitle={subtitle} actions={actions} />
+        <PanelHead title={title} subtitle={subtitle} actions={actions} switcher={switcher} />
         <div className={styles.content}>{children}</div>
       </section>
       <button

@@ -1,0 +1,17 @@
+# Personal members 496-507: the alternate forms with base data of their own. `base` is the
+# species the form belongs to, `name` the German display name (game text: Platinum archive 697,
+# HGSS archive 802; the cloak names are written out in full). The same in every family:
+# checked on CPUD, IPKD and IPKE (docs/research/2026-10-23-3b3/task0-3b3a.md section 2),
+# Diamond/Pearl unverified.
+496: { base: 386, name: "Deoxys, Angriffsform" }
+497: { base: 386, name: "Deoxys, Verteidigungsform" }
+498: { base: 386, name: "Deoxys, Initiativeform" }
+499: { base: 413, name: "Burmadame, Sandumhang" }
+500: { base: 413, name: "Burmadame, Lumpenumhang" }
+501: { base: 487, name: "Giratina, Urform" }
+502: { base: 492, name: "Shaymin, Zenitform" }
+503: { base: 479, name: "Hitze-Rotom" }
+504: { base: 479, name: "Wasch-Rotom" }
+505: { base: 479, name: "Frost-Rotom" }
+506: { base: 479, name: "Wirbel-Rotom" }
+507: { base: 479, name: "Schneid-Rotom" }

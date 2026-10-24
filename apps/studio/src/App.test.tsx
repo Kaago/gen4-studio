@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents } from "./api";
+import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -21,7 +21,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][] }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -33,10 +33,20 @@ vi.mock("./workbench/Workbench", () => ({
 vi.mock("./workbench/panels", () => ({
   ExplorerPane: () => null,
   TextArchivesPane: () => null,
+  PokemonListPane: () => null,
+  ItemsListPane: () => null,
   TextAreaHost: ({ children }: { children: unknown }) => children,
+  // Records what App hands the data areas: the member a link asked for, and where they report their breadcrumbs.
+  DataAreaHost: ({ children, target, onTrail }: { children: unknown; target: unknown; onTrail: unknown }) => {
+    shown.dataTarget = target;
+    shown.onTrail = onTrail;
+    return children;
+  },
   TextHints: () => null,
   TextStatus: () => null,
-  DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} } },
+  PokemonStatus: () => "Pokémon-Status",
+  ItemsStatus: () => "Gegenstände-Status",
+  DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} }, pokemon: { schau: {}, hand: {} }, gegenstaende: { schau: {}, hand: {} } },
 }));
 vi.mock("./ui/frame/Deck", async () => {
   const { Fragment, createElement, useEffect } = await import("react");
@@ -49,6 +59,8 @@ vi.mock("./ui/frame/Deck", async () => {
       ["inspector", "script", "problems"],
     ],
     texte: [["textView"], ["textEdit", "problems"]],
+    pokemon: [["pokemonView"], ["pokemonEdit"]],
+    gegenstaende: [["itemView"], ["itemEdit"]],
   };
   return {
     resetLayout: (...args: unknown[]) => void shown.resets.push(args),
@@ -92,6 +104,9 @@ vi.mock("./api", async (importOriginal) => ({
   history: vi.fn(),
   getEvents: vi.fn(),
   runRom: vi.fn(),
+  dataList: vi.fn(),
+  nameTables: vi.fn(),
+  itemTable: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -143,11 +158,18 @@ describe("App wiring", () => {
     vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Main #1:\n\tEnd\n" });
     vi.mocked(dirty).mockResolvedValue([]);
     vi.mocked(history).mockResolvedValue({ undo: [], redo: [] });
+    vi.mocked(undo).mockResolvedValue([]);
+    vi.mocked(redo).mockResolvedValue([]);
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(dataList).mockImplementation(async (kind) =>
+      kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
+    );
+    vi.mocked(nameTables).mockResolvedValue({ species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: { species: 412, moves: 647, items: 392, abilities: 610, types: 624, classes: 619, forms: 697 } });
+    vi.mocked(itemTable).mockResolvedValue(null);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -557,12 +579,36 @@ describe("App wiring", () => {
     });
 
     it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
-      for (const name of ["Geschichten", "Pokémon", "Gegenstände"]) {
-        expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
-        await act(async () => atlasEntry(name)!.click());
-      }
+      expect(atlasEntry("Geschichten")?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => atlasEntry("Geschichten")!.click());
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
-      for (const name of ["Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+      for (const name of ["Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    it("opens_pokemon_and_items_with_their_own_list_deck_breadcrumb_and_status", async () => {
+      await act(async () => atlasEntry("Pokémon")!.click());
+      expect(atlasEntry("Pokémon")?.getAttribute("aria-current")).toBe("page");
+      expect(area("pokemon", "list")!.hidden).toBe(false);
+      expect(area("pokemon", "deck")!.hidden).toBe(false);
+      expect(area("welt", "deck")!.hidden).toBe(true);
+      expect(area("pokemon", "deck")!.querySelector("nav")?.textContent).toBe("Pokémon");
+      expect(statusLine()).toContain("Pokémon-Status");
+      // The area reports its breadcrumb; the hinge of its deck shows it.
+      await act(async () => (shown.onTrail as (a: string, c: { label: string }[]) => void)("pokemon", [{ label: "Pokémon" }, { label: "Pokédex" }, { label: "Staravia" }]));
+      expect(area("pokemon", "deck")!.querySelector("nav")?.textContent).toBe("Pokémon›Pokédex›Staravia");
+      await act(async () => atlasEntry("Gegenstände")!.click());
+      expect(area("gegenstaende", "deck")!.hidden).toBe(false);
+      expect(area("pokemon", "deck")!.hidden).toBe(true);
+      expect(statusLine()).toContain("Gegenstände-Status");
+    });
+
+    it("follows_a_link_to_a_species_or_an_item_into_its_area", async () => {
+      await act(async () => void data().goTo({ kind: "species", index: 397 }));
+      expect(atlasEntry("Pokémon")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.dataTarget).toEqual({ sub: "pokedex", index: 397 });
+      await act(async () => void data().goTo({ kind: "item", id: 17 }));
+      expect(atlasEntry("Gegenstände")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.dataTarget).toEqual({ sub: "items", index: 17 });
     });
 
     it("opens_technik_with_its_list_and_surface_and_its_patch_entry_reads_the_patch_state", async () => {
@@ -698,7 +744,7 @@ describe("App wiring", () => {
       vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
       await act(async () => data().onEdited());
       await tick(150);
-      vi.mocked(undo).mockResolvedValueOnce(null).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
+      vi.mocked(undo).mockResolvedValueOnce([]).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
       const items = await historyItems();
       await act(async () => items[3]!.click());
       // The second step failed and was reported; the third and fourth never ran.
@@ -1395,6 +1441,26 @@ describe("App wiring", () => {
       expect(paletteInput()).toBeNull();
     });
 
+    it("finds_a_species_and_opens_it_in_the_pokedex", async () => {
+      await pressCmdK();
+      await settle();
+      await run("staravia");
+      expect(atlasEntry("Pokémon")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.dataTarget).toEqual({ sub: "pokedex", index: 397 });
+    });
+
+    it("opens_the_moves_of_the_pokemon_area_and_switches_parts_with_cmd_digits_there", async () => {
+      await pressCmdK();
+      await run("attacken öffnen");
+      expect(atlasEntry("Pokémon")?.getAttribute("aria-current")).toBe("page");
+      expect(readShellState().sub.pokemon).toBe("moves");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", metaKey: true, bubbles: true, cancelable: true })));
+      expect(readShellState().sub.pokemon).toBe("pokedex");
+      // Trainer comes with 3b.3b.
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true, bubbles: true, cancelable: true })));
+      expect(readShellState().sub.pokemon).toBe("pokedex");
+    });
+
     it("resets_the_layout_of_the_world_deck", async () => {
       await pressCmdK();
       await run("layout zurück");
@@ -1462,7 +1528,7 @@ describe("App wiring", () => {
     it("notes the history move before the first reload action runs", async () => {
       await select(listed[0]);
       const log = record();
-      vi.mocked(undo).mockResolvedValue({ kind: "Matrix", index: 0 });
+      vi.mocked(undo).mockResolvedValue([{ kind: "Matrix", index: 0 }]);
       expect(data().history.current).toBe(0);
       await pressUndo();
       // The plan for a restored shown matrix: unpin, the matrix panel and editor, the scene's matrix.
@@ -1473,10 +1539,23 @@ describe("App wiring", () => {
     it("does not touch the history or reload anything when nothing was undone", async () => {
       await select(listed[0]);
       const log = record();
-      vi.mocked(undo).mockResolvedValue(null);
+      vi.mocked(undo).mockResolvedValue([]);
       await pressUndo();
       expect(log).toEqual([]);
       expect(data().history.current).toBe(0);
+    });
+
+    it("reloads what every asset of a step of several restored", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(undo).mockResolvedValue([
+        { kind: "Matrix", index: 0 },
+        { kind: "TextArchive", index: 433 },
+      ]);
+      await pressUndo();
+      // One history move for the step; the shown matrix and the text panel both reload.
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1"]);
+      expect(data().history.current).toBe(1);
     });
   });
 

@@ -75,5 +75,11 @@ for box in ['textbox', 'schild']:
     if c < 4.5:
         print(f'Kontrast Szene: ds/{box}/text auf ds/{box}/flaeche = {c:.2f} (mindestens 4.5)')
         fail += 1
+# Pokémon types: the name on the type colour, the same in both themes.
+for typ in sorted({k.split('/')[1] for k in szene if k.startswith('typ/')}):
+    c = ratio(szene[f'typ/{typ}/schrift'], szene[f'typ/{typ}/grund'])
+    if c < 4.5:
+        print(f'Kontrast Szene: typ/{typ}/schrift auf typ/{typ}/grund = {c:.2f} (mindestens 4.5)')
+        fail += 1
 print('Alles stimmig.' if not fail else f'{fail} Verstöße.')
 sys.exit(1 if fail else 0)

@@ -7,6 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use g4_formats::area_data::AreaData;
+use g4_formats::data::encounter::Encounters;
+use g4_formats::data::evolution::Evolution;
+use g4_formats::data::item::Item;
+use g4_formats::data::learnset::Learnset;
+use g4_formats::data::moves::Move;
+use g4_formats::data::personal::Personal;
+use g4_formats::data::record::RawRecord;
+use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
@@ -65,7 +73,7 @@ fn uxie_family(family: Family) -> uxie::GameFamily {
 
 /// A loaded asset value.
 #[derive(Clone)]
-enum Loaded {
+pub(crate) enum Loaded {
     Map(MapFile),
     Matrix(Matrix),
     AreaData(AreaData),
@@ -74,6 +82,18 @@ enum Loaded {
     HeaderTable(Vec<MapHeader>),
     /// A text archive; its bytes are the canonical JSON.
     TextArchive(TextArchiveDoc),
+    /// Boxed: a Platinum encounter file is 424 bytes inline.
+    Encounter(Box<Encounters>),
+    Personal(Personal),
+    Learnset(Learnset),
+    Evolution(Evolution),
+    Move(Move),
+    Item(Item),
+    TrainerTextTable(TrainerTextTable),
+    TrainerTextOffsets(TrainerTextOffsets),
+    /// A data member of a length its codec rejects, kept as read. Such an asset is always
+    /// locked (see [`decode`]).
+    Raw(Vec<u8>),
 }
 
 impl Loaded {
@@ -87,11 +107,27 @@ impl Loaded {
                 | AssetKind::Event
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
+        ) || Loaded::is_data(kind)
+    }
+
+    /// The editable data kinds: a member of the wrong length is shown locked as raw bytes
+    /// instead of failing to load.
+    fn is_data(kind: AssetKind) -> bool {
+        matches!(
+            kind,
+            AssetKind::Encounter
+                | AssetKind::Personal
+                | AssetKind::Learnset
+                | AssetKind::Evolution
+                | AssetKind::Move
+                | AssetKind::Item
+                | AssetKind::TrainerTextTable
+                | AssetKind::TrainerTextOffsets
         )
     }
 
     /// `lang` is the locale key of the text language shown in the editor.
-    fn from_bytes(
+    pub(crate) fn from_bytes(
         kind: AssetKind,
         bytes: &[u8],
         family: Family,
@@ -128,7 +164,28 @@ impl Loaded {
             | AssetKind::BuildingModel
             | AssetKind::InteriorBuildingModel
             | AssetKind::DynamicHeaders
-            | AssetKind::Script => Err(KernelError::NotEditable(kind)),
+            | AssetKind::Script
+            | AssetKind::ItemIcons
+            | AssetKind::MonIcons => Err(KernelError::NotEditable(kind)),
+            AssetKind::Encounter => Ok(Loaded::Encounter(Box::new(Encounters::read(
+                bytes, family,
+            )?))),
+            AssetKind::Personal => Ok(Loaded::Personal(Personal::read(bytes)?)),
+            AssetKind::Learnset => Ok(Loaded::Learnset(Learnset::read(bytes)?)),
+            AssetKind::Evolution => Ok(Loaded::Evolution(Evolution::read(bytes)?)),
+            AssetKind::Move => Ok(Loaded::Move(Move::read(bytes)?)),
+            AssetKind::Item => Ok(Loaded::Item(Item::read(bytes)?)),
+            AssetKind::TrainerTextTable => {
+                Ok(Loaded::TrainerTextTable(TrainerTextTable::read(bytes)?))
+            }
+            AssetKind::TrainerTextOffsets => {
+                Ok(Loaded::TrainerTextOffsets(TrainerTextOffsets::read(bytes)?))
+            }
+            // Archives for build and counting only: a trainer is edited as a pair of both
+            // members (3b.3b).
+            AssetKind::TrainerProperties | AssetKind::TrainerParty => {
+                Err(KernelError::NotEditable(kind))
+            }
         }
     }
 
@@ -147,7 +204,104 @@ impl Loaded {
                 Ok(headers.iter().flat_map(write_map_header_to_bytes).collect())
             }
             Loaded::TextArchive(doc) => Ok(doc.to_json()),
+            Loaded::Encounter(e) => Ok(e.write()),
+            Loaded::Personal(p) => Ok(p.write()),
+            Loaded::Learnset(l) => Ok(l.write()),
+            Loaded::Evolution(e) => Ok(e.write()),
+            Loaded::Move(m) => Ok(m.write()),
+            Loaded::Item(i) => Ok(i.write()),
+            Loaded::TrainerTextTable(t) => Ok(t.write()),
+            Loaded::TrainerTextOffsets(o) => Ok(o.write()),
+            Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
+    }
+}
+
+/// Decodes the bytes of `id` as read from disk, with the reason the asset is locked, if it
+/// is: a data member of a length its codec rejects becomes [`Loaded::Raw`], locked with
+/// a reason that names the asset and both lengths ("item 0017: 36 bytes, expected 34");
+/// any other value is locked when it would not be written back byte for byte (see
+/// [`unwritable_reason`]). Other decode errors are returned as they are.
+fn decode(
+    id: AssetId,
+    bytes: &[u8],
+    family: Family,
+    lang: &str,
+) -> Result<(Loaded, Option<String>), KernelError> {
+    match Loaded::from_bytes(id.kind, bytes, family, lang) {
+        Ok(value) => {
+            let locked = unwritable_reason(&value, bytes, family);
+            Ok((value, locked))
+        }
+        Err(KernelError::Format(FormatError::BadSize { expected, found }))
+            if Loaded::is_data(id.kind) =>
+        {
+            Ok((
+                Loaded::Raw(bytes.to_vec()),
+                Some(format!("{id}: {found} bytes, expected {expected}")),
+            ))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// A data record type the store edits, and the [`Loaded`] variant that holds it.
+trait Record: Sized {
+    const KIND: AssetKind;
+    fn of(value: &Loaded) -> Option<&Self>;
+    fn of_mut(value: &mut Loaded) -> Option<&mut Self>;
+}
+
+macro_rules! record {
+    ($($ty:ty => $variant:ident;)*) => {$(
+        impl Record for $ty {
+            const KIND: AssetKind = AssetKind::$variant;
+
+            fn of(value: &Loaded) -> Option<&Self> {
+                match value {
+                    // The binding derefs a boxed variant.
+                    Loaded::$variant(v) => {
+                        let v: &Self = v;
+                        Some(v)
+                    }
+                    _ => None,
+                }
+            }
+
+            fn of_mut(value: &mut Loaded) -> Option<&mut Self> {
+                match value {
+                    Loaded::$variant(v) => {
+                        let v: &mut Self = v;
+                        Some(v)
+                    }
+                    _ => None,
+                }
+            }
+        }
+    )*};
+}
+
+record! {
+    Encounters => Encounter;
+    Personal => Personal;
+    Learnset => Learnset;
+    Evolution => Evolution;
+    Move => Move;
+    Item => Item;
+    TrainerTextTable => TrainerTextTable;
+    TrainerTextOffsets => TrainerTextOffsets;
+}
+
+/// The record of type `T` in `asset`; a locked raw member is [`KernelError::ReadOnly`] with
+/// its lock reason.
+fn record_of<T: Record>(id: AssetId, asset: &Asset) -> Result<&T, KernelError> {
+    match (T::of(&asset.current), &asset.current) {
+        (Some(value), _) => Ok(value),
+        (None, Loaded::Raw(_)) => Err(KernelError::ReadOnly {
+            asset: id,
+            reason: asset.locked.clone().unwrap_or_default(),
+        }),
+        (None, _) => Err(mismatch(id)),
     }
 }
 
@@ -181,11 +335,270 @@ struct Asset {
     locked: Option<String>,
 }
 
-struct Changeset {
-    asset: AssetId,
+/// One asset's share of a changeset: its bytes before and after the step.
+pub struct Part {
+    pub asset: AssetId,
     before: Vec<u8>,
     after: Vec<u8>,
+}
+
+/// One undoable step: every asset it changed, each at most once, in the order they were
+/// edited. Never empty.
+struct Changeset {
+    parts: Vec<Part>,
     label: String,
+}
+
+/// An edit staged by a [`Tx`]: the edited copy of the asset and its bytes before and after.
+struct Staged {
+    asset: AssetId,
+    edited: Loaded,
+    before: Vec<u8>,
+    after: Vec<u8>,
+}
+
+/// The edits of one [`Store::transaction`]. Each edit works on a copy of its asset; the
+/// store takes the copies over only when the whole transaction succeeded.
+pub struct Tx<'s> {
+    store: &'s mut Store,
+    staged: Vec<Staged>,
+}
+
+impl Tx<'_> {
+    /// Stages `edit` of asset `id`. Refuses an asset this transaction already edited and a
+    /// locked one; an error from `edit` or from serialization is returned as it is (the
+    /// transaction then fails as a whole).
+    pub(crate) fn edit(
+        &mut self,
+        id: AssetId,
+        edit: impl FnOnce(&mut Loaded) -> Result<(), KernelError>,
+    ) -> Result<(), KernelError> {
+        if self.staged.iter().any(|s| s.asset == id) {
+            return Err(KernelError::InvalidProject(format!(
+                "{id} is edited twice in one transaction"
+            )));
+        }
+        let family = self.store.project.family;
+        let asset = self.store.load(id)?;
+        if let Some(reason) = &asset.locked {
+            return Err(KernelError::ReadOnly {
+                asset: id,
+                reason: reason.clone(),
+            });
+        }
+        let before = asset.current.to_bytes(family)?;
+        let mut edited = asset.current.clone();
+        edit(&mut edited)?;
+        let after = edited.to_bytes(family)?;
+        self.staged.push(Staged {
+            asset: id,
+            edited,
+            before,
+            after,
+        });
+        Ok(())
+    }
+
+    /// Edits matrix `index`. An error from `edit` or from `Matrix::validate` fails the
+    /// transaction as [`KernelError::Format`].
+    pub fn edit_matrix(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Matrix) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Matrix,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Matrix(m) => {
+                edit(m)?;
+                m.validate()?;
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
+
+    /// Edits event file `index`. An error from `edit` fails the transaction as
+    /// [`KernelError::Format`]; a value the game family cannot store (a warp height other
+    /// than 0 outside HGSS) is rejected by serialization as [`KernelError::Uxie`].
+    pub fn edit_event(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut EventFile) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Event,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Event(e) => Ok(edit(e)?),
+            _ => Err(mismatch(id)),
+        })
+    }
+
+    /// Edits map header `id`, see [`Store::edit_header`].
+    pub fn edit_header(
+        &mut self,
+        id: u16,
+        edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let family = uxie_family(self.store.project.family);
+        let game_code = self.store.project.game_code.clone();
+        self.edit(HEADER_TABLE, |loaded| match loaded {
+            Loaded::HeaderTable(headers) => {
+                let count = headers.len();
+                let header = headers
+                    .get_mut(usize::from(id))
+                    .ok_or(FormatError::OutOfRange {
+                        what: "header",
+                        value: usize::from(id),
+                        max: count.saturating_sub(1),
+                    })?;
+                edit(header)?;
+                if header_round_trips(header, family) {
+                    Ok(())
+                } else {
+                    Err(KernelError::Uxie(format!(
+                        "header {id} does not fit the {game_code} header layout"
+                    )))
+                }
+            }
+            _ => Err(mismatch(HEADER_TABLE)),
+        })
+    }
+
+    /// Edits text archive `index`.
+    pub fn edit_text_archive(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TextArchiveDoc),
+    ) -> Result<(), KernelError> {
+        let id = text_id(index);
+        self.edit(id, |loaded| match loaded {
+            Loaded::TextArchive(doc) => {
+                edit(doc);
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
+
+    /// Stages `edit` of data member `index` of `T`'s kind; a locked member (wrong length,
+    /// or not reproducible) is [`KernelError::ReadOnly`].
+    fn edit_record<T: Record>(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut T),
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        self.edit(id, |loaded| match T::of_mut(loaded) {
+            Some(value) => {
+                edit(value);
+                Ok(())
+            }
+            None => Err(mismatch(id)),
+        })
+    }
+
+    /// Data member `index` of `T`'s kind as this transaction sees it: with its staged edit,
+    /// if it has one, else as the store holds it.
+    fn record<T: Record>(&mut self, index: u16) -> Result<&T, KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        if let Some(staged) = self.staged.iter().find(|s| s.asset == id) {
+            return T::of(&staged.edited).ok_or_else(|| mismatch(id));
+        }
+        self.store.record(index)
+    }
+
+    /// Personal data `index` as this transaction sees it (its staged edit included).
+    pub fn personal(&mut self, index: u16) -> Result<&Personal, KernelError> {
+        self.record(index)
+    }
+
+    /// Learnset `index` as this transaction sees it (its staged edit included).
+    pub fn learnset(&mut self, index: u16) -> Result<&Learnset, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits encounter file `index`.
+    pub fn edit_encounter(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Encounters),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits personal data `index`.
+    pub fn edit_personal(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Personal),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits learnset `index`.
+    pub fn edit_learnset(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Learnset),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits evolution data `index`.
+    pub fn edit_evolution(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Evolution),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits move `index`.
+    pub fn edit_move(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Move),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits item data member `index` (a data member, not an item id).
+    pub fn edit_item(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Item),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits trainer text table member `index` (the game has one, member 0).
+    pub fn edit_trainer_text_table(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerTextTable),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits trainer text offsets member `index` (the game has one, member 0).
+    pub fn edit_trainer_text_offsets(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerTextOffsets),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
 }
 
 pub struct Store {
@@ -200,6 +613,15 @@ pub struct Store {
     /// lazily by `search_text`, an entry dropped when its archive is saved or reloaded.
     /// An archive that does not decode has an empty entry.
     text_index: HashMap<u16, Vec<IndexedText>>,
+    /// Per text archive, a counter that rises whenever the store's version of it may have
+    /// changed (see [`Store::text_generation`]); an archive never touched is not in the map.
+    text_generations: HashMap<u16, u64>,
+    /// Rises with every change of an asset's value the store reports (see
+    /// [`Store::changes_since`]); 0 before the first one.
+    change_generation: u64,
+    /// Per asset, the `change_generation` of its latest change; an asset never changed is
+    /// not in the map.
+    changed_at: HashMap<AssetId, u64>,
 }
 
 /// A message text and its lowercase form, for case-insensitive search.
@@ -262,6 +684,9 @@ impl Store {
             next_change: 1,
             unpacked: HashSet::new(),
             text_index: HashMap::new(),
+            text_generations: HashMap::new(),
+            change_generation: 0,
+            changed_at: HashMap::new(),
         }
     }
 
@@ -328,9 +753,7 @@ impl Store {
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
-            let family = self.project.family;
-            let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
-            let locked = unwritable_reason(&current, &bytes, family);
+            let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
             self.assets.insert(
                 id,
                 Asset {
@@ -424,45 +847,71 @@ impl Store {
         }
     }
 
-    /// Applies `edit` to a copy of the asset and serializes the result. On an error from
-    /// `edit` or from serialization the asset stays as it was and nothing is recorded. An edit that leaves
-    /// the serialized bytes unchanged records no changeset; the returned id is then
-    /// not on the undo stack.
+    /// Runs `f` as one undoable step labelled `label`: every asset it edits through the
+    /// [`Tx`] becomes one part of a single changeset. When `f` fails, every asset stays as
+    /// it was and nothing is recorded. Edits that leave the serialized bytes unchanged are
+    /// no part; without any part no changeset is recorded and the id is `None`. A recorded
+    /// step clears the redo stack.
+    pub fn transaction<T>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
+    ) -> Result<(T, Option<ChangeId>), KernelError> {
+        let (value, change, recorded) = self.run_transaction(label, f)?;
+        Ok((value, recorded.then_some(change)))
+    }
+
+    /// [`Store::transaction`], with the id that was drawn for it whether it was recorded or
+    /// not (the edit functions of the store hand it out either way).
+    fn run_transaction<T>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
+    ) -> Result<(T, ChangeId, bool), KernelError> {
+        let mut tx = Tx {
+            store: self,
+            staged: Vec::new(),
+        };
+        let value = f(&mut tx)?;
+        let staged = tx.staged;
+        let change = ChangeId(self.next_change);
+        self.next_change += 1;
+        let mut parts = Vec::new();
+        for edit in staged.into_iter().filter(|e| e.after != e.before) {
+            // `Tx::edit` loaded the asset; a miss would only skip the update.
+            if let Some(asset) = self.assets.get_mut(&edit.asset) {
+                asset.current = edit.edited;
+            }
+            self.note_change(edit.asset);
+            parts.push(Part {
+                asset: edit.asset,
+                before: edit.before,
+                after: edit.after,
+            });
+        }
+        if parts.is_empty() {
+            return Ok((value, change, false));
+        }
+        self.undo.push(Changeset {
+            parts,
+            label: label.to_owned(),
+        });
+        self.redo.clear();
+        Ok((value, change, true))
+    }
+
+    /// Applies `edit` to a copy of the asset as a transaction of one part. On an error from
+    /// `edit` or from serialization the asset stays as it was and nothing is recorded. An
+    /// edit that leaves the serialized bytes unchanged records no changeset; the returned
+    /// id is then not on the undo stack.
     fn apply_edit(
         &mut self,
         id: AssetId,
         label: &str,
         edit: impl FnOnce(&mut Loaded) -> Result<(), KernelError>,
     ) -> Result<ChangeId, KernelError> {
-        let family = self.project.family;
-        let asset = self.load(id)?;
-        if let Some(reason) = &asset.locked {
-            return Err(KernelError::ReadOnly {
-                asset: id,
-                reason: reason.clone(),
-            });
-        }
-        let before = asset.current.to_bytes(family)?;
-        let mut edited = asset.current.clone();
-        edit(&mut edited)?;
-        let after = edited.to_bytes(family)?;
-        let change = ChangeId(self.next_change);
-        self.next_change += 1;
-        if after == before {
-            return Ok(change);
-        }
-        // `load` above guarantees the entry exists; a miss would only skip the update.
-        if let Some(asset) = self.assets.get_mut(&id) {
-            asset.current = edited;
-        }
-        self.undo.push(Changeset {
-            asset: id,
-            before,
-            after,
-            label: label.to_owned(),
-        });
-        self.redo.clear();
-        Ok(change)
+        self.run_transaction(label, |tx| tx.edit(id, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits map `index`. An error from `edit` or from `MapFile::validate` rolls the edit
@@ -495,18 +944,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut Matrix) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let id = AssetId {
-            kind: AssetKind::Matrix,
-            index,
-        };
-        self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::Matrix(m) => {
-                edit(m)?;
-                m.validate()?;
-                Ok(())
-            }
-            _ => Err(mismatch(id)),
-        })
+        self.run_transaction(label, |tx| tx.edit_matrix(index, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits area data `index`. An error from `edit` rolls the edit back.
@@ -535,14 +974,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut EventFile) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let id = AssetId {
-            kind: AssetKind::Event,
-            index,
-        };
-        self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::Event(e) => Ok(edit(e)?),
-            _ => Err(mismatch(id)),
-        })
+        self.run_transaction(label, |tx| tx.edit_event(index, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits map header `id`. The table cannot grow: a header id past its end is
@@ -556,29 +989,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let family = uxie_family(self.project.family);
-        let game_code = self.project.game_code.clone();
-        self.apply_edit(HEADER_TABLE, label, |loaded| match loaded {
-            Loaded::HeaderTable(headers) => {
-                let count = headers.len();
-                let header = headers
-                    .get_mut(usize::from(id))
-                    .ok_or(FormatError::OutOfRange {
-                        what: "header",
-                        value: usize::from(id),
-                        max: count.saturating_sub(1),
-                    })?;
-                edit(header)?;
-                if header_round_trips(header, family) {
-                    Ok(())
-                } else {
-                    Err(KernelError::Uxie(format!(
-                        "header {id} does not fit the {game_code} header layout"
-                    )))
-                }
-            }
-            _ => Err(mismatch(HEADER_TABLE)),
-        })
+        self.run_transaction(label, |tx| tx.edit_header(id, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Whether `header` would be stored as it is in this game's header layout: the check
@@ -600,6 +1012,7 @@ impl Store {
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
         let (index, path) = self.next_member(kind)?;
         write_atomic(&self.project.root, &path, bytes)?;
+        self.note_change(AssetId { kind, index });
         Ok(index)
     }
 
@@ -760,9 +1173,9 @@ impl Store {
         let headers = self.header_table()?.to_vec();
         dynamic_headers::apply(&self.project, &headers)?;
         self.assets.remove(&HEADER_TABLE);
-        self.undo.retain(|c| c.asset != HEADER_TABLE);
-        self.redo.retain(|c| c.asset != HEADER_TABLE);
+        self.forget_history(HEADER_TABLE);
         self.load(HEADER_TABLE)?;
+        self.note_change(HEADER_TABLE);
         Ok(())
     }
 
@@ -859,12 +1272,14 @@ impl Store {
         }
         // The table's changesets hold whole-table snapshots; the new header is unchanged in
         // every one of them, so it is appended to each, and undo and redo keep working.
-        for change in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-            if change.asset == HEADER_TABLE {
-                change.before.extend_from_slice(&chunk);
-                change.after.extend_from_slice(&chunk);
+        let parts = self.undo.iter_mut().chain(self.redo.iter_mut());
+        for part in parts.flat_map(|c| c.parts.iter_mut()) {
+            if part.asset == HEADER_TABLE {
+                part.before.extend_from_slice(&chunk);
+                part.after.extend_from_slice(&chunk);
             }
         }
+        self.note_change(HEADER_TABLE);
         Ok(id)
     }
 
@@ -886,16 +1301,172 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut TextArchiveDoc),
     ) -> Result<Option<ChangeId>, KernelError> {
-        let id = text_id(index);
-        let recorded = self.undo.len();
-        let change = self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::TextArchive(doc) => {
-                edit(doc);
-                Ok(())
-            }
-            _ => Err(mismatch(id)),
-        })?;
-        Ok((self.undo.len() > recorded).then_some(change))
+        self.transaction(label, |tx| tx.edit_text_archive(index, edit))
+            .map(|((), change)| change)
+    }
+
+    /// Data member `index` of `T`'s kind, loaded on first use; a member of the wrong length
+    /// is [`KernelError::ReadOnly`] with its lock reason.
+    fn record<T: Record>(&mut self, index: u16) -> Result<&T, KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        let asset: &Asset = self.load(id)?;
+        record_of(id, asset)
+    }
+
+    /// Runs `edit` on data member `index` of `T`'s kind as a one-part transaction. The id
+    /// is `None` when `edit` left the member as it was (nothing is recorded to undo then).
+    fn edit_record<T: Record>(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut T),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.transaction(label, |tx| tx.edit_record(index, edit))
+            .map(|((), change)| change)
+    }
+
+    /// Returns encounter file `index`, loading it on first use.
+    pub fn encounter(&mut self, index: u16) -> Result<&Encounters, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns personal data `index` (species or form), loading it on first use.
+    pub fn personal(&mut self, index: u16) -> Result<&Personal, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns learnset `index`, loading it on first use.
+    pub fn learnset(&mut self, index: u16) -> Result<&Learnset, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns evolution data `index`, loading it on first use.
+    pub fn evolution(&mut self, index: u16) -> Result<&Evolution, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns move `index`, loading it on first use.
+    pub fn move_data(&mut self, index: u16) -> Result<&Move, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns item data member `index` (a data member, not an item id), loading it on first
+    /// use.
+    pub fn item(&mut self, index: u16) -> Result<&Item, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns trainer text table member `index` (the game has one, member 0).
+    pub fn trainer_text_table(&mut self, index: u16) -> Result<&TrainerTextTable, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns trainer text offsets member `index` (the game has one, member 0).
+    pub fn trainer_text_offsets(&mut self, index: u16) -> Result<&TrainerTextOffsets, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits encounter file `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_encounter(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Encounters),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits personal data `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_personal(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Personal),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits learnset `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_learnset(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Learnset),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits evolution data `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_evolution(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Evolution),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits move `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_move(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Move),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits item data member `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_item(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Item),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits trainer text table member `index`. The id is `None` when `edit` changed
+    /// nothing.
+    pub fn edit_trainer_text_table(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerTextTable),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits trainer text offsets member `index`. The id is `None` when `edit` changed
+    /// nothing.
+    pub fn edit_trainer_text_offsets(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerTextOffsets),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// The bytes of the loaded asset `id` as the store holds them, unsaved edits included
+    /// (a text archive: its canonical JSON; a locked member: the bytes it was read with).
+    /// `None` when `id` is not loaded; nothing is loaded here. An error when the value
+    /// cannot be serialized.
+    pub fn current_bytes(&self, id: AssetId) -> Result<Option<Vec<u8>>, KernelError> {
+        self.assets
+            .get(&id)
+            .map(|a| a.current.to_bytes(self.project.family))
+            .transpose()
+    }
+
+    /// The bytes of the loaded asset `id` as last saved, or read from the disk when it was
+    /// never saved (the baseline [`Store::is_dirty`] compares against). `None` when `id` is
+    /// not loaded, or when its file was deleted and the user kept their version.
+    pub fn saved_bytes(&self, id: AssetId) -> Option<&[u8]> {
+        self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref())
     }
 
     /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
@@ -932,6 +1503,7 @@ impl Store {
                 locked: None,
             },
         );
+        self.note_change(text_id(index));
         Ok(index)
     }
 
@@ -998,6 +1570,60 @@ impl Store {
         .unwrap_or_default()
     }
 
+    /// A counter for text archive `index` that rises whenever the store's version of it
+    /// changed: an edit, undo or redo of it, `reload_from_disk` (which the build's
+    /// `touched_archives` go through), `accept_disk_as_base`, and creating it. Never touched
+    /// archives read 0. Caches of derived data (the name tables) compare it to see whether
+    /// to read the archive again; it is only meaningful within one store.
+    pub fn text_generation(&self, index: u16) -> u64 {
+        self.text_generations.get(&index).copied().unwrap_or(0)
+    }
+
+    /// Records that the store's value of `id` may have changed: raises the change
+    /// generation (see [`Store::changes_since`]) and, for a text archive, its text
+    /// generation.
+    fn note_change(&mut self, id: AssetId) {
+        if id.kind == AssetKind::TextArchive {
+            *self.text_generations.entry(id.index).or_insert(0) += 1;
+        }
+        self.change_generation += 1;
+        self.changed_at.insert(id, self.change_generation);
+    }
+
+    /// The current change generation and every asset whose value may have changed after
+    /// generation `generation`, in `AssetKind::ALL` order, ascending by index. Reported are
+    /// edits (each part of a transaction), undo and redo, `reload_from_disk`,
+    /// `accept_disk_as_base` and created members (new maps, matrices, event files, text
+    /// archives, headers: the header table). Saving changes no value and is not reported.
+    /// Derived indexes keep the generation they last saw and ask again with it; generation
+    /// 0 lists every asset changed so far. Only meaningful within one store.
+    pub fn changes_since(&self, generation: u64) -> (u64, Vec<AssetId>) {
+        let mut ids: Vec<AssetId> = self
+            .changed_at
+            .iter()
+            .filter(|&(_, &at)| at > generation)
+            .map(|(&id, _)| id)
+            .collect();
+        ids.sort_by_key(|id| (id.kind.slot(), id.index));
+        (self.change_generation, ids)
+    }
+
+    /// The current change generation: the first value of [`Store::changes_since`], without
+    /// collecting the changed assets.
+    pub fn change_generation(&self) -> u64 {
+        self.change_generation
+    }
+
+    /// Number of assets the store holds (loaded from disk or created).
+    pub fn loaded_count(&self) -> usize {
+        self.assets.len()
+    }
+
+    /// The store's value of `id` (unsaved edits included) if it is loaded; loads nothing.
+    pub(crate) fn peek(&self, id: AssetId) -> Option<&Loaded> {
+        self.assets.get(&id).map(|a| &a.current)
+    }
+
     /// Forgets the search index entry of `id` if it is a text archive.
     fn drop_text_index(&mut self, id: AssetId) {
         if id.kind == AssetKind::TextArchive {
@@ -1029,16 +1655,15 @@ impl Store {
     }
 
     /// Drops the store's own changes to `id` and loads the member from disk again. The
-    /// asset's changesets leave both the undo and the redo stack; those of other assets stay.
+    /// asset's parts leave the changesets of both the undo and the redo stack (a changeset
+    /// left without parts goes with them); the parts of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
         // Dropped first: an undecodable text archive is an error below, and the index must
         // not keep what it read before the file changed.
         self.drop_text_index(id);
         let bytes = self.read_member(id)?;
-        let family = self.project.family;
-        let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
-        let locked = unwritable_reason(&current, &bytes, family);
+        let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
         self.assets.insert(
             id,
             Asset {
@@ -1047,16 +1672,17 @@ impl Store {
                 locked,
             },
         );
-        self.undo.retain(|c| c.asset != id);
-        self.redo.retain(|c| c.asset != id);
+        self.forget_history(id);
         self.drop_text_index(id);
+        self.note_change(id);
         Ok(())
     }
 
     /// Takes the asset's current bytes on disk as the base this store compares against,
     /// keeping its own changes. The next `save` then overwrites the file with them. The
     /// asset's undo and redo entries are dropped (their snapshots were taken against the old
-    /// base; undoing would write it over the external edit); those of other assets stay. Does
+    /// base; undoing would write it over the external edit); those of other assets stay, see
+    /// [`Store::reload_from_disk`]. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
@@ -1082,50 +1708,114 @@ impl Store {
         if let Some(asset) = self.assets.get_mut(&id) {
             asset.saved_bytes = base;
         }
-        self.undo.retain(|c| c.asset != id);
-        self.redo.retain(|c| c.asset != id);
+        self.forget_history(id);
         self.drop_text_index(id);
+        self.note_change(id);
         Ok(())
     }
 
-    /// Restores `bytes` as the current value of `asset`. Returns false if that fails.
-    fn restore(&mut self, asset: AssetId, bytes: &[u8]) -> bool {
-        let Ok(value) = Loaded::from_bytes(asset.kind, bytes, self.project.family, self.lang())
-        else {
-            return false;
-        };
-        match self.assets.get_mut(&asset) {
-            Some(a) => {
-                a.current = value;
-                true
+    /// Removes the parts of `id` from every changeset of the undo and redo stacks and drops
+    /// the changesets left empty.
+    fn forget_history(&mut self, id: AssetId) {
+        for stack in [&mut self.undo, &mut self.redo] {
+            stack.retain_mut(|change| {
+                change.parts.retain(|p| p.asset != id);
+                !change.parts.is_empty()
+            });
+        }
+    }
+
+    /// Sets every asset of `change` to the side of its part that `side` picks and returns the
+    /// assets in the order they were edited. All parts are decoded first, then applied in
+    /// reverse order; the first part that does not decode (or whose asset is not loaded) is
+    /// [`KernelError::Restore`] naming its asset, and then no asset changes.
+    fn restore_parts(
+        &mut self,
+        change: &Changeset,
+        side: fn(&Part) -> &[u8],
+    ) -> Result<Vec<AssetId>, KernelError> {
+        let family = self.project.family;
+        let values = change
+            .parts
+            .iter()
+            .map(|part| {
+                let id = part.asset;
+                if !self.assets.contains_key(&id) {
+                    return Err(KernelError::Restore {
+                        asset: id,
+                        reason: "it is not loaded".to_owned(),
+                    });
+                }
+                // Strict on purpose: a part holds the bytes of an editable value, never a
+                // locked raw member.
+                Loaded::from_bytes(id.kind, side(part), family, self.lang())
+                    .map(|value| (id, value))
+                    .map_err(|e| KernelError::Restore {
+                        asset: id,
+                        reason: e.to_string(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (id, value) in values.into_iter().rev() {
+            // Checked above: every asset is loaded.
+            if let Some(asset) = self.assets.get_mut(&id) {
+                asset.current = value;
             }
-            None => false,
+            self.note_change(id);
+        }
+        Ok(change.parts.iter().map(|p| p.asset).collect())
+    }
+
+    /// Reverts the most recent changeset and returns every asset it restored, in the order
+    /// they were edited, so the caller can reload exactly what changed; empty if there is
+    /// nothing to undo. A part that cannot be restored is an error naming its asset; then no
+    /// asset changes and the changeset stays on the undo stack (see `restore_parts`).
+    pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        let Some(change) = self.undo.pop() else {
+            return Ok(Vec::new());
+        };
+        match self.restore_parts(&change, |p| &p.before) {
+            Ok(assets) => {
+                self.redo.push(change);
+                Ok(assets)
+            }
+            Err(e) => {
+                self.undo.push(change);
+                Err(e)
+            }
         }
     }
 
-    /// Reverts the most recent changeset and returns the asset it restored, so the caller
-    /// can reload exactly what changed. `None` if there is nothing to undo.
-    pub fn undo(&mut self) -> Option<AssetId> {
-        let change = self.undo.pop()?;
-        if !self.restore(change.asset, &change.before) {
-            self.undo.push(change);
-            return None;
+    /// Re-applies the most recently undone changeset and returns every asset it restored, in
+    /// the order they were edited; empty if there is nothing to redo. On an error nothing
+    /// changes, as with [`Store::undo`].
+    pub fn redo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        let Some(change) = self.redo.pop() else {
+            return Ok(Vec::new());
+        };
+        match self.restore_parts(&change, |p| &p.after) {
+            Ok(assets) => {
+                self.undo.push(change);
+                Ok(assets)
+            }
+            Err(e) => {
+                self.redo.push(change);
+                Err(e)
+            }
         }
-        let asset = change.asset;
-        self.redo.push(change);
-        Some(asset)
     }
 
-    /// Re-applies the most recently undone changeset and returns the asset it restored.
-    pub fn redo(&mut self) -> Option<AssetId> {
-        let change = self.redo.pop()?;
-        if !self.restore(change.asset, &change.after) {
-            self.redo.push(change);
-            return None;
-        }
-        let asset = change.asset;
-        self.undo.push(change);
-        Some(asset)
+    /// Damages part `part` of the changeset `undo()` reverts next, so that neither of its
+    /// sides decodes. For tests of a failing undo; does nothing without such a part.
+    #[cfg(feature = "test-support")]
+    pub fn corrupt_undo_part(&mut self, part: usize) {
+        corrupt(self.undo.last_mut(), part);
+    }
+
+    /// Like [`Store::corrupt_undo_part`], for the changeset `redo()` applies next.
+    #[cfg(feature = "test-support")]
+    pub fn corrupt_redo_part(&mut self, part: usize) {
+        corrupt(self.redo.last_mut(), part);
     }
 
     /// The labels of the undo and redo stacks, as the caller gave them to the edits. Undo is
@@ -1269,6 +1959,15 @@ impl Store {
     }
 }
 
+/// Replaces both sides of part `part` of `change` with one byte no asset kind decodes.
+#[cfg(feature = "test-support")]
+fn corrupt(change: Option<&mut Changeset>, part: usize) {
+    if let Some(part) = change.and_then(|c| c.parts.get_mut(part)) {
+        part.before = vec![0xFF];
+        part.after = vec![0xFF];
+    }
+}
+
 /// The bytes at `location`. `None`: the file does not exist (for header files: one of
 /// them), or (for a slice) it is too short to contain it. A text archive reads as its
 /// canonical JSON, see [`read_text_doc`]; `lang` is the editor's text language.
@@ -1403,6 +2102,8 @@ mod tests {
             AssetKind::BuildingTexture,
             AssetKind::BuildingModel,
             AssetKind::InteriorBuildingModel,
+            AssetKind::TrainerProperties,
+            AssetKind::TrainerParty,
         ] {
             assert!(!Loaded::is_editable(kind));
             assert!(matches!(
@@ -1574,13 +2275,13 @@ mod tests {
                 d.messages[1].text = "Zweiblattdorf".into()
             })
             .unwrap();
-            assert_eq!(st.undo(), Some(ARCHIVE));
+            assert_eq!(st.undo().unwrap(), [ARCHIVE]);
             assert_eq!(
                 st.text_archive(433).unwrap().messages[1].text,
                 "Twinleaf Town"
             );
             assert!(!st.is_dirty(ARCHIVE));
-            assert_eq!(st.redo(), Some(ARCHIVE));
+            assert_eq!(st.redo().unwrap(), [ARCHIVE]);
             assert_eq!(
                 st.text_archive(433).unwrap().messages[1].text,
                 "Zweiblattdorf"
@@ -1596,17 +2297,17 @@ mod tests {
             }
             let owned = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
             assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
-            st.undo();
+            st.undo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
-            st.undo();
+            st.undo().unwrap();
             // Two redo entries: the one `redo()` applies next (B) comes first.
             assert_eq!(st.history(), (owned(&["A"]), owned(&["B", "C"])));
-            st.redo();
+            st.redo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
-            st.redo();
+            st.redo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
             // A new edit clears the redo stack.
-            st.undo();
+            st.undo().unwrap();
             st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
                 .unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "D"]), vec![]));
@@ -1625,7 +2326,7 @@ mod tests {
             let (_s, mut st) = store();
             let change = st.edit_text_archive(433, "noop", |_| {}).unwrap();
             assert_eq!(change, None);
-            assert_eq!(st.undo(), None);
+            assert!(st.undo().unwrap().is_empty());
         }
 
         #[test]
@@ -1646,15 +2347,15 @@ mod tests {
         #[test]
         fn create_text_archive_appends_member_and_json() {
             let (_s, mut st) = store();
-            assert_eq!(st.create_text_archive().unwrap(), 434);
-            assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), 435);
+            assert_eq!(st.create_text_archive().unwrap(), 698);
+            assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), 699);
             assert!(
                 st.project()
-                    .member_path(AssetKind::TextArchive, 434)
+                    .member_path(AssetKind::TextArchive, 698)
                     .is_file()
             );
-            assert!(json_path(&st, 434).is_file());
-            let doc = st.text_archive(434).unwrap();
+            assert!(json_path(&st, 698).is_file());
+            let doc = st.text_archive(698).unwrap();
             assert_eq!(doc.key, 0);
             let texts: Vec<_> = doc.messages.iter().map(|m| m.text.as_str()).collect();
             assert_eq!(texts, ["Neuer Text"]);

@@ -35,7 +35,9 @@ export type ReloadAction =
   /** The text panel re-reads this archive. */
   | { kind: "textPanel"; archive: number }
   /** The header list and editor re-read the table; the scene reloads if the selected header's matrix, area data or event file changed. */
-  | { kind: "headers" };
+  | { kind: "headers" }
+  /** The data areas (Pokémon, items) re-read the restored member. */
+  | { kind: "dataPanel"; asset: AssetId };
 
 /**
  * What to reload after undo or redo restored `asset`, so that exactly what the asset affects is
@@ -70,9 +72,36 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
     case "Script":
       // Scripts are not editable through the store, so undo never restores one.
       return [];
+    case "Encounter":
+    case "Personal":
+    case "Learnset":
+    case "Evolution":
+    case "Move":
+    case "Item":
+    case "TrainerProperties":
+    case "TrainerParty":
+    case "TrainerTextTable":
+    case "TrainerTextOffsets":
+      return [{ kind: "dataPanel", asset }];
     default:
       return [];
   }
+}
+
+/**
+ * What to reload after one undo or redo step restored `assets` (a step can change several): the
+ * `reloadPlan` of every asset, each action once, in the order they first appear.
+ */
+export function historyPlan(assets: readonly AssetId[], scene: SceneState | null): ReloadAction[] {
+  const seen = new Set<string>();
+  return assets
+    .flatMap((asset) => reloadPlan(asset, scene))
+    .filter((action) => {
+      const key = JSON.stringify(action);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 /** What a header's scene is rebuilt from: the matrix and, read when a matrix loads, the event file. The area data only textures the models, which reload on their own. */

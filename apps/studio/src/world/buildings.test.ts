@@ -15,6 +15,7 @@ import {
   snapHalfTile,
   wantsDelete,
 } from "./buildings";
+import type { AreaId } from "../ui/frame/shellState";
 
 const b = (model_id: number) => ({ model_id, x: 0, y: 0, z: 0, sx: 1, sy: 1, sz: 1, rotation: ["00000000", "00000000", "00000000"] as [string, string, string] });
 
@@ -198,8 +199,30 @@ describe("buildings", () => {
       const key = keys.replace(/[⌘⇧]/g, "").toLowerCase();
       const shiftKey = keys.includes("⇧");
       expect(keys.startsWith("⌘") || keys.startsWith("⇧⌘")).toBe(true);
-      expect(shortcutAction({ key, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey, inApp: true })).toBe(action);
+      expect(shortcutAction({ key, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey, inApp: true, area: "pokemon" })).toBe(action);
     }
-    expect(Object.keys(SHORTCUTS).sort()).toEqual(["open", "palette", "play", "redo", "save", "undo"]);
+    expect(Object.keys(SHORTCUTS).sort()).toEqual(["encounters", "moves", "open", "palette", "play", "pokedex", "redo", "save", "trainer", "undo"]);
+  });
+
+  it("maps Cmd/Ctrl+1 to 4 to the parts of the Pokémon area, only there", () => {
+    const key = (k: string, o: Partial<{ area: AreaId; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; target: { tagName?: string } | null }> = {}) =>
+      shortcutAction({ key: k, target: { tagName: "CANVAS" }, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, area: "pokemon", ...o });
+    expect(["1", "2", "3", "4"].map((k) => key(k))).toEqual(["pokedex", "trainer", "encounters", "moves"]);
+    expect(key("4", { metaKey: false, ctrlKey: true })).toBe("moves");
+    expect(key("4", { area: "welt" })).toBeNull();
+    expect(key("1", { area: "gegenstaende" })).toBeNull();
+    expect(key("1", { area: undefined })).toBeNull();
+    expect(key("5")).toBeNull();
+    expect(key("4", { shiftKey: true })).toBeNull();
+    expect(key("4", { altKey: true })).toBeNull();
+    expect(key("4", { metaKey: false })).toBeNull();
+  });
+
+  it("asks to delete only in the world when the area is given", () => {
+    const press = (area?: AreaId) => wantsDelete({ key: "Delete", target: { tagName: "CANVAS" }, metaKey: false, ctrlKey: false, altKey: false, area });
+    expect(press("welt")).toBe(true);
+    expect(press(undefined)).toBe(true);
+    expect(press("pokemon")).toBe(false);
+    expect(press("gegenstaende")).toBe(false);
   });
 });

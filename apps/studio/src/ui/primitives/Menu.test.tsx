@@ -66,6 +66,25 @@ describe("Menu and Popover", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("items_with_checked_are_radio_items_and_show_their_detail", () => {
+    const onSelect = vi.fn();
+    const entries: MenuEntry[] = [
+      { label: "Pokédex", checked: true, detail: "508", onSelect: () => {} },
+      { label: "Attacken", checked: false, detail: "471", onSelect },
+      "separator",
+      { label: "Liste neu laden", onSelect: () => {} },
+    ];
+    act(() => root.render(<Menu trigger="Pokédex" items={entries} />));
+    press(trigger());
+    const radios = [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")];
+    expect(radios.map((r) => r.textContent)).toEqual(["Pokédex508", "Attacken471"]);
+    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    expect(items().map((i) => i.textContent)).toEqual(["Liste neu laden"]);
+    act(() => radios[1]!.click());
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[role=menu]")).toBeNull();
+  });
+
   it("an_icon_only_trigger_gets_its_name_from_label", () => {
     act(() => root.render(<Menu trigger={<span>3</span>} label="Verlauf" items={[{ label: "Eins", onSelect: () => {} }]} />));
     expect(trigger().getAttribute("aria-label")).toBe("Verlauf");

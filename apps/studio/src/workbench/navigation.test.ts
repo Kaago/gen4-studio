@@ -65,6 +65,26 @@ describe("nextSelection", () => {
     expect(nextSelection(state, { kind: "textArchive", index: 23 })).toMatchObject({ area: "texte", panel: "textEdit", text: { index: 23, message: null } });
   });
 
+  it("a species, a move and an item lead to their data areas and leave the selection and the pin alone", () => {
+    expect(nextSelection(state, { kind: "species", index: 397 })).toEqual({
+      area: "pokemon",
+      selectedHeader: 3,
+      pinned: null,
+      panel: "pokemonView",
+      data: { sub: "pokedex", index: 397 },
+    });
+    // A tab of the Pokédex hand opens the hand.
+    expect(nextSelection(state, { kind: "species", index: 397, tab: "learnset" })).toMatchObject({ area: "pokemon", panel: "pokemonEdit", data: { sub: "pokedex", index: 397, tab: "learnset" } });
+    expect(nextSelection(state, { kind: "move", index: 17 })).toMatchObject({ area: "pokemon", pinned: null, panel: "pokemonView", data: { sub: "moves", index: 17 } });
+    expect(nextSelection(state, { kind: "item", id: 17 })).toEqual({
+      area: "gegenstaende",
+      selectedHeader: 3,
+      pinned: null,
+      panel: "itemView",
+      data: { sub: "items", index: 17 },
+    });
+  });
+
   it("every other target is in the world", () => {
     const targets = [
       { kind: "header", id: 4 },

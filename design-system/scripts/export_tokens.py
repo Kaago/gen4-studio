@@ -164,8 +164,14 @@ ts.append('// Generiert aus design-system/tokens (DTCG). Nicht von Hand ändern.
 ts.append('/** Szenenfarben als Zahl für THREE.Color. Material mit toneMapped: false, depthWrite: false. Gleich in Hell und Dunkel. */')
 ts.append('export const szene = {')
 groups = {}
+# The type colours (group `typ`) are not scene colours; they go to `typen` below.
+typ_groups = {}
 for k, v in szene.items():
     g, n = k.split('/', 1)
+    if g == 'typ':
+        key, part = n.split('/', 1)
+        typ_groups.setdefault(key, {})[part] = v['$value']
+        continue
     groups.setdefault(g, {})[n] = v['$value']
 for g, items in groups.items():
     key = g.replace('-', '_')
@@ -190,11 +196,10 @@ export const syntax = {
   dunkel: { befehl: '#94ADF7', schluesselwort: '#D6C6F7', zeichenkette: '#B5E7C6', zahl: '#FFC6B5', flag: '#E7D6B5', kommentar: '#ADB5C6', fehler: '#F7949C' },
 } as const;
 ''')
-ts.append('/** Pokémon-Typen der 4. Generation, RGB555-gerastert, mit lesbarer Schriftfarbe. */')
-types = [('Normal', '#A5A57B', '#182131'), ('Feuer', '#EF8431', '#182131'), ('Wasser', '#6B8CEF', '#182131'), ('Pflanze', '#7BC652', '#182131'), ('Elektro', '#F7CE31', '#182131'), ('Eis', '#94D6D6', '#182131'), ('Kampf', '#BD3129', '#FFFFFF'), ('Gift', '#9C429C', '#FFFFFF'), ('Boden', '#DEBD6B', '#182131'), ('Flug', '#A58CEF', '#182131'), ('Psycho', '#F75A84', '#182131'), ('Käfer', '#A5B521', '#182131'), ('Gestein', '#B59C39', '#182131'), ('Geist', '#735A94', '#FFFFFF'), ('Drache', '#7339F7', '#FFFFFF'), ('Unlicht', '#735A4A', '#FFFFFF'), ('Stahl', '#B5B5CE', '#182131'), ('???', '#6B9C8C', '#182131')]
+ts.append('/** Pokémon-Typen der 4. Generation (Szene-Gruppe `typ`, Reihenfolge der Spieldaten), RGB555-gerastert, mit lesbarer Schriftfarbe. */')
 ts.append('export const typen = {')
-for n, bg, fg in types:
-    ts.append(f"  '{n}': {{ grund: '{bg}', schrift: '{fg}' }},")
+for k, items in typ_groups.items():
+    ts.append(f"  {k}: {{ grund: '{items['grund']}', schrift: '{items['schrift']}' }},")
 ts.append('} as const;\n')
 ts.append('/** Prüft, ob eine Farbe im DS-Farbraum liegt (RGB555), und rastet sie sonst ein. */')
 ts.append('''export function rgb555(hex: string): string {

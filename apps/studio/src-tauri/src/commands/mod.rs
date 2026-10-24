@@ -2,6 +2,7 @@
 
 mod area;
 mod buildings;
+mod data;
 mod events;
 mod headers;
 mod matrix;
@@ -18,6 +19,7 @@ mod world;
 
 pub use area::*;
 pub use buildings::*;
+pub use data::*;
 pub use events::*;
 pub use headers::*;
 pub use matrix::*;

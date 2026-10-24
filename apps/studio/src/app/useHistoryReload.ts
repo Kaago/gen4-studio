@@ -1,9 +1,10 @@
 import { getMatrix, undo } from "../api";
 import type { AssetId } from "../api";
-import { reloadPlan } from "../reload";
+import { historyPlan } from "../reload";
 import type { ReloadAction } from "../reload";
 import { pinAfterHistory } from "../workbench/pin";
 import type { EditBus } from "../bus/editBus";
+import { dataChangedOf } from "../data/dataBus";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";
@@ -16,8 +17,8 @@ interface HistoryReloadParams {
 }
 
 /**
- * Undo and redo, and everything that has to be reloaded after the backend restored an asset (see
- * `reloadPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
+ * Undo and redo, and everything that has to be reloaded after the backend restored assets (see
+ * `historyPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
  */
 export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadParams) {
   const { setPinned } = pins;
@@ -33,6 +34,7 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
       bus.emit({ topic: "buildingData" });
       bus.emit({ topic: "eventData" });
       bus.emit({ topic: "textData", archive: null });
+      for (const kind of ["species", "learnset", "evolution", "move", "item", "encounter", "trainer"] as const) bus.emit({ topic: "dataChanged", kind, index: null });
       // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
       setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
       await scene.syncHeaders();
@@ -84,13 +86,19 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         bus.emit({ topic: "headerTable" });
         await scene.syncHeaders();
         break;
+      case "dataPanel": {
+        // The data areas read their lists and editors again; nothing in the world shows data members.
+        const event = dataChangedOf(a.asset);
+        if (event) bus.emit(event);
+        break;
+      }
     }
   }
 
-  /** Reloads what the restored asset affects (see `reloadPlan`), nothing else. */
-  async function reloadAfterHistory(asset: AssetId) {
+  /** Reloads what the restored assets affect (see `historyPlan`), nothing else. */
+  async function reloadAfterHistory(assets: AssetId[]) {
     const shown = scene.matrixRef.current;
-    const plan = reloadPlan(asset, {
+    const plan = historyPlan(assets, {
       matrix: shown?.index ?? null,
       maps: shown?.maps ?? [],
       area: scene.targetArea(),
@@ -113,10 +121,10 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
     if (!session.info || session.busy) return false;
     let done = true;
     try {
-      const asset = await action();
-      if (asset) {
+      const assets = await action();
+      if (assets.length > 0) {
         scene.noteHistoryMoved();
-        await reloadAfterHistory(asset);
+        await reloadAfterHistory(assets);
       }
     } catch (e) {
       done = false;

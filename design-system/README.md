@@ -12,7 +12,7 @@ Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Ni
 | `tokens/` | Tokens im W3C-DTCG-Format, eine Datei je Sammlung und Modus (wie OpenPencil/Figma sie exportiert) |
 | `apps/studio/src/ui/tokens/tokens.css` | Alle Tokens als CSS-Variablen `--g4-*`, Hell als Standard, Dunkel über `data-theme`, Kompakt über `data-dichte` |
 | `apps/studio/src/ui/tokens/dockview-theme.css` | Dockview-Thema `dockview-theme-g4`, gespeist aus den Tokens |
-| `apps/studio/src/ui/tokens/tokens.ts` | Hex-Werte für three.js, Monaco/CodeMirror und Canvas: Szene, Themen, Syntax, Pokémon-Typen, `rgb555()` |
+| `apps/studio/src/ui/tokens/tokens.ts` | Hex-Werte für three.js, Monaco/CodeMirror und Canvas: Szene, Themen, Syntax, Pokémon-Typen (`typen`, aus der Szene-Gruppe `typ`), `rgb555()` |
 | `scripts/export_tokens.py` | Erzeugt die drei Dateien oben aus `tokens/`; Aufruf über `pnpm tokens` (in `apps/studio`), Ausgabeordner als zweiter Parameter |
 | `scripts/check_tokens.py` | Prüft RGB555-Treue und WCAG-Kontraste aller wichtigen Paare in beiden Themen |
 | `scripts/fix_fig_text.mjs` | Repariert nach dem Speichern in OpenPencil verstümmelte Texte und rastet mit `--rgb555` alle Farben der `.fig` auf das DS-Raster |
@@ -54,7 +54,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 | Sammlung | Modi | Inhalt |
 |---|---|---|
 | Primitiv | Wert | Rampen Platin (Neutrale), Kobalt, Bernstein, Signal, Moos, Zerr, Koralle, Lagune, Sand |
-| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm; gleich in beiden Themen |
+| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm, Gruppe `typ` für die 18 Pokémon-Typen; gleich in beiden Themen |
 | Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*` |
 | Raum | Wert | `raum/0…64` (Pixel im Namen), `radius/feld|taste|bildschirm|fenster|plakette`, `strich/*`, `schrift/groesse/*`, `schrift/zeile/*` |
 | Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug` |
@@ -97,7 +97,7 @@ Symbole: Phosphor Icons (MIT), Stil „regular“ für Oberfläche, „fill“ f
 | Reiter | Aktiv, Ruhe, Ungespeichert | Kobalt-Punkt statt Schließen bei Ungespeichertem |
 | Referenz | Bereich Welt … Technik; Name | klickbar, Rechtsklick „Verwendet in“ |
 | Zustand | Ungespeichert, Nicht rückgängig, Gesperrt, Auf Platte geändert, Nur Platin und HGSS, Fehler, Live | überall, wo das Asset erscheint |
-| Typ | 18 Typen der 4. Generation | Farbe plus Name |
+| Typ | 18 Typen der 4. Generation | Farbe plus Name; Farben aus `szene/typ/<schluessel>/{grund,schrift}`, unbekannte Nummer als „Typ 19“ auf `flaeche/deck` |
 | Meldung | Info, Erfolg, Warnung, Fehler; Titel, Text, Aktion | im Panel, im Assistenten oder als Toast unten rechts |
 | Wertebalken | Über Schnitt, Unter Schnitt | Wert bis 255, Strich für den Durchschnitt |
 | Budget | Ruhig, Knapp, Voll | DS-Grenzen ruhig zeigen, Speichern blockiert nie |
@@ -131,6 +131,7 @@ Für die Umsetzung eignen sich Radix- oder Reka-Primitives (Dialog, Popover, Tab
 - Gelände: blockiert diagonal schraffiert, Wasser Wellen, hohes Gras Punkte, Vorsprung Pfeil in Sprungrichtung, Eis Kreuzschraffur, Spezial Schachbrett, unbekannt gestrichelt. Muster hängen an Kachelkoordinaten (`gelaendeMuster`).
 - Ereignisse: Figur Kreis, Trainer Kreis mit Sichtlinie, Tür Raute, Auslöser gestrichelte Fläche, Schild Etikett, Gegenstand rundes Quadrat. Auswahl mit 3-px-Kobalt-Halo.
 - DS-Bildschirm (Gruppe `ds`, Spielinhalt, gleich in beiden Themen): `ds/grund` ist die Spielfläche hinter der Box, `ds/textbox/*` und `ds/schild/*` (je `flaeche`, `rahmen`, `text`) sind die Textbox und die Schildbox des Spiels, `ds/pfeil` der Weiter-Pfeil. In CSS `--g4-szene-ds-textbox-flaeche` usw., in `tokens.ts` als `szene.ds['textbox/flaeche']`. Text auf Fläche hat mindestens 4,5:1 (`check_tokens.py`).
+- Pokémon-Typen (Gruppe `typ`, Spielfarben, gleich in beiden Themen): je Typ `grund` und `schrift`, Schlüssel in der Reihenfolge der Spieldaten (`normal`, `kampf`, `flug`, `gift`, `boden`, `gestein`, `kaefer`, `geist`, `stahl`, `fragezeichen` für den ???-Typ, `feuer`, `wasser`, `pflanze`, `elektro`, `psycho`, `eis`, `drache`, `unlicht`). In CSS `--g4-szene-typ-feuer-grund` usw., in `tokens.ts` als `typen.feuer`. Schrift auf Grund hat mindestens 4,5:1 (`check_tokens.py`).
 - Höhen: sieben Stufen cividis, eine Stufe ist eine halbe Kachel, Isolinien bei Stufenwechsel.
 - Standardkamera ist die Gen-4-Kamera; „Draufsicht“ schaltet orthografisch zum präzisen Malen.
 
@@ -151,14 +152,16 @@ Jeder Screen ist 1440 × 900 und zeigt einen konkreten Moment mit echten Zustän
 
 ## Was die App umsetzt
 
-Stand nach Phase 3c (3c.1 und 3c.2; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md), Gate: [docs/phase-3c-gate.md](../docs/phase-3c-gate.md)). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
+Stand nach Phase 3c (3c.1 und 3c.2; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md), Gate: [docs/phase-3c-gate.md](../docs/phase-3c-gate.md)) und Phase 3b.3a (Daten-Editoren Pokédex, Attacken, Gegenstände; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](../docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md), Gate: [docs/phase-3b3-gate.md](../docs/phase-3b3-gate.md), Teil A). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
 
 Umgesetzt:
 - Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons. Thema Hell, Dunkel oder „Wie System“ (Einstellungen; der Knopf in der Titelleiste wechselt Hell und Dunkel), Dichte Komfort oder Kompakt (Einstellungen und Statusleiste). CodeMirror und die 3D-Szene folgen dem Thema.
-- Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Tastenkürzel, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Reiter, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Abschnitt, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand, DS-Bildschirm), sichtbar in der Galerie (`?gallery` im Browser-Modus, mit einer Seite „Rahmen“).
-- Der Rahmen: Titelleiste, Atlas (Start, Welt, Texte, Technik, drei gesperrte Bereiche, Hilfe, Einstellungen), Liste je Bereich, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts, Befehlspalette ⌘K.
+- Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Tastenkürzel, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Reiter, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Abschnitt, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand, DS-Bildschirm), sichtbar in der Galerie (`?gallery` im Browser-Modus, mit einer Seite „Rahmen“). Für die Daten-Editoren (Phase 3b.3a) dazu Typ-Plakette (`TypeBadge`), Wertebalken (`StatBar`), Tabelle (`Table`), Filter-Plaketten (`FilterChips`), Kästchen-Raster (`ToggleGrid`), Hexblock (`HexBlock`) und Symbol (`Sprite`), der Panelkopf mit Unterbereichs-Menü (`PanelHead.switcher`); Galerie-Seite „Daten“.
+- Die Pokémon-Typen als Szenen-Tokens `szene/typ/<schluessel>/{grund,schrift}` (18 Typen, RGB555-treu, Kontrast von `check_tokens.py` geprüft); `tokens.ts` liest `typen` daraus, die Typ-Plakette zeigt Farbe und Name.
+- Der Rahmen: Titelleiste, Atlas (Start, Welt, Pokémon, Gegenstände, Texte, Technik, dazu Geschichten gesperrt bis 3b.4, Hilfe, Einstellungen), Liste je Bereich, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts, Befehlspalette ⌘K.
 - Welt: 3D, Raster und Weltkarte als Schau; Werkzeuge mit Buchstabenkürzeln (V, B, F, T, A, S, G), Inspector und „An diesem Ort“ als Hand, Script und Probleme als Reiter daneben; Szenenfarben aus den Tokens.
 - Texte nach dem Screen „Texte: Archiv 0412“: Archive als Liste (Orte und Spielweit), DS-Bildschirm mit Seitenkarten als Schau, Nachrichtentabelle mit Längenbalken und Editor als Hand.
+- Pokémon und Gegenstände nach den Screens „Pokédex: Staravia bearbeiten“, „Attacken: Flügelschlag“ und „Gegenstände: Trank“ (Phase 3b.3a): der Listenkopf wird zum Menü der Unterbereiche (Pokédex, Trainer, Begegnungen, Attacken mit Zählern, ⌘1 bis ⌘4; Trainer und Begegnungen gesperrt bis 3b.3b), das zweite Glied der Brotkrume öffnet dasselbe Menü; Listen mit Suche über Name und Nummer, Filter-Plaketten und Symbolen aus dem ROM; die Schau mit Kopfkarte, Wertebalken gegen den Schnitt, „Fundorte“ und „Verwendet in“ als Referenzen („ohne Scripts gezählt“), Beschreibungen als DS-Textbox; die Hand mit Reitern (Pokédex) oder Spalten (Attacken, Gegenstände), jedes Feld ein Schritt mit sprechendem Label im Verlauf; harte Grenzen sichtbar („20 von 20“). Tüfteln zeigt die Rohdaten als Hexblock mit markiertem Feld und Dez/Hex an den Zahlfeldern.
 - Assistenten als Schrittleiste im Scharnier, der Schritt in der Hand; Zusammenfassung mit „Nicht rückgängig“, Ergebnis mit „Zeigen“, „Hier spielen“ und „Schließen“.
 - Start („Willkommen zurück“ mit den zuletzt geöffneten Projekten), Technik (Prüfen und Bauen, Patches, Emulator, Werkzeuge), Einstellungen (Darstellung, Emulator, Tastenkürzel); Hilfe öffnet das Glossar als Dialog.
 - Tiefe Tüfteln: Rohwerte und Hex im Inspector, Kennungen im Explorer, Header-ID und Höhe im Raster mit Rohdaten der Zeile, Dateipfade in Probleme und Script.
@@ -173,8 +176,15 @@ Abweichungen vom Design-System, bewusst oder bis auf Weiteres:
 - Einstellungen › Tastenkürzel zeigt nur die ⌘-Kürzel, die Buchstaben der Werkzeuge stehen in der Statusleiste und an den Werkzeugen.
 - Im Raster zeigt auch Bauen die Kennungen der Zellen (wie vor 3c); Tüfteln fügt Header-ID und Höhe hinzu.
 - `Editor_DesignSystem.fig` kennt die Tokens der Gruppe `szene/ds` (DS-Bildschirm) erst, wenn der Nutzer `tokens/` in OpenPencil einspielt („Design-Tokens importieren“); bis dahin fehlen diese Variablen in der Datei, App und `tokens/` haben sie.
+- Typfarben als Tokens (3b.3a): Die Pokémon-Typen sind die Token-Gruppe `szene/typ` in `tokens/Szene/Wert.tokens.json` statt einer festen Tabelle in `export_tokens.py`; die Werte entsprechen den bisherigen Typfarben. Als Variablen kennt die `.fig` sie erst nach dem Import; das Einspielen in OpenPencil („Design-Tokens importieren“) ist ein Schritt des Nutzers, die `.fig` ist in 3b.3a unverändert.
+- Kein `g4.shell.v2` (3b.3a): Die Spezifikation sieht für Unterbereich, Auswahl und Hand-Höhe je Unterbereich einen neuen Rahmen-Schlüssel vor. Die App bleibt bei `g4.shell.v1` und ergänzt die optionalen Felder `sub` (Unterbereich von Pokémon) und `selected` (Auswahl je Teil); ältere Stände lesen sich ohne Migration.
+- Keine Hand-Höhe je Unterbereich (3b.3a): Die Hand merkt ihre Höhe je Bereich; Pokédex und Attacken teilen sie. Kommt mit 3b.3b.
+- Beschreibungen über `data_get` (3b.3a): Beschreibungen von Attacken und Gegenständen kommen mit dem Dokument aus `data_get` (Archiv, Nachricht, Text) und stehen nur lesend als DS-Textbox in der Schau; bearbeitet werden sie im Bereich Texte („Beschreibung bearbeiten“ springt dorthin).
+- Der Pokédex zeigt kein DS-Profil des Screens (Pokédex-Profil, Kampfvorschau kommen mit 3d); Kampfsprites sind nicht da, Item- und Pokémon-Symbole kommen aus dem geöffneten ROM.
 
-Nicht in 3c (§1 der Spezifikation): die Bereiche Geschichten, Pokémon und Gegenstände (im Atlas gesperrt); Tiefe Erzählen mit Rezepten und reduziertem Inspector; Live-Vorschau der Assistenten in der Schau; Story-Graph; Spielmodus mit Live-Flags und bernsteinfarbenem Scharnier; Veröffentlichen; Plugins; Gelände malen und Draufsicht-Kamera; Muster im Gelände-Overlay; Höhen-Overlay in der Schau; eigene Fensterknöpfe auf Windows; senkrechtes Scharnier ab 2200 px; die Komponenten Typ-Plakette, Wertebalken, Budget, Pokémon-Karte, Story-Knoten und Rezept-Taste (kommen mit ihrem Editor). Die Roadmap führt sie unter „Aus dem Design-System, später“ ([docs/ROADMAP.md](../docs/ROADMAP.md)).
+Nicht in 3b.3a: Trainer und Begegnungen (3b.3b, im Menü der Unterbereiche gesperrt), Läden und die übrigen Punkte der Tabelle „Später“ der Spezifikation 3b.3 (in [docs/ROADMAP.md](../docs/ROADMAP.md) übernommen), die Pokémon-Karte (3b.3b) und das Budget.
+
+Nicht in 3c (§1 der Spezifikation): die Bereiche Geschichten, Pokémon und Gegenstände (im Atlas gesperrt; Pokémon und Gegenstände kamen mit 3b.3a); Tiefe Erzählen mit Rezepten und reduziertem Inspector; Live-Vorschau der Assistenten in der Schau; Story-Graph; Spielmodus mit Live-Flags und bernsteinfarbenem Scharnier; Veröffentlichen; Plugins; Gelände malen und Draufsicht-Kamera; Muster im Gelände-Overlay; Höhen-Overlay in der Schau; eigene Fensterknöpfe auf Windows; senkrechtes Scharnier ab 2200 px; die Komponenten Budget, Pokémon-Karte, Story-Knoten und Rezept-Taste (kommen mit ihrem Editor; Typ-Plakette und Wertebalken kamen mit Phase 3b.3a). Die Roadmap führt sie unter „Aus dem Design-System, später“ ([docs/ROADMAP.md](../docs/ROADMAP.md)).
 
 ## Arbeiten an der OpenPencil-Datei
 

@@ -10,3 +10,8 @@ thiserror = "2"
 [features]
 # Fixtures (BTX0 builder) for this crate's and downstream tests.
 test-support = []
+
+[dev-dependencies]
+proptest = "1"
+# Test oracle for the data codecs (tests/vanilla_data.rs); g4-kernel depends on it already.
+uxie = "0.9"

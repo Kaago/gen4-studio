@@ -138,10 +138,10 @@ fn header_edits_undo_redo_and_an_unchanged_table_is_clean() {
     .unwrap();
     assert_eq!(st.dirty(), vec![table_id()]);
     assert_ne!(st.header_table().unwrap(), before);
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(st.dirty().is_empty());
     assert_eq!(st.header_table().unwrap(), before);
-    assert!(st.redo().is_some());
+    assert!(!st.redo().unwrap().is_empty());
     assert_eq!(st.dirty(), vec![table_id()]);
     let MapHeader::Pt(h) = &st.header_table().unwrap()[0] else {
         panic!("platinum project")
@@ -196,7 +196,7 @@ fn header_edits_that_the_game_cannot_store_are_rejected() {
     assert!(matches!(err, KernelError::Uxie(_)), "{err:?}");
     assert_eq!(st.header_table().unwrap(), before);
     assert!(st.dirty().is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -289,7 +289,7 @@ fn reload_from_disk_takes_the_slice_on_disk_and_drops_my_changes() {
     assert!(st.save().is_err());
     st.reload_from_disk(table_id()).unwrap();
     assert!(st.dirty().is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert_eq!(st.header_table().unwrap()[0].matrix_id(), 0);
     assert_eq!(st.header_table().unwrap()[1].matrix_id(), 9);
     assert_eq!(std::fs::read(arm9_path(&s)).unwrap(), theirs);
@@ -382,7 +382,7 @@ fn vanilla_header_table_round_trips_byte_identical() {
         Project::open(&root).unwrap().headers().unwrap()[usize::from(target)].event_file_id,
         st.header_table().unwrap()[usize::from(target)].event_file_id()
     );
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(st.is_dirty(table_id()));
     st.save().unwrap();
     assert_eq!(std::fs::read(&arm9).unwrap(), original);

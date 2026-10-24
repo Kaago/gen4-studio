@@ -380,7 +380,20 @@ export type AssetKind =
   | "BuildingModel"
   | "InteriorBuildingModel"
   | "HeaderTable"
-  | "Script";
+  | "DynamicHeaders"
+  | "Script"
+  | "Encounter"
+  | "Personal"
+  | "Learnset"
+  | "Evolution"
+  | "Move"
+  | "Item"
+  | "TrainerProperties"
+  | "TrainerParty"
+  | "TrainerTextTable"
+  | "TrainerTextOffsets"
+  | "ItemIcons"
+  | "MonIcons";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -391,7 +404,8 @@ export interface AssetId {
 }
 
 /**
- * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only".
+ * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only",
+ * and for an "error" of an undo or redo that could not restore that asset.
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  */
@@ -456,10 +470,10 @@ export interface BuildReport {
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
   invoke<void>("set_permission", { index, x, y, kind, collision });
-/** Resolves to the asset that was restored, or null when there was nothing to undo. */
-export const undo = () => invoke<AssetId | null>("undo");
-/** Resolves to the asset that was restored, or null when there was nothing to redo. */
-export const redo = () => invoke<AssetId | null>("redo");
+/** Resolves to every asset the step restored (one step can change several), or [] when there was nothing to undo. */
+export const undo = () => invoke<AssetId[]>("undo");
+/** Resolves to every asset the step restored, or [] when there was nothing to redo. */
+export const redo = () => invoke<AssetId[]>("redo");
 /** The undo labels (oldest first) and redo labels (the one `redo` applies next first); a label may be empty. */
 export interface HistoryDto {
   undo: string[];
@@ -774,3 +788,5 @@ export interface ScriptHitDto {
 export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files");
 /** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
 export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });
+
+export * from "./api.data";

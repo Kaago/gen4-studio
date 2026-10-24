@@ -13,6 +13,58 @@ use g4_kernel::text::{self, Severity, TextArchiveDoc};
 
 const MAP_NARC: &str = "files/fielddata/land_data/land_data.narc";
 
+/// The data archives (spec §2), all in every family.
+const DATA_KINDS: [AssetKind; 10] = [
+    AssetKind::Encounter,
+    AssetKind::Personal,
+    AssetKind::Learnset,
+    AssetKind::Evolution,
+    AssetKind::Move,
+    AssetKind::Item,
+    AssetKind::TrainerProperties,
+    AssetKind::TrainerParty,
+    AssetKind::TrainerTextTable,
+    AssetKind::TrainerTextOffsets,
+];
+
+#[test]
+fn build_packs_every_data_folder_and_a_saved_edit() {
+    use std::sync::Arc;
+    let s = common::synthetic_project();
+    let p = Arc::new(Project::open(s.dir.path()).unwrap());
+    for kind in DATA_KINDS {
+        p.ensure_unpacked(kind).unwrap();
+    }
+    let mut st = g4_kernel::store::Store::new(p.clone());
+    st.edit_item(3, "Preis", |item| item.set_price(777))
+        .unwrap();
+    st.save().unwrap();
+    let edited = std::fs::read(p.member_path(AssetKind::Item, 3)).unwrap();
+    let before: Vec<Vec<u8>> = DATA_KINDS
+        .iter()
+        .map(|k| std::fs::read(s.dir.path().join(p.archives.packed(*k).unwrap())).unwrap())
+        .collect();
+    // ds-rom fails on the synthetic project; packing happens before it fails.
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)));
+    for (kind, before) in DATA_KINDS.iter().zip(before) {
+        let packed = std::fs::read(s.dir.path().join(p.archives.packed(*kind).unwrap())).unwrap();
+        let narc = g4_formats::narc::Narc::read(&packed).unwrap();
+        assert_eq!(
+            narc.members.len(),
+            p.member_count(*kind).unwrap(),
+            "{kind:?}"
+        );
+        if *kind == AssetKind::Item {
+            assert_eq!(narc.members[3], edited);
+            // The 36-byte member DSPRE wrote stays as it is.
+            assert_eq!(narc.members[17].len(), 36);
+        } else {
+            assert_eq!(packed, before, "{kind:?} repacks byte for byte");
+        }
+    }
+}
+
 #[test]
 fn pack_dir_orders_members_numerically() {
     let d = tempfile::tempdir().unwrap();
@@ -339,8 +391,19 @@ fn vanilla_rebuild_matches_dsrom_cli() {
     let p = Project::open(&root).unwrap();
     let ours = out_dir.path().join("ours.nds");
     let t = Instant::now();
-    build(&p, &ours).unwrap();
+    let report = build(&p, &ours).unwrap();
     eprintln!("dsrom CLI {cli_time:?}, build() {:?}", t.elapsed());
+    // DSPRE unpacked the data archives, so build packs all ten of them.
+    for kind in DATA_KINDS {
+        assert!(
+            report
+                .packed
+                .iter()
+                .any(|(k, n)| *k == kind && *n == p.member_count(kind).unwrap() && *n > 0),
+            "{kind:?} not packed: {:?}",
+            report.packed
+        );
+    }
     let a = std::fs::read(&reference).unwrap();
     let b = std::fs::read(&ours).unwrap();
     assert_eq!(a.len(), b.len());

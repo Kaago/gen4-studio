@@ -126,3 +126,48 @@ pub fn btx0(textures: &[Tex], palettes: &[&[u16]]) -> Vec<u8> {
     out.extend_from_slice(&t);
     out
 }
+
+/// A synthetic NCLR: header, one TTLP block with `depth` and `colours` (16-bit BGR555).
+pub fn nclr_bytes(depth: u32, colours: &[u16]) -> Vec<u8> {
+    let data = colours.len() * 2;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RLCN");
+    b.extend_from_slice(&0xFEFFu16.to_le_bytes());
+    b.extend_from_slice(&0x0100u16.to_le_bytes());
+    b.extend_from_slice(&((0x28 + data) as u32).to_le_bytes());
+    b.extend_from_slice(&0x10u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(b"TTLP");
+    b.extend_from_slice(&((0x18 + data) as u32).to_le_bytes());
+    b.extend_from_slice(&depth.to_le_bytes());
+    b.extend_from_slice(&0u32.to_le_bytes());
+    b.extend_from_slice(&(data as u32).to_le_bytes());
+    b.extend_from_slice(&0x10u32.to_le_bytes());
+    for c in colours {
+        b.extend_from_slice(&c.to_le_bytes());
+    }
+    b
+}
+
+/// A synthetic NCGR with `tiles_x` by `tiles_y` tiles in the header (`0xFFFF` when unknown) and
+/// the raw tile bytes `data`.
+pub fn ncgr_bytes(tiles_x: u16, tiles_y: u16, depth: u32, data: &[u8]) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RGCN");
+    b.extend_from_slice(&0xFEFFu16.to_le_bytes());
+    b.extend_from_slice(&0x0101u16.to_le_bytes());
+    b.extend_from_slice(&((0x30 + data.len()) as u32).to_le_bytes());
+    b.extend_from_slice(&0x10u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(b"RAHC");
+    b.extend_from_slice(&((0x20 + data.len()) as u32).to_le_bytes());
+    b.extend_from_slice(&tiles_y.to_le_bytes());
+    b.extend_from_slice(&tiles_x.to_le_bytes());
+    b.extend_from_slice(&depth.to_le_bytes());
+    b.extend_from_slice(&0x10u32.to_le_bytes()); // mapping
+    b.extend_from_slice(&0u32.to_le_bytes()); // 0: tiled
+    b.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    b.extend_from_slice(&0x18u32.to_le_bytes());
+    b.extend_from_slice(data);
+    b
+}

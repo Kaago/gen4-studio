@@ -15,7 +15,7 @@ use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::store::MapHeader;
 
-/// What a command answers: JSON, or raw bytes for the GLB commands.
+/// What a command answers: JSON, or raw bytes for the GLB and icon commands.
 #[derive(Debug)]
 pub enum Reply {
     Json(Value),
@@ -105,6 +105,16 @@ pub const COMMANDS: &[&str] = &[
     "reload_asset",
     "accept_disk",
     "force_quit",
+    "data_list",
+    "data_get",
+    "data_edit",
+    "data_raw",
+    "name_tables",
+    "item_table",
+    "machine_table",
+    "refs",
+    "get_item_icon",
+    "get_mon_icon",
 ];
 
 fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchError> {
@@ -406,6 +416,38 @@ pub fn dispatch(
             |a| accept_disk_impl(state, a.kind, a.index)
         ),
         "force_quit" => Ok(Reply::Json(Value::Null)),
+        "data_list" => run!(
+            json, "data_list", args,
+            { kind: DataKind, filter: Option<DataFilter> },
+            |a| data_list_impl(state, a.kind, a.filter)
+        ),
+        "data_get" => run!(
+            json, "data_get", args,
+            { kind: DataKind, index: u16 },
+            |a| data_get_impl(state, a.kind, a.index)
+        ),
+        "data_edit" => run!(
+            json, "data_edit", args,
+            { kind: DataKind, index: u16, patch: DataPatch, label: Option<String> },
+            |a| data_edit_impl(state, a.kind, a.index, a.patch, a.label)
+        ),
+        "data_raw" => run!(
+            json, "data_raw", args,
+            { kind: DataKind, index: u16 },
+            |a| data_raw_impl(state, a.kind, a.index)
+        ),
+        "name_tables" => run!(json, "name_tables", args, {}, |_a| name_tables_impl(state)),
+        "item_table" => run!(json, "item_table", args, {}, |_a| item_table_impl(state)),
+        "machine_table" => run!(json, "machine_table", args, {}, |_a| machine_table_impl(
+            state
+        )),
+        "refs" => run!(json, "refs", args, { target: TargetDto }, |a| refs_impl(state, a.target)),
+        "get_item_icon" => run!(bytes, "get_item_icon", args, { item: u16 }, |a| {
+            get_item_icon_impl(state, a.item)
+        }),
+        "get_mon_icon" => run!(bytes, "get_mon_icon", args, { species: u16 }, |a| {
+            get_mon_icon_impl(state, a.species)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -602,6 +644,25 @@ mod tests {
             ("reload_asset", json!({ "kind": "Event", "index": 0 })),
             ("accept_disk", json!({ "kind": "Event", "index": 0 })),
             ("force_quit", json!({})),
+            (
+                "data_list",
+                json!({ "kind": "species", "filter": { "query": "a", "types": [1], "pocket": null, "category": null } }),
+            ),
+            ("data_get", json!({ "kind": "species", "index": 1 })),
+            (
+                "data_edit",
+                json!({ "kind": "species", "index": 1, "patch": { "Personal": { "field": "attack", "value": 85 } }, "label": null }),
+            ),
+            ("data_raw", json!({ "kind": "move", "index": 1 })),
+            ("name_tables", json!({})),
+            ("item_table", json!({})),
+            ("machine_table", json!({})),
+            (
+                "refs",
+                json!({ "target": { "kind": "species", "index": 1 } }),
+            ),
+            ("get_item_icon", json!({ "item": 1 })),
+            ("get_mon_icon", json!({ "species": 1 })),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -669,6 +730,65 @@ mod tests {
                 other => panic!("{name}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn icon_commands_reply_with_bytes_and_an_empty_body_means_none() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        // The synthetic CPUE arm9 has no verified tables: no icon, no error.
+        for (name, args) in [
+            ("get_item_icon", json!({ "item": 17 })),
+            ("get_mon_icon", json!({ "species": 1 })),
+        ] {
+            match call(&state, &roots, name, args) {
+                Reply::Bytes(bytes) => assert!(bytes.is_empty(), "{name}"),
+                Reply::Json(v) => panic!("{name}: {v}"),
+            }
+        }
+    }
+
+    #[test]
+    fn data_commands_answer_like_their_impl() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let rows = json_of(call(
+            &state,
+            &roots,
+            "data_list",
+            json!({ "kind": "species", "filter": { "query": "ivy" } }),
+        ));
+        assert_eq!(rows[0]["name"], "Ivysaur");
+        let doc = json_of(call(
+            &state,
+            &roots,
+            "data_get",
+            json!({ "kind": "move", "index": 1 }),
+        ));
+        assert_eq!(doc["kind"], "move");
+        assert_eq!(doc["description"]["text"], "Pounds the foe.");
+        let changed = json_of(call(
+            &state,
+            &roots,
+            "data_edit",
+            json!({ "kind": "species", "index": 2, "patch": { "Personal": { "field": "attack", "value": 85 } } }),
+        ));
+        assert_eq!(changed, json!([{ "kind": "Personal", "index": 2 }]));
+        assert_eq!(
+            json_of(call(&state, &roots, "history", json!({})))["undo"],
+            json!(["Ivysaur: Angriff 4 → 85"])
+        );
+        let refs = json_of(call(
+            &state,
+            &roots,
+            "refs",
+            json!({ "target": { "kind": "item", "id": 1 } }),
+        ));
+        assert_eq!(refs, json!([]));
+        assert_eq!(
+            json_of(call(&state, &roots, "item_table", Value::Null)),
+            Value::Null
+        );
     }
 
     #[test]

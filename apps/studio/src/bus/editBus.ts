@@ -1,3 +1,5 @@
+import type { DataChangedEvent } from "../data/dataBus";
+
 /**
  * What happened to the data behind the panels and the scene. The editors and panels re-read their
  * asset on the `...Data` events; the scene refreshes on the `...Refetch` and `modelsReload` events.
@@ -30,7 +32,9 @@ export type EditEvent =
    */
   | { topic: "lspFilesChanged"; changes: { path: string; type: 1 | 2 }[] }
   /** The header list scrolls to the selection (a link led to a header). */
-  | { topic: "headerReveal" };
+  | { topic: "headerReveal" }
+  /** A data member (species, move, item, …) may have changed behind the data areas (see `data/dataBus.ts`). */
+  | DataChangedEvent;
 
 export type EditTopic = EditEvent["topic"];
 

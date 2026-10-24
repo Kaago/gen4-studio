@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
 import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
-import type { AreaId, Depth, RecentProject, ShellState, Tool } from "./shellState";
+import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool } from "./shellState";
 
 export interface ShellApi {
   state: ShellState;
@@ -12,6 +12,10 @@ export interface ShellApi {
   setHandHeight: (area: AreaId, height: number) => void;
   toggleHandCollapsed: (area: AreaId) => void;
   setDepth: (depth: Depth) => void;
+  /** The part the Pokémon area shows (whether it may is the area's to decide). */
+  setPokemonSub: (sub: PokemonSub) => void;
+  /** The selection of a data part; null: none. */
+  setSelected: (key: DataSelectKey, index: number | null) => void;
   /** The tool of the scene; not remembered between runs. */
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -57,6 +61,18 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
   const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);
   const setDepth = useCallback((depth: Depth) => setState((s) => (s.depth === depth ? s : { ...s, depth })), []);
+  const setPokemonSub = useCallback((sub: PokemonSub) => setState((s) => (s.sub.pokemon === sub ? s : { ...s, sub: { ...s.sub, pokemon: sub } })), []);
+  const setSelected = useCallback(
+    (key: DataSelectKey, index: number | null) =>
+      setState((s) => {
+        if ((s.selected[key] ?? null) === index) return s;
+        const selected = { ...s.selected };
+        if (index === null) delete selected[key];
+        else selected[key] = index;
+        return { ...s, selected };
+      }),
+    [],
+  );
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
   const setTheme = useCallback((t: Theme) => {
@@ -80,6 +96,8 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setHandHeight,
       toggleHandCollapsed,
       setDepth,
+      setPokemonSub,
+      setSelected,
       tool,
       setTool,
       remember,
@@ -92,7 +110,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, tool, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, tool, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

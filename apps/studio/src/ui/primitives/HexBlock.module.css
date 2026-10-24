@@ -1,0 +1,52 @@
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.table {
+  align-self: flex-start;
+  border-collapse: collapse;
+  font: var(--g4-font-code-s);
+  color: var(--g4-text-primaer);
+}
+
+.caption {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.path {
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.offset {
+  padding-right: var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-weight: 400;
+  text-align: start;
+}
+
+.byte {
+  min-width: 2ch;
+  padding: var(--g4-raum-2) var(--g4-raum-4);
+  text-align: center;
+}
+
+/* The bytes of the highlighted field: selection surface and an underline, so the mark is not colour alone. */
+.marked {
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+  box-shadow: inset 0 calc(-1 * var(--g4-strich-fokus)) 0 var(--g4-auswahl-kante);
+}
+
+.footer {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
