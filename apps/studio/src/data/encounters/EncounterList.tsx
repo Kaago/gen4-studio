@@ -1,6 +1,8 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { createEncounterFile, errorText } from "../../api";
 import type { DataRowDto } from "../../api";
+import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
+import type { MarkSeverity } from "../../checks/FindingMark";
 import { Badge, Button, Dialog, EmptyState, IconButton, ListRow, Notice, Picker, Segmented, TextField, useRovingList } from "../../ui/primitives";
 import type { PickerItem, SegmentedOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
@@ -9,8 +11,22 @@ import { useDataArea, useDataSearch } from "../useDataArea";
 import { groupFiles, rowUsers, usedByText } from "./encounterModel";
 import styles from "./Encounter.module.css";
 
-/** One file: the places that use it, its number and how many use it; the unsaved dot, a lock. */
-const FileRow = memo(function FileRow({ row, label, selected, unsaved, onSelect }: { row: DataRowDto; label: string; selected: boolean; unsaved: boolean; onSelect: (index: number) => void }) {
+/** One file: the places that use it, its number and how many use it; what the checks found, the unsaved dot, a lock. */
+const FileRow = memo(function FileRow({
+  row,
+  label,
+  selected,
+  unsaved,
+  mark,
+  onSelect,
+}: {
+  row: DataRowDto;
+  label: string;
+  selected: boolean;
+  unsaved: boolean;
+  mark: MarkSeverity | undefined;
+  onSelect: (index: number) => void;
+}) {
   const reason = row.locked === null ? null : lockReason(row.locked);
   const users = rowUsers(row).length;
   return (
@@ -23,8 +39,9 @@ const FileRow = memo(function FileRow({ row, label, selected, unsaved, onSelect 
       title={reason ?? undefined}
       dataAttrs={{ "data-encounter": row.index }}
       trailing={
-        unsaved || reason !== null ? (
+        unsaved || reason !== null || mark ? (
           <span className={styles.rowEnd}>
+            {mark && <FindingMark severity={mark} />}
             {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
             {reason !== null && <Badge kind="locked" title={reason} />}
           </span>
@@ -103,7 +120,9 @@ function CreateDialog({ next, onClose, onCreated }: { next: number; onClose: () 
  * then selected.
  */
 export function EncounterList() {
-  const { rows, selected, select, labelOf, bus, onEdited, dirty } = useDataArea("pokemon");
+  const { rows, selected, select, labelOf, bus, onEdited, dirty, problems } = useDataArea("pokemon");
+  // The rules of the files are the checks `encounter.*`: a file they found an error or warning in is marked.
+  const marks = useFindingMarks(problems, "encounter");
   const { shown, query, setQuery } = useDataSearch("pokemon");
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
@@ -121,7 +140,7 @@ export function EncounterList() {
     onEdited();
     select(index);
   };
-  const item = (row: DataRowDto) => <FileRow key={row.index} row={row} label={labelOf(row)} selected={row.index === selected} unsaved={unsaved.has(row.index)} onSelect={select} />;
+  const item = (row: DataRowDto) => <FileRow key={row.index} row={row} label={labelOf(row)} selected={row.index === selected} unsaved={unsaved.has(row.index)} mark={marks.get(row.index)} onSelect={select} />;
 
   return (
     <div className={styles.column}>

@@ -106,11 +106,12 @@ describe("EncounterView", () => {
     );
   });
 
-  it("shows_the_warnings_in_german_and_hands_them_to_the_problems_list", async () => {
+  it("shows_the_warnings_in_german_and_leaves_the_problems_list_to_the_checks", async () => {
     const problems = new ProblemsStore();
     await h.open(140, "bauen", { problems });
     const notices = [...h.view().querySelectorAll<HTMLElement>("[data-warning]")];
     expect(notices.map((n) => n.textContent)).toEqual([expect.stringContaining("Nacht Eintrag 1 ist leer: von 20 bis 3 Uhr erscheint auf Gras Platz 3 ein Glitch-Pokémon")]);
-    expect(problems.list().map((p) => `${p.source}:${p.file}:${p.line}`)).toEqual(["encounter:encounters/0140:3"]);
+    // The rules of the file are the checks `encounter.*` now: they reach the Problems list from `run_checks`, not from the document.
+    expect(problems.list()).toEqual([]);
   });
 });

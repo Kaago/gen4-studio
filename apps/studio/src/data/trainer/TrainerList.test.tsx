@@ -5,6 +5,8 @@ import { createTrainer, dataList } from "../../api";
 import type { EditEvent } from "../../bus/editBus";
 import { readShellState } from "../../ui/frame/shellState";
 import { openSelect, typeInto } from "../../ui/primitives/testUtils";
+import { finding } from "../../checks/checksTesting";
+import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { trainerHarness, trainerRow, wireApi } from "./trainerTesting";
@@ -61,6 +63,16 @@ describe("TrainerList", () => {
     expect(trainers()).toEqual([12, 13, 0, 40, 929]);
     // The list head counts the trainers.
     expect(h.list().textContent).toContain("5 Trainer");
+  });
+
+  it("marks_a_trainer_that_a_check_found_an_error_at", async () => {
+    const problems = new ProblemsStore();
+    problems.replaceChecks([finding("trainer.no-party", "error", { subject: { kind: "trainer", index: 13 }, key: "party" })]);
+    await h.open(12, "bauen", { problems });
+    const mark = tree().querySelector('[data-trainer="13"] [data-finding-mark]');
+    expect(mark?.getAttribute("data-finding-mark")).toBe("error");
+    expect(mark?.getAttribute("aria-label")).toBe("Fehler gefunden");
+    expect(tree().querySelector('[data-trainer="12"] [data-finding-mark]')).toBeNull();
   });
 
   it("lists_the_placeholder_locked", async () => {

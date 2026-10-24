@@ -6,9 +6,10 @@ import { invoke } from "./platform/transport";
  * The project checks, mirroring `apps/studio/src-tauri/src/commands/checks.rs` and `g4_kernel::checks`. `api.ts` re-exports
  * everything.
  *
- * A finding is a Problems row of source `check` with the fields of `CheckProblemDto`. Its `message` is the kernel's English
- * sentence; the UI words its own from `code` and `args`. Ignoring writes `<project>/g4-checks.json` at once (no `save`); errors
- * cannot be ignored and checks that report errors cannot be switched off (the commands reject with code "error").
+ * A finding is a Problems row (`ProblemDto`) of source `check` with the fields of `CheckFieldsDto` (`CheckProblemDto`). Its `message`
+ * is the kernel's English sentence; the UI words its own from `code` and `args` (`checks/messages.ts`). Ignoring writes
+ * `<project>/g4-checks.json` at once (no `save`); errors cannot be ignored and checks that report errors cannot be switched off (the
+ * commands reject with code "error").
  *
  * A fix (`planFix`, `applyFix`) checks the finding again on the current state first: when it is no longer reported as it was sent
  * (its subject changed), the command rejects with code "finding_stale" and changes nothing. A fix the finding does not offer is
@@ -48,10 +49,11 @@ export interface FixDto {
   irreversible: boolean;
 }
 
-/** A finding of the checks as a Problems row. Without a script or text source `file` is empty and `line` and `col` are 0. */
-export interface CheckProblemDto extends Omit<ProblemDto, "severity" | "source"> {
-  severity: "error" | "warning" | "info";
-  source: "check";
+/**
+ * What a finding of the checks adds to its Problems row (`ProblemDto` with `source` "check"). Without a script or text source the row's
+ * `file` is empty and `line` and `col` are 0.
+ */
+export interface CheckFieldsDto {
   /** Catalogue code, e.g. "warp.dest-warp". */
   code: string;
   subject: SubjectDto;
@@ -71,6 +73,9 @@ export interface CheckProblemDto extends Omit<ProblemDto, "severity" | "source">
   /** 16 hex digits (a number cannot hold the 64 bits); sent back as it came. */
   fingerprint: string;
 }
+
+/** A finding of the checks: a `ProblemDto` of source "check", which always carries the check fields (one wire shape, one row type). */
+export type CheckProblemDto = ProblemDto & CheckFieldsDto & { source: "check" };
 
 /** How far a running pass got: `done` of `total` checks run (`cheap`) or files read (`load`, `scripts`, `texts`); the UI words it („Prüft … Texte 312/724“). */
 export interface ChecksProgressDto {

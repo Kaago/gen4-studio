@@ -2,6 +2,8 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import { errorText, listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
 import { gameLabel } from "../app/gameLabel";
+import { FindingMark } from "../checks/FindingMark";
+import type { MarkSeverity } from "../checks/FindingMark";
 import { ListPane } from "../ui/frame/ListPane";
 import type { Depth } from "../ui/frame/shellState";
 import { Icon, Menu, Notice, Segmented, TextField, TreeRow, useRovingList } from "../ui/primitives";
@@ -39,6 +41,8 @@ export interface WorldExplorerProps {
   /** Whether the list column shows or is folded to its grip (the shell remembers it per area). */
   listOpen: boolean;
   onToggleList: () => void;
+  /** The worst error or warning the checks found per header (`headerMarks`): a mark at the end of its row. None: no marks. */
+  marks?: ReadonlyMap<number, MarkSeverity>;
 }
 
 type Mode = "tree" | "list";
@@ -74,6 +78,7 @@ const HeaderRow = memo(function HeaderRow({
   tinker,
   expanded,
   adopted,
+  mark,
   onSelect,
   onToggle,
   onOpenScript,
@@ -81,6 +86,8 @@ const HeaderRow = memo(function HeaderRow({
   entry: PlaceHeader;
   selected: boolean;
   marked: boolean;
+  /** What the checks found at the header or its events. */
+  mark: MarkSeverity | undefined;
   showRooms: boolean;
   /** Depth Tüfteln: the identifiers show. */
   tinker: boolean;
@@ -108,7 +115,14 @@ const HeaderRow = memo(function HeaderRow({
         onToggle={() => onToggle(h.id)}
         title={`${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
         dataAttrs={{ "data-header-id": h.id }}
-        trailing={marked ? <ShownMark /> : undefined}
+        trailing={
+          marked || mark ? (
+            <>
+              {mark && <FindingMark severity={mark} />}
+              {marked && <ShownMark />}
+            </>
+          ) : undefined
+        }
       />
       {expanded &&
         scriptChildren(h).map((child) => (
@@ -260,7 +274,7 @@ function ScriptsNode({ info, adopted, onOpenScript }: { info: ProjectInfo | null
 type TreeProps = Omit<WorldExplorerProps, "onOpenWizard" | "listOpen" | "onToggleList">;
 
 /** The places as tree rows with their headers below. Its state (search, opened places) lasts only while the tree mode shows. */
-function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, depth, onSelect, scriptsAdopted, onOpenScript }: TreeProps) {
+function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, selected, shownMatrix, revealToken, depth, onSelect, scriptsAdopted, onOpenScript, marks }: TreeProps) {
   const [query, setQuery] = useState("");
   // Without the overview every header would count as a room: the places then keep plain id order. The warps are not needed here, so a new warp list renders nothing.
   const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : []), [headers, matrices, matricesLoaded]);
@@ -364,6 +378,7 @@ function WorldTree({ info, headers, matrices, matricesLoaded, matricesFailed, se
                     tinker={depth === "tuefteln"}
                     expanded={expandedHeaders.has(entry.header.id)}
                     adopted={scriptsAdopted}
+                    mark={marks?.get(entry.header.id)}
                     onSelect={onSelect}
                     onToggle={toggleHeader}
                     onOpenScript={onOpenScript}
@@ -415,7 +430,7 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, listOpe
   return (
     <ListPane title="Orte" subtitle={tree.info ? gameLabel(tree.info) : undefined} actions={actions} open={listOpen} onToggle={onToggleList}>
       {mode === "list" ? (
-        <HeaderList info={tree.info} headers={tree.headers} selected={tree.selected} shownMatrix={tree.shownMatrix} revealToken={tree.revealToken} depth={tree.depth} onSelect={tree.onSelect} />
+        <HeaderList info={tree.info} headers={tree.headers} selected={tree.selected} shownMatrix={tree.shownMatrix} revealToken={tree.revealToken} depth={tree.depth} onSelect={tree.onSelect} marks={tree.marks} />
       ) : (
         <WorldTree {...tree} />
       )}

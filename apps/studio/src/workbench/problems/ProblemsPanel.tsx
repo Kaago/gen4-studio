@@ -1,38 +1,34 @@
-import { memo, useSyncExternalStore } from "react";
-import { warningText } from "../../data/encounters/encounterModel";
+import { memo, useId, useState, useSyncExternalStore } from "react";
+import type { ReactNode } from "react";
+import type { CheckProblemDto } from "../../api";
+import { AREA_LABELS, CHECK_CODES, areaOf, checkTitle, findingText, progressText, skippedText } from "../../checks/messages";
+import type { CheckArea } from "../../checks/messages";
+import type { ChecksApi } from "../../checks/useChecks";
 import { problemText } from "../../data/trainer/trainerModel";
 import type { Depth } from "../../ui/frame/shellState";
-import { Badge, EmptyState, Icon, PanelHead, Reference } from "../../ui/primitives";
-import type { Area } from "../../ui/primitives";
+import { Badge, Button, CheckList, EmptyState, Icon, PanelHead, Reference, Section } from "../../ui/primitives";
+import type { Area, CheckRow } from "../../ui/primitives";
+import { useSectionFolds } from "../inspector/foldState";
 import { TERMS, id4 } from "../terms";
 import type { NavTarget } from "../navigation";
-import { countsText, encounterFileOf, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
+import { FixDialog } from "./FixDialog";
+import { countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
 import type { ProblemRow, ProblemSource, ProblemsStore } from "./problems";
 import styles from "./ProblemsPanel.module.css";
 
 /** What the problems panel needs from App. */
 export interface ProblemsPanelContext {
   problems: ProblemsStore;
-  /** Tüfteln shows the path of a file instead of its label. */
+  /** Tüfteln shows the path of a file instead of its label, and the code of a check. */
   depth: Depth;
-  /** Follows a link: a script problem opens the file at its line, a text problem the archive. */
+  /** Follows a link: a script problem opens the file at its line, a text problem the archive, a finding its target. */
   goTo: (target: NavTarget) => void;
+  /** The checks of the project: „Beheben…“, „Ausblenden“, the foot with „Erneut prüfen“. Null: none (the rows still show). */
+  checks: ChecksApi | null;
 }
 
-const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer" };
-const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung" };
-
-/** Where clicking a problem leads: a script file at its line, a text archive, a trainer, an encounter file; null for any other file. */
-export function problemTarget(row: ProblemRow): NavTarget | null {
-  const file = scriptFileOf(row.file);
-  if (file !== null) return { kind: "script", file, line: row.line };
-  const trainer = trainerOf(row.file);
-  if (trainer !== null) return { kind: "trainer", index: trainer };
-  const encounter = encounterFileOf(row.file);
-  if (encounter !== null) return { kind: "encounter", index: encounter };
-  const archive = textArchiveOf(row.file);
-  return archive === null ? null : { kind: "textArchive", index: archive };
-}
+const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer", check: "Prüfung" };
+const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung", info: "Hinweis" };
 
 /** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199", "Begegnungen 0012", "Trainer 0012"; any other path as it is. */
 export function fileLabel(path: string): string {
@@ -53,66 +49,272 @@ function fileArea(path: string): Area {
   return textArchiveOf(path) !== null ? "texte" : "technik";
 }
 
-/** The problems as a table (spec §7.4); the panel and Technik › Prüfen und Bauen both render it. */
-export function ProblemsTable({ rows, depth, goTo }: { rows: readonly ProblemRow[]; depth: Depth; goTo: (target: NavTarget) => void }) {
+/** The order of the areas in the panel. */
+const AREAS: readonly CheckArea[] = ["welt", "scripts", "texte", "pokemon", "projekt"];
+
+const position = (code: string) => {
+  const at = CHECK_CODES.indexOf(code);
+  return at < 0 ? CHECK_CODES.length : at;
+};
+
+/** The findings by area, and in each area by code in catalogue order. */
+function groupFindings(findings: readonly CheckProblemDto[]) {
+  const byArea = new Map<CheckArea, Map<string, CheckProblemDto[]>>();
+  for (const f of findings) {
+    const area = byArea.get(areaOf(f)) ?? byArea.set(areaOf(f), new Map()).get(areaOf(f))!;
+    (area.get(f.code) ?? area.set(f.code, []).get(f.code)!).push(f);
+  }
+  return AREAS.filter((area) => byArea.has(area)).map((area) => {
+    const codes = [...byArea.get(area)!].sort(([a], [b]) => position(a) - position(b));
+    return { area, count: codes.reduce((n, [, rows]) => n + rows.length, 0), codes };
+  });
+}
+
+/** The sentence of a finding and, below it, where it is („Eventdatei 0411 · Warp 2“; Tüfteln adds the source line). */
+function FindingLines({ f, depth }: { f: CheckProblemDto; depth: Depth }) {
   return (
-    <table role="table" className={styles.table}>
-      <thead>
-        <tr>
-          <th scope="col">Schwere</th>
-          <th scope="col">Datei</th>
-          <th scope="col">Zeile:Spalte</th>
-          <th scope="col" className={styles.message}>
-            Meldung
-          </th>
-          <th scope="col">Quelle</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, i) => {
-          const target = problemTarget(row);
-          return (
-            <tr key={`${row.source}:${row.file}:${row.line}:${row.col}:${i}`} role="row" data-problem={row.severity}>
-              <td role="cell">
-                <span role="img" aria-label={SEVERITY_LABEL[row.severity]} className={`${styles.severity} ${styles[row.severity]}`}>
-                  <Icon name={row.severity} weight="fill" />
-                </span>
-              </td>
-              <td role="cell">
-                <Reference area={fileArea(row.file)} label={depth === "tuefteln" ? row.file : fileLabel(row.file)} onOpen={() => target && goTo(target)} disabled={target === null} />
-              </td>
-              <td role="cell" className={styles.position}>
-                {row.line}:{row.col}
-              </td>
-              <td role="cell" className={styles.message}>
-                {row.source === "trainer" ? problemText(row) : row.source === "encounter" ? warningText(row.message) : row.message}
-              </td>
-              <td role="cell">
-                <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <>
+      <span className={styles.sentence}>{findingText(f)}</span>
+      <span className={styles.where}>
+        {f.label}
+        {depth === "tuefteln" && f.file !== "" ? ` · ${f.file}:${f.line}` : ""}
+      </span>
+    </>
   );
 }
 
-/** The problems of the project (spec §7.4). Subscribes to the store itself, so a new problem renders nothing else. */
+/**
+ * A finding as a row of a `CheckList`: its state, its words with its buttons below them (the panel is often a narrow column of the hand),
+ * `data-check` (the code) and `data-finding`.
+ */
+export function findingRow(f: CheckProblemDto, depth: Depth, actions?: ReactNode): CheckRow {
+  const id = findingId(f);
+  return {
+    id,
+    state: f.severity,
+    text: (
+      <>
+        <FindingLines f={f} depth={depth} />
+        {actions}
+      </>
+    ),
+    dataAttrs: { "data-check": f.code, "data-finding": id },
+  };
+}
+
+/** „Öffnen“ (with a target, unless `open` is false: the record is shown already), „Beheben…“ (with a fix), „Ausblenden“ (never for an error). */
+export function FindingActions({ f, goTo, checks, onFix, open = true }: { f: CheckProblemDto; goTo?: (target: NavTarget) => void; checks: ChecksApi | null; onFix: (f: CheckProblemDto) => void; open?: boolean }) {
+  const target = f.target;
+  const canOpen = open && target !== undefined && goTo !== undefined;
+  const canFix = checks !== null && f.fixes.length > 0;
+  const canIgnore = checks !== null && f.severity !== "error";
+  if (!canOpen && !canFix && !canIgnore) return null;
+  return (
+    <span className={styles.actions}>
+      {canOpen && (
+        <Button kind="quiet" size="s" onClick={() => goTo(target)}>
+          Öffnen
+        </Button>
+      )}
+      {canFix && (
+        <Button kind="quiet" size="s" onClick={() => onFix(f)}>
+          Beheben…
+        </Button>
+      )}
+      {canIgnore && (
+        <Button kind="quiet" size="s" onClick={() => void checks.ignore(f)}>
+          Ausblenden
+        </Button>
+      )}
+    </span>
+  );
+}
+
+/** The findings of one code: its title and count, then its rows. */
+function CodeGroup({ code, rows, depth, goTo, checks, onFix }: { code: string; rows: readonly CheckProblemDto[]; depth: Depth; goTo: (target: NavTarget) => void; checks: ChecksApi | null; onFix: (f: CheckProblemDto) => void }) {
+  const headId = useId();
+  const title = checkTitle(code);
+  return (
+    <div role="group" aria-labelledby={headId} className={styles.code} data-check={code}>
+      <h4 id={headId} className={styles.codeHead}>
+        {title}
+        <span className={styles.count}>{rows.length}</span>
+        {depth === "tuefteln" && <span className={styles.tech}>{code}</span>}
+      </h4>
+      <CheckList ariaLabel={title} rows={rows.map((f) => findingRow(f, depth, <FindingActions f={f} goTo={goTo} checks={checks} onFix={onFix} />))} />
+    </div>
+  );
+}
+
+/** The findings of the checks, by area (Welt, Scripts, Texte, Pokémon) and code, each with its count; an area folds. */
+function FindingGroups({ findings, depth, goTo, checks, onFix }: { findings: readonly CheckProblemDto[]; depth: Depth; goTo: (target: NavTarget) => void; checks: ChecksApi | null; onFix: (f: CheckProblemDto) => void }) {
+  const folds = useSectionFolds();
+  return (
+    <div className={styles.findings}>
+      {groupFindings(findings).map(({ area, count, codes }) => (
+        <Section key={area} title={AREA_LABELS[area]} count={count} open={folds.isOpen(`problems:${area}`)} onToggle={() => folds.toggle(`problems:${area}`)}>
+          {codes.map(([code, rows]) => (
+            <CodeGroup key={code} code={code} rows={rows} depth={depth} goTo={goTo} checks={checks} onFix={onFix} />
+          ))}
+        </Section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The problems (spec §7.4) and the findings of the checks (spec 3b.4 §8); the panel and Technik › Prüfen und Bauen both render it. The
+ * findings come grouped by area and code with „Öffnen“, „Beheben…“ and „Ausblenden“; the problems of a save, a build, a text and the
+ * live diagnostics as a table below them.
+ */
+export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: readonly ProblemRow[]; depth: Depth; goTo: (target: NavTarget) => void; checks?: ChecksApi | null }) {
+  const [fixing, setFixing] = useState<CheckProblemDto | null>(null);
+  const findings = rows.filter(isFinding);
+  const others = rows.filter((row) => !isFinding(row));
+  return (
+    <div className={styles.tables}>
+      {findings.length > 0 && <FindingGroups findings={findings} depth={depth} goTo={goTo} checks={checks} onFix={setFixing} />}
+      {others.length > 0 && (
+        <table role="table" className={styles.table}>
+          <thead>
+            <tr>
+              <th scope="col">Schwere</th>
+              <th scope="col">Datei</th>
+              <th scope="col">Zeile:Spalte</th>
+              <th scope="col" className={styles.message}>
+                Meldung
+              </th>
+              <th scope="col">Quelle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {others.map((row, i) => {
+              const target = problemTarget(row);
+              return (
+                <tr key={`${row.source}:${row.file}:${row.line}:${row.col}:${i}`} role="row" data-problem={row.severity}>
+                  <td role="cell">
+                    <span role="img" aria-label={SEVERITY_LABEL[row.severity]} className={`${styles.severity} ${styles[row.severity]}`}>
+                      <Icon name={row.severity} weight="fill" />
+                    </span>
+                  </td>
+                  <td role="cell">
+                    <Reference area={fileArea(row.file)} label={depth === "tuefteln" ? row.file : fileLabel(row.file)} onOpen={() => target && goTo(target)} disabled={target === null} />
+                  </td>
+                  <td role="cell" className={styles.position}>
+                    {row.line}:{row.col}
+                  </td>
+                  <td role="cell" className={styles.message}>
+                    {row.source === "trainer" ? problemText(row) : row.message}
+                  </td>
+                  <td role="cell">
+                    <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} onClose={() => setFixing(null)} />}
+    </div>
+  );
+}
+
+/**
+ * What the checks say beside their findings: that the script and text findings are those of the last full run (only the cheap checks ran
+ * since the last change), and the checks that did not run, as hint lines.
+ */
+export function ChecksNotes({ checks }: { checks: ChecksApi }) {
+  const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
+  if (!view.outdated && view.skipped.length === 0) return null;
+  return (
+    <div className={styles.notes}>
+      {view.outdated && (
+        <p role="note" className={styles.note}>
+          Scripts und Texte zeigen den Stand der letzten vollen Prüfung. Prüfe erneut, um sie aufzufrischen.
+        </p>
+      )}
+      {view.skipped.length > 0 && (
+        <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s), dataAttrs: { "data-check": s.code } }))} />
+      )}
+    </div>
+  );
+}
+
+/** The foot of the checks: a running pass and how far it got, „12 ausgeblendet · Wieder melden…“ with the ignored findings, „Erneut prüfen“. */
+export function ChecksFoot({ checks, depth }: { checks: ChecksApi; depth: Depth }) {
+  const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
+  const [showIgnored, setShowIgnored] = useState(false);
+  const ignored = view.ignored.length;
+  return (
+    <footer className={styles.foot}>
+      <div className={styles.footRow}>
+        {view.running && (
+          <span role="status" className={styles.progress}>
+            <span className={styles.spinner} aria-hidden="true" />
+            {progressText(view.progress)}
+          </span>
+        )}
+        {ignored > 0 && (
+          <span className={styles.ignored}>
+            {`${ignored} ausgeblendet`}
+            <span aria-hidden="true">·</span>
+            <Button kind="quiet" size="s" aria-expanded={showIgnored} onClick={() => setShowIgnored(!showIgnored)}>
+              Wieder melden…
+            </Button>
+          </span>
+        )}
+        <Button kind="secondary" size="s" disabled={view.running} onClick={() => void checks.recheck()}>
+          Erneut prüfen
+        </Button>
+      </div>
+      {showIgnored && ignored > 0 && (
+        <div className={styles.ignoredList}>
+          <CheckList
+            ariaLabel="Ausgeblendet"
+            rows={view.ignored.map((f) =>
+              findingRow(
+                f,
+                depth,
+                <span className={styles.actions}>
+                  <Button kind="quiet" size="s" onClick={() => void checks.unignore(f)}>
+                    Wieder melden
+                  </Button>
+                </span>,
+              ),
+            )}
+          />
+        </div>
+      )}
+    </footer>
+  );
+}
+
+const noSubscribe = () => () => {};
+const noView = () => null;
+
+/** The problems of the project (spec §7.4) and the findings of its checks. Subscribes to the stores itself, so a new problem renders nothing else. */
 export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context: ProblemsPanelContext }) {
-  const { problems, depth, goTo } = context;
+  const { problems, depth, goTo, checks } = context;
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
+  const view = useSyncExternalStore(checks?.feed.subscribe ?? noSubscribe, checks?.feed.get ?? noView);
+  // Before the first report of a project the list is empty because nothing is known yet, not because all is well.
+  const checking = view !== null && view.running && !view.reported;
   return (
     <section className={styles.panel} aria-label="Probleme">
       <PanelHead title="Probleme" subtitle={countsText(counts)} />
-      {rows.length === 0 ? (
-        <EmptyState what={`Keine ${TERMS.problem.plural}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
-      ) : (
-        <div className={styles.body}>
-          <ProblemsTable rows={rows} depth={depth} goTo={goTo} />
-        </div>
-      )}
+      <div className={styles.body}>
+        {checks !== null && <ChecksNotes checks={checks} />}
+        {rows.length === 0 && checking ? (
+          <EmptyState what="Prüft das Projekt …" why="Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind." />
+        ) : rows.length === 0 ? (
+          <EmptyState what={`Keine ${TERMS.problem.plural}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
+        ) : (
+          <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
+        )}
+      </div>
+      {checks !== null && <ChecksFoot checks={checks} depth={depth} />}
     </section>
   );
 });

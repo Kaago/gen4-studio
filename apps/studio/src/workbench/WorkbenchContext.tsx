@@ -11,6 +11,7 @@ import type { DataStore } from "../data/dataStore";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
+import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "./problems/problems";
 import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
@@ -122,6 +123,8 @@ export interface WorkbenchData {
   scripts: ScriptsApi;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
+  /** The checks of the project (a stable object): fixes, ignoring, „Erneut prüfen“; their state notifies its own subscribers. */
+  checks: ChecksApi;
   /** The data lists of the project (a stable object): the world names trainer figures from its trainer rows. */
   dataStore: DataStore;
 }

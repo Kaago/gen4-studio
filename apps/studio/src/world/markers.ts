@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { EventsDto, MatrixDto } from "../api";
 import { effectiveTheme } from "../ui/tokens/theme";
-import { selectionColor } from "./colors";
+import { FAULT_COLOR, selectionColor } from "./colors";
 import { MARKER_COLORS, markerPosition } from "./events";
 import { cellYAtTile } from "./layout";
 import type { EventData, EventKind } from "./events";
@@ -117,7 +117,8 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
     }
     const geometries = [new THREE.BoxGeometry(0.8, 0.4, 0.8)];
     if (kind === "warp") geometries.push(new THREE.BoxGeometry(0.8, BEACON_HEIGHT, 0.8));
-    const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
+    // A warp takes its colour per instance (an error finding draws it in the error colour, see `markFaulty`): the material stays white.
+    const material = new THREE.MeshBasicMaterial({ color: kind === "warp" ? WHITE : MARKER_COLORS[kind], depthTest: false, transparent: true, opacity: 0.9 });
     geometries.forEach((geometry, g) => {
       const mesh = new THREE.InstancedMesh(geometry, material, placed.length);
       const base = g === 0 ? MARKER_Y : BEACON_HEIGHT / 2;
@@ -127,6 +128,7 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
       placed.forEach(({ data, at }, i) => {
         m4.setPosition(at.wx, base + cellYAtTile(matrix, data.x, data.z), at.wz);
         mesh.setMatrixAt(i, m4);
+        if (kind === "warp") mesh.setColorAt(i, WARP);
       });
       group.add(mesh);
       entries.set(mesh, { kind, data: placed.map((p) => p.data) });
@@ -145,6 +147,23 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
     }
   }
   return { group, matrix, entries, area, areaData, outline: null, selected: null, placeholder };
+}
+
+const WHITE = new THREE.Color(1, 1, 1);
+const WARP = new THREE.Color(MARKER_COLORS.warp);
+const FAULT = new THREE.Color(FAULT_COLOR);
+
+/**
+ * Draws the warps among `faulty` (those an error finding of the checks hits) in the error colour of the scene, every other warp in its own
+ * colour; refs of other kinds and warps without a marker change nothing. The finding itself says what is wrong (Problems, inspector).
+ */
+export function markFaulty(set: MarkerSet, faulty: readonly MarkerRef[]) {
+  const warps = new Set(faulty.filter((ref) => ref.kind === "warp").map((ref) => ref.index));
+  for (const [mesh, entry] of set.entries) {
+    if (entry.kind !== "warp" || !(mesh instanceof THREE.InstancedMesh)) continue;
+    entry.data.forEach((data, i) => mesh.setColorAt(i, warps.has(data.index) ? FAULT : WARP));
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
 }
 
 /**

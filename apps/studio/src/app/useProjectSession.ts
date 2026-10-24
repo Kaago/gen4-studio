@@ -86,10 +86,12 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setDirtyCount(assets.length);
       setDirtyAssets((before) => (before.length === assets.length && before.every((a, i) => a.kind === assets[i]!.kind && a.index === assets[i]!.index) ? before : assets));
       setDirtyRevision((r) => r + 1);
+      // Every write the app makes ends here: the checks look again (their cheap group, after a pause).
+      bus.emit({ topic: "edited" });
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
     }
-  }, []);
+  }, [bus]);
 
   // Stable so the memoised scene is not re-rendered by every hover-driven inspector update.
   const onEdited = useCallback(() => void refreshDirty(), [refreshDirty]);

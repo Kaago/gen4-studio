@@ -74,5 +74,7 @@ export { Sprite } from "./Sprite";
 export type { SpriteProps } from "./Sprite";
 export { PokemonCard } from "./PokemonCard";
 export type { PokemonCardProps } from "./PokemonCard";
+export { BeforeAfter } from "./BeforeAfter";
+export type { BeforeAfterProps } from "./BeforeAfter";
 export { CheckList } from "./CheckList";
 export type { CheckListProps, CheckRow, CheckState } from "./CheckList";

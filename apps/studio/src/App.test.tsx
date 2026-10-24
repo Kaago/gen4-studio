@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { addEvent, applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { addEvent, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { finding, report } from "./checks/checksTesting";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -109,6 +110,8 @@ vi.mock("./api", async (importOriginal) => ({
   dataList: vi.fn(),
   nameTables: vi.fn(),
   itemTable: vi.fn(),
+  runChecks: vi.fn(),
+  checksStatus: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -172,6 +175,8 @@ describe("App wiring", () => {
     );
     vi.mocked(nameTables).mockResolvedValue({ species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: { species: 412, moves: 647, items: 392, abilities: 610, types: 624, classes: 619, forms: 697 } });
     vi.mocked(itemTable).mockResolvedValue(null);
+    vi.mocked(runChecks).mockResolvedValue(report());
+    vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -222,6 +227,18 @@ describe("App wiring", () => {
   const infos = () => [...container.querySelectorAll("[role=status]")].map((e) => e.textContent ?? "");
   const pressUndo = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true })));
   const select = (h: HeaderSummary) => act(async () => data().onSelect(h));
+
+  it("checks the project when it opens and counts the findings in the hinge's light", async () => {
+    expect(runChecks).toHaveBeenCalledWith("all");
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp", "error"), finding("warp.never-fires", "info", { key: "warp:5" })] }));
+    // Every opening hands out a new info object: the checks run again for it.
+    vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+    await click("Projekt öffnen");
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    const light = [...container.querySelectorAll<HTMLButtonElement>("[data-light]")];
+    expect(light.length).toBeGreaterThan(0);
+    expect(light[0]!.getAttribute("aria-label")).toBe("1 Fehler, 1 Hinweis");
+  });
 
   it("keeps the workbench data object through hover and message updates", async () => {
     await select(listed[0]);
@@ -859,7 +876,7 @@ describe("App wiring", () => {
       const renders = shown.renders;
       data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "error", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
       await tick(0);
-      expect(hingeButton(/Fehler/)?.textContent).toContain("1 Fehler");
+      expect(hingeButton(/Fehler/)?.getAttribute("aria-label")).toBe("1 Fehler");
       vi.mocked(history).mockResolvedValue({ undo: ["a"], redo: [] });
       await act(async () => data().bus.emit({ topic: "matrixData" }));
       await tick(150);
@@ -1591,7 +1608,8 @@ describe("App wiring", () => {
       const log: string[] = [];
       const revision = () => data().history.current;
       data().bus.subscribe(
-        () => true,
+        // `edited` follows every write the app counts (the checks run again); it is no reload.
+        (e: EditEvent) => e.topic !== "edited",
         (e: EditEvent) => log.push(`${e.topic}@${revision()}`),
       );
       vi.mocked(getMatrix).mockImplementation(async (index) => (log.push(`getMatrix@${revision()}`), matrixOf(index)));

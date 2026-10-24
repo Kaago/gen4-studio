@@ -1,6 +1,8 @@
 import { Fragment, memo, useMemo, useRef, useState } from "react";
 import { createTrainer, errorText, isCmdError } from "../../api";
 import type { CreateTrainerReport, DataRowDto } from "../../api";
+import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
+import type { MarkSeverity } from "../../checks/FindingMark";
 import { Badge, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
 import { lockReason } from "../dataModel";
@@ -9,8 +11,22 @@ import { GROUP_OPTIONS, PLACEHOLDER_TEXT, TRAINER_SCRIPTS, classOptions, groupRo
 import type { GroupMode, RowGroup } from "./trainerModel";
 import styles from "./Trainer.module.css";
 
-/** One trainer under its place or class: "Wanderer Jens", its number, "Lv. 12" (the highest level), the unsaved dot, a lock. */
-const TrainerRow = memo(function TrainerRow({ row, label, selected, unsaved, onSelect }: { row: DataRowDto; label: string; selected: boolean; unsaved: boolean; onSelect: (index: number) => void }) {
+/** One trainer under its place or class: "Wanderer Jens", its number, "Lv. 12" (the highest level), what the checks found, the unsaved dot, a lock. */
+const TrainerRow = memo(function TrainerRow({
+  row,
+  label,
+  selected,
+  unsaved,
+  mark,
+  onSelect,
+}: {
+  row: DataRowDto;
+  label: string;
+  selected: boolean;
+  unsaved: boolean;
+  mark: MarkSeverity | undefined;
+  onSelect: (index: number) => void;
+}) {
   const reason = row.locked === null ? null : lockReason(row.locked);
   const level = rowLevel(row);
   return (
@@ -26,6 +42,7 @@ const TrainerRow = memo(function TrainerRow({ row, label, selected, unsaved, onS
       trailing={
         <span className={styles.rowEnd}>
           {level !== null && <span className={styles.level}>{`Lv. ${level}`}</span>}
+          {mark && <FindingMark severity={mark} />}
           {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
           {reason !== null && <Badge kind="locked" title={reason} />}
         </span>
@@ -106,7 +123,8 @@ function CreateDialog({
  * trainer at the next number, which is then selected. The placeholder of the sight script slot is listed locked.
  */
 export function TrainerList() {
-  const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles } = useDataArea("pokemon");
+  const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles, problems } = useDataArea("pokemon");
+  const marks = useFindingMarks(problems, "trainer");
   const { shown, query, setQuery } = useDataSearch("pokemon");
   const [mode, setMode] = useState<GroupMode>("place");
   // Groups the user opened or closed; the others are open when they hold the selection.
@@ -183,7 +201,7 @@ export function TrainerList() {
                 />
                 {open &&
                   g.rows.map((row) => (
-                    <TrainerRow key={row.index} row={row} label={labelOf(row)} selected={row.index === selected} unsaved={unsaved.has(row.index)} onSelect={select} />
+                    <TrainerRow key={row.index} row={row} label={labelOf(row)} selected={row.index === selected} unsaved={unsaved.has(row.index)} mark={marks.get(row.index)} onSelect={select} />
                   ))}
               </Fragment>
             );

@@ -13,6 +13,132 @@
   overflow: auto;
 }
 
+.tables {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.findings {
+  min-width: 0;
+}
+
+.code {
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-24);
+}
+
+.codeHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--g4-raum-6);
+  margin: 0 0 var(--g4-raum-4);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.sentence {
+  display: block;
+}
+
+.where {
+  display: block;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* The buttons of a finding, below its words. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-4);
+  margin-top: var(--g4-raum-2);
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.foot {
+  flex: none;
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-deck);
+}
+
+.footRow {
+  display: flex;
+  min-height: var(--g4-dichte-steuer);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.progress,
+.ignored {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  margin-right: auto;
+}
+
+/* The checks run: a ring that spins (it stands still for someone who asked for less motion). */
+.spinner {
+  width: var(--g4-raum-12);
+  height: var(--g4-raum-12);
+  flex: none;
+  box-sizing: border-box;
+  border: var(--g4-raum-2) solid var(--g4-linie-leise);
+  border-top-color: var(--g4-akzent-grund);
+  border-radius: var(--g4-radius-plakette);
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.ignoredList {
+  max-height: calc(var(--g4-raum-64) * 3);
+  overflow: auto;
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -61,4 +187,8 @@
 
 .warning {
   color: var(--g4-status-warnung);
+}
+
+.info {
+  color: var(--g4-status-info);
 }

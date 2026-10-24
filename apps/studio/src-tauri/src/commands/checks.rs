@@ -13,6 +13,8 @@
 //! already running rather than start a second one.
 
 mod label;
+#[cfg(test)]
+mod messages_ts;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

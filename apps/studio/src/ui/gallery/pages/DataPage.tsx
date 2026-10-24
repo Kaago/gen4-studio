@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ListPane } from "../../frame/ListPane";
-import { CheckList, FilterChips, HexBlock, NumberField, PokemonCard, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
+import { BeforeAfter, CheckList, FilterChips, HexBlock, NumberField, PokemonCard, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
 import type { HexFieldSpan, TableRow, ToggleCell } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -149,6 +149,16 @@ export function DataPage() {
             { id: "per", state: "error", text: "Kollision: die Datei hat 2050 statt 2048 Bytes" },
           ]}
         />
+      </section>
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Vorher und Nachher</h2>
+        <p className={styles.note}>Die Vorschau eines Fixes: was ging, steht links mit −, was kam, rechts mit +, beides auf der Auswahlfläche.</p>
+        <BeforeAfter
+          label="Textarchiv 0433"
+          before={"Hallo! Ich bin Professor Eibe und erforsche hier die Pokémon dieser Gegend.\n\nKomm mit!"}
+          after={"Hallo! Ich bin Professor Eibe und\nerforsche hier die Pokémon dieser\n\nGegend.\n\nKomm mit!"}
+        />
+        <BeforeAfter label="Scriptdatei 0005" before="" after={"script script_7 #7:\n\tEnd"} />
       </section>
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Typen</h2>

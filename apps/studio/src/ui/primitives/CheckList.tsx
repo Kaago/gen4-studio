@@ -1,11 +1,19 @@
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
+import type { RowDataAttrs } from "./ListRow";
 import styles from "./CheckList.module.css";
 
 export type CheckState = "ok" | "warning" | "error" | "info";
 
-export type CheckRow = { id: string; state: CheckState; text: ReactNode; trailing?: ReactNode };
+export type CheckRow = {
+  id: string;
+  state: CheckState;
+  text: ReactNode;
+  trailing?: ReactNode;
+  /** Further `data-*` attributes of the row; a `data-check` here replaces the id there (a finding: its code, with `data-finding`). */
+  dataAttrs?: RowDataAttrs;
+};
 
 export type CheckListProps = {
   rows: readonly CheckRow[];
@@ -21,7 +29,7 @@ export function CheckList({ rows, ariaLabel }: CheckListProps) {
   return (
     <ul role="list" className={styles.list} aria-label={ariaLabel}>
       {rows.map((row) => (
-        <li key={row.id} className={`${styles.row} ${styles[row.state]}`} data-check={row.id} data-state={row.state}>
+        <li key={row.id} className={`${styles.row} ${styles[row.state]}`} data-check={row.id} data-state={row.state} {...row.dataAttrs}>
           <span className={styles.icon} role="img" aria-label={spoken[row.state]}>
             <Icon name={symbol[row.state]} weight="fill" />
           </span>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary } from "../api";
-import { nextSelection } from "./navigation";
+import { nextSelection, withHeaderHint } from "./navigation";
 import type { NavState } from "./navigation";
 
 const header = (id: number, matrix_id: number, event_file_id: number): HeaderSummary => ({
@@ -139,5 +139,25 @@ describe("nextSelection", () => {
     // The hinted header must read that file; otherwise the event is pinned alone.
     expect(nextSelection(state, { kind: "event", eventFile: 12, eventKind: "object", index: 0, header: 4 }).selectedHeader).toBe(3);
     expect(nextSelection(state, { kind: "event", eventFile: 12, eventKind: "object", index: 0 }).selectedHeader).toBe(3);
+  });
+});
+
+describe("withHeaderHint", () => {
+  const h = (id: number, event_file_id: number) => ({ id, event_file_id }) as HeaderSummary;
+  const headers = [h(411, 390), h(415, 394), h(416, 394)];
+
+  it("gives_an_event_without_a_header_the_first_header_that_reads_its_file", () => {
+    expect(withHeaderHint({ kind: "event", eventFile: 394, eventKind: "warp", index: 0 }, headers)).toEqual({ kind: "event", eventFile: 394, eventKind: "warp", index: 0, header: 415 });
+    // So the place is shown first: the scene holds the event.
+    expect(nextSelection({ selectedHeader: 411, matrix: 0, eventFile: 390, headers }, withHeaderHint({ kind: "event", eventFile: 394, eventKind: "warp", index: 0 }, headers)).selectedHeader).toBe(415);
+  });
+
+  it("leaves_a_given_header_an_unknown_file_and_every_other_target_alone", () => {
+    const hinted = { kind: "event", eventFile: 394, eventKind: "warp", index: 0, header: 416 } as const;
+    expect(withHeaderHint(hinted, headers)).toBe(hinted);
+    const orphan = { kind: "event", eventFile: 999, eventKind: "object", index: 1 } as const;
+    expect(withHeaderHint(orphan, headers)).toBe(orphan);
+    const script = { kind: "script", file: 5 } as const;
+    expect(withHeaderHint(script, headers)).toBe(script);
   });
 });

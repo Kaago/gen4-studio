@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
+import type { CheckFieldsDto } from "./api.checks";
 
 export interface ProjectInfo {
   root: string;
@@ -450,16 +451,24 @@ export function isCmdError(e: unknown): e is CmdError {
   );
 }
 
-/** A problem of the last save or build, or of one text (see `validateText`). Lines and columns are 1-based. */
-export interface ProblemDto {
-  severity: "error" | "warning";
-  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet. */
+/**
+ * A problem of the last save or build, of one text (see `validateText`), of a data document, or a finding of the project checks. Lines and
+ * columns are 1-based. A finding (`source` "check", see `CheckProblemDto`) also has the fields of `CheckFieldsDto` (the rows of the other
+ * sources have none of them), and only a finding can be an `info`.
+ */
+export interface ProblemDto extends Partial<CheckFieldsDto> {
+  severity: "error" | "warning" | "info";
+  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet, and for a finding outside a source. */
   file: string;
   line: number;
   col: number;
+  /** A finding: the kernel's English sentence; the UI words its own from `code` and `args` (`checks/messages.ts`). */
   message: string;
-  /** "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`. */
-  source: "compile" | "text" | "encounter" | "trainer";
+  /**
+   * "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`;
+   * "check": a finding of the project checks, see `ProblemsStore.replaceChecks`.
+   */
+  source: "compile" | "text" | "encounter" | "trainer" | "check";
 }
 
 export interface SaveReport {

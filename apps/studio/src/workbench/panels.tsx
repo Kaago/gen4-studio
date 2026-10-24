@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { DataRowDto, ProjectInfo } from "../api";
+import { headerMarks } from "../checks/FindingMark";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
@@ -12,19 +13,24 @@ import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
 import { lockedText } from "../world/events";
+import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
 import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
+import { findingsFor } from "./inspector/ChecksSection";
 import type { Crumb } from "./breadcrumb";
 import type { DeckArea, DeckId } from "./layout";
-import type { DataNav } from "./navigation";
+import { withHeaderHint } from "./navigation";
+import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { SceneBar } from "./SceneBar";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
+import { isFinding } from "./problems/problems";
+import type { ProblemRow } from "./problems/problems";
 import type { ScriptPanelContext } from "./script/ScriptPanel";
 import { TextArea, TextHints, TextStatus } from "./text/TextArea";
 import type { TextAreaProps, TextShown } from "./text/TextArea";
@@ -57,6 +63,9 @@ export function ExplorerPane() {
   // A link to a script also gives the script panel the focus (`onOpenScript` alone only opens the document).
   const goTo = d.goTo;
   const onOpenScript = useCallback((file: number, line?: number) => goTo({ kind: "script", file, line }), [goTo]);
+  // A header the checks found an error or warning at (its own, or of its event file) is marked.
+  const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
+  const marks = useMemo(() => headerMarks(rows, d.headers), [rows, d.headers]);
   return (
     <WorldExplorer
       info={d.info}
@@ -74,13 +83,34 @@ export function ExplorerPane() {
       onOpenScript={onOpenScript}
       listOpen={listOpen}
       onToggleList={onToggleList}
+      marks={marks}
     />
+  );
+}
+
+/** The events that an error of the checks is about (a warp that leads nowhere, say), the same array while they stay the same. */
+function useFaultyEvents(rows: readonly ProblemRow[]): readonly EventRef[] {
+  const key = rows
+    .filter(isFinding)
+    .flatMap((f) => (f.severity === "error" && f.target?.kind === "event" ? [`${f.target.eventFile}:${f.target.eventKind}:${f.target.index}`] : []))
+    .join(",");
+  return useMemo(
+    () =>
+      key === ""
+        ? []
+        : key.split(",").map((part) => {
+            const [file, kind, index] = part.split(":");
+            return { file: Number(file), kind: kind as EventRef["kind"], index: Number(index) };
+          }),
+    [key],
   );
 }
 
 export function WorldPanel() {
   const d = useWorkbench();
   const first = d.headers[0];
+  const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
+  const faultyEvents = useFaultyEvents(rows);
   if (!d.matrix) {
     return (
       <div className={styles.empty}>
@@ -119,6 +149,7 @@ export function WorldPanel() {
         onSelectEvent={d.onSelectEvent}
         onEventMoved={d.onEventMoved}
         onEventsLocked={d.onEventsLocked}
+        faultyEvents={faultyEvents}
       />
       <SceneBar
         showPermissions={d.showPermissions}
@@ -191,8 +222,10 @@ export function ScriptTab() {
 }
 
 export function ProblemsTab() {
-  const { problems, depth, goTo } = useWorkbench();
-  const context = useMemo<ProblemsPanelContext>(() => ({ problems, depth, goTo }), [problems, depth, goTo]);
+  const { problems, depth, goTo, checks, headers } = useWorkbench();
+  // A finding at an event names its file, not a header: „Öffnen“ shows the first place that reads the file.
+  const open = useCallback((target: NavTarget) => goTo(withHeaderHint(target, headers)), [goTo, headers]);
+  const context = useMemo<ProblemsPanelContext>(() => ({ problems, depth, goTo: open, checks }), [problems, depth, open, checks]);
   return <ProblemsPanel context={context} />;
 }
 
@@ -254,6 +287,9 @@ export function ContextTab() {
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
+  // The section „Prüfungen“: what the checks found at the record shown.
+  const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
+  const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -277,6 +313,8 @@ export function InspectorPanel() {
     <Inspector
       model={inspector}
       depth={d.depth}
+      findings={findings}
+      checks={d.checks}
       headerEditor={{
         headers: d.headers,
         counts: d.memberCounts,

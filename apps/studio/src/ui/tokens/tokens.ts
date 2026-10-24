@@ -32,6 +32,9 @@ export const szene = {
     'kern': 0xFFFFFF,
     'halo': 0x3152DE,
   },
+  status: {
+    'fehler': 0xDE3142,
+  },
   ds: {
     'grund': 0x182131,
     'textbox/flaeche': 0xF7F7FF,

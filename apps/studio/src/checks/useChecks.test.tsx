@@ -1,0 +1,221 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyFix, checksStatus, ignoreFinding, runChecks, setCheckEnabled } from "../api";
+import type { ChecksReportDto, ProjectInfo } from "../api";
+import { createEditBus } from "../bus/editBus";
+import type { EditBus } from "../bus/editBus";
+import { ProblemsStore } from "../workbench/problems/problems";
+import { finding, report } from "./checksTesting";
+import { CHECKS_DEBOUNCE_MS, CHECKS_POLL_MS, mergeReport, useChecks } from "./useChecks";
+import type { ChecksApi } from "./useChecks";
+
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  runChecks: vi.fn(),
+  checksStatus: vi.fn(),
+  ignoreFinding: vi.fn(),
+  unignoreFinding: vi.fn(),
+  acceptBaseline: vi.fn(),
+  setCheckEnabled: vi.fn(),
+  planFix: vi.fn(),
+  applyFix: vi.fn(),
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const project = (root: string) => ({ root }) as ProjectInfo;
+const CHEAP = ["cheap"] as ChecksReportDto["groups"];
+
+/** A promise and the function that settles it. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+describe("useChecks", () => {
+  let container: HTMLElement;
+  let root: Root;
+  let bus: EditBus;
+  let problems: ProblemsStore;
+  let api: ChecksApi;
+  const onError = vi.fn();
+  const onFixed = vi.fn(async () => {});
+
+  function Probe({ info }: { info: ProjectInfo | null }) {
+    api = useChecks({ bus, problems, project: info, onError, onFixed });
+    return null;
+  }
+  const render = (info: ProjectInfo | null) => act(async () => root.render(<Probe info={info} />));
+  const wait = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  const codes = () => problems.list().map((p) => p.code);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const fn of [runChecks, checksStatus, ignoreFinding, setCheckEnabled, applyFix]) vi.mocked(fn).mockReset();
+    vi.mocked(checksStatus).mockResolvedValue(report({ groups: [], running: false }));
+    onError.mockReset();
+    onFixed.mockClear();
+    bus = createEditBus();
+    problems = new ProblemsStore();
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("checks_everything_when_a_project_opens_and_writes_the_findings_as_source_check", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp")], ignored: [finding("warp.never-fires", "info")] }));
+    await render(null);
+    expect(runChecks).not.toHaveBeenCalled();
+    await render(project("/p"));
+    expect(runChecks).toHaveBeenCalledWith("all");
+    expect(problems.list().map((p) => [p.source, p.code])).toEqual([["check", "warp.dest-warp"]]);
+    expect(api.feed.get().ignored.map((f) => f.code)).toEqual(["warp.never-fires"]);
+    expect(api.feed.get().reported).toBe(true);
+  });
+
+  it("polls_the_status_while_a_pass_runs_and_shows_its_progress", async () => {
+    const run = deferred<ChecksReportDto>();
+    vi.mocked(runChecks).mockReturnValue(run.promise);
+    vi.mocked(checksStatus).mockResolvedValue(report({ groups: [], running: true, progress: { label: "texts", done: 312, total: 724 } }));
+    await render(project("/p"));
+    // The spinner shows at once; the progress comes with the first look.
+    expect(api.feed.get().running).toBe(true);
+    expect(checksStatus).not.toHaveBeenCalled();
+    await wait(CHECKS_POLL_MS);
+    expect(checksStatus).toHaveBeenCalledTimes(1);
+    expect(api.feed.get().progress).toEqual({ label: "texts", done: 312, total: 724 });
+    await wait(CHECKS_POLL_MS);
+    expect(checksStatus).toHaveBeenCalledTimes(2);
+    vi.mocked(checksStatus).mockResolvedValue(report({ groups: [], running: false }));
+    await act(async () => run.resolve(report({ findings: [finding("warp.dest-warp")] })));
+    expect(api.feed.get().running).toBe(false);
+    expect(api.feed.get().progress).toBeNull();
+    expect(codes()).toEqual(["warp.dest-warp"]);
+    const polls = vi.mocked(checksStatus).mock.calls.length;
+    await wait(CHECKS_POLL_MS * 4);
+    expect(checksStatus).toHaveBeenCalledTimes(polls);
+  });
+
+  it("checks_the_cheap_group_300_ms_after_an_edit_once_for_a_burst", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report());
+    await render(project("/p"));
+    vi.mocked(runChecks).mockClear();
+    act(() => {
+      bus.emit({ topic: "edited" });
+      bus.emit({ topic: "edited" });
+    });
+    await wait(CHECKS_DEBOUNCE_MS - 1);
+    expect(runChecks).not.toHaveBeenCalled();
+    act(() => bus.emit({ topic: "edited" }));
+    await wait(CHECKS_DEBOUNCE_MS - 1);
+    expect(runChecks).not.toHaveBeenCalled();
+    await wait(1);
+    expect(runChecks).toHaveBeenCalledTimes(1);
+    expect(runChecks).toHaveBeenCalledWith("cheap");
+    // Other topics are not edits.
+    act(() => bus.emit({ topic: "headerReveal" }));
+    await wait(CHECKS_DEBOUNCE_MS);
+    expect(runChecks).toHaveBeenCalledTimes(1);
+  });
+
+  it("a_cheap_report_replaces_the_cheap_findings_and_keeps_the_script_and_text_ones_as_outdated", async () => {
+    const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp"), wide], generation: 4 }));
+    await render(project("/p"));
+    expect(api.feed.get().outdated).toBe(false);
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("event.trigger-empty", "warning", { key: "trigger:0" })], groups: CHEAP, generation: 5 }));
+    act(() => bus.emit({ topic: "edited" }));
+    await wait(CHECKS_DEBOUNCE_MS);
+    expect(codes()).toEqual(["event.trigger-empty", "text.too-wide"]);
+    expect(api.feed.get().outdated).toBe(true);
+    // „Erneut prüfen“ brings them up to date.
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [], generation: 5 }));
+    await act(async () => api.recheck());
+    expect(runChecks).toHaveBeenLastCalledWith("all");
+    expect(codes()).toEqual([]);
+    expect(api.feed.get().outdated).toBe(false);
+  });
+
+  it("takes_an_answer_without_groups_as_no_result_and_never_an_older_generation", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp")], generation: 7 }));
+    await render(project("/p"));
+    // No report of the current state (the store changed during every pass): not "clean".
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [], groups: [], generation: 8 }));
+    await act(async () => api.recheck());
+    expect(codes()).toEqual(["warp.dest-warp"]);
+    // An answer of an older state than the one shown.
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [], generation: 6 }));
+    await act(async () => api.recheck());
+    expect(codes()).toEqual(["warp.dest-warp"]);
+    expect(mergeReport(null, report({ groups: [] }))).toBeNull();
+  });
+
+  it("drops_the_answer_of_a_project_that_was_replaced_meanwhile", async () => {
+    const first = deferred<ChecksReportDto>();
+    vi.mocked(runChecks).mockReturnValueOnce(first.promise).mockResolvedValue(report({ findings: [finding("trainer.no-party", "error", { subject: { kind: "trainer", index: 1 }, key: "party" })] }));
+    await render(project("/a"));
+    await render(project("/b"));
+    await act(async () => first.resolve(report({ findings: [finding("warp.dest-warp")] })));
+    expect(codes()).toEqual(["trainer.no-party"]);
+    expect(runChecks).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignoring_shows_the_answer_and_checks_everything_when_the_answer_lacks_the_findings_group", async () => {
+    const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [wide], generation: 2 }));
+    await render(project("/p"));
+    // The last report of the backend is a cheap one: the text warning is not in its answer.
+    vi.mocked(ignoreFinding).mockResolvedValue(report({ groups: CHEAP, generation: 3 }));
+    vi.mocked(runChecks).mockResolvedValue(report({ ignored: [wide], generation: 3 }));
+    await act(async () => api.ignore(wide));
+    expect(ignoreFinding).toHaveBeenCalledWith(wide);
+    expect(runChecks).toHaveBeenLastCalledWith("all");
+    expect(codes()).toEqual([]);
+    expect(api.feed.get().ignored).toHaveLength(1);
+  });
+
+  it("switching_a_check_off_takes_its_findings_away_at_once", async () => {
+    const empty = finding("encounter.empty-slot", "warning", { subject: { kind: "encounter", index: 3 }, key: "slot:grass:4:night" });
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [empty] }));
+    await render(project("/p"));
+    vi.mocked(setCheckEnabled).mockResolvedValue(report({ skipped: [{ code: "encounter.empty-slot", why: "disabled" }] }));
+    await act(async () => api.setEnabled("encounter.empty-slot", false));
+    expect(setCheckEnabled).toHaveBeenCalledWith("encounter.empty-slot", false);
+    expect(codes()).toEqual([]);
+    expect(api.feed.get().disabled).toEqual(["encounter.empty-slot"]);
+  });
+
+  it("a_fix_reloads_what_it_changed_and_checks_everything_again", async () => {
+    const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1", fixes: [{ id: "wrap", label: "Umbrechen", irreversible: false }] });
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [wide] }));
+    await render(project("/p"));
+    vi.mocked(applyFix).mockResolvedValue({ changed: [{ kind: "TextArchive", index: 433 }], remaining: false });
+    vi.mocked(runChecks).mockResolvedValue(report({ generation: 2 }));
+    let result;
+    await act(async () => void (result = await api.applyFix(wide, "wrap")));
+    expect(result).toEqual({ changed: [{ kind: "TextArchive", index: 433 }], remaining: false });
+    expect(applyFix).toHaveBeenCalledWith(wide, "wrap");
+    expect(onFixed).toHaveBeenCalledWith([{ kind: "TextArchive", index: 433 }]);
+    expect(runChecks).toHaveBeenLastCalledWith("all");
+    expect(codes()).toEqual([]);
+  });
+
+  it("reports_a_failed_run_and_forgets_everything_without_a_project", async () => {
+    vi.mocked(runChecks).mockRejectedValueOnce({ code: "error", message: "no project open", asset: null });
+    await render(project("/p"));
+    expect(onError).toHaveBeenCalledOnce();
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp")] }));
+    await act(async () => api.recheck());
+    expect(codes()).toEqual(["warp.dest-warp"]);
+    await render(null);
+    expect(codes()).toEqual([]);
+    expect(api.feed.get().reported).toBe(false);
+  });
+});
