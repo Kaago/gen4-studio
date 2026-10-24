@@ -3,7 +3,8 @@
 Quelle: rotom v0.7.0 (`src/project/config.rs`, `src/project/compile.rs`, `src/compile_state.rs`,
 `src/project/init.rs`). Das Studio liest und schreibt dasselbe Layout wie `rotom init` und DSPRE,
 damit beide Werkzeuge dasselbe Projekt benutzen können. Die Implementierung steht in
-`crates/g4-kernel/src/scripts.rs` (`adopt`, `compile`).
+`crates/g4-kernel/src/scripts.rs` (`adopt`, `compile`) und `crates/g4-kernel/src/scripts/project_compile.rs`
+(der Compile-Lauf).
 
 ## Layout
 
@@ -94,7 +95,15 @@ Releases, siehe dort `SOURCE.md`), nie die in rotom eingebettete Kopie und nie a
 ## Textarchive
 
 Ein Textliteral (`Message "…"`) fügt rotom als Nachricht an das Textarchiv des Map-Headers der
-Scriptdatei an (`expanded/textArchives/NNNN.json`, Nachrichten-ID `msg_NNNN_<index>`). rotom braucht
+Scriptdatei an (`expanded/textArchives/NNNN.json`, Nachrichten-ID `msg_NNNN_<index>`); maßgeblich
+ist der erste Header der Tabelle, der die Scriptdatei nennt. Die Header-Tabelle liest das Studio
+selbst (`Project::read_headers`: `arm9.bin` oder, mit dem Patch „Dynamische Header“, die Dateien
+in `unpacked/dynamicHeaders`) und gibt sie rotom mit. rotoms eigenes `compile_project` (und die
+`rotom`-CLI) lädt das Projekt über uxie 0.9.7, das in einem DSPRE-Projekt nur die ersten 559
+(Platin) bzw. 540 (HGSS) Header aus `arm9.bin` liest: Mit dem Patch ist das die stehengebliebene
+alte Tabelle, neue Header fehlen ganz. Deshalb läuft der Compile im Studio über rotoms
+Einbettungs-API (`ProjectContext::from_parts`, `compile_batch`) und führt `compile-state.json`
+genau wie `compile_project` (gleiche Einträge, gleiche Abhängigkeiten). rotom braucht
 diese JSON für jede Scriptdatei, die es übersetzt; fehlt sie, weil DSPRE die Archive nicht
 expandiert hat, schreibt das Studio sie aus dem Member (`unpacked/textArchives/NNNN`) und
 übersetzt erneut. Geänderte Archive kodiert das Studio danach zum Member (siehe
