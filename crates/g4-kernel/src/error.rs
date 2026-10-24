@@ -53,6 +53,9 @@ pub enum KernelError {
     /// Scripts or texts did not compile; the problems carry file, line and column.
     #[error("{} problem(s) in scripts or texts", .0.len())]
     Compile(Vec<Problem>),
+    /// A map part import or export was refused before anything was written.
+    #[error("import refused: {0}")]
+    Import(String),
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.

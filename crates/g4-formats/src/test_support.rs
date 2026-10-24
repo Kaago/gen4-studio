@@ -171,3 +171,83 @@ pub fn ncgr_bytes(tiles_x: u16, tiles_y: u16, depth: u32, data: &[u8]) -> Vec<u8
     b.extend_from_slice(data);
     b
 }
+
+/// Nitro resource dictionary with `names` and `unit`-byte data entries (the matching value
+/// of `data`, else the entry index). The tree nodes are zero.
+fn nitro_dict(names: &[&str], unit: u16, data: &[u32]) -> Vec<u8> {
+    let n = names.len();
+    let entry = 8 + 4 * (n + 1);
+    let mut out = vec![0u8, n as u8];
+    let total = entry + 4 + n * unit as usize + 16 * n;
+    put_u16(&mut out, total as u16);
+    put_u16(&mut out, 8);
+    put_u16(&mut out, entry as u16);
+    out.resize(entry, 0);
+    put_u16(&mut out, unit);
+    put_u16(&mut out, (4 + n * unit as usize) as u16);
+    for i in 0..n {
+        let v = data.get(i).copied().unwrap_or(i as u32);
+        out.extend_from_slice(&v.to_le_bytes()[..unit as usize]);
+    }
+    for name in names {
+        let mut rec = [0u8; 16];
+        rec[..name.len()].copy_from_slice(name.as_bytes());
+        out.extend_from_slice(&rec);
+    }
+    out
+}
+
+/// A minimal `MDL0` block: one model entry per name (all pointing at the same model),
+/// whose material section binds `textures` and `palettes`. No geometry.
+pub fn mdl0_block(models: &[&str], textures: &[&str], palettes: &[&str]) -> Vec<u8> {
+    let dict_len = nitro_dict(models, 4, &[]).len();
+    let model_off = 8 + dict_len; // relative to the block start
+    let dict = nitro_dict(models, 4, &vec![model_off as u32; models.len()]);
+    let mats = nitro_dict(&["mat"], 4, &[]);
+    let tex = nitro_dict(textures, 4, &[]);
+    let pal = nitro_dict(palettes, 4, &[]);
+    let mut material = Vec::new();
+    put_u16(&mut material, (4 + mats.len()) as u16);
+    put_u16(&mut material, (4 + mats.len() + tex.len()) as u16);
+    material.extend_from_slice(&mats);
+    material.extend_from_slice(&tex);
+    material.extend_from_slice(&pal);
+    // Model header: size, ofs_sbc, ofs_mat, ofs_shp, ofs_evp.
+    let model_len = 20 + material.len();
+    let mut model = Vec::new();
+    for v in [model_len as u32, 20, 20, model_len as u32, model_len as u32] {
+        put_u32(&mut model, v);
+    }
+    model.extend_from_slice(&material);
+    let mut out = b"MDL0".to_vec();
+    put_u32(&mut out, 0);
+    out.extend_from_slice(&dict);
+    out.extend_from_slice(&model);
+    while !out.len().is_multiple_of(4) {
+        out.push(0);
+    }
+    let len = out.len() as u32;
+    out[4..8].copy_from_slice(&len.to_le_bytes());
+    out
+}
+
+/// A BMD0 container of `blocks` (each starting with its tag and size), version 2.
+pub fn bmd0(blocks: &[Vec<u8>]) -> Vec<u8> {
+    let table = 16 + 4 * blocks.len();
+    let total = table + blocks.iter().map(Vec::len).sum::<usize>();
+    let mut out = b"BMD0".to_vec();
+    put_u16(&mut out, 0xFEFF);
+    put_u16(&mut out, 2);
+    put_u32(&mut out, total as u32);
+    put_u16(&mut out, 16);
+    put_u16(&mut out, blocks.len() as u16);
+    let mut off = table;
+    for b in blocks {
+        put_u32(&mut out, off as u32);
+        off += b.len();
+    }
+    for b in blocks {
+        out.extend_from_slice(b);
+    }
+    out
+}
