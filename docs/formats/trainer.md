@@ -64,13 +64,19 @@ Fähigkeit gedeutet wird, entscheidet die Oberfläche (nur HGSS).
   stehen in `tail`). Alle anderen haben genau `count × entry_len` Bytes, nur
   Trainer 0 (keine Mons) hat acht Nullbytes. Alle Dateien bleiben
   byte-identisch.
-- `Party::write(format, family)` schreibt die Einträge im Format, dann `tail`,
-  dann Nullen bis zu einem Vielfachen von 4 Bytes (mindestens 8). Das Format,
-  nicht die Optionen am Eintrag, bestimmt die Länge: bei `items` ohne `item`
-  steht eine 0, bei Diamant/Perl entfällt die Kapsel.
+- `Party::write(format, family)` schreibt die Einträge im Format. `Party`
+  merkt sich in `read_len`, wie viele Bytes die Einträge beim Lesen belegt
+  haben (`count × entry_len`). Belegen die geschriebenen Einträge genauso viele
+  Bytes (bei gleicher Zahl und gleichem Format), folgt `tail` unverändert; sonst entfällt
+  `tail`. Danach kommen Nullen bis zu einem Vielfachen von 4 Bytes (mindestens
+  8). Eine bearbeitete Party ist damit genau `n × entry_len`, aufgerundet auf
+  ein Vielfaches von 4 und mindestens 8 Bytes lang und wächst bei wiederholtem
+  Bearbeiten nie. Eine nicht gelesene Party hat `read_len` 0.
+- Das Format, nicht die Optionen am Eintrag, bestimmt die Länge: bei `items`
+  ohne `item` steht eine 0, bei Diamant/Perl entfällt die Kapsel.
 - Für `read(write(d)) == d` muss `tail` kanonisch sein: Einträge und `tail`
-  füllen schon ein Vielfaches von 4 Bytes. Bei einer leeren Party sind das acht
-  Nullen (`empty_party_is_eight_zero_bytes`).
+  füllen schon ein Vielfaches von 4 Bytes und `read_len` passt. Bei einer leeren
+  Party sind das acht Nullen (`empty_party_is_eight_zero_bytes`).
 - Wer das Format ändert („eigene Attacken“ oder „Items“ umschalten), schreibt
   mit dem neuen Format; die Optionen am Eintrag (`item`, `moves`) bleiben dabei
   im Speicher erhalten, bis sie bewusst gelöscht werden.

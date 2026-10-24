@@ -131,9 +131,7 @@ impl PartyMon {
     pub fn set_form(&mut self, v: u8) {
         self.species_word = (self.species_word & 0x03FF) | (u16::from(v & 0x3F) << 10);
     }
-}
 
-impl PartyMon {
     /// One entry of exactly `format.entry_len(family)` bytes.
     fn read(c: &[u8], format: PartyFormat, family: Family) -> PartyMon {
         let word = |at: usize| u16::from_le_bytes([c[at], c[at + 1]]);
@@ -181,9 +179,15 @@ impl PartyMon {
 pub struct Party {
     pub mons: Vec<PartyMon>,
     /// Bytes after the last entry as read (vanilla: padding, sometimes two
-    /// extra bytes). `write` keeps them and pads the whole file with zeros to
-    /// a multiple of four bytes, at least eight.
+    /// extra bytes). `write` keeps them only while the entries still take the
+    /// bytes they took when read (`read_len`).
     pub tail: Vec<u8>,
+    /// Bytes the entries took when read (`count * entry_len`); 0 for a party
+    /// that was not read. `write` keeps `tail` only when the entries written
+    /// take the same number of bytes (same count and format), otherwise it
+    /// drops it and pads with zeros to a multiple of four bytes (at least
+    /// eight), so repeated edits never make the file grow.
+    pub read_len: usize,
 }
 
 impl Party {
@@ -210,17 +214,21 @@ impl Party {
         Ok(Party {
             mons,
             tail: bytes[needed..].to_vec(),
+            read_len: needed,
         })
     }
 
-    /// Entries in `format`, the tail, then zeros up to a multiple of four
-    /// bytes (at least eight).
+    /// Entries in `format`; the tail only while the entry bytes equal
+    /// `read_len`; then zeros up to a multiple of four bytes (at least eight).
     pub fn write(&self, format: PartyFormat, family: Family) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.mons.len() * format.entry_len(family) + 8);
+        let entries_len = self.mons.len() * format.entry_len(family);
+        let mut out = Vec::with_capacity(entries_len + 8);
         for mon in &self.mons {
             mon.write_into(&mut out, format, family);
         }
-        out.extend_from_slice(&self.tail);
+        if entries_len == self.read_len {
+            out.extend_from_slice(&self.tail);
+        }
         out.resize(out.len().next_multiple_of(4).max(8), 0);
         out
     }
@@ -236,6 +244,15 @@ mod tests {
 
     fn fmt(moves: bool, items: bool) -> PartyFormat {
         PartyFormat { moves, items }
+    }
+
+    /// A party that was not read: no tail to keep.
+    fn fresh(mons: Vec<PartyMon>) -> Party {
+        Party {
+            mons,
+            tail: vec![],
+            read_len: 0,
+        }
     }
 
     // Platin DE, trainerProperties/0250 and trainerParty/0250: moves and items,
@@ -427,10 +444,7 @@ mod tests {
     fn empty_party_is_eight_zero_bytes() {
         for family in FAMILIES {
             for (m, i) in [(false, false), (false, true), (true, false), (true, true)] {
-                let p = Party {
-                    mons: vec![],
-                    tail: vec![],
-                };
+                let p = fresh(vec![]);
                 assert_eq!(p.write(fmt(m, i), family), vec![0; 8]);
             }
         }
@@ -448,27 +462,19 @@ mod tests {
             ..PartyMon::default()
         };
         // One 8-byte Platinum entry is already eight bytes.
-        let p = Party {
-            mons: vec![mon],
-            tail: vec![],
-        };
+        let p = fresh(vec![mon]);
         assert_eq!(p.write(fmt(false, false), Family::Pt).len(), 8);
         // Three 10-byte entries: 30 bytes padded to 32.
-        let p = Party {
-            mons: vec![mon; 3],
-            tail: vec![],
-        };
+        let p = fresh(vec![mon; 3]);
         assert_eq!(p.write(fmt(false, true), Family::Pt).len(), 32);
         // One 6-byte Diamond entry is padded to the eight-byte minimum.
-        let dp = Party {
-            mons: vec![PartyMon::default()],
-            tail: vec![],
-        };
+        let dp = fresh(vec![PartyMon::default()]);
         assert_eq!(dp.write(fmt(false, false), Family::Dp), vec![0; 8]);
         // A kept tail is written before the padding.
         let p = Party {
             mons: vec![mon],
             tail: vec![0xAB],
+            read_len: 8,
         };
         let out = p.write(fmt(false, false), Family::Pt);
         assert_eq!(out.len(), 12);
@@ -485,24 +491,85 @@ mod tests {
             ball_capsule: Some(5),
             ..PartyMon::default()
         };
-        let p = Party {
-            mons: vec![mon],
-            tail: vec![],
-        };
+        let p = fresh(vec![mon]);
         // Items off, moves off: only the plain entry (8 bytes, with capsule).
         let plain = p.write(fmt(false, false), Family::Pt);
         assert_eq!(plain.len(), 8);
         assert_eq!(&plain[6..], &[5, 0]);
         // Items on for a mon without an item writes zero.
-        let none = Party {
-            mons: vec![PartyMon::default()],
-            tail: vec![],
-        };
+        let none = fresh(vec![PartyMon::default()]);
         assert_eq!(none.write(fmt(true, true), Family::Hgss).len(), 20);
         // DP drops the capsule.
         let dp = p.write(fmt(true, true), Family::Dp);
         assert_eq!(dp.len(), 16);
         assert_eq!(&dp[6..8], &[9, 0]);
+    }
+
+    #[test]
+    fn a_changed_party_size_or_format_drops_the_tail_and_never_grows() {
+        let pt = Family::Pt;
+        let f = fmt(true, true);
+        let mut p = Party::read(&PARTY_0250, f, 3, pt).unwrap();
+        assert_eq!(p.tail.len(), 2);
+
+        // Unchanged: byte-identical.
+        assert_eq!(p.write(f, pt), PARTY_0250.to_vec());
+
+        // One more mon: 4 * 18 = 72 bytes, the old tail is gone, no growth.
+        p.mons.push(p.mons[0]);
+        let out = p.write(f, pt);
+        assert_eq!(out.len(), 72);
+        let back = Party::read(&out, f, 4, pt).unwrap();
+        assert!(back.tail.is_empty());
+        assert_eq!(back.write(f, pt), out);
+
+        // One mon fewer than the original: 2 * 18 = 36.
+        let mut p = Party::read(&PARTY_0250, f, 3, pt).unwrap();
+        p.mons.pop();
+        assert_eq!(p.write(f, pt).len(), 36);
+
+        // Back to the read count: the tail returns with the same size.
+        let mut p = Party::read(&PARTY_0250, f, 3, pt).unwrap();
+        p.mons.pop();
+        p.mons.push(p.mons[0]);
+        assert_eq!(p.write(f, pt).len(), 56);
+
+        // Toggling the format changes the entry length: 3 * 10 = 30 -> 32.
+        let p = Party::read(&PARTY_0250, f, 3, pt).unwrap();
+        assert_eq!(p.write(fmt(false, true), pt).len(), 32);
+        assert_eq!(p.write(fmt(true, false), pt).len(), 48);
+        assert_eq!(p.write(fmt(false, false), pt).len(), 24);
+    }
+
+    #[test]
+    fn repeated_read_write_cycles_keep_the_length_stable() {
+        let pt = Family::Pt;
+        let f = fmt(true, true);
+        let mut bytes = PARTY_0250.to_vec();
+        let mut mons = 3;
+        for round in 0..6 {
+            let mut p = Party::read(&bytes, f, mons, pt).unwrap();
+            if round % 2 == 0 {
+                p.mons.push(p.mons[0]);
+                mons += 1;
+            } else {
+                p.mons.pop();
+                mons -= 1;
+            }
+            bytes = p.write(f, pt);
+            assert_eq!(bytes.len(), (mons * 18).next_multiple_of(4).max(8));
+        }
+        // Rereading and writing without edits changes nothing, however often.
+        for _ in 0..3 {
+            let again = Party::read(&bytes, f, mons, pt).unwrap().write(f, pt);
+            assert_eq!(again, bytes);
+        }
+    }
+
+    #[test]
+    fn a_count_above_six_is_read_like_any_other() {
+        let p = Party::read(&[0; 56], fmt(false, false), 7, Family::Pt).unwrap();
+        assert_eq!((p.mons.len(), p.tail.len()), (7, 0));
     }
 
     #[test]
@@ -566,7 +633,11 @@ mod tests {
                 let used = mons.len() * len;
                 let total = (used + tail.len()).next_multiple_of(4).max(8);
                 tail.resize(total - used, 0xCD);
-                Party { mons, tail }
+                Party {
+                    mons,
+                    tail,
+                    read_len: used,
+                }
             })
     }
 
@@ -584,6 +655,32 @@ mod tests {
             let back = Party::read(&bytes, format, party.mons.len(), family).unwrap();
             prop_assert_eq!(&back, &party);
             prop_assert_eq!(back.write(format, family), bytes);
+        }
+
+        #[test]
+        fn an_edited_party_is_exactly_the_padded_entry_length(
+            m in any::<bool>(),
+            i in any::<bool>(),
+            f in 0usize..3,
+            count in 0usize..=6,
+            new_count in 0usize..=6,
+            new_m in any::<bool>(),
+            new_i in any::<bool>(),
+            extra in 0usize..6,
+        ) {
+            let (format, family) = (fmt(m, i), FAMILIES[f]);
+            let used = count * format.entry_len(family);
+            let bytes = vec![0xEE; (used + extra).next_multiple_of(4).max(8)];
+            let mut party = Party::read(&bytes, format, count, family).unwrap();
+            party.mons.resize(new_count, PartyMon::default());
+            let new_format = fmt(new_m, new_i);
+            let out = party.write(new_format, family);
+            let new_used = new_count * new_format.entry_len(family);
+            if new_used == used {
+                prop_assert_eq!(out.len(), bytes.len());
+            } else {
+                prop_assert_eq!(out.len(), new_used.next_multiple_of(4).max(8));
+            }
         }
 
         #[test]
