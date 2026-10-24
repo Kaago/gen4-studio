@@ -493,18 +493,34 @@ fn index_reads_packed_archives_without_unpacking() {
                 Some(0),
                 Target::Species(1)
             ),
+            // Trainer 2 of the fixture: moves and items, species 1 in its third slot.
+            r(
+                id(AssetKind::TrainerParty, 2),
+                "species",
+                Some(2),
+                Target::Species(1)
+            ),
         ]
     );
     assert_eq!(
         index.refs(&st, Target::Species(2)).unwrap(),
-        [r(
-            id(AssetKind::Evolution, 1),
-            "target",
-            Some(0),
-            Target::Species(2)
-        )]
+        [
+            r(
+                id(AssetKind::Evolution, 1),
+                "target",
+                Some(0),
+                Target::Species(2)
+            ),
+            r(
+                id(AssetKind::TrainerParty, 2),
+                "species",
+                Some(0),
+                Target::Species(2)
+            ),
+        ]
     );
     assert_eq!(index.count(&st, Target::TrainerClass(1)).unwrap(), 2);
+    assert_eq!(index.count(&st, Target::TrainerClass(0)).unwrap(), 1);
     for kind in [
         AssetKind::Encounter,
         AssetKind::Evolution,

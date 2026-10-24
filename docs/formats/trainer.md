@@ -81,6 +81,33 @@ Fähigkeit gedeutet wird, entscheidet die Oberfläche (nur HGSS).
   mit dem neuen Format; die Optionen am Eintrag (`item`, `moves`) bleiben dabei
   im Speicher erhalten, bis sie bewusst gelöscht werden.
 
+## Trainer als ein Dokument (`TrainerDoc`)
+
+`crates/g4-formats/src/data/trainer_doc.rs`: Eigenschaften und Party eines
+Trainers zusammen, so wie der Store sie als ein Asset (`AssetKind::Trainer`)
+führt. Felder: `class`, `format` (`PartyFormat`), `flags_rest` (das Flag-Byte
+ohne Bit 0 und 1, bleibt erhalten), `unknown`, `items`, `ai`, `battle_type`,
+`party` (höchstens 6 `PartyMon`).
+
+- `TrainerDoc::decode(props, party, family)` lehnt nur ab: Eigenschaften
+  ungleich 20 Bytes, Party-Größe über 6, eine Party kürzer als ihre Einträge.
+- `encode(family)` leitet das Flag-Byte (`flags_rest` mit den Bits aus
+  `format`) und `party_count` (`party.len()`) ab und schreibt die Party
+  kanonisch: Einträge, dann Nullen bis zu einem Vielfachen von 4 Bytes,
+  mindestens 8. Alle Vanilla-Paare (Platin DE 928, HeartGold DE und US je
+  738) sind kanonisch: `encode(decode(p, q)) == (p, q)`
+  (`vanilla_trainers_decode_and_encode_identically`). Die zwei Bytes mehr in
+  42 bzw. 34 Party-Dateien sind genau diese Null-Auffüllung.
+- `TrainerDoc::check(props, party, family)` sagt, ob das Paar so
+  zurückkommt; sonst nennt der Grund die Datei, zum Beispiel
+  „party 20 bytes, expected 16“, „party byte 10 is 0xab, expected 0x00“ oder
+  „properties 19 bytes, expected 20“. Der Store sperrt einen solchen Trainer
+  mit diesem Grund („trainer 0012: party 20 bytes, expected 16“).
+
+Im Store sind die Bytes eines Trainers `u32 len(props) | props | party`
+(Little Endian, `Location::MemberPair`); gespeichert werden beide Dateien je
+atomar, die Stale-Prüfung vergleicht beide.
+
 ## Grenzen des Codecs
 
 `TrainerProps::read` lehnt nur eine Länge ungleich 20 ab (`BadSize`).

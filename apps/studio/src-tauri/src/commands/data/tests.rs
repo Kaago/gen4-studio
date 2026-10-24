@@ -1,6 +1,6 @@
 //! The data commands on the synthetic Platinum (CPUE) fixture: 508 personal members with
 //! names for 1 to 3 and forms 496 to 507, four moves, 20 item members (member 17 has 36
-//! bytes), two encounter files and two trainers; the arm9 tables of CPUE are unverified, so
+//! bytes), two encounter files and three trainers; the arm9 tables of CPUE are unverified, so
 //! `item_table` is null.
 
 #![allow(clippy::unwrap_used)]
@@ -424,7 +424,8 @@ fn moves_encounters_and_trainers() {
     }
 
     let trainers = data_list_impl(&state, DataKind::Trainer, None).unwrap();
-    assert_eq!(trainers.len(), 2);
+    assert_eq!(trainers.len(), 3);
+    assert_eq!(trainers[2].extra, json!({ "class": 0, "party_count": 3 }));
     assert_eq!(trainers[1].name, "Kai");
     assert_eq!(trainers[1].extra, json!({ "class": 1, "party_count": 1 }));
     for err in [

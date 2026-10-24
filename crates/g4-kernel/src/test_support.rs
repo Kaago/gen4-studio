@@ -212,7 +212,19 @@ pub const PT_SPECIES_MEMBERS: usize = 508;
 pub const PT_MOVE_MEMBERS: usize = 4;
 pub const PT_ITEM_MEMBERS: usize = 20;
 pub const PT_ENCOUNTER_MEMBERS: usize = 2;
-pub const PT_TRAINER_MEMBERS: usize = 2;
+pub const PT_TRAINER_MEMBERS: usize = 3;
+/// Trainer 2 of the fixture: moves and items (flags 3), class 0, trainer item 28, AI 7,
+/// three Pokémon. Its items and moves are ids no other fixture member refers to.
+pub const TRAINER_2_PROPS: [u8; 20] = [3, 0, 0, 3, 28, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0];
+/// The party of trainer 2: three 18-byte entries (difficulty, byte 1, level, species, item,
+/// four moves, ball capsule) and two bytes of padding. Levels 10, 12 and 15; species 2, 3
+/// and 1; items 25, none and 26; moves 20 and 21, 21, and 20 to 22.
+pub const TRAINER_2_PARTY: [u8; 56] = [
+    0, 0, 10, 0, 2, 0, 25, 0, 20, 0, 21, 0, 0, 0, 0, 0, 0, 0, //
+    0, 0, 12, 0, 3, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+    0, 0, 15, 0, 1, 0, 26, 0, 20, 0, 21, 0, 22, 0, 0, 0, 0, 0, //
+    0, 0,
+];
 /// The item member DSPRE wrote with 36 bytes instead of 34.
 pub const LONG_ITEM: u16 = 17;
 
@@ -274,20 +286,17 @@ fn write_data_archives(root: &Path) {
         "files/fielddata/encountdata/pl_enc_data.narc",
         &vec![encounter; PT_ENCOUNTER_MEMBERS],
     );
-    // Trainer class 1 with one Pokémon: level 5, species 1.
+    // Trainers 0 and 1: class 1 with one Pokémon (level 5, species 1), no moves or items.
+    // Trainer 2: see `TRAINER_2_PROPS` and `TRAINER_2_PARTY`.
     let mut props = vec![0u8; 20];
     props[1] = 1; // class
     props[3] = 1; // party count
-    write_narc(
-        root,
-        "files/poketool/trainer/trdata.narc",
-        &vec![props; PT_TRAINER_MEMBERS],
-    );
-    write_narc(
-        root,
-        "files/poketool/trainer/trpoke.narc",
-        &vec![vec![0, 0, 5, 0, 1, 0, 0, 0]; PT_TRAINER_MEMBERS],
-    );
+    let mut all_props = vec![props; PT_TRAINER_MEMBERS - 1];
+    all_props.push(TRAINER_2_PROPS.to_vec());
+    write_narc(root, "files/poketool/trainer/trdata.narc", &all_props);
+    let mut parties = vec![vec![0, 0, 5, 0, 1, 0, 0, 0]; PT_TRAINER_MEMBERS - 1];
+    parties.push(TRAINER_2_PARTY.to_vec());
+    write_narc(root, "files/poketool/trainer/trpoke.narc", &parties);
     // Trainer 1 speaks battle texts 0 and 1 (triggers 0 and 2), at offset 0.
     write_narc(
         root,

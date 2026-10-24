@@ -537,12 +537,12 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
     );
     assert_eq!(packed("CPUD", AssetKind::InteriorBuildingModel), None);
     assert_eq!(packed("ADAE", AssetKind::InteriorBuildingModel), None);
-    // Every archive kind has the DSPRE folder name from the constraints (the header table is
-    // store-only and has no folder).
+    // Every archive kind has the DSPRE folder name from the constraints (the header table and
+    // the trainer are store-only and have no folder).
     let p = Project::open(s.dir.path()).unwrap();
     let names: Vec<_> = AssetKind::ALL
         .iter()
-        .filter(|k| **k != AssetKind::HeaderTable)
+        .filter(|k| !matches!(k, AssetKind::HeaderTable | AssetKind::Trainer))
         .map(|k| p.archives.unpacked_name(*k))
         .collect();
     assert_eq!(
@@ -604,7 +604,8 @@ fn asset_kind_labels() {
             "trainer text table",
             "trainer text offsets",
             "item icons",
-            "menu icons"
+            "menu icons",
+            "trainer"
         ]
     );
 }
@@ -667,8 +668,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_twenty_four_slots() {
-    assert_eq!(AssetKind::ALL.len(), 24);
+fn asset_kinds_have_twenty_five_slots() {
+    assert_eq!(AssetKind::ALL.len(), 25);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -695,10 +696,15 @@ fn asset_kinds_have_twenty_four_slots() {
             AssetKind::TrainerTextOffsets,
         ]
     );
-    // The two icon archives close the list (slots 22 and 23).
+    // The two icon archives follow (slots 22 and 23); the trainer, the store-only pair of the
+    // two trainer archives, closes the list.
     assert_eq!(
         AssetKind::ALL[22..],
-        [AssetKind::ItemIcons, AssetKind::MonIcons]
+        [
+            AssetKind::ItemIcons,
+            AssetKind::MonIcons,
+            AssetKind::Trainer
+        ]
     );
 }
 

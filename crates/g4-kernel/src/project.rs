@@ -72,12 +72,17 @@ pub enum AssetKind {
     /// The Pokémon menu icons (`monIcons`): the NCLR, animation members, then one NCGR per
     /// icon. Read only like the item icons.
     MonIcons,
+    /// One trainer: its `TrainerProperties` and `TrainerParty` members as one asset (the
+    /// store's `TrainerDoc`, see [`Location::MemberPair`]). Store-only like the header table:
+    /// it has no archive of its own; its member count is the smaller of the two archives'.
+    Trainer,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
-    /// the store-only kinds and the scripts, then the data kinds.
-    pub const ALL: [AssetKind; 24] = [
+    /// the store-only kinds and the scripts, then the data kinds, and last the trainer, the
+    /// store-only pair of two data kinds.
+    pub const ALL: [AssetKind; 25] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -102,6 +107,7 @@ impl AssetKind {
         AssetKind::TrainerTextOffsets,
         AssetKind::ItemIcons,
         AssetKind::MonIcons,
+        AssetKind::Trainer,
     ];
 
     /// Human-readable name used in error messages.
@@ -131,6 +137,7 @@ impl AssetKind {
             AssetKind::TrainerTextOffsets => "trainer text offsets",
             AssetKind::ItemIcons => "item icons",
             AssetKind::MonIcons => "menu icons",
+            AssetKind::Trainer => "trainer",
         }
     }
 
@@ -161,6 +168,7 @@ impl AssetKind {
             AssetKind::TrainerTextOffsets => 21,
             AssetKind::ItemIcons => 22,
             AssetKind::MonIcons => 23,
+            AssetKind::Trainer => 24,
         }
     }
 }
@@ -226,6 +234,9 @@ struct FamilyArchives {
 /// without that archive, so that `unpacked_name` is total.
 const INTERIOR_UNPACKED_NAME: &str = "interiorBuildingModels";
 const DYNAMIC_HEADERS_UNPACKED_NAME: &str = "dynamicHeaders";
+/// What `unpacked_name` reports for the trainer, which has two folders (see
+/// [`Location::MemberPair`]).
+const TRAINER_PAIR_NAME: &str = "trainerProperties+trainerParty";
 
 /// Where the bytes of one asset live on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +255,10 @@ pub enum Location {
     /// A text archive: its chatot JSON source and its member. The asset's bytes are the
     /// canonical JSON.
     TextSource { json: PathBuf, member: PathBuf },
+    /// A trainer: its properties member and its party member (archives
+    /// `TrainerProperties` and `TrainerParty`, same index). The asset's bytes are
+    /// `u32 len(props) | props | party` (little endian).
+    MemberPair { props: PathBuf, party: PathBuf },
 }
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
@@ -309,6 +324,8 @@ impl ArchiveMap {
                 Some(resolve(archives.trainer_text_offsets)),
                 Some(resolve(archives.item_icons)),
                 Some(resolve(archives.mon_icons)),
+                // The trainer is a pair of the two trainer archives, no archive of its own.
+                None,
             ],
         })
     }
@@ -328,6 +345,9 @@ impl ArchiveMap {
             Some((_, name)) => name,
             // Only the optional archives (and the header table) can be missing.
             None if kind == AssetKind::DynamicHeaders => DYNAMIC_HEADERS_UNPACKED_NAME,
+            // No folder of its own: a name that never is one, so a path built from it never
+            // reaches another archive's members.
+            None if kind == AssetKind::Trainer => TRAINER_PAIR_NAME,
             None => INTERIOR_UNPACKED_NAME,
         }
     }
@@ -517,6 +537,12 @@ impl Project {
                 member: self.member_path(kind, index),
             });
         }
+        if kind == AssetKind::Trainer {
+            return Ok(Location::MemberPair {
+                props: self.member_path(AssetKind::TrainerProperties, index),
+                party: self.member_path(AssetKind::TrainerParty, index),
+            });
+        }
         if kind != AssetKind::HeaderTable {
             return Ok(Location::Member(self.member_path(kind, index)));
         }
@@ -659,6 +685,11 @@ impl Project {
         match kind {
             // Store-only: nothing to unpack, the table is one asset.
             AssetKind::HeaderTable => return Ok(1),
+            // Both archives of the pair; a trainer needs a member in each.
+            AssetKind::Trainer => {
+                let props = self.ensure_unpacked(AssetKind::TrainerProperties)?;
+                return Ok(props.min(self.ensure_unpacked(AssetKind::TrainerParty)?));
+            }
             // The folder belongs to the Dynamic Headers patch: it exists once the patch is
             // applied (and in DSPRE projects, holding the NARC's vanilla members), and
             // unpacking it would fake that patch.
@@ -714,6 +745,10 @@ impl Project {
         match kind {
             AssetKind::HeaderTable => return Ok(1),
             AssetKind::DynamicHeaders => return Err(store_only(kind)),
+            AssetKind::Trainer => {
+                let props = self.member_count(AssetKind::TrainerProperties)?;
+                return Ok(props.min(self.member_count(AssetKind::TrainerParty)?));
+            }
             _ => {}
         }
         self.require_packed(kind)?;
@@ -881,9 +916,9 @@ impl Project {
                 )
                 .map_err(|e| KernelError::Uxie(format!("{e}")))
             }
-            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
-                "the header table is not a member file".to_owned(),
-            )),
+            Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
+                KernelError::InvalidProject("the header table is not a member file".to_owned()),
+            ),
         }
     }
 
@@ -894,9 +929,9 @@ impl Project {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { count, .. } => Ok(count),
             Location::Slice { len, .. } => Ok(len / MAP_HEADER_SIZE),
-            Location::Member(_) | Location::TextSource { .. } => Err(KernelError::InvalidProject(
-                "the header table is not a member file".to_owned(),
-            )),
+            Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
+                KernelError::InvalidProject("the header table is not a member file".to_owned()),
+            ),
         }
     }
 
@@ -983,7 +1018,7 @@ mod tests {
                 assert_eq!(
                     exists,
                     match kind {
-                        AssetKind::HeaderTable => false,
+                        AssetKind::HeaderTable | AssetKind::Trainer => false,
                         AssetKind::InteriorBuildingModel => family == Family::Hgss,
                         AssetKind::DynamicHeaders => family != Family::Dp,
                         _ => true,

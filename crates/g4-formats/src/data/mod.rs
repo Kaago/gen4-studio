@@ -87,4 +87,5 @@ pub mod moves;
 pub mod personal;
 pub mod record;
 pub mod trainer;
+pub mod trainer_doc;
 pub mod trainer_text;

@@ -265,8 +265,8 @@ fn encounter_rows(session: &mut Session) -> Result<Vec<DataRowDto>, CmdError> {
     Ok(rows)
 }
 
-/// Trainers are no store asset before 3b.3b: their properties are read from the unpacked
-/// members (unpacked first, as the store would).
+/// Trainers are listed from their unpacked properties members (unpacked first, as the store
+/// would); the store's trainer asset (`AssetKind::Trainer`) takes over with the trainer DTO.
 fn trainer_rows(session: &mut Session) -> Result<Vec<DataRowDto>, CmdError> {
     let Session {
         project,

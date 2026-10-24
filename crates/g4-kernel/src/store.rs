@@ -14,6 +14,7 @@ use g4_formats::data::learnset::Learnset;
 use g4_formats::data::moves::Move;
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
+use g4_formats::data::trainer_doc::{Checked, TrainerDoc};
 use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
@@ -91,6 +92,9 @@ pub(crate) enum Loaded {
     Item(Item),
     TrainerTextTable(TrainerTextTable),
     TrainerTextOffsets(TrainerTextOffsets),
+    /// A trainer: its properties and party members decoded together; its bytes are the
+    /// pair (see [`Location::MemberPair`]).
+    Trainer(TrainerDoc),
     /// A data member of a length its codec rejects, kept as read. Such an asset is always
     /// locked (see [`decode`]).
     Raw(Vec<u8>),
@@ -107,6 +111,7 @@ impl Loaded {
                 | AssetKind::Event
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
+                | AssetKind::Trainer
         ) || Loaded::is_data(kind)
     }
 
@@ -181,10 +186,14 @@ impl Loaded {
             AssetKind::TrainerTextOffsets => {
                 Ok(Loaded::TrainerTextOffsets(TrainerTextOffsets::read(bytes)?))
             }
-            // Archives for build and counting only: a trainer is edited as a pair of both
-            // members (3b.3b).
+            // Archives for build and counting only: a trainer is edited as the pair of both
+            // members, `AssetKind::Trainer`.
             AssetKind::TrainerProperties | AssetKind::TrainerParty => {
                 Err(KernelError::NotEditable(kind))
+            }
+            AssetKind::Trainer => {
+                let (props, party) = split_pair(bytes)?;
+                Ok(Loaded::Trainer(TrainerDoc::decode(props, party, family)?))
             }
         }
     }
@@ -212,6 +221,10 @@ impl Loaded {
             Loaded::Item(i) => Ok(i.write()),
             Loaded::TrainerTextTable(t) => Ok(t.write()),
             Loaded::TrainerTextOffsets(o) => Ok(o.write()),
+            Loaded::Trainer(t) => {
+                let (props, party) = t.encode(family);
+                Ok(join_pair(&props, &party))
+            }
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
     }
@@ -228,6 +241,9 @@ fn decode(
     family: Family,
     lang: &str,
 ) -> Result<(Loaded, Option<String>), KernelError> {
+    if id.kind == AssetKind::Trainer {
+        return decode_trainer(id, bytes, family);
+    }
     match Loaded::from_bytes(id.kind, bytes, family, lang) {
         Ok(value) => {
             let locked = unwritable_reason(&value, bytes, family);
@@ -243,6 +259,48 @@ fn decode(
         }
         Err(e) => Err(e),
     }
+}
+
+/// [`decode`] for a trainer: locked when encoding would not give both files back byte for
+/// byte, with a reason that names the trainer and the file ("trainer 0012: party 20 bytes,
+/// expected 16"). A pair that does not decode at all is kept raw.
+fn decode_trainer(
+    id: AssetId,
+    bytes: &[u8],
+    family: Family,
+) -> Result<(Loaded, Option<String>), KernelError> {
+    let (props, party) = split_pair(bytes)?;
+    Ok(match TrainerDoc::check(props, party, family) {
+        Checked::Exact(doc) => (Loaded::Trainer(doc), None),
+        Checked::Differs(doc, why) => (Loaded::Trainer(doc), Some(format!("{id}: {why}"))),
+        Checked::Unreadable(why) => (Loaded::Raw(bytes.to_vec()), Some(format!("{id}: {why}"))),
+    })
+}
+
+/// The bytes of a trainer: `u32 len(props) | props | party`, see [`Location::MemberPair`].
+fn join_pair(props: &[u8], party: &[u8]) -> Vec<u8> {
+    // A properties member is a file of the unpacked archive, far below 4 GiB.
+    let mut out = (props.len() as u32).to_le_bytes().to_vec();
+    out.reserve(props.len() + party.len());
+    out.extend_from_slice(props);
+    out.extend_from_slice(party);
+    out
+}
+
+/// The properties and the party of the bytes of a trainer ([`join_pair`]).
+fn split_pair(bytes: &[u8]) -> Result<(&[u8], &[u8]), KernelError> {
+    let malformed = || {
+        KernelError::InvalidProject(format!(
+            "{} bytes are no trainer pair (u32 length of the properties, properties, party)",
+            bytes.len()
+        ))
+    };
+    let (len, rest) = bytes.split_first_chunk::<4>().ok_or_else(malformed)?;
+    let len = usize::try_from(u32::from_le_bytes(*len)).map_err(|_| malformed())?;
+    if len > rest.len() {
+        return Err(malformed());
+    }
+    Ok(rest.split_at(len))
 }
 
 /// A data record type the store edits, and the [`Loaded`] variant that holds it.
@@ -290,6 +348,7 @@ record! {
     Item => Item;
     TrainerTextTable => TrainerTextTable;
     TrainerTextOffsets => TrainerTextOffsets;
+    TrainerDoc => Trainer;
 }
 
 /// The record of type `T` in `asset`; a locked raw member is [`KernelError::ReadOnly`] with
@@ -599,6 +658,31 @@ impl Tx<'_> {
     ) -> Result<(), KernelError> {
         self.edit_record(index, edit)
     }
+
+    /// Trainer `index` as this transaction sees it (its staged edit included).
+    pub fn trainer(&mut self, index: u16) -> Result<&TrainerDoc, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits trainer `index`: its properties and its party are one part. A party of more
+    /// than six Pokémon fails the transaction as [`KernelError::Format`].
+    pub fn edit_trainer(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerDoc),
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Trainer,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Trainer(doc) => {
+                edit(doc);
+                Ok(doc.validate()?)
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
 }
 
 pub struct Store {
@@ -622,6 +706,8 @@ pub struct Store {
     /// Per asset, the `change_generation` of its latest change; an asset never changed is
     /// not in the map.
     changed_at: HashMap<AssetId, u64>,
+    /// Assets locked by [`Store::lock`], with the reason; applied whenever they are loaded.
+    locks: HashMap<AssetId, String>,
 }
 
 /// A message text and its lowercase form, for case-insensitive search.
@@ -687,6 +773,7 @@ impl Store {
             text_generations: HashMap::new(),
             change_generation: 0,
             changed_at: HashMap::new(),
+            locks: HashMap::new(),
         }
     }
 
@@ -747,13 +834,28 @@ impl Store {
             (Location::TextSource { member, .. }, None) => {
                 Err(io_at(&member)(std::io::ErrorKind::NotFound.into()))
             }
+            (Location::MemberPair { props, party }, None) => {
+                let missing = if props.is_file() { party } else { props };
+                Err(io_at(&missing)(std::io::ErrorKind::NotFound.into()))
+            }
         }
+    }
+
+    /// [`decode`], with the lock [`Store::lock`] set for `id` when the bytes themselves
+    /// do not lock it.
+    fn decode_locked(
+        &self,
+        id: AssetId,
+        bytes: &[u8],
+    ) -> Result<(Loaded, Option<String>), KernelError> {
+        let (current, locked) = decode(id, bytes, self.project.family, self.lang())?;
+        Ok((current, locked.or_else(|| self.locks.get(&id).cloned())))
     }
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
-            let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
+            let (current, locked) = self.decode_locked(id, &bytes)?;
             self.assets.insert(
                 id,
                 Asset {
@@ -1451,6 +1553,48 @@ impl Store {
         self.edit_record(index, label, edit)
     }
 
+    /// Returns trainer `index` (its properties and party members), loading it on first
+    /// use. A pair that encoding would not give back byte for byte is returned but locked
+    /// ([`Store::locked`] says why); a pair that does not decode is
+    /// [`KernelError::ReadOnly`] with the reason.
+    pub fn trainer(&mut self, index: u16) -> Result<&TrainerDoc, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits trainer `index` as one undoable step for both of its files. The flags byte and
+    /// the party size follow `format` and the party. A party of more than six Pokémon is
+    /// refused as [`KernelError::Format`]. The id is `None` when `edit` changed nothing.
+    pub fn edit_trainer(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerDoc),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.transaction(label, |tx| tx.edit_trainer(index, edit))
+            .map(|((), change)| change)
+    }
+
+    /// Locks asset `id` with `reason` for the life of this store, whatever its bytes: it is
+    /// shown but read-only (edits are refused with the reason, it is never dirty and `save`
+    /// never writes it), also after a reload. A loaded asset is read from disk again, so
+    /// its unsaved edits and its undo and redo entries are dropped. For values the editor
+    /// must never change, such as the placeholder trainer of the sight script slot. A lock
+    /// the bytes cause themselves keeps its own reason.
+    pub fn lock(&mut self, id: AssetId, reason: &str) -> Result<(), KernelError> {
+        self.locks.insert(id, reason.to_owned());
+        let reloaded = if self.assets.contains_key(&id) {
+            self.reload_from_disk(id)
+        } else {
+            Ok(())
+        };
+        // Also when the reload failed: the old value stays, but locked.
+        if let Some(asset) = self.assets.get_mut(&id) {
+            asset.locked.get_or_insert_with(|| reason.to_owned());
+        }
+        self.forget_history(id);
+        reloaded
+    }
+
     /// The bytes of the loaded asset `id` as the store holds them, unsaved edits included
     /// (a text archive: its canonical JSON; a locked member: the bytes it was read with).
     /// `None` when `id` is not loaded; nothing is loaded here. An error when the value
@@ -1663,7 +1807,7 @@ impl Store {
         // not keep what it read before the file changed.
         self.drop_text_index(id);
         let bytes = self.read_member(id)?;
-        let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
+        let (current, locked) = self.decode_locked(id, &bytes)?;
         self.assets.insert(
             id,
             Asset {
@@ -1694,7 +1838,10 @@ impl Store {
         }
         let base = match self.read_disk_as(id, read_base)? {
             (_, Some(bytes)) => Some(bytes),
-            (Location::Member(_) | Location::TextSource { .. }, None) => None,
+            (
+                Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. },
+                None,
+            ) => None,
             (Location::Slice { path, .. }, None) => {
                 return Err(KernelError::InvalidProject(format!(
                     "{} is missing or too short for the header table",
@@ -1889,6 +2036,10 @@ impl Store {
         for (id, location, bytes) in pending {
             match &location {
                 Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
+                Location::MemberPair { props, party } => {
+                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
+                    write_pair(&self.project.root, props, party, base, &bytes)?;
+                }
                 Location::Slice { .. } => {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
                     write_slice(&self.project.root, id, &location, base, &bytes)?;
@@ -1979,16 +2130,58 @@ fn read_location(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, Ker
         Location::TextSource { json, member } => {
             return Ok(read_text_doc(json, member, lang)?.map(|doc| doc.to_json()));
         }
+        // Both files or nothing: a pair with a missing file is absent.
+        Location::MemberPair { props, party } => {
+            return Ok(match (read_file(props)?, read_file(party)?) {
+                (Some(props), Some(party)) => Some(join_pair(&props, &party)),
+                _ => None,
+            });
+        }
     };
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(io_at(path)(e)),
+    let Some(bytes) = read_file(path)? else {
+        return Ok(None);
     };
     Ok(match slice {
         None => Some(bytes),
         Some((offset, len)) => slice_range(offset, len, bytes.len()).map(|r| bytes[r].to_vec()),
     })
+}
+
+/// The bytes of the file at `path`; `None` when it does not exist.
+fn read_file(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    }
+}
+
+/// Writes the bytes of a trainer ([`join_pair`]) to its two member files, each atomically:
+/// first the properties, then the party. When the party cannot be written, the properties
+/// are set back to `base` (the pair as last saved; without one the new properties file is
+/// removed), so the two files never stay half saved.
+fn write_pair(
+    project_root: &Path,
+    props_path: &Path,
+    party_path: &Path,
+    base: Option<&[u8]>,
+    bytes: &[u8],
+) -> Result<(), KernelError> {
+    let (props, party) = split_pair(bytes)?;
+    write_atomic(project_root, props_path, props)?;
+    if let Err(e) = write_atomic(project_root, party_path, party) {
+        // Best effort: the error of the party write is the one to report.
+        match base.map(split_pair) {
+            Some(Ok((old, _))) => {
+                let _ = write_atomic(project_root, props_path, old);
+            }
+            _ => {
+                let _ = std::fs::remove_file(props_path);
+            }
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Like [`read_location`], but a text archive whose winning file does not decode reads as

@@ -398,9 +398,11 @@ fn value_refs(id: AssetId, value: &Loaded) -> Vec<Ref> {
         Loaded::Evolution(e) => evolution_refs(&mut out, e),
         // A locked member of the wrong length.
         Loaded::Raw(_) => {}
-        // Kinds that are no source. Trainers are read from the disk only; when 3b.3b adds
-        // a trainer asset to the store, it becomes a source here.
-        Loaded::Map(_)
+        // Kinds that are no source. Trainers are still read from the disk as their two
+        // archives; the store's trainer asset becomes a source here with the trainer DTO
+        // (3b.3b, Task 5).
+        Loaded::Trainer(_)
+        | Loaded::Map(_)
         | Loaded::Matrix(_)
         | Loaded::AreaData(_)
         | Loaded::TextArchive(_)
