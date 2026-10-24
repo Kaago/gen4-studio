@@ -197,6 +197,27 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
   vanilla_personal_matches_uxie vanilla_items_match_uxie vanilla_trainer_properties_match_uxie vanilla_pt_water_slots --nocapture
 ```
 
+#### Trainer und Begegnungen (3b.3b)
+
+Seit 3b.3b sind Trainer ein zusammengesetztes Asset (Eigenschaften und Team in zwei Dateien, Name und Kampftexte in
+Textarchiven), Begegnungen haben Regeln im Kernel (`data/encounter_rules.rs`), und `create_trainer` erweitert die
+Kampf-Scriptdatei ([docs/formats/trainer_scripts.md](formats/trainer_scripts.md)). Die gated Tests dazu:
+
+| Test | Datei | Prüft |
+|---|---|---|
+| `vanilla_trainers_decode_and_encode_identically` | `crates/g4-formats/tests/vanilla_data.rs` | jeder Trainer (Platin 928, HGSS 738 Paare) liest sich als ein Dokument und schreibt beide Dateien byte-gleich zurück |
+| `vanilla_trainers_load_unlocked_through_the_store` | `crates/g4-kernel/tests/store.rs` | jeder Vanilla-Trainer lädt über den Store als ein Asset, ungesperrt und byte-gleich |
+| `vanilla_encounter_files_raise_no_warnings` | `crates/g4-kernel/src/data/encounter_rules.rs` (Unit-Test, gated) | keine Vanilla-Begegnungsdatei bricht eine Regel; jede Warnung im Editor zeigt also auf eine Änderung |
+| `vanilla_creates_trainers_behind_the_sight_slot` | `crates/g4-kernel/tests/trainer_create.rs` | auf `vanilla_copy()` mit übernommenen Scripts: Platin 928, Platzhalter 929, 930; HGSS 738, 739, Platzhalter 740, 741; die Kampf-Scriptdatei kompiliert sauber, ein neu geöffneter Store zeigt den Platzhalter gesperrt (übernimmt die Scripts, braucht rund eine Minute je Projekt) |
+
+Je Projekt einzeln:
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test --workspace --all-features -- vanilla_trainers_decode vanilla_trainers_load vanilla_encounter_files_raise \
+  vanilla_creates_trainers_behind --nocapture
+```
+
 #### proptest
 
 `proptest` 1 ist Dev-Abhängigkeit von `g4-formats` und `g4-kernel`; die Tests laufen ohne Projekt im normalen
@@ -220,9 +241,11 @@ der Ausgabe (mit dem geschrumpften Fall).
 `g4k check-data <rom.nds> --expect KIND:MEMBER:FIELD=VALUE …` liest die Daten-NARCs aus einem gebauten ROM (Pfade aus
 `archives.yaml` für den Spielcode im ROM-Kopf) und vergleicht einzelne Felder:
 
-- KIND `species` und `item` liest uxie (unabhängig von den eigenen Codecs), `move` und `learnset` die eigenen Codecs (uxie
-  lehnt Attacken ab, siehe oben). Die Feldnamen sind die der Codecs (`attack`, `power`, `price` …); ein Lernset hat nur `len`
-  (Zahl der Einträge).
+- KIND `species` und `item` liest uxie (unabhängig von den eigenen Codecs), `move`, `learnset` und `encounter` die eigenen
+  Codecs (uxie lehnt Attacken ab, sein Begegnungs-Leser ist unbrauchbar, siehe oben; für `encounter` weicht das von der
+  Spezifikation ab, die „per uxie“ sagt). Die Feldnamen sind die der Codecs (`attack`, `power`, `price` …); ein Lernset hat
+  nur `len` (Zahl der Einträge); eine Begegnungsdatei hat `grass_rate`, `grassN` (Art in Gras-Slot N, 0 bis 11; HGSS: die
+  Tag-Spalte), `grassN_level` und in HGSS `grassN_morning`, `grassN_night`.
 - MEMBER ist der Member im Archiv, bei `item` also der Datenmember, nicht die Item-ID (in Platin ist Trank beides 17).
 - Exit 0, wenn alles stimmt (stdout „species 397 attack: 85“ je Erwartung und „N expectation(s) met“); Exit 1 bei einer
   Abweichung oder einem unlesbaren Member (stderr „species 397 attack: expected 75, found 85“); Exit 2 bei einem falsch
@@ -231,7 +254,11 @@ der Ausgabe (mit dem geschrumpften Fall).
 ```sh
 cargo build --workspace --all-features --bin g4k
 target/debug/g4k check-data <Kopie>/out.nds --expect species:397:attack=85 --expect learnset:397:len=13
+target/debug/g4k check-data <Kopie>/out.nds --expect encounter:140:grass0=150 --expect encounter:183:grass_rate=100
 ```
+
+In einem Worktree statt `--bin g4k` den ganzen Workspace bauen (`cargo build --workspace --all-features`), sonst lädt
+rotoms Build-Skript neu (siehe oben).
 
 Szenarien rufen es im Abschnitt `check:` auf (Beispiel `scripts/agent/scenarios/pt-daten.yaml`, Beschreibung in
 [docs/agent-gate.md](agent-gate.md), „Szenario“).
@@ -297,7 +324,7 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 
 Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
 
-Dauer: bei warmem Build-Cache etwa 20 bis 25 Minuten (zuletzt vor 3b.2 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; der letzte gemessene Lauf steht in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s), der nächste in [docs/phase-3b3-gate.md](phase-3b3-gate.md); die drei Projekte brauchen 300 bis 450 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+Dauer: bei warmem Build-Cache etwa 20 bis 25 Minuten (zuletzt vor 3b.2 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; seit 3b.3b die Trainer- und Begegnungs-Tests aus „Trainer und Begegnungen (3b.3b)“; gemessene Läufe stehen in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s) und [docs/phase-3b3-gate.md](phase-3b3-gate.md) (Teil A 1781 s, Teil B 1798 s); die drei Projekte brauchen 380 bis 670 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
 
 ## Agent-Testumgebung
 
@@ -305,10 +332,10 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 
 - **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Er nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter `*_DSPRE_contents`) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
 - **`scripts/agent/call.sh <befehl> ['<json>']`** ruft einen Befehl der laufenden Brücke auf; `studio-bridge batch <datei.json> --allow-root <dir>` führt eine Liste von Befehlen ohne Server aus.
-- **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`), `uv run g4emu find-u16` zum Suchen von Adressen. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
+- **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`; eine Änderung kann die Antwort der Brücke an einen Namen binden, den spätere Schritte als `${name}` nutzen), `uv run g4emu find-u16` zum Suchen von Adressen. Seit 3b.3b kennt `g4emu` Kampfschritte (`expect-battle`, `walk-until-battle`, `end-battle`, `win-battle`, `mash`): ein Kampf wird an den BattleMon-Datensätzen im RAM erkannt, die Werte je Spielcode stehen in `scripts/g4emu/g4emu/games.yaml` (`battle`, `battle_pointer`, `home_header`; IPKE ohne gemessenen Zeiger); Beschreibung in [docs/agent-gate.md](agent-gate.md), „Kämpfe“. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.
 - **Ports:** Vite 1430, Brücke 1431. Die eigene App (`pnpm tauri dev`) bleibt auf 1420/1421.
-- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` (fertiges `studio-bridge` für Szenarien). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.
+- **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` und `G4K_BIN` (fertiges `studio-bridge` bzw. `g4k` für Szenarien; aus einem Worktree mit `cargo build --workspace --all-features` bauen, `cargo test --no-run` erneuert `studio-bridge` nicht immer). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.
 
 ## App-Bundle
 
