@@ -41,12 +41,23 @@ const FOCUSABLE =
 /** Marks a field the table took out of the Tab order; the value is its own `tabindex` attribute ("" for none). */
 const HELD = "data-table-tab";
 
+/**
+ * Whether an element under a row is one of its fields. Not: the focus guards a popup puts beside its trigger (they hand
+ * Tab over between trigger and popup and must keep their own tab index) and anything hidden from assistive technology.
+ */
+function isField(el: HTMLElement): boolean {
+  return !el.matches("[data-base-ui-focus-guard], [data-floating-ui-focus-guard]") && el.closest('[aria-hidden="true"], [hidden], [inert]') === null;
+}
+
 /** The fields of a row, in document order: Tab stops now, or ones the table holds out of the Tab order. */
 function fieldsOf(row: HTMLElement): HTMLElement[] {
   return [...row.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => (el.tabIndex >= 0 || el.hasAttribute(HELD)) && !el.matches(":disabled") && el.closest("[hidden], [inert]") === null,
+    (el) => (el.tabIndex >= 0 || el.hasAttribute(HELD)) && !el.matches(":disabled") && isField(el),
   );
 }
+
+/** Whether a field of the row has its popup open (a select's list, a picker): the focus in that popup still belongs to the row. */
+const hasOpenPopup = (row: HTMLElement) => row.querySelector('[aria-expanded="true"]') !== null;
 
 /**
  * A table whose rows are one tab stop: Tab reaches the current row and leaves the table from it, the arrow keys move
@@ -67,19 +78,17 @@ export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRo
   };
 
   // The Tab order: every field of a row the focus is not inside gets tabindex -1 (its own value is kept in HELD and
-  // put back when the focus enters the row). Clicks and `focus()` still reach such a field. When a component sets its
-  // own tab index on a held field later, the observer takes that as the value to put back and holds the field again.
+  // put back when the focus enters the row). Clicks and `focus()` still reach such a field. The focus in a popup of a
+  // field (a portal outside the table) still counts as inside the row while that popup is open.
   useEffect(() => {
     const table = ref.current;
     if (!table) return;
     let entered: HTMLElement | null = null;
-    const hold = (el: HTMLElement) => {
-      el.setAttribute(HELD, el.getAttribute("tabindex") ?? "");
-      el.setAttribute("tabindex", "-1");
-    };
+    let observer: MutationObserver | null = null;
     const apply = () => {
       for (const row of table.querySelectorAll<HTMLElement>("tr[data-roving]")) {
         for (const el of row.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+          if (!isField(el)) continue;
           const held = el.getAttribute(HELD);
           if (row === entered) {
             if (held === null) continue;
@@ -87,15 +96,23 @@ export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRo
             if (held === "") el.removeAttribute("tabindex");
             else el.setAttribute("tabindex", held);
           } else if (held === null ? el.tabIndex >= 0 : el.getAttribute("tabindex") !== "-1") {
-            hold(el);
+            el.setAttribute(HELD, el.getAttribute("tabindex") ?? "");
+            el.setAttribute("tabindex", "-1");
           }
         }
       }
+      // The table's own writes are no news for the observer.
+      observer?.takeRecords();
     };
     const enter = (row: HTMLElement | null) => {
       entered = row;
       // A field entered by a click makes its row the row stop, as the arrow keys would.
       if (row) for (const r of table.querySelectorAll<HTMLElement>("tr[data-roving]")) r.tabIndex = r === row ? 0 : -1;
+      apply();
+    };
+    // The focus is outside the table (or on its way): the row stays entered only while one of its popups is open.
+    const settle = () => {
+      if (entered && !table.contains(document.activeElement) && !hasOpenPopup(entered)) entered = null;
       apply();
     };
     const onFocusIn = (event: FocusEvent) => {
@@ -105,17 +122,30 @@ export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRo
     };
     const onFocusOut = (event: FocusEvent) => {
       const next = event.relatedTarget;
-      if (!(next instanceof Node) || !table.contains(next)) enter(null);
+      if (!(next instanceof Node) || !table.contains(next)) settle();
     };
+    const onFocusElsewhere = (event: FocusEvent) => {
+      if (entered && event.target instanceof Node && !table.contains(event.target)) settle();
+    };
+    observer = new MutationObserver((records) => {
+      for (const record of records) {
+        // A component changed the tab index of a held field itself (a roving group in a cell): that is now its own value.
+        const el = record.target as HTMLElement;
+        if (record.attributeName === "tabindex" && el.hasAttribute(HELD)) el.setAttribute(HELD, el.getAttribute("tabindex") ?? "");
+      }
+      // A popup that closed with the focus elsewhere ends the row; new or changed fields are held.
+      settle();
+    });
     apply();
-    const observer = new MutationObserver(apply);
-    observer.observe(table, { subtree: true, childList: true, attributes: true, attributeFilter: ["tabindex"] });
+    observer.observe(table, { subtree: true, childList: true, attributes: true, attributeFilter: ["tabindex", "aria-expanded"] });
     table.addEventListener("focusin", onFocusIn);
     table.addEventListener("focusout", onFocusOut);
+    document.addEventListener("focusin", onFocusElsewhere, true);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       table.removeEventListener("focusin", onFocusIn);
       table.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("focusin", onFocusElsewhere, true);
     };
   }, []);
 

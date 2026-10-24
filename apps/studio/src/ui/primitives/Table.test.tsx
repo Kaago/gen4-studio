@@ -5,7 +5,8 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Table } from "./Table";
 import type { TableProps, TableRow } from "./Table";
-import { pressKey } from "./testUtils";
+import { SelectField } from "./SelectField";
+import { openSelect, pressKey } from "./testUtils";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -241,6 +242,75 @@ describe("Table", () => {
     act(() => row.focus());
     pressKey(row, "Backspace");
     expect(onDeleteRow).toHaveBeenCalledExactlyOnceWith("r1");
+  });
+
+  it("a_select_in_a_row_keeps_its_popup_focus_guards_and_the_row_stays_entered_while_the_list_is_open", async () => {
+    const methods = [
+      { value: 1, label: "Level" },
+      { value: 2, label: "Tausch" },
+    ];
+    const rows: TableRow[] = [0, 1].map((i) => ({
+      key: `r${i}`,
+      cells: {
+        level: <SelectField label={`Methode ${i}`} value={1} options={methods} onChange={() => {}} />,
+        move: <button type="button">{`Ziel ${i}`}</button>,
+      },
+    }));
+    act(() =>
+      root.render(
+        <>
+          <button type="button">Davor</button>
+          <Table columns={columns} rows={rows} ariaLabel="Entwicklung" selected="r0" />
+          <button type="button">Danach</button>
+        </>,
+      ),
+    );
+    const row = bodyRows()[0]!;
+    act(() => row.focus());
+    pressKey(row, "Enter");
+    const trigger = document.activeElement as HTMLElement;
+    expect(row.contains(trigger)).toBe(true);
+    openSelect(trigger);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.querySelector("[role=listbox]")).not.toBeNull();
+    // The focus guards of the open popup keep their own tab index, so Tab still hands over between trigger and list.
+    const guards = [...row.querySelectorAll<HTMLElement>("[data-base-ui-focus-guard], [data-floating-ui-focus-guard]")];
+    expect(guards.length).toBeGreaterThan(0);
+    for (const guard of guards) {
+      expect(guard.hasAttribute("data-table-tab")).toBe(false);
+      expect(guard.getAttribute("tabindex")).toBe("0");
+    }
+    // The row is still the entered one while its list is open: its fields stay in the Tab order.
+    expect(trigger.tabIndex).toBe(0);
+    expect(row.querySelector<HTMLElement>("button[type=button]")!.tabIndex).toBe(0);
+    expect(bodyRows()[1]!.querySelector<HTMLElement>("button[type=button]")!.tabIndex).toBe(-1);
+  });
+
+  it("a_roving_group_in_a_held_row_keeps_one_tab_stop_after_the_row_is_entered", async () => {
+    const group = (i: number) => (
+      <span role="radiogroup" aria-label={`Kategorie ${i}`}>
+        <button type="button" tabIndex={0}>{`Physisch ${i}`}</button>
+        <button type="button" tabIndex={-1}>{`Speziell ${i}`}</button>
+      </span>
+    );
+    const rows: TableRow[] = [0, 1].map((i) => ({ key: `r${i}`, cells: { level: group(i), move: `Attacke ${i}` } }));
+    act(() => root.render(<Table columns={columns} rows={rows} ariaLabel="Attacken" selected="r0" />));
+    const row1 = bodyRows()[1]!;
+    const [first, second] = [...row1.querySelectorAll<HTMLElement>("button")];
+    // While the row is held, the group moves its own stop: the first item to -1, the second to 0.
+    act(() => {
+      first!.setAttribute("tabindex", "-1");
+      second!.setAttribute("tabindex", "0");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect([first!.tabIndex, second!.tabIndex]).toEqual([-1, -1]);
+    act(() => second!.focus());
+    // Entered: exactly the group's own stop is back.
+    expect([first!.tabIndex, second!.tabIndex]).toEqual([-1, 0]);
   });
 
   it("a_disabled_row_is_marked_skipped_by_the_arrows_and_not_selected_or_deleted", () => {
