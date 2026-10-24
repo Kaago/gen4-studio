@@ -131,7 +131,8 @@ export function TrainerList() {
   const written = (id: number | null, extended: boolean, notice: { kind: "success" | "warning"; text: string }) => {
     setCreating(false);
     setCreated(notice);
-    // The list, the name bank and the text tables changed behind the editors; the name and text offset are one undo step.
+    // The list, the name bank and the text tables changed behind the editors. Their history entry is an undo barrier: creating is not
+    // undoable, and undo there says so (the kernel's reason, shown like any failed undo).
     bus.emit({ topic: "dataChanged", kind: "trainer", index: null });
     bus.emit({ topic: "textData", archive: trainerNameArchive(project) });
     if (extended) {

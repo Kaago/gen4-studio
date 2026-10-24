@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { splitEncounterFile } from "../../api";
+import { dataList, splitEncounterFile } from "../../api";
 import type { EditEvent } from "../../bus/editBus";
 import { readShellState } from "../../ui/frame/shellState";
 import { ProblemsStore } from "../../workbench/problems/problems";
 import { resetIcons } from "../icons";
-import { ROUTE_201, SHARED_FILE, encounterHarness, wireApi } from "./encounterTesting";
+import { FILE_ROWS, ROUTE_201, SHARED_FILE, encounterHarness, fileRow, wireApi } from "./encounterTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -78,6 +78,32 @@ describe("EncounterView", () => {
     expect(heard).toContainEqual({ topic: "dataChanged", kind: "encounter", index: null });
     expect(h.calls.onEdited).toHaveBeenCalled();
     expect(h.dialog()).toBeNull();
+  });
+
+  it("treats_a_partial_split_like_one_that_went_through_and_says_what_stays", async () => {
+    await h.open(141);
+    const heard: EditEvent[] = [];
+    h.bus.subscribe(() => true, (e) => heard.push(e));
+    // As the app does: the data store reads again what the bus announces.
+    h.bus.subscribe(() => true, (e) => h.store.onEvent(e));
+    // The copy was written, switching the header failed; the list read again has the copy.
+    vi.mocked(splitEncounterFile).mockRejectedValue({
+      code: "partial",
+      message: "encounter file 183 was written as a copy of 141; switching header 401 to it failed: disk full",
+      asset: null,
+      problems: [],
+    });
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "encounter" ? [...FILE_ROWS, fileRow(183, [])] : []));
+    await h.click(h.button("Route 203: für diesen Ort abspalten…"));
+    await h.click(h.button("Abspalten"));
+    expect(h.dialog()).toBeNull();
+    expect(readShellState().selected.encounters).toBe(183);
+    expect(heard).toContainEqual({ topic: "dataChanged", kind: "encounter", index: null });
+    expect(heard).toContainEqual({ topic: "headerTable" });
+    expect(h.calls.onEdited).toHaveBeenCalled();
+    expect(h.view().textContent).toContain(
+      "Begegnungsdatei 183 ist als Kopie von 141 angelegt und bleibt. Danach fehlgeschlagen: Header 401 auf sie umhängen (disk full).",
+    );
   });
 
   it("shows_the_warnings_in_german_and_hands_them_to_the_problems_list", async () => {

@@ -6,6 +6,7 @@ import {
   groupFiles,
   isEmptySlot,
   methodTabs,
+  partialSplit,
   rateLabel,
   replacedByText,
   replacesText,
@@ -47,6 +48,14 @@ describe("encounterModel", () => {
     expect(rateLabel("Route 201", "grass", 30, 100)).toBe("Route 201: Gras-Rate 30 → 100");
     expect(usedByText(1)).toBe("verwendet von 1 Ort");
     expect(usedByText(3)).toBe("verwendet von 3 Orten");
+  });
+
+  it("words_a_partial_split_in_german_and_names_the_copy_that_stays", () => {
+    expect(partialSplit("encounter file 183 was written as a copy of 141; switching header 401 to it failed: disk full")).toEqual({
+      copy: 183,
+      text: "Begegnungsdatei 183 ist als Kopie von 141 angelegt und bleibt. Danach fehlgeschlagen: Header 401 auf sie umhängen (disk full).",
+    });
+    expect(partialSplit("something else")).toBeNull();
   });
 
   it("words_the_kernel_warnings_in_german_with_places_from_one", () => {

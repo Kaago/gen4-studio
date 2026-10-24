@@ -208,6 +208,17 @@ export function encounterRowLabel(row: DataRowDto, headers: readonly HeaderSumma
 /** „verwendet von 1 Ort“, „verwendet von 3 Orten“ (headers that use the file). */
 export const usedByText = (n: number): string => `verwendet von ${n} ${n === 1 ? "Ort" : "Orten"}`;
 
+/**
+ * A late failure of `split_encounter_file` (code "partial": "encounter file 183 was written as a copy of 141; switching header 401 to it
+ * failed: …") in German, with the copy that stays; null for another text.
+ */
+export function partialSplit(message: string): { copy: number; text: string } | null {
+  const m = /^encounter file (\d+) was written as a copy of (\d+); switching header (\d+) to it failed: (.*)$/s.exec(message);
+  if (!m) return null;
+  const [, copy, file, header, reason] = m;
+  return { copy: Number(copy), text: `Begegnungsdatei ${copy} ist als Kopie von ${file} angelegt und bleibt. Danach fehlgeschlagen: Header ${header} auf sie umhängen (${reason}).` };
+}
+
 /** The files with a place (in file order), and the group „Ohne Ort“ (unused and locked files). */
 export function groupFiles(rows: readonly DataRowDto[]): { placed: DataRowDto[]; unplaced: DataRowDto[] } {
   const placed: DataRowDto[] = [];

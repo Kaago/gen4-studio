@@ -194,6 +194,14 @@ describe("trainerModel", () => {
       written: [],
       extended: true,
     });
+    // A failed extension that could not put the old script back: the script stays changed, no trainer was written.
+    const stuck =
+      "creating trainer 930: battle script file 1114 stays changed; extending the battle slots failed: battle script file 1114 did not compile as expected: x; putting the old source of battle script file 1114 back failed, its extended source stays";
+    expect(partialTrainer(stuck)).toEqual({
+      text: "Trainer 930 nur zum Teil angelegt: Kampf-Script 1114 bleibt geändert. Danach fehlgeschlagen: Kampf-Plätze erweitern (battle script file 1114 did not compile as expected: x; putting the old source of battle script file 1114 back failed, its extended source stays).",
+      written: [],
+      extended: true,
+    });
     expect(partialTrainer("something else")).toEqual({ text: "something else", written: [], extended: false });
   });
 

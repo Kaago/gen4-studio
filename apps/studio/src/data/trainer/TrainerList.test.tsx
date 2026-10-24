@@ -122,7 +122,7 @@ describe("TrainerList", () => {
     expect(createTrainer).toHaveBeenCalledWith(7, "Mia");
     expect(readShellState().selected.trainer).toBe(930);
     expect(document.querySelector("[role=dialog]")).toBeNull();
-    // The list and the name bank are read again; the history catches up (the name is an undo step).
+    // The list and the name bank are read again; the history catches up (its entry is an undo barrier).
     expect(heard).toContainEqual({ topic: "dataChanged", kind: "trainer", index: null });
     expect(heard).toContainEqual({ topic: "textData", archive: 618 });
     expect(h.calls.onEdited).toHaveBeenCalled();

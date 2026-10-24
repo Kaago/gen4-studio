@@ -1609,6 +1609,17 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(1);
     });
 
+    it("says_why_an_undo_stops_at_a_creation_and_reloads_nothing", async () => {
+      await select(listed[0]);
+      const log = record();
+      // The kernel refuses to undo across the step that created a trainer (an undo barrier).
+      vi.mocked(undo).mockRejectedValueOnce({ code: "error", message: "Trainer 928 anlegen lässt sich nicht rückgängig machen", asset: null, problems: [] });
+      await pressUndo();
+      expect(log).toEqual([]);
+      expect(data().history.current).toBe(0);
+      expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("Trainer 928 anlegen lässt sich nicht rückgängig machen") });
+    });
+
     it("does not touch the history or reload anything when nothing was undone", async () => {
       await select(listed[0]);
       const log = record();

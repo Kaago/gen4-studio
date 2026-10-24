@@ -253,12 +253,14 @@ const PARTIAL_STEPS: Readonly<Record<string, string>> = {
   "writing the placeholder": "Platzhalter schreiben",
   "writing the trainer": "Trainer schreiben",
   "setting its name and text offset": "Name und Text-Offset setzen",
+  "extending the battle slots": "Kampf-Plätze erweitern",
 };
 
 /**
  * A late failure of `create_trainer` (code "partial": "creating trainer 930: battle script file 1114 has the slots up to trainer 930,
- * trainer 929 was written; writing the trainer failed: …") in German, with the trainers written and whether the battle script got
- * its slots. Another text stays as it is.
+ * trainer 929 was written; writing the trainer failed: …") in German, with the trainers written and whether the battle script changed
+ * (it got its slots, or "battle script file 1114 stays changed": a failed extension could not put the old script back). Another text
+ * stays as it is.
  */
 export function partialTrainer(message: string): { text: string; written: number[]; extended: boolean } {
   const m = /^creating trainer (\d+): (.*); (.*?) failed: (.*)$/s.exec(message);
@@ -266,12 +268,14 @@ export function partialTrainer(message: string): { text: string; written: number
   const [, id, done, step, reason] = m;
   const written = [...done!.matchAll(/trainer (\d+) was written/g)].map((w) => Number(w[1]));
   const script = /battle script file (\d+) has the slots up to trainer (\d+)/.exec(done!);
+  const stuck = /battle script file (\d+) stays changed/.exec(done!);
   const parts: string[] = [];
   if (script) parts.push(`Kampf-Script ${script[1]} hat die Plätze bis Trainer ${script[2]}`);
+  if (stuck) parts.push(`Kampf-Script ${stuck[1]} bleibt geändert`);
   if (written.length === 1) parts.push(`Trainer ${written[0]} ist geschrieben`);
   else if (written.length > 1) parts.push(`Trainer ${written.slice(0, -1).join(", ")} und ${written[written.length - 1]} sind geschrieben`);
   const text = `Trainer ${id} nur zum Teil angelegt: ${parts.join(", ")}. Danach fehlgeschlagen: ${PARTIAL_STEPS[step!] ?? step} (${reason}).`;
-  return { text, written, extended: script !== null };
+  return { text, written, extended: script !== null || stuck !== null };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------- texts

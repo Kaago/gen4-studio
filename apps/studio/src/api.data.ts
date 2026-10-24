@@ -642,9 +642,10 @@ export interface SplitDto {
 }
 
 /**
- * Creates a trainer of class `cls` named `name` at the next ID; written at once, not undoable (the name and text offset are one undo step).
+ * Creates a trainer of class `cls` named `name` at the next ID; written at once, not undoable: its history entry (name and text offset) is
+ * an undo barrier, `undo` there rejects with "Trainer <id> anlegen lässt sich nicht rückgängig machen".
  * Rejects with the kernel's words: "Erst Scripts übernehmen (Bereich Welt, Panel Script)", a name over 7 characters, the flag capacity; code
- * "partial" when the battle script was extended before a later step failed.
+ * "partial" when the battle script was extended before a later step failed, or a failed extension could not put the old script back.
  */
 export const createTrainer = (cls: number, name: string) => invoke<CreateTrainerReport>("create_trainer", { class: cls, name });
 /** Sets battle texts of `trainer` as one undo step (`TrainerTexts` patch through `dataEdit` does the same with a label). */
