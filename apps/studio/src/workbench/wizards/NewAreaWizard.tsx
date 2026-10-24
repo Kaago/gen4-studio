@@ -8,7 +8,7 @@ import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
-import { useHeaderPatch } from "./useHeaderPatch";
+import { SAVE_FIRST_IN_WIZARD, useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
 import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
@@ -78,7 +78,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   const source = matrix ? sourceHeader(matrix, headers, form.selected, preferred) : null;
   // A new header is a copy of the header the area data is taken from, else of header 0.
   const template = source?.id ?? 0;
-  const patch = useHeaderPatch(onHeaderPatch);
+  const patch = useHeaderPatch(onHeaderPatch, SAVE_FIRST_IN_WIZARD);
   const built = areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length);
   const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
   const previewTileset = previewArea(form, headers, source);

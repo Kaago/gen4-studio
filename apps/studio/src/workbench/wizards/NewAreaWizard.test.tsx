@@ -3,12 +3,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, getMatrix, headerPatchStatus } from "../../api";
+import { applyHeaderPatch, createArea, dirty, getMatrix, headerPatchStatus } from "../../api";
 import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
 import { openSelect, pressKey } from "../../ui/primitives/testUtils";
 import { NewAreaWizard } from "./NewAreaWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn() }));
 // The grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -49,6 +49,7 @@ describe("NewAreaWizard", () => {
     onHeaderPatch.mockReset().mockResolvedValue(undefined);
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
     vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patchState());
+    vi.mocked(dirty).mockReset().mockResolvedValue([]);
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -444,6 +445,18 @@ describe("NewAreaWizard", () => {
       expect(onHeaderPatch).toHaveBeenCalledOnce();
       expect(button("Patch anwenden")).toBeUndefined();
       expect(radio("Neuer Header")?.disabled).toBe(false);
+    });
+
+    it("says_in_german_how_to_save_first_when_the_header_table_is_unsaved", async () => {
+      // The patch takes the headers from disk; the kernel refuses unsaved header edits. Inside the wizard ⌘S is locked: the way out is to cancel.
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable", index: 0 }]);
+      await toHeaderStep();
+      await click(button("Patch anwenden"));
+      expect(applyHeaderPatch).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("Die Header-Tabelle hat ungespeicherte Änderungen");
+      expect(container.textContent).toContain("Assistent abbrechen, speichern (⌘S) und neu öffnen");
+      expect(button("Patch anwenden")?.disabled).toBe(false);
     });
 
     it("shows_the_backends_refusal_in_the_step_and_keeps_the_button", async () => {

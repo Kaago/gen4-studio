@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderPatchDto } from "../api";
-import { applyHeaderPatch, headerPatchStatus, repairHeaderPatch } from "../api";
+import { applyHeaderPatch, dirty, headerPatchStatus, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { ProblemsStore } from "../workbench/problems/problems";
@@ -16,6 +16,7 @@ vi.mock("../api", async (importOriginal) => ({
   headerPatchStatus: vi.fn(),
   applyHeaderPatch: vi.fn(),
   repairHeaderPatch: vi.fn(),
+  dirty: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,6 +40,7 @@ describe("TechnikArea", () => {
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patch());
     vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
     vi.mocked(repairHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
+    vi.mocked(dirty).mockReset().mockResolvedValue([]);
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -182,6 +184,18 @@ describe("TechnikArea", () => {
     await render();
     await settle();
     expect(subtitle("Patches")).toBe("Nur Platin und HGSS");
+  });
+
+  it("patch_anwenden_with_unsaved_headers_says_to_save_first", async () => {
+    vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable", index: 0 }]);
+    await render({ start: "patches" });
+    await settle();
+    await click(button("Patch anwenden"));
+    await click(button("Patch anwenden", dialog()!));
+    await settle();
+    expect(applyHeaderPatch).not.toHaveBeenCalled();
+    expect(surface()?.textContent).toContain("Die Header-Tabelle hat ungespeicherte Änderungen");
+    expect(surface()?.textContent).toContain("Erst speichern (⌘S)");
   });
 
   it("patch_anwenden_asks_first_and_applies_only_on_yes", async () => {

@@ -9,7 +9,7 @@ import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []) }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
