@@ -215,17 +215,19 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
                 </Button>
               </>
             )}
-            <span className={styles.lsp} data-lsp={lsp.state}>
-              <Badge kind={LSP_BADGE[lsp.state]} title={lspNote}>
-                {LSP_SHORT[lsp.state]}
-              </Badge>
-            </span>
             {lsp.state === "stopped" && (
               <Button kind="quiet" size="s" onClick={lsp.restart}>
                 Neu starten
               </Button>
             )}
           </>
+        }
+        status={
+          <span className={styles.lsp} data-lsp={lsp.state}>
+            <Badge kind={LSP_BADGE[lsp.state]} title={lspNote}>
+              {LSP_SHORT[lsp.state]}
+            </Badge>
+          </span>
         }
       />
       {openDocs.length === 0 ? (

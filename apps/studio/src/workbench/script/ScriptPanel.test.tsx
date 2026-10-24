@@ -278,6 +278,8 @@ describe("ScriptPanel", () => {
     // The badge says the short state; the backend's whole note is its tooltip.
     expect(lspBadge()?.textContent).toBe("rotom-lsp fehlt");
     expect(lspBadge()?.getAttribute("title")).toBe("rotom-lsp fehlt — Completion und Diagnosen aus");
+    // The badge is the head's status, beside the title, not one of its actions (a narrow head wraps the actions onto their own row).
+    expect(container.querySelector("header [data-panel-status] [data-lsp]")).not.toBeNull();
     typeAt(0, "// ");
     click(button("Speichern"));
     await settle();

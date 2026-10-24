@@ -37,3 +37,37 @@
   margin-left: auto;
   padding: var(--g4-raum-2) 0;
 }
+
+/* A head with a status (the script panel's language server badge): the status sits at the right end of the one row. */
+.withStatus {
+  container-type: inline-size;
+  flex-wrap: wrap;
+}
+
+.status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  margin-left: auto;
+}
+
+.actions + .status {
+  margin-left: 0;
+}
+
+/* Narrow (a hand column): title and status on the first row, the actions together below (wrapping only in a very narrow column). */
+@container (max-width: 600px) {
+  .withStatus > .status {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .withStatus > .actions {
+    order: 2;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    padding-top: 0;
+  }
+}
