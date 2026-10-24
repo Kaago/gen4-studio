@@ -248,13 +248,22 @@
   gap: var(--g4-raum-16);
 }
 
+/* Min and max share the cell: each field takes half of it (an inline box would size the inputs by their default width and spill over
+   „Anteil“ and „Ersetzt durch“). */
 .levels {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--g4-raum-4);
+  min-width: 0;
+}
+
+.levels > :not(.levelDash) {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .levelDash {
+  flex: none;
   color: var(--g4-text-sekundaer);
 }
 
