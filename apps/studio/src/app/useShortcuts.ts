@@ -32,6 +32,8 @@ interface ShortcutHandlers {
   area: AreaId;
   /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
   toolLocked: (tool: Tool) => boolean;
+  /** A trainer waits to be placed with the figure tool: Escape drops that binding first (back to "Auswählen"), before it unpins anything. */
+  placing?: boolean;
 }
 
 /**
@@ -61,6 +63,12 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       const selected = pinnedRef.current;
       const { area } = latest.current;
       const inWorld = area === "welt";
+      // An armed trainer binding is what Escape ends first; the selection stays pinned.
+      const plainKey = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat;
+      if (latest.current.placing && inWorld && e.key === "Escape" && plainKey && !e.defaultPrevented && !inField(e.target as HTMLElement | null)) {
+        latest.current.onTool("select");
+        return;
+      }
       // Only while the world is shown (on another area the selection stays pinned in the hidden world, the keys are not its), and not
       // when something else already handled the key (a document tab in "Offene Scripts" closes on Delete).
       if ((selected.kind === "building" || selected.kind === "event") && !e.repeat && inWorld && !e.defaultPrevented) {

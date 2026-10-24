@@ -4,12 +4,6 @@ import { ask } from "../platform/dialogs";
 import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, setPermission, updateBuilding } from "../api";
 import type { EventKind, EventPatch, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "./message";
-
-/** Fields a new event gets in the undo step that adds it, and that step's name ("Trainer Jens platziert"). */
-export interface EventPlacement {
-  patch: EventPatch;
-  label: string;
-}
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
 import { DOOR, DOOR_COLLISION, readWarpTile } from "../workbench/warpTile";
@@ -21,6 +15,12 @@ import type { EventLock, EventRef } from "../world/events";
 import type { MapBuildings } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
 import type { InspectorState } from "./useInspectorState";
+
+/** Fields a new event gets in the undo step that adds it, and that step's name ("Trainer Jens platziert"). */
+export interface EventPlacement {
+  patch: EventPatch;
+  label: string;
+}
 
 interface WorldActionsParams {
   bus: EditBus;

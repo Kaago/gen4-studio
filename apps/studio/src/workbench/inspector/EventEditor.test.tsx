@@ -299,6 +299,16 @@ describe("EventEditor scripts", () => {
       expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { script: 3927 });
     });
 
+    it("picking_another_trainer_for_a_partner_keeps_the_partner_range", async () => {
+      withObject({ script: 5355, trainer_type: 1, sight: 2 });
+      await show(context({ trainers }), "object", 0);
+      await click(container.querySelector("button[aria-label='Trainer ändern…']") ?? undefined);
+      await click(options().find((o) => o.textContent?.startsWith("Göre Mia")));
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { script: 5929 });
+      expect(trainerChip()?.textContent).toContain("Göre Mia (Partner)");
+    });
+
     it("shows_the_sightline_fields_of_task_2", async () => {
       withObject({ script: 3355, trainer_type: 1, sight: 5 });
       await show(context({ trainers }), "object", 0);

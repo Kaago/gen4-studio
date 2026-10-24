@@ -16,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, placing: false };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -29,6 +29,8 @@ describe("useShortcuts", () => {
     env.tauri = false;
     handlers.area = "welt";
     handlers.toolLocked = () => false;
+    handlers.placing = false;
+    pinned.current = { kind: "building", map: 3, index: 1 };
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
     document.body.append(container);
@@ -50,6 +52,25 @@ describe("useShortcuts", () => {
     expect(handlers.step).toHaveBeenCalledOnce();
     await press({ key: "s", metaKey: true });
     expect(handlers.onSave).toHaveBeenCalledOnce();
+  });
+
+  it("escape_drops_an_armed_trainer_binding_before_it_unpins_the_selected_event", async () => {
+    pinned.current = { kind: "event", eventFile: 330, eventKind: "object", index: 0 };
+    handlers.placing = true;
+    await press({ key: "Escape" });
+    expect(handlers.onTool).toHaveBeenCalledWith("select");
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+    // Typed into a field, Escape is the field's.
+    handlers.onTool.mockClear();
+    const input = document.createElement("input");
+    container.append(input);
+    await press({ key: "Escape" }, input);
+    expect(handlers.onTool).not.toHaveBeenCalled();
+    // Without a binding the selection goes first, as before.
+    handlers.placing = false;
+    await press({ key: "Escape" });
+    expect(handlers.unpinSelection).toHaveBeenCalledOnce();
+    expect(handlers.onTool).not.toHaveBeenCalled();
   });
 
   it("neither_deletes_nor_unpins_the_selection_of_the_hidden_world_on_another_area", async () => {

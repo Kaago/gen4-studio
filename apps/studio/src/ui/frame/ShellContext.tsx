@@ -19,7 +19,7 @@ export interface ShellApi {
   /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
-  /** The trainer the next figure is placed as („In der Welt platzieren“); null: a plain figure. Transient like the tool, never stored. */
+  /** The trainer the next figure is placed as („In der Welt platzieren“); null: a plain figure. Transient like the tool, never stored; leaving the world drops it. */
   pendingTrainer: number | null;
   setPendingTrainer: (id: number | null) => void;
   /** Puts a project first in the recent list (and drops an earlier entry of the same path). */
@@ -65,7 +65,11 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   // An OS switch while the theme is "System" also arrives here.
   useEffect(() => onThemeChange(setShownTheme), []);
 
-  const setArea = useCallback((area: AreaId) => setState((s) => (s.area === area ? s : { ...s, area })), []);
+  // Leaving the world ends a trainer binding: it belongs to the world's figure tool.
+  const setArea = useCallback((area: AreaId) => {
+    setState((s) => (s.area === area ? s : { ...s, area }));
+    if (area !== "welt") setPendingTrainer(null);
+  }, []);
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
   const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
   const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);

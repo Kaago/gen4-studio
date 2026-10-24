@@ -27,15 +27,16 @@ export function trainerOfScript(script: number): ScriptTrainer | null {
   return null;
 }
 
-/** The script that starts trainer `id`'s battle. */
-export const trainerScript = (id: number): number => TRAINER_SCRIPT + id - 1;
+/** The script that starts trainer `id`'s battle; as a double battle partner (`partner`) from the 5000 range. */
+export const trainerScript = (id: number, partner = false): number => (partner ? PARTNER_SCRIPT : TRAINER_SCRIPT) + id - 1;
 
 /**
- * The fields that make an object trainer `id`: the script, and when the figure has neither a sightline nor a sight range (both 0, a figure
- * that never was a trainer) the sightline on with 3 tiles. A sightline that is set stays as it is.
+ * The fields that make an object trainer `id`: the script (a `partner` figure keeps the partner range, ruling R9), and when the figure
+ * has neither a sightline nor a sight range (both 0, a figure that never was a trainer) the sightline on with 3 tiles. A sightline that is
+ * set stays as it is.
  */
-export function trainerPatch(id: number, object: { trainer_type: number; sight: number }): EventPatch {
-  const script = trainerScript(id);
+export function trainerPatch(id: number, object: { trainer_type: number; sight: number }, partner = false): EventPatch {
+  const script = trainerScript(id, partner);
   return object.trainer_type === 0 && object.sight === 0 ? { script, trainer_type: 1, sight: DEFAULT_SIGHT } : { script };
 }
 

@@ -369,6 +369,7 @@ function AppBody() {
     onSub: shell.setPokemonSub,
     area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
+    placing: shell.pendingTrainer !== null,
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */

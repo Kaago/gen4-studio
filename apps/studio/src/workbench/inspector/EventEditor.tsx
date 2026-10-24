@@ -19,7 +19,7 @@ import { referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 import { TrainerField } from "./TrainerField";
-import { trainerPatch } from "../trainerScript";
+import { trainerOfScript, trainerPatch } from "../trainerScript";
 
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
@@ -95,10 +95,11 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   }, [file, kind, index, revision]);
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
-  // A picked trainer: its script, and the sightline of a figure that had none, in one undoable change.
+  // A picked trainer: its script (a partner stays a partner), and the sightline of a figure that had none, in one undoable change.
   const pickTrainer = (id: number) => {
     if (event === null) return;
-    const patch = trainerPatch(id, event as ObjectDto);
+    const object = event as ObjectDto;
+    const patch = trainerPatch(id, object, trainerOfScript(object.script)?.partner ?? false);
     void session.current?.commitAll(patch as Record<string, number>, "Trainer");
   };
 

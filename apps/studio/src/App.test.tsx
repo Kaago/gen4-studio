@@ -605,6 +605,7 @@ describe("App wiring", () => {
         expect(data().tool).toBe("figure");
         expect(statusLine()).toContain("Klick setzt Wanderer Jens");
         // Not remembered between runs.
+        expect(readShellState()).not.toHaveProperty("pendingTrainer");
         expect(Object.keys(localStorage).map((k) => localStorage.getItem(k)).join()).not.toContain("pending");
       });
 
@@ -627,6 +628,15 @@ describe("App wiring", () => {
         expect(data().tool).toBe("select");
         expect(statusLine()).not.toContain("Klick setzt");
         await act(async () => data().onTool("figure"));
+        await figureClick(3, 4);
+        expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4);
+      });
+
+      it("drops_the_binding_when_the_world_is_left", async () => {
+        await place(928);
+        await act(async () => atlasEntry("Texte")!.click());
+        await act(async () => atlasEntry("Welt")!.click());
+        expect(statusLine()).not.toContain("Klick setzt");
         await figureClick(3, 4);
         expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4);
       });

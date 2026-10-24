@@ -28,6 +28,9 @@ describe("trainer scripts", () => {
     expect(trainerPatch(930, { trainer_type: 0, sight: 0 })).toEqual({ script: 3929, trainer_type: 1, sight: 3 });
     expect(trainerPatch(930, { trainer_type: 1, sight: 5 })).toEqual({ script: 3929 });
     expect(trainerPatch(930, { trainer_type: 0, sight: 2 })).toEqual({ script: 3929 });
+    // A double battle partner stays a partner.
+    expect(trainerPatch(930, { trainer_type: 1, sight: 5 }, true)).toEqual({ script: 5929 });
+    expect(trainerScript(4, true)).toBe(5003);
   });
 
   it("offers_every_trainer_but_the_dummy_0_and_the_seen_slot", () => {
