@@ -75,10 +75,13 @@ describe("Hinge", () => {
     expect(button("Zweiblattdorf")!.closest("li")!.getAttribute("title")).toBe("Zweiblattdorf");
   });
 
-  it("lets_only_the_last_crumb_give_way_when_the_bar_is_narrow", () => {
+  it("lets_the_earlier_crumbs_give_way_first_when_the_bar_is_narrow", () => {
     const css = readCss("./Hinge.module.css", import.meta.url);
-    // The earlier crumbs keep their text; the last one takes the remaining space and ends in an ellipsis.
-    expect(ruleBody(css, ".crumb")).toMatch(/flex:\s*none|flex-shrink:\s*0/);
+    // In a narrow hinge the earlier crumbs shrink first (down to a few letters), so the last one, the selection, stays readable.
+    const shrinkOf = (selector: string) => Number(/flex:\s*\S+\s+(\d+)/.exec(ruleBody(css, selector))?.[1] ?? NaN);
+    expect(shrinkOf(".crumb")).toBeGreaterThan(shrinkOf(".last"));
+    expect(ruleBody(css, ".crumb")).toMatch(/min-width:\s*calc\(var\(--g4-raum-/);
+    expect(ruleBody(css, ".last")).toMatch(/min-width:\s*calc\(var\(--g4-raum-/);
     expect(ruleBody(css, ".last")).toMatch(/overflow:\s*hidden/);
     expect(ruleBody(css, ".last")).toMatch(/text-overflow:\s*ellipsis/);
     expect(ruleBody(css, ".crumbButton")).toMatch(/text-overflow:\s*ellipsis/);
