@@ -611,6 +611,9 @@ pub struct Store {
     /// lazily by `search_text`, an entry dropped when its archive is saved or reloaded.
     /// An archive that does not decode has an empty entry.
     text_index: HashMap<u16, Vec<IndexedText>>,
+    /// Per text archive, a counter that rises whenever the store's version of it may have
+    /// changed (see [`Store::text_generation`]); an archive never touched is not in the map.
+    text_generations: HashMap<u16, u64>,
 }
 
 /// A message text and its lowercase form, for case-insensitive search.
@@ -673,6 +676,7 @@ impl Store {
             next_change: 1,
             unpacked: HashSet::new(),
             text_index: HashMap::new(),
+            text_generations: HashMap::new(),
         }
     }
 
@@ -868,6 +872,7 @@ impl Store {
             if let Some(asset) = self.assets.get_mut(&edit.asset) {
                 asset.current = edit.edited;
             }
+            self.bump_text_generation(edit.asset);
             parts.push(Part {
                 asset: edit.asset,
                 before: edit.before,
@@ -1478,6 +1483,7 @@ impl Store {
                 locked: None,
             },
         );
+        self.bump_text_generation(text_id(index));
         Ok(index)
     }
 
@@ -1544,6 +1550,22 @@ impl Store {
         .unwrap_or_default()
     }
 
+    /// A counter for text archive `index` that rises whenever the store's version of it
+    /// changed: an edit, undo or redo of it, `reload_from_disk` (which the build's
+    /// `touched_archives` go through), `accept_disk_as_base`, and creating it. Never touched
+    /// archives read 0. Caches of derived data (the name tables) compare it to see whether
+    /// to read the archive again; it is only meaningful within one store.
+    pub fn text_generation(&self, index: u16) -> u64 {
+        self.text_generations.get(&index).copied().unwrap_or(0)
+    }
+
+    /// Raises the generation of `id` if it is a text archive.
+    fn bump_text_generation(&mut self, id: AssetId) {
+        if id.kind == AssetKind::TextArchive {
+            *self.text_generations.entry(id.index).or_insert(0) += 1;
+        }
+    }
+
     /// Forgets the search index entry of `id` if it is a text archive.
     fn drop_text_index(&mut self, id: AssetId) {
         if id.kind == AssetKind::TextArchive {
@@ -1594,6 +1616,7 @@ impl Store {
         );
         self.forget_history(id);
         self.drop_text_index(id);
+        self.bump_text_generation(id);
         Ok(())
     }
 
@@ -1629,6 +1652,7 @@ impl Store {
         }
         self.forget_history(id);
         self.drop_text_index(id);
+        self.bump_text_generation(id);
         Ok(())
     }
 
@@ -1679,6 +1703,7 @@ impl Store {
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.current = value;
             }
+            self.bump_text_generation(id);
         }
         Ok(change.parts.iter().map(|p| p.asset).collect())
     }
