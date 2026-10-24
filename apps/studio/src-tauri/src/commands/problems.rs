@@ -9,7 +9,7 @@ use serde::Serialize;
 /// One entry of the Problems list. `line` is 1-based and `col` is 1-based in UTF-16 code
 /// units. For `source: "text"` the position is relative to one message (the message id
 /// is the prefix of `message`); `file` is relative to the project root with forward slashes.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProblemDto {
     /// `"error"` or `"warning"`.
     pub severity: &'static str,
@@ -17,7 +17,8 @@ pub struct ProblemDto {
     pub line: u32,
     pub col: u32,
     pub message: String,
-    /// `"compile"` or `"text"`.
+    /// `"compile"`, `"text"`, `"encounter"` (the rules an encounter file breaks, file
+    /// `encounters/NNNN`) or `"trainer"` (a trainer's battle texts, file `trainers/NNNN`).
     pub source: &'static str,
 }
 

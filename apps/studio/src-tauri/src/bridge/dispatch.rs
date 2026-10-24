@@ -115,6 +115,10 @@ pub const COMMANDS: &[&str] = &[
     "refs",
     "get_item_icon",
     "get_mon_icon",
+    "create_trainer",
+    "set_trainer_texts",
+    "create_encounter_file",
+    "split_encounter_file",
 ];
 
 fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchError> {
@@ -448,6 +452,26 @@ pub fn dispatch(
         "get_mon_icon" => run!(bytes, "get_mon_icon", args, { species: u16 }, |a| {
             get_mon_icon_impl(state, a.species)
         }),
+        "create_trainer" => run!(
+            json, "create_trainer", args,
+            { class: u8, name: String },
+            |a| create_trainer_impl(state, a.class, &a.name)
+        ),
+        "set_trainer_texts" => run!(
+            json, "set_trainer_texts", args,
+            { trainer: u16, texts: Vec<g4_kernel::data::trainer_create::TrainerText> },
+            |a| set_trainer_texts_impl(state, a.trainer, a.texts)
+        ),
+        "create_encounter_file" => run!(
+            json, "create_encounter_file", args,
+            { copy_of: Option<u16> },
+            |a| create_encounter_file_impl(state, a.copy_of)
+        ),
+        "split_encounter_file" => run!(
+            json, "split_encounter_file", args,
+            { header: u16 },
+            |a| split_encounter_file_impl(state, a.header)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -663,6 +687,13 @@ mod tests {
             ),
             ("get_item_icon", json!({ "item": 1 })),
             ("get_mon_icon", json!({ "species": 1 })),
+            ("create_trainer", json!({ "class": 1, "name": "Jens" })),
+            (
+                "set_trainer_texts",
+                json!({ "trainer": 1, "texts": [{ "kind": 0, "text": "Los!\\r" }] }),
+            ),
+            ("create_encounter_file", json!({ "copyOf": 0 })),
+            ("split_encounter_file", json!({ "header": 0 })),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

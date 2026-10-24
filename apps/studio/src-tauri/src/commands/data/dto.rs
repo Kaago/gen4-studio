@@ -7,9 +7,10 @@ use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
 
 use super::fields::{FieldSpanDto, FieldValueDto};
+use crate::commands::ProblemDto;
 
 /// The data a command works on. `species`, `learnset` and `evolution` share one document
-/// (`DataDocDto::Species`); `trainer` is listed only (its editor comes with 3b.3b).
+/// (`DataDocDto::Species`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DataKind {
@@ -163,8 +164,32 @@ pub struct DescriptionDto {
     pub text: String,
 }
 
-/// One slot of an encounter method. `min == max` for grass (one level per slot); HeartGold
-/// grass carries the morning and night species next to `species` (the day species).
+/// A replacement list entry that can take a slot's place: entry `entry` of list `list`
+/// (the kernel's key, see [`ReplacementListDto`]) `when` (English, the kernel's words: "from
+/// 10 to 19 o'clock", "during a swarm"). `in_file` is false for Trophy Garden and Great Marsh,
+/// whose species are not in the encounter file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReplacedByDto {
+    pub list: &'static str,
+    pub entry: u16,
+    pub when: &'static str,
+    pub in_file: bool,
+}
+
+/// A slot a replacement list entry takes the place of: slot `slot` of method `method`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SlotTargetDto {
+    pub method: &'static str,
+    pub slot: u16,
+}
+
+/// One slot of an encounter method, or one entry of a replacement list. `min == max` for
+/// grass (one level per slot); HeartGold grass carries the morning and night species next to
+/// `species` (the day species). `share` is the percent the game picks the slot with (for a
+/// list entry: the shares of the slots it replaces in its first method added up);
+/// `replaced_by` lists the replacement entries that can take a method slot's place (empty
+/// for a list entry), `replaces` the slots a list entry replaces (empty for a method slot).
+/// A list entry takes the level of the first slot it replaces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SlotDto {
     pub index: u16,
@@ -173,6 +198,9 @@ pub struct SlotDto {
     pub max: u8,
     pub species_morning: Option<u16>,
     pub species_night: Option<u16>,
+    pub share: u8,
+    pub replaced_by: Vec<ReplacedByDto>,
+    pub replaces: Vec<SlotTargetDto>,
 }
 
 /// One encounter method (`grass`, `surf`, `rock_smash` (HeartGold), `old_rod`, `good_rod`,
@@ -184,12 +212,96 @@ pub struct MethodDto {
     pub slots: Vec<SlotDto>,
 }
 
-/// A replacement list of an encounter file (Platinum `swarm`, `day`, `night`, `radar`,
-/// `dual_*`; HeartGold `radio`, `land_swarm`, `surf_swarm`, `night_fish`, `fish_swarm`).
+/// A replacement list stored in the encounter file, by the kernel's key (Platinum `swarm`,
+/// `day`, `night`, `radar`, `dual_ruby` … `dual_leafgreen`; HeartGold `radio_hoenn`,
+/// `radio_sinnoh`, `land_swarm`, `surf_swarm`, `night_fish`, `fish_swarm`), with its German
+/// `label` ("Tag", "Radio Hoenn"), when the game uses it (English) and its entries as slots.
+/// `DataPatch::Encounter` takes `list` as `method` and the entry as `slot`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ExtraListDto {
+pub struct ReplacementListDto {
     pub list: &'static str,
-    pub species: Vec<u16>,
+    pub label: &'static str,
+    pub when: &'static str,
+    pub slots: Vec<SlotDto>,
+}
+
+/// The values of a Platinum encounter file that are no slot: the five form rates (Shellos
+/// and Gastrodon) and the Unown table. `DataPatch::EncounterExtra` takes `form_rate_0` to
+/// `form_rate_4` and `unown_table`. Both `None` in HeartGold.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct EncounterExtrasDto {
+    pub form_rates: Option<[u32; 5]>,
+    pub unown_table: Option<u32>,
+}
+
+/// A rule the file breaks (shown, never enforced): the method key and the slot (0-based;
+/// `None`: the method as a whole), the kernel's English text with 0-based numbers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RuleWarningDto {
+    pub method: &'static str,
+    pub slot: Option<u16>,
+    pub text: String,
+}
+
+/// A header (place) and its name: the in-game location name, else the internal name, else
+/// "Header NNNN".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PlaceDto {
+    pub header: u16,
+    pub name: String,
+}
+
+/// A species and its share in percent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SpeciesShareDto {
+    pub species: u16,
+    pub share: u8,
+}
+
+/// Who waits in the grass at one time of day (`morning`, `day`, `night`, the kernel's keys),
+/// largest share first, without swarm, radar, radio and cartridge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TimeSharesDto {
+    pub when: &'static str,
+    pub species: Vec<SpeciesShareDto>,
+}
+
+/// Whether the party entries carry their own moves and a held item.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartyFormatDto {
+    pub moves: bool,
+    pub items: bool,
+}
+
+/// One Pokémon of a trainer party. `item` is `Some` exactly when the trainer's format has
+/// items, `moves` when it has moves; `ball_capsule` is `Some` in Platinum and HeartGold.
+/// `gender` (bits 0 to 3 of `byte1`) and `ability` (bits 4 to 7) are `Some` in HeartGold only;
+/// there, a patch with both set writes `byte1` from them, else `byte1` is written as given.
+/// `species` takes 10 bits, `form` 6.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartyMonDto {
+    pub iv_or_difficulty: u8,
+    pub byte1: u8,
+    pub level: u16,
+    pub species: u16,
+    pub form: u8,
+    pub item: Option<u16>,
+    pub moves: Option<[u16; 4]>,
+    pub ball_capsule: Option<u16>,
+    #[serde(default)]
+    pub gender: Option<u8>,
+    #[serde(default)]
+    pub ability: Option<u8>,
+}
+
+/// One battle text of a trainer: its kind (0 before the battle, 1 lost, 2 after the battle,
+/// …), where it lives (battle text archive, message) and the text in chatot form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrainerTextDto {
+    pub kind: u16,
+    pub archive: u16,
+    pub message: u16,
+    pub text: String,
 }
 
 /// The document of one data member, tagged by `kind`. `locked` is the reason a member cannot
@@ -233,12 +345,55 @@ pub enum DataDocDto {
         locked: Option<String>,
         raw_locked: Option<Vec<u8>>,
     },
+    /// An encounter file: its methods with shares and replacements, the replacement lists it
+    /// stores, the Platinum extras, the rules it breaks (`warnings`, and the same as Problems
+    /// rows of source `encounter` and file `encounters/NNNN` in `problems`, which replace the
+    /// file's previous rows), the headers that use it and who waits in the grass per time of
+    /// day.
     Encounter {
         methods: Vec<MethodDto>,
-        extras: Vec<ExtraListDto>,
+        replacements: Vec<ReplacementListDto>,
+        extras: EncounterExtrasDto,
+        warnings: Vec<RuleWarningDto>,
+        problems: Vec<ProblemDto>,
+        users: Vec<PlaceDto>,
+        effective: Vec<TimeSharesDto>,
         locked: Option<String>,
         raw_locked: Option<Vec<u8>>,
     },
+    /// A trainer: properties, party, name (without the `{TRAINER_NAME:…}` wrapper), battle
+    /// texts and the object events that start its battle (references, as `refs` gives them).
+    /// `placeholder` marks the locked placeholder of the sight script slot. `name_archive` and
+    /// `text_archive` are the trainer name and battle text banks; `texts_locked` the reason
+    /// the battle texts cannot be read or written (table and archive differ). `problems` are
+    /// the Problems rows of source `trainer` and file `trainers/NNNN` (the text before the
+    /// battle should end with `\r`).
+    Trainer {
+        class: u8,
+        name: String,
+        format: PartyFormatDto,
+        ai: u32,
+        battle_type: u32,
+        items: [u16; 4],
+        party: Vec<PartyMonDto>,
+        texts: Vec<TrainerTextDto>,
+        texts_locked: Option<String>,
+        events: Vec<RefDto>,
+        name_archive: Option<u16>,
+        text_archive: Option<u16>,
+        problems: Vec<ProblemDto>,
+        placeholder: bool,
+        locked: Option<String>,
+        raw_locked: Option<Vec<u8>>,
+    },
+}
+
+/// One battle text to write: its kind and the text in chatot form (empty: a kind the trainer
+/// does not have yet is not added).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TrainerTextInDto {
+    pub kind: u16,
+    pub text: String,
 }
 
 /// One change of a data member (externally tagged, like `TextEdit`). Each names the part it
@@ -279,12 +434,45 @@ pub enum DataPatch {
         from: u16,
     },
     /// `field` of slot `slot` of `method` (a method or a replacement list, see
-    /// [`MethodDto`] and [`ExtraListDto`]); the method's `rate` takes no slot.
+    /// [`MethodDto`] and [`ReplacementListDto`]); the method's `rate` takes no slot. Levels
+    /// are pulled along on input: a water `min` above `max` raises `max` to it, a `max`
+    /// below `min` lowers `min` (one step).
     Encounter {
         method: String,
         slot: Option<u16>,
         field: String,
         value: i64,
+    },
+    /// A Platinum value that is no slot: `form_rate_0` to `form_rate_4`, `unown_table`.
+    EncounterExtra {
+        field: String,
+        value: i64,
+    },
+    /// A field of the trainer properties: `class`, `ai`, `battle_type`, `item0` to `item3`.
+    Trainer {
+        field: String,
+        value: i64,
+    },
+    /// The trainer's name (at most [`g4_kernel::data::trainer_rules::NAME_MAX_CHARS`]
+    /// characters), written to the trainer name bank at index = trainer.
+    TrainerName {
+        name: String,
+    },
+    /// Own moves and held items on or off for the whole party (`None`: unchanged). Moves on
+    /// fill each Pokémon with the moves the game would give it (the learnset of its species'
+    /// base form up to its level); off drops them. Items on give every Pokémon item 0, off
+    /// drops the items. One step.
+    TrainerFormat {
+        moves: Option<bool>,
+        items: Option<bool>,
+    },
+    /// The whole party (at most six), written in the trainer's format.
+    TrainerParty {
+        party: Vec<PartyMonDto>,
+    },
+    /// Battle texts, as `set_trainer_texts` writes them.
+    TrainerTexts {
+        texts: Vec<TrainerTextInDto>,
     },
 }
 
@@ -388,4 +576,20 @@ pub struct RefDto {
     pub label: String,
     pub source_name: String,
     pub nav: NavTargetDto,
+}
+
+/// What `set_trainer_texts` did: the assets it changed (empty: nothing) and the Problems rows
+/// of source `trainer` for the trainer (they replace its previous rows).
+#[derive(Debug, Clone, Serialize)]
+pub struct TrainerTextsDto {
+    pub changed: Vec<AssetId>,
+    pub problems: Vec<ProblemDto>,
+}
+
+/// What `split_encounter_file` did: the new encounter file (written at once, not undoable)
+/// and the assets the undoable step changed (the header table; empty when nothing changed).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SplitDto {
+    pub index: u16,
+    pub changed: Vec<AssetId>,
 }

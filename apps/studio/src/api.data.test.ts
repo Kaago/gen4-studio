@@ -4,6 +4,8 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
 import {
+  createEncounterFile,
+  createTrainer,
   dataEdit,
   dataGet,
   dataList,
@@ -15,6 +17,8 @@ import {
   machineTable,
   nameTables,
   refs,
+  setTrainerTexts,
+  splitEncounterFile,
 } from "./api";
 
 describe("data commands", () => {
@@ -66,6 +70,38 @@ describe("data commands", () => {
     });
   });
 
+  it("calls the trainer and encounter commands with the keys the bridge accepts", async () => {
+    await createTrainer(2, "Jens");
+    expect(invoke).toHaveBeenLastCalledWith("create_trainer", { class: 2, name: "Jens" });
+    await setTrainerTexts(928, [{ kind: 0, text: "Los!\\r" }]);
+    expect(invoke).toHaveBeenLastCalledWith("set_trainer_texts", { trainer: 928, texts: [{ kind: 0, text: "Los!\\r" }] });
+    await createEncounterFile();
+    expect(invoke).toHaveBeenLastCalledWith("create_encounter_file", { copyOf: null });
+    await createEncounterFile(12);
+    expect(invoke).toHaveBeenLastCalledWith("create_encounter_file", { copyOf: 12 });
+    await splitEncounterFile(3);
+    expect(invoke).toHaveBeenLastCalledWith("split_encounter_file", { header: 3 });
+  });
+
+  it("sends the trainer patches with the label the editor words", async () => {
+    await dataEdit("trainer", 5, { Trainer: { field: "ai", value: 7 } });
+    expect(invoke).toHaveBeenLastCalledWith("data_edit", { kind: "trainer", index: 5, patch: { Trainer: { field: "ai", value: 7 } }, label: null });
+    await dataEdit("trainer", 5, { TrainerFormat: { moves: true, items: null } }, "Wanderer Jens: eigene Attacken an");
+    expect(invoke).toHaveBeenLastCalledWith("data_edit", {
+      kind: "trainer",
+      index: 5,
+      patch: { TrainerFormat: { moves: true, items: null } },
+      label: "Wanderer Jens: eigene Attacken an",
+    });
+    await dataEdit("encounter", 12, { EncounterExtra: { field: "unown_table", value: 2 } }, "Route 201: Icognito-Tabelle 0 → 2");
+    expect(invoke).toHaveBeenLastCalledWith("data_edit", {
+      kind: "encounter",
+      index: 12,
+      patch: { EncounterExtra: { field: "unown_table", value: 2 } },
+      label: "Route 201: Icognito-Tabelle 0 → 2",
+    });
+  });
+
   it("reads icons as bytes and treats an empty body as no icon", async () => {
     invoke.mockResolvedValueOnce(new Uint8Array([0x89, 0x50]).buffer);
     const icon = await getItemIcon(17);
@@ -93,6 +129,9 @@ describe("fieldLabels", () => {
     expect(fieldLabels.move.priority).toBe("Priorität");
     expect(fieldLabels.item.price).toBe("Preis");
     expect(fieldLabels.encounter.grass).toBe("Gras");
+    expect(fieldLabels.encounter.radio_sinnoh).toBe("Radio Sinnoh");
+    expect(fieldLabels.trainer.battle_type).toBe("Kampfart");
+    expect(fieldLabels.trainer.item0).toBe("Gegenstand 1");
     for (const table of Object.values(fieldLabels)) {
       for (const label of Object.values(table)) expect(label).not.toMatch(/\./);
     }

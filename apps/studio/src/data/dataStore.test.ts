@@ -150,6 +150,9 @@ describe("dataChangedOf", () => {
     expect(dataChangedOf({ kind: "Item", index: 17 })).toEqual({ topic: "dataChanged", kind: "item", index: 17 });
     expect(dataChangedOf({ kind: "Learnset", index: 3 })).toEqual({ topic: "dataChanged", kind: "learnset", index: 3 });
     expect(dataChangedOf({ kind: "TrainerParty", index: 3 })).toEqual({ topic: "dataChanged", kind: "trainer", index: 3 });
+    expect(dataChangedOf({ kind: "Trainer", index: 3 })).toEqual({ topic: "dataChanged", kind: "trainer", index: 3 });
+    // The text table and offsets hold every trainer's texts: any trainer may have changed.
+    expect(dataChangedOf({ kind: "TrainerTextTable", index: 0 })).toEqual({ topic: "dataChanged", kind: "trainer", index: null });
     expect(dataChangedOf({ kind: "Map", index: 3 })).toBeNull();
   });
 });

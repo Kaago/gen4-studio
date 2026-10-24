@@ -287,6 +287,18 @@ pub fn set_trainer_texts(
     id: u16,
     texts: Vec<TrainerText>,
 ) -> Result<TrainerTextsOutcome, KernelError> {
+    set_trainer_texts_labelled(store, names, id, texts, None)
+}
+
+/// [`set_trainer_texts`] with the undo step named `label` (default "Kampftexte Trainer
+/// <id>"), for an editor that words its own label.
+pub fn set_trainer_texts_labelled(
+    store: &mut Store,
+    names: &mut NameTables,
+    id: u16,
+    texts: Vec<TrainerText>,
+    label: Option<&str>,
+) -> Result<TrainerTextsOutcome, KernelError> {
     let project = store.project();
     let archive = bank_index(project.family, project.language, Bank::BattleTexts)
         .ok_or_else(|| refused("the game has no battle text bank"))?;
@@ -384,21 +396,12 @@ pub fn set_trainer_texts(
         })
         .or_else(|| in_block(TEXT_BEFORE_BATTLE).map(|i| messages[i].clone()));
     let problems = before_battle
-        .filter(|text| !text.is_empty() && !text.ends_with("\\r"))
-        .map(|_| Problem {
-            severity: Severity::Warning,
-            file: PathBuf::from(format!("trainers/{id:04}")),
-            line: 1,
-            col: 1,
-            message: format!(
-                "trainer {id}: the text before the battle does not end with \\r, so its box \
-                 closes at once"
-            ),
-        })
+        .and_then(|text| before_battle_problem(id, &text))
         .into_iter()
         .collect();
 
-    let (_, change) = store.transaction(&format!("Kampftexte Trainer {id}"), |tx| {
+    let default_label = format!("Kampftexte Trainer {id}");
+    let (_, change) = store.transaction(label.unwrap_or(&default_label), |tx| {
         tx.edit_text_archive(archive, |doc| {
             for (i, text) in &updates {
                 if let Some(message) = doc.messages.get_mut(*i) {
@@ -426,6 +429,61 @@ pub fn set_trainer_texts(
         })
     })?;
     Ok(TrainerTextsOutcome { change, problems })
+}
+
+/// The warning about trainer `id`'s text before the battle when it does not end with `\r`
+/// (its box closes at once, trainer-mechanics-3b3b.md §3): source "Trainer", file
+/// `trainers/NNNN`. `None` for an empty text or one that ends right.
+pub fn before_battle_problem(id: u16, text: &str) -> Option<Problem> {
+    (!text.is_empty() && !text.ends_with("\\r")).then(|| Problem {
+        severity: Severity::Warning,
+        file: PathBuf::from(format!("trainers/{id:04}")),
+        line: 1,
+        col: 1,
+        message: format!(
+            "trainer {id}: the text before the battle does not end with \\r, so its box \
+             closes at once"
+        ),
+    })
+}
+
+/// One battle text of a trainer as the game reads it: its kind, the message of the battle
+/// text archive it is (entry `message` of `trtbl`) and the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrainerTextEntry {
+    pub kind: u16,
+    pub message: u16,
+    pub text: String,
+}
+
+/// The battle texts of trainer `id` in the order of its block of `trtbl` (from
+/// `trtblofs[id]`); empty when it has none. Refused as [`KernelError::ReadOnly`] when
+/// `trtbl` and the battle text archive differ in length (the texts cannot be told apart).
+pub fn trainer_texts(
+    store: &mut Store,
+    names: &mut NameTables,
+    id: u16,
+) -> Result<Vec<TrainerTextEntry>, KernelError> {
+    let messages = names.names(store, Bank::BattleTexts)?.to_vec();
+    let table = store.trainer_text_table(0)?.entries.clone();
+    let offsets = store.trainer_text_offsets(0)?.offsets.clone();
+    if table.len() != messages.len() {
+        return Err(KernelError::ReadOnly {
+            asset: text_table_id(),
+            reason: "trainer texts do not match the table".to_owned(),
+        });
+    }
+    Ok(own_block(&table, &offsets, id)
+        .into_iter()
+        .flatten()
+        .map(|i| TrainerTextEntry {
+            kind: table[i].1,
+            // A block starts at a u16 byte offset, so its entries lie below 16384 + its length,
+            // and a text archive holds far fewer than 65536 messages.
+            message: i as u16,
+            text: messages[i].clone(),
+        })
+        .collect())
 }
 
 /// The entries of trainer `id` in `table`: the run of its entries from `trtblofs[id]`, as

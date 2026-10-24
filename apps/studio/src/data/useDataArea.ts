@@ -9,6 +9,7 @@ import type { PanelHeadSwitcher } from "../ui/primitives";
 import { dataCrumbs } from "../workbench/breadcrumb";
 import type { Crumb } from "../workbench/breadcrumb";
 import type { DataNav, NavTarget } from "../workbench/navigation";
+import type { ProblemsStore } from "../workbench/problems/problems";
 import { NO_FILTER, SELECT_KEY, SUB_KIND, SUB_LABEL, SUB_LOCKED, SUB_SHORTCUT, areaOfSub, filterRows, isSubLocked, itemPocket, pocketLabel, rowLabel } from "./dataModel";
 import type { DataArea, DataSub, ListFilter, ListKind } from "./dataModel";
 import { useDataSnapshot } from "./dataStore";
@@ -35,6 +36,8 @@ export interface DataAreaProps {
   bus: EditBus;
   /** The header table: an encounter file is named by the place of a header that uses it. */
   headers: readonly HeaderSummary[];
+  /** The Problems list: a document with rows of its own (an encounter file, a trainer) replaces them with every read. */
+  problems?: ProblemsStore;
 }
 
 /** The state of a data area for its list, view, hand and status parts (`useDataArea`). */
@@ -76,6 +79,8 @@ export interface DataAreaModel {
   onEdited(): void;
   bus: EditBus;
   headers: readonly HeaderSummary[];
+  /** The Problems list (null: none, in tests): `useDataDoc` hands it the rows a document carries (`DocSpec.problems`). */
+  problems: ProblemsStore | null;
 }
 
 /**
@@ -121,6 +126,7 @@ const NO_SEARCH: Search = { query: "", filter: NO_FILTER };
  */
 export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModels {
   const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
+  const problems = props.problems ?? null;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -231,8 +237,9 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       onEdited,
       bus,
       headers,
+      problems,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems],
   );
   const searchModel = useMemo<DataSearchModel>(
     () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),

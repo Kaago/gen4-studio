@@ -11,7 +11,8 @@ use serde::Serialize;
 use crate::commands::ProblemDto;
 
 /// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
-/// `"partial"` (a wizard command failed after it had created members, which stay),
+/// `"partial"` (a wizard or creating command failed after it had created members, which
+/// stay),
 /// `"compile"` (scripts or texts did not compile; `problems` lists them) or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
@@ -59,6 +60,8 @@ impl From<KernelError> for CmdError {
             KernelError::ReadOnly { asset, .. } => ("read_only", Some(*asset)),
             KernelError::Restore { asset, .. } => ("error", Some(*asset)),
             KernelError::ToolMissing { .. } => ("tool_missing", None),
+            // Something was written before the failure and stays; the text names it.
+            KernelError::Partial(_) => ("partial", None),
             _ => ("error", None),
         };
         CmdError {

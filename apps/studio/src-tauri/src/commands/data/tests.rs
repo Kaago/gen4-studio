@@ -407,10 +407,12 @@ fn moves_encounters_and_trainers() {
     assert_eq!(last_label(&state), "Begegnungen 0001: Gras Rate 10 → 25");
     match data_get_impl(&state, DataKind::Encounter, 1).unwrap() {
         DataDocDto::Encounter {
-            methods, extras, ..
+            methods,
+            replacements,
+            ..
         } => {
             assert_eq!((methods[0].rate, methods[0].slots[0].species), (25, 3));
-            assert_eq!(extras[0].list, "swarm");
+            assert_eq!(replacements[0].list, "day");
         }
         other => panic!("{other:?}"),
     }
@@ -425,15 +427,631 @@ fn moves_encounters_and_trainers() {
 
     let trainers = data_list_impl(&state, DataKind::Trainer, None).unwrap();
     assert_eq!(trainers.len(), 3);
-    assert_eq!(trainers[2].extra, json!({ "class": 0, "party_count": 3 }));
+    assert_eq!(
+        trainers[2].extra,
+        json!({ "class": 0, "class_name": "Pokémon Trainer", "level_max": 15, "party_count": 3, "places": [] })
+    );
     assert_eq!(trainers[1].name, "Kai");
-    assert_eq!(trainers[1].extra, json!({ "class": 1, "party_count": 1 }));
-    for err in [
-        data_get_impl(&state, DataKind::Trainer, 1).unwrap_err(),
-        data_edit_impl(&state, DataKind::Trainer, 1, personal("hp", 1), None).unwrap_err(),
-    ] {
-        assert_eq!((err.code, err.message.as_str()), ("error", TRAINER_LATER));
+    assert_eq!(
+        trainers[1].extra,
+        json!({ "class": 1, "class_name": "Youngster", "level_max": 5, "party_count": 1, "places": [] })
+    );
+    // A species patch does not apply to a trainer.
+    let err = data_edit_impl(&state, DataKind::Trainer, 1, personal("hp", 1), None).unwrap_err();
+    assert_eq!(err.code, "error", "{}", err.message);
+}
+
+/// The trainer document of `index`.
+fn trainer(state: &AppState, index: u16) -> DataDocDto {
+    let doc = data_get_impl(state, DataKind::Trainer, index).unwrap();
+    assert!(matches!(doc, DataDocDto::Trainer { .. }), "{doc:?}");
+    doc
+}
+
+/// The party of trainer `index`.
+fn party(state: &AppState, index: u16) -> Vec<PartyMonDto> {
+    match trainer(state, index) {
+        DataDocDto::Trainer { party, .. } => party,
+        _ => unreachable!(),
     }
+}
+
+/// Points the object event 0 of event file `file` at trainer `trainer` (script 3000 + id - 1)
+/// and header 0 at that event file.
+fn place_trainer(state: &AppState, file: u16, trainer: u16) {
+    use crate::commands::{
+        EventKind, add_event_impl, get_header_impl, set_header_impl, update_event_impl,
+    };
+    add_event_impl(state, file, EventKind::Object, 3, 4).unwrap();
+    let patch = serde_json::from_value(json!({ "script": 3000 + trainer - 1 })).unwrap();
+    update_event_impl(state, file, EventKind::Object, 0, patch).unwrap();
+    let g4_kernel::store::MapHeader::Pt(mut header) = get_header_impl(state, 0).unwrap() else {
+        panic!("a Platinum fixture");
+    };
+    header.event_file_id = file;
+    set_header_impl(
+        state,
+        0,
+        g4_kernel::store::MapHeader::Pt(header),
+        "Eventdatei",
+    )
+    .unwrap();
+}
+
+#[test]
+fn data_get_trainer_lists_party_texts_and_events() {
+    let (_fixture, state) = open_synthetic();
+    place_trainer(&state, 1, 1);
+    match trainer(&state, 1) {
+        DataDocDto::Trainer {
+            class,
+            name,
+            format,
+            party,
+            texts,
+            texts_locked,
+            events,
+            name_archive,
+            text_archive,
+            problems,
+            placeholder,
+            locked,
+            ..
+        } => {
+            assert_eq!((class, name.as_str()), (1, "Kai"));
+            assert_eq!(
+                format,
+                PartyFormatDto {
+                    moves: false,
+                    items: false
+                }
+            );
+            assert_eq!(party.len(), 1);
+            assert_eq!(
+                (
+                    party[0].species,
+                    party[0].level,
+                    party[0].moves,
+                    party[0].item
+                ),
+                (1, 5, None, None)
+            );
+            // Platinum: no gender or ability of its own.
+            assert_eq!((party[0].gender, party[0].ability), (None, None));
+            assert_eq!(texts_locked, None);
+            let texts: Vec<_> = texts
+                .iter()
+                .map(|t| (t.kind, t.archive, t.message, t.text.as_str()))
+                .collect();
+            assert_eq!(
+                texts,
+                [(0, 617, 0, "Let’s battle!"), (2, 617, 1, "I lost!")]
+            );
+            assert_eq!((name_archive, text_archive), (Some(618), Some(617)));
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].source, id(AssetKind::Event, 1));
+            assert_eq!(
+                serde_json::to_value(&events[0].nav).unwrap(),
+                json!({ "kind": "event", "eventFile": 1, "eventKind": "object", "index": 0 })
+            );
+            // The text before the battle does not end with \r: a Problems row.
+            assert_eq!(problems.len(), 1);
+            assert_eq!(
+                (
+                    problems[0].source,
+                    problems[0].file.as_str(),
+                    problems[0].severity
+                ),
+                ("trainer", "trainers/0001", "warning")
+            );
+            assert!(!placeholder);
+            assert_eq!(locked, None);
+        }
+        _ => unreachable!(),
+    }
+    // Trainer 2: moves and items; Platinum keeps the ball capsule.
+    let two = party(&state, 2);
+    assert_eq!(two.len(), 3);
+    assert_eq!(
+        (two[0].item, two[0].moves, two[0].ball_capsule),
+        (Some(25), Some([20, 21, 0, 0]), Some(0))
+    );
+    // The list names the place of the event: header 0, "Twinleaf Town".
+    let rows = data_list_impl(&state, DataKind::Trainer, None).unwrap();
+    assert_eq!(
+        rows[1].extra["places"],
+        json!([{ "header": 0, "name": "Twinleaf Town" }])
+    );
+    assert_eq!(rows[2].extra["places"], json!([]));
+
+    // Fields, items and the party, each one step with a speaking label.
+    let steps = history_impl(&state).unwrap().undo.len();
+    let field = |field: &str, value: i64| DataPatch::Trainer {
+        field: field.into(),
+        value,
+    };
+    data_edit_impl(&state, DataKind::Trainer, 1, field("ai", 7), None).unwrap();
+    assert_eq!(last_label(&state), "Youngster Kai: KI 0 → 7");
+    data_edit_impl(&state, DataKind::Trainer, 1, field("item2", 28), None).unwrap();
+    assert_eq!(last_label(&state), "Youngster Kai: Gegenstand 3 0 → 28");
+    let mut mons = party(&state, 1);
+    mons[0].level = 14;
+    let changed = data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        1,
+        DataPatch::TrainerParty { party: mons },
+        Some("Youngster Kai: Platz 1 Level 5 → 14".into()),
+    )
+    .unwrap();
+    assert_eq!(changed, [id(AssetKind::Trainer, 1)]);
+    assert_eq!(last_label(&state), "Youngster Kai: Platz 1 Level 5 → 14");
+    assert_eq!(party(&state, 1)[0].level, 14);
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 3);
+    for bad in [field("class", 256), field("item4", 1), field("name", 1)] {
+        let err = data_edit_impl(&state, DataKind::Trainer, 1, bad, None).unwrap_err();
+        assert_eq!(err.code, "error", "{}", err.message);
+    }
+    let seven = vec![PartyMonDto::default(); 7];
+    let err = data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        1,
+        DataPatch::TrainerParty { party: seven },
+        None,
+    )
+    .unwrap_err();
+    assert!(err.message.contains("at most 6"), "{}", err.message);
+    // The reference index sees the edit at once.
+    let refs = refs_impl(&state, TargetDto::Item { id: 28 }).unwrap();
+    assert!(
+        refs.iter()
+            .any(|r| r.source == id(AssetKind::TrainerProperties, 1))
+    );
+
+    // Battle texts through data_edit: one step, with the caller's label.
+    let changed = data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        1,
+        DataPatch::TrainerTexts {
+            texts: vec![TrainerTextInDto {
+                kind: 0,
+                text: "Los geht's!\\r".into(),
+            }],
+        },
+        Some("Youngster Kai: Kampftext vor dem Kampf".into()),
+    )
+    .unwrap();
+    assert_eq!(changed, [id(AssetKind::TextArchive, 617)]);
+    assert_eq!(last_label(&state), "Youngster Kai: Kampftext vor dem Kampf");
+    match trainer(&state, 1) {
+        DataDocDto::Trainer {
+            texts, problems, ..
+        } => {
+            assert_eq!(texts[0].text, "Los geht's!\\r");
+            assert!(problems.is_empty(), "{problems:?}");
+        }
+        _ => unreachable!(),
+    }
+    let raw = data_raw_impl(&state, DataKind::Trainer, 1).unwrap();
+    assert_eq!(raw.path, "files/poketool/trainer/trdata.narc");
+    assert_eq!(
+        (raw.fields[0].name.as_str(), raw.fields[1].offset),
+        ("props_len", 4)
+    );
+    assert_eq!(raw.fields.last().unwrap().name, "party");
+}
+
+#[test]
+fn trainer_format_on_fills_default_moves_in_one_step() {
+    let (_fixture, state) = open_synthetic();
+    let format =
+        |moves: Option<bool>, items: Option<bool>| DataPatch::TrainerFormat { moves, items };
+    let steps = history_impl(&state).unwrap().undo.len();
+    // Trainer 1: species 1 at level 5; its learnset is Pound at 1 and Karate Chop at 5.
+    let changed =
+        data_edit_impl(&state, DataKind::Trainer, 1, format(Some(true), None), None).unwrap();
+    assert_eq!(changed, [id(AssetKind::Trainer, 1)]);
+    assert_eq!(last_label(&state), "Youngster Kai: eigene Attacken an");
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
+    assert_eq!(party(&state, 1)[0].moves, Some([1, 2, 0, 0]));
+    match trainer(&state, 1) {
+        DataDocDto::Trainer { format, .. } => assert!(format.moves && !format.items),
+        _ => unreachable!(),
+    }
+    // Already on: nothing to do, nothing recorded.
+    assert!(
+        data_edit_impl(&state, DataKind::Trainer, 1, format(Some(true), None), None)
+            .unwrap()
+            .is_empty()
+    );
+    // Undo takes the moves away again.
+    undo_impl(&state).unwrap();
+    assert_eq!(party(&state, 1)[0].moves, None);
+    // Both at once: one step; off drops them.
+    data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        1,
+        format(Some(true), Some(true)),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        last_label(&state),
+        "Youngster Kai: eigene Attacken an, Items tragen an"
+    );
+    assert_eq!(party(&state, 1)[0].item, Some(0));
+    data_edit_impl(
+        &state,
+        DataKind::Trainer,
+        1,
+        format(Some(false), None),
+        Some("eigener Text".into()),
+    )
+    .unwrap();
+    assert_eq!(last_label(&state), "eigener Text");
+    assert_eq!(party(&state, 1)[0].moves, None);
+    assert_eq!(party(&state, 1)[0].item, Some(0));
+}
+
+#[test]
+fn trainer_name_over_seven_chars_is_refused() {
+    let (_fixture, state) = open_synthetic();
+    let name = |name: &str| DataPatch::TrainerName { name: name.into() };
+    let steps = history_impl(&state).unwrap().undo.len();
+    let err = data_edit_impl(&state, DataKind::Trainer, 1, name("Bartholo"), None).unwrap_err();
+    assert_eq!(
+        err.message,
+        "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch"
+    );
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps);
+    // Seven fit.
+    let changed = data_edit_impl(&state, DataKind::Trainer, 1, name("Wolfram"), None).unwrap();
+    assert_eq!(changed, [id(AssetKind::TextArchive, 618)]);
+    assert_eq!(last_label(&state), "Youngster Kai: Name Kai → Wolfram");
+    match trainer(&state, 1) {
+        DataDocDto::Trainer { name, .. } => assert_eq!(name, "Wolfram"),
+        _ => unreachable!(),
+    }
+    let rows = data_list_impl(&state, DataKind::Trainer, None).unwrap();
+    assert_eq!(rows[1].name, "Wolfram");
+}
+
+/// The encounter document of `index`.
+fn encounter_doc(state: &AppState, index: u16) -> DataDocDto {
+    let doc = data_get_impl(state, DataKind::Encounter, index).unwrap();
+    assert!(matches!(doc, DataDocDto::Encounter { .. }), "{doc:?}");
+    doc
+}
+
+#[test]
+fn data_get_encounter_carries_shares_and_warnings() {
+    let (_fixture, state) = open_synthetic();
+    // Encounter file 0: grass rate 10, slot 0 species 1 at level 2.
+    match encounter_doc(&state, 0) {
+        DataDocDto::Encounter {
+            methods,
+            replacements,
+            extras,
+            warnings,
+            problems,
+            users,
+            effective,
+            locked,
+            ..
+        } => {
+            assert_eq!(locked, None);
+            let grass = &methods[0];
+            assert_eq!((grass.method, grass.rate), ("grass", 10));
+            assert_eq!(grass.slots[0].share, 20);
+            assert_eq!(grass.slots[11].share, 1);
+            let by: Vec<_> = grass.slots[0]
+                .replaced_by
+                .iter()
+                .map(|r| (r.list, r.entry))
+                .collect();
+            assert_eq!(by, [("swarm", 0)]);
+            let lists: Vec<_> = replacements.iter().map(|l| l.list).collect();
+            assert_eq!(
+                lists,
+                [
+                    "day",
+                    "night",
+                    "swarm",
+                    "radar",
+                    "dual_ruby",
+                    "dual_sapphire",
+                    "dual_emerald",
+                    "dual_firered",
+                    "dual_leafgreen"
+                ]
+            );
+            assert_eq!(replacements[2].label, "Schwarm");
+            assert_eq!(extras.form_rates, Some([0; 5]));
+            // The empty swarm entry 0 replaces an occupied slot: a warning on grass slot 0.
+            let swarm: Vec<_> = warnings
+                .iter()
+                .filter(|w| w.text.starts_with("swarm entry 0"))
+                .map(|w| (w.method, w.slot))
+                .collect();
+            assert_eq!(swarm, [("grass", Some(0))]);
+            assert_eq!(problems.len(), warnings.len());
+            assert!(
+                problems
+                    .iter()
+                    .all(|p| p.source == "encounter" && p.file == "encounters/0000")
+            );
+            assert_eq!(problems[0].line, 1);
+            assert_eq!(
+                &users[..2],
+                [
+                    PlaceDto {
+                        header: 0,
+                        name: "Twinleaf Town".into()
+                    },
+                    PlaceDto {
+                        header: 1,
+                        name: "T02".into()
+                    },
+                ]
+            );
+            let times: Vec<_> = effective.iter().map(|t| t.when).collect();
+            assert_eq!(times, ["morning", "day", "night"]);
+            assert_eq!(
+                effective[0].species,
+                [SpeciesShareDto {
+                    species: 1,
+                    share: 20
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+    // A replacement list and an extra through data_edit.
+    let encounter =
+        |method: &str, slot: Option<u16>, field: &str, value: i64| DataPatch::Encounter {
+            method: method.into(),
+            slot,
+            field: field.into(),
+            value,
+        };
+    data_edit_impl(
+        &state,
+        DataKind::Encounter,
+        0,
+        encounter("swarm", Some(0), "species", 2),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        last_label(&state),
+        "Begegnungen 0000: Schwarm Platz 1 Pokémon 0 → 2"
+    );
+    data_edit_impl(
+        &state,
+        DataKind::Encounter,
+        0,
+        DataPatch::EncounterExtra {
+            field: "unown_table".into(),
+            value: 3,
+        },
+        Some("Route 201: Icognito-Tabelle 0 → 3".into()),
+    )
+    .unwrap();
+    assert_eq!(last_label(&state), "Route 201: Icognito-Tabelle 0 → 3");
+    match encounter_doc(&state, 0) {
+        DataDocDto::Encounter {
+            warnings,
+            extras,
+            replacements,
+            ..
+        } => {
+            assert!(
+                !warnings.iter().any(|w| w.text.starts_with("swarm entry 0")),
+                "{warnings:?}"
+            );
+            assert_eq!(extras.unown_table, Some(3));
+            assert_eq!(replacements[2].slots[0].species, 2);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn encounter_min_above_max_pulls_max() {
+    let (_fixture, state) = open_synthetic();
+    let encounter = |field: &str, value: i64| DataPatch::Encounter {
+        method: "surf".into(),
+        slot: Some(0),
+        field: field.into(),
+        value,
+    };
+    let surf = |state: &AppState| match encounter_doc(state, 1) {
+        DataDocDto::Encounter { methods, .. } => (methods[1].slots[0].min, methods[1].slots[0].max),
+        _ => unreachable!(),
+    };
+    data_edit_impl(&state, DataKind::Encounter, 1, encounter("max", 10), None).unwrap();
+    let steps = history_impl(&state).unwrap().undo.len();
+    data_edit_impl(&state, DataKind::Encounter, 1, encounter("min", 20), None).unwrap();
+    assert_eq!(surf(&state), (20, 20));
+    assert_eq!(
+        last_label(&state),
+        "Begegnungen 0001: Surfen Platz 1 Mindestlevel 0 → 20"
+    );
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
+    data_edit_impl(&state, DataKind::Encounter, 1, encounter("max", 5), None).unwrap();
+    assert_eq!(surf(&state), (5, 5));
+    // One undo step each: both levels come back together.
+    undo_impl(&state).unwrap();
+    assert_eq!(surf(&state), (20, 20));
+    undo_impl(&state).unwrap();
+    assert_eq!(surf(&state), (0, 10));
+}
+
+/// The fixture with adopted scripts and a battle script like Platinum's for its three
+/// trainers (slot 4 is the sight script), as `trainer_create`'s own tests set it up.
+fn with_battle_script() -> (
+    g4_kernel::test_support::Synthetic,
+    AppState,
+    g4_kernel::scripts::TrainerScriptMeta,
+) {
+    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
+    let (fixture, state) = open_synthetic();
+    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let battle_file = scripts::new_script_file(&project, SourceKind::Script).unwrap();
+    let battle = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    ReleaseAll\n    End\n\
+                  script script_4 #4:\n    LockAll\n    ReleaseAll\n    End\n";
+    scripts::write_source(&project, battle_file, &ScriptSource::Rotom(battle.into())).unwrap();
+    let report = scripts::compile(&project).unwrap();
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    (
+        fixture,
+        state,
+        TrainerScriptMeta {
+            battle_file,
+            seen_script: 3003,
+        },
+    )
+}
+
+#[test]
+fn create_trainer_command_reports_placeholder() {
+    let (_fixture, state) = open_synthetic();
+    // Without adopted scripts: refused with the kernel's words, nothing written.
+    let err = create_trainer_impl(&state, 1, "Jens").unwrap_err();
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        (
+            "error",
+            "Erst Scripts übernehmen (Bereich Welt, Panel Script)"
+        )
+    );
+
+    let (_fixture, state, meta) = with_battle_script();
+    let report = create_trainer_with_impl(&state, &meta, 1, "Jens").unwrap();
+    assert_eq!(
+        (report.id, report.placeholder, report.script_extended),
+        (3, None, false)
+    );
+    let report = create_trainer_with_impl(&state, &meta, 1, "Lars").unwrap();
+    assert_eq!(
+        (report.id, report.placeholder, report.script_extended),
+        (5, Some(4), true)
+    );
+    assert_eq!(
+        serde_json::to_value(report).unwrap(),
+        json!({ "id": 5, "placeholder": 4, "script_extended": true })
+    );
+    match trainer(&state, 4) {
+        DataDocDto::Trainer {
+            placeholder,
+            locked,
+            ..
+        } => {
+            assert!(placeholder);
+            assert_eq!(
+                locked.as_deref(),
+                Some(g4_kernel::data::trainer_create::PLACEHOLDER_REASON)
+            );
+        }
+        _ => unreachable!(),
+    }
+    match trainer(&state, 5) {
+        DataDocDto::Trainer {
+            placeholder,
+            locked,
+            name,
+            party,
+            ..
+        } => {
+            assert!(!placeholder);
+            assert_eq!((locked, name.as_str(), party.len()), (None, "Lars", 0));
+        }
+        _ => unreachable!(),
+    }
+    let rows = data_list_impl(&state, DataKind::Trainer, None).unwrap();
+    assert_eq!(rows.len(), 6);
+    assert!(rows[4].locked.is_some());
+    // The placeholder refuses edits.
+    for patch in [
+        DataPatch::TrainerName { name: "X".into() },
+        DataPatch::Trainer {
+            field: "ai".into(),
+            value: 1,
+        },
+    ] {
+        let err = data_edit_impl(&state, DataKind::Trainer, 4, patch, None).unwrap_err();
+        assert_eq!(err.code, "read_only", "{}", err.message);
+    }
+}
+
+#[test]
+fn set_trainer_texts_reports_problems_and_encounter_files_split() {
+    let (_fixture, state) = open_synthetic();
+    let out = set_trainer_texts_impl(
+        &state,
+        2,
+        vec![g4_kernel::data::trainer_create::TrainerText {
+            kind: 0,
+            text: "Hallo!".into(),
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        out.changed,
+        [
+            id(AssetKind::TextArchive, 617),
+            id(AssetKind::TrainerTextTable, 0),
+            id(AssetKind::TrainerTextOffsets, 0)
+        ]
+    );
+    assert_eq!(out.problems.len(), 1);
+    assert_eq!(
+        (out.problems[0].source, out.problems[0].file.as_str()),
+        ("trainer", "trainers/0002")
+    );
+
+    let index = create_encounter_file_impl(&state, Some(0)).unwrap();
+    assert_eq!(index, 2);
+    assert_eq!(create_encounter_file_impl(&state, None).unwrap(), 3);
+    let split = split_encounter_file_impl(&state, 1).unwrap();
+    assert_eq!(
+        split,
+        SplitDto {
+            index: 4,
+            changed: vec![id(AssetKind::HeaderTable, 0)]
+        }
+    );
+    match encounter_doc(&state, 4) {
+        DataDocDto::Encounter { users, methods, .. } => {
+            assert_eq!(
+                users,
+                [PlaceDto {
+                    header: 1,
+                    name: "T02".into()
+                }]
+            );
+            assert_eq!(methods[0].slots[0].species, 1);
+        }
+        _ => unreachable!(),
+    }
+    // Undo points the header back and leaves the copy.
+    undo_impl(&state).unwrap();
+    match encounter_doc(&state, 4) {
+        DataDocDto::Encounter { users, .. } => assert!(users.is_empty()),
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        data_list_impl(&state, DataKind::Encounter, None)
+            .unwrap()
+            .len(),
+        5
+    );
+    let err = split_encounter_file_impl(&state, 9999).unwrap_err();
+    assert_eq!(err.code, "error");
 }
 
 #[test]
@@ -638,8 +1256,44 @@ fn vanilla_data_commands_on_copy() {
     eprintln!("refs species 397: {} in {:?}", refs.len(), start.elapsed());
     assert!(!refs.is_empty());
     for kind in [DataKind::Move, DataKind::Encounter, DataKind::Trainer] {
-        assert!(!data_list_impl(&state, kind, None).unwrap().is_empty());
+        let start = std::time::Instant::now();
+        let rows = data_list_impl(&state, kind, None).unwrap();
+        eprintln!(
+            "data_list {kind:?}: {} rows in {:?}",
+            rows.len(),
+            start.elapsed()
+        );
+        assert!(!rows.is_empty());
     }
+    // Trainer 1 and encounter file 1 read as documents, unlocked; some trainer stands in the
+    // world and its row names the place.
+    match data_get_impl(&state, DataKind::Trainer, 1).unwrap() {
+        DataDocDto::Trainer {
+            locked,
+            party,
+            name,
+            ..
+        } => {
+            assert_eq!(locked, None);
+            assert!(!party.is_empty() && !name.is_empty(), "{name}");
+        }
+        other => panic!("{other:?}"),
+    }
+    match data_get_impl(&state, DataKind::Encounter, 1).unwrap() {
+        DataDocDto::Encounter {
+            locked, methods, ..
+        } => {
+            assert_eq!(locked, None);
+            assert!(!methods.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+    let trainers = data_list_impl(&state, DataKind::Trainer, None).unwrap();
+    assert!(
+        trainers
+            .iter()
+            .any(|r| r.extra["places"].as_array().is_some_and(|p| !p.is_empty()))
+    );
     assert!(matches!(
         data_get_impl(&state, DataKind::Item, 17).unwrap(),
         DataDocDto::Item {

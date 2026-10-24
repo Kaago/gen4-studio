@@ -1,8 +1,11 @@
 import type { ProblemDto } from "../../api";
 import { id4 } from "../terms";
 
-/** Where a problem comes from: the last save or build (`compile`), a text archive (`text`), or the language server of the shown document (`live`). */
-export type ProblemSource = "compile" | "text" | "live";
+/**
+ * Where a problem comes from: the last save or build (`compile`), a text archive (`text`), the language server of the shown document
+ * (`live`), the rules an encounter file breaks (`encounter`) or a trainer's battle texts (`trainer`).
+ */
+export type ProblemSource = "compile" | "text" | "live" | "encounter" | "trainer";
 
 export interface ProblemRow {
   severity: "error" | "warning";
@@ -21,6 +24,8 @@ export interface ProblemCounts {
 
 const SCRIPT_PATH = /^expanded\/scripts\/(\d+)\.(rotom|json)$/;
 const TEXT_PATH = /^expanded\/textArchives\/(\d+)\.json$/;
+const ENCOUNTER_PATH = /^encounters\/(\d+)$/;
+const TRAINER_PATH = /^trainers\/(\d+)$/;
 
 /** The project-relative path of a script file's source (`.json` for a level script). */
 export function scriptPath(file: number, kind: "script" | "levelScript"): string {
@@ -36,6 +41,18 @@ export function scriptFileOf(path: string): number | null {
 /** The text archive a problem's path names, or null for any other path. */
 export function textArchiveOf(path: string): number | null {
   const match = TEXT_PATH.exec(path);
+  return match ? Number(match[1]) : null;
+}
+
+/** The encounter file a problem's path names ("encounters/0012"), or null for any other path. */
+export function encounterFileOf(path: string): number | null {
+  const match = ENCOUNTER_PATH.exec(path);
+  return match ? Number(match[1]) : null;
+}
+
+/** The trainer a problem's path names ("trainers/0012"), or null for any other path. */
+export function trainerOf(path: string): number | null {
+  const match = TRAINER_PATH.exec(path);
   return match ? Number(match[1]) : null;
 }
 
@@ -58,6 +75,7 @@ export function countsText({ errors, warnings }: ProblemCounts): string {
 export class ProblemsStore {
   private readonly compile = new Map<string, ProblemRow[]>();
   private readonly text = new Map<number, ProblemRow[]>();
+  private readonly data = new Map<string, ProblemRow[]>();
   private live: ProblemRow[] = [];
   private rows: readonly ProblemRow[] = [];
   private count: ProblemCounts = { errors: 0, warnings: 0 };
@@ -75,6 +93,18 @@ export class ProblemsStore {
   /** Replaces the warnings of one text archive (an empty list clears it). */
   replaceText(archive: number, problems: readonly ProblemDto[]): void {
     this.set(this.text, archive, ProblemsStore.rows(problems, "text"));
+  }
+
+  /**
+   * Replaces the rows of one data member (`file` "encounters/0012" or "trainers/0012") with `problems` as the backend gives them in the
+   * document (`data_get`, source "encounter" or "trainer"): every read of the member replaces its rows, so they never pile up.
+   */
+  replaceData(file: string, problems: readonly ProblemDto[]): void {
+    this.set(
+      this.data,
+      file,
+      problems.map((p) => ({ severity: p.severity, file: p.file, line: p.line, col: p.col, message: p.message, source: p.source })),
+    );
   }
 
   /** Replaces the live diagnostics (those of the shown document; none when no document is shown). */
@@ -117,9 +147,10 @@ export class ProblemsStore {
 
   /** Forgets everything (another project was opened). */
   clear(): void {
-    if (this.compile.size === 0 && this.text.size === 0 && this.live.length === 0) return;
+    if (this.compile.size === 0 && this.text.size === 0 && this.data.size === 0 && this.live.length === 0) return;
     this.compile.clear();
     this.text.clear();
+    this.data.clear();
     this.live = [];
     this.changed();
   }
@@ -148,7 +179,7 @@ export class ProblemsStore {
     // The language server and the compile find the same fault: one row, the compile's (whose source says "Compile").
     const known = new Set(compile.map((p) => `${p.file}\0${p.line}\0${p.severity}`));
     const live = this.live.filter((p) => !known.has(`${p.file}\0${p.line}\0${p.severity}`));
-    const all = [...compile, ...[...this.text.values()].flat(), ...live];
+    const all = [...compile, ...[...this.text.values()].flat(), ...[...this.data.values()].flat(), ...live];
     all.sort((a, b) => Number(b.severity === "error") - Number(a.severity === "error") || a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col);
     this.rows = all;
     const errors = all.filter((p) => p.severity === "error").length;

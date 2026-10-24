@@ -47,7 +47,7 @@ describe("reloadPlan", () => {
   });
 
   it("hands a restored data asset to the data panels", () => {
-    const kinds = ["Encounter", "Personal", "Learnset", "Evolution", "Move", "Item", "TrainerProperties", "TrainerParty", "TrainerTextTable", "TrainerTextOffsets"] as const;
+    const kinds = ["Encounter", "Personal", "Learnset", "Evolution", "Move", "Item", "TrainerProperties", "TrainerParty", "TrainerTextTable", "TrainerTextOffsets", "Trainer"] as const;
     for (const kind of kinds) {
       expect(plan(kind, 17)).toEqual([{ kind: "dataPanel", asset: { kind, index: 17 } }]);
       expect(plan(kind, 17, null)).toEqual([{ kind: "dataPanel", asset: { kind, index: 17 } }]);

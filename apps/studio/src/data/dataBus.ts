@@ -17,10 +17,15 @@ const KIND_OF: Partial<Record<AssetKind, DataKind>> = {
   TrainerParty: "trainer",
   TrainerTextTable: "trainer",
   TrainerTextOffsets: "trainer",
+  Trainer: "trainer",
 };
+
+/** Kinds shared by every member of their data kind: a change may concern any member (the trainer text table holds every trainer's texts). */
+const SHARED: ReadonlySet<AssetKind> = new Set<AssetKind>(["TrainerTextTable", "TrainerTextOffsets"]);
 
 /** The event for an asset that undo or redo restored; null for an asset that is no data member. */
 export function dataChangedOf(asset: AssetId): DataChangedEvent | null {
   const kind = KIND_OF[asset.kind];
-  return kind === undefined ? null : { topic: "dataChanged", kind, index: asset.index };
+  if (kind === undefined) return null;
+  return { topic: "dataChanged", kind, index: SHARED.has(asset.kind) ? null : asset.index };
 }

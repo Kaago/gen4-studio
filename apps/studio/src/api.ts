@@ -401,7 +401,9 @@ export type AssetKind =
   | "TrainerTextTable"
   | "TrainerTextOffsets"
   | "ItemIcons"
-  | "MonIcons";
+  | "MonIcons"
+  /** A trainer: its properties and party members as one asset (the store edits them together). */
+  | "Trainer";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -449,7 +451,8 @@ export interface ProblemDto {
   line: number;
   col: number;
   message: string;
-  source: "compile" | "text";
+  /** "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`. */
+  source: "compile" | "text" | "encounter" | "trainer";
 }
 
 export interface SaveReport {

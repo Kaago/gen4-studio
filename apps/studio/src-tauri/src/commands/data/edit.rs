@@ -10,7 +10,7 @@ use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::{ChangeId, Store};
 
 use super::dto::{DataKind, DataPatch, LearnEntryDto};
-use super::encounter::EncounterEdit;
+use super::encounter::{EncounterEdit, apply_extra};
 use super::fields::{fits, get, numeric_span, set};
 use super::{display, item_member, labels, shared_with};
 use crate::errors::CmdError;
@@ -257,6 +257,16 @@ pub fn apply(
             };
             let label = label_or(format!(
                 "Begegnungen {index:04}: {method_name}{place} {field_name} {old} → {value}"
+            ));
+            let change = store.edit_encounter(index, &label, |e| *e = copy)?;
+            Ok(one(asset(AssetKind::Encounter, index), change))
+        }
+        DataPatch::EncounterExtra { field, value } if kind == DataKind::Encounter => {
+            let mut copy = store.encounter(index)?.clone();
+            let old = apply_extra(&mut copy, &field, value)?;
+            let field_name = labels::label(labels::ENCOUNTER, &field).unwrap_or(&field);
+            let label = label_or(format!(
+                "Begegnungen {index:04}: {field_name} {old} → {value}"
             ));
             let change = store.edit_encounter(index, &label, |e| *e = copy)?;
             Ok(one(asset(AssetKind::Encounter, index), change))

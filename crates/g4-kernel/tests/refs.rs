@@ -953,3 +953,50 @@ fn vanilla_route_201_encounters_reference_known_species() {
     }
     assert_eq!(st.loaded_count(), 0);
 }
+
+#[test]
+fn trainer_edits_refresh_both_member_sources_from_the_store() {
+    let s = fixture();
+    let mut st = store_of(&s);
+    let mut index = RefIndex::new();
+    assert_eq!(index.count(&st, Target::Species(300)).unwrap(), 0);
+    // Trainer 1: moves and items, one Pokémon (species 6); its species becomes 300, class 4.
+    st.edit_trainer(1, "Team", |t| {
+        t.party[0].set_species(300);
+        t.class = 4;
+    })
+    .unwrap();
+    let changed = index.refresh(&st).unwrap();
+    assert_eq!(
+        changed,
+        [
+            id(AssetKind::TrainerProperties, 1),
+            id(AssetKind::TrainerParty, 1)
+        ]
+    );
+    assert_eq!(
+        index.refs(&st, Target::Species(300)).unwrap(),
+        [r(
+            id(AssetKind::TrainerParty, 1),
+            "species",
+            Some(0),
+            Target::Species(300)
+        )]
+    );
+    assert!(
+        index
+            .refs(&st, Target::Species(6))
+            .unwrap()
+            .iter()
+            .all(|r| r.source != id(AssetKind::TrainerParty, 1))
+    );
+    assert_eq!(
+        index.refs(&st, Target::TrainerClass(4)).unwrap(),
+        [r(
+            id(AssetKind::TrainerProperties, 1),
+            "class",
+            None,
+            Target::TrainerClass(4)
+        )]
+    );
+}
