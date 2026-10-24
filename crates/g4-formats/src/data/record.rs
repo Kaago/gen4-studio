@@ -111,7 +111,8 @@ fn container_set(raw: &mut [u8], off: usize, mask: u32, value: u32) {
 
 /// Declares `struct Name { raw: [u8; LEN] }` implementing [`RawRecord`] with
 /// the given field map. `read` rejects any other length with
-/// [`FormatError::BadSize`] (the variant carries no record name).
+/// [`FormatError::BadSize`] (the variant carries no record name). Sibling
+/// modules call it as `crate::fixed_record!(...)`.
 #[macro_export]
 macro_rules! fixed_record {
     ($(#[$meta:meta])* $vis:vis $name:ident, $len:expr, [$($field:expr),* $(,)?]) => {
@@ -147,16 +148,42 @@ macro_rules! fixed_record {
 }
 
 /// Test helper: checks that a field map is a sound description of a record of
-/// `len` bytes. Spans without `Bits` cover every byte exactly once; every
-/// `Bits` span lies inside such a container span and fits its own width, and
-/// the masks within one container are disjoint.
+/// `len` bytes.
+///
+/// - Field names are unique, and each span's `len` matches its kind (`U8`/`I8`
+///   1, `U16` 2, `U32` 4, `Bytes` at least 1, `Bits` 1 to 4).
+/// - Spans without `Bits` cover every byte exactly once.
+/// - Every `Bits` span lies inside such a container span; its non-zero mask
+///   fits its own `len` bytes (including the width `bits()` reads for it).
+/// - A mask is relative to the `Bits` span's own offset (`bits(off, mask)`), so
+///   for the disjointness check it is first moved into the container's bit
+///   space (`mask << 8 * (offset - container offset)`); the masks of one
+///   container must then be disjoint. A `Bits` span that starts more than 12
+///   bytes into its container is rejected (the comparison uses 128 bits).
 pub fn fields_cover_exactly(fields: &[FieldSpan], len: usize) -> Result<(), String> {
     let is_bits = |f: &FieldSpan| matches!(f.kind, FieldKind::Bits { .. });
+
+    for (i, f) in fields.iter().enumerate() {
+        if fields[..i].iter().any(|g| g.name == f.name) {
+            return Err(format!("{}: duplicate field name", f.name));
+        }
+        let (min, max) = match f.kind {
+            FieldKind::U8 | FieldKind::I8 => (1, 1),
+            FieldKind::U16 => (2, 2),
+            FieldKind::U32 => (4, 4),
+            FieldKind::Bytes => (1, usize::MAX),
+            FieldKind::Bits { .. } => (1, 4),
+        };
+        if f.len < min || f.len > max {
+            return Err(format!(
+                "{}: {:?} cannot span {} bytes",
+                f.name, f.kind, f.len
+            ));
+        }
+    }
+
     let mut covered = vec![false; len];
     for f in fields.iter().filter(|f| !is_bits(f)) {
-        if f.len == 0 {
-            return Err(format!("{}: empty span", f.name));
-        }
         if f.offset + f.len > len {
             return Err(format!(
                 "{}: bytes {}..{} exceed the record length {len}",
@@ -181,7 +208,7 @@ pub fn fields_cover_exactly(fields: &[FieldSpan], len: usize) -> Result<(), Stri
     }
 
     let containers: Vec<&FieldSpan> = fields.iter().filter(|f| !is_bits(f)).collect();
-    let mut used = vec![0u32; containers.len()];
+    let mut used = vec![0u128; containers.len()];
     for f in fields {
         let FieldKind::Bits { mask } = f.kind else {
             continue;
@@ -192,19 +219,27 @@ pub fn fields_cover_exactly(fields: &[FieldSpan], len: usize) -> Result<(), Stri
         else {
             return Err(format!("{}: bits lie in no container field", f.name));
         };
-        if mask == 0 || f.len == 0 || (f.len < 4 && mask >> (f.len * 8) != 0) {
+        if mask == 0 || container_width(mask) > f.len {
             return Err(format!(
                 "{}: mask {mask:#x} does not fit {} bytes",
                 f.name, f.len
             ));
         }
-        if used[ci] & mask != 0 {
+        let shift = 8 * (f.offset - containers[ci].offset);
+        if shift > 96 {
+            return Err(format!(
+                "{}: starts too far into container {} to compare masks",
+                f.name, containers[ci].name
+            ));
+        }
+        let placed = u128::from(mask) << shift;
+        if used[ci] & placed != 0 {
             return Err(format!(
                 "{}: mask {mask:#x} overlaps another in {}",
                 f.name, containers[ci].name
             ));
         }
-        used[ci] |= mask;
+        used[ci] |= placed;
     }
     Ok(())
 }
@@ -341,6 +376,116 @@ mod tests {
             span("q", 0, 1, FieldKind::Bits { mask: 0x1C }),
         ];
         assert!(fields_cover_exactly(&clashing, 1).is_err());
+    }
+
+    #[test]
+    fn masks_at_different_offsets_are_compared_in_container_space() {
+        // Same mask value, different byte: no overlap.
+        let disjoint = [
+            span("word", 0, 4, FieldKind::U32),
+            span("b0", 0, 1, FieldKind::Bits { mask: 0xFF }),
+            span("b1", 1, 1, FieldKind::Bits { mask: 0xFF }),
+            span("b2", 2, 2, FieldKind::Bits { mask: 0xFFFF }),
+        ];
+        assert_eq!(fields_cover_exactly(&disjoint, 4), Ok(()));
+
+        // 0xFF00 at offset 0 and 0xFF at offset 1 are the same byte.
+        let overlapping = [
+            span("word", 0, 4, FieldKind::U32),
+            span("wide", 0, 2, FieldKind::Bits { mask: 0xFF00 }),
+            span("narrow", 1, 1, FieldKind::Bits { mask: 0xFF }),
+        ];
+        assert!(
+            fields_cover_exactly(&overlapping, 4)
+                .unwrap_err()
+                .contains("overlaps")
+        );
+
+        // A container too long to compare masks at its far end.
+        let far = [
+            span("blob", 0, 20, FieldKind::Bytes),
+            span("x", 17, 1, FieldKind::Bits { mask: 0x01 }),
+        ];
+        assert!(fields_cover_exactly(&far, 20).is_err());
+    }
+
+    #[test]
+    fn coverage_rejects_a_kind_that_does_not_match_its_length() {
+        for (kind, len) in [
+            (FieldKind::U8, 2),
+            (FieldKind::I8, 2),
+            (FieldKind::U16, 1),
+            (FieldKind::U16, 4),
+            (FieldKind::U32, 2),
+            (FieldKind::Bytes, 0),
+        ] {
+            let f = [span("f", 0, len, kind)];
+            assert!(
+                fields_cover_exactly(&f, len).is_err(),
+                "{kind:?} with {len} bytes"
+            );
+        }
+        // A mask wider than its span.
+        let wide = [
+            span("word", 0, 4, FieldKind::U32),
+            span("m", 0, 1, FieldKind::Bits { mask: 0x100 }),
+        ];
+        assert!(fields_cover_exactly(&wide, 4).is_err());
+        // A mask that reads 4 bytes but sits in a 3-byte span.
+        let three = [
+            span("raw", 0, 4, FieldKind::Bytes),
+            span("m", 0, 3, FieldKind::Bits { mask: 0x1_0000 }),
+        ];
+        assert!(fields_cover_exactly(&three, 4).is_err());
+        // An empty mask.
+        let empty = [
+            span("b", 0, 1, FieldKind::U8),
+            span("m", 0, 1, FieldKind::Bits { mask: 0 }),
+        ];
+        assert!(fields_cover_exactly(&empty, 1).is_err());
+    }
+
+    #[test]
+    fn coverage_rejects_duplicate_names() {
+        let dup = [
+            span("a", 0, 1, FieldKind::U8),
+            span("a", 1, 1, FieldKind::U8),
+        ];
+        assert!(
+            fields_cover_exactly(&dup, 2)
+                .unwrap_err()
+                .contains("duplicate")
+        );
+        let dup_bits = [
+            span("flags", 0, 1, FieldKind::U8),
+            span("flags", 0, 1, FieldKind::Bits { mask: 1 }),
+        ];
+        assert!(fields_cover_exactly(&dup_bits, 1).is_err());
+    }
+
+    proptest! {
+        #[test]
+        fn set_bits_changes_only_the_masked_bits(
+            bytes in any::<[u8; 4]>(),
+            lo in 0u32..32,
+            span_bits in 0u32..32,
+            v in any::<u32>(),
+        ) {
+            // A contiguous mask of 1..=(32 - lo) bits starting at bit `lo`; the
+            // highest set bit decides whether it lives in an 8, 16 or 32-bit
+            // container. Every bit outside the mask (also in bytes past the
+            // container) must stay as it was.
+            let size = 1 + span_bits % (32 - lo);
+            let mask = (((1u64 << size) - 1) << lo) as u32;
+
+            let mut rec = Probe::read(&bytes).unwrap();
+            rec.set_bits(0, mask, v);
+
+            let before = u32::from_le_bytes(bytes);
+            let after = u32::from_le_bytes(rec.write().try_into().unwrap());
+            prop_assert_eq!(after & !mask, before & !mask, "bits outside the mask changed");
+            prop_assert_eq!(rec.bits(0, mask), v & (mask >> mask.trailing_zeros()));
+        }
     }
 
     #[test]
