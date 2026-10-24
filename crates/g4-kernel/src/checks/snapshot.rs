@@ -231,15 +231,21 @@ impl Snapshot {
     /// [`MEMBER_KINDS`], the text archives and, when adopted, the script sources, reporting
     /// progress as `(label, done, total)`.
     pub fn load_all(&self, progress: &mut dyn FnMut(&str, u32, u32)) {
-        let total = MEMBER_KINDS.len() as u32 + 1;
-        self.header_table();
-        progress(PROGRESS_LOAD, 1, total);
-        for (n, kind) in MEMBER_KINDS.into_iter().enumerate() {
-            self.members(kind);
-            progress(PROGRESS_LOAD, n as u32 + 2, total);
-        }
+        self.load_members(&mut |done, total| progress(PROGRESS_LOAD, done, total));
         self.load_texts(&mut |done, total| progress(PROGRESS_TEXTS, done, total));
         self.load_scripts(&mut |done, total| progress(PROGRESS_SCRIPTS, done, total));
+    }
+
+    /// Reads the header table and the members of [`MEMBER_KINDS`] (no text archive, no
+    /// script source), reporting `(done, total)`: what the cheap checks read.
+    pub fn load_members(&self, progress: &mut dyn FnMut(u32, u32)) {
+        let total = MEMBER_KINDS.len() as u32 + 1;
+        self.header_table();
+        progress(1, total);
+        for (n, kind) in MEMBER_KINDS.into_iter().enumerate() {
+            self.members(kind);
+            progress(n as u32 + 2, total);
+        }
     }
 
     // --- header table and member counts ---

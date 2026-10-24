@@ -106,12 +106,38 @@ fn vanilla_checks_match_the_fixed_counts() {
         assert!(registered.contains(code), "{code} is not registered");
     }
 
-    let snap = Snapshot::build(
-        Arc::new(project),
-        Overlay::default(),
-        SnapshotCache::default(),
+    let project = Arc::new(project);
+    let fresh =
+        |cache: SnapshotCache| Snapshot::build(Arc::clone(&project), Overlay::default(), cache);
+    // The cheap group alone, as the session runs it after every store change: first on a
+    // new snapshot, then again on the next one with the first one's cache (every snapshot
+    // reads its members again; only text archives and script sources are cached).
+    let cheap = |snap: &Snapshot| {
+        let t = Instant::now();
+        let report = Runner::run(
+            snap,
+            Limits::get(),
+            &IgnoreSet::default(),
+            &[Group::Cheap],
+            |_, _, _| {},
+        );
+        (report, t.elapsed())
+    };
+    let first = fresh(SnapshotCache::default());
+    let (cheap_report, cheap_first) = cheap(&first);
+    let cache = first.into_cache();
+    // A cheap run reads no script source and of the text archives only the two name banks
+    // trainer.id-range counts.
+    assert_eq!(cache.len(), (2, 0), "text archives / script sources read");
+    let (_, cheap_next) = cheap(&fresh(cache));
+    println!(
+        "{which:?}: cheap group alone {} ms on a new snapshot, {} ms on the next",
+        cheap_first.as_millis(),
+        cheap_next.as_millis()
     );
-    // The whole run as the session runs it, timed.
+
+    let snap = fresh(SnapshotCache::default());
+    // The whole run over every group, timed.
     let started = Instant::now();
     let report = Runner::run(
         &snap,
@@ -121,6 +147,19 @@ fn vanilla_checks_match_the_fixed_counts() {
         |_, _, _| {},
     );
     let cold = started.elapsed();
+    // The cheap run found what the whole run found for the cheap checks.
+    let cheap_codes: Vec<&str> = Registry::all()
+        .iter()
+        .filter(|c| c.group() == Group::Cheap)
+        .map(|c| c.code())
+        .collect();
+    assert!(
+        report
+            .findings
+            .iter()
+            .filter(|f| cheap_codes.contains(&f.code))
+            .eq(cheap_report.findings.iter())
+    );
     // Each check again on the loaded snapshot, timed alone.
     let mut warm: BTreeMap<&str, u128> = BTreeMap::new();
     for check in Registry::all() {
@@ -147,7 +186,7 @@ fn vanilla_checks_match_the_fixed_counts() {
         *counts.entry(f.code).or_default() += 1;
     }
     println!(
-        "{which:?}: {} findings; first run {} ms (snapshot reads everything), checks alone {} ms",
+        "{which:?}: {} findings; all groups {} ms on a new snapshot, checks alone {} ms",
         report.findings.len(),
         cold.as_millis(),
         warm.values().sum::<u128>() / 1000

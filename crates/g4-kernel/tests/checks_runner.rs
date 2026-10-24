@@ -304,18 +304,42 @@ fn the_catalogue_reads_the_store_overlay_and_the_disk() {
             .any(|f| f.code == code && f.subject == subject && f.key == key)
     };
     assert!(found("warp.dest-header", Subject::EventFile(0), "warp:0"));
-    // asset.unreadable read everything first: a text archive no check opened, and the lock.
-    assert!(found(
-        "asset.unreadable",
-        Subject::TextArchive(0),
-        "unreadable"
-    ));
+    // asset.unreadable names the lock.
     let locked = format!("locked:item:{}", common::LONG_ITEM);
     assert!(found("asset.unreadable", Subject::Project, &locked));
     // Every finding carries its sentence and arguments.
     for f in &report.findings {
         assert!(!f.message.is_empty() && !f.args.is_empty(), "{f:?}");
     }
+}
+
+#[test]
+fn a_cheap_run_reads_no_text_archive_and_no_script_source() {
+    let (_s, project, mut st) = synthetic();
+    add_warp(&mut st, 0, 9);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert!(report.findings.iter().any(|f| f.code == "warp.dest-header"));
+    // Text archive 0 does not decode, but nothing in a cheap run opens it, so it is not
+    // reported (`text.json-broken` does, in the per-archive group).
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.subject == Subject::TextArchive(0)),
+        "{:?}",
+        report.findings
+    );
+    // Of the text archives only the two name banks trainer.id-range counts were read
+    // (species and trainer classes); no script source.
+    assert_eq!(snap.into_cache().len(), (2, 0));
 }
 
 #[test]

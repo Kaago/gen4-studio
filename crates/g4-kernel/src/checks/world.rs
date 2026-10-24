@@ -1168,12 +1168,17 @@ fn asset_subject(kind: AssetKind, index: u16) -> Option<Subject> {
 
 /// `asset.unreadable` (error): an asset cannot be read (or a changed one cannot be written),
 /// or it is locked in the store because it would not be written back byte for byte
-/// (checks-report §1.9). Reads every asset first (`Snapshot::load_all`), so it runs last.
-/// Subject: the asset (event file, script file, text archive, trainer, encounter file,
-/// matrix, map, area data), else the project; key `unreadable` / `locked` on the asset,
-/// `unreadable:<kind>[:<index>]` / `locked:<kind>:<index>` on the project (kind with `_` for
-/// spaces). Args: `[kind, index (empty for a whole archive), reason]`. Fingerprint: the
-/// reason.
+/// (checks-report §1.9). A cheap check: it first reads the header table and the members the
+/// cheap checks use (`Snapshot::load_members`), never the text archives or script sources,
+/// and runs last. A text archive or script source is reported only when something already
+/// read it in this snapshot (a name bank, say); unreadable text archives are reported by
+/// `text.json-broken` (per archive) and unreadable script sources by the script checks
+/// (per script file), both in the groups that read them. Subject: the asset (event file,
+/// script file, text archive, trainer, encounter file, matrix, map, area data), else the
+/// project; key `unreadable:<kind>` / `locked:<kind>` on the asset (the kind keeps a
+/// trainer's properties and party apart), `unreadable:<kind>[:<index>]` /
+/// `locked:<kind>:<index>` on the project (kind label with `_` for spaces). Args:
+/// `[kind, index (empty for a whole archive), reason]`. Fingerprint: the reason.
 pub(crate) struct AssetUnreadable;
 
 impl SourceCheck for AssetUnreadable {
@@ -1193,7 +1198,7 @@ impl SourceCheck for AssetUnreadable {
         for (what, kind, index, why) in items {
             let slug = kind.label().replace(' ', "_");
             let (subject, key) = match index.and_then(|i| asset_subject(kind, i)) {
-                Some(subject) => (subject, what.to_owned()),
+                Some(subject) => (subject, format!("{what}:{slug}")),
                 None => (
                     Subject::Project,
                     match index {
@@ -1710,6 +1715,17 @@ mod tests {
                 index: None,
                 why: "no archive".into(),
             },
+            // Both members of trainer 3: one subject, two keys.
+            Unreadable {
+                kind: AssetKind::TrainerProperties,
+                index: Some(3),
+                why: "19 bytes".into(),
+            },
+            Unreadable {
+                kind: AssetKind::TrainerParty,
+                index: Some(3),
+                why: "truncated".into(),
+            },
         ];
         f.locked = vec![(
             AssetId {
@@ -1722,14 +1738,16 @@ mod tests {
         assert_eq!(
             keys(&found),
             [
-                (Subject::EventFile(4), "unreadable"),
+                (Subject::EventFile(4), "unreadable:event_file"),
                 (Subject::Project, "unreadable:map"),
+                (Subject::Trainer(3), "unreadable:trainer_properties"),
+                (Subject::Trainer(3), "unreadable:trainer_party"),
                 (Subject::Project, "locked:item:17"),
             ]
         );
         assert!(found.iter().all(|x| x.severity == Severity::Error));
         assert_eq!(args(&found[0]), ["event file", "4", "truncated"]);
-        assert!(found[2].fixes.is_empty() && !found[2].message.is_empty());
+        assert!(found[4].fixes.is_empty() && !found[4].message.is_empty());
         let _ = FixId::Wrap;
     }
 }

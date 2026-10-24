@@ -209,7 +209,9 @@ pub(crate) trait Source {
     fn bank_len(&self, bank: &str) -> Option<usize>;
     /// Number of item ids: the arm9 item table, else the item data members.
     fn item_count(&self) -> usize;
-    /// Reads everything, then returns what could not be read and the locked assets.
+    /// Reads the header table and every member the cheap checks use (never the text
+    /// archives or script sources), then returns what could not be read so far and the
+    /// locked assets.
     fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>);
 }
 
@@ -257,7 +259,9 @@ impl Source for Snapshot {
             .map_or_else(|| self.member_count(AssetKind::Item), |t| t.entries.len())
     }
     fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>) {
-        self.load_all(&mut |_, _, _| {});
+        // Cheap: the members only. Text archives and script sources are read before the
+        // per-archive and per-script groups, whose checks report them.
+        self.load_members(&mut |_, _| {});
         let locked = self
             .locked_assets()
             .map(|(id, why)| (id, why.to_owned()))
@@ -299,7 +303,7 @@ pub struct Registry;
 
 impl Registry {
     /// Every registered check, in catalogue order: the world checks, the data checks, and
-    /// last `asset.unreadable`, which reads everything first.
+    /// last `asset.unreadable`, which reads every member the cheap checks use first.
     pub fn all() -> &'static [&'static dyn Check] {
         static ALL: [&dyn Check; 30] = [
             &world::WarpDestHeader,
