@@ -128,6 +128,8 @@ describe("TrainerList", () => {
     expect(h.calls.onEdited).toHaveBeenCalled();
     // The placeholder written before it is named.
     expect(h.list().textContent).toContain("Trainer 930 angelegt; 929 bleibt Platzhalter für das Sicht-Script.");
+    // The extended battle script is named by its file, as the Script panel names it.
+    expect(h.list().textContent).toContain("Die Kampf-Scriptdatei 1114 hat neue Plätze bekommen.");
   });
 
   const openCreate = async () => {

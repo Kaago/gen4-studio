@@ -145,7 +145,7 @@ export function TrainerList() {
   };
   const onCreated = (report: CreateTrainerReport) => {
     const made = report.placeholder === null ? `Trainer ${report.id} angelegt.` : `Trainer ${report.id} angelegt; ${report.placeholder} bleibt ${PLACEHOLDER_TEXT}.`;
-    written(report.id, report.script_extended, { kind: "success", text: report.script_extended ? `${made} Das Kampf-Script hat neue Plätze bekommen.` : made });
+    written(report.id, report.script_extended, { kind: "success", text: report.script_extended ? `${made} ${battleFile === null ? "Das Kampf-Script" : `Die Kampf-Scriptdatei ${String(battleFile).padStart(4, "0")}`} hat neue Plätze bekommen.` : made });
   };
   const onPartial = (message: string) => {
     const partial = partialTrainer(message);
