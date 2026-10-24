@@ -78,6 +78,19 @@ fn data_list_species_names_forms() {
         names(data_list_impl(&state, DataKind::Species, filter(Some("497"), vec![])).unwrap()),
         ["Deoxys, Verteidigungsform"]
     );
+    // A number finds the member of that number and the four-digit numbers that start with it,
+    // like the list's own search (`matchesQuery`): "050" finds 0050 and 0500 to 0507, "50"
+    // finds 0050 but none of the forms.
+    let indices = |rows: Vec<DataRowDto>| rows.into_iter().map(|r| r.index).collect::<Vec<_>>();
+    let found =
+        indices(data_list_impl(&state, DataKind::Species, filter(Some("050"), vec![])).unwrap());
+    assert!(found.contains(&50));
+    assert!((500..=507).all(|i| found.contains(&i)));
+    assert!(!found.iter().any(|i| (496..500).contains(i)));
+    let found =
+        indices(data_list_impl(&state, DataKind::Species, filter(Some("50"), vec![])).unwrap());
+    assert!(found.contains(&50));
+    assert!(!found.iter().any(|i| (496..=507).contains(i)), "{found:?}");
     // Types 1 or 2: members whose type 1 or type 2 is one of them (index % 17 and + 1).
     let typed = data_list_impl(&state, DataKind::Species, filter(None, vec![1])).unwrap();
     assert!(typed.iter().any(|r| r.index == 0) && typed.iter().any(|r| r.index == 1));
@@ -453,6 +466,19 @@ fn name_tables_follow_the_members() {
     assert_eq!(tables.types, ["Normal", "Fighting", "Flying"]);
     assert_eq!(tables.classes, ["Pokémon Trainer", "Youngster"]);
     assert_eq!(tables.forms, ["Normal Form", "Attack Form"]);
+    // Where the names come from: a text edit in one of these archives changes them.
+    assert_eq!(
+        tables.archives,
+        NameArchivesDto {
+            species: Some(412),
+            moves: Some(647),
+            items: Some(392),
+            abilities: Some(610),
+            types: Some(624),
+            classes: Some(619),
+            forms: Some(697),
+        }
+    );
 }
 
 #[test]
@@ -464,6 +490,8 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .find(|r| r.source == id(AssetKind::Evolution, 1))
         .unwrap();
     assert_eq!(evolution.label, "Bulbasaur, Entwicklung 1 Ziel");
+    // The name of the source on its own: the UI never cuts it out of the label.
+    assert_eq!(evolution.source_name, "Bulbasaur");
     assert_eq!(
         serde_json::to_value(&evolution.nav).unwrap(),
         json!({ "kind": "species", "index": 1, "tab": "evolution" })
@@ -475,6 +503,7 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .find(|r| r.source == id(AssetKind::Encounter, 0))
         .unwrap();
     assert_eq!(wild.label, "Begegnungen 0000, Gras Platz 1");
+    assert_eq!(wild.source_name, "Begegnungen 0000");
     assert_eq!(
         serde_json::to_value(&wild.nav).unwrap(),
         json!({ "kind": "header", "id": 0 })
@@ -484,6 +513,7 @@ fn refs_name_the_place_and_where_a_click_leads() {
         .find(|r| r.source == id(AssetKind::TrainerParty, 1))
         .unwrap();
     assert_eq!(party.label, "Trainer 0001 Kai, Team Platz 1");
+    assert_eq!(party.source_name, "Trainer 0001 Kai");
     assert_eq!(
         serde_json::to_value(&party.nav).unwrap(),
         json!({ "kind": "trainer", "index": 1 })
@@ -513,6 +543,7 @@ fn refs_name_the_place_and_where_a_click_leads() {
     let learned = refs_impl(&state, TargetDto::Move { index: 2 }).unwrap();
     assert_eq!(learned.len(), 508, "every synthetic learnset knows move 2");
     assert_eq!(learned[1].label, "Bulbasaur, Lernset Platz 2");
+    assert_eq!(learned[1].source_name, "Bulbasaur");
 }
 
 #[test]

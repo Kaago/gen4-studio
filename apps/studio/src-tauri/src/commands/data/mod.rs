@@ -309,8 +309,10 @@ impl DataFilter {
         {
             let query = query.to_lowercase();
             let by_name = row.name.to_lowercase().contains(&query);
+            // A number finds its member and the four-digit numbers it starts ("03": 0300 to
+            // 0399), like the list's own search (`matchesQuery` in the frontend).
             let by_number = query.chars().all(|c| c.is_ascii_digit())
-                && (row.tech.contains(&query)
+                && (row.tech.starts_with(&query)
                     || query.parse::<u64>().ok() == Some(u64::from(row.index)));
             if !by_name && !by_number {
                 return false;
@@ -681,6 +683,16 @@ pub fn name_tables_impl(state: &AppState) -> Result<NameTablesDto, CmdError> {
     let moves = (0..count(project, AssetKind::Move)?)
         .map(|i| names.move_name(store, i))
         .collect();
+    let archive = |bank| bank_index(project.family, project.language, bank);
+    let archives = NameArchivesDto {
+        species: archive(Bank::Species),
+        moves: archive(Bank::Moves),
+        items: archive(Bank::Items),
+        abilities: archive(Bank::Abilities),
+        types: archive(Bank::Types),
+        classes: archive(Bank::TrainerClasses),
+        forms: archive(Bank::Forms),
+    };
     Ok(NameTablesDto {
         species,
         moves,
@@ -689,6 +701,7 @@ pub fn name_tables_impl(state: &AppState) -> Result<NameTablesDto, CmdError> {
         types: bank(names, store, Bank::Types),
         classes: bank(names, store, Bank::TrainerClasses),
         forms: bank(names, store, Bank::Forms),
+        archives,
     })
 }
 
@@ -738,22 +751,33 @@ pub fn get_mon_icon_impl(state: &AppState, species: u16) -> Result<Vec<u8>, CmdE
     Ok(icons::mon_icon(&project, species)?.unwrap_or_default())
 }
 
-#[tauri::command]
-pub fn data_list(
-    state: State<AppState>,
-    kind: DataKind,
-    filter: Option<DataFilter>,
-) -> Result<Vec<DataRowDto>, CmdError> {
-    data_list_impl(&state, kind, filter)
+/// Runs `work` on the blocking pool: a cold list, a first reference index or an icon archive
+/// read from disk must not freeze the window (Tauri runs sync commands on the main thread).
+async fn off_main<T: Send + 'static>(
+    app: tauri::AppHandle,
+    work: impl FnOnce(&AppState) -> Result<T, CmdError> + Send + 'static,
+) -> Result<T, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || work(&app.state::<AppState>()))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 #[tauri::command]
-pub fn data_get(
-    state: State<AppState>,
+pub async fn data_list(
+    app: tauri::AppHandle,
+    kind: DataKind,
+    filter: Option<DataFilter>,
+) -> Result<Vec<DataRowDto>, CmdError> {
+    off_main(app, move |state| data_list_impl(state, kind, filter)).await
+}
+
+#[tauri::command]
+pub async fn data_get(
+    app: tauri::AppHandle,
     kind: DataKind,
     index: u16,
 ) -> Result<DataDocDto, CmdError> {
-    data_get_impl(&state, kind, index)
+    off_main(app, move |state| data_get_impl(state, kind, index)).await
 }
 
 #[tauri::command]
@@ -768,28 +792,32 @@ pub fn data_edit(
 }
 
 #[tauri::command]
-pub fn data_raw(state: State<AppState>, kind: DataKind, index: u16) -> Result<RawDto, CmdError> {
-    data_raw_impl(&state, kind, index)
+pub async fn data_raw(
+    app: tauri::AppHandle,
+    kind: DataKind,
+    index: u16,
+) -> Result<RawDto, CmdError> {
+    off_main(app, move |state| data_raw_impl(state, kind, index)).await
 }
 
 #[tauri::command]
-pub fn name_tables(state: State<AppState>) -> Result<NameTablesDto, CmdError> {
-    name_tables_impl(&state)
+pub async fn name_tables(app: tauri::AppHandle) -> Result<NameTablesDto, CmdError> {
+    off_main(app, name_tables_impl).await
 }
 
 #[tauri::command]
-pub fn item_table(state: State<AppState>) -> Result<Option<Vec<ItemEntryDto>>, CmdError> {
-    item_table_impl(&state)
+pub async fn item_table(app: tauri::AppHandle) -> Result<Option<Vec<ItemEntryDto>>, CmdError> {
+    off_main(app, item_table_impl).await
 }
 
 #[tauri::command]
-pub fn machine_table(state: State<AppState>) -> Result<Option<Vec<u16>>, CmdError> {
-    machine_table_impl(&state)
+pub async fn machine_table(app: tauri::AppHandle) -> Result<Option<Vec<u16>>, CmdError> {
+    off_main(app, machine_table_impl).await
 }
 
 #[tauri::command]
-pub fn refs(state: State<AppState>, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
-    refs_impl(&state, target)
+pub async fn refs(app: tauri::AppHandle, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
+    off_main(app, move |state| refs_impl(state, target)).await
 }
 
 /// PNG bytes (empty: no icon); decoded off the main thread.
@@ -798,9 +826,8 @@ pub async fn get_item_icon(
     app: tauri::AppHandle,
     item: u16,
 ) -> Result<tauri::ipc::Response, CmdError> {
-    tauri::async_runtime::spawn_blocking(move || get_item_icon_impl(&app.state::<AppState>(), item))
+    off_main(app, move |state| get_item_icon_impl(state, item))
         .await
-        .map_err(|e| CmdError::from(e.to_string()))?
         .map(tauri::ipc::Response::new)
 }
 
@@ -810,12 +837,9 @@ pub async fn get_mon_icon(
     app: tauri::AppHandle,
     species: u16,
 ) -> Result<tauri::ipc::Response, CmdError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        get_mon_icon_impl(&app.state::<AppState>(), species)
-    })
-    .await
-    .map_err(|e| CmdError::from(e.to_string()))?
-    .map(tauri::ipc::Response::new)
+    off_main(app, move |state| get_mon_icon_impl(state, species))
+        .await
+        .map(tauri::ipc::Response::new)
 }
 
 #[cfg(test)]

@@ -311,6 +311,21 @@ pub struct NameTablesDto {
     pub types: Vec<String>,
     pub classes: Vec<String>,
     pub forms: Vec<String>,
+    /// The text archives the tables are read from.
+    pub archives: NameArchivesDto,
+}
+
+/// The text archive of each name table (`None` where the game's banks do not name one): an
+/// edit to one of these archives changes the names, and the rows that carry them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct NameArchivesDto {
+    pub species: Option<u16>,
+    pub moves: Option<u16>,
+    pub items: Option<u16>,
+    pub abilities: Option<u16>,
+    pub types: Option<u16>,
+    pub classes: Option<u16>,
+    pub forms: Option<u16>,
 }
 
 /// One entry of the arm9 item table: data member, icon (NCGR) and palette (NCLR) member of
@@ -363,12 +378,14 @@ pub enum NavTargetDto {
 }
 
 /// One reference: `field` (slot `slot`) of `source` points at the target. `label` says where
-/// in German ("Begegnungen 0012, Gras Platz 3"), `nav` where a click leads.
+/// in German ("Begegnungen 0012, Gras Platz 3"), `source_name` names the source on its own
+/// ("Begegnungen 0012", "Staravia", "Wanderer Kai"), `nav` where a click leads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RefDto {
     pub source: AssetId,
     pub field: &'static str,
     pub slot: Option<u16>,
     pub label: String,
+    pub source_name: String,
     pub nav: NavTargetDto,
 }

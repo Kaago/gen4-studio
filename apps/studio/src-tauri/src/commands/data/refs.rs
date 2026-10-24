@@ -1,5 +1,5 @@
 //! `refs`: the references of the kernel's index with a German place ("Begegnungen 0012, Gras
-//! Platz 3") and where a click leads.
+//! Platz 3"), the name of the source on its own and where a click leads.
 
 use std::collections::HashMap;
 
@@ -42,7 +42,8 @@ fn encounter_field(field: &str) -> &str {
     }
 }
 
-/// Every reference to `target`, in the index's order, with label and navigation target.
+/// Every reference to `target`, in the index's order, with label, source name and navigation
+/// target.
 pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
     let Session {
         store, names, refs, ..
@@ -60,10 +61,15 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
     } in found
     {
         let index = source.index;
-        let (label, nav) = match source.kind {
+        // The source's name, what of it refers (empty: the source as a whole), the target.
+        let (source_name, what, nav) = match source.kind {
             AssetKind::HeaderTable => {
                 let id = slot.unwrap_or(0);
-                (format!("Header {id:04}"), NavTargetDto::Header { id })
+                (
+                    format!("Header {id:04}"),
+                    String::new(),
+                    NavTargetDto::Header { id },
+                )
             }
             AssetKind::Encounter => {
                 let user = users
@@ -74,38 +80,34 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                     Some(id) => NavTargetDto::Header { id },
                     None => NavTargetDto::Encounter { index },
                 };
-                let label = format!(
-                    "Begegnungen {index:04}, {}{}",
-                    encounter_field(field),
-                    place(slot)
-                );
-                (label, nav)
+                (
+                    format!("Begegnungen {index:04}"),
+                    format!("{}{}", encounter_field(field), place(slot)),
+                    nav,
+                )
             }
             AssetKind::Event => (
-                format!("Eventdatei {index:04}, Objekt {}", slot.unwrap_or(0)),
+                format!("Eventdatei {index:04}"),
+                format!("Objekt {}", slot.unwrap_or(0)),
                 NavTargetDto::Event {
                     event_file: index,
                     event_kind: "object",
                     index: slot.unwrap_or(0),
                 },
             ),
-            AssetKind::Personal => {
-                let name = display::species(names, store, index);
-                let what = labels::label(labels::SPECIES, field).unwrap_or(field);
-                (
-                    format!("{name}, {what}"),
-                    NavTargetDto::Species {
-                        index,
-                        tab: Some("abilities"),
-                    },
-                )
-            }
+            AssetKind::Personal => (
+                display::species(names, store, index),
+                labels::label(labels::SPECIES, field)
+                    .unwrap_or(field)
+                    .to_owned(),
+                NavTargetDto::Species {
+                    index,
+                    tab: Some("abilities"),
+                },
+            ),
             AssetKind::Learnset => (
-                format!(
-                    "{}, Lernset{}",
-                    display::species(names, store, index),
-                    place(slot)
-                ),
+                display::species(names, store, index),
+                format!("Lernset{}", place(slot)),
                 NavTargetDto::Species {
                     index,
                     tab: Some("learnset"),
@@ -118,11 +120,8 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                     "Parameter"
                 };
                 (
-                    format!(
-                        "{}, Entwicklung {} {what}",
-                        display::species(names, store, index),
-                        slot.unwrap_or(0) + 1
-                    ),
+                    display::species(names, store, index),
+                    format!("Entwicklung {} {what}", slot.unwrap_or(0) + 1),
                     NavTargetDto::Species {
                         index,
                         tab: Some("evolution"),
@@ -135,26 +134,30 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                     _ => format!("Gegenstand{}", place(slot)),
                 };
                 (
-                    format!("{}, {what}", display::trainer(names, store, index)),
+                    display::trainer(names, store, index),
+                    what,
                     NavTargetDto::Trainer { index },
                 )
             }
             AssetKind::TrainerParty => (
-                format!(
-                    "{}, Team{}",
-                    display::trainer(names, store, index),
-                    place(slot)
-                ),
+                display::trainer(names, store, index),
+                format!("Team{}", place(slot)),
                 NavTargetDto::Trainer { index },
             ),
             // The index has no other sources; one added later needs a label and a target here.
             _ => continue,
+        };
+        let label = if what.is_empty() {
+            source_name.clone()
+        } else {
+            format!("{source_name}, {what}")
         };
         out.push(RefDto {
             source,
             field,
             slot,
             label,
+            source_name,
             nav,
         });
     }
