@@ -20,6 +20,10 @@ export type ReloadAction =
   | { kind: "buildings" }
   /** The scene refetches this map: overlay colours and buildings of all its cells. */
   | { kind: "map"; map: number }
+  /** The map's raster picture is drawn again (it may show the restored model). */
+  | { kind: "thumbnail"; map: number }
+  /** The scene reloads its models: a restored map can carry another model (undo of a parts import). */
+  | { kind: "mapModel" }
   /** The matrix panel and the cell editor re-read their matrix. */
   | { kind: "matrixPanel" }
   /** The scene's matrix is read again; a changed layout rebuilds the scene. */
@@ -43,21 +47,36 @@ export type ReloadAction =
  * What to reload after undo or redo restored `asset`, so that exactly what the asset affects is
  * refreshed and nothing else. `scene` is null while no scene is shown.
  */
-export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadAction[] {
+export function reloadPlan(
+  asset: AssetId,
+  scene: SceneState | null,
+): ReloadAction[] {
   switch (asset.kind) {
     case "Map": {
-      const actions: ReloadAction[] = [{ kind: "unpin" }, { kind: "buildings" }];
-      if (scene?.maps.includes(asset.index)) actions.push({ kind: "map", map: asset.index });
+      const actions: ReloadAction[] = [
+        { kind: "unpin" },
+        { kind: "buildings" },
+        { kind: "thumbnail", map: asset.index },
+      ];
+      if (scene?.maps.includes(asset.index))
+        actions.push({ kind: "map", map: asset.index }, { kind: "mapModel" });
       return actions;
     }
     case "Matrix": {
-      const actions: ReloadAction[] = [{ kind: "unpin" }, { kind: "matrixPanel" }];
+      const actions: ReloadAction[] = [
+        { kind: "unpin" },
+        { kind: "matrixPanel" },
+      ];
       if (scene?.matrix === asset.index) actions.push({ kind: "matrix" });
       return actions;
     }
     case "Event": {
-      const actions: ReloadAction[] = [{ kind: "unpin" }, { kind: "eventsPanel" }];
-      if (scene?.eventFile === asset.index) actions.push({ kind: "events", file: asset.index });
+      const actions: ReloadAction[] = [
+        { kind: "unpin" },
+        { kind: "eventsPanel" },
+      ];
+      if (scene?.eventFile === asset.index)
+        actions.push({ kind: "events", file: asset.index });
       return actions;
     }
     case "AreaData": {
@@ -93,7 +112,10 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
  * What to reload after one undo or redo step restored `assets` (a step can change several): the
  * `reloadPlan` of every asset, each action once, in the order they first appear.
  */
-export function historyPlan(assets: readonly AssetId[], scene: SceneState | null): ReloadAction[] {
+export function historyPlan(
+  assets: readonly AssetId[],
+  scene: SceneState | null,
+): ReloadAction[] {
   const seen = new Set<string>();
   return assets
     .flatMap((asset) => reloadPlan(asset, scene))
@@ -115,7 +137,10 @@ export function sceneKey(h: HeaderSummary): string {
  * file differs from `shownKey` (the key of the scene's content; null when unknown), else at most
  * the area data, which only reloads the models.
  */
-export function headerSync(shownKey: string | null, header: HeaderSummary): "scene" | "area" {
+export function headerSync(
+  shownKey: string | null,
+  header: HeaderSummary,
+): "scene" | "area" {
   return sceneKey(header) === shownKey ? "area" : "scene";
 }
 
@@ -124,7 +149,10 @@ export function headerSync(shownKey: string | null, header: HeaderSummary): "sce
  * key is forgotten (the next sync rebuilds instead of pairing the old maps with the new header's
  * area data) and the area is the one still shown.
  */
-export function afterFailedSceneLoad(shownArea: number): { key: null; area: number } {
+export function afterFailedSceneLoad(shownArea: number): {
+  key: null;
+  area: number;
+} {
   return { key: null, area: shownArea };
 }
 
@@ -133,7 +161,11 @@ export function afterFailedSceneLoad(shownArea: number): { key: null; area: numb
  * before. Another area data is left to the scene load that comes with it; unknown tilesets (an
  * earlier read failed) reload to be safe.
  */
-export function tilesetReload(known: { area: number; key: string } | null, area: number, key: string): boolean {
+export function tilesetReload(
+  known: { area: number; key: string } | null,
+  area: number,
+  key: string,
+): boolean {
   return !known || (known.area === area && known.key !== key);
 }
 
@@ -141,7 +173,10 @@ export function tilesetReload(known: { area: number; key: string } | null, area:
  * Runs `fetch` and runs it again as long as `revision` (bumped by every undo and redo) moved while
  * it was in flight, so a fetch that raced with an undo never delivers the state from before it.
  */
-export async function fetchCurrent<T>(fetch: () => Promise<T>, revision: () => number): Promise<T> {
+export async function fetchCurrent<T>(
+  fetch: () => Promise<T>,
+  revision: () => number,
+): Promise<T> {
   for (;;) {
     const before = revision();
     const value = await fetch();
@@ -162,7 +197,10 @@ export interface RefreshQueue<T> {
 export const MAX_QUEUED = 32;
 
 /** `queue` with `item` appended; the one stored in React state, so it is built in the updater. */
-export function enqueue<T>(queue: RefreshQueue<T> | null, item: T): RefreshQueue<T> {
+export function enqueue<T>(
+  queue: RefreshQueue<T> | null,
+  item: T,
+): RefreshQueue<T> {
   const entries = queue?.entries ?? [];
   const seq = (entries[entries.length - 1]?.seq ?? 0) + 1;
   return { entries: [...entries, { seq, item }].slice(-MAX_QUEUED) };
@@ -173,12 +211,22 @@ export function enqueue<T>(queue: RefreshQueue<T> | null, item: T): RefreshQueue
  * handed out and nothing is consumed: the requests stay queued until the effect runs again once the
  * scene is built.
  */
-export function drainWhenReady<T>(queue: RefreshQueue<T> | null, after: number, ready: boolean): { items: T[]; last: number } {
+export function drainWhenReady<T>(
+  queue: RefreshQueue<T> | null,
+  after: number,
+  ready: boolean,
+): { items: T[]; last: number } {
   return ready ? pendingSince(queue, after) : { items: [], last: after };
 }
 
 /** The requests newer than `after` (the last `seq` the scene handled) and the new last `seq`. */
-export function pendingSince<T>(queue: RefreshQueue<T> | null, after: number): { items: T[]; last: number } {
+export function pendingSince<T>(
+  queue: RefreshQueue<T> | null,
+  after: number,
+): { items: T[]; last: number } {
   const fresh = (queue?.entries ?? []).filter((e) => e.seq > after);
-  return { items: fresh.map((e) => e.item), last: fresh.length ? fresh[fresh.length - 1].seq : after };
+  return {
+    items: fresh.map((e) => e.item),
+    last: fresh.length ? fresh[fresh.length - 1].seq : after,
+  };
 }

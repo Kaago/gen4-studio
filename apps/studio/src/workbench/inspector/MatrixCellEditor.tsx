@@ -8,6 +8,8 @@ import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
 import { useMatrix } from "../useMatrix";
 import styles from "./Editor.module.css";
+import { ExportPartDialog } from "./ExportPartDialog";
+import { ImportPartsDialog } from "./ImportPartsDialog";
 import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
 import { RawRowSection } from "./RawRowSection";
@@ -27,6 +29,8 @@ export interface MatrixCellContext {
   onEdited: (index: number) => void | Promise<void>;
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
+  /** Parts were imported into a map: pictures, scene and dirty count catch up. */
+  onMapImported: (map: number) => void | Promise<void>;
 }
 
 /** The map of a cell: a number from 0 to `max`, or nothing for a cell without a map. An entry outside that is refused with its limit. */
@@ -57,9 +61,10 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError } = context;
+  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
+  const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
   const title = `Zelle ${x}, ${y}`;
   const matrixName = `${TERMS.matrix.label} ${id4(index)}`;
@@ -126,6 +131,22 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />
         </InspectorRow>
+        {map !== null && (
+          <div className={styles.actions}>
+            <Button kind="secondary" size="s" onClick={() => setPartsDialog("import")}>
+              Teile importieren…
+            </Button>
+            <Button kind="secondary" size="s" onClick={() => setPartsDialog("export")}>
+              Teile exportieren…
+            </Button>
+          </div>
+        )}
+        {map !== null && (
+          <>
+            <ImportPartsDialog map={map} open={partsDialog === "import"} onClose={() => setPartsDialog(null)} mapCount={counts.Map ?? 0} onImported={onMapImported} />
+            <ExportPartDialog map={map} open={partsDialog === "export"} onClose={() => setPartsDialog(null)} />
+          </>
+        )}
         {header !== null ? (
           <InspectorRow label="Header" hint={`0 bis ${headerMax}`}>
             <div className={styles.inline}>

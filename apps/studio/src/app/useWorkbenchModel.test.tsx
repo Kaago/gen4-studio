@@ -117,6 +117,7 @@ function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen
     pins: { pinned: pin, inspector: shownInspector(pin, hover) },
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
+    onMapImported: noop,
     text,
     scripts: scriptsApi,
     problems,

@@ -8,12 +8,12 @@ const plan = (kind: AssetKind, index: number, state: SceneState | null = scene) 
 
 describe("reloadPlan", () => {
   it("refetches a shown map in the scene and refreshes the building inspector", () => {
-    expect(plan("Map", 11)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "map", map: 11 }]);
+    expect(plan("Map", 11)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }, { kind: "map", map: 11 }, { kind: "mapModel" }]);
   });
 
   it("leaves the scene alone when the map is not shown", () => {
-    expect(plan("Map", 99)).toEqual([{ kind: "unpin" }, { kind: "buildings" }]);
-    expect(plan("Map", 11, null)).toEqual([{ kind: "unpin" }, { kind: "buildings" }]);
+    expect(plan("Map", 99)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 99 }]);
+    expect(plan("Map", 11, null)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }]);
   });
 
   it("reloads the scene's matrix when the shown matrix was restored", () => {
@@ -74,7 +74,10 @@ describe("historyPlan", () => {
       { kind: "matrixPanel" },
       { kind: "matrix" },
       { kind: "buildings" },
+      { kind: "thumbnail", map: 10 },
       { kind: "map", map: 10 },
+      { kind: "mapModel" },
+      { kind: "thumbnail", map: 11 },
       { kind: "map", map: 11 },
       { kind: "textPanel", archive: 433 },
     ]);

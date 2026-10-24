@@ -84,6 +84,8 @@ export interface WorkbenchData {
   onMatrixEdited: (index: number) => void | Promise<void>;
   /** A map or matrix member was appended: refresh the member counts. */
   onCountsChanged: () => void | Promise<void>;
+  /** Parts were imported into a map: its pictures are dropped, the scene reloads the models and the dirty count catches up. */
+  onMapImported: (map: number) => void | Promise<void>;
   /** The building selected in the scene (it is the pinned inspector model); null: none. */
   selectedBuilding: BuildingRef | null;
   /** A click in the scene chose a building (null: none). */

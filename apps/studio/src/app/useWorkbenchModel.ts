@@ -41,6 +41,8 @@ interface WorkbenchModelParams {
   pins: Pick<InspectorState, "pinned" | "inspector">;
   /** The matrix and warp overviews of the project (the world explorer's data). */
   overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
+  /** Parts were imported into a map (must keep its identity). */
+  onMapImported: (map: number) => void | Promise<void>;
   /** Opens a wizard; must keep its identity (it is handed to memoised panels). */
   onOpenWizard: (request: WizardRequest) => void;
   /** The text panel's target and the way to set it (must keep its identity), owned by App. */
@@ -71,7 +73,7 @@ interface WorkbenchModelParams {
  * rendered again by a hover or a message. `live` is the volatile part (the inspector's hover,
  * the cell it selects, the message), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, text, scripts, problems, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, onMapImported, text, scripts, problems, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -119,6 +121,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     onAreaChanged: scene.onAreaChanged,
     onMatrixEdited: scene.onMatrixEdited,
     onCountsChanged: session.onCountsChanged,
+    onMapImported,
     selectedBuilding,
     onSelectBuilding: world.onSelectBuilding,
     onBuildingMoved: world.onBuildingMoved,

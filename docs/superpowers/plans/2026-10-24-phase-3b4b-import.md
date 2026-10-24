@@ -84,6 +84,8 @@ Stand 24.10.2026. Pfade relativ zur Repo-Wurzel; Frontend relativ zu `apps/studi
 
 ---
 
+**Task 3 ist erledigt** (Branch `phase-3b4b-kernel`, Commit nach 9153e9c: `ImportPartsDialog`, `ExportPartDialog`, `importParts.ts`, `CheckList`-Primitive mit Galerie-Seite „Prüfliste“, Tasten in `MatrixCellEditor`, Palette-Befehl, `ThumbnailCache.invalidate`, `App.onMapImported` mit `modelsReload`, `platform/dialogs.openFiles`, Rezept in `agent-gate.md`). Mit Commit 5303ec8 erledigt: Undo/Redo eines Map-Assets räumt das Vorschaubild und sendet `modelsReload` (Aktion `mapModel` in `useHistoryReload.ts`); leere Teile (0 B) sind nicht vorausgewählt und tragen „Leer, wird nicht übernommen“. Reste, die Task 4 vor den Szenarien erledigt: (b) Teil-Fehlertexte des Kernels (`PartReport.state: Error(String)`) erscheinen englisch: deutsche Sätze mit Ausweg in `importParts.ts` nach Code/Schlüssel, Kernel liefert `code` plus `args`; (d) Quellkarten-Picker ohne Kartenbilder bleibt (Abweichung notieren). Die Ergebnisanzeige „neue Befunde des Subjekts“ nach dem Import wird in Task 4 über `run_checks { scope: "cheap" }` (3b.4a) verdrahtet.
+
 ### Task 4: Szenarien „kleiner Hack“, Gate-Dokument Teil B, Docs, Roadmap, volle Prüfung
 
 **Files:**
