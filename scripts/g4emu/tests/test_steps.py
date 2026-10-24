@@ -1,6 +1,7 @@
 import pytest
 
-from conftest import put_location
+from conftest import RAM_BASE, RAM_SIZE, battle_mon, put_location
+from g4emu import battle
 from g4emu.games import Location
 from g4emu.steps import Step, StepFailed, parse_steps, run_step
 
@@ -110,3 +111,250 @@ def test_every_parsed_step_has_a_handler():
     from g4emu.steps import ARITY, HANDLERS
 
     assert set(ARITY) == set(HANDLERS)
+
+
+# --- battle steps -------------------------------------------------------------------------
+
+ENEMY = 0x022C59C8  # where Platin put the wild Mewtwo in the 3b.3b measurement
+BATTLE_POINTER = 0x02101F88
+
+
+def _ram_with(*records: tuple[int, bytes]) -> bytearray:
+    ram = bytearray(RAM_SIZE)
+    for address, data in records:
+        ram[address - RAM_BASE : address - RAM_BASE + len(data)] = data
+    return ram
+
+
+def _start_battle(fake_emu, frame: int, *mons: tuple[int, int], at: int = ENEMY) -> None:
+    """From `frame` on RAM holds the BattleMons `mons` (0xC0 apart) and the CPUD battle pointer."""
+    for i, (species, level) in enumerate(mons):
+        fake_emu.poke(frame, at + i * 0xC0, battle_mon(species, level))
+    fake_emu.poke(frame, BATTLE_POINTER, (0x022CE7A4).to_bytes(4, "little"))
+
+
+def _end_battle(fake_emu, frame: int, count: int = 1, at: int = ENEMY) -> None:
+    fake_emu.poke(frame, at, bytes(0xC0 * count))
+    fake_emu.poke(frame, BATTLE_POINTER, bytes(4))
+
+
+def test_find_enemy_hits_exactly_the_signature():
+    near = battle_mon(150, 5, boosts=b"\x06" * 7 + b"\x05")  # seven 06: one stat lowered
+    ram = _ram_with(
+        (ENEMY, battle_mon(150, 5)),
+        (0x02210000, near),
+        (0x02220002, battle_mon(150, 5)),  # not 4-byte aligned
+        (0x02230000, battle_mon(0, 5)),  # species out of range
+        (0x02240000, battle_mon(508, 5)),
+        (0x02250000, battle_mon(150, 0)),  # level out of range
+        (0x02260000, battle_mon(150, 101)),
+    )
+    assert battle.find_enemy(ram) == [(ENEMY - RAM_BASE, 150, 5)]
+    assert battle.find_enemy(memoryview(ram)) == [(ENEMY - RAM_BASE, 150, 5)]
+    assert battle.find_enemy(_ram_with((0x02210000, near))) == []
+    assert battle.find_enemy(_ram_with((0x02300000, battle_mon(507, 100)))) == [
+        (0x00300000, 507, 100)
+    ]
+
+
+def test_in_battle_requires_a_hit(cpud, ipkd):
+    """Ruling R1: at least one hit (the player's BattleMon matches too); CPUD needs the pointer."""
+    pointer = (BATTLE_POINTER, (0x022CE7A4).to_bytes(4, "little"))
+    near = battle_mon(150, 5, boosts=b"\x06" * 7 + b"\x05")
+    assert not battle.in_battle(_ram_with(pointer), cpud)
+    assert not battle.in_battle(_ram_with(pointer, (ENEMY, near)), cpud)
+    assert battle.in_battle(_ram_with(pointer, (ENEMY, battle_mon(150, 5))), cpud)
+    assert not battle.in_battle(_ram_with((ENEMY, battle_mon(150, 5))), cpud)  # pointer 0
+    two = _ram_with(pointer, (ENEMY - 0xC0, battle_mon(448, 100)), (ENEMY, battle_mon(150, 5)))
+    assert battle.in_battle(two, cpud)
+    assert battle.in_battle(_ram_with((ENEMY, battle_mon(150, 5))), ipkd)  # no pointer in HGSS
+    assert not battle.in_battle(_ram_with((ENEMY, near)), ipkd)
+
+
+def test_battle_config_comes_from_games_yaml(cpud, ipkd):
+    from g4emu.games import load_games
+
+    assert cpud.battle.signature == b"\x06" * 8 and cpud.battle.signature_at == 0x18
+    assert (cpud.battle.species_at, cpud.battle.level_at) == (0, 0x34)
+    assert cpud.battle.pointer == BATTLE_POINTER and cpud.home_header == 414
+    assert ipkd.battle.pointer is None and ipkd.home_header == 63
+    assert load_games()["IPKE"].home_header == 63
+
+
+def test_parse_signature():
+    assert battle.parse_signature("06x8@0x18") == (b"\x06" * 8, 0x18)
+    assert battle.parse_signature("ff@4") == (b"\xff", 4)
+    with pytest.raises(ValueError):
+        battle.parse_signature("06x8")
+
+
+def test_parse_steps_takes_the_battle_steps():
+    tokens = (
+        "walk-until-battle up 20 back-and-forth expect-battle 150 5 mash a 120 "
+        "end-battle win-battle 900"
+    ).split()
+    assert parse_steps(tokens) == [
+        Step("walk-until-battle", ["up", "20", "back-and-forth"]),
+        Step("expect-battle", ["150", "5"]),
+        Step("mash", ["a", "120"]),
+        Step("end-battle", []),
+        Step("win-battle", ["900"]),
+    ]
+
+
+def test_expect_battle_waits_for_the_signature(fake_emu, cpud, tmp_path):
+    _start_battle(fake_emu, 35, (150, 5))
+    out = run_step(fake_emu, cpud, Step("expect-battle", ["150", "5"]), tmp_path)
+    assert (out["species"], out["level"], out["offset"]) == (150, 5, "0x022C59C8")
+    assert 35 <= out["frame"] <= 45  # polled every 10 frames
+
+
+def test_expect_battle_picks_the_matching_hit_of_two(fake_emu, cpud, tmp_path):
+    # With a party the player's BattleMon (slot 0) lies 0xC0 before the enemy and matches too.
+    _start_battle(fake_emu, 0, (448, 100), (150, 5), at=ENEMY - 0xC0)
+    out = run_step(fake_emu, cpud, Step("expect-battle", ["150", "5"]), tmp_path)
+    assert out["offset"] == "0x022C59C8"
+    out = run_step(fake_emu, cpud, Step("expect-battle", ["448", "100"]), tmp_path)
+    assert out["offset"] == "0x022C5908"
+
+
+def test_expect_battle_times_out_cleanly(fake_emu, ipkd, tmp_path):
+    with pytest.raises(StepFailed, match="kein Kampf nach 100 Bildern"):
+        run_step(fake_emu, ipkd, Step("expect-battle", ["150", "5", "100"]), tmp_path)
+    assert 100 <= fake_emu.frame < 110
+    start = fake_emu.frame
+    with pytest.raises(StepFailed, match="kein Kampf nach 600 Bildern"):  # default limit
+        run_step(fake_emu, ipkd, Step("expect-battle", ["150", "5"]), tmp_path)
+    assert 600 <= fake_emu.frame - start < 610
+
+
+def test_expect_battle_names_the_last_seen_signature(fake_emu, cpud, tmp_path):
+    _start_battle(fake_emu, 0, (151, 7))
+    with pytest.raises(StepFailed, match=r"150 Lv 5 .*151 Lv 7 bei 0x022C59C8"):
+        run_step(fake_emu, cpud, Step("expect-battle", ["150", "5", "50"]), tmp_path)
+
+
+def test_expect_battle_needs_the_cpud_pointer(fake_emu, cpud, tmp_path):
+    fake_emu.poke(0, ENEMY, battle_mon(150, 5))  # stale BattleMon, pointer 0: no battle
+    with pytest.raises(StepFailed, match="Kampfzeiger 0"):
+        run_step(fake_emu, cpud, Step("expect-battle", ["150", "5", "50"]), tmp_path)
+
+
+def test_battle_steps_need_a_known_game(fake_emu, tmp_path):
+    with pytest.raises(StepFailed, match="games.yaml"):
+        run_step(fake_emu, None, Step("expect-battle", ["150", "5"]), tmp_path)
+
+
+def _directions(fake_emu) -> list[str]:
+    """The held directions in order, repeats folded (a turn and the step after it count once)."""
+    out: list[str] = []
+    for buttons, _ in fake_emu.log:
+        d = next((b for b in ("up", "down", "left", "right") if b in buttons), None)
+        if d and (not out or out[-1] != d):
+            out.append(d)
+    return out
+
+
+def test_walk_until_battle_alternates_direction(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19), facing="up")
+    with pytest.raises(StepFailed, match="kein Kampf nach 4 Schritten"):
+        run_step(fake_emu, cpud, Step("walk-until-battle", ["up", "4", "back-and-forth"]), tmp_path)
+    assert _directions(fake_emu) == ["up", "down", "up", "down"]
+    assert (fake_emu.loc.x, fake_emu.loc.y) == (45, 19)
+
+
+def test_walk_until_battle_keeps_the_direction_without_back_and_forth(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19), facing="up")
+    with pytest.raises(StepFailed, match="kein Kampf nach 3 Schritten"):
+        run_step(fake_emu, cpud, Step("walk-until-battle", ["up", "3"]), tmp_path)
+    assert (fake_emu.loc.x, fake_emu.loc.y) == (45, 16)
+
+
+def test_walk_until_battle_stops_once_the_battle_runs(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19), facing="up")
+    _start_battle(fake_emu, 30, (150, 5))  # during the second step
+    out = run_step(
+        fake_emu, cpud, Step("walk-until-battle", ["up", "20", "back-and-forth"]), tmp_path
+    )
+    assert out["ok"] and out["header"] == 593 and out["steps"] == 2
+    assert _directions(fake_emu) == ["up", "down"]
+
+
+def test_walk_until_battle_treats_blocked_as_a_battle_start(fake_emu, cpud, tmp_path):
+    # In the game the character stops moving when the battle starts; the signature comes later.
+    fake_emu.attach(cpud, Location(593, 0, 45, 19), facing="up")
+    fake_emu.blocked = {(45, 18), (45, 20)}
+    _start_battle(fake_emu, 300, (150, 5))
+    out = run_step(
+        fake_emu, cpud, Step("walk-until-battle", ["up", "20", "back-and-forth"]), tmp_path
+    )
+    assert out["steps"] == 0 and out["frame"] >= 300
+
+
+def test_walk_until_battle_blocked_without_battle_fails(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19), facing="up")
+    fake_emu.blocked = {(45, 18)}
+    with pytest.raises(StepFailed, match="blockiert bei x 45, y 19, kein Kampf"):
+        run_step(fake_emu, cpud, Step("walk-until-battle", ["up", "5"]), tmp_path)
+
+
+def test_walk_until_battle_rejects_bad_arguments(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    with pytest.raises(ValueError, match="zigzag"):
+        run_step(fake_emu, cpud, Step("walk-until-battle", ["up", "5", "zigzag"]), tmp_path)
+    with pytest.raises(ValueError, match="sideways"):
+        run_step(fake_emu, cpud, Step("walk-until-battle", ["sideways", "5"]), tmp_path)
+
+
+def test_mash_presses_every_eight_frames(fake_emu, tmp_path):
+    out = run_step(fake_emu, None, Step("mash", ["a", "40"]), tmp_path)
+    assert fake_emu.frame == 40 and out["button"] == "a" and out["frames"] == 40
+    pressed = [i for i, (b, _) in enumerate(fake_emu.log) if b == frozenset({"a"})]
+    starts = [i for i in pressed if i - 1 not in pressed]
+    assert starts == [0, 8, 16, 24, 32]
+    with pytest.raises(ValueError, match="z"):
+        run_step(fake_emu, None, Step("mash", ["z", "10"]), tmp_path)
+
+
+def test_end_battle_presses_a_until_the_battle_is_over(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    _start_battle(fake_emu, 0, (150, 5))
+    _end_battle(fake_emu, 400)
+    # The loss warps home: the old header stays a few frames, then the fade, then home.
+    fake_emu.script(408, None)
+    fake_emu.script(420, Location(414, 0, 8, 8))
+    out = run_step(fake_emu, cpud, Step("end-battle", []), tmp_path)
+    assert (out["header"], out["x"], out["y"]) == (414, 8, 8)
+    pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
+    assert pressed[0] == 0 and 390 <= pressed[-1] < 400  # no A after the battle ended
+    assert out["frame"] >= 420
+
+
+def test_end_battle_without_battle_times_out(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    with pytest.raises(StepFailed, match="kein Kampf nach 200 Bildern"):
+        run_step(fake_emu, cpud, Step("end-battle", ["200"]), tmp_path)
+
+
+def test_end_battle_that_never_ends_times_out(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    _start_battle(fake_emu, 0, (150, 5))
+    with pytest.raises(StepFailed, match="Kampf läuft noch nach 320 Bildern"):
+        run_step(fake_emu, cpud, Step("end-battle", ["320"]), tmp_path)
+
+
+def test_win_battle_fails_when_the_player_ends_up_at_home(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(593, 0, 45, 19))
+    _start_battle(fake_emu, 0, (150, 5))
+    _end_battle(fake_emu, 100)
+    fake_emu.script(110, Location(414, 0, 8, 8))
+    with pytest.raises(StepFailed, match="Niederlage.*414"):
+        run_step(fake_emu, cpud, Step("win-battle", []), tmp_path)
+
+
+def test_win_battle_succeeds_on_the_same_map(fake_emu, ipkd, tmp_path):
+    fake_emu.attach(ipkd, Location(540, 0, 16, 15))
+    _start_battle(fake_emu, 0, (150, 5))
+    _end_battle(fake_emu, 100)
+    out = run_step(fake_emu, ipkd, Step("win-battle", []), tmp_path)
+    assert out["header"] == 540

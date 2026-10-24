@@ -28,7 +28,25 @@ ARITY: dict[str, tuple[int, int]] = {
     "state": (1, 1),
     "write-save": (1, 1),
     "dump-ram": (1, 1),
+    "expect-battle": (2, 3),
+    "walk-until-battle": (2, 3),
+    "mash": (2, 2),
+    "end-battle": (0, 1),
+    "win-battle": (0, 1),
 }
+
+# Battle steps (see battle.py for the detection).
+BATTLE_POLL = 10  # `expect-battle` and `walk-until-battle` look for the signature every 10 frames
+EXPECT_BATTLE_TIMEOUT = 600  # HGSS shows the signature 120..180 frames after the battle starts
+BATTLE_START_WAIT = 600  # `walk-until-battle` waits this long after a blocked or its last step
+MASH_PERIOD = 8  # `mash` and `end-battle` press every 8 frames ...
+MASH_HOLD = 4  # ... for 4 frames
+END_BATTLE_TIMEOUT = 6000  # the loss without a party took ~1150 frames of A in Platin and HGSS
+# `end-battle` returns once the battle is over and the header stayed the same this long. Platin
+# clears the battle pointer 8 frames before a loss warps home; the old header must not count.
+END_STABLE_FRAMES = 60
+BACK_AND_FORTH = "back-and-forth"
+OPPOSITE = {"up": "down", "down": "up", "left": "right", "right": "left"}
 
 
 @dataclass
@@ -211,8 +229,208 @@ def _expect_map(
     return _loc_json(movement.wait_for_map(emu, _require_game(game), header, timeout))
 
 
+def _require_battle(game: Game | None) -> Game:
+    game = _require_game(game)
+    if game.battle is None:
+        raise StepFailed(f"{game.code}: keine Kampferkennung in games.yaml (battle)")
+    return game
+
+
+def _button(text: str, step: str) -> str:
+    if text not in BUTTONS:
+        raise ValueError(f"{step}: unbekannte Taste '{text}' (erlaubt: {' '.join(BUTTONS)})")
+    return text
+
+
+def _hits_text(hits: list) -> str:
+    from g4emu.battle import address
+
+    return ", ".join(f"{s} Lv {lv} bei {address(o)}" for o, s, lv in hits)
+
+
+def _expect_battle(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Poll every 10 frames until a battle runs and one BattleMon hit is (SPECIES, LEVEL)."""
+    from g4emu.battle import address, scan
+
+    game = _require_battle(game)
+    species, level = _int(step.args[0], "expect-battle"), _int(step.args[1], "expect-battle")
+    timeout = _int(step.args[2], "expect-battle") if len(step.args) > 2 else EXPECT_BATTLE_TIMEOUT
+    start = emu.frame
+    seen: list = []
+    stale = False  # hits while the battle pointer reads 0
+    while True:
+        hits, active = scan(emu.ram(), game)
+        if active:
+            for offset, s, lv in hits:
+                if (s, lv) == (species, level):
+                    return {"species": s, "level": lv, "offset": address(offset)}
+        if hits:
+            seen, stale = hits, not active
+        if emu.frame - start >= timeout:
+            break
+        emu.step(BATTLE_POLL)
+    n = emu.frame - start
+    if not seen:
+        raise StepFailed(f"kein Kampf nach {n} Bildern")
+    if stale:
+        raise StepFailed(
+            f"kein Kampf nach {n} Bildern (Kampfzeiger 0; gesehen: {_hits_text(seen)})"
+        )
+    raise StepFailed(
+        f"Gegner {species} Lv {level} nicht gefunden nach {n} Bildern; "
+        f"gesehen: {_hits_text(seen)}"
+    )
+
+
+def _await_battle(emu: Emu, game: Game, frames: int) -> bool:
+    """Poll every 10 frames for up to `frames` frames; True as soon as a battle runs."""
+    from g4emu.battle import in_battle
+
+    start = emu.frame
+    while True:
+        if in_battle(emu.ram(), game):
+            return True
+        if emu.frame - start >= frames:
+            return False
+        emu.step(BATTLE_POLL)
+
+
+def _walk_until_battle(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Walk up to N single tiles (alternating with `back-and-forth`) until a battle runs.
+
+    The game stops the character when an encounter starts, so the next `walk` reports blocked;
+    a blocked walk is a possible battle start and is followed by a wait for the signature.
+    """
+    from g4emu import movement
+    from g4emu.battle import in_battle
+    from g4emu.games import read_location
+
+    direction = step.args[0]
+    if direction not in movement.DIRECTIONS:
+        raise ValueError(
+            f"walk-until-battle: unbekannte Richtung '{direction}' "
+            f"(erlaubt: {' '.join(movement.DIRECTIONS)})"
+        )
+    tiles = _int(step.args[1], "walk-until-battle")
+    mode = step.args[2] if len(step.args) > 2 else None
+    if mode not in (None, BACK_AND_FORTH):
+        raise ValueError(f"walk-until-battle: '{mode}' unbekannt (erlaubt: {BACK_AND_FORTH})")
+    game = _require_battle(game)
+
+    def done(steps: int) -> dict:
+        loc = read_location(emu.ram(), game)
+        return {**(_loc_json(loc) if loc else {}), "steps": steps}
+
+    for taken in range(tiles):
+        try:
+            movement.walk(emu, game, direction, 1)
+        except StepFailed as blocked:
+            if _await_battle(emu, game, BATTLE_START_WAIT):
+                return done(taken)
+            raise StepFailed(f"{blocked}, kein Kampf nach {BATTLE_START_WAIT} Bildern") from None
+        if in_battle(emu.ram(), game):
+            return done(taken + 1)
+        if mode == BACK_AND_FORTH:
+            direction = OPPOSITE[direction]
+    if _await_battle(emu, game, BATTLE_START_WAIT):  # the last tile may have started one
+        return done(tiles)
+    raise StepFailed(f"kein Kampf nach {tiles} Schritten")
+
+
+def _mash_frames(emu: Emu, button: str, frames: int) -> None:
+    """Press `button` for 4 of every 8 frames, `frames` frames in total."""
+    done = 0
+    while done < frames:
+        hold = min(MASH_HOLD, frames - done)
+        emu.step(hold, frozenset({button}))
+        done += hold
+        rest = min(MASH_PERIOD - MASH_HOLD, frames - done)
+        if rest:
+            emu.step(rest)
+            done += rest
+
+
+def _mash(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    button = _button(step.args[0], "mash")
+    frames = _int(step.args[1], "mash")
+    _mash_frames(emu, button, frames)
+    return {"button": button, "frames": frames}
+
+
+def end_battle(emu: Emu, game: Game, timeout: int) -> Location:
+    """Press A every 8 frames until the battle is over, then wait for a stable header.
+
+    The battle must be seen first (a hit plus, in Platin, the battle pointer). Over means no
+    battle and a readable location with the same header for END_STABLE_FRAMES frames; no A is
+    pressed after the battle ended (an A would talk to the trainer again).
+    """
+    from g4emu.battle import in_battle
+    from g4emu.games import read_location
+
+    start = emu.frame
+    seen = over = False
+    stable: tuple[int, int] | None = None  # (header, since frame)
+    while emu.frame - start < timeout:
+        ram = emu.ram()
+        active = in_battle(ram, game)
+        seen = seen or active
+        over = seen and not active
+        if over:
+            loc = read_location(ram, game)
+            if loc is None:
+                stable = None
+            elif stable is None or stable[0] != loc.header:
+                stable = (loc.header, emu.frame)
+            elif emu.frame - stable[1] >= END_STABLE_FRAMES:
+                return loc
+            emu.step(MASH_PERIOD)
+        else:
+            stable = None
+            _mash_frames(emu, "a", MASH_PERIOD)
+    n = emu.frame - start
+    if not seen:
+        raise StepFailed(f"kein Kampf nach {n} Bildern")
+    if over:
+        raise StepFailed(f"Kampf vorbei, aber kein stabiler Ort nach {n} Bildern")
+    raise StepFailed(f"Kampf läuft noch nach {n} Bildern")
+
+
+def _end_battle(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    game = _require_battle(game)
+    timeout = _int(step.args[0], step.name) if step.args else END_BATTLE_TIMEOUT
+    return _loc_json(end_battle(emu, game, timeout))
+
+
+def _win_battle(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    game = _require_battle(game)
+    if game.home_header is None:
+        raise StepFailed(f"{game.code}: kein home_header in games.yaml")
+    timeout = _int(step.args[0], step.name) if step.args else END_BATTLE_TIMEOUT
+    loc = end_battle(emu, game, timeout)
+    if loc.header == game.home_header:
+        raise StepFailed(
+            f"Niederlage: nach dem Kampf zu Hause (Header {loc.header}, x {loc.x}, y {loc.y})"
+        )
+    return _loc_json(loc)
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
+    "expect-battle": _expect_battle,
+    "walk-until-battle": _walk_until_battle,
+    "mash": _mash,
+    "end-battle": _end_battle,
+    "win-battle": _win_battle,
     "continue": _continue,
     "walk": _walk,
     "walk-to": _walk_to,

@@ -56,6 +56,23 @@ def test_continue_frames_is_required(tmp_path):
         load_games(path)
 
 
+def test_battle_entry_is_checked(tmp_path):
+    base = (
+        "XXXX:\n  name: X\n  location: { pointer: 0x02100000, offset: 4 }\n"
+        "  save: x.sav\n  start_header: 1\n  continue_frames: 0\n"
+    )
+    path = tmp_path / "games.yaml"
+    path.write_text(base)
+    game = load_games(path)["XXXX"]
+    assert game.battle is None and game.home_header is None
+    path.write_text(base + "  battle: { species_at: 0, level_at: 0x34 }\n")
+    with pytest.raises(ValueError, match="XXXX: battle"):
+        load_games(path)
+    path.write_text(base + '  battle: { signature: "06x8", species_at: 0, level_at: 0x34 }\n')
+    with pytest.raises(ValueError, match="XXXX: battle"):
+        load_games(path)
+
+
 @pytest.mark.parametrize(
     "code, pointer, save",
     [
