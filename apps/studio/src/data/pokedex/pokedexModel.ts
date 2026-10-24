@@ -112,7 +112,7 @@ export const EGG_GROUPS: readonly SelectOption<number>[] = [
 ].map((label, i) => ({ value: i + 1, label }));
 
 /** The body colours of the Pokédex search (bits 0 to 6 of the colour byte). */
-export const COLORS: readonly SelectOption<number>[] = ["Rot", "Blau", "Gelb", "Grün", "Schwarz", "Braun", "Lila", "Grau", "Weiß", "Rosa"].map((label, value) => ({ value, label }));
+export const COLORS: readonly SelectOption<number>[] = ["Rot", "Blau", "Gelb", "Grün", "Schwarz", "Braun", "Violett", "Grau", "Weiß", "Rosa"].map((label, value) => ({ value, label }));
 
 /** What the parameter of an evolution method means (dspre-report §1.4); `number` for a method the games do not know. */
 export type ParamKind = "none" | "level" | "item" | "move" | "species" | "beauty" | "number";

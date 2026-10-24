@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DataRowDto } from "../../api";
 import {
+  COLORS,
   EGG_GROUPS,
   EVO_METHODS,
   EV_YIELD,
@@ -93,6 +94,11 @@ describe("pokedexModel", () => {
     expect(hatchText(15)).toBe("15 Zyklen, 3.840 Schritte");
     expect(hatchText(1)).toBe("1 Zyklus, 256 Schritte");
     expect(hatchText(120)).toBe("120 Zyklen, 30.720 Schritte");
+  });
+
+  it("names_the_ten_body_colours_as_the_games_do", () => {
+    // Colour 6 is "VIOLETT" in the German games' texts (Pokédex search), not "Lila".
+    expect(COLORS.map((c) => c.label)).toEqual(["Rot", "Blau", "Gelb", "Grün", "Schwarz", "Braun", "Violett", "Grau", "Weiß", "Rosa"]);
   });
 
   it("names_six_growth_rates_and_fifteen_egg_groups", () => {
