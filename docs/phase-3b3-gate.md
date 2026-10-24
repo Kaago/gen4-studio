@@ -1,6 +1,6 @@
 # Phase 3b.3: Gate prüfen
 
-Stand: 2026-10-24. Teil A (Gate 3b.3a „Codecs und Pokémon-Daten“) ist vom Agenten über die Test-Umgebung abgenommen (Ergebnis unten); offen sind die Blicke des Nutzers auf die Screens und die Symbole. Teil B (Gate 3b.3b „Trainer, Begegnungen“, zugleich das Roadmap-Gate 3b.3) ist implementiert: die beiden Szenarien und `scripts/gate.sh` sind grün (Ergebnis in Teil B), die Abnahme der Editoren über die Test-Umgebung und die Punkte des Nutzers sind offen.
+Stand: 2026-10-24. Teil A (Gate 3b.3a „Codecs und Pokémon-Daten“) ist vom Agenten über die Test-Umgebung abgenommen (Ergebnis unten); offen sind die Blicke des Nutzers auf die Screens und die Symbole. Teil B (Gate 3b.3b „Trainer, Begegnungen“, zugleich das Roadmap-Gate 3b.3) ist vom Agenten abgenommen (2026-10-24, (B1) bis (B10) über die Test-Umgebung und die Szenarien, vier Befunde im Branch der Abnahme behoben, Ergebnis in Teil B); offen sind beim Nutzer der Blick auf die Screens und auf Dunkel/Kompakt (B10, B11) und die DSPRE-Gegenprobe (B12).
 
 Phase 3b.3a bringt eigene Codecs für alle Daten-Archive (Begegnungen, Trainer, Pokémon-Basisdaten, Lernsets, Entwicklungen, Attacken, Gegenstände, Trainer-Texttabellen), die Archive im Store mit mehrteiligem Changeset, Namenstabellen, arm9-Tabellen (nur lesend), einen Referenzindex, Item- und Pokémon-Symbole aus dem ROM und die Editoren **Pokédex**, **Attacken** und **Gegenstände** in den Atlas-Bereichen Pokémon und Gegenstände. Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md), Abschnitt 1 (Gate 3b.3a). Plan: [docs/superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md](superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md).
 
@@ -206,7 +206,7 @@ Teil B besteht aus diesen Punkten:
 - (B12) DSPRE-Gegenprobe.
 - (B13) HeartGold US im Spiel (optional).
 
-Wer was prüft (Legende wie in Teil A): **Agent** für die Szenarien, die Editoren über die Test-Umgebung, ⌘Z, Abspalten, Tastatur und Dunkel/Kompakt (mit Blick des Nutzers auf die Bilder); **Hand** für den Blick auf die Screens „Trainer“ und „Begegnungen“, DSPRE (nur Windows) und HeartGold US im Spiel. Rezepte: [docs/agent-gate.md](agent-gate.md), Abschnitte „Phase 3b.3b“ und „Rezepte“ („Trainer“, „Begegnungen“, „Platzieren“).
+Wer was prüft (Legende wie in Teil A): **Agent** für die Szenarien, die Editoren über die Test-Umgebung, ⌘Z, Abspalten, Tastatur und Dunkel/Kompakt (mit Blick des Nutzers auf die Bilder); **Hand** für den Blick auf die Screens „Trainer“ und „Begegnungen“ und DSPRE (nur Windows); HeartGold US im Spiel (optional) hat der Agent in der Abnahme mit dem Szenario erledigt. Rezepte: [docs/agent-gate.md](agent-gate.md), Abschnitte „Phase 3b.3b“ und „Rezepte“ („Trainer“, „Begegnungen“, „Platzieren“).
 
 Namen in der Oberfläche: Im Bereich Pokémon sind alle vier Unterbereiche offen (⌘1 Pokédex, ⌘2 Trainer, ⌘3 Begegnungen, ⌘4 Attacken); die Palette hat „Trainer öffnen“ und die Gruppen „Trainer“ und „Begegnungen“. Brotkrumen „Pokémon › Trainer › Wanderer Jens“ und „Pokémon › Begegnungen › Route 201“.
 
@@ -255,55 +255,55 @@ Abweichungen von der Spezifikation (§13): Die Spezifikation nennt Wanderer „J
 
 Auf `pt-3b3b-gate` (Scripts übernommen), Tiefe „Bauen“, Rezept „Trainer“ in [agent-gate.md](agent-gate.md):
 
-- [ ] 1. ⌘2 (oder Menü im Listenkopf): Liste „928 Trainer“ als Baum „Nach Ort“ (Ort → Trainer, „Ohne Ort“ zuletzt), Umschalter „Nach Klasse“, Suche über Name, Klasse und Nummer, Zeilen mit „Lv. 12“ (höchstes Level im Team).
-- [ ] 2. Ein Vanilla-Trainer (Teenager Logan 0002): Schau mit Team als Karten und „Steht in der Welt“ („Route 202, Kachel 185, 804“, Klick führt in die Welt); Hand mit den Reitern „Team“ (sechs Karten, Platz-Details: Art, Level, Stärke, Item, vier Attacken), „Trainer“ (Klasse, Name „N von 7“, Kampfart, KI, Schalter „Eigene Attacken“ und „Items tragen“, vier Items, Kampftexte) und in Tüfteln „Rohdaten“.
-- [ ] 3. „Trainer anlegen…“ (+): Dialog „Trainer 928 anlegen?“ mit Klasse, Name und der Plakette „Nicht rückgängig“; ein Name mit 8 Zeichen wird abgelehnt. Anlegen wählt den neuen Trainer, die Schau warnt „Ohne Pokémon stürzt der Kampf ab“. Der zweite: der Dialog nennt „Trainer 930 anlegen?“ und „929 wird Platzhalter für das Sicht-Script“; die Liste zeigt 929 gesperrt.
-- [ ] 4. Team: Platz 1 → Art wählen (neue Attacken nach dem Lernset, wenn „Eigene Attacken“ an ist), Level ändern; der Verlauf nennt „Wanderer Jens: Platz 1 Level 5 → 14“.
-- [ ] 5. Kampftexte: „Text anlegen“ vor dem Kampf ohne `\r` → Warnung im Feld und im Prüflicht, „⏎ anhängen“ behebt sie.
-- [ ] 6. HeartGold DE (`hg-3b3b-gate`): Geschlecht und Fähigkeit als zwei Auswahlfelder, „Stärke“ mit „IV = Wert × 31 / 255“.
+- [x] 1. ⌘2 (oder Menü im Listenkopf): Liste „928 Trainer“ als Baum „Nach Ort“ (Ort → Trainer, „Ohne Ort“ zuletzt), Umschalter „Nach Klasse“, Suche über Name, Klasse und Nummer, Zeilen mit „Lv. 12“ (höchstes Level im Team).
+- [x] 2. Ein Vanilla-Trainer (Teenager Logan 0002): Schau mit Team als Karten und „Steht in der Welt“ („Route 202, Kachel 185, 804“, Klick führt in die Welt); Hand mit den Reitern „Team“ (sechs Karten, Platz-Details: Art, Level, Stärke, Item, vier Attacken), „Trainer“ (Klasse, Name „N von 7“, Kampfart, KI, Schalter „Eigene Attacken“ und „Items tragen“, vier Items, Kampftexte) und in Tüfteln „Rohdaten“.
+- [x] 3. „Trainer anlegen…“ (+): Dialog „Trainer 928 anlegen?“ mit Klasse, Name und der Plakette „Nicht rückgängig“; ein Name mit 8 Zeichen wird abgelehnt. Anlegen wählt den neuen Trainer, die Schau warnt „Ohne Pokémon stürzt der Kampf ab“. Der zweite: der Dialog nennt „Trainer 930 anlegen?“ und „929 wird Platzhalter für das Sicht-Script“; die Liste zeigt 929 gesperrt.
+- [x] 4. Team: Platz 1 → Art wählen (neue Attacken nach dem Lernset, wenn „Eigene Attacken“ an ist), Level ändern; der Verlauf nennt „Wanderer Jens: Platz 1 Level 5 → 14“.
+- [x] 5. Kampftexte: „Text anlegen“ vor dem Kampf ohne `\r` → Warnung im Feld und im Prüflicht, „⏎ anhängen“ behebt sie.
+- [x] 6. HeartGold DE (`hg-3b3b-gate`): Geschlecht und Fähigkeit als zwei Auswahlfelder, „Stärke“ mit „IV = Wert × 31 / 255“.
 
 ### (B5) Begegnungen-Editor
 
 Auf `pt-3b3b-gate`, Rezept „Begegnungen“:
 
-- [ ] 1. ⌘3: Liste „183 Begegnungsdateien“, Zeilen mit den Orten der Header („Route 201“, „verwendet von 1 Ort“), Gruppe „Ohne Ort“ am Ende; Suche „Ort oder Nummer“.
-- [ ] 2. Route 201 (0140): Schau „Wer hier wartet“ (STARALILI Morgens 50 % · Tags 50 % · Nachts 40 % …) und „Verwendet von 1 Ort“; Hand mit den Reitern Gras, Surfen, Alte Angel, Profi-Angel, Super-Angel, Ersatz (HeartGold dazu „Fels“), je mit Zähler; Tabelle Platz · Pokémon · Level · Anteil · Ersetzt durch.
-- [ ] 3. Gras-Slot 1 auf eine andere Art, Rate 30 → 100: Verlauf „Route 201: Gras Platz 1 STARALILI → PIKACHU“, „Route 201: Gras-Rate 30 → 100“; die Schau rechnet die Anteile neu (aus dem Kernel).
-- [ ] 4. Warnung: Level 0 bei belegter Art → Warnung in der Hand, in der Schau und im Prüflicht (Quelle „Begegnungen“).
-- [ ] 5. Ersatz-Reiter: je Liste eine Tabelle (Platin: Schwarm, Tag, Nacht, Poké-Radar, Dual-Slot Rubin bis Blattgrün; HeartGold: Schwarm im Gras, beim Surfen, beim Angeln, Radio Hoenn und Sinnoh) mit „Ersetzt“ und „Anteil“; Platin „Formen“ mit „Schalellos Ost“/„Gastrodon Ost“ und „Icognito-Tabelle“.
-- [ ] 6. „Begegnungsdatei anlegen…“ (+): Dialog „Begegnungsdatei 0183 anlegen?“, „Leer“ oder „Kopie von …“, Plakette „Nicht rückgängig“.
-- [ ] 7. Header-Editor (Welt): Feld „Begegnungen“ als Referenz „Begegnungen 0140“ mit „Ändern…“ (Auswahl der Dateien, „Keine“ = Platin 0xFFFF, HeartGold 0xFF); das Umhängen ist ein Schritt („Begegnungen“).
-- [ ] 8. HeartGold DE: Gras mit den Spalten Morgens, Tags, Nachts und einer Level-Spalte; Label „…: Gras Platz 1 nachts Hoothoot → Taubsi“.
+- [x] 1. ⌘3: Liste „183 Begegnungsdateien“, Zeilen mit den Orten der Header („Route 201“, „verwendet von 1 Ort“), Gruppe „Ohne Ort“ am Ende; Suche „Ort oder Nummer“.
+- [x] 2. Route 201 (0140): Schau „Wer hier wartet“ (STARALILI Morgens 50 % · Tags 50 % · Nachts 40 % …) und „Verwendet von 1 Ort“; Hand mit den Reitern Gras, Surfen, Alte Angel, Profi-Angel, Super-Angel, Ersatz (HeartGold dazu „Fels“), je mit Zähler; Tabelle Platz · Pokémon · Level · Anteil · Ersetzt durch.
+- [x] 3. Gras-Slot 1 auf eine andere Art, Rate 30 → 100: Verlauf „Route 201: Gras Platz 1 STARALILI → PIKACHU“, „Route 201: Gras-Rate 30 → 100“; die Schau rechnet die Anteile neu (aus dem Kernel).
+- [x] 4. Warnung: Level 0 bei belegter Art → Warnung in der Hand, in der Schau und im Prüflicht (Quelle „Begegnungen“).
+- [x] 5. Ersatz-Reiter: je Liste eine Tabelle (Platin: Schwarm, Tag, Nacht, Poké-Radar, Dual-Slot Rubin bis Blattgrün; HeartGold: Schwarm im Gras, beim Surfen, beim Angeln, Radio Hoenn und Sinnoh) mit „Ersetzt“ und „Anteil“; Platin „Formen“ mit „Schalellos Ost“/„Gastrodon Ost“ und „Icognito-Tabelle“.
+- [x] 6. „Begegnungsdatei anlegen…“ (+): Dialog „Begegnungsdatei 0183 anlegen?“, „Leer“ oder „Kopie von …“, Plakette „Nicht rückgängig“.
+- [x] 7. Header-Editor (Welt): Feld „Begegnungen“ als Referenz „Begegnungen 0140“ mit „Ändern…“ (Auswahl der Dateien, „Keine“ = Platin 0xFFFF, HeartGold 0xFF); das Umhängen ist ein Schritt („Begegnungen“).
+- [x] 8. HeartGold DE: Gras mit den Spalten Morgens, Tags, Nachts und einer Level-Spalte; Label „…: Gras Platz 1 nachts Hoothoot → Taubsi“.
 
 ### (B6) Platzieren
 
 Auf `pt-3b3b-gate`, Rezept „Platzieren“:
 
-- [ ] 1. Ein Trainer ohne Figur: „In der Welt platzieren“ wechselt in die Welt, Werkzeug „Figur“, Statusleiste „Figur · Klick setzt Wanderer Jens · Esc hebt die Bindung auf“. Ein Klick in die Szene legt **eine** Figur mit Script 3000 + ID − 1, Sichtlinie an, Sichtweite 3 an (ein Schritt „Trainer Jens platziert“); danach steht wieder „Auswählen“. Escape, ein anderes Werkzeug oder ein anderer Bereich heben die Bindung auf.
-- [ ] 2. Inspector einer Figur: Feld „Trainer“ (Referenz „Wanderer Jens 0928“, öffnet den Trainer; ohne Trainer-Script „kein Trainer“); „Trainer ändern…“ setzt das Script (und Sichtlinie und Sichtweite, wenn beide 0 waren) in einem Schritt; eine Partner-Figur (Script 5000–6999) behält den Partner-Bereich. „An diesem Ort“ zeigt „Objekt 0 · Teenager Sebastian“.
-- [ ] 3. Die Schau des Trainers zeigt danach „Steht in der Welt“ mit dem Ort und der Kachel.
+- [x] 1. Ein Trainer ohne Figur: „In der Welt platzieren“ wechselt in die Welt, Werkzeug „Figur“, Statusleiste „Figur · Klick setzt Wanderer Jens · Esc hebt die Bindung auf“. Ein Klick in die Szene legt **eine** Figur mit Script 3000 + ID − 1, Sichtlinie an, Sichtweite 3 an (ein Schritt „Trainer Jens platziert“); danach steht wieder „Auswählen“. Escape, ein anderes Werkzeug oder ein anderer Bereich heben die Bindung auf.
+- [x] 2. Inspector einer Figur: Feld „Trainer“ (Referenz „Wanderer Jens 0928“, öffnet den Trainer; ohne Trainer-Script „kein Trainer“); „Trainer ändern…“ setzt das Script (und Sichtlinie und Sichtweite, wenn beide 0 waren) in einem Schritt; eine Partner-Figur (Script 5000–6999) behält den Partner-Bereich. „An diesem Ort“ zeigt „Objekt 0 · Teenager Sebastian“.
+- [x] 3. Die Schau des Trainers zeigt danach „Steht in der Welt“ mit dem Ort und der Kachel.
 
 ### (B7) ⌘Z
 
-- [ ] 1. Jede Änderung in Trainer und Begegnungen ist ein Schritt mit sprechendem Label; ⌘Z nimmt ihn zurück, „Wiederholen“ stellt ihn her.
-- [ ] 2. Anlegen ist nicht rückgängig: steht „Trainer N angelegt“ oben im Verlauf, meldet ⌘Z „Trainer N anlegen lässt sich nicht rückgängig machen“ und ändert nichts (auch nicht die Schritte davor). Eine angelegte Begegnungsdatei ist kein Schritt im Verlauf; sie bleibt.
-- [ ] 3. Platzieren: ein ⌘Z entfernt die platzierte Figur ganz (ein Schritt).
+- [x] 1. Jede Änderung in Trainer und Begegnungen ist ein Schritt mit sprechendem Label; ⌘Z nimmt ihn zurück, „Wiederholen“ stellt ihn her.
+- [x] 2. Anlegen ist nicht rückgängig: steht „Trainer N angelegt“ oben im Verlauf, meldet ⌘Z „Trainer N anlegen lässt sich nicht rückgängig machen“ und ändert nichts (auch nicht die Schritte davor). Eine angelegte Begegnungsdatei ist kein Schritt im Verlauf; sie bleibt.
+- [x] 3. Platzieren: ein ⌘Z entfernt die platzierte Figur ganz (ein Schritt).
 
 ### (B8) Für diesen Ort abspalten
 
-- [ ] 1. Vanilla Platin hat keine Datei mit mehreren Orten: im Header-Editor von Zweiblattdorf (411) „Begegnungen“ auf 0140 stellen. Die Schau von 0140 zeigt „Verwendet von 2 Orten“ und je Ort „Für diesen Ort abspalten“.
-- [ ] 2. „Zweiblattdorf: für diesen Ort abspalten…“: Dialog „Zweiblattdorf eine eigene Begegnungsdatei geben?“, Plakette „Nicht rückgängig: die Kopie“, „Das Umhängen des Headers ist rückgängig.“; danach ist die Kopie gewählt und heißt „Zweiblattdorf“.
-- [ ] 3. ⌘Z hängt den Header zurück; die Kopie bleibt („von keinem Ort verwendet“).
+- [x] 1. Vanilla Platin hat keine Datei mit mehreren Orten: im Header-Editor von Zweiblattdorf (411) „Begegnungen“ auf 0140 stellen. Die Schau von 0140 zeigt „Verwendet von 2 Orten“ und je Ort „Für diesen Ort abspalten“.
+- [x] 2. „Zweiblattdorf: für diesen Ort abspalten…“: Dialog „Zweiblattdorf eine eigene Begegnungsdatei geben?“, Plakette „Nicht rückgängig: die Kopie“, „Das Umhängen des Headers ist rückgängig.“; danach ist die Kopie gewählt und heißt „Zweiblattdorf“.
+- [x] 3. ⌘Z hängt den Header zurück; die Kopie bleibt („von keinem Ort verwendet“).
 
 ### (B9) Tastatur
 
-- [ ] 1. Trainer-Baum: Pfeile, Pos1, Ende, Pfeil rechts/links öffnet und schließt eine Gruppe, Enter wählt; Team-Karten mit Enter/Leertaste, Reiter der Hand mit Pfeiltasten.
-- [ ] 2. Begegnungen: Liste mit Pfeilen und Enter, Methodenreiter mit Pfeiltasten, Tabelle mit Tab auf die Zeile, Pfeil ab, Enter in die Felder, Escape zurück.
-- [ ] 3. Dialoge „Trainer anlegen…“ und „Begegnungsdatei anlegen…“: Escape bricht ab, Fokus bleibt sichtbar (`:focus-visible`).
+- [x] 1. Trainer-Baum: Pfeile, Pos1, Ende, Pfeil rechts/links öffnet und schließt eine Gruppe, Enter wählt; Team-Karten mit Enter/Leertaste, Reiter der Hand mit Pfeiltasten.
+- [x] 2. Begegnungen: Liste mit Pfeilen und Enter, Methodenreiter mit Pfeiltasten, Tabelle mit Tab auf die Zeile, Pfeil ab, Enter in die Felder, Escape zurück.
+- [x] 3. Dialoge „Trainer anlegen…“ und „Begegnungsdatei anlegen…“: Escape bricht ab, Fokus bleibt sichtbar (`:focus-visible`).
 
 ### (B10) Dunkel und Kompakt
 
-- [ ] 1. Trainer (Schau mit Team-Karten, Hand „Team“) und Begegnungen (Schau „Wer hier wartet“, Hand „Gras“) in Dunkel und Kompakt (`data-theme="dunkel"`, `data-dichte="kompakt"`); Galerie-Seite „Daten“ mit „Team-Karten“ (Ruhe, Gewählt, Leer). Der Nutzer sieht auf unlesbare Stellen.
+- [x] 1. Trainer (Schau mit Team-Karten, Hand „Team“) und Begegnungen (Schau „Wer hier wartet“, Hand „Gras“) in Dunkel und Kompakt (`data-theme="dunkel"`, `data-dichte="kompakt"`); Galerie-Seite „Daten“ mit „Team-Karten“ (Ruhe, Gewählt, Leer). Der Nutzer sieht auf unlesbare Stellen.
 
 ### (B11) Blick auf die Screens (Hand)
 
@@ -315,7 +315,7 @@ Auf `pt-3b3b-gate`, Rezept „Platzieren“:
 
 ### (B13) HeartGold US im Spiel (Hand, optional)
 
-- [ ] 1. `hg-trainer-begegnung.yaml` mit `game: IPKE` auf einer Kopie von HeartGold US. Für IPKE ist der Kampfzeiger nicht gemessen (die Erkennung stützt sich dort nur auf die Signatur, siehe „Bekannte Grenzen“); ein Fehlschlag dort ist kein Gate-Fehler, nur ein Befund.
+- [x] 1. `hg-trainer-begegnung.yaml` mit `game: IPKE` auf einer Kopie von HeartGold US. Für IPKE ist der Kampfzeiger nicht gemessen (die Erkennung stützt sich dort nur auf die Signatur, siehe „Bekannte Grenzen“); ein Fehlschlag dort ist kein Gate-Fehler, nur ein Befund.
 
 ### Ergebnis Teil B
 
@@ -324,19 +324,19 @@ Stand 2026-10-24, nach der letzten Fix-Welle (HEAD `99ca5e2`), aus dem Worktree 
 | Punkt | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
 |---|---|---|---|---|---|
 | (B1) 1 gated Tests 3b.3b | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US (Originale, nur lesend; schreibende Tests auf `vanilla_copy()`) | bestanden | laufen in `scripts/gate.sh` mit, siehe unten |
-| (B1) 2 `scripts/gate.sh` | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US | bestanden („Gate: ok (1798 s)“) | Log `target/agent/gate.log`; Tabelle unten |
-| (B2) Szenario `pt-trainer-begegnung.yaml` | Agent | 2026-10-24 | `pt-3b3b-final` | bestanden | Rückgabe 0, `"ok": true`, Header-Folge 415, 593. Antworten: Ort `{matrix 289, maps [[0,0,666],[1,0,667]], event_file 534, header 593}`, Begegnungsdatei 183, Scriptdatei 1124, `trainer1` `{id 928, placeholder null, script_extended false}`, `trainer2` `{id 930, placeholder 929, script_extended true}`. `check.log`: „4 expectation(s) met“. Kämpfe: Jens (Sichtlinie) `{"species": 25, "level": 12}` Bild 2322, Sieg auf 593 (50, 21); Mia (angesprochen) `{"species": 133, "level": 14}` Bild 4399, Sieg auf 593 (53, 21); wild nach 5 Schritten bei (48, 19) `{"species": 150, "level": 5}` Bild 6539. Bilder `target/agent/gate-2026-10-24/final/pt-trainer-begegnung/trainer1.png` („Eine Herausforderung von Wanderer Jens!“), `trainer2.png` („… Wanderer Mia!“), `wild.png` („Ein wildes MEWTU erscheint!“), dazu `ankunft.png`, `geschenk.png`. Lauf 32 s. |
-| (B3) Szenario `hg-trainer-begegnung.yaml` | Agent | 2026-10-24 | `hg-3b3b-final` | bestanden | Rückgabe 0, `"ok": true`, Header-Folge 64, 540. Antworten: Ort `{matrix 288, maps [[0,0,676]], event_file 491, header 540}`, Begegnungsdatei 142, Scriptdatei 965, `trainer1` `{id 738}`, `trainer_lea` `{id 739}`, `trainer2` `{id 741, placeholder 740, script_extended true}`. `check.log`: „8 expectation(s) met“. Kämpfe: Jens (Sichtlinie) `{"species": 25, "level": 12}` Bild 2092, Sieg auf 540 (20, 16); Mia (angesprochen) `{"species": 133, "level": 14}` Bild 4236, Sieg auf 540 (15, 16); wild nach 5 Schritten bei (17, 15) `{"species": 150, "level": 5}` Bild 6415. Bilder `target/agent/gate-2026-10-24/final/hg-trainer-begegnung/trainer1.png`, `trainer2.png`, `wild.png` („Ein wildes MEWTU erscheint!“, MEWTU Lv5). Lauf 36 s. |
-| (B4) Trainer-Editor | Agent | – | `pt-3b3b-gate`, `hg-3b3b-gate` | offen | in der Umsetzung im Browser geprüft (Kopien `pt-3b3b-t6`, `pt-3b3b-t8`), nicht als Abnahme |
-| (B5) Begegnungen-Editor | Agent | – | `pt-3b3b-gate`, `hg-3b3b-gate` | offen | in der Umsetzung im Browser geprüft (`pt-3b3b-t7`, `hg-3b3b-t7`) |
-| (B6) Platzieren | Agent | – | `pt-3b3b-gate` | offen | in der Umsetzung im Browser geprüft (`pt-3b3b-t8`) |
-| (B7) ⌘Z | Agent | – | `pt-3b3b-gate` | offen | Undo-Grenze beim Anlegen durch Kernel- und vitest-Tests belegt |
-| (B8) Abspalten | Agent | – | `pt-3b3b-gate` | offen | in der Umsetzung im Browser geprüft (`pt-3b3b-t7`) |
-| (B9) Tastatur | Agent | – | `pt-3b3b-gate` | offen | |
-| (B10) Dunkel und Kompakt | Agent + Blick | – | `pt-3b3b-gate` | offen | |
-| (B11) Screens | Hand | – | – | offen | |
-| (B12) DSPRE | Hand | – | `pt-3b3b` | offen | nur Windows |
-| (B13) HeartGold US | Hand (optional) | – | – | offen | IPKE ohne gemessenen Kampfzeiger |
+| (B1) 2 `scripts/gate.sh` | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US | bestanden („Gate: ok (1798 s)“; nach den Fixes der Abnahme erneut „Gate: ok (2134 s)“) | Logs `target/agent/gate.log`, `target/agent/gate-3b3b-abnahme.log`; Tabellen unten |
+| (B2) Szenario `pt-trainer-begegnung.yaml` | Agent | 2026-10-24 | `pt-3b3b-final` | bestanden | Rückgabe 0, `"ok": true`, Header-Folge 415, 593. Antworten: Ort `{matrix 289, maps [[0,0,666],[1,0,667]], event_file 534, header 593}`, Begegnungsdatei 183, Scriptdatei 1124, `trainer1` `{id 928, placeholder null, script_extended false}`, `trainer2` `{id 930, placeholder 929, script_extended true}`. `check.log`: „4 expectation(s) met“. Kämpfe: Jens (Sichtlinie) `{"species": 25, "level": 12}` Bild 2322, Sieg auf 593 (50, 21); Mia (angesprochen) `{"species": 133, "level": 14}` Bild 4399, Sieg auf 593 (53, 21); wild nach 5 Schritten bei (48, 19) `{"species": 150, "level": 5}` Bild 6539. Bilder `target/agent/gate-2026-10-24/final/pt-trainer-begegnung/trainer1.png` („Eine Herausforderung von Wanderer Jens!“), `trainer2.png` („… Wanderer Mia!“), `wild.png` („Ein wildes MEWTU erscheint!“), dazu `ankunft.png`, `geschenk.png`. Lauf 32 s. Abnahme 2026-10-24 (HEAD `0ca6dc0`, frische Kopie `pt-3b3b-gate-szen`): Rückgabe 0, gleiche Antworten (928; 930 mit Platzhalter 929, erweitert), „4 expectation(s) met“, Jens `{25, 12}` Bild 2322, Sieg auf 593 (50, 21); Mia `{133, 14}` Bild 4399, Sieg auf 593 (53, 21); wild nach 1 Schritt bei (48, 19) `{150, 5}` Bild 6409. Bilder `target/agent/gate-3b3b-abnahme/pt-trainer-begegnung/trainer1.png` („Eine Herausforderung von Wanderer Jens!“), `trainer2.png`, `wild.png`. |
+| (B3) Szenario `hg-trainer-begegnung.yaml` | Agent | 2026-10-24 | `hg-3b3b-final` | bestanden | Rückgabe 0, `"ok": true`, Header-Folge 64, 540. Antworten: Ort `{matrix 288, maps [[0,0,676]], event_file 491, header 540}`, Begegnungsdatei 142, Scriptdatei 965, `trainer1` `{id 738}`, `trainer_lea` `{id 739}`, `trainer2` `{id 741, placeholder 740, script_extended true}`. `check.log`: „8 expectation(s) met“. Kämpfe: Jens (Sichtlinie) `{"species": 25, "level": 12}` Bild 2092, Sieg auf 540 (20, 16); Mia (angesprochen) `{"species": 133, "level": 14}` Bild 4236, Sieg auf 540 (15, 16); wild nach 5 Schritten bei (17, 15) `{"species": 150, "level": 5}` Bild 6415. Bilder `target/agent/gate-2026-10-24/final/hg-trainer-begegnung/trainer1.png`, `trainer2.png`, `wild.png` („Ein wildes MEWTU erscheint!“, MEWTU Lv5). Lauf 36 s. Abnahme 2026-10-24 (frische Kopie `hg-3b3b-gate-szen`): Rückgabe 0, 738, 739, 741 mit Platzhalter 740 (erweitert), „8 expectation(s) met“, Jens `{25, 12}` Bild 2092, Sieg auf 540 (20, 16); Mia `{133, 14}` Bild 4236, Sieg auf 540 (15, 16); wild nach 1 Schritt bei (17, 15) `{150, 5}` Bild 6265 („Ein wildes MEWTU erscheint!“). Bilder `target/agent/gate-3b3b-abnahme/hg-trainer-begegnung/*.png`. |
+| (B4) Trainer-Editor | Agent | 2026-10-24 | `pt-3b3b-gate`, `hg-3b3b-gate` | bestanden (nach Fix) | Platin: Liste „928 Trainer“, Baum „Nach Ort“ mit 53 Gruppen, „Ohne Ort“ (525) zuletzt; Teenager Logan 0002: Team als Karte (BURMY Lv. 5), „Steht in der Welt“ „Route 202, Kachel 185, 804“. Ohne übernommene Scripts lehnt „Anlegen“ im Dialog ab: „Erst Scripts übernehmen (Bereich Welt, Panel Script)“. Nach dem Übernehmen: Dialog „Trainer 928 anlegen?“ mit Klasse, Name und „Nicht rückgängig“; „Jensjens“ zeigt „jetzt 8 von 7“ und „Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch“, „Anlegen“ tut nichts. „Jens“ (Wanderer) → 928 gewählt, Schau „Ohne Pokémon stürzt der Kampf ab“, Verlauf „Trainer 928 angelegt“. Platz 1 STARAVIA (Picker), Level 5 → 14; „Eigene Attacken“ an füllt Heuler, Ruckzuckhieb, Flügelschlag, Doppelteam (Lernset 397 bis Level 14 nach der pret-Regel, `data_get` `[45, 98, 17, 104]`). Kampftext „Halt! Ein Kampf!“ ohne `\r`: Warnung über dem Feld, Prüflicht „1 Warnung“, Reiter „Probleme“ mit „Trainer 0928“ (Klick öffnet den Trainer); „⏎ anhängen“ → „Alles stimmig“. Zweiter: Dialog „Trainer 930 anlegen?“, „929 wird Platzhalter für das Sicht-Script“; 929 steht gesperrt („-, 0929, gesperrt: Platzhalter für das Sicht-Script“); die Meldung nennt jetzt „Die Kampf-Scriptdatei 1114 hat neue Plätze bekommen.“ (Fix). Tüfteln „Rohdaten“: Hexblock „files/poketool/trainer/trdata.narc, Eintrag 930“ und 32 KI-Bits. Gespeichert ohne Probleme. HeartGold DE (Leiter Falk 0020): „Stärke“ mit „IV = Wert × 31 / 255“, „Geschlecht“ und „Fähigkeit“ als Auswahlfelder (Auto); Dialog „Trainer 738 anlegen?“. Englische Ablehnungen des Kernels behoben (Fix 1). Bilder `target/agent/gate-3b3b-abnahme/browser/b4-*.jpg` |
+| (B5) Begegnungen-Editor | Agent | 2026-10-24 | `pt-3b3b-gate`, `hg-3b3b-gate` | bestanden (nach Fix) | Platin: „183 Begegnungsdateien“, Route 201 (0140): „Wer hier wartet“ STARALILI Morgens 50 % · Tags 50 % · Nachts 40 %, BIDIZA, ZIRPURZE, „Verwendet von 1 Ort“ (Header 0342); Reiter Gras 12, Surfen 0, Alte/Profi/Super-Angel 0, Ersatz 20. Rate 30 → 100 und Platz 1 STARALILI → PIKACHU: Verlauf „Route 201: Gras-Rate 30 → 100“, „Route 201: Gras Platz 1 STARALILI → PIKACHU“, Schau PIKACHU 20 %. Level 0 bei BIDIZA: Warnung „Gras Platz 2: BIDIZA auf Level 0“ in der Hand, in der Schau („Warnungen 1“) und Prüflicht „1 Warnung“ (die Quelle in „Probleme“ nicht abgelesen). Surfen Platz 1 Mindestlevel 0 → 10 zieht das Höchstlevel mit (`data_get` min 10, max 10). Ersatz: Tag, Nacht, Schwarm, Poké-Radar, Dual-Slot Rubin bis Blattgrün je mit „Ersetzt“ und „Anteil“, dazu „Formen“. „Begegnungsdatei anlegen…“: Dialog „Begegnungsdatei 0183 anlegen?“, „Leer“ / „Kopie von …“, „Nicht rückgängig“; danach 0183 gewählt, alle Reiter 0, kein Verlaufsschritt. Header-Editor Zweiblattdorf: Referenz „Begegnungen 0176“, „Ändern…“ → 0140, ein Schritt „Begegnungen“. HeartGold DE Route 29 (0001): Gras 12 · Surfen 0 · Fels 0 · Alte/Profi/Super-Angel 0 · Ersatz 5, Spalten Morgens · Tags · Nachts · Level, HOOTHOOT nur nachts (85 %); Label „Route 29: Gras Platz 1 nachts HOOTHOOT → TAUBSI“. Befund: die Felder min und max in Surfen, Fels und den Angeln liefen über „Anteil“ und „Ersetzt durch“ (Fix 3). Bilder `b5-*.jpg` |
+| (B6) Platzieren | Agent | 2026-10-24 | `pt-3b3b-gate` | bestanden (nach Fix) | Ohne gezeigten Ort: Meldung „Erst einen Ort wählen, dann den Trainer platzieren.“ Mit Route 201: Werkzeug „Figur“, Statusleiste „Figur · Klick setzt Wanderer Jens · Esc hebt die Bindung auf“; Escape hebt sie auf („Auswählen“). Ein Klick legt Objekt 13 in Eventdatei 0328 an: Script 3927, `trainer_type` 1, Sichtweite 3, ein Schritt „Trainer Jens platziert“, danach „Auswählen“. Inspector: „Trainer“ = „Wanderer Jens 0928“, „Sichtlinie“ „Trainer sieht dich“, „Sichtweite“ 3; „An diesem Ort“ „Objekt 13 · Wanderer Jens“; „Trainer ändern…“ → Mia setzt Script 3929 in einem Schritt. Befund: die Schau des Trainers blieb nach dem Platzieren auf „Noch nicht platziert“ (Fix 2); danach zeigt sie „Route 201, Kachel 348, 678“ und nach ⌘Z wieder „Noch nicht platziert“. Nicht in der Oberfläche geprüft: Partner-Figur (5000–6999) und „kein Trainer“ (durch die Tests von Task 8 belegt). Bilder `b6-*.jpg` |
+| (B7) ⌘Z | Agent | 2026-10-24 | `pt-3b3b-gate` | bestanden | Level 14 → 15, ⌘Z, ⇧⌘Z; „eigene Attacken aus“ und ⌘Z stellen `[45, 98, 17, 104]` her. Oben „Trainer 930 angelegt“: ⌘Z meldet „Trainer 930 anlegen lässt sich nicht rückgängig machen“, `history` unverändert. Platzieren: zwei ⌘Z nehmen „Trainer ändern“ und die Figur zurück (13 Objekte wie vorher). Begegnungen: Level 0 und Mindestlevel je ein ⌘Z. Eine angelegte Begegnungsdatei ist kein Schritt |
+| (B8) Abspalten | Agent | 2026-10-24 | `pt-3b3b-gate` | bestanden | Zweiblattdorf (411) auf 0140: Schau „Route 201, Zweiblattdorf“, „Verwendet von 2 Orten“ mit je „Für diesen Ort abspalten“. Dialog „Zweiblattdorf eine eigene Begegnungsdatei geben?“, „Nicht rückgängig: die Kopie“, „Das Umhängen des Headers ist rückgängig.“; „Abspalten“ wählt 0184 „Zweiblattdorf“ (185 Dateien). ⌘Z hängt 411 zurück auf 0140, 0184 bleibt („Von keinem Ort verwendet“). Bild `b8-2-dialog-abspalten.jpg` |
+| (B9) Tastatur | Agent | 2026-10-24 | `pt-3b3b-gate` | bestanden | Trainer-Baum: Tab aus der Suche über „Nach Ort“ und „Trainer anlegen…“ auf die gewählte Zeile, Pos1, Ende, Pfeil rechts/links öffnet und schließt eine Gruppe, Pfeil ab, Enter wählt; Team-Karten je ein Tab-Halt, Enter/Leertaste öffnet den Picker, Escape zurück auf die Karte; Reiter der Hand mit Pfeiltasten; überall `:focus-visible`. Begegnungen: Liste mit Pfeilen, Ende, Enter; Methodenreiter mit Pfeiltasten; Tabelle: Tab auf die Zeile, Pfeil ab, Enter ins erste Feld, Tab weiter, Escape zurück auf die Zeile. Dialoge: Escape bricht ab, der Fokus kehrt auf „+“ zurück. Kleinigkeit: Pfeil links auf einer Trainer-Zeile springt nicht zur Gruppe (WAI-ARIA-Baum) |
+| (B10) Dunkel und Kompakt | Agent + Blick | 2026-10-24 | `pt-3b3b-gate` | Agent: bestanden; Blick offen | Begegnungen Route 201 in Dunkel/Komfort und Dunkel/Kompakt (Schau „Wer hier wartet“, Hand „Gras“), Trainer Champ Cynthia 0267 in Dunkel/Kompakt (sechs Team-Karten in Schau und Hand), Galerie „Daten“ › „Team-Karten“ in Dunkel/Kompakt. Bilder `b10-*.jpg`. Für den Nutzer: Dunkel ansehen bei den gedämpften Anteilen („Tags 0 %“) und der roten Taste „Pokémon entfernen“ |
+| (B11) Screens | Hand | – | – | offen | Bilder für den Vergleich: `b4-2-logan-team.jpg`, `b4-5-kampftext-warnung.jpg` (Trainer), `b5-2-route201.jpg` (Begegnungen), `b10-trainer-dunkel-kompakt.jpg` (Team mit sechs Karten) |
+| (B12) DSPRE | Hand | – | `pt-3b3b-gate-szen` | offen | nur Windows; Szenario-Kopie dieser Abnahme: Trainer 928 „Jens“, 930 „Mia“, Header 593 mit Begegnungsdatei 183 |
+| (B13) HeartGold US | Agent (optional) | 2026-10-24 | `hgus-3b3b-gate-szen` | bestanden | `hg-trainer-begegnung.yaml` mit `game: IPKE` (Kopie der Datei unter `target/agent/gate-3b3b-abnahme/hgus-trainer-begegnung.yaml`, sonst unverändert, `NEUER_HEADER=540`): Rückgabe 0, „8 expectation(s) met“, Jens `{25, 12}` Bild 2093, Sieg auf 540 (20, 16); Mia `{133, 14}` Bild 4180, Sieg auf 540 (15, 16); wild `{150, 5}` Bild 6152. Ohne Kampfzeiger enden `win-battle` und `expect-battle` auch in IPKE sauber. Bilder `target/agent/gate-3b3b-abnahme/hgus-trainer-begegnung/trainer2.png` („You are challenged by Hiker Mia!“) usw. |
 
 Die Szenarien liefen zuerst in der Umsetzung (Task 9a/9b, Kopien `pt-3b3b`, `hg-3b3b`, gleiche Ergebnisse) und nach der letzten Fix-Welle noch einmal auf den frischen Kopien `pt-3b3b-final` und `hg-3b3b-final` (Tabelle oben).
 
@@ -361,7 +361,49 @@ gated tests (cargo test)                             Pokemon - Platin-Edition (G
 Gate: ok (1798 s)
 ```
 
-Testkopien von Teil B (unter `_testkopien`, der Nutzer räumt sie auf): `pt-3b3b`, `hg-3b3b` (Szenarien der Umsetzung), `pt-3b3b-final`, `hg-3b3b-final` (Szenarien nach der Fix-Welle), dazu die Kopien der Umsetzung (`pt-3b3b-t6`, `-t7`, `-t8`, `hg-3b3b-t7`, `pt-3b3b-9a-probe`, `pt-3b3b-9a-try1`, `hg-3b3b-9b-probe`, `hg-3b3b-9b-try1`) und der Recherche (`*-3b3b-enc`, `*-3b3b-trainer`, `*-3b3b-trscript`, `pt-3b3b-vanilla`).
+Nach der Abnahme (2026-10-24, HEAD `dfd2baf` mit den vier Fixes, Log `target/agent/gate-3b3b-abnahme.log`):
+
+```
+Step                                                 Project                                      Result                     Seconds
+cargo fmt --check                                    -                                            ok                               1
+cargo clippy (-D warnings)                           -                                            ok                               0
+cargo test (no ROM data)                             -                                            ok                              44
+pnpm test                                            -                                            ok                              71
+tokens                                               -                                            ok                               0
+styles                                               -                                            ok                               2
+pnpm build                                           -                                            ok                              26
+dist has no bridge                                   -                                            ok                               1
+g4emu unit                                           -                                            ok                               6
+g4emu integration                                    -                                            ok                               6
+gated tests (cargo test)                             Pokemon - Goldene Edition HeartGold (Germany) ok                             753
+gated tests (cargo test)                             Pokemon - HeartGold Version (USA)            ok                             580
+gated tests (cargo test)                             Pokemon - Platin-Edition (Germany)           ok                             643
+
+Gate: ok (2134 s)
+```
+
+Testkopien von Teil B (unter `_testkopien`, der Nutzer räumt sie auf): Abnahme `pt-3b3b-gate` und `hg-3b3b-gate` (Oberfläche, gespeichert bzw. ungespeichert), `pt-3b3b-gate-szen`, `hg-3b3b-gate-szen`, `hgus-3b3b-gate-szen` (Szenarien); `pt-3b3b`, `hg-3b3b` (Szenarien der Umsetzung), `pt-3b3b-final`, `hg-3b3b-final` (Szenarien nach der Fix-Welle), dazu die Kopien der Umsetzung (`pt-3b3b-t6`, `-t7`, `-t8`, `hg-3b3b-t7`, `pt-3b3b-9a-probe`, `pt-3b3b-9a-try1`, `hg-3b3b-9b-probe`, `hg-3b3b-9b-try1`) und der Recherche (`*-3b3b-enc`, `*-3b3b-trainer`, `*-3b3b-trscript`, `pt-3b3b-vanilla`).
+
+### Befunde der Abnahme
+
+Abnahme 2026-10-24 über die Test-Umgebung (Browser-Fenster 1600 × 1000, Brücke aus dem Worktree, HEAD `0ca6dc0`). Im Branch behoben (je mit Test):
+
+1. `fix(kernel)`: Die Ablehnungen von „Trainer anlegen…“, „Begegnungsdatei anlegen…“ und „Für diesen Ort abspalten“ waren englische Entwicklersätze („the trainer name has 12 characters …“, „trainer 1040 has no defeated flag …“, „battle script file 1114: the sight script is slot …“, „header 1 has no encounter file“); sie sind deutsche Sätze mit Ausweg („Der Name hat 12 Zeichen, höchstens 7 passen. Kürze ihn; …“). Ein Compile-Problem oder ein unerwartetes Ergebnis der Scripterweiterung lehnt jetzt in Worten ab (Datei unverändert), statt „1 problem(s) in scripts or texts“ zu zeigen.
+2. `fix(studio)`: Nach „In der Welt platzieren“ (auch nach „Trainer ändern…“ und ⌘Z) blieb die Schau des Trainers auf „Noch nicht platziert“, obwohl die Liste ihn schon unter dem Ort führte; das Dokument liest sich jetzt bei `eventData` neu.
+3. `fix(studio)`: In Surfen, Fels und den Angeln lagen die Felder min und max über „Anteil“ und „Ersetzt durch“ (jedes Feld 164 px in einer 168 px breiten Zelle); sie teilen sich die Zelle.
+4. `fix(studio)`: Die Meldung nach dem Anlegen nennt die erweiterte Kampf-Scriptdatei („Die Kampf-Scriptdatei 1114 hat neue Plätze bekommen.“), wie das Rezept es erwartet.
+
+Kleinigkeiten ohne Gate-Bezug (nicht behoben):
+
+- Klassennamen zeigen die Glyphen des Spiels roh: „[PK][MN]-Trainer“ (Klassen 0 und 1, im Dialog und in der Palette); zwei Klassen heißen „Biker“ und sind in der Auswahl nicht zu unterscheiden.
+- Die Suche „92“ findet nur 0092, nicht 0920 bis 0929 (die Nummer wird vierstellig verglichen; „092“ findet sie).
+- Pfeil links auf einer Trainer-Zeile springt nicht zur Gruppe (WAI-ARIA-Baum; gilt auch für den Baum „Orte“).
+- Enter im Feld „Name“ des Dialogs „Trainer anlegen…“ legt nicht an (nur „Anlegen“).
+- „Erst einen Ort wählen, dann den Trainer platzieren.“ erscheint als Fehler-Toast, der stehen bleibt.
+- Im Reiter „Probleme“ der Welt ist die Spalte „Meldung“ so schmal, dass der Kampftext-Hinweis über acht Zeilen umbricht.
+- Die Tasten der Dialoge tragen die Klasse `undefined` (`Button` setzt `styles[size]` für die Größe „m“, die keine Klasse hat); ohne sichtbare Folge.
+- Galerie „Daten“, „Listenkopf mit Unterbereichen“: „Gewählt: pokedex“ zeigt die Kennung.
+- Der Hexblock „Rohdaten“ eines Trainers nennt nur `trdata.narc`, zeigt aber Eigenschaften und Team.
 
 ### Bekannte Grenzen
 
@@ -371,7 +413,7 @@ Befunde aus der Umsetzung, die nicht als Fehler zählen oder bewusst offen sind:
 - **HeartGold: Trainer 739 ohne Team.** Das HeartGold-Szenario legt „Lea“ (739) mit leerem Team und ohne Figur an, nur damit der dritte Trainer (741) hinter dem Platzhalter 740 liegt. Ein Kampf gegen 739 würde abstürzen („Ohne Pokémon stürzt der Kampf ab“); er steht nirgends in der Welt.
 - **HeartGold: Flag des Gebers.** `FLAG_UNK_0A1` nutzt kein Vanilla-Script; ob der C-Code des Spiels es setzt oder liest, ist nicht geprüft. Der grüne Lauf zeigt nur, dass es im Spielstand `IPKD-zimmer.sav` nicht gesetzt ist.
 - **Textliteral des Gebers im geteilten Archiv.** Der neue Header teilt das Textarchiv seiner Vorlage (Platin 466 von Route 201, HeartGold 373 von Route 29); „Hier, nimm das.“ landet am Ende dieses Archivs. Harmlos für das Gate, bei echten Projekten ein eigenes Archiv anlegen.
-- **Prüflicht nur für geöffnete Dokumente.** Warnungen zu Trainern (Text vor dem Kampf ohne `\r`) und Begegnungen (Level 0, min > max, leerer Ersatz-Slot) erscheinen im Prüflicht nur für Dokumente, die in dieser Sitzung geöffnet wurden; eine projektweite Prüfung kommt mit 3b.4.
+- **Prüflicht nur für geöffnete Dokumente** (in der Abnahme bestätigt, Spezifikation §1 „Später“: projektweite Prüfungen mit 3b.4). Warnungen zu Trainern (Text vor dem Kampf ohne `\r`) und Begegnungen (Level 0, min > max, leerer Ersatz-Slot) erscheinen im Prüflicht nur für Dokumente, die in dieser Sitzung geöffnet wurden; eine projektweite Prüfung kommt mit 3b.4.
 - **`g4k check-data encounter` liest mit dem Codec des Projekts, nicht mit uxie** (Abweichung von Spezifikation §1, „per uxie geprüft“): der Begegnungs-Leser von uxie 0.9.7 ist unbrauchbar (HGSS um 8 Byte versetzt, leere Slots ungültig). `species` und `item` liest `check-data` weiter mit uxie.
 - **HeartGold US: Kampferkennung ungemessen.** IPKE hat keinen Kampfzeiger in `games.yaml`; `expect-battle` stützt sich dort nur auf die Signatur, ob `end-battle`/`win-battle` nach einem Sieg enden, ist nicht gemessen ((B13) optional).
 - **Platzhalter.** Die ID des „gesehen“-Slots (Platin 929, HeartGold 740) bekommt einen gesperrten Platzhalter (Liste „Platzhalter für das Sicht-Script“); sie lässt sich nicht bearbeiten und nicht platzieren. Struktur und Grund: [formats/trainer_scripts.md](formats/trainer_scripts.md).

@@ -376,7 +376,7 @@ Kopien `pt-3b3b` und `hg-3b3b` für die Szenarien (Endung `-2` …, wenn der Nam
 | (B10) Dunkel und Kompakt | Agent + Blick | Screenshots von Trainer und Begegnungen in Dunkel und Kompakt, Galerie-Seite „Daten“ („Team-Karten“); der Nutzer sieht auf unlesbare Stellen |
 | (B11) Screens „Trainer“ und „Begegnungen“ | Hand | Vergleich mit „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ |
 | (B12) DSPRE | Hand | DSPRE läuft nur unter Windows |
-| (B13) HeartGold US im Spiel | Hand (optional) | IPKE hat keinen gemessenen Kampfzeiger |
+| (B13) HeartGold US im Spiel | Agent (optional) | `hg-trainer-begegnung.yaml` mit `game: IPKE` (Kopie der Datei, `--set NEUER_HEADER=540`) auf einer frischen Kopie von HeartGold US; IPKE hat keinen gemessenen Kampfzeiger, der Lauf 2026-10-24 war trotzdem grün |
 
 ## Was beim Nutzer bleibt
 
@@ -384,5 +384,5 @@ Kopien `pt-3b3b` und `hg-3b3b` für die Szenarien (Endung `-2` …, wenn der Nam
 - **Stoppuhr und „Zahlen getippt“** (3a (A)): misst die Bedienung durch den Menschen.
 - **Natives Fenster:** ein kurzer Durchgang mit der gebündelten App nach `pnpm bundle`; in 3c ist das Teil (H) (Overlay-Titelleiste, Schriften, Thema).
 - **rotom-lsp:** Completion, Hover und Diagnosen im Editor (3b.2 (B), (C), 3c (C)); im Browser-Modus läuft der Sprachdienst nicht.
-- **3b.3b:** der Blick auf die Screens „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ (B11), die DSPRE-Gegenprobe der Szenario-Kopie (B12) und, wenn gewünscht, HeartGold US im Spiel (B13).
+- **3b.3b:** der Blick auf die Screens „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ (B11) und die DSPRE-Gegenprobe der Szenario-Kopie (B12). HeartGold US im Spiel (B13) hat der Agent in der Abnahme mit dem Szenario erledigt (`game: IPKE` in einer Kopie der YAML-Datei).
 - **„Agent + Blick“:** 3a (F) Ausrichtung der Kartenbilder; 3b.1 (B) Höhen und (C) Sprites (aufrecht, nicht gespiegelt, Blickrichtung); 3c (A) und (B) der Vergleich mit den Screens des Design-Systems, 3c (E) dunkles Thema und Kompakt; 3b.3a (A3) Pokédex, Attacken und Gegenstände gegen ihre Screens, (A6) die Item- und Pokémon-Symbole; 3b.3b (B10) Trainer und Begegnungen in Dunkel und Kompakt. Der Agent nennt dafür Ort und Zahlen, damit der Blick kurz bleibt.
