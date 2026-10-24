@@ -128,7 +128,7 @@ Die Datenbefehle: `data_list`, `data_get`, `data_edit`, `data_raw` mit `kind` �
 
 Änderungen per `call.sh` sieht die Oberfläche erst nach einem Neuladen der Seite (`?project=` öffnet das Projekt neu).
 
-**Emulator** (`cd scripts/g4emu`; alle Pfade zu `../Roms` sind von dort `../../../Roms`):
+**Emulator** (`cd scripts/g4emu`; alle Pfade zu `../Roms` sind von dort `../../../Roms`; aus einem Git-Worktree stimmt das nicht, dann `G4_ROMS_DIR` absolut setzen und `--rom`, `--project` und `--save` absolut angeben):
 
 ```sh
 uv run g4emu run --rom <rom.nds> --save ../../../Roms/_testkopien/_saves/CPUD-zimmer.sav \
@@ -156,7 +156,7 @@ uv run g4emu scenario ../agent/scenarios/pt-treppe-warp.yaml \
 - `pt-daten.yaml` (ohne Platzhalter): Datenänderungen über `data_edit` (Staravia 0397 Angriff 75 → 85, Lernset 12 → 13 Einträge, neu Attacke 0019 auf Level 50, Flügelschlag 0017 Stärke 60 → 65, Trank 0017 Preis 300 → 250), speichern, bauen, dann der Prüfschritt `check:` und ein Starttest (`continue`, `expect-map 415`, `shot start`).
 - Abschnitt `check:` (optional, nach `build`): eine Liste von Befehlen `[g4k, …]`, Platzhalter werden ersetzt. Sie laufen nach dem Bauen im Ordner der Kopie (`out.nds` ist dort das gebaute ROM) und vor dem Spielen; die Ausgabe steht in `<out>/check.log`. Der erste Befehl mit Exit ≠ 0 lässt das Szenario mit Rückgabe 1 scheitern („Prüfschritt fehlgeschlagen …“), gespielt wird dann nicht. `check` ohne `build` lehnt das Szenario ab.
 - `g4k check-data <rom.nds> --expect KIND:MEMBER:FIELD=VALUE …` liest die Daten-NARCs aus dem gebauten ROM (Pfade aus `archives.yaml` für den Spielcode des ROMs) und vergleicht: `species` und `item` liest uxie, `move` und `learnset` die eigenen Codecs (uxie lehnt 172 von 471 Vanilla-Attacken ab); MEMBER ist der Member im Archiv (bei `item` der Datenmember, nicht die Item-ID), ein Lernset hat das Feld `len`. Treffer stehen auf stdout („species 397 attack: 85“, am Ende „N expectation(s) met“), Abweichungen auf stderr („species 397 attack: expected 75, found 85“), dann Exit 1; ein falsch geschriebenes `--expect` (unbekannte Art oder unbekanntes Feld) endet vor dem Lesen mit Exit 2 und nennt die gültigen Felder.
-- Die Kopie muss direkt unter `_testkopien` liegen. Das Szenario baut `out.nds` in die Kopie und braucht dafür `cargo`; es arbeitet auf dem Spielstand aus `games.yaml`. Die Werkzeuge baut es selbst (`studio-bridge`, für `check:` auch `g4k` mit `cargo build --workspace --all-features --bin g4k`); mit `G4_BRIDGE_BIN` und `G4K_BIN` nimmt es fertige Binaries.
+- Die Kopie muss direkt unter `_testkopien` liegen. Das Szenario baut `out.nds` in die Kopie und braucht dafür `cargo`; es arbeitet auf dem Spielstand aus `games.yaml`. Die Werkzeuge baut es selbst (`studio-bridge`, für `check:` auch `g4k` mit `cargo build --workspace --all-features --bin g4k`); mit `G4_BRIDGE_BIN` und `G4K_BIN` nimmt es fertige Binaries. In einem Worktree scheitert `cargo build --bin g4k` am Download in rotoms Build-Skript (der Bau ist ein anderer als der der Tests): vorher `cargo test --workspace --all-features --no-run` (legt `target/debug/g4k` und `target/debug/studio-bridge` an) und beide Variablen auf diese Dateien setzen. Scheitert das Szenario erst nach `build_rom`, ist die Kopie schon gespeichert und gebaut: für den nächsten Lauf eine neue Kopie anlegen.
 
 ## Hinweise aus dem Handdurchlauf
 

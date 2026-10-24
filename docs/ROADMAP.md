@@ -15,7 +15,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
 | 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
 | 3c | Doppeldeck: Design-System in der App (Tokens, Komponentenbibliothek, Rahmen aus Titelleiste, Atlas, Liste, Schau, Scharnier, Hand), Bereich Welt im neuen Raster; 3c.2 bringt Texte, Scripts, Technik, Assistenten (Gate vom Agenten bestanden; Blick, rotom-lsp und gepackte App beim Nutzer offen) | Der Screen „Welt bauen“ ist in der App wiedererkennbar, die Abnahmen 3a, 3b.1 und 3b.2 laufen über die Test-Umgebung erneut grün; `scripts/gate.sh` grün |
-| 3b.3 | Daten-Editoren in zwei Teilen: 3b.3a Codecs, Pokédex, Attacken, Gegenstände; 3b.3b Trainer, Begegnungen (3b.3a implementiert, Gate offen) | Neue Trainer und Encounter komplett im Studio |
+| 3b.3 | Daten-Editoren in zwei Teilen: 3b.3a Codecs, Pokédex, Attacken, Gegenstände; 3b.3b Trainer, Begegnungen (3b.3a: Gate Teil A vom Agenten bestanden, Blick beim Nutzer offen) | Neue Trainer und Encounter komplett im Studio |
 | 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
 | 5 | Plugin-Host | Ein First-Party-Editor und ein Beispiel-Plugin laufen über dieselbe API |
@@ -133,13 +133,13 @@ Nicht in 3b.2: visueller Event- oder Node-Editor; Flag- und Variablen-Picker-Dia
 
 ### Phase 3b.3: Daten-Editoren
 
-Status: 3b.3a implementiert, Gate offen. Alle Tasks von 3b.3a sind gebaut und automatisch getestet (`cargo test`, `pnpm test`, das Szenario `pt-daten.yaml`); der Ablauf der Abnahme steht in [docs/phase-3b3-gate.md](phase-3b3-gate.md), Teil A. 3b.3b beginnt nach dem Gate von 3b.3a.
+Status: 3b.3a: Gate Teil A vom Agenten bestanden (2026-10-24, (A1) bis (A7) über die Test-Umgebung, `scripts/gate.sh` grün, drei Befunde im Branch der Abnahme behoben: die Suche zeichnete Schau und Hand neu und die Pokédex-Liste lag über 50 ms, leere Schau ohne Taste, Pokédex-Farbe „Violett“); beim Nutzer offen ist der Blick auf die drei Editoren gegen ihre Screens, auf die Item- und Pokémon-Symbole und auf Dunkel und Kompakt. Ergebnisse in [docs/phase-3b3-gate.md](phase-3b3-gate.md), Teil A. 3b.3b beginnt nach dem Gate von 3b.3a.
 
 Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md). Plan 3b.3a: [docs/superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md](superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md). Recherche: [docs/research/2026-10-23-3b3/](research/2026-10-23-3b3/).
 
 Der Teil ist zu groß für einen Plan und läuft in zwei Plänen mit je eigenem Gate:
 
-**3b.3a „Codecs und Pokémon-Daten“** (implementiert, Gate offen):
+**3b.3a „Codecs und Pokémon-Daten“** (Gate Teil A vom Agenten bestanden, Blick beim Nutzer offen):
 - Eigene Codecs in `g4-formats/src/data/` für alle Daten-Archive, auch Trainer und Begegnungen, damit der Round-Trip von Anfang an vollständig ist: Begegnungen (Platin und HGSS), Trainer-Eigenschaften und -Party, Pokémon-Basisdaten, Lernsets, Entwicklungen, Attacken, Gegenstände, Trainer-Texttabellen; dazu NCGR und NCLR für Symbole. Unbekannte Bits bleiben Rohwerte, nur eine falsche Länge sperrt ein Member. uxie 0.9.7 ist nur noch Test-Orakel.
 - Encounter-Writer: entschieden, ein eigener Codec. Der Writer von uxie 0.9.7 ist unbrauchbar (leere Slots gelten als ungültig, der HGSS-Leser ist um 8 Byte versetzt, Schwärme werden doppelt geschrieben); ebenso sein Attacken-Codec (lehnt 172 von 471 Vanilla-Attacken ab, schreibt 14 statt 16 Byte).
 - Store: die neuen Archivarten als Assets, mehrteiliger Changeset (`Store::transaction`, ein Undo-Schritt über mehrere Assets), Namenstabellen aus den Textarchiven, arm9-Tabellen nur lesend (Item-Tabelle, TM/VM-Liste, Paletten der Pokémon-Symbole; mit Plausibilitätsprüfung, sonst „nicht verfügbar“), Referenzindex (`refs`, inkrementell), Item- und Pokémon-Symbole aus dem ROM. Der Build packt die Daten-Ordner mit, der Vanilla-Rebuild bleibt byte-identisch.

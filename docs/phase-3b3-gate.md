@@ -1,6 +1,6 @@
 # Phase 3b.3: Gate prüfen
 
-Stand: 2026-10-24. Teil A (Gate 3b.3a „Codecs und Pokémon-Daten“) ist implementiert und automatisch getestet, die Abnahme steht aus. Teil B (Gate 3b.3b „Trainer, Begegnungen“, zugleich das Roadmap-Gate 3b.3) kommt mit dem Plan 3b.3b in diese Datei.
+Stand: 2026-10-24. Teil A (Gate 3b.3a „Codecs und Pokémon-Daten“) ist vom Agenten über die Test-Umgebung abgenommen (Ergebnis unten); offen sind die Blicke des Nutzers auf die Screens und die Symbole. Teil B (Gate 3b.3b „Trainer, Begegnungen“, zugleich das Roadmap-Gate 3b.3) kommt mit dem Plan 3b.3b in diese Datei.
 
 Phase 3b.3a bringt eigene Codecs für alle Daten-Archive (Begegnungen, Trainer, Pokémon-Basisdaten, Lernsets, Entwicklungen, Attacken, Gegenstände, Trainer-Texttabellen), die Archive im Store mit mehrteiligem Changeset, Namenstabellen, arm9-Tabellen (nur lesend), einen Referenzindex, Item- und Pokémon-Symbole aus dem ROM und die Editoren **Pokédex**, **Attacken** und **Gegenstände** in den Atlas-Bereichen Pokémon und Gegenstände. Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien. Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md), Abschnitt 1 (Gate 3b.3a). Plan: [docs/superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md](superpowers/plans/2026-10-23-phase-3b3a-codecs-pokemon-data.md).
 
@@ -39,10 +39,10 @@ Fakten zu Platin DE, die der Ablauf braucht: Staravia ist Art 0397 (Angriff 75, 
 
 ### (A1) Automatik
 
-- [ ] 1. `vanilla_data` gated grün auf Platin DE, HeartGold DE und HeartGold US: die Tests in `crates/g4-formats/tests/vanilla_data.rs` (`vanilla_fixed_records_round_trip`, `vanilla_variable_records_round_trip`, `vanilla_trainer_parties_round_trip_with_their_properties`, auf Platin dazu `vanilla_pt_water_slots_have_min_le_max`; auf HeartGold meldet dieser „skipped: not a Platinum project“). Ein Ordner mit falscher Member-Zahl, ohne Member oder mit anderen Dateien als `NNNN` lässt den Test fehlschlagen.
-- [ ] 2. uxie-Orakel: `vanilla_personal_matches_uxie`, `vanilla_items_match_uxie`, `vanilla_trainer_properties_match_uxie` grün auf allen drei Projekten.
-- [ ] 3. Vanilla-Rebuild: `vanilla_rebuild_matches_dsrom_cli` (mit `G4_DSROM_CLI`) grün auf allen drei Projekten; der Test verlangt, dass die Daten-Ordner mitgepackt werden.
-- [ ] 4. `scripts/gate.sh` läuft grün gegen alle drei Projekte (die Punkte 1 bis 3 laufen darin mit); keine Zeile „skipped“ außer den dokumentierten. Aus einem Worktree: `G4_ROMS_DIR=<absoluter Pfad zu Roms> scripts/gate.sh`. Die Tabelle aus der Ausgabe kommt unter „Ergebnis“.
+- [x] 1. `vanilla_data` gated grün auf Platin DE, HeartGold DE und HeartGold US: die Tests in `crates/g4-formats/tests/vanilla_data.rs` (`vanilla_fixed_records_round_trip`, `vanilla_variable_records_round_trip`, `vanilla_trainer_parties_round_trip_with_their_properties`, auf Platin dazu `vanilla_pt_water_slots_have_min_le_max`; auf HeartGold meldet dieser „skipped: not a Platinum project“). Ein Ordner mit falscher Member-Zahl, ohne Member oder mit anderen Dateien als `NNNN` lässt den Test fehlschlagen.
+- [x] 2. uxie-Orakel: `vanilla_personal_matches_uxie`, `vanilla_items_match_uxie`, `vanilla_trainer_properties_match_uxie` grün auf allen drei Projekten.
+- [x] 3. Vanilla-Rebuild: `vanilla_rebuild_matches_dsrom_cli` (mit `G4_DSROM_CLI`) grün auf allen drei Projekten; der Test verlangt, dass die Daten-Ordner mitgepackt werden.
+- [x] 4. `scripts/gate.sh` läuft grün gegen alle drei Projekte (die Punkte 1 bis 3 laufen darin mit); keine Zeile „skipped“ außer den dokumentierten. Aus einem Worktree: `G4_ROMS_DIR=<absoluter Pfad zu Roms> scripts/gate.sh`. Die Tabelle aus der Ausgabe kommt unter „Ergebnis“.
 
 Einzeln (ohne das ganze Gate), je Projekt, aus der Repo-Wurzel:
 
@@ -56,69 +56,121 @@ G4_TEST_PROJECT="<Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" G4_DS
 
 ### (A2) Szenario `pt-daten.yaml`
 
-Auf `pt-3b3a-szenario`, aus `scripts/g4emu`:
+Auf `pt-3b3a-szenario`, aus `scripts/g4emu`. Aus einem Git-Worktree zeigt `../../../Roms` nicht auf die Roms (von `scripts/g4emu` aus ist das `.claude/worktrees/Roms`): dann `G4_ROMS_DIR=<absoluter Pfad zu Roms>` setzen und `--project` absolut angeben; scheitert dort der Bau von `g4k` am Download in rotoms Build-Skript, nimmt das Szenario mit `G4K_BIN=<Worktree>/target/debug/g4k` und `G4_BRIDGE_BIN=<Worktree>/target/debug/studio-bridge` fertige Binaries (beide baut `cargo test --workspace --all-features --no-run`).
 
-- [ ] 1. `uv run g4emu scenario ../agent/scenarios/pt-daten.yaml --project ../../../Roms/_testkopien/pt-3b3a-szenario --out ../../target/agent/gate-<datum>/pt-daten` endet mit Rückgabe 0 und der Zeile `"ok": true`.
-- [ ] 2. Die vier `data_edit` (Staravia Angriff 85, Lernset von 12 auf 13 Einträge, Flügelschlag Stärke 65, Trank Preis 250), `save` und `build_rom` sind ok.
-- [ ] 3. Der Prüfschritt `g4k check-data out.nds --expect species:397:attack=85 --expect learnset:397:len=13 --expect move:17:power=65 --expect item:17:price=250` meldet „4 expectation(s) met“ (Ausgabe in `<out>/check.log`).
-- [ ] 4. Spielen als Starttest: `continue`, `expect-map 415`, `shot start`; das Bild `<out>/start.png` zeigt das Spielerzimmer.
-- [ ] 5. Gegenprobe, dass der Prüfschritt beißt: `target/debug/g4k check-data <Kopie>/out.nds --expect species:397:attack=75` endet mit Exit 1 und „species 397 attack: expected 75, found 85“.
+- [x] 1. `uv run g4emu scenario ../agent/scenarios/pt-daten.yaml --project ../../../Roms/_testkopien/pt-3b3a-szenario --out ../../target/agent/gate-<datum>/pt-daten` endet mit Rückgabe 0 und der Zeile `"ok": true`.
+- [x] 2. Die vier `data_edit` (Staravia Angriff 85, Lernset von 12 auf 13 Einträge, Flügelschlag Stärke 65, Trank Preis 250), `save` und `build_rom` sind ok.
+- [x] 3. Der Prüfschritt `g4k check-data out.nds --expect species:397:attack=85 --expect learnset:397:len=13 --expect move:17:power=65 --expect item:17:price=250` meldet „4 expectation(s) met“ (Ausgabe in `<out>/check.log`).
+- [x] 4. Spielen als Starttest: `continue`, `expect-map 415`, `shot start`; das Bild `<out>/start.png` zeigt das Spielerzimmer.
+- [x] 5. Gegenprobe, dass der Prüfschritt beißt: `target/debug/g4k check-data <Kopie>/out.nds --expect species:397:attack=75` endet mit Exit 1 und „species 397 attack: expected 75, found 85“.
 
 ### (A3) Editoren gegen die Screens
 
 Auf `pt-3b3a-gate`, Tiefe „Bauen“:
 
-- [ ] 1. Pokédex: Atlas „Pokémon“, Staravia wählen (Suche „Pokédex durchsuchen“, `397`). Screenshot des ganzen Fensters. Zu sehen sein müssen: Listenkopf „Pokédex ▾“ mit „493 Arten, 12 Formen“, Filter „Typ“, Zeilen mit Symbol, Name und Nummer; Schau „Übersicht“ mit Kopfkarte (Symbol, Name, 0397, Typen Normal und Flug, Fähigkeit), sechs Wertebalken mit dem Schnitt aller Arten, „Summe 340“, „Fundorte“ und „Verwendet in“; Hand „Bearbeiten“ mit den Reitern „Werte“, „Fähigkeiten und Typen“, „Lernset“, „Entwicklung“, „TM/VM“; Brotkrume „Pokémon › Pokédex › STARAVIA“, Statusleiste „STARAVIA, 0397“. Der Vergleich mit „Pokédex: Staravia bearbeiten“ ist ein Blick des Nutzers (das DS-Profil des Screens fehlt bewusst, siehe „Später“ in der Spec).
-- [ ] 2. Im Reiter „Werte“ Angriff 75 → 85: die Titelleiste sagt „1 Änderung nicht gespeichert“, die Schau „Summe 350, vorher 340“, `call.sh history` nennt „STARAVIA: Angriff 75 → 85“; ⌘Z stellt 75 und „Alles gespeichert“ wieder her.
-- [ ] 3. Attacken: ⌘4 (oder der Umschalter), Flügelschlag wählen. Die Karte nennt Name, Nr. 0017, Typ Flug, Physisch, „60 Stärke“, „100 % Genauigkeit“, „35 AP“ und die Merkmale; darunter die Beschreibung als DS-Textbox mit „Beschreibung bearbeiten“ und „Verwendet in“ („23 Lernsets, 11 Trainer“); die Hand hat die Spalten „Grundwerte“ und „Verhalten“. Stärke 60 → 65: Verlauf „Flügelschlag: Stärke 60 → 65“, ⌘Z. Der Vergleich mit „Attacken: Flügelschlag“ ist ein Blick des Nutzers.
-- [ ] 4. Gegenstände: Atlas „Gegenstände“, Trank wählen. Brotkrume „Gegenstände › Tasche Medizin › Trank“; die Karte zeigt Symbol, Name, Nr. 0017 und den Preis 300 ₽, darunter die Beschreibung als DS-Textbox und „Verwendet in“; die Hand zeigt die Werte des Gegenstands in Spalten. Preis 300 → 250: Verlauf „Trank: Preis 300 → 250“, die Zeile zeigt „250 ₽“, ⌘Z. Der Vergleich mit „Gegenstände: Trank“ ist ein Blick des Nutzers.
+- [x] 1. Pokédex: Atlas „Pokémon“, Staravia wählen (Suche „Pokédex durchsuchen“, `397`). Screenshot des ganzen Fensters. Zu sehen sein müssen: Listenkopf „Pokédex ▾“ mit „493 Arten, 12 Formen“, Filter „Typ“, Zeilen mit Symbol, Name und Nummer; Schau „Übersicht“ mit Kopfkarte (Symbol, Name, 0397, Typen Normal und Flug, Fähigkeit), sechs Wertebalken mit dem Schnitt aller Arten, „Summe 340“, „Fundorte“ und „Verwendet in“; Hand „Bearbeiten“ mit den Reitern „Werte“, „Fähigkeiten und Typen“, „Lernset“, „Entwicklung“, „TM/VM“; Brotkrume „Pokémon › Pokédex › STARAVIA“, Statusleiste „STARAVIA, 0397“. Der Vergleich mit „Pokédex: Staravia bearbeiten“ ist ein Blick des Nutzers (das DS-Profil des Screens fehlt bewusst, siehe „Später“ in der Spec).
+- [x] 2. Im Reiter „Werte“ Angriff 75 → 85: die Titelleiste sagt „1 Änderung nicht gespeichert“, die Schau „Summe 350, vorher 340“, `call.sh history` nennt „STARAVIA: Angriff 75 → 85“; ⌘Z stellt 75 und „Alles gespeichert“ wieder her.
+- [x] 3. Attacken: ⌘4 (oder der Umschalter), Flügelschlag wählen. Die Karte nennt Name, „Nummer 0017“, Typ Flug, Physisch, „60 Stärke“, „100 % Genauigkeit“, „35 AP“ und die Merkmale; darunter die Beschreibung als DS-Textbox mit „Beschreibung bearbeiten“ und „Verwendet in“ („23 Lernsets, 11 Trainer“); die Hand hat die Spalten „Grundwerte“ und „Verhalten“. Stärke 60 → 65: Verlauf „Flügelschlag: Stärke 60 → 65“, ⌘Z. Der Vergleich mit „Attacken: Flügelschlag“ ist ein Blick des Nutzers.
+- [x] 4. Gegenstände: Atlas „Gegenstände“, Trank wählen. Brotkrume „Gegenstände › Tasche Medizin › Trank“; die Karte zeigt Symbol, Name, „Nummer 0017“ und den Preis 300 ₽, darunter die Beschreibung als DS-Textbox und „Verwendet in“; die Hand zeigt die Werte des Gegenstands in Spalten. Preis 300 → 250: Verlauf „Trank: Preis 300 → 250“, die Zeile zeigt „250 ₽“, ⌘Z. Der Vergleich mit „Gegenstände: Trank“ ist ein Blick des Nutzers.
 
 ### (A4) ⌘Z über zwei Assets („Wie Staralili“)
 
 Auf `pt-3b3a-gate`, Pokédex, Staravia, Reiter „TM/VM“. In Platin DE hat Staralili dieselben TM/VM wie Staravia; damit die Kopie beide Teile ändert, wird vorher ein Kästchen umgestellt und gespeichert:
 
-- [ ] 1. TM01 einschalten, speichern („Alles gespeichert“).
-- [ ] 2. „Von anderer Art übernehmen …“, Staralili wählen: `call.sh history` nennt einen Schritt „STARAVIA: TM/VM und Lernset wie STARALILI“, `call.sh dirty` nennt zwei Assets (Personal-Daten und Lernset von 397), TM01 ist aus, „Lernset“ hat 11 statt 12 Zeilen.
-- [ ] 3. Ein ⌘Z: `call.sh dirty` liefert `[]`, TM01 ist wieder an, „Lernset“ hat wieder 12 Zeilen; „Wiederholen“ hält den Schritt.
+- [x] 1. TM01 einschalten, speichern („Alles gespeichert“).
+- [x] 2. „Von anderer Art übernehmen …“, Staralili wählen: `call.sh history` nennt einen Schritt „STARAVIA: TM/VM und Lernset wie STARALILI“, `call.sh dirty` nennt zwei Assets (Personal-Daten und Lernset von 397), TM01 ist aus, „Lernset“ hat 11 statt 12 Zeilen.
+- [x] 3. Ein ⌘Z: `call.sh dirty` liefert `[]`, TM01 ist wieder an, „Lernset“ hat wieder 12 Zeilen; „Wiederholen“ hält den Schritt.
 
 ### (A5) Tüfteln: Hexblock mit markiertem Feld
 
 Auf `pt-3b3a-gate`, im Scharnier „Tüfteln“:
 
-- [ ] 1. Attacken, Flügelschlag: die Hand hat die Spalte „Rohdaten“ (in Bauen nicht). Feld „Stärke“ fokussieren: der Hexblock nennt „files/poketool/waza/pl_waza_tbl.narc, Eintrag 17, 16 Bytes“, Byte 3 ist markiert (`[data-marked]` mit `data-offset="3"`), der Fuß sagt „Byte 3: Stärke, 0x3C = 60“.
-- [ ] 2. Pokédex, Staravia: Reiter „Rohdaten“ (nur in Tüfteln) mit drei Blöcken („Pokémon-Daten“, 44 Bytes; „Lernset“; „Entwicklungen“, 44 Bytes); nach Fokus auf „Angriff“ im Reiter „Werte“ ist Byte 1 markiert („Byte 1: Angriff, 0x4B = 75“).
-- [ ] 3. Gegenstände, Trank: Spalte „Rohdaten“ mit „files/itemtool/itemdata/pl_item_data.narc, Eintrag 17, 34 Bytes“; nach Fokus auf „Preis“ sind die Bytes 0 und 1 markiert („Byte 0 bis 1: Preis, 0x012C = 300“).
+- [x] 1. Attacken, Flügelschlag: die Hand hat die Spalte „Rohdaten“ (in Bauen nicht). Feld „Stärke“ fokussieren: der Hexblock nennt „files/poketool/waza/pl_waza_tbl.narc, Eintrag 17, 16 Bytes“, Byte 3 ist markiert (`[data-marked]` mit `data-offset="3"`), der Fuß sagt „Byte 3: Stärke, 0x3C = 60“.
+- [x] 2. Pokédex, Staravia: Reiter „Rohdaten“ (nur in Tüfteln) mit drei Blöcken („Pokémon-Daten“, 44 Bytes; „Lernset“; „Entwicklungen“, 44 Bytes); nach Fokus auf „Angriff“ im Reiter „Werte“ ist Byte 1 markiert („Byte 1: Angriff, 0x4B = 75“).
+- [x] 3. Gegenstände, Trank: Spalte „Rohdaten“ mit „files/itemtool/itemdata/pl_item_data.narc, Eintrag 17, 34 Bytes“; nach Fokus auf „Preis“ sind die Bytes 0 und 1 markiert („Byte 0 bis 1: Preis, 0x012C = 300“).
 
 ### (A6) Item-Symbole in der Liste
 
-- [ ] 1. Gegenstände: die sichtbaren Zeilen zeigen Symbole aus dem ROM: `document.querySelectorAll('[role="listbox"][aria-label="Gegenstände"] [data-sprite="picture"]').length` ist größer als 0 (Platzhalter tragen `data-sprite="placeholder"`); Symbole laden nur für Zeilen im Blick, nach dem Scrollen kommen weitere dazu.
-- [ ] 2. `call.sh get_item_icon '{"item":17}'` meldet eine Zahl von Bytes größer als 0 (PNG).
+- [x] 1. Gegenstände: die sichtbaren Zeilen zeigen Symbole aus dem ROM: `document.querySelectorAll('[role="listbox"][aria-label="Gegenstände"] [data-sprite="picture"]').length` ist größer als 0 (Platzhalter tragen `data-sprite="placeholder"`); Symbole laden nur für Zeilen im Blick, nach dem Scrollen kommen weitere dazu.
+- [x] 2. `call.sh get_item_icon '{"item":17}'` meldet eine Zahl von Bytes größer als 0 (PNG).
 - [ ] 3. Blick des Nutzers: die Symbole sehen aus wie im Spiel (Farben, nicht verschoben). Ebenso die Pokémon-Symbole der Pokédex-Liste.
 
 ### (A7) Renderzeit der Listen
 
-- [ ] 1. Pokédex: die Liste ist gefenstert: in der Liste `[role="listbox"][aria-label="Pokédex"]` stehen deutlich weniger als 508 Zeilen `[data-species]` im DOM, `aria-setsize` der Zeilen ist 508; Pfeiltasten, Pos1 und Ende erreichen jede Zeile.
-- [ ] 2. Zeit messen (`performance.now()` im Browser-Fenster, zum Beispiel vom Leeren der Suche „397“ mit Escape bis die Zeilen im DOM stehen): unter 50 ms. Zum Vergleich aus der Umsetzung (Dev-Build, verborgenes Fenster): ohne Fensterung 49 bis 111 ms, mit 22 bis 25 ms.
-- [ ] 3. Dasselbe für „Attacken“ (471) und „Gegenstände“ (468 in Platin DE).
+- [x] 1. Pokédex: die Liste ist gefenstert: in der Liste `[role="listbox"][aria-label="Pokédex"]` stehen deutlich weniger als 508 Zeilen `[data-species]` im DOM, `aria-setsize` der Zeilen ist 508; Pfeiltasten, Pos1 und Ende erreichen jede Zeile.
+- [x] 2. Zeit messen (`performance.now()` im Browser-Fenster, zum Beispiel vom Leeren der Suche „397“ mit Escape bis die Zeilen im DOM stehen): unter 50 ms. Zum Vergleich aus der Umsetzung (Dev-Build, verborgenes Fenster): ohne Fensterung 49 bis 111 ms, mit 22 bis 25 ms.
+- [x] 3. Dasselbe für „Attacken“ (471) und „Gegenstände“ (468 in Platin DE).
 
 ### Ergebnis
 
-Hier wird nach dem Durchlauf je Punkt eingetragen: Datum, Projekt, Ergebnis, Auffälligkeiten. „Wer“ steht schon fest.
+Durchlauf des Agenten über die Test-Umgebung am 2026-10-24 (Browser-Fenster 1440 × 900, Dev-Build, Fenster verborgen).
 
 | Punkt | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
 |---|---|---|---|---|---|
-| (A1) 1 `vanilla_data` gated | Agent | | | | |
-| (A1) 2 uxie-Orakel | Agent | | | | |
-| (A1) 3 Vanilla-Rebuild byte-identisch | Agent | | | | |
-| (A2) Szenario `pt-daten.yaml` | Agent | | | | |
-| (A3) Editoren gegen die Screens | Agent + Blick | | | | |
-| (A4) ⌘Z über zwei Assets („Wie Staralili“) | Agent | | | | |
-| (A5) Tüfteln: Hexblock mit markiertem Feld | Agent | | | | |
-| (A6) Item-Symbole in der Liste | Agent + Blick | | | | |
-| (A7) Renderzeit der Listen | Agent | | | | |
-| (A1) 4 `scripts/gate.sh` | Agent | | | | |
+| (A1) 1 `vanilla_data` gated | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US (Originale, nur lesend) | bestanden | läuft in `scripts/gate.sh` mit, siehe unten |
+| (A1) 2 uxie-Orakel | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US | bestanden | läuft in `scripts/gate.sh` mit |
+| (A1) 3 Vanilla-Rebuild byte-identisch | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US | bestanden | läuft in `scripts/gate.sh` mit (`G4_DSROM_CLI`) |
+| (A2) Szenario `pt-daten.yaml` | Agent | 2026-10-24 | `pt-3b3a-szenario-2` | bestanden | Rückgabe 0, `"ok": true`; vier `data_edit`, `save` (vier Assets geschrieben) und `build_rom` ok; `check.log`: „species 397 attack: 85“, „learnset 397 len: 13“, „move 17 power: 65“, „item 17 price: 250“, „4 expectation(s) met“; `start.png` zeigt das Spielerzimmer (Header 415, x 7, y 4). Gegenprobe `--expect species:397:attack=75`: Exit 1, „species 397 attack: expected 75, found 85“. Bild: `target/agent/gate-2026-10-24/abnahme-3b3a/pt-daten/start.png`. Aus dem Worktree brauchte das Szenario `G4_ROMS_DIR`, einen absoluten `--project` und `G4K_BIN`/`G4_BRIDGE_BIN` (der Bau von `g4k` scheitert dort am Download in rotoms Build-Skript); der erste Lauf auf `pt-3b3a-szenario` brach deshalb nach `build_rom` ab, die Kopie ist gespeichert und gebaut. Die Anleitung nennt das jetzt. |
+| (A3) Editoren gegen die Screens | Agent + Blick | 2026-10-24 | `pt-3b3a-gate`, Gegenprobe `hg-3b3a-gate` | Agent-Teil bestanden; Blick offen | Pokédex: Kopf „Pokédex ▾“, „493 Arten, 12 Formen“ (bei 272 px Breite in Komfort als „493 Arten, 12 Form…“ gekürzt, in Kompakt ganz), Filter „Typ“, Zeilen mit Symbol, Name, Nummer; Schau „Übersicht STARAVIA“ mit 0397, Normal und Flug, „Fähigkeit: Bedroher“, sechs Balken (55, 75, 50, 40, 40, 80 mit „über/unter Schnitt“), „Summe 340“, „Fundorte 8 Orte, 14 Trainer-Teams“, „Verwendet in“ („STARALILI, Entwicklung 1 Ziel“, „1 Stelle, ohne Scripts gezählt.“); Hand mit „Werte“, „Fähigkeiten und Typen“, „Lernset 12“, „Entwicklung“, „TM/VM 26“; Brotkrume Pokémon › Pokédex › STARAVIA; Statusleiste „STARAVIA, 0397“. Angriff 75 → 85: „1 Änderung nicht gespeichert“, „Summe 350, vorher 340“, Verlauf „STARAVIA: Angriff 75 → 85“, ⌘Z stellt 75 und „Alles gespeichert“ her. Lernset: „Zeile hinzufügen“ mit Windstoß 0016 → Verlauf „STARAVIA: Lernset 12 → 13 Attacken“, die Zeile steht bei Level 1. Entwicklung: „Level“, 34, STARAPTOR 0398, sechs Zeilen „Keine“. Attacken: Karte „Flügelschlag“ (Archiv 0647), „Nummer 0017“, Flug, Physisch, „60 Stärke“, „100 % Genauigkeit“, „35 AP“, vier Merkmale, „Priorität 0“; Beschreibung „Seite 1 von 2“ mit „Beschreibung bearbeiten“ (Archiv 0646); „Verwendet in“ „23 Lernsets, 11 Trainer“ mit „Alle zeigen, 11 weitere“; Stärke 60 → 65 („Flügelschlag: Stärke 60 → 65“) und Priorität 0 → −1 („Flügelschlag: Priorität 0 → −1“, Byte 10 = 0xFF), beides mit ⌘Z zurück. Gegenstände: Brotkrume Gegenstände › Tasche Medizin › Trank, Karte mit Symbol, „Nummer 0017“, „300 ₽ Preis“, „150 ₽ Verkauf“, „30 Schleuder-Stärke“, Beschreibung „Hilft bei Wunden.“, „Verwendet in“ „8 Trainer-Items, 0 Team-Items, 0 wild getragen, 0 Entwicklungen“; Preis 300 → 250: Verlauf „Trank: Preis 300 → 250“, Zeile „250 ₽“ mit Punkt, ⌘Z. Geteilte Daten: 0113 warnt „Preis und Werte gelten auch für 22 andere Gegenstände“, das Label endet auf „gilt für 23 Gegenstände“. Palette: „0397“ findet Route 222 (Header), Textarchiv 0397, STARAVIA, Steinpolitur, TM70 (6 Treffer). Blick: Bilder unter `target/agent/gate-2026-10-24/abnahme-3b3a/browser/` (`pokedex-staravia-hell.jpg`, `pokedex-staravia-hell-angriff85.jpg`, `pokedex-tmvm-hell.jpg`, `attacken-fluegelschlag-hell.jpg`, `attacken-fluegelschlag-hell-textbox.jpg`, `gegenstaende-trank-hell.jpg`; 800 × 500 aus 1440 × 900). |
+| (A4) ⌘Z über zwei Assets („Wie Staralili“) | Agent | 2026-10-24 | `pt-3b3a-gate` | bestanden | TM01 an, gespeichert („Alles gespeichert“); „Von anderer Art übernehmen …“ (Rückfrage-Text „Ersetzt TM/VM und Lernset von STARAVIA“), STARALILI 0396: Verlauf „STARAVIA: TM/VM und Lernset wie STARALILI“, `dirty` = Personal 397 und Learnset 397, TM01 aus, „Lernset 11“, „2 Änderungen nicht gespeichert“. Ein ⌘Z: `dirty` = `[]`, TM01 an, „Lernset 12“, „Alles gespeichert“, „Wiederholen“ bereit, `redo` hält den Schritt. |
+| (A5) Tüfteln: Hexblock mit markiertem Feld | Agent | 2026-10-24 | `pt-3b3a-gate` | bestanden | Attacken: Spalte „Rohdaten“ nur in Tüfteln, „files/poketool/waza/pl_waza_tbl.narc, Eintrag 17, 16 Bytes“, Fokus „Stärke“: `data-offset="3"`, „Byte 3: Stärke, 0x3C = 60“ (nach der Änderung „0x41 = 65“), dazu Effekt-ID, „Merkmale-Byte 0x73“ mit Bit 0 bis 7; `data_raw` gleich. Pokédex: Reiter „Rohdaten“ mit „Pokémon-Daten“ (pl_personal.narc, Eintrag 397, 44 Bytes), „Lernset“ (wotbl.narc, 28 Bytes), „Entwicklungen“ (evo.narc, 44 Bytes), Fokus „Angriff“: Byte 1, „Byte 1: Angriff, 0x4B = 75“; Zahlfelder mit Dez/Hex. Gegenstände: „files/itemtool/itemdata/pl_item_data.narc, Eintrag 17, 34 Bytes“, Fokus „Preis“: Bytes 0 und 1, „Byte 0 bis 1: Preis, 0x012C = 300“, darunter „Wirkung im Team“. |
+| (A6) Item-Symbole in der Liste | Agent + Blick | 2026-10-24 | `pt-3b3a-gate`, `hg-3b3a-gate` | Agent-Teil bestanden; Blick offen | Platin: 21 Bilder (`data-sprite="picture"`) für die Zeilen 0 bis 20 im Blick, 10 Platzhalter darunter außerhalb; nach dem Scrollen Bilder für 93 ff.; `get_item_icon {"item":17}`: 518 Bytes. HeartGold DE: 21 Bilder. Pokédex-Liste: 21 Bilder. Blick: Farben und Lage der Symbole in `gegenstaende-trank-hell.jpg`, `gegenstaende-trank-dunkel-kompakt.jpg` (Liste links, Keines bis Hyperheiler), `pokedex-staravia-dunkel-kompakt.jpg` (LIEBISKUS 0370 bis STARAVIA 0397) und `hg-gegenstaende-trank.jpg`. |
+| (A7) Renderzeit der Listen | Agent | 2026-10-24 | `pt-3b3a-gate` | bestanden nach Fix | Gefenstert: Pokédex 41 Zeilen im DOM (31 plus die gewählte Zeile), `aria-setsize` 508; Gegenstände 31 von 468, Attacken 30 von 471. Ende → „Schneid-Rotom, 0507“ (508), Pos1 → „-----, 0000“, Bild ab → 0023 (Pos. 24), Enter wählt. Zeit vom Escape in der Suche bis die Zeilen stehen (MutationObserver, verborgenes Fenster, Dev-Build, fünf Läufe): vorher Pokédex 61 bis 64 ms (lange Aufgaben 61 bis 65 ms), Gegenstände 52 bis 65 ms, Attacken 33 bis 43 ms; Ursache: eine Suche zeichnete auch Schau und Hand neu (der Reiter „Werte“ allein rund 30 ms). Nach dem Fix (Suche im eigenen Kontext): Pokédex 34 bis 36 ms, Gegenstände 22 bis 25 ms, Attacken 20 bis 21 ms, keine lange Aufgabe. |
+| (A1) 4 `scripts/gate.sh` | Agent | 2026-10-24 | Platin DE, HeartGold DE, HeartGold US | bestanden („Gate: ok (1781 s)“) | nach den drei Fix-Commits, aus dem Worktree mit `G4_ROMS_DIR`; Log `target/agent/gate-3b3a-abnahme.log`; keine Zeile „skipped“ |
 
-Ergebnis von `scripts/gate.sh` (Tabelle aus der Ausgabe): steht nach dem Lauf hier.
+Weitere Prüfungen der Abnahme (Review Focus des Plans, Design-System; 2026-10-24, Agent, ohne eigene Gate-Nummer):
+
+| Prüfung | Wer | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| Gesperrtes Member | Agent | `pt-3b3a-gate-lock` (Item-Member 0017 per `printf '\x00\x00' >>` auf 36 Bytes, Personal 0397 per `head -c 36` auf 36 Bytes) | bestanden | Gegenstände: Zeile „Trank 0017“ mit Plakette „Gesperrt“; Schau „Daten 0017: 36 Bytes statt 34. Die Werte dieses Gegenstands sind nicht lesbar.“; Hand nur „… Die Felder dieses Gegenstands sind gesperrt.“ (keine Felder), in Tüfteln der Hexblock „Eintrag 17, 36 Bytes“. Pokédex: Schau „Pokémon-Daten 0397: 36 Bytes statt 44. Ihre Werte sind nicht lesbar.“, Hand „… Die Felder dieses Teils sind gesperrt.“, alle Felder der Werte gesperrt (0), Lernset bleibt bearbeitbar. Nichts stürzt. Bilder `lock-trank-36bytes.jpg`, `lock-staravia-36bytes.jpg`. |
+| Item-Tabelle unplausibel | Agent | `pt-3b3a-gate-0017` (arm9 0xF0DA4, Eintrag 17 der Item-Tabelle, mit 8 × 0xFF überschrieben) | bestanden | `item_table` und `machine_table` liefern `null`; Liste „Daten 0000“, „Daten 0017“ …, ohne Symbole, Hinweis „Item-Tabelle nicht lesbar: Namen und Symbole fehlen“; TM/VM-Raster nur „TM01“ … ohne Attackennamen. Bild `itemtable-unplausibel-tmvm.jpg`. |
+| Formen und Arten ohne Namen | Agent | `pt-3b3a-gate` | bestanden | Ende der Liste „Schneid-Rotom, 0507“; Kopf „493 Arten, 12 Formen“. |
+| ⌘1 bis ⌘4 | Agent (vitest) | – | bestanden | `apps/studio/src/app/useShortcuts.test.tsx` (⌘4 und ⌘1 im Bereich Pokémon); im Browser über das Menü im Listenkopf: „Pokédex 508 ⌘1“, „Trainer, kommt mit Phase 3b.3b ⌘2“ (gesperrt), „Begegnungen, kommt mit Phase 3b.3b ⌘3“ (gesperrt), „Attacken 471 ⌘4“. |
+| Tastatur | Agent | `pt-3b3a-gate` | bestanden | Liste: Pfeile, Pos1, Ende, Bild ab, Enter wählt, `:focus-visible` nach Taste `true`. Reiter der Hand: Pfeil rechts wechselt (automatische Aktivierung). Tabelle „Lernset“: Tab auf die Zeile, Pfeil ab zur nächsten Zeile, Enter in die Felder („Level von Heuler“), Escape zurück zur Zeile, Tab verlässt die Tabelle. TM/VM-Raster: ein Tab-Stopp, Pfeil rechts TM02, Pfeil ab TM12, Ende VM08. Filter-Plaketten sind je ein Tab-Stopp (sechs Stopps vor der Liste). |
+| Dunkel und Kompakt | Agent + Blick | `pt-3b3a-gate` | Bilder erstellt; Blick offen | `pokedex-staravia-dunkel-kompakt.jpg`, `attacken-fluegelschlag-dunkel-kompakt.jpg`, `gegenstaende-trank-dunkel-kompakt.jpg` (`data-theme="dunkel"`, `data-dichte="kompakt"`). Im Dunkeln verschwindet der dunkle DS-Grund der Beschreibung fast im Hintergrund der Schau; die Textbox selbst steht unten im Bild. |
+| HeartGold DE | Agent | `hg-3b3a-gate` | bestanden | Plakette „HeartGold/SoulSilver, DE“; Pokédex lädt („493 Arten, 12 Formen“), Namen deutsch (STARAVIA 0397, „Fähigkeit: Bedroher“); Palette „0017“: TAUBOGA, Flügelschlag, Trank 300 ₽; `data_get` Trank 17: Preis 300, Beschreibung „Hilft bei Wunden. …“ (Archiv 221), Flügelschlag 17: Stärke 60 (Archiv 749); Liste „Gegenstände“ 537, „Trank 0017 300 ₽“ mit Symbol. Bilder `hg-pokedex-staravia.jpg`, `hg-gegenstaende-trank.jpg`. |
+
+Die Bilder des Browser-Fensters liegen in `target/agent/gate-2026-10-24/abnahme-3b3a/browser/` (Worktree der Abnahme), das Bild des Emulators in `target/agent/gate-2026-10-24/abnahme-3b3a/pt-daten/start.png`.
+
+Befunde der Abnahme, im Branch behoben:
+
+- Renderzeit (A7): eine Suche zeichnete Schau und Hand des Bereichs neu, die Pokédex-Liste brauchte 61 bis 64 ms. Die Suche hat jetzt einen eigenen Kontext (`useDataSearch`); Messung oben.
+- Leere Schau ohne Taste (Design-System „Leere Zustände“: ein Satz, was fehlt, ein Satz, wozu, eine Taste): die Schau von Pokédex, Attacken und Gegenstände hat jetzt „Erste Art zeigen“, „Erste Attacke zeigen“ und „Ersten Gegenstand zeigen“ (erstes Member über 0).
+- Pokédex-Farbe 6 heißt „Violett“ wie in den Spieltexten.
+
+Kleinigkeiten ohne Gate-Bezug (notiert, nicht behoben):
+
+- Trainer-Plaketten in „Fundorte“ und „Verwendet in“ nennen die Nummer doppelt („Trainer 0027 Robert“ und grau 0027); mit den Klassennamen in 3b.3b („Wanderer Kai“) neu fassen.
+- Der Listenkopf kürzt „493 Arten, 12 Formen“ in Komfort bei 272 px auf „493 Arten, 12 Form…“ (so gewollt: der Untertitel weicht).
+- Eine gesperrte Gegenstandszeile zeigt statt des Symbols den Buchstaben, obwohl die Item-Tabelle das Symbol kennt; der Name der gesperrten Art wird in der Zeile gekürzt („STARA… 0…“).
+- Die Reiter-Punkte „ungespeichert“ hängen am Asset: Angriff ändern setzt den Punkt an „Werte“, „Fähigkeiten und Typen“ und „TM/VM“ (alle drei sind Personal-Daten).
+- Die Filter-Plaketten sind je ein Tab-Stopp statt einer Gruppe mit Pfeiltasten.
+
+Ergebnis von `scripts/gate.sh` (2026-10-24, Worktree der Abnahme, `G4_ROMS_DIR` absolut):
+
+```
+Step                                                 Project                                      Result                     Seconds
+cargo fmt --check                                    -                                            ok                               1
+cargo clippy (-D warnings)                           -                                            ok                              24
+cargo test (no ROM data)                             -                                            ok                              59
+pnpm test                                            -                                            ok                              73
+tokens                                               -                                            ok                               0
+styles                                               -                                            ok                               2
+pnpm build                                           -                                            ok                              22
+dist has no bridge                                   -                                            ok                               0
+g4emu unit                                           -                                            ok                               3
+g4emu integration                                    -                                            ok                               7
+gated tests (cargo test)                             Pokemon - Goldene Edition HeartGold (Germany) ok                             484
+gated tests (cargo test)                             Pokemon - HeartGold Version (USA)            ok                             631
+gated tests (cargo test)                             Pokemon - Platin-Edition (Germany)           ok                             475
+
+Gate: ok (1781 s)
+```
+
+Testkopien der Abnahme (unter `_testkopien`, der Nutzer räumt sie auf): `pt-3b3a-gate` (Oberfläche; Staravia hat TM01 gespeichert), `pt-3b3a-szenario` (erster, abgebrochener Szenario-Lauf, gespeichert und gebaut), `pt-3b3a-szenario-2` (Szenario), `pt-3b3a-gate-lock` (36-Byte-Member), `pt-3b3a-gate-0017` (Item-Tabelle überschrieben), `hg-3b3a-gate` (HeartGold DE).
+
+Beim Nutzer offen: der Blick auf die drei Editoren gegen die Screens „Pokédex: Staravia bearbeiten“, „Attacken: Flügelschlag“, „Gegenstände: Trank“ (A3), auf die Item- und Pokémon-Symbole (A6, 3) und auf Dunkel und Kompakt der beiden Bereiche; Bilder und Orte stehen in der Tabelle.
+
 
 ### Bekannt vor der Abnahme
 
@@ -126,7 +178,7 @@ Befunde aus der Umsetzung, die nicht als Fehler zählen oder bewusst offen sind:
 
 - Trainer und Begegnungen stehen im Umschalter, sind aber gesperrt („kommt mit Phase 3b.3b“); Trainer-Plaketten in „Fundorte“ und „Verwendet in“ sind gesperrt („Trainer öffnen kommt mit Phase 3b.3b.“). „Verwendet in“ zählt ohne Scripts.
 - In Platin DE teilen sich Gegenstand 0 („Keines“) und die IDs 113 bis 134 den Datenmember 0 (23 IDs); die Hand warnt, dass Preis und Werte für alle gelten, und das Label nennt es.
-- Die Pokédex-Farbe 6 heißt „Lila“; ob „Violett“ (wie in den Sticker-Texten der Spiele) besser passt, entscheidet der Nutzer.
+- Die Pokédex-Farbe 6 hieß in der Umsetzung „Lila“; seit der Abnahme heißt sie „Violett“ wie in den Texten der Spiele („VIOLETT“).
 - Die erste Liste nach dem Öffnen eines Projekts braucht in der Debug-Brücke rund eine Sekunde (die Member werden zum ersten Mal von der Platte gelesen), danach wenige Millisekunden.
 - Der Wechsel des Unterbereichs zeichnet die ganze App neu (rund 50 ms im Dev-Build), unabhängig von der Liste.
 - Die DS-Textbox der Beschreibungen ist doppelt groß; in einem normalen Fenster muss man in der Schau scrollen, um „Verwendet in“ zu sehen.
