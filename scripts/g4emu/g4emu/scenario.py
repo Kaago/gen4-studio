@@ -30,6 +30,8 @@ class Scenario:
     build: str | None
     play: list[str]  # flat step tokens, ready for `g4emu run`
     name: str = ""
+    # `g4k` commands run in the project after the build, before play; exit != 0 fails the scenario
+    check: list[list[str]] = field(default_factory=list)
 
 
 def substitute(value: Any, env: dict[str, str]) -> Any:
@@ -72,15 +74,24 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     play: list[str] = []
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
+    check = data.get("check") or []
+    if not isinstance(check, list):
+        raise ValueError(f"{path}: check muss eine Liste von Befehlen sein: {check!r}")
+    for command in check:
+        if not (
+            isinstance(command, list) and command and command[0] == "g4k"
+            and all(isinstance(arg, (str, int)) for arg in command)
+        ):
+            raise ValueError(f"{path}: jeder Prüfschritt in check muss [g4k, argumente…] sein: {command!r}")
     return Scenario(
         game=str(data["game"]), edits=edits, build=None if build is None else str(build),
-        play=play, name=Path(path).stem,
+        play=play, name=Path(path).stem, check=[[str(arg) for arg in command] for command in check],
     )
 
 
-def bridge_command(repo: Path) -> list[str]:
-    """`G4_BRIDGE_BIN` if set, else build the dev bridge and use target/debug/studio-bridge."""
-    env = os.environ.get("G4_BRIDGE_BIN")
+def _cargo_binary(repo: Path, env_name: str, cargo_args: list[str], binary: str) -> list[str]:
+    """`$env_name` if set, else `cargo build <cargo_args>` in `repo` and target/debug/<binary>."""
+    env = os.environ.get(env_name)
     if env:
         return [env]
     env = dict(os.environ)
@@ -88,18 +99,27 @@ def bridge_command(repo: Path) -> list[str]:
     if shutil.which("cargo", path=env.get("PATH")) is None and (toolchain / "cargo").is_file():
         env["PATH"] = f"{toolchain}{os.pathsep}{env.get('PATH', '')}"  # same fallback as scripts/gate.sh
     try:
-        result = subprocess.run(
-            ["cargo", "build", "-p", "studio", "--features", "dev-bridge", "--bin", "studio-bridge"],
-            cwd=repo, env=env,
-        )
+        result = subprocess.run(["cargo", "build", *cargo_args], cwd=repo, env=env)
     except OSError as e:
         raise RuntimeError(
-            f"cargo nicht gefunden ({e}): G4_BRIDGE_BIN setzen oder die Rust-Toolchain in den PATH "
+            f"cargo nicht gefunden ({e}): {env_name} setzen oder die Rust-Toolchain in den PATH "
             f"aufnehmen ({toolchain})"
         ) from e
     if result.returncode != 0:
-        raise RuntimeError("cargo build für studio-bridge fehlgeschlagen")
-    return [str(repo / "target" / "debug" / "studio-bridge")]
+        raise RuntimeError(f"cargo build für {binary} fehlgeschlagen")
+    return [str(repo / "target" / "debug" / binary)]
+
+
+def bridge_command(repo: Path) -> list[str]:
+    """`G4_BRIDGE_BIN` if set, else build the dev bridge and use target/debug/studio-bridge."""
+    return _cargo_binary(
+        repo, "G4_BRIDGE_BIN", ["-p", "studio", "--features", "dev-bridge", "--bin", "studio-bridge"], "studio-bridge"
+    )
+
+
+def g4k_command(repo: Path) -> list[str]:
+    """`G4K_BIN` if set, else build g4k at workspace level (never `-p`) and use target/debug/g4k."""
+    return _cargo_binary(repo, "G4K_BIN", ["--workspace", "--all-features", "--bin", "g4k"], "g4k")
 
 
 def _play(rom: Path, save: Path, out: Path, steps: list[str], core: Path | None) -> tuple[int, list[dict]]:
@@ -136,6 +156,33 @@ def _fail(scenario: Scenario, message: str) -> int:
     return 1
 
 
+def _run_checks(scenario: Scenario, project: Path, out: Path, repo: Path) -> str | None:
+    """Runs the `check` commands in the project folder (so `out.nds` is the built ROM), output to
+    out/check.log and stderr. Stops at the first exit != 0; returns its message, None if all pass."""
+    if not scenario.check:
+        return None
+    try:
+        g4k = g4k_command(repo)
+    except RuntimeError as e:
+        return str(e)
+    log = out / "check.log"
+    log.write_text("", encoding="utf-8")
+    for command in scenario.check:
+        shown = " ".join(command)
+        try:
+            result = subprocess.run(
+                [*g4k, *command[1:]], cwd=project, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
+        except OSError as e:
+            return f"g4k nicht startbar: {e}"
+        with log.open("a", encoding="utf-8") as f:
+            f.write(f"$ {shown}\n{result.stdout}")
+        sys.stderr.write(result.stdout)
+        if result.returncode != 0:
+            return f"Prüfschritt fehlgeschlagen (Exit {result.returncode}): {shown}; Ausgabe: {log}"
+    return None
+
+
 def run_scenario(
     scenario: Scenario, project: Path, out: Path, repo: Path, saves: Path, core: Path | None = None
 ) -> int:
@@ -156,8 +203,8 @@ def run_scenario(
         rom = (project / scenario.build).resolve()
         if project not in rom.parents:
             return _fail(scenario, f"build muss im Projektordner liegen: {scenario.build}")
-    elif scenario.play:
-        return _fail(scenario, "build fehlt: ohne ROM kann das Szenario nicht spielen")
+    elif scenario.play or scenario.check:
+        return _fail(scenario, "build fehlt: ohne ROM kann das Szenario nicht prüfen und nicht spielen")
     try:
         out = paths.check_out_dir(out, paths.roms_dir())
     except ValueError as e:
@@ -185,6 +232,10 @@ def run_scenario(
     sys.stderr.write(result.stdout)
     if result.returncode != 0:
         return _fail(scenario, f"studio-bridge batch fehlgeschlagen (Exit {result.returncode}); Ausgabe: {out / 'bridge.jsonl'}")
+
+    failure = _run_checks(scenario, project, out, repo)
+    if failure is not None:
+        return _fail(scenario, failure)
 
     if not scenario.play:
         _summary(scenario, True, [])

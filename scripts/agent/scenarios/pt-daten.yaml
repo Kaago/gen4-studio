@@ -1,0 +1,47 @@
+# Platin DE: data editors through the backend (gate 3b.3a). Staravia (species 397) attack 75 -> 85
+# and one more learnset entry (12 -> 13: Fly at level 50 after Brave Bird at 43), Wing Attack
+# (move 17) power 60 -> 65, Potion (item 17, data member 17) price 300 -> 250; save, build.
+# The check step reads the built ROM's NARCs: personal data and items with uxie, the move and the
+# learnset with the project's codecs (uxie rejects 172 of 471 vanilla moves). Playing is a boot test:
+# the ROM starts with every unpacked folder packed again (the data folders included) and loads the save.
+#
+# No placeholders. The learnset patch replaces the whole list: the first twelve entries are the
+# vanilla ones of learnsets/0397 (scripts/agent/call.sh data_get '{"kind":"species","index":397}').
+# Example (from scripts/g4emu; the copy lives under Roms/_testkopien):
+#   uv run g4emu scenario ../agent/scenarios/pt-daten.yaml \
+#     --project ../../../Roms/_testkopien/pt-3b3a --out ../../target/agent/gate-$(date +%F)/pt-daten
+game: CPUD
+edits:
+  - [data_edit, {kind: species, index: 397, patch: {Personal: {field: attack, value: 85}}}]
+  - - data_edit
+    - kind: species
+      index: 397
+      patch:
+        Learnset:
+          entries:
+            - {move_id: 33, level: 1}     # Tackle
+            - {move_id: 45, level: 1}     # Growl
+            - {move_id: 98, level: 1}     # Quick Attack
+            - {move_id: 98, level: 5}
+            - {move_id: 17, level: 9}     # Wing Attack
+            - {move_id: 104, level: 13}   # Double Team
+            - {move_id: 283, level: 18}   # Endeavor
+            - {move_id: 18, level: 23}    # Whirlwind
+            - {move_id: 332, level: 28}   # Aerial Ace
+            - {move_id: 36, level: 33}    # Take Down
+            - {move_id: 97, level: 38}    # Agility
+            - {move_id: 413, level: 43}   # Brave Bird
+            - {move_id: 19, level: 50}    # Fly (new)
+  - [data_edit, {kind: move, index: 17, patch: {Move: {field: power, value: 65}}}]
+  - [data_edit, {kind: item, index: 17, patch: {Item: {field: price, value: 250}}}]
+build: out.nds
+check:
+  - [g4k, check-data, out.nds,
+     --expect, "species:397:attack=85",
+     --expect, "learnset:397:len=13",
+     --expect, "move:17:power=65",
+     --expect, "item:17:price=250"]
+play:
+  - continue
+  - expect-map 415
+  - shot start

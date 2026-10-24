@@ -257,7 +257,8 @@ pub struct ArchiveMap {
 
 impl ArchiveMap {
     /// The archives of `game_code` (family and language derived from it by the caller).
-    fn for_game(
+    /// Public for tools that read a built ROM without a project (`g4k check-data`).
+    pub fn for_game(
         family: Family,
         language: Language,
         game_code: &str,

@@ -6,7 +6,7 @@ import pytest
 
 from g4emu import scenario
 from g4emu.cli import main
-from g4emu.scenario import Scenario, bridge_command, load_scenario, run_scenario, substitute
+from g4emu.scenario import Scenario, bridge_command, g4k_command, load_scenario, run_scenario, substitute
 
 SCENARIO_YAML = """\
 game: CPUD
@@ -329,3 +329,137 @@ def test_symlink_and_dotdot_out_of_testkopien_are_refused(tmp_path, roms, monkey
         assert code == 1
         assert "unter _testkopien" in capsys.readouterr().err
     assert not marker.exists()
+
+
+CHECK_YAML = """\
+game: CPUD
+edits: []
+build: out.nds
+check:
+  - [g4k, check-data, out.nds, --expect, "species:397:attack=${ANGRIFF}", --expect, "${FELD}"]
+  - [g4k, check-data, out.nds, --expect, "move:17:power=65"]
+"""
+
+
+def test_load_scenario_reads_check_commands_as_text(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, CHECK_YAML), {"ANGRIFF": "85", "FELD": "12"})
+    assert sc.check == [
+        ["g4k", "check-data", "out.nds", "--expect", "species:397:attack=85", "--expect", "12"],
+        ["g4k", "check-data", "out.nds", "--expect", "move:17:power=65"],
+    ]
+    assert sc.play == []
+
+
+def test_load_scenario_without_check_has_no_checks(tmp_path):
+    assert load_scenario(write_yaml(tmp_path), ENV).check == []
+
+
+@pytest.mark.parametrize(
+    "check",
+    [
+        "g4k check-data out.nds",  # a string, not a list
+        "[[]]",  # empty command
+        "[[cargo, run]]",  # only g4k commands
+        "[g4k, check-data]",  # not a list of commands
+        "[[g4k, {a: 1}]]",  # arguments are scalars
+    ],
+)
+def test_load_scenario_rejects_malformed_checks(tmp_path, check):
+    text = f"game: CPUD\nbuild: out.nds\ncheck: {check}\n"
+    with pytest.raises(ValueError, match="check"):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def make_fake_g4k(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "fake-g4k.sh"
+    path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path
+
+
+def test_checks_run_in_the_project_after_the_batch_and_before_play(tmp_path, roms, monkeypatch, capsys):
+    built = tmp_path / "built"
+    calls = tmp_path / "calls"
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, f"touch {built}\n")))
+    # the fake records whether the batch ran before it, its working directory and its arguments
+    g4k = make_fake_g4k(
+        tmp_path, f'test -f {built} && echo built >> {calls}\npwd >> {calls}\necho "$@" >> {calls}\necho ok-line\n'
+    )
+    monkeypatch.setenv("G4K_BIN", str(g4k))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(calls.read_text()) or (0, []))
+    project = roms / "_testkopien" / "proj"
+    out = tmp_path / "out"
+    checks = [["g4k", "check-data", "out.nds", "--expect", "item:17:price=250"], ["g4k", "info", "."]]
+    code = run_scenario(simple_scenario(check=checks), project, out, tmp_path, tmp_path / "saves")
+    assert code == 0
+    lines = calls.read_text().splitlines()
+    assert lines == [
+        "built", str(project.resolve()), "check-data out.nds --expect item:17:price=250",
+        "built", str(project.resolve()), "info .",
+    ]
+    assert played and played[0] == calls.read_text()  # both checks ran before play
+    assert (out / "check.log").read_text().count("ok-line") == 2
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["ok"] is True
+
+
+def test_failed_check_returns_1_without_playing(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, "exit 0\n")))
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, "echo 'species 397 attack: expected 85, found 75' >&2\nexit 1\n")))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    out = tmp_path / "out"
+    code = run_scenario(
+        simple_scenario(check=[["g4k", "check-data", "out.nds"], ["g4k", "never"]]),
+        roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves",
+    )
+    captured = capsys.readouterr()
+    assert code == 1 and played == []
+    assert "Prüfschritt fehlgeschlagen (Exit 1): g4k check-data out.nds" in captured.err
+    assert "expected 85, found 75" in (out / "check.log").read_text()
+    assert "never" not in (out / "check.log").read_text()
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_check_without_build_is_refused(tmp_path, roms, monkeypatch, capsys):
+    marker = tmp_path / "called"
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, f"touch {marker}\n")))
+    code = run_scenario(
+        simple_scenario(build=None, play=[], check=[["g4k", "check-data", "out.nds"]]),
+        roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves",
+    )
+    assert code == 1
+    assert "build fehlt" in capsys.readouterr().err
+    assert not marker.exists()
+
+
+def test_g4k_command_prefers_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("G4K_BIN", "/x/g4k")
+    assert g4k_command(tmp_path) == ["/x/g4k"]
+
+
+def test_g4k_command_builds_at_workspace_level_without_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("G4K_BIN", raising=False)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append((cmd, kw.get("cwd")))
+        class R:
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(scenario.subprocess, "run", fake_run)
+    assert g4k_command(tmp_path) == [str(tmp_path / "target" / "debug" / "g4k")]
+    # never `-p`: a single package changes rotom's feature set (see docs/dev-setup.md)
+    assert calls == [(["cargo", "build", "--workspace", "--all-features", "--bin", "g4k"], tmp_path)]
+
+
+def test_g4k_command_build_failure_raises(tmp_path, monkeypatch):
+    monkeypatch.delenv("G4K_BIN", raising=False)
+
+    class R:
+        returncode = 101
+
+    monkeypatch.setattr(scenario.subprocess, "run", lambda cmd, **kw: R())
+    with pytest.raises(RuntimeError, match="g4k"):
+        g4k_command(tmp_path)

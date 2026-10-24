@@ -138,3 +138,167 @@ fn vanilla_info_prints_identity() {
     assert!(!text.contains("headers=?"));
     assert_eq!(text.lines().count(), 1);
 }
+
+/// personalPokeData/0397 (Staravia), Platin DE: attack 75.
+const STARAVIA: [u8; 44] = [
+    0x37, 0x4B, 0x32, 0x50, 0x28, 0x28, 0x00, 0x02, 0x78, 0x71, 0x80, 0x00, 0x00, 0x00, 0xBC, 0x00,
+    0x7F, 0x0F, 0x46, 0x03, 0x04, 0x04, 0x16, 0x00, 0x3C, 0x05, 0x00, 0x00, 0x20, 0x06, 0x13, 0x84,
+    0x80, 0x7E, 0x04, 0x02, 0x00, 0x20, 0xC6, 0x23, 0x01, 0x00, 0x00, 0x00,
+];
+
+/// moveData/0017 (Wing Attack), Platin DE: power 60.
+const WING_ATTACK: [u8; 16] = [
+    0x00, 0x00, 0x00, 0x3C, 0x02, 0x64, 0x23, 0x00, 0x00, 0x00, 0x00, 0x73, 0x05, 0x00, 0x00, 0x00,
+];
+
+/// itemData/0017 (Potion), Platin DE: price 300.
+const POTION: [u8; 34] = [
+    0x2C, 0x01, 0x00, 0x14, 0x00, 0x00, 0x1E, 0x00, 0x9F, 0x20, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+];
+
+/// learnsets/0397 (Staravia), Platin DE: twelve entries.
+const STARAVIA_LEARNSET: [u8; 28] = [
+    0x21, 0x02, 0x2D, 0x02, 0x62, 0x02, 0x62, 0x0A, 0x11, 0x12, 0x68, 0x1A, 0x1B, 0x25, 0x12, 0x2E,
+    0x4C, 0x39, 0x24, 0x42, 0x61, 0x4C, 0x9D, 0x57, 0xFF, 0xFF, 0x00, 0x00,
+];
+
+fn narc(members: &[&[u8]]) -> Vec<u8> {
+    g4_formats::narc::Narc {
+        members: members.iter().map(|m| m.to_vec()).collect(),
+    }
+    .write()
+}
+
+/// A minimal `.nds`: a zeroed header with `game_code`, the FNT ds-rom builds for `files`
+/// (paths below the ROM's file system root), a FAT, then the files. No ARM9 or ARM7:
+/// `check-data` reads only the header and the file system.
+fn rom_with_files(game_code: &str, files: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    use ds_rom::rom::FileSystem;
+    use ds_rom::rom::raw::{Header, TableOffset};
+
+    let dir = tempfile::tempdir().unwrap();
+    for (path, bytes) in files {
+        let path = dir.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+    let fs = FileSystem::load(dir.path(), 0).unwrap();
+    let fnt = fs.build_fnt().unwrap().build().unwrap();
+    let count = usize::from(fs.max_file_id()) + 1;
+    let fnt_at = 0x4000;
+    let fat_at = (fnt_at + fnt.len()).next_multiple_of(4);
+    let mut rom = vec![0u8; fat_at + 8 * count];
+    rom[fnt_at..fnt_at + fnt.len()].copy_from_slice(&fnt);
+    for id in 0..count {
+        rom.resize(rom.len().next_multiple_of(4), 0);
+        let start = rom.len() as u32;
+        rom.extend_from_slice(fs.file(id as u16).contents());
+        let end = rom.len() as u32;
+        let entry = fat_at + 8 * id;
+        rom[entry..entry + 4].copy_from_slice(&start.to_le_bytes());
+        rom[entry + 4..entry + 8].copy_from_slice(&end.to_le_bytes());
+    }
+    let header = Header::borrow_from_slice_mut(&mut rom).unwrap();
+    header.gamecode = ds_rom::str::AsciiArray(game_code.as_bytes().try_into().unwrap());
+    header.file_names = TableOffset {
+        offset: fnt_at as u32,
+        size: fnt.len() as u32,
+    };
+    header.file_allocs = TableOffset {
+        offset: fat_at as u32,
+        size: (8 * count) as u32,
+    };
+    rom
+}
+
+/// A Platinum ROM whose data archives hold the vanilla members above at index 1 (index 0
+/// is a copy, so member 1 is not the first file of its archive).
+fn data_rom() -> (tempfile::TempDir, std::path::PathBuf) {
+    let rom = rom_with_files(
+        "CPUE",
+        &[
+            (
+                "poketool/personal/pl_personal.narc",
+                narc(&[&STARAVIA, &STARAVIA]),
+            ),
+            (
+                "poketool/personal/wotbl.narc",
+                narc(&[&STARAVIA_LEARNSET, &STARAVIA_LEARNSET]),
+            ),
+            (
+                "poketool/waza/pl_waza_tbl.narc",
+                narc(&[&WING_ATTACK, &WING_ATTACK]),
+            ),
+            (
+                "itemtool/itemdata/pl_item_data.narc",
+                narc(&[&POTION, &POTION]),
+            ),
+        ],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.nds");
+    std::fs::write(&path, rom).unwrap();
+    (dir, path)
+}
+
+#[test]
+fn check_data_reads_the_built_narcs_and_fails_on_a_wrong_expectation() {
+    let (_dir, rom) = data_rom();
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "species:1:attack=85"])
+        .assert()
+        .code(1)
+        .stderr(contains("species 1 attack: expected 85, found 75"));
+}
+
+#[test]
+fn check_data_passes_when_every_expectation_holds() {
+    let (_dir, rom) = data_rom();
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "species:1:attack=75"])
+        .args(["--expect", "move:1:power=60"])
+        .args(["--expect", "item:1:price=300"])
+        .args(["--expect", "learnset:1:len=12"])
+        .assert()
+        .success()
+        .stdout(contains("species 1 attack: 75"))
+        .stdout(contains("learnset 1 len: 12"))
+        .stdout(contains("4 expectation(s) met"));
+}
+
+#[test]
+fn check_data_reports_every_mismatch_and_a_missing_member() {
+    let (_dir, rom) = data_rom();
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "move:1:power=65"])
+        .args(["--expect", "item:1:price=300"])
+        .args(["--expect", "learnset:2:len=13"])
+        .assert()
+        .code(1)
+        .stdout(contains("item 1 price: 300"))
+        .stderr(contains("move 1 power: expected 65, found 60"))
+        .stderr(contains("learnset 2: the archive has 2 members"))
+        .stderr(contains("2 of 3 expectation(s) failed"));
+}
+
+#[test]
+fn check_data_rejects_an_unknown_field_before_reading() {
+    g4k()
+        .args([
+            "check-data",
+            "does-not-exist.nds",
+            "--expect",
+            "species:1:power=1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("species has no field power"));
+}
