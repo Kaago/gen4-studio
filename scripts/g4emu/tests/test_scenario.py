@@ -649,3 +649,40 @@ def test_a_missing_field_in_a_result_fails_the_scenario(tmp_path, roms, monkeypa
     assert code == 1
     assert "t.nope" in capsys.readouterr().err
     assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1
+
+
+def test_stale_results_and_batches_of_an_earlier_run_are_removed(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    out = tmp_path / "out"
+    out.mkdir()
+    # An earlier run with bound names and more sessions left these behind.
+    (out / "results.json").write_text('{"alt": 1}', encoding="utf-8")
+    for name in ("edits.json", "edits-2.json", "edits-7.json"):
+        (out / name).write_text("[]", encoding="utf-8")
+    (out / "notes.json").write_text("{}", encoding="utf-8")
+    code = run_scenario(simple_scenario(), roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves")
+    assert code == 0
+    # One session without bound names: only its batch, no results.
+    assert sorted(p.name for p in out.glob("edits*.json")) == ["edits.json"]
+    assert not (out / "results.json").exists()
+    assert (out / "notes.json").exists()
+
+
+def test_stale_results_are_removed_even_when_the_run_fails_early(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "results.json").write_text('{"alt": 1}', encoding="utf-8")
+    (out / "edits-3.json").write_text("[]", encoding="utf-8")
+    sc = simple_scenario(edits=[["fail", {}, "x"]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves")
+    assert code == 1
+    assert not (out / "results.json").exists()
+    assert sorted(p.name for p in out.glob("edits*.json")) == ["edits.json"]
+
+
+def test_load_scenario_rejects_a_bound_name_in_build(tmp_path):
+    text = 'game: CPUD\nedits: [[create_trainer, {}, t1]]\nbuild: "out-${t1.id}.nds"\n'
+    with pytest.raises(ValueError, match="build"):
+        load_scenario(write_yaml(tmp_path, text), {})

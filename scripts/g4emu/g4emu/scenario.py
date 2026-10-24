@@ -186,6 +186,10 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
             raise
     data = substitute({k: v for k, v in raw.items() if k != "edits"}, env, bound)
     build = data.get("build")
+    # The ROM path is fixed before any edit runs: a name an edit binds cannot stand in it.
+    late = [m.group(1) for m in _PLACEHOLDER.finditer(str(build or "")) if m.group(1) in bound]
+    if late:
+        raise ValueError(f"{path}: build nutzt ${{{late[0]}}}, das eine Änderung bindet; build muss vorher feststehen")
     play: list[str] = []
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
@@ -326,6 +330,9 @@ def run_scenario(
         return _fail(scenario, str(e))
 
     out.mkdir(parents=True, exist_ok=True)
+    # Results and batch files of an earlier run in the same folder would pass for this run's.
+    for stale in [out / "results.json", *out.glob("edits*.json")]:
+        stale.unlink(missing_ok=True)
     try:
         command = bridge_command(repo)
     except RuntimeError as e:
