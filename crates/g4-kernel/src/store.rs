@@ -164,7 +164,9 @@ impl Loaded {
             | AssetKind::BuildingModel
             | AssetKind::InteriorBuildingModel
             | AssetKind::DynamicHeaders
-            | AssetKind::Script => Err(KernelError::NotEditable(kind)),
+            | AssetKind::Script
+            | AssetKind::ItemIcons
+            | AssetKind::MonIcons => Err(KernelError::NotEditable(kind)),
             AssetKind::Encounter => Ok(Loaded::Encounter(Box::new(Encounters::read(
                 bytes, family,
             )?))),

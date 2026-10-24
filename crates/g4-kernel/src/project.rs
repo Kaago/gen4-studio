@@ -66,12 +66,18 @@ pub enum AssetKind {
     TrainerTextTable,
     /// Per-trainer offsets into the trainer message table (`trainerTextOffset`, one member).
     TrainerTextOffsets,
+    /// The item bag icons (`itemIcons`): NANR/NCER members, then NCGR and NCLR members the
+    /// item table points at. Read only: counted and located, never edited (see `data::icons`).
+    ItemIcons,
+    /// The Pokémon menu icons (`monIcons`): the NCLR, animation members, then one NCGR per
+    /// icon. Read only like the item icons.
+    MonIcons,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
     /// the store-only kinds and the scripts, then the data kinds.
-    pub const ALL: [AssetKind; 22] = [
+    pub const ALL: [AssetKind; 24] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -94,6 +100,8 @@ impl AssetKind {
         AssetKind::TrainerParty,
         AssetKind::TrainerTextTable,
         AssetKind::TrainerTextOffsets,
+        AssetKind::ItemIcons,
+        AssetKind::MonIcons,
     ];
 
     /// Human-readable name used in error messages.
@@ -121,6 +129,8 @@ impl AssetKind {
             AssetKind::TrainerParty => "trainer party",
             AssetKind::TrainerTextTable => "trainer text table",
             AssetKind::TrainerTextOffsets => "trainer text offsets",
+            AssetKind::ItemIcons => "item icons",
+            AssetKind::MonIcons => "menu icons",
         }
     }
 
@@ -149,6 +159,8 @@ impl AssetKind {
             AssetKind::TrainerParty => 19,
             AssetKind::TrainerTextTable => 20,
             AssetKind::TrainerTextOffsets => 21,
+            AssetKind::ItemIcons => 22,
+            AssetKind::MonIcons => 23,
         }
     }
 }
@@ -206,6 +218,8 @@ struct FamilyArchives {
     trainer_party: ArchiveEntry,
     trainer_text_table: ArchiveEntry,
     trainer_text_offsets: ArchiveEntry,
+    item_icons: ArchiveEntry,
+    mon_icons: ArchiveEntry,
 }
 
 /// DSPRE folder names of the optional archives. They are also reported for families
@@ -292,6 +306,8 @@ impl ArchiveMap {
                 Some(resolve(archives.trainer_party)),
                 Some(resolve(archives.trainer_text_table)),
                 Some(resolve(archives.trainer_text_offsets)),
+                Some(resolve(archives.item_icons)),
+                Some(resolve(archives.mon_icons)),
             ],
         })
     }
@@ -953,11 +969,12 @@ mod tests {
             let map = ArchiveMap::for_game(family, language, code).unwrap();
             // Only HGSS has interior building models and only Platinum and HGSS the
             // Dynamic Headers NARC; every other archive kind exists everywhere, the ten data
-            // kinds included. The header table is store-only and never has an archive.
+            // kinds and the two icon kinds included. The header table is store-only and never
+            // has an archive.
             let expected = match family {
-                Family::Dp => 9 + 10,
-                Family::Pt => 10 + 10,
-                Family::Hgss => 11 + 10,
+                Family::Dp => 9 + 12,
+                Family::Pt => 10 + 12,
+                Family::Hgss => 11 + 12,
             };
             assert_eq!(map.kinds().count(), expected, "{code}");
             for kind in AssetKind::ALL {

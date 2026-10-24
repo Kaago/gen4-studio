@@ -492,8 +492,8 @@ fn archive_map_knows_every_world_kind() {
     ));
     assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
     // Platinum: the eight world archives plus the Dynamic Headers NARC, the scripts and the
-    // ten data archives.
-    assert_eq!(p.archives.kinds().count(), 20);
+    // ten data archives and the two icon archives.
+    assert_eq!(p.archives.kinds().count(), 22);
 }
 
 #[test]
@@ -568,7 +568,9 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
             "trainerProperties",
             "trainerParty",
             "trainerTextTable",
-            "trainerTextOffset"
+            "trainerTextOffset",
+            "itemIcons",
+            "monIcons"
         ]
     );
 }
@@ -600,7 +602,9 @@ fn asset_kind_labels() {
             "trainer properties",
             "trainer party",
             "trainer text table",
-            "trainer text offsets"
+            "trainer text offsets",
+            "item icons",
+            "menu icons"
         ]
     );
 }
@@ -663,8 +667,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_twenty_two_slots() {
-    assert_eq!(AssetKind::ALL.len(), 22);
+fn asset_kinds_have_twenty_four_slots() {
+    assert_eq!(AssetKind::ALL.len(), 24);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -677,7 +681,7 @@ fn asset_kinds_have_twenty_two_slots() {
     assert_eq!(AssetKind::Script.label(), "script file");
     // The data kinds follow the scripts in slots 12 to 21.
     assert_eq!(
-        AssetKind::ALL[12..],
+        AssetKind::ALL[12..22],
         [
             AssetKind::Encounter,
             AssetKind::Personal,
@@ -690,6 +694,11 @@ fn asset_kinds_have_twenty_two_slots() {
             AssetKind::TrainerTextTable,
             AssetKind::TrainerTextOffsets,
         ]
+    );
+    // The two icon archives close the list (slots 22 and 23).
+    assert_eq!(
+        AssetKind::ALL[22..],
+        [AssetKind::ItemIcons, AssetKind::MonIcons]
     );
 }
 
@@ -723,6 +732,23 @@ fn data_archives_resolve_per_game() {
     assert_eq!(
         packed("CPUD", AssetKind::Move),
         some("files/poketool/waza/pl_waza_tbl.narc")
+    );
+    // Icon archives: Platinum and HeartGold/SoulSilver (both games), Diamond unverified.
+    assert_eq!(
+        packed("CPUD", AssetKind::ItemIcons),
+        some("files/itemtool/itemdata/item_icon.narc")
+    );
+    assert_eq!(
+        packed("CPUD", AssetKind::MonIcons),
+        some("files/poketool/icongra/pl_poke_icon.narc")
+    );
+    for code in ["IPKD", "IPKE", "IPGD"] {
+        assert_eq!(packed(code, AssetKind::ItemIcons), some("files/a/0/1/8"));
+        assert_eq!(packed(code, AssetKind::MonIcons), some("files/a/0/2/0"));
+    }
+    assert_eq!(
+        packed("ADAE", AssetKind::MonIcons),
+        some("files/poketool/icongra/poke_icon.narc")
     );
 }
 

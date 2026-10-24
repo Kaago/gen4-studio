@@ -128,7 +128,7 @@ fn texel_bytes(format: u8, width: u32, height: u32) -> Option<usize> {
 }
 
 /// BGR555 to RGB8 (5-bit components expand with the high bits replicated).
-fn rgb(c: u16) -> [u8; 3] {
+pub(crate) fn rgb(c: u16) -> [u8; 3] {
     let e = |v: u16| ((v << 3) | (v >> 2)) as u8;
     [e(c & 31), e((c >> 5) & 31), e((c >> 10) & 31)]
 }

@@ -24,6 +24,9 @@ dp:
   trainer_party:           { packed: "files/poketool/trainer/trpoke.narc", unpacked: "trainerParty" }
   trainer_text_table:      { packed: "files/poketool/trmsg/trtbl.narc", unpacked: "trainerTextTable" }
   trainer_text_offsets:    { packed: "files/poketool/trmsg/trtblofs.narc", unpacked: "trainerTextOffset" }
+  # Icon archives (Pokémon menu icons, item bag icons), read only. unverified: no DP project at hand.
+  item_icons:              { packed: "files/itemtool/itemdata/item_icon.narc", unpacked: "itemIcons" }
+  mon_icons:               { packed: "files/poketool/icongra/poke_icon.narc", unpacked: "monIcons" }
 pt:
   maps:                    { packed: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
   matrices:                { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
@@ -47,6 +50,9 @@ pt:
   trainer_party:           { packed: "files/poketool/trainer/trpoke.narc", unpacked: "trainerParty" }
   trainer_text_table:      { packed: "files/poketool/trmsg/trtbl.narc", unpacked: "trainerTextTable" }
   trainer_text_offsets:    { packed: "files/poketool/trmsg/trtblofs.narc", unpacked: "trainerTextOffset" }
+  # Icon archives, read only. monIcons has 547 members: the NCLR, six animation members, 540 icons.
+  item_icons:              { packed: "files/itemtool/itemdata/item_icon.narc", unpacked: "itemIcons" }
+  mon_icons:               { packed: "files/poketool/icongra/pl_poke_icon.narc", unpacked: "monIcons" }
 hgss:
   maps:                    { packed: "files/a/0/6/5", unpacked: "maps" }
   matrices:                { packed: "files/a/0/4/1", unpacked: "matrices" }
@@ -70,3 +76,6 @@ hgss:
   trainer_party:           { packed: "files/a/0/5/6", unpacked: "trainerParty" }
   trainer_text_table:      { packed: "files/a/0/5/7", unpacked: "trainerTextTable" }
   trainer_text_offsets:    { packed: "files/a/1/3/1", unpacked: "trainerTextOffset" }
+  # Icon archives, read only. monIcons has 551 members: the NCLR, six animation members, 544 icons.
+  item_icons:              { packed: "files/a/0/1/8", unpacked: "itemIcons" }
+  mon_icons:               { packed: "files/a/0/2/0", unpacked: "monIcons" }

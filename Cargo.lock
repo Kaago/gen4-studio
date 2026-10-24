@@ -1492,6 +1492,7 @@ dependencies = [
  "ds-rom",
  "g4-formats",
  "libc",
+ "png",
  "predicates",
  "proptest",
  "rotom",
