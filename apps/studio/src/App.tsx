@@ -39,7 +39,9 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { listScriptFiles, redo, undo } from "./api";
+import { getMatrix, listScriptFiles, redo, undo } from "./api";
+import { thumbnails } from "./world/thumbnailStore";
+import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
@@ -427,6 +429,12 @@ function AppBody() {
   if (isDeckArea(area)) built.current.add(area);
 
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
+  // After an import the map's pictures go, the scene reloads its models and the dirty count catches up.
+  const onMapImported = useStableCallback(async (map: number) => {
+    thumbnails.invalidate(map);
+    bus.emit({ topic: "modelsReload" });
+    await session.refreshDirty();
+  });
   const { data, live } = useWorkbenchModel({
     bus,
     session,
@@ -435,6 +443,7 @@ function AppBody() {
     pins,
     overview,
     onOpenWizard: wizards.open,
+    onMapImported,
     text: { target: textTarget },
     scripts: scripts.api,
     problems,
@@ -516,6 +525,10 @@ function AppBody() {
   }, [paletteOpen, session.info, dataStore]);
   const paletteData = useDataLists(dataStore, paletteOpen ? session.info : null);
   const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
+  // The palette's "Teile in die Karte importieren…" works on the pinned matrix cell; its map is read when the command runs
+  // (reading it on every matrix change would render App for each edit).
+  const cellChosen = pins.pinned.kind === "matrixCell";
+  const [importMap, setImportMap] = useState<number | null>(null);
   const paletteItems = useMemo(
     () =>
       paletteEntries({
@@ -525,9 +538,9 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen],
   );
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
@@ -577,6 +590,16 @@ function AppBody() {
       case "gegenstaende":
       case "technik":
         showArea(run.command);
+        break;
+      case "importParts":
+        if (session.info && pins.pinned.kind === "matrixCell") {
+          const { matrix, x, y } = pins.pinned;
+          getMatrix(matrix).then((m) => {
+            const map = x < m.width ? (m.maps[y * m.width + x] ?? null) : null;
+            if (map === null) session.setMessage({ kind: "info", text: "Die gewählte Zelle hat keine Karte." });
+            else setImportMap(map);
+          }, session.fail);
+        }
         break;
       case "moves":
         shell.setPokemonSub("moves");
@@ -749,6 +772,9 @@ function AppBody() {
         onPlay={() => void onPlay()}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      {importMap !== null && (
+        <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} />
+      )}
       <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}
     </>

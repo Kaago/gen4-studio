@@ -1,0 +1,34 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+}
+
+.source > :first-child {
+  align-self: stretch;
+}
+
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+}
+
+.reason {
+  margin: 0;
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-sekundaer);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--g4-raum-8);
+}

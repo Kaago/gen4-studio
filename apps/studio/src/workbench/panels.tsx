@@ -302,6 +302,7 @@ export function InspectorPanel() {
         onEdited: d.onMatrixEdited,
         onCountsChanged: d.onCountsChanged,
         onError: d.onError,
+        onMapImported: d.onMapImported,
       }}
     />
   );

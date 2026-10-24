@@ -201,6 +201,24 @@ describe("ThumbnailCache", () => {
     expect(glb).toHaveBeenCalledTimes(3);
   });
 
+  it("invalidate_forgets_only_the_pictures_of_one_map_and_tells_subscribers", async () => {
+    const { cache, calls } = setup({ concurrency: 4 });
+    cache.request(5, 0);
+    cache.request(5, 3);
+    cache.request(6, 0);
+    calls[0].bytes.resolve(new ArrayBuffer(1));
+    calls[1].bytes.reject({ code: "x", message: "boom", asset: null });
+    calls[2].bytes.resolve(new ArrayBuffer(2));
+    await flush();
+    const told: string[] = [];
+    cache.subscribe((key) => told.push(key));
+    cache.invalidate(5);
+    expect(cache.get(5, 0)).toBeUndefined();
+    expect(cache.get(5, 3)).toBeUndefined();
+    expect(cache.get(6, 0)).toBeDefined();
+    expect(told.sort()).toEqual(["5:0", "5:3"]);
+  });
+
   it("clear_forgets_everything_including_failures", async () => {
     const { cache, glb, calls } = setup();
     cache.request(1, 0);

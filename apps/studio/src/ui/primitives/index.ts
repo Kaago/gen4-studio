@@ -72,3 +72,5 @@ export { HexBlock } from "./HexBlock";
 export type { HexBlockProps, HexFieldKind, HexFieldSpan } from "./HexBlock";
 export { Sprite } from "./Sprite";
 export type { SpriteProps } from "./Sprite";
+export { CheckList } from "./CheckList";
+export type { CheckListProps, CheckRow, CheckState } from "./CheckList";

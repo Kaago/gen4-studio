@@ -286,6 +286,11 @@ Die Gate-Datei 3b.2 nennt die Namen von vor 3c. Seit 3c gilt: Tab „Script“ i
 3. Hand: „Preis“ ändern, Enter: `call.sh history` nennt „Trank: Preis 300 → 250“, die Listenzeile zeigt den neuen Preis mit Punkt; ⌘Z. Geteilte Daten: ein Gegenstand, dessen Datenmember auch andere IDs nutzen (Platin: 0113), zeigt in der Hand die Warnung mit den anderen Gegenständen als Referenzen, und das Label endet auf „gilt für 23 Gegenstände“.
 4. Tüfteln: Spalte „Rohdaten“ mit dem Hexblock „files/itemtool/itemdata/pl_item_data.narc, Eintrag 17, 34 Bytes“ (Fokus auf „Preis“: „Byte 0 bis 1: Preis, 0x012C = 300“) und darunter die Felder „Wirkung im Team“.
 
+**Teile importieren (3b.4b)**, auf einer Platin-Kopie (der Browser liest Dateien nur unter `G4_IMPORT_ROOT`, Standard Projektordner und `../Roms/_testkopien`):
+1. Raster von Route 201 (Header 0342), Zelle mit Karte 5 wählen. Am Feld „Karte“ die Taste „Teile importieren…“ (oder Palette „Teile in die Karte importieren…“, braucht eine gewählte Zelle). Im Dialog „Teile in Karte 0005 importieren“: Quelle „Karte im Projekt“, Feld „Quellkarte“ 6 (oder „Karte wählen…“), Enter. Die Prüfliste `[role=list][aria-label=Teile]` hat je Teil eine Zeile (`data-state` ok/warning/error) mit Kästchen (Name: „Modell“, „Kollision“, „Gebäude“, „BDHC (Laufhöhen)“); Teile mit Fehler lassen sich nicht ankreuzen. Quelle „Datei“: „Pfade, eine je Zeile“ (Endung bestimmt den Teil: `.nsbmd`, `.per`, `.bld`, `.bdhc`, `.bgs`, `.bin`).
+2. Nur „Modell“ und „Kollision“ angekreuzt lassen, „2 Teile übernehmen“: Notiz „2 Teile übernommen“, „Schließen“. Die Szene lädt das Modell neu, das Vorschaubild der Karte wird neu gezeichnet; `call.sh history` nennt „map 0005: model and permissions imported“; ⌘Z.
+3. Gegenprobe ohne Dialog: `call.sh inspect_map_import '{"map":5,"source":{"map":6}}'` und `call.sh import_map_parts '{"map":5,"source":{"map":6},"parts":["model","permissions"]}'` (liefert `[{"kind":"Map","index":5}]`). Export: „Teile exportieren…“, Teil wählen, „Pfad“, „Exportieren“, oder `call.sh export_map_part '{"map":5,"part":"model","path":"…/k5.nsbmd"}'`.
+
 ## Phase 3c ([phase-3c-gate.md](phase-3c-gate.md))
 
 Kopien `pt-3c`, `pt-3c-raum`, `pt-3c-szenario` (Platin DE) und für (G) je eine frische Kopie der früheren Gates mit der Endung `-3c`. Die Schritte stehen in der Gate-Datei; hier nur, wer und wie.

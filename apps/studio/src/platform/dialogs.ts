@@ -85,6 +85,14 @@ export async function openPath(opts: { directory: boolean; title?: string }): Pr
   return new Promise((resolve) => enqueue({ kind: "path", title, initial: lastPath(), resolve }));
 }
 
+/** Several files to open (only inside Tauri, where the system dialog allows a multiple choice); null when cancelled. In a browser paths are typed into the page instead. */
+export async function openFiles(opts: { title?: string }): Promise<string[] | null> {
+  if (!inTauri()) return null;
+  const chosen = await tauriOpen({ directory: false, multiple: true, title: opts.title });
+  if (chosen === null) return null;
+  return Array.isArray(chosen) ? chosen : [chosen];
+}
+
 /** A file to write; null when cancelled or left empty. A `.nds` default path gets the ROM filter. */
 export async function savePath(opts: { defaultPath?: string; title?: string }): Promise<string | null> {
   if (inTauri()) {

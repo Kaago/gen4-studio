@@ -29,7 +29,8 @@ export type PaletteCommand =
   | "pokemon"
   | "moves"
   | "gegenstaende"
-  | "technik";
+  | "technik"
+  | "importParts";
 
 /** What picking an entry does: follow a link (`goTo`) or run a command. */
 export type PaletteRun = { kind: "goTo"; target: NavTarget } | { kind: "command"; command: PaletteCommand };
@@ -50,6 +51,8 @@ export interface CommandState {
   inApp: boolean;
   /** The deck "Layout zurücksetzen" puts back: the shown one, or the world's on an area without a deck. */
   deck: DeckArea;
+  /** Whether a matrix cell is pinned in the inspector (the import of parts works on its map). */
+  cellChosen: boolean;
 }
 
 export interface PaletteData {
@@ -74,6 +77,7 @@ export interface PaletteSource {
 const NO_PROJECT = "Erst ein Projekt öffnen";
 const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
+const NO_CELL = "Erst eine Rasterzelle mit Karte wählen";
 const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
@@ -82,7 +86,7 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck } = commands;
+  const { busy, hasList, inApp, deck, cellChosen } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   const specs: CommandSpec[] = [
@@ -92,6 +96,14 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "play", label: "Hier spielen", icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },
     { command: "area", label: "Gebiet anlegen…", icon: "plus", locked: hasProject ? null : NO_PROJECT },
     { command: "room", label: "Raum anlegen…", icon: "room", locked: hasProject ? null : NO_PROJECT },
+    {
+      command: "importParts",
+      label: "Teile in die Karte importieren…",
+      icon: "plus",
+      area: "welt",
+      description: "In die Karte der gewählten Rasterzelle",
+      locked: project ?? (cellChosen ? null : NO_CELL),
+    },
     { command: "list", label: "Liste ein/aus", icon: "list", locked: hasList ? null : NO_LIST },
     { command: "layout", label: "Layout zurücksetzen", icon: "layers", description: `Schau und Hand von ${DECK_NAME[deck]} wie beim ersten Start` },
     { command: "theme", label: "Thema wechseln", icon: "sun" },
