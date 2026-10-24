@@ -1,10 +1,10 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { DataRowDto } from "../api";
-import { Button, EmptyState, ListRow, Sprite, TextField } from "../ui/primitives";
+import { Badge, Button, EmptyState, ListRow, Sprite, TextField } from "../ui/primitives";
 import type { RowDataAttrs } from "../ui/primitives";
 import { useVisible } from "../workbench/useVisible";
-import { filterText, isFiltered } from "./dataModel";
+import { filterText, isFiltered, lockReason } from "./dataModel";
 import type { DataArea } from "./dataModel";
 import { useIcon } from "./icons";
 import { useDataArea } from "./useDataArea";
@@ -26,10 +26,15 @@ export interface DataListProps extends DataListRows {
   filters?: ReactNode;
 }
 
-/** One row. Memoised: a selection or search renders the rows whose props changed, not all of them. */
+/**
+ * One row. Memoised: a selection or search renders the rows whose props changed, not all of them. A member of the wrong length is marked
+ * "Gesperrt" after what the part puts there, with the reason as its tooltip and in the row's name for a screen reader.
+ */
 const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSelect, rows }: { row: DataRowDto; pos: number; count: number; label: string; selected: boolean; onSelect: (index: number) => void; rows: DataListRows }) {
   // `data-pos`: the row's place in the shown rows, for the windowed list's keys.
   const attrs = { [rows.attr]: row.index, "data-pos": pos } as RowDataAttrs;
+  const reason = row.locked === null ? null : lockReason(row.locked);
+  const trailing = rows.trailing?.(row);
   return (
     <ListRow
       ariaSetSize={count}
@@ -37,11 +42,20 @@ const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSele
       label={label}
       tech={row.tech}
       leading={rows.leading?.(row, label)}
-      trailing={rows.trailing?.(row)}
+      trailing={
+        reason === null ? (
+          trailing
+        ) : (
+          <span className={styles.rowEnd}>
+            {trailing}
+            <Badge kind="locked" title={reason} />
+          </span>
+        )
+      }
       selected={selected}
       onSelect={() => onSelect(row.index)}
       dataAttrs={attrs}
-      ariaLabel={`${label}, ${row.tech}`}
+      ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, gesperrt: ${reason}`}
     />
   );
 });

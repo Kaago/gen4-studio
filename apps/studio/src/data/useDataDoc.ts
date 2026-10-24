@@ -28,6 +28,11 @@ export interface DocSpec<D> {
    * editor shows the last document read (a whole-part write the editor cannot model), and `make` never runs during a render.
    */
   apply?(doc: D, patch: DataPatch): D;
+  /**
+   * The text archives the document shows texts of (its description, its name). A `textData` for one of them, any `textData` (`archive`
+   * null) and, while the document names none, every `textData` reads it again. Without it the document holds no text.
+   */
+  texts?(doc: D): readonly (number | null)[];
 }
 
 export interface DataDoc<D> {
@@ -103,7 +108,7 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
     setEditError(null);
   }
 
-  // The spec of the latest render (callers may build it inline).
+  // The spec of the latest render. Specs must be stable (module constants): `apply` is a memo input of the shown document.
   const specRef = useRef(spec);
   specRef.current = spec;
   const writes = useRef<Write[]>([]);
@@ -143,6 +148,18 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
       if (event.topic === "dataChanged" && specRef.current.parts.includes(event.kind) && (event.index === null || event.index === member)) void read(index);
     });
   }, [bus, index, member, read]);
+
+  // A text edited behind the editor (the texts, undo, a save that compiled scripts): its description or name may have changed.
+  const shownTexts = useRef<readonly (number | null)[] | null>(null);
+  shownTexts.current = loaded !== null && loaded.index === index && loaded.doc !== null ? (spec.texts?.(loaded.doc) ?? null) : null;
+  useEffect(() => {
+    if (index === null || !specRef.current.texts) return;
+    return bus.subscribe("textData", (event) => {
+      if (event.topic !== "textData") return;
+      const archives = (shownTexts.current ?? []).filter((a) => a !== null);
+      if (event.archive === null || archives.length === 0 || archives.includes(event.archive)) void read(index);
+    });
+  }, [bus, index, read]);
 
   // The callbacks and the member of the latest render, for edits that run after it.
   const latest = useRef({ project, bus, onEdited, index, member });

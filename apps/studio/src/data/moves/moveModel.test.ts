@@ -58,7 +58,7 @@ describe("moveModel", () => {
   });
 
   it("counts_learnsets_and_trainers_once_per_member", () => {
-    const ref = (kind: "Learnset" | "TrainerParty" | "Evolution", index: number): RefDto => ({ source: { kind, index }, field: "move", slot: 0, label: "", nav: { kind: "species", index } });
+    const ref = (kind: "Learnset" | "TrainerParty" | "Evolution", index: number): RefDto => ({ source: { kind, index }, field: "move", slot: 0, label: "", source_name: "", nav: { kind: "species", index } });
     const uses = moveUses([ref("Learnset", 396), ref("Learnset", 397), ref("TrainerParty", 4), ref("TrainerParty", 4), ref("Evolution", 1)]);
     expect(usesText(uses)).toBe("2 Lernsets, 1 Trainer");
     expect(uses.evolutions).toHaveLength(1);

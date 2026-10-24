@@ -1,42 +1,18 @@
 import { id4 } from "../../workbench/terms";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type { DataKind, HeaderSummary, NavTargetDto, RefDto } from "../../api";
-import { errorText, refs } from "../../api";
 import { Notice, Reference, Sprite, StatBar, TypeBadge } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
 import { monIcon, monIconKey, useIcon } from "../icons";
 import { useDataArea } from "../useDataArea";
+import { useRefs } from "../useRefs";
 import { STATS, abilityName, lockText, lockedParts, statAverages, statSum } from "./pokedexModel";
 import { useSpecies } from "./useSpecies";
 import styles from "./Pokedex.module.css";
 
 /** The kinds whose change can add or drop a reference to a species. */
 const REFERRING: readonly DataKind[] = ["encounter", "trainer", "evolution"];
-
-/** The references to species `index`, read again when an encounter, a trainer or an evolution changed. */
-function useSpeciesRefs(index: number | null) {
-  const { project, bus } = useDataArea("pokemon");
-  const [found, setFound] = useState<{ index: number; refs: RefDto[] | null; error: string | null } | null>(null);
-  const latest = useRef(0);
-  const read = useCallback(async (i: number) => {
-    const mine = ++latest.current;
-    try {
-      const all = await refs({ kind: "species", index: i });
-      if (latest.current === mine) setFound({ index: i, refs: all, error: null });
-    } catch (e) {
-      if (latest.current === mine) setFound({ index: i, refs: null, error: errorText(e) });
-    }
-  }, []);
-  useEffect(() => {
-    if (index === null || project === null) return;
-    void read(index);
-    return bus.subscribe("dataChanged", (event) => {
-      if (event.topic === "dataChanged" && REFERRING.includes(event.kind)) void read(index);
-    });
-  }, [index, project, bus, read]);
-  return found !== null && found.index === index ? found : null;
-}
 
 /** Where a reference leads in the app; null for a target without an editor yet (encounters and trainers come with 3b.3b). */
 function navTarget(nav: NavTargetDto): NavTarget | null {
@@ -73,15 +49,12 @@ function placeName(ref: RefDto, headers: readonly HeaderSummary[]): string {
   return header?.location_name || header?.internal_name || `Header ${id4(id)}`;
 }
 
-/** The trainer a party reference names ("Wanderer Kai, Team Platz 1" → "Wanderer Kai"). */
-const trainerName = (ref: RefDto) => ref.label.split(", ")[0] ?? ref.label;
-
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** "Fundorte" (encounters and trainer parties) and "Verwendet in" (everything else that names the species). */
 function Uses({ index }: { index: number }) {
   const { headers, goTo } = useDataArea("pokemon");
-  const found = useSpeciesRefs(index);
+  const found = useRefs("pokemon", { kind: "species", index }, REFERRING);
   if (found === null) return <p className={styles.note}>Fundorte werden gesucht …</p>;
   if (found.error !== null || found.refs === null) return <p className={styles.note}>{`Fundorte nicht lesbar: ${found.error ?? ""}`}</p>;
   const all = found.refs;
@@ -114,7 +87,7 @@ function Uses({ index }: { index: number }) {
               />
             ))}
             {trainers.map((r) => (
-              <Reference key={`t${r.source.index}`} area="pokemon" label={trainerName(r)} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
+              <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
             ))}
           </div>
         )}

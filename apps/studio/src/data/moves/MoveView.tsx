@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DataKind, DescriptionDto, NavTargetDto, RefDto } from "../../api";
-import { errorText, refs } from "../../api";
+import { useMemo, useState } from "react";
+import type { DataKind, DescriptionDto, NavTargetDto } from "../../api";
 import { Badge, Button, DSScreen, Notice, Reference, TypeBadge } from "../../ui/primitives";
+import { id4, numberText } from "../../workbench/terms";
 import { pages } from "../../workbench/text/textModel";
 import { useDataArea } from "../useDataArea";
-import { NAMED_FLAGS, categoryName, hasFlag, id4, lockText, moveUses, moveValues, priorityText, targetName, usesText } from "./moveModel";
+import { useRefs } from "../useRefs";
+import { NAMED_FLAGS, categoryName, hasFlag, lockText, moveUses, moveValues, priorityText, targetName, usesText } from "./moveModel";
 import type { MoveValues } from "./moveModel";
 import { useMove } from "./useMove";
 import styles from "./Moves.module.css";
@@ -12,40 +13,13 @@ import styles from "./Moves.module.css";
 /** The kinds whose change can add or drop a reference to a move. */
 const REFERRING: readonly DataKind[] = ["learnset", "trainer", "evolution"];
 
-/** The references to move `index`, read again when a learnset, a trainer or an evolution changed. */
-function useMoveRefs(index: number) {
-  const { project, bus } = useDataArea("pokemon");
-  const [found, setFound] = useState<{ index: number; refs: RefDto[] | null; error: string | null } | null>(null);
-  const latest = useRef(0);
-  const read = useCallback(async (i: number) => {
-    const mine = ++latest.current;
-    try {
-      const all = await refs({ kind: "move", index: i });
-      if (latest.current === mine) setFound({ index: i, refs: all, error: null });
-    } catch (e) {
-      if (latest.current === mine) setFound({ index: i, refs: null, error: errorText(e) });
-    }
-  }, []);
-  useEffect(() => {
-    if (project === null) return;
-    void read(index);
-    return bus.subscribe("dataChanged", (event) => {
-      if (event.topic === "dataChanged" && REFERRING.includes(event.kind)) void read(index);
-    });
-  }, [index, project, bus, read]);
-  return found !== null && found.index === index ? found : null;
-}
-
 /** How many learnset chips show before "Alle zeigen". */
 const FIRST_CHIPS = 12;
-
-/** The species a reference names ("Staravia, Lernset Platz 4" → "Staravia"). */
-const sourceName = (ref: RefDto) => ref.label.split(", ")[0] ?? ref.label;
 
 /** "Verwendet in": the learnsets that teach the move, the evolutions it triggers, the trainers whose teams use it. */
 function Uses({ index }: { index: number }) {
   const { goTo } = useDataArea("pokemon");
-  const found = useMoveRefs(index);
+  const found = useRefs("pokemon", { kind: "move", index }, REFERRING);
   const [all, setAll] = useState(false);
   const uses = useMemo(() => (found?.refs ? moveUses(found.refs) : null), [found]);
   if (found === null) return <p className={styles.note}>Verwendungen werden gesucht …</p>;
@@ -63,7 +37,7 @@ function Uses({ index }: { index: number }) {
       {uses.learnsets.length + uses.evolutions.length + uses.trainers.length > 0 && (
         <div className={styles.chips}>
           {learnsets.map((r) => (
-            <Reference key={`l${r.source.index}`} area="pokemon" label={sourceName(r)} tech={id4(r.source.index)} onOpen={() => open(r.nav)} dataAttrs={{ "data-learnset": r.source.index }} />
+            <Reference key={`l${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} onOpen={() => open(r.nav)} dataAttrs={{ "data-learnset": r.source.index }} />
           ))}
           {more > 0 && (
             <Button kind="quiet" size="s" onClick={() => setAll(true)}>
@@ -74,7 +48,7 @@ function Uses({ index }: { index: number }) {
             <Reference key={`e${r.source.index}`} area="pokemon" label={r.label} onOpen={() => open(r.nav)} dataAttrs={{ "data-evolution": r.source.index }} />
           ))}
           {uses.trainers.map((r) => (
-            <Reference key={`t${r.source.index}`} area="pokemon" label={sourceName(r)} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
+            <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
           ))}
         </div>
       )}
@@ -179,7 +153,7 @@ export function MoveView() {
             <h2 className={styles.name}>
               {bank === null ? name : <Reference area="texte" label={name} tech={`Archiv ${id4(bank)}`} onOpen={() => goTo({ kind: "textArchive", index: bank, message: selected })} />}
             </h2>
-            <span className={styles.tech}>{`Nr. ${row.tech}`}</span>
+            <span className={styles.tech}>{numberText(row.index)}</span>
           </header>
           {error !== null && <Notice kind="error">{`Diese Attacke ist nicht lesbar: ${error}`}</Notice>}
           {locked !== null && <Notice kind="warning">{`${lockText(locked, selected)}. Ihre Werte sind nicht lesbar.`}</Notice>}

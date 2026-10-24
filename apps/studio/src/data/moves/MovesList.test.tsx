@@ -90,5 +90,9 @@ describe("MovesList", () => {
     await h.open(470);
     expect(row(470)).not.toBeNull();
     expect(h.view().textContent).toContain("Attacke 0470: 18 Bytes statt 16");
+    // The list marks it, with the reason for a screen reader.
+    expect(row(470)?.textContent).toContain("Gesperrt");
+    expect(row(470)?.getAttribute("aria-label")).toBe("Attacke 0470, 0470, gesperrt: Attacke 0470: 18 Bytes statt 16");
+    expect(row(469)?.textContent).not.toContain("Gesperrt");
   });
 });

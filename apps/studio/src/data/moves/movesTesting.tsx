@@ -6,7 +6,7 @@ import * as api from "../../api";
 import type { DataDocDto, DataRowDto, FieldValueDto, MoveRowExtra, NameTablesDto, RawDto, RefDto } from "../../api";
 import { readShellState, writeShellState } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { dataHarness, flush, move } from "../dataTesting";
+import { PT_ARCHIVES, dataHarness, flush, move } from "../dataTesting";
 import { PokemonArea, PokemonHand, PokemonList, PokemonView } from "../PokemonArea";
 
 /** moveData/0017 (Wing Attack) of Platinum: flags 0x73 (contact, protect, mirror move, king's rock and bit 6). */
@@ -48,14 +48,14 @@ export const MOVE_ROWS: DataRowDto[] = [
   { index: 470, name: "move 0470", tech: "0470", locked: "move 0470: 18 bytes, expected 16", extra: null },
 ];
 
-export const MOVE_NAMES: NameTablesDto = { species: [], moves: MOVE_ROWS.map((r) => r.name), items: [], abilities: [], types: [], classes: [], forms: [] };
+export const MOVE_NAMES: NameTablesDto = { species: [], moves: MOVE_ROWS.map((r) => r.name), items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES };
 
 /** Wing Attack: Starly and Staravia learn it, trainer 44 uses it twice, nobody evolves by it. */
 export const MOVE_REFS: RefDto[] = [
-  { source: { kind: "Learnset", index: 396 }, field: "move", slot: 3, label: "Staralili, Lernset Platz 4", nav: { kind: "species", index: 396, tab: "learnset" } },
-  { source: { kind: "Learnset", index: 397 }, field: "move", slot: 3, label: "Staravia, Lernset Platz 4", nav: { kind: "species", index: 397, tab: "learnset" } },
-  { source: { kind: "TrainerParty", index: 44 }, field: "move", slot: 0, label: "Wanderer Kai, Team Platz 1", nav: { kind: "trainer", index: 44 } },
-  { source: { kind: "TrainerParty", index: 44 }, field: "move", slot: 1, label: "Wanderer Kai, Team Platz 2", nav: { kind: "trainer", index: 44 } },
+  { source: { kind: "Learnset", index: 396 }, field: "move", slot: 3, label: "Staralili, Lernset Platz 4", source_name: "Staralili", nav: { kind: "species", index: 396, tab: "learnset" } },
+  { source: { kind: "Learnset", index: 397 }, field: "move", slot: 3, label: "Staravia, Lernset Platz 4", source_name: "Staravia", nav: { kind: "species", index: 397, tab: "learnset" } },
+  { source: { kind: "TrainerParty", index: 44 }, field: "move", slot: 0, label: "Wanderer Kai, Team Platz 1", source_name: "Wanderer Kai", nav: { kind: "trainer", index: 44 } },
+  { source: { kind: "TrainerParty", index: 44 }, field: "move", slot: 1, label: "Wanderer Kai, Team Platz 2", source_name: "Wanderer Kai", nav: { kind: "trainer", index: 44 } },
 ];
 
 export const RAW_MOVE: RawDto = {

@@ -2,7 +2,7 @@ import { fieldLabels } from "../../api";
 import type { DataRowDto, FieldValueDto, ItemEntryDto, ItemRowExtra, ProjectInfo, RefDto } from "../../api";
 import type { SelectOption } from "../../ui/primitives";
 import { pokemonTypes, typeName } from "../../ui/primitives/pokemonTypes";
-import { POCKET_NAMES, lockSentence } from "../dataModel";
+import { POCKET_NAMES, lockReason } from "../dataModel";
 
 /** A field of an item as `DataPatch` `Item` names it. */
 export type ItemField = keyof typeof fieldLabels.item;
@@ -89,6 +89,11 @@ export function fieldFunctions(family: ProjectInfo["family"] | undefined, value:
 
 /** The use in battle (byte 0x0B). 0 is no routine of its own: X items, flutes and berries have it and still show in the battle bag. */
 export const BATTLE_FUNCTIONS: readonly SelectOption<number>[] = ["Keine eigene Funktion", "Ball", "Heilmittel", "Flucht"].map((label, value) => ({ value, label }));
+
+/** The battle functions; a value the games do not know is "Funktion N" (like the field functions). */
+export function battleFunctions(value: number): readonly SelectOption<number>[] {
+  return BATTLE_FUNCTIONS.some((o) => o.value === value) ? BATTLE_FUNCTIONS : [...BATTLE_FUNCTIONS, { value, label: `Funktion ${value}` }];
+}
 
 /** No natural gift type (the value of the items that are no berries). */
 export const NO_GIFT_TYPE = 31;
@@ -181,7 +186,7 @@ export function itemText(field: ItemField, value: number, family?: ProjectInfo["
     case "field_use_func":
       return optionName(fieldFunctions(family, value), value);
     case "battle_use_func":
-      return optionName(BATTLE_FUNCTIONS, value);
+      return optionName(battleFunctions(value), value);
     default:
       return String(value);
   }
@@ -208,8 +213,11 @@ export const sharedNote = (others: number): string => (others === 1 ? "Teilt Dat
 /** The selling price: half the price, rounded down. */
 export const sellPrice = (price: number): number => Math.floor(price / 2);
 
-/** The German sentence of an item's lock: "Gegenstand 0017: 36 Bytes statt 34" (`lockSentence`). */
-export const lockText = (locked: string, index: number): string => lockSentence("Gegenstand", index, locked);
+/**
+ * The German sentence of an item's lock by the data member the kernel names ("item 0000: 36 bytes, expected 34" → "Daten 0000: 36 Bytes
+ * statt 34"), not by the item id: several ids may share the member.
+ */
+export const lockText = (locked: string): string => lockReason(locked);
 
 /** The references to an item by kind, each source member once. */
 export interface ItemUses {

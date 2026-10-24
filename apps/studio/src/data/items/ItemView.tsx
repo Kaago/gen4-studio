@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { DataKind, DescriptionDto, NavTargetDto, RefDto } from "../../api";
-import { errorText, refs } from "../../api";
 import { Badge, Button, DSScreen, Notice, Reference, Sprite } from "../../ui/primitives";
+import { id4, numberText } from "../../workbench/terms";
 import { pages } from "../../workbench/text/textModel";
 import { pocketLabel } from "../dataModel";
 import { itemIcon, itemIconKey, useIcon } from "../icons";
 import { useDataArea } from "../useDataArea";
-import { id4 } from "../../workbench/terms";
+import { useRefs } from "../useRefs";
 import { dataMemberOf, hasIcon, itemUses, itemValues, lockText, sellPrice, sharedNote, usableInBattle, usesText } from "./itemModel";
 import type { ItemValues } from "./itemModel";
 import { useItem } from "./useItem";
@@ -14,33 +14,6 @@ import styles from "./Items.module.css";
 
 /** The kinds whose change can add or drop a reference to an item: held items, evolutions by item, trainer items and teams. */
 const REFERRING: readonly DataKind[] = ["species", "evolution", "trainer"];
-
-/** The references to item `id`, read again when a species, an evolution or a trainer changed. */
-function useItemRefs(id: number) {
-  const { project, bus } = useDataArea("gegenstaende");
-  const [found, setFound] = useState<{ id: number; refs: RefDto[] | null; error: string | null } | null>(null);
-  const latest = useRef(0);
-  const read = useCallback(async (i: number) => {
-    const mine = ++latest.current;
-    try {
-      const all = await refs({ kind: "item", id: i });
-      if (latest.current === mine) setFound({ id: i, refs: all, error: null });
-    } catch (e) {
-      if (latest.current === mine) setFound({ id: i, refs: null, error: errorText(e) });
-    }
-  }, []);
-  useEffect(() => {
-    if (project === null) return;
-    void read(id);
-    return bus.subscribe("dataChanged", (event) => {
-      if (event.topic === "dataChanged" && REFERRING.includes(event.kind)) void read(id);
-    });
-  }, [id, project, bus, read]);
-  return found !== null && found.id === id ? found : null;
-}
-
-/** The trainer or species a reference names ("Wanderer Kai, Gegenstand Platz 1" → "Wanderer Kai"). */
-const sourceName = (ref: RefDto) => ref.label.split(", ")[0] ?? ref.label;
 
 /** One group of "Verwendet in": its title with the count, and its chips. */
 function UseGroup({ title, refs: list, open }: { title: string; refs: readonly RefDto[]; open: ((nav: NavTargetDto) => void) | null }) {
@@ -53,7 +26,7 @@ function UseGroup({ title, refs: list, open }: { title: string; refs: readonly R
           <Reference
             key={`${r.source.kind}${r.source.index}`}
             area="pokemon"
-            label={sourceName(r)}
+            label={r.source_name}
             tech={id4(r.source.index)}
             disabled={open === null}
             onOpen={() => open?.(r.nav)}
@@ -68,7 +41,7 @@ function UseGroup({ title, refs: list, open }: { title: string; refs: readonly R
 /** "Verwendet in": the trainers that carry the item, the teams that hold it, the species that hold it in the wild, the evolutions by it. */
 function Uses({ id }: { id: number }) {
   const { goTo } = useDataArea("gegenstaende");
-  const found = useItemRefs(id);
+  const found = useRefs("gegenstaende", { kind: "item", id }, REFERRING);
   const uses = useMemo(() => (found?.refs ? itemUses(found.refs) : null), [found]);
   if (found === null) return <p className={styles.note}>Verwendungen werden gesucht …</p>;
   if (uses === null) return <p className={styles.note}>{`Verwendungen nicht lesbar: ${found.error ?? ""}`}</p>;
@@ -183,10 +156,10 @@ export function ItemView() {
             <h2 className={styles.name}>
               {nameArchive === null ? name : <Reference area="texte" label={name} tech={`Archiv ${id4(nameArchive)}`} onOpen={() => goTo({ kind: "textArchive", index: nameArchive, message: selected })} />}
             </h2>
-            <span className={styles.tech}>{`Nr. ${row.tech}`}</span>
+            <span className={styles.tech}>{numberText(row.index)}</span>
           </header>
           {error !== null && <Notice kind="error">{`Dieser Gegenstand ist nicht lesbar: ${error}`}</Notice>}
-          {locked !== null && <Notice kind="warning">{`${lockText(locked, selected)}. Seine Werte sind nicht lesbar.`}</Notice>}
+          {locked !== null && <Notice kind="warning">{`${lockText(locked)}. Die Werte dieses Gegenstands sind nicht lesbar.`}</Notice>}
           {doc !== null && locked === null && <Facts v={itemValues(doc.fields)} />}
           {shared > 0 && <p className={styles.note}>{sharedNote(shared)}</p>}
         </section>

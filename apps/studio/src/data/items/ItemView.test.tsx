@@ -40,7 +40,7 @@ describe("ItemView", () => {
     expect(h.view().querySelector("section[data-item]")?.getAttribute("data-item")).toBe("17");
     expect(dataGet).toHaveBeenCalledWith("item", 17);
     expect(card().querySelector("h2")?.textContent).toBe("TrankArchiv 0392");
-    expect(card().textContent).toContain("Nr. 0017");
+    expect(card().textContent).toContain("Nummer 0017");
     expect(card().textContent).toContain("Tasche Medizin");
     expect(card().textContent).toContain("Im Kampf nutzbar");
     expect(card().textContent).toContain("300 ₽");
@@ -121,9 +121,11 @@ describe("ItemView", () => {
   });
 
   it("shows_why_a_locked_item_has_no_values", async () => {
-    vi.mocked(dataGet).mockResolvedValue(potionDoc({}, { fields: [], locked: "item 0017: 36 bytes, expected 34", raw_locked: Array.from({ length: 36 }, () => 0) }));
+    // The kernel names the data member (0), which is not the item id (17).
+    vi.mocked(dataGet).mockResolvedValue(potionDoc({}, { fields: [], locked: "item 0000: 36 bytes, expected 34", raw_locked: Array.from({ length: 36 }, () => 0) }));
     await h.open();
-    expect(card().textContent).toContain("Gegenstand 0017: 36 Bytes statt 34. Seine Werte sind nicht lesbar.");
+    expect(card().textContent).toContain("Daten 0000: 36 Bytes statt 34. Die Werte dieses Gegenstands sind nicht lesbar.");
+    expect(card().textContent).not.toContain("Gegenstand 0017:");
     expect(card().textContent).not.toContain("₽");
   });
 });

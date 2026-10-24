@@ -74,6 +74,9 @@ describe("data commands", () => {
     invoke.mockResolvedValueOnce(new ArrayBuffer(0));
     expect(await getMonIcon(397)).toBeNull();
     expect(invoke).toHaveBeenLastCalledWith("get_mon_icon", { species: 397 });
+    // A transport that hands an empty body over as null is no icon either, not a TypeError.
+    invoke.mockResolvedValueOnce(null);
+    expect(await getItemIcon(18)).toBeNull();
   });
 });
 

@@ -4,8 +4,8 @@ import type { ItemEntryDto } from "../api";
 
 /**
  * The icons of the open project as blob URLs, by key: `mon:<species>` for a menu icon, `item:<icon>:<palette>` for a bag icon (several
- * item ids share one). Concurrent asks share one request; an icon the game does not have (`null`) is remembered like any other result,
- * a failed request is not. `resetIcons` frees the URLs (another project was opened).
+ * item ids share one). Concurrent asks share one request; an icon the game does not have and a failed request are remembered as `null`
+ * like any other result, for as long as the project is open. `resetIcons` frees the URLs and forgets all (another project was opened).
  */
 const requests = new Map<string, Promise<string | null>>();
 /** The settled entries of `requests`, for a synchronous look. */
@@ -16,7 +16,7 @@ let generation = 0;
 export const monIconKey = (species: number) => `mon:${species}`;
 export const itemIconKey = (entry: ItemEntryDto) => `item:${entry.icon}:${entry.palette}`;
 
-/** The URL of the icon `key` once `fetch` delivered its PNG bytes; null when there is none (or it could not be read). */
+/** The URL of the icon `key` once `fetch` delivered its PNG bytes; null when there is none or it could not be read. */
 export function loadIcon(key: string, fetch: () => Promise<ArrayBuffer | null>): Promise<string | null> {
   const known = requests.get(key);
   if (known) return known;
@@ -30,8 +30,8 @@ export function loadIcon(key: string, fetch: () => Promise<ArrayBuffer | null>):
       return url;
     },
     () => {
-      // A failure is not remembered: the next ask tries again.
-      if (requests.get(key) === request) requests.delete(key);
+      // A failure is remembered like a missing icon until another project: a row scrolled back into view does not ask again.
+      if (started === generation) settled.set(key, null);
       return null;
     },
   );

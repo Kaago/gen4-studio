@@ -31,13 +31,18 @@ describe("icons", () => {
     expect(peekIcon("item:30:31")).toBe("blob:1");
   });
 
-  it("remembers_a_missing_icon_but_not_a_failed_request", async () => {
+  it("remembers_a_missing_icon_and_a_failed_request_until_another_project", async () => {
     vi.mocked(getMonIcon).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("weg"));
     expect(await monIcon(1)).toBeNull();
     expect(await monIcon(1)).toBeNull();
     expect(getMonIcon).toHaveBeenCalledOnce();
+    // A failed icon is not asked for again while the project stays open (a row scrolled back into view).
     expect(await monIcon(2)).toBeNull();
-    expect(peekIcon("mon:2")).toBeUndefined();
+    expect(peekIcon("mon:2")).toBeNull();
+    expect(await monIcon(2)).toBeNull();
+    expect(getMonIcon).toHaveBeenCalledTimes(2);
+    // Another project asks again.
+    resetIcons();
     expect(await monIcon(2)).toBe("blob:1");
     expect(getMonIcon).toHaveBeenCalledTimes(3);
   });

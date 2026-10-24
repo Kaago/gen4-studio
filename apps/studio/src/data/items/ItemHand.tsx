@@ -8,12 +8,12 @@ import type { NumberFieldProps, SelectOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { useDataArea } from "../useDataArea";
 import {
-  BATTLE_FUNCTIONS,
   BATTLE_POCKETS,
   FIELD_GROUPS,
   FIELD_POCKETS,
   GIFT_TYPES,
   ONE_BIT_FIELDS,
+  battleFunctions,
   dataMemberOf,
   fieldFunctions,
   itemLabel,
@@ -113,7 +113,7 @@ function FieldEditor({ e, field, raw }: { e: Editing; field: ItemField; raw: boo
     case "field_use_func":
       return <ItemSelect e={e} field={field} options={fieldFunctions(e.family, e.v.field_use_func ?? 0)} />;
     case "battle_use_func":
-      return <ItemSelect e={e} field={field} options={BATTLE_FUNCTIONS} />;
+      return <ItemSelect e={e} field={field} options={battleFunctions(e.v.battle_use_func ?? 0)} />;
     case "hold_effect":
       return <ItemNumber e={e} field={field} {...limits(width)} hint="Nummer des Effekts beim Tragen" />;
   }
@@ -230,7 +230,7 @@ export function ItemHand() {
     <div className={styles.hand} onFocus={onFocus} role="group" aria-label={`${name} bearbeiten`} data-item={index}>
       {(editError !== null || doc.locked !== null || doc.shared_with.length > 0) && (
         <div className={styles.notices}>
-          {doc.locked !== null && <Notice kind="warning">{`${lockText(doc.locked, index)}. Seine Felder sind gesperrt.`}</Notice>}
+          {doc.locked !== null && <Notice kind="warning">{`${lockText(doc.locked)}. Die Felder dieses Gegenstands sind gesperrt.`}</Notice>}
           {doc.locked === null && doc.shared_with.length > 0 && <SharedWarning ids={doc.shared_with} />}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>

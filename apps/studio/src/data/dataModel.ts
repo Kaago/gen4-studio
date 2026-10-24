@@ -61,6 +61,26 @@ export function lockSentence(word: string, index: number, locked: string): strin
   return lengths ? `${word} ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `${word} ${id4(index)}: ${locked}`;
 }
 
+/** The German words of the parts the kernel names in a lock reason ("item 0017" is a data member, which several item ids may share). */
+const LOCK_PART: Readonly<Record<string, string>> = {
+  "personal data": "Pokémon-Daten",
+  learnset: "Lernset",
+  "evolution data": "Entwicklungen",
+  move: "Attacke",
+  item: "Daten",
+  encounter: "Begegnungen",
+};
+
+/**
+ * The kernel's lock reason in German, by the part it names: "item 0000: 36 bytes, expected 34" → "Daten 0000: 36 Bytes statt 34". A
+ * reason in another shape stays as it is.
+ */
+export function lockReason(locked: string): string {
+  const m = /^(.+) (\d{4,}): (\d+) bytes, expected (\d+)$/.exec(locked);
+  if (!m) return locked;
+  return `${LOCK_PART[m[1]!] ?? m[1]} ${m[2]}: ${m[3]} Bytes statt ${m[4]}`;
+}
+
 /** The types of a species row in words ("Normal, Flug"; one type once); empty for a locked row. */
 export function speciesTypes(row: DataRowDto): string {
   const extra = row.extra as SpeciesRowExtra | null;

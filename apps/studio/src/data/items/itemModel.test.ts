@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RefDto } from "../../api";
 import {
   BATTLE_FUNCTIONS,
+  battleFunctions,
   BATTLE_POCKETS,
   FIELD_FUNCTIONS,
   FIELD_GROUPS,
@@ -120,12 +121,13 @@ describe("itemModel", () => {
   });
 
   it("puts_the_lock_reason_into_german", () => {
-    expect(lockText("item 0017: 36 bytes, expected 34", 17)).toBe("Gegenstand 0017: 36 Bytes statt 34");
-    expect(lockText("odd", 3)).toBe("Gegenstand 0003: odd");
+    // The kernel names the data member, which several item ids may share.
+    expect(lockText("item 0000: 36 bytes, expected 34")).toBe("Daten 0000: 36 Bytes statt 34");
+    expect(lockText("odd")).toBe("odd");
   });
 
   it("counts_the_uses_by_kind_each_source_once", () => {
-    const ref = (kind: RefDto["source"]["kind"], index: number, slot: number | null = null): RefDto => ({ source: { kind, index }, field: "item", slot, label: `${kind} ${index}`, nav: { kind: "trainer", index } });
+    const ref = (kind: RefDto["source"]["kind"], index: number, slot: number | null = null): RefDto => ({ source: { kind, index }, field: "item", slot, label: `${kind} ${index}`, source_name: `${kind} ${index}`, nav: { kind: "trainer", index } });
     const uses = itemUses([ref("TrainerProperties", 5, 0), ref("TrainerProperties", 5, 1), ref("TrainerParty", 7, 2), ref("Personal", 25), ref("Evolution", 133, 0)]);
     expect(uses.trainers.map((r) => r.source.index)).toEqual([5]);
     expect(uses.parties.map((r) => r.source.index)).toEqual([7]);
@@ -174,6 +176,12 @@ describe("itemModel", () => {
     expect(itemText("field_use_func", 23, "Hgss")).toBe("Aprikokobox");
     expect(itemText("field_use_func", 13, "Hgss")).toBe("Funktion 13");
     expect(itemLabel("Honig", "field_use_func", 14, 23, { family: "Hgss" })).toBe("Honig: Feldfunktion Honig → Aprikokobox");
+  });
+
+  it("names_a_battle_function_the_games_do_not_know_by_its_number", () => {
+    expect(battleFunctions(5).slice(-1)[0]).toEqual({ value: 5, label: "Funktion 5" });
+    expect(battleFunctions(3)).toBe(BATTLE_FUNCTIONS);
+    expect(itemText("battle_use_func", 5)).toBe("Funktion 5");
   });
 
   it("calls_an_item_usable_in_battle_by_its_battle_pocket_not_its_battle_function", () => {

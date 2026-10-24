@@ -6,7 +6,7 @@ import * as api from "../../api";
 import type { DataDocDto, DataRowDto, FieldValueDto, ItemEntryDto, NameTablesDto, RawDto, RefDto } from "../../api";
 import { readShellState, writeShellState } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { dataHarness, flush } from "../dataTesting";
+import { PT_ARCHIVES, dataHarness, flush } from "../dataTesting";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsView } from "../ItemsArea";
 import { ITEM_FIELDS } from "./itemModel";
 import type { ItemField } from "./itemModel";
@@ -63,7 +63,7 @@ export const ITEM_ROWS: DataRowDto[] = [
   row(114, "Andenken", 0, 0, 0),
 ];
 
-export const ITEM_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [] };
+export const ITEM_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES };
 
 /** Item ids 0 to 134: 1 and 4 share icon and palette, 17 has its own, 113 and up use data member 0 and one icon. */
 export const ITEM_TABLE: ItemEntryDto[] = Array.from({ length: 135 }, (_, id) => ({
@@ -75,10 +75,10 @@ export const ITEM_TABLE: ItemEntryDto[] = Array.from({ length: 135 }, (_, id) =>
 
 /** The Potion: trainer 5 carries it, trainer 7's team holds it, Pikachu holds it in the wild. */
 export const ITEM_REFS: RefDto[] = [
-  { source: { kind: "TrainerProperties", index: 5 }, field: "item", slot: 0, label: "Wanderer Kai, Gegenstand Platz 1", nav: { kind: "trainer", index: 5 } },
-  { source: { kind: "TrainerProperties", index: 5 }, field: "item", slot: 1, label: "Wanderer Kai, Gegenstand Platz 2", nav: { kind: "trainer", index: 5 } },
-  { source: { kind: "TrainerParty", index: 7 }, field: "item", slot: 1, label: "Barry, Team Platz 2", nav: { kind: "trainer", index: 7 } },
-  { source: { kind: "Personal", index: 25 }, field: "item1", slot: null, label: "Pikachu, Getragener Gegenstand 1", nav: { kind: "species", index: 25, tab: "abilities" } },
+  { source: { kind: "TrainerProperties", index: 5 }, field: "item", slot: 0, label: "Wanderer Kai, Gegenstand Platz 1", source_name: "Wanderer Kai", nav: { kind: "trainer", index: 5 } },
+  { source: { kind: "TrainerProperties", index: 5 }, field: "item", slot: 1, label: "Wanderer Kai, Gegenstand Platz 2", source_name: "Wanderer Kai", nav: { kind: "trainer", index: 5 } },
+  { source: { kind: "TrainerParty", index: 7 }, field: "item", slot: 1, label: "Barry, Team Platz 2", source_name: "Barry", nav: { kind: "trainer", index: 7 } },
+  { source: { kind: "Personal", index: 25 }, field: "item1", slot: null, label: "Pikachu, Getragener Gegenstand 1", source_name: "Pikachu", nav: { kind: "species", index: 25, tab: "abilities" } },
 ];
 
 export const RAW_ITEM: RawDto = {

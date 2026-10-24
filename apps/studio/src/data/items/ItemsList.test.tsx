@@ -95,6 +95,16 @@ describe("ItemsList", () => {
     expect(shown()).toEqual([113]);
   });
 
+  it("marks_a_locked_item_and_names_its_data_member_as_the_reason", async () => {
+    // Item 114 uses data member 0, which has the wrong length.
+    vi.mocked(dataList).mockResolvedValue(ITEM_ROWS.map((r) => (r.index === 114 ? { ...r, locked: "item 0000: 36 bytes, expected 34", extra: null } : r)));
+    await h.open(null);
+    expect(row(114)?.textContent).toContain("Gesperrt");
+    expect(row(114)?.getAttribute("aria-label")).toBe("Andenken, 0114, gesperrt: Daten 0000: 36 Bytes statt 34");
+    expect(row(17)?.textContent).not.toContain("Gesperrt");
+    expect(row(17)?.getAttribute("aria-label")).toBe("Trank, 0017");
+  });
+
   it("marks_every_item_of_an_unsaved_data_member", async () => {
     await h.open(null, "bauen", { dirty: [{ kind: "Item", index: 0 }] });
     expect(row(113)?.querySelector('[aria-label="ungespeichert"]')).not.toBeNull();

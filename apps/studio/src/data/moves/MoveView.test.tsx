@@ -42,7 +42,7 @@ describe("MoveView", () => {
     expect(h.view().querySelector("h2")?.textContent).toContain("Flügelschlag");
     expect(card().querySelector("[data-type]")?.textContent).toBe("Flug");
     const text = card().textContent ?? "";
-    for (const part of ["Physisch", "Nr. 0017", "60 Stärke", "100 % Genauigkeit", "35 AP", "Macht Kontakt", "Schutzschild wirkt", "Spiegeltrick wirkt", "King-Stein wirkt", "Priorität 0", "Ein gewähltes Pokémon"]) {
+    for (const part of ["Physisch", "Nummer 0017", "60 Stärke", "100 % Genauigkeit", "35 AP", "Macht Kontakt", "Schutzschild wirkt", "Spiegeltrick wirkt", "King-Stein wirkt", "Priorität 0", "Ein gewähltes Pokémon"]) {
       expect(text).toContain(part);
     }
     // Bit 6 has no name: the card does not show it; magic coat and snatch are not set.
@@ -106,7 +106,7 @@ describe("MoveView", () => {
   });
 
   it("shows_all_learnsets_of_one_move_and_starts_short_again_for_the_next", async () => {
-    const learnset = (index: number): RefDto => ({ source: { kind: "Learnset", index }, field: "move", slot: 0, label: `Art ${index}, Lernset Platz 1`, nav: { kind: "species", index, tab: "learnset" } });
+    const learnset = (index: number): RefDto => ({ source: { kind: "Learnset", index }, field: "move", slot: 0, label: `Art ${index}, Lernset Platz 1`, source_name: `Art ${index}`, nav: { kind: "species", index, tab: "learnset" } });
     vi.mocked(refs).mockResolvedValue(Array.from({ length: 15 }, (_, i) => learnset(i + 1)));
     await h.open();
     const chips = () => h.view().querySelectorAll("[data-learnset]").length;
@@ -115,6 +115,39 @@ describe("MoveView", () => {
     expect(chips()).toBe(15);
     await h.click(h.q<HTMLElement>('[data-move="33"]'));
     expect(chips()).toBe(12);
+  });
+
+  it("shows_a_description_edited_in_the_texts_and_ignores_other_archives", async () => {
+    await h.open();
+    const reads = () => vi.mocked(dataGet).mock.calls.length;
+    const before = reads();
+    // Another archive (a script's texts): nothing to read again.
+    act(() => h.bus.emit({ topic: "textData", archive: 100 }));
+    await flush();
+    expect(reads()).toBe(before);
+    // The description archive, edited in the texts ("Beschreibung bearbeiten"): the view shows the new text.
+    vi.mocked(dataGet).mockResolvedValue(wingAttackDoc({}, { description: { archive: 646, message: 17, text: "Neue Beschreibung." } }));
+    act(() => h.bus.emit({ topic: "textData", archive: 646 }));
+    await flush();
+    const screen = h.view().querySelector('[role=group][aria-label^="DS-Bildschirm"]');
+    expect(screen?.textContent).toContain("Neue Beschreibung.");
+    // The name archive too, and any archive (a reload): each read as often as the description's (view and hand both show the move).
+    const perEvent = reads() - before;
+    expect(perEvent).toBeGreaterThan(0);
+    act(() => h.bus.emit({ topic: "textData", archive: 647 }));
+    await flush();
+    act(() => h.bus.emit({ topic: "textData", archive: null }));
+    await flush();
+    expect(reads()).toBe(before + 3 * perEvent);
+  });
+
+  it("names_sources_by_their_own_name_also_when_it_holds_a_comma", async () => {
+    vi.mocked(refs).mockResolvedValue([
+      { source: { kind: "Learnset", index: 496 }, field: "move", slot: 0, label: "Deoxys, Angriffsform, Lernset Platz 1", source_name: "Deoxys, Angriffsform", nav: { kind: "species", index: 496, tab: "learnset" } },
+    ]);
+    await h.open();
+    const chip = h.view().querySelector<HTMLButtonElement>('[data-learnset="496"]')!;
+    expect(chip.textContent).toBe("Deoxys, Angriffsform0496");
   });
 
   it("follows_an_edit_of_the_move", async () => {

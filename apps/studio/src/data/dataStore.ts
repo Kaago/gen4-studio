@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { dataList, errorText, isCmdError, itemTable, nameTables } from "../api";
-import type { DataKind, DataRowDto, ItemEntryDto, NameTablesDto, ProjectInfo } from "../api";
+import type { DataKind, DataRowDto, ItemEntryDto, NameArchivesDto, NameTablesDto, ProjectInfo } from "../api";
 import type { EditEvent } from "../bus/editBus";
 import type { ListKind } from "./dataModel";
 import { resetIcons } from "./icons";
@@ -29,10 +29,24 @@ const EMPTY: DataSnapshot = { project: null, names: null, rows: {}, itemTable: u
 /** The list a changed member of `kind` shows in; null for kinds no list of the store shows (learnsets, evolutions, …). */
 const PART_OF: Partial<Record<DataKind, ListKind>> = { species: "species", move: "move", item: "item" };
 
+/** The lists whose rows carry the names of a name table (the other tables are in `names` only). */
+const ROWS_NAMED_BY: Partial<Record<keyof NameArchivesDto, ListKind>> = { species: "species", moves: "move", items: "item" };
+
+/**
+ * The parts a change to text `archive` may have changed: the names when one of the name tables is read from it, and the rows that carry
+ * those names. Any archive (null), or archives not known yet (the names not read), may have changed them all.
+ */
+function namedBy(archives: NameArchivesDto | undefined, archive: number | null): Part[] {
+  if (archive === null || archives === undefined) return ["names", "species", "move", "item"];
+  const tables = (Object.keys(archives) as (keyof NameArchivesDto)[]).filter((table) => archives[table] === archive);
+  if (tables.length === 0) return [];
+  return ["names", ...tables.flatMap((table) => ROWS_NAMED_BY[table] ?? [])];
+}
+
 /**
  * The data lists of the open project for the data areas and the palette (`useSyncExternalStore`). Nothing is read until a list is
  * needed (`need`, when an area shows or the palette opens); each part is read once, and again when it changed (`onEvent`: a data
- * member, or a text archive for the names). Another project starts over: answers for the old one are dropped, the icons forgotten.
+ * member, or a text archive a name table is read from). Another project starts over: answers for the old one are dropped, the icons forgotten.
  */
 export class DataStore {
   private snapshot: DataSnapshot = EMPTY;
@@ -84,8 +98,7 @@ export class DataStore {
       const part = PART_OF[event.kind];
       if (part !== undefined) this.changed(part);
     } else if (event.topic === "textData") {
-      // The names come from the text archives, and every row carries its name.
-      for (const part of ["names", "species", "move", "item"] as const) this.changed(part);
+      for (const part of namedBy(this.snapshot.names?.archives, event.archive)) this.changed(part);
     }
   }
 

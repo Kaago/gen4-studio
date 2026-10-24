@@ -12,8 +12,6 @@ export type MoveValues = Partial<Record<MoveField, number>>;
 
 export const moveValues = (fields: readonly FieldValueDto[]): MoveValues => Object.fromEntries(fields.map((f) => [f.name, f.value])) as MoveValues;
 
-export const id4 = (n: number): string => String(n).padStart(4, "0");
-
 /** The categories by their number in the move data (byte 0x02). */
 export const CATEGORIES: Readonly<Record<number, string>> = Object.fromEntries(CATEGORY_NAMES.map((name, i) => [i, name]));
 

@@ -313,12 +313,13 @@ export function InspectorPanel() {
  */
 export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShown) => void; children?: ReactNode }) {
   const d = useWorkbench();
-  // Changes whenever a text archive may have moved behind the area (undo, redo, reload).
+  // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
+  // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus } = d;
   const context = useMemo<TextAreaProps>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown],
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }

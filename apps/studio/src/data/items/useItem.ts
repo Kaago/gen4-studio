@@ -19,6 +19,7 @@ const ITEM: DocSpec<ItemDoc> = {
   accept: (doc) => (doc.kind === "item" ? doc : null),
   wrongKind: "Die Antwort enthält keine Gegenstands-Daten.",
   apply: applyItem,
+  texts: (doc) => [doc.description?.archive ?? null, doc.name_archive],
 };
 
 /**

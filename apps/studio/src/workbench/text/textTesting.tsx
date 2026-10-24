@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import type { HeaderSummary, ProjectInfo, TextArchiveDto } from "../../api";
+import { createEditBus } from "../../bus/editBus";
+import type { EditEvent } from "../../bus/editBus";
 import { ProblemsStore } from "../problems/problems";
 import { TextArea, TextHints, TextStatus } from "./TextArea";
 import type { TextAreaProps } from "./TextArea";
@@ -43,7 +45,12 @@ export function textHarness() {
   const root: Root = createRoot(container);
   const problems = new ProblemsStore();
   const calls = { onEdited: vi.fn(), onCountsChanged: vi.fn(), onError: vi.fn(), goTo: vi.fn(), onShown: vi.fn() };
+  // What the area tells the rest of the app.
+  const bus = createEditBus();
+  const events: EditEvent[] = [];
+  bus.subscribe(() => true, (event) => void events.push(event));
   const base = (over: Partial<TextAreaProps> = {}): TextAreaProps => ({
+    bus,
     project: projectA,
     headers: [header(12, 433, "Zweiblattdorf"), header(13, 433, "Zweiblattdorf"), header(14, 5, "Sandgemme")],
     counts: { TextArchive: 435 },
@@ -103,5 +110,5 @@ export function textHarness() {
     container.remove();
   }
 
-  return { container, root, problems, calls, base, show, showStrict, archiveRow, messageRow, textarea, button, searchBox, listFilter, screen, type, blur, focus, click, key, open433, unmount };
+  return { container, root, problems, calls, bus, events, base, show, showStrict, archiveRow, messageRow, textarea, button, searchBox, listFilter, screen, type, blur, focus, click, key, open433, unmount };
 }

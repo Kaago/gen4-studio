@@ -19,6 +19,7 @@ const MOVE: DocSpec<MoveDoc> = {
   accept: (doc) => (doc.kind === "move" ? doc : null),
   wrongKind: "Die Antwort enthält keine Attacken-Daten.",
   apply: applyMove,
+  texts: (doc) => [doc.description?.archive ?? null, doc.name_archive],
 };
 
 /** Move `index` (null: none) of the Pokémon area, with its queue of edits (`useDataDoc`). */

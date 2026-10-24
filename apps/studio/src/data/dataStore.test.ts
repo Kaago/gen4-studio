@@ -74,6 +74,33 @@ describe("DataStore", () => {
     expect(vi.mocked(dataList).mock.calls.map((c) => c[0])).toEqual(["species", "species"]);
   });
 
+  it("reads_again_only_what_the_changed_text_archive_names", async () => {
+    const store = new DataStore();
+    store.needAll(projectPt);
+    await settle();
+    // What was read again after `event`: the parts by name.
+    const readsAfter = async (archive: number | null) => {
+      vi.mocked(dataList).mockClear();
+      vi.mocked(nameTables).mockClear();
+      store.onEvent({ topic: "textData", archive });
+      await settle();
+      const parts = vi.mocked(dataList).mock.calls.map((c) => c[0] as string);
+      if (vi.mocked(nameTables).mock.calls.length > 0) parts.push("names");
+      return parts.sort();
+    };
+    // A move description, a script's texts: no name in them.
+    expect(await readsAfter(646)).toEqual([]);
+    expect(await readsAfter(100)).toEqual([]);
+    // The move names: the names and the move rows, not the species or the items.
+    expect(await readsAfter(647)).toEqual(["move", "names"]);
+    expect(await readsAfter(412)).toEqual(["names", "species"]);
+    expect(await readsAfter(392)).toEqual(["item", "names"]);
+    // The abilities: only the names.
+    expect(await readsAfter(610)).toEqual(["names"]);
+    // Any archive (a reload after a stale file): everything asked for.
+    expect(await readsAfter(null)).toEqual(["item", "move", "names", "species"]);
+  });
+
   it("reads_a_list_again_that_changed_while_it_was_being_read", async () => {
     const store = new DataStore();
     store.need(projectPt, "move");

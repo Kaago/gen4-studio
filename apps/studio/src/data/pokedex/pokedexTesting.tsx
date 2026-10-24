@@ -6,7 +6,7 @@ import * as api from "../../api";
 import type { DataDocDto, DataRowDto, EvoEntryDto, LearnEntryDto, MoveRowExtra, NameTablesDto, PersonalDto, RawDto, RefDto } from "../../api";
 import { readShellState, writeShellState } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { dataHarness, flush, move, species } from "../dataTesting";
+import { PT_ARCHIVES, dataHarness, flush, move, species } from "../dataTesting";
 import { PokemonArea, PokemonHand, PokemonList, PokemonView } from "../PokemonArea";
 
 export const STARAVIA: PersonalDto = {
@@ -70,6 +70,7 @@ export const POKEDEX_NAMES: NameTablesDto = {
   types: [],
   classes: [],
   forms: [],
+  archives: PT_ARCHIVES,
 };
 
 export const POKEDEX_SPECIES: DataRowDto[] = [
@@ -92,10 +93,10 @@ export const POKEDEX_MOVES: DataRowDto[] = [
 
 /** Staravia waits in the grass of encounter file 12, which header 5 (Route 209) uses, and in the party of trainer 44. */
 export const REFS: RefDto[] = [
-  { source: { kind: "Encounter", index: 12 }, field: "grass", slot: 2, label: "Begegnungen 0012, Gras Platz 3", nav: { kind: "header", id: 5 } },
-  { source: { kind: "Encounter", index: 12 }, field: "grass", slot: 5, label: "Begegnungen 0012, Gras Platz 6", nav: { kind: "header", id: 5 } },
-  { source: { kind: "TrainerParty", index: 44 }, field: "species", slot: 0, label: "Wanderer Kai, Team Platz 1", nav: { kind: "trainer", index: 44 } },
-  { source: { kind: "Evolution", index: 396 }, field: "target", slot: 0, label: "Staralili, Entwicklung 1 Ziel", nav: { kind: "species", index: 396, tab: "evolution" } },
+  { source: { kind: "Encounter", index: 12 }, field: "grass", slot: 2, label: "Begegnungen 0012, Gras Platz 3", source_name: "Begegnungen 0012", nav: { kind: "header", id: 5 } },
+  { source: { kind: "Encounter", index: 12 }, field: "grass", slot: 5, label: "Begegnungen 0012, Gras Platz 6", source_name: "Begegnungen 0012", nav: { kind: "header", id: 5 } },
+  { source: { kind: "TrainerParty", index: 44 }, field: "species", slot: 0, label: "Wanderer Kai, Team Platz 1", source_name: "Wanderer Kai", nav: { kind: "trainer", index: 44 } },
+  { source: { kind: "Evolution", index: 396 }, field: "target", slot: 0, label: "Staralili, Entwicklung 1 Ziel", source_name: "Staralili", nav: { kind: "species", index: 396, tab: "evolution" } },
 ];
 
 export const RAW_PERSONAL: RawDto = {

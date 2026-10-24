@@ -44,6 +44,13 @@
   flex: none;
 }
 
+/* The end of a locked row: what the part puts there, then "Gesperrt". */
+.rowEnd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
 /* The view of a part (above the hinge) and its editor (below). */
 .view,
 .hand {

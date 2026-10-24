@@ -86,7 +86,16 @@ export interface DataAreaModel {
   headers: readonly HeaderSummary[];
 }
 
-const NO_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [] };
+const NO_NAMES: NameTablesDto = {
+  species: [],
+  moves: [],
+  items: [],
+  abilities: [],
+  types: [],
+  classes: [],
+  forms: [],
+  archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
+};
 const NO_ROWS: readonly DataRowDto[] = [];
 const NO_DATA: DataSnapshot = { project: null, names: null, rows: {}, itemTable: undefined, locked: null, errors: {} };
 

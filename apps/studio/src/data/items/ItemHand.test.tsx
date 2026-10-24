@@ -236,9 +236,9 @@ describe("ItemHand", () => {
   });
 
   it("shows_why_a_locked_item_has_no_fields", async () => {
-    vi.mocked(dataGet).mockResolvedValue(potionDoc({}, { fields: [], locked: "item 0017: 36 bytes, expected 34", raw_locked: Array.from({ length: 36 }, () => 0) }));
+    vi.mocked(dataGet).mockResolvedValue(potionDoc({}, { fields: [], locked: "item 0000: 36 bytes, expected 34", raw_locked: Array.from({ length: 36 }, () => 0) }));
     await h.open();
-    expect(h.hand().textContent).toContain("Gegenstand 0017: 36 Bytes statt 34");
+    expect(h.hand().textContent).toContain("Daten 0000: 36 Bytes statt 34. Die Felder dieses Gegenstands sind gesperrt.");
     expect(h.field("Preis")).toBeNull();
   });
 });

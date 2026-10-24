@@ -236,6 +236,19 @@ export interface NameTablesDto {
   types: string[];
   classes: string[];
   forms: string[];
+  /** The text archives the tables are read from: an edit there changes the names (and the rows that carry them). */
+  archives: NameArchivesDto;
+}
+
+/** The text archive of each name table; null where the game's banks do not name one. */
+export interface NameArchivesDto {
+  species: number | null;
+  moves: number | null;
+  items: number | null;
+  abilities: number | null;
+  types: number | null;
+  classes: number | null;
+  forms: number | null;
 }
 
 /** One item id of the arm9 item table: data member, icon and palette member of the icon archive, GBA item id. */
@@ -266,12 +279,16 @@ export type NavTargetDto =
   | { kind: "encounter"; index: number }
   | { kind: "trainer"; index: number };
 
-/** One reference: `field` (entry `slot`) of `source` points at the target; `label` says where in German. */
+/**
+ * One reference: `field` (entry `slot`) of `source` points at the target; `label` says where in German ("Staravia, Lernset Platz 4"),
+ * `source_name` names the source on its own ("Staravia", "Wanderer Kai", "Begegnungen 0012").
+ */
 export interface RefDto {
   source: AssetId;
   field: string;
   slot: number | null;
   label: string;
+  source_name: string;
   nav: NavTargetDto;
 }
 
@@ -431,9 +448,9 @@ export const machineTable = () => invoke<number[] | null>("machine_table");
 /** Every reference to `target` (without scripts until 3b.4). */
 export const refs = (target: TargetDto) => invoke<RefDto[]>("refs", { target });
 
-/** PNG bytes, or null for an empty body (no icon). */
-const icon = (bytes: ArrayBuffer): ArrayBuffer | null => (bytes.byteLength > 0 ? bytes : null);
+/** PNG bytes, or null for an empty body (no icon; a transport may also hand an empty body over as null). */
+const icon = (bytes: ArrayBuffer | null | undefined): ArrayBuffer | null => (bytes?.byteLength ? bytes : null);
 /** The bag icon of an item id as PNG, or null when it has none. */
-export const getItemIcon = async (item: number) => icon(await invoke<ArrayBuffer>("get_item_icon", { item }));
+export const getItemIcon = async (item: number) => icon(await invoke<ArrayBuffer | null>("get_item_icon", { item }));
 /** The menu icon of a personal member as PNG, or null when it has none. */
-export const getMonIcon = async (species: number) => icon(await invoke<ArrayBuffer>("get_mon_icon", { species }));
+export const getMonIcon = async (species: number) => icon(await invoke<ArrayBuffer | null>("get_mon_icon", { species }));

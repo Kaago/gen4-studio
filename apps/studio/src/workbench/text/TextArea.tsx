@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createTextArchive, editTextArchive, errorText, searchText } from "../../api";
 import type { HeaderSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
+import type { EditBus } from "../../bus/editBus";
 import type { NavTarget } from "../navigation";
 import type { ProblemsStore } from "../problems/problems";
 import { TERMS, id4 } from "../terms";
@@ -35,6 +36,11 @@ export interface TextAreaProps {
   goTo: (target: NavTarget) => void;
   /** An archive was edited: refresh the dirty count. */
   onEdited: () => void;
+  /**
+   * Hears `textData` for every archive the area edited or created: names and descriptions of the data areas live in text archives.
+   * The area itself also listens (its `revision`), so it reads its own edit once more.
+   */
+  bus: EditBus;
   /** An archive was created: refresh the member counts. */
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
@@ -92,6 +98,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       try {
         await editTextArchive(index, edit);
         latest.current.onEdited();
+        latest.current.bus.emit({ topic: "textData", archive: index });
         return true;
       } catch (e) {
         latest.current.onError(e);
@@ -183,6 +190,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     const owner = latest.current.project;
     try {
       const index = await createTextArchive();
+      latest.current.bus.emit({ topic: "textData", archive: index });
       await latest.current.onCountsChanged();
       if (latest.current.project === owner) select(index);
     } catch (e) {
