@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{
-    Check, Finding, Group, IgnoreKey, IgnoreSet, Limits, Runner, Severity, Skipped, Snapshot,
-    SnapshotCache, Subject,
+    Check, Finding, Group, IgnoreKey, IgnoreSet, Limits, MapCell, Runner, Severity, Skipped,
+    Snapshot, SnapshotCache, Subject,
 };
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
@@ -441,6 +441,8 @@ fn runner_runs_the_groups_asked_for_and_sorts_out_ignored_and_disabled() {
     assert_eq!(first.findings.len(), 6);
     let mut ignore = IgnoreSet::default();
     ignore.disabled.insert("test.disabled".into());
+    // A check that reports errors runs even when a file switches it off.
+    ignore.disabled.insert("test.error".into());
     // Every finding of the first run on the ignore list; errors never leave the findings.
     for f in &first.findings {
         ignore.ignored.insert(IgnoreKey::of(f));
@@ -456,6 +458,7 @@ fn runner_runs_the_groups_asked_for_and_sorts_out_ignored_and_disabled() {
         |label, done, total| progress.push((label.to_owned(), done, total)),
     );
     assert_eq!(disabled.runs.load(Ordering::Relaxed), 1);
+    assert_eq!(error.runs.load(Ordering::Relaxed), 2);
     assert_eq!(per_archive.runs.load(Ordering::Relaxed), 1);
     let codes = |fs: &[Finding]| fs.iter().map(|f| f.code).collect::<Vec<_>>();
     assert_eq!(
@@ -480,6 +483,77 @@ fn runner_runs_the_groups_asked_for_and_sorts_out_ignored_and_disabled() {
     let total = common::PT_TEXT_ARCHIVES as u32;
     assert_eq!(texts.last().map(|p| (p.1, p.2)), Some((total, total)));
     assert!(texts.windows(2).all(|w| w[0].1 < w[1].1));
+}
+
+/// Reports maps 1 and 2 (and map 0 as touched by the first).
+struct MapCheck;
+
+impl Check for MapCheck {
+    fn code(&self) -> &'static str {
+        "test.map"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn group(&self) -> Group {
+        Group::Cheap
+    }
+    fn run(&self, _: &Snapshot, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
+        for map in [1, 2] {
+            out.push(
+                Finding::new(
+                    "test.map",
+                    Severity::Warning,
+                    Subject::Map(map),
+                    "",
+                    "m",
+                    &[],
+                )
+                .with_also([Subject::Map(0)]),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn a_report_places_the_maps_its_findings_name() {
+    let (_s, project, st) = synthetic();
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let checks: [&dyn Check; 1] = [&MapCheck];
+    let report = Runner::run_with(
+        &checks,
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    // Matrix 0 (2 x 1, no header layer) places map 0 at (0, 0) and map 1 at (1, 0); map 2 is
+    // placed nowhere.
+    let cell = |x| MapCell {
+        matrix: 0,
+        x,
+        y: 0,
+        header: None,
+    };
+    assert_eq!(
+        report.map_cells.into_iter().collect::<Vec<_>>(),
+        [(0, cell(0)), (1, cell(1))]
+    );
+    // Without a map finding nothing is read for it.
+    let warp = WarpCheck::new("test.warp", Severity::Warning, Group::Cheap);
+    let checks: [&dyn Check; 1] = [&warp];
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run_with(
+        &checks,
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    assert!(report.map_cells.is_empty());
 }
 
 #[test]

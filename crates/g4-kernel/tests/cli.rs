@@ -352,3 +352,128 @@ fn check_data_compares_the_model_hash_in_the_rom() {
             "map 1 model_sha1: expected {other}, found {model}"
         )));
 }
+
+// The synthetic project's findings that are no error: `header.text-split` once (script file 0
+// runs with text archives 0 and 433) and `encounter.empty-slot` twice (encounter files 0, 1).
+
+#[test]
+fn g4k_check_expect_fails_with_code_soll_ist() {
+    let s = common::synthetic_project();
+    g4k()
+        .args(["check"])
+        .arg(s.dir.path())
+        .args(["--expect", "header.text-split=1"])
+        .args(["--expect", "encounter.empty-slot=1"])
+        .args(["--expect", "warp.dest-warp=0"])
+        .assert()
+        .code(1)
+        .stdout(contains("header.text-split: 1"))
+        .stdout(contains("warp.dest-warp: 0"))
+        .stderr(contains("encounter.empty-slot: expected 1, found 2"))
+        .stderr(contains("1 of 3 expectation(s) failed"));
+    g4k()
+        .args(["check"])
+        .arg(s.dir.path())
+        .args(["--expect", "header.text-split=1"])
+        .args(["--expect", "encounter.empty-slot=2"])
+        .assert()
+        .success()
+        .stdout(contains("2 expectation(s) met"));
+}
+
+#[test]
+fn g4k_check_prints_the_report_as_json_and_honours_the_ignore_file() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let out = g4k()
+        .args(["check"])
+        .arg(root)
+        .arg("--json")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let findings = report["findings"].as_array().unwrap();
+    let split: Vec<_> = findings
+        .iter()
+        .filter(|f| f["code"] == "header.text-split")
+        .collect();
+    assert_eq!(split.len(), 1, "{report}");
+    let split = split[0];
+    assert_eq!(split["severity"], "warning");
+    assert_eq!(
+        split["subject"],
+        serde_json::json!({ "kind": "scriptFile", "index": 0 })
+    );
+    assert_eq!(split["key"], "text_archive");
+    // A u64 does not survive a JavaScript number: 16 hex digits.
+    let fingerprint = split["fingerprint"].as_str().unwrap();
+    assert_eq!(fingerprint.len(), 16, "{fingerprint}");
+    assert!(fingerprint.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(report["ignored"], serde_json::json!([]));
+    assert!(
+        report["skipped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["code"] == "script.message-missing" && s["why"].is_string()),
+        "{report}"
+    );
+
+    // Like the app, `g4k check` leaves out what g4-checks.json ignores or switches off.
+    std::fs::write(
+        root.join("g4-checks.json"),
+        serde_json::json!({
+            "ignored": [{
+                "code": "header.text-split",
+                "subject": split["subject"],
+                "key": "text_archive",
+                "fingerprint": fingerprint,
+            }],
+            "disabled": ["encounter.empty-slot"],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    g4k()
+        .args(["check"])
+        .arg(root)
+        .args(["--expect", "header.text-split=0"])
+        .args(["--expect", "encounter.empty-slot=0"])
+        .assert()
+        .success()
+        .stdout(contains("1 ignored"))
+        .stdout(contains("skipped encounter.empty-slot: disabled"));
+    let out = g4k()
+        .args(["check"])
+        .arg(root)
+        .arg("--json")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["ignored"][0]["code"], "header.text-split");
+}
+
+#[test]
+fn g4k_check_rejects_an_unknown_code_and_a_broken_ignore_file() {
+    let s = common::synthetic_project();
+    g4k()
+        .args(["check"])
+        .arg(s.dir.path())
+        .args(["--expect", "warp.no-such-check=0"])
+        .assert()
+        .code(2)
+        .stderr(contains("unknown check code warp.no-such-check"));
+    std::fs::write(s.dir.path().join("g4-checks.json"), "{ not json").unwrap();
+    g4k()
+        .args(["check"])
+        .arg(s.dir.path())
+        .assert()
+        .code(1)
+        .stderr(contains("g4-checks.json"));
+}

@@ -263,6 +263,16 @@ rotoms Build-Skript neu (siehe oben).
 Szenarien rufen es im Abschnitt `check:` auf (Beispiel `scripts/agent/scenarios/pt-daten.yaml`, Beschreibung in
 [docs/agent-gate.md](agent-gate.md), „Szenario“).
 
+#### Projektprüfungen: `g4k check`
+
+`g4k check <projekt> [--json] [--expect CODE=N …]` führt alle Prüfungen (Spec 3b.4 §4) auf dem gespeicherten Projekt aus
+und liest dabei, wie das Studio, `<projekt>/g4-checks.json`: ausgeblendete Befunde zählen als „ignored“, abgeschaltete
+Prüfungen laufen nicht (Fehler werden nie ausgelassen). Ohne `--json` eine Zeile je Befund und eine Summe, mit `--json`
+der ganze Bericht (`findings`, `ignored`, `skipped` als `{code, why}`, Subjekte als `{kind, index}`, Fingerprints als
+16 Hex-Ziffern). `--expect warp.dest-warp=1` vergleicht die Zahl der nicht ausgeblendeten Befunde je Code: Exit 1 mit
+„warp.dest-warp: expected 1, found 0“ auf stderr; ein unbekannter Code endet vor dem Lauf mit Exit 2. Befunde allein
+ändern den Exit-Code nicht.
+
 Messlauf, nicht Teil des normalen Durchlaufs (`#[ignore]`): `G4_APICULA=... cargo test -p studio --release -- --ignored
 --nocapture bench_matrix_models` lädt eine große Matrix (Standard: Header 3, Platin Matrix 0) und gibt die Zeiten aus;
 `G4_BENCH_HEADER` wählt einen anderen Header.

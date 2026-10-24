@@ -1,25 +1,72 @@
 //! The problem entries the UI lists: compile diagnostics of scripts and text warnings and
-//! encoder errors of text archives, as kernel problems become DTOs.
+//! encoder errors of text archives, as kernel problems become DTOs, and the findings of the
+//! project checks (`commands/checks.rs` fills [`CheckFieldsDto`]).
 
 use std::path::Path;
 
+use g4_kernel::checks::{FixId, Subject};
 use g4_kernel::text::{Problem, Severity};
 use serde::Serialize;
+
+use super::data::NavTargetDto;
 
 /// One entry of the Problems list. `line` is 1-based and `col` is 1-based in UTF-16 code
 /// units. For `source: "text"` the position is relative to one message (the message id
 /// is the prefix of `message`); `file` is relative to the project root with forward slashes.
+/// A finding of the project checks (`source: "check"`) has a position only when it lies in a
+/// script or text source (else `file` is empty and `line` and `col` are 0) and carries the
+/// fields of [`CheckFieldsDto`] next to these; the rows of the other sources have none of them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProblemDto {
-    /// `"error"` or `"warning"`.
+    /// `"error"`, `"warning"` or (only from the checks) `"info"`.
     pub severity: &'static str,
     pub file: String,
     pub line: u32,
     pub col: u32,
     pub message: String,
     /// `"compile"`, `"text"`, `"encounter"` (the rules an encounter file breaks, file
-    /// `encounters/NNNN`) or `"trainer"` (a trainer's battle texts, file `trainers/NNNN`).
+    /// `encounters/NNNN`), `"trainer"` (a trainer's battle texts, file `trainers/NNNN`) or
+    /// `"check"` (a finding of the project checks; `message` is the kernel's English sentence,
+    /// the UI words its own from `code` and `args`).
     pub source: &'static str,
+    #[serde(flatten)]
+    pub check: Option<CheckFieldsDto>,
+}
+
+/// What a finding of the project checks adds to its Problems row (spec 3b.4 §5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckFieldsDto {
+    /// Catalogue code, e.g. `warp.dest-warp`.
+    pub code: &'static str,
+    /// `{kind, index}`, the kind in camelCase (`eventFile`).
+    pub subject: Subject,
+    /// The spot within the subject (`warp:2`); with `code` and `subject` it names the finding.
+    pub key: String,
+    /// German: the subject and the spot ("Eventdatei 0411 · Warp 2").
+    pub label: String,
+    /// The numbers and names the UI puts into its sentence (each check documents the order).
+    pub args: Vec<String>,
+    /// The field of the subject the finding is about, if any (`dest_warp_id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Where „Öffnen“ leads; none: the row has no „Öffnen“.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<NavTargetDto>,
+    /// Further places the finding touches (the header a warp leads to, say).
+    pub also: Vec<NavTargetDto>,
+    pub fixes: Vec<FixDto>,
+    /// 16 hex digits (a JavaScript number cannot hold the u64); sent back as it came by
+    /// `ignore_finding`, `unignore_finding` and the fixes.
+    pub fingerprint: String,
+}
+
+/// A fix of a finding: `id` in snake_case (`create_script`), the German `label` of its button,
+/// and whether it can be undone (`create_script` cannot).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixDto {
+    pub id: FixId,
+    pub label: &'static str,
+    pub irreversible: bool,
 }
 
 impl ProblemDto {
@@ -37,6 +84,7 @@ impl ProblemDto {
             col: problem.col,
             message: problem.message.clone(),
             source,
+            check: None,
         }
     }
 

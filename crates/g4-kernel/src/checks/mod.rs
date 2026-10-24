@@ -14,7 +14,7 @@ use g4_formats::data::trainer_doc::TrainerDoc;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::Matrix;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
@@ -23,6 +23,7 @@ use crate::project::{AssetId, AssetKind};
 mod data;
 #[cfg(test)]
 mod fake;
+mod ignore;
 pub mod limits;
 pub mod runner;
 mod scripts;
@@ -32,14 +33,20 @@ mod world;
 
 pub(crate) use scripts::ScriptFacts;
 
+pub use ignore::{
+    IGNORE_FILE, IgnoreFile, IgnoreKey, IgnoreSet, fingerprint_text, parse_fingerprint,
+};
 pub use limits::Limits;
-pub use runner::{ChecksReport, IgnoreKey, IgnoreSet, Runner};
+pub use runner::{ChecksReport, MapCell, Runner};
 pub use snapshot::{Overlay, ScriptEntry, Snapshot, SnapshotCache, TextEntry, Unreadable};
 
 pub use crate::text::Severity;
 
 /// What a finding is about. The UI turns it into a label ("Eventdatei 0411") and a way to open it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+/// Written in JSON (reports, the ignore file, the UI) as `{kind, index}`, the kind in camelCase
+/// (`eventFile`); the project has index 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(into = "SubjectRepr", from = "SubjectRepr")]
 pub enum Subject {
     Header(u16),
     EventFile(u16),
@@ -51,6 +58,64 @@ pub enum Subject {
     Map(u16),
     Project,
     AreaData(u16),
+}
+
+/// The JSON form of a [`Subject`].
+#[derive(Serialize, Deserialize)]
+struct SubjectRepr {
+    kind: SubjectKind,
+    #[serde(default)]
+    index: u16,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum SubjectKind {
+    Header,
+    EventFile,
+    ScriptFile,
+    TextArchive,
+    Trainer,
+    Encounter,
+    Matrix,
+    Map,
+    Project,
+    AreaData,
+}
+
+impl From<Subject> for SubjectRepr {
+    fn from(subject: Subject) -> SubjectRepr {
+        let (kind, index) = match subject {
+            Subject::Header(n) => (SubjectKind::Header, n),
+            Subject::EventFile(n) => (SubjectKind::EventFile, n),
+            Subject::ScriptFile(n) => (SubjectKind::ScriptFile, n),
+            Subject::TextArchive(n) => (SubjectKind::TextArchive, n),
+            Subject::Trainer(n) => (SubjectKind::Trainer, n),
+            Subject::Encounter(n) => (SubjectKind::Encounter, n),
+            Subject::Matrix(n) => (SubjectKind::Matrix, n),
+            Subject::Map(n) => (SubjectKind::Map, n),
+            Subject::Project => (SubjectKind::Project, 0),
+            Subject::AreaData(n) => (SubjectKind::AreaData, n),
+        };
+        SubjectRepr { kind, index }
+    }
+}
+
+impl From<SubjectRepr> for Subject {
+    fn from(SubjectRepr { kind, index: n }: SubjectRepr) -> Subject {
+        match kind {
+            SubjectKind::Header => Subject::Header(n),
+            SubjectKind::EventFile => Subject::EventFile(n),
+            SubjectKind::ScriptFile => Subject::ScriptFile(n),
+            SubjectKind::TextArchive => Subject::TextArchive(n),
+            SubjectKind::Trainer => Subject::Trainer(n),
+            SubjectKind::Encounter => Subject::Encounter(n),
+            SubjectKind::Matrix => Subject::Matrix(n),
+            SubjectKind::Map => Subject::Map(n),
+            SubjectKind::Project => Subject::Project,
+            SubjectKind::AreaData => Subject::AreaData(n),
+        }
+    }
 }
 
 impl Subject {
@@ -72,7 +137,9 @@ impl Subject {
 }
 
 /// A fix the user can apply to a finding (planned and applied by `plan_fix` / `apply_fix`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+/// Written in snake_case (`create_script`) everywhere: reports, the UI, the commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FixId {
     /// Wrap a message at the text window width.
     Wrap,
@@ -85,8 +152,9 @@ pub enum FixId {
 }
 
 /// How a check is scheduled: cheap ones run on every change, the others per script file or
-/// text archive that changed.
+/// text archive that changed. Written in snake_case (`per_script`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Group {
     Cheap,
     PerScript,
@@ -121,6 +189,8 @@ pub struct Finding {
     /// `(file relative to the project, line, column)` for findings in script and text sources.
     pub file: Option<(PathBuf, u32, u32)>,
     /// See [`fingerprint`]; an ignored finding stays ignored while it does not change.
+    /// Written as [`fingerprint_text`].
+    #[serde(serialize_with = "ignore::fingerprint_serde::serialize")]
     pub fingerprint: u64,
 }
 
@@ -347,6 +417,16 @@ impl<T: SourceCheck> Check for T {
 pub struct Registry;
 
 impl Registry {
+    /// The check of `code`, if one is registered.
+    pub fn get(code: &str) -> Option<&'static dyn Check> {
+        Registry::all().iter().copied().find(|c| c.code() == code)
+    }
+
+    /// Where `code` stands in [`Registry::all`] (catalogue order).
+    pub fn position(code: &str) -> Option<usize> {
+        Registry::all().iter().position(|c| c.code() == code)
+    }
+
     /// Every registered check, in catalogue order: the world checks, the data checks,
     /// `asset.unreadable` (the last cheap one, it reads every member the cheap checks use
     /// first), then the script checks (per script file) and the text checks (per text
@@ -469,6 +549,56 @@ mod tests {
     }
 
     #[test]
+    fn subjects_fixes_and_groups_are_written_for_the_ui() {
+        assert_eq!(
+            serde_json::to_value(Subject::EventFile(411)).unwrap(),
+            serde_json::json!({ "kind": "eventFile", "index": 411 })
+        );
+        assert_eq!(
+            serde_json::to_value(Subject::Project).unwrap(),
+            serde_json::json!({ "kind": "project", "index": 0 })
+        );
+        for subject in [
+            Subject::Header(1),
+            Subject::EventFile(2),
+            Subject::ScriptFile(3),
+            Subject::TextArchive(4),
+            Subject::Trainer(5),
+            Subject::Encounter(6),
+            Subject::Matrix(7),
+            Subject::Map(8),
+            Subject::Project,
+            Subject::AreaData(9),
+        ] {
+            let text = serde_json::to_string(&subject).unwrap();
+            assert_eq!(serde_json::from_str::<Subject>(&text).unwrap(), subject);
+        }
+        // The project may come without an index; an unknown kind is refused.
+        assert_eq!(
+            serde_json::from_str::<Subject>(r#"{ "kind": "project" }"#).unwrap(),
+            Subject::Project
+        );
+        assert!(serde_json::from_str::<Subject>(r#"{ "kind": "warp", "index": 1 }"#).is_err());
+        assert_eq!(
+            serde_json::to_value(FixId::CreateScript).unwrap(),
+            "create_script"
+        );
+        assert_eq!(
+            serde_json::from_str::<FixId>(r#""swap_min_max""#).unwrap(),
+            FixId::SwapMinMax
+        );
+        assert_eq!(
+            serde_json::to_value(Group::PerScript).unwrap(),
+            "per_script"
+        );
+        let f = Finding::new("x.y", Severity::Info, Subject::Project, "", "m", &[]);
+        assert_eq!(
+            serde_json::to_value(&f).unwrap()["fingerprint"],
+            "0c79e202f9ccd0cf"
+        );
+    }
+
+    #[test]
     fn registry_lists_each_code_once_in_its_group() {
         let all = Registry::all();
         let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
@@ -504,5 +634,12 @@ mod tests {
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(codes.len(), 39, "a code is registered twice");
+        assert_eq!(
+            Registry::get("warp.dest-header").map(|c| c.code()),
+            Some("warp.dest-header")
+        );
+        assert_eq!(Registry::position("warp.dest-header"), Some(0));
+        assert_eq!(Registry::position("text.json-broken"), Some(38));
+        assert!(Registry::get("warp.no-such-check").is_none());
     }
 }

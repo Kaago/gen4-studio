@@ -15,7 +15,7 @@ mod dto;
 mod edit;
 mod encounter;
 mod fields;
-mod labels;
+pub(crate) mod labels;
 mod refs;
 mod trainer;
 
@@ -814,7 +814,7 @@ pub fn get_mon_icon_impl(state: &AppState, species: u16) -> Result<Vec<u8>, CmdE
 
 /// Runs `work` on the blocking pool: a cold list, a first reference index or an icon archive
 /// read from disk must not freeze the window (Tauri runs sync commands on the main thread).
-async fn off_main<T: Send + 'static>(
+pub(crate) async fn off_main<T: Send + 'static>(
     app: tauri::AppHandle,
     work: impl FnOnce(&AppState) -> Result<T, CmdError> + Send + 'static,
 ) -> Result<T, CmdError> {

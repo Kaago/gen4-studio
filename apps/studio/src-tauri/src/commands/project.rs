@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
+use g4_kernel::checks::IgnoreSet;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use serde::Serialize;
@@ -24,8 +25,11 @@ pub struct ProjectInfo {
     pub header_count: usize,
 }
 
+/// Opens the project at `path` in a fresh session, with its ignore file `g4-checks.json` read
+/// (a broken one refuses the open and names the file: it is never overwritten unread).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
+    let ignore = IgnoreSet::load(&project.root).map_err(CmdError::from)?;
     // Only the header table: location names are cosmetic and must not gate opening.
     let header_count = project.header_count().map_err(CmdError::from)?;
     let info = ProjectInfo {
@@ -35,7 +39,9 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
         language: format!("{:?}", project.language),
         header_count,
     };
-    let old = lock(state)?.replace(Session::new(Arc::new(project)));
+    let mut session = Session::new(Arc::new(project));
+    session.checks.ignore = ignore;
+    let old = lock(state)?.replace(session);
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -250,6 +256,7 @@ fn build_dto(
                 col: 1,
                 message,
                 source: "text",
+                check: None,
             };
             for &index in &report.touched_archives {
                 let id = AssetId {

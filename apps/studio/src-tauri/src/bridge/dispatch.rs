@@ -11,6 +11,7 @@ use super::roots::Roots;
 use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
+use g4_kernel::checks::Subject;
 use g4_kernel::map_import::{Part, Source};
 use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
@@ -123,6 +124,12 @@ pub const COMMANDS: &[&str] = &[
     "inspect_map_import",
     "import_map_parts",
     "export_map_part",
+    "run_checks",
+    "checks_status",
+    "ignore_finding",
+    "unignore_finding",
+    "accept_baseline",
+    "set_check_enabled",
 ];
 
 /// Import files must lie under the bridge's import roots; a map of the project needs nothing.
@@ -513,6 +520,32 @@ pub fn dispatch(
                 export_map_part_impl(state, a.map, a.part, &path)
             }
         ),
+        "run_checks" => run!(
+            json, "run_checks", args,
+            { scope: Option<CheckScope> },
+            |a| run_checks_impl(state, a.scope.unwrap_or_default())
+        ),
+        "checks_status" => run!(json, "checks_status", args, {}, |_a| checks_status_impl(
+            state
+        )),
+        "ignore_finding" => run!(
+            json, "ignore_finding", args,
+            { code: String, subject: Subject, key: String, fingerprint: String },
+            |a| ignore_finding_impl(state, &a.code, a.subject, &a.key, &a.fingerprint)
+        ),
+        "unignore_finding" => run!(
+            json, "unignore_finding", args,
+            { code: String, subject: Subject, key: String, fingerprint: String },
+            |a| unignore_finding_impl(state, &a.code, a.subject, &a.key, &a.fingerprint)
+        ),
+        "accept_baseline" => run!(json, "accept_baseline", args, {}, |_a| {
+            accept_baseline_impl(state)
+        }),
+        "set_check_enabled" => run!(
+            json, "set_check_enabled", args,
+            { code: String, enabled: bool },
+            |a| set_check_enabled_impl(state, &a.code, a.enabled)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -757,6 +790,23 @@ mod tests {
                 "export_map_part",
                 json!({ "map": 0, "part": "permissions", "path": per_out }),
             ),
+            ("run_checks", json!({ "scope": "cheap" })),
+            ("checks_status", json!({})),
+            (
+                "ignore_finding",
+                json!({ "code": "header.text-split", "subject": { "kind": "scriptFile", "index": 0 },
+                        "key": "text_archive", "fingerprint": "00000000000000ff" }),
+            ),
+            (
+                "unignore_finding",
+                json!({ "code": "header.text-split", "subject": { "kind": "scriptFile", "index": 0 },
+                        "key": "text_archive", "fingerprint": "00000000000000ff" }),
+            ),
+            ("accept_baseline", json!({})),
+            (
+                "set_check_enabled",
+                json!({ "code": "warp.never-fires", "enabled": false }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -883,6 +933,70 @@ mod tests {
             json_of(call(&state, &roots, "item_table", Value::Null)),
             Value::Null
         );
+    }
+
+    #[test]
+    fn checks_answer_findings_at_the_top_level_and_ignore_through_the_bridge() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        // The drafts of 3b.4b call `{scope: full}`; it means all groups.
+        let report = json_of(call(
+            &state,
+            &roots,
+            "run_checks",
+            json!({ "scope": "full" }),
+        ));
+        assert_eq!(
+            report["groups"],
+            json!(["cheap", "per_script", "per_archive"])
+        );
+        assert_eq!(report["running"], false);
+        let findings = report["findings"].as_array().unwrap();
+        assert!(
+            findings
+                .iter()
+                .all(|f| f["source"] == "check" && f["code"].is_string())
+        );
+        let split: Vec<&Value> = findings
+            .iter()
+            .filter(|f| f["code"] == "header.text-split")
+            .collect();
+        assert_eq!(split.len(), 1, "{report}");
+        let split = split[0].clone();
+        // Without arguments: all groups as well.
+        let again = json_of(call(&state, &roots, "run_checks", Value::Null));
+        assert_eq!(again["findings"], report["findings"]);
+
+        // The finding goes back as it came, with its own fields.
+        let answer = json_of(call(
+            &state,
+            &roots,
+            "ignore_finding",
+            json!({ "code": split["code"], "subject": split["subject"], "key": split["key"],
+                    "fingerprint": split["fingerprint"] }),
+        ));
+        assert_eq!(answer["ignored"], json!([split]));
+        assert!(
+            !answer["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["code"] == "header.text-split")
+        );
+        assert!(fixture.dir.path().join("g4-checks.json").is_file());
+        assert_eq!(
+            json_of(call(&state, &roots, "checks_status", json!({}))),
+            answer
+        );
+        let back = json_of(call(
+            &state,
+            &roots,
+            "unignore_finding",
+            json!({ "code": split["code"], "subject": split["subject"], "key": split["key"],
+                    "fingerprint": split["fingerprint"] }),
+        ));
+        assert_eq!(back["ignored"], json!([]));
+        assert_eq!(back["findings"], report["findings"]);
     }
 
     #[test]

@@ -143,7 +143,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Debug)]
 pub enum PassOutcome {
     /// The report, current with the store; also kept as [`ChecksState::last`].
-    Done(ChecksReport),
+    Done(Box<ChecksReport>),
     /// The store changed while the pass ran: its report was discarded and
     /// [`ChecksState::rerun`] is set.
     Stale,
@@ -306,8 +306,11 @@ impl AppState {
         drop(pass);
         checks.cache = Some(cache);
         if current {
+            // The ignore list may have changed while the pass ran with its copy.
+            let mut report = report;
+            report.apply_ignore(&checks.ignore);
             checks.last = Some(report.clone());
-            PassOutcome::Done(report)
+            PassOutcome::Done(Box::new(report))
         } else {
             checks.rerun = true;
             PassOutcome::Stale
@@ -585,6 +588,39 @@ mod tests {
         let checks = &guard.as_ref().unwrap().checks;
         assert!(checks.last.is_some());
         assert!(checks.current_report(now).is_none());
+    }
+
+    #[test]
+    fn a_pass_is_sorted_out_by_the_ignore_list_it_finishes_with() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        let PassOutcome::Done(first) = state.run_checks_pass(&[Group::Cheap]) else {
+            panic!("the pass did not finish");
+        };
+        let split = first
+            .findings
+            .iter()
+            .find(|f| f.code == "header.text-split")
+            .unwrap()
+            .clone();
+        // The list changes while the next pass runs with its copy.
+        let input = state.begin_checks().unwrap();
+        state
+            .lock_session()
+            .as_mut()
+            .unwrap()
+            .checks
+            .ignore
+            .ignored
+            .insert(g4_kernel::checks::IgnoreKey::of(&split));
+        let PassOutcome::Done(report) = state.finish_checks(input.run(&[Group::Cheap])) else {
+            panic!("the pass did not finish");
+        };
+        assert_eq!(report.ignored, std::slice::from_ref(&split));
+        assert!(!report.findings.contains(&split));
+        let guard = state.lock_session();
+        let last = guard.as_ref().unwrap().checks.last.as_ref().unwrap();
+        assert_eq!(last.ignored, [split]);
     }
 
     #[test]

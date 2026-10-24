@@ -1,60 +1,22 @@
 //! Runs the checks of some groups over a [`Snapshot`]: cheap ones first, then the script and
 //! text checks after their files are read (with progress per file), sorting out disabled
-//! checks and ignored findings. The report carries the store generation of the snapshot; the
-//! caller compares it with [`Store::change_generation`] and discards a stale report.
+//! checks and ignored findings ([`IgnoreSet`]). The report carries the store generation of the
+//! snapshot; the caller compares it with [`Store::change_generation`] and discards a stale
+//! report.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Instant;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
+use super::ignore::IgnoreSet;
 use super::snapshot::{PROGRESS_SCRIPTS, PROGRESS_TEXTS};
 use super::{Check, Finding, Group, Limits, Registry, Severity, Skipped, Snapshot, Subject};
 use crate::store::Store;
 
 /// Progress label of the cheap checks (`done` = checks run).
 pub const PROGRESS_CHEAP: &str = "cheap";
-
-/// Identifies an ignored finding: it stays ignored while its code, subject, key and
-/// fingerprint are the same (a change of the checked bytes brings it back).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-pub struct IgnoreKey {
-    pub code: String,
-    pub subject: Subject,
-    pub key: String,
-    pub fingerprint: u64,
-}
-
-impl IgnoreKey {
-    pub fn of(finding: &Finding) -> IgnoreKey {
-        IgnoreKey {
-            code: finding.code.to_owned(),
-            subject: finding.subject,
-            key: finding.key.clone(),
-            fingerprint: finding.fingerprint,
-        }
-    }
-}
-
-/// What a run leaves out: checks switched off by code, and findings the user ignored (the
-/// ignore file `g4-checks.json` fills it). Errors are never ignored.
-#[derive(Debug, Clone, Default)]
-pub struct IgnoreSet {
-    pub disabled: HashSet<String>,
-    pub ignored: HashSet<IgnoreKey>,
-}
-
-impl IgnoreSet {
-    pub fn is_disabled(&self, code: &str) -> bool {
-        self.disabled.contains(code)
-    }
-
-    /// Whether `finding` is ignored: on the list and no error.
-    pub fn ignores(&self, finding: &Finding) -> bool {
-        finding.severity != Severity::Error && self.ignored.contains(&IgnoreKey::of(finding))
-    }
-}
 
 /// The result of one run.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -66,7 +28,8 @@ pub struct ChecksReport {
     /// Checks that did not run, with the reason (`disabled`, a missing input, a failure), in
     /// catalogue order. A check that ran but left part of its work undone (script files it
     /// cannot decode, common script files without a header) is listed once per note, next
-    /// to its findings.
+    /// to its findings. Written as `{code, why}`.
+    #[serde(serialize_with = "skipped_objects")]
     pub skipped: Vec<(&'static str, String)>,
     /// The groups this run covered: a cheap run says nothing about script and text findings.
     pub groups: Vec<Group>,
@@ -74,6 +37,31 @@ pub struct ChecksReport {
     pub ran_ms: u64,
     /// The store's change generation of the snapshot.
     pub generation: u64,
+    /// Where each map a finding names (its subject or one it touches) is placed, for the UI
+    /// to open it; a map no matrix places is missing.
+    pub map_cells: BTreeMap<u16, MapCell>,
+}
+
+/// The first matrix cell that places a map: matrices in index order, cells row by row, with
+/// the cell's header when the matrix has a header layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct MapCell {
+    pub matrix: u16,
+    pub x: u8,
+    pub y: u8,
+    pub header: Option<u16>,
+}
+
+fn skipped_objects<S: Serializer>(
+    skipped: &[(&'static str, String)],
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Entry<'a> {
+        code: &'a str,
+        why: &'a str,
+    }
+    s.collect_seq(skipped.iter().map(|(code, why)| Entry { code, why }))
 }
 
 impl ChecksReport {
@@ -106,8 +94,9 @@ impl Runner {
         Runner::run_with(Registry::all(), snap, limits, ignore, groups, progress)
     }
 
-    /// Runs those of `checks` whose group is in `groups` and whose code is not disabled, group
-    /// by group in [`Group::ALL`] order. Before the script checks every script source is read
+    /// Runs those of `checks` whose group is in `groups` and whose code is not disabled (a
+    /// check that reports errors runs even then: errors are never left out), group by group
+    /// in [`Group::ALL`] order. Before the script checks every script source is read
     /// and before the text checks every text archive (progress `scripts` and `texts`, per
     /// file); the cheap checks report progress `cheap` per check. A group without a check to
     /// run reads nothing. A check that cannot run or panics is reported in `skipped` and its
@@ -133,7 +122,7 @@ impl Runner {
                 if check.group() != group {
                     continue;
                 }
-                if ignore.is_disabled(check.code()) {
+                if check.severity() != Severity::Error && ignore.is_disabled(check.code()) {
                     outcomes[n] = Some(Outcome::Skipped("disabled".into()));
                 } else {
                     to_run.push(n);
@@ -183,9 +172,50 @@ impl Runner {
                 }
             }
         }
+        report.map_cells = map_cells(snap, &report);
         report.ran_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         report
     }
+}
+
+/// [`ChecksReport::map_cells`] of `report`: reads the matrices only when a finding names a map.
+fn map_cells(snap: &Snapshot, report: &ChecksReport) -> BTreeMap<u16, MapCell> {
+    let mut maps: BTreeSet<u16> = report
+        .findings
+        .iter()
+        .chain(&report.ignored)
+        .flat_map(|f| std::iter::once(f.subject).chain(f.also.iter().copied()))
+        .filter_map(|s| match s {
+            Subject::Map(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+    let mut cells = BTreeMap::new();
+    if maps.is_empty() {
+        return cells;
+    }
+    for (index, matrix) in snap.matrices() {
+        let width = usize::from(matrix.width.max(1));
+        for (c, map) in matrix.maps.iter().enumerate() {
+            if !maps.remove(map) {
+                continue;
+            }
+            // Width and height are u8, so x and y are too.
+            cells.insert(
+                *map,
+                MapCell {
+                    matrix: index,
+                    x: (c % width) as u8,
+                    y: (c / width) as u8,
+                    header: matrix.headers.as_ref().and_then(|h| h.get(c).copied()),
+                },
+            );
+            if maps.is_empty() {
+                return cells;
+            }
+        }
+    }
+    cells
 }
 
 /// Runs `check`, turning `Err` and a panic into a skip; the notes of a partial skip
