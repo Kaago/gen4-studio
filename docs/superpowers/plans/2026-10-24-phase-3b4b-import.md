@@ -12,6 +12,8 @@
 
 Stand 24.10.2026. Pfade relativ zur Repo-Wurzel; Frontend relativ zu `apps/studio/src`.
 
+**Tasks 1 und 2 sind erledigt** (Branch `phase-3b4b-kernel`, auf `main` gemerged als f68a266): `crates/g4-formats/src/nsbmd_header.rs` (`strip_tex0`, `model_count`, `material_texture_names`, `material_palette_names`), `crates/g4-kernel/src/map_import.rs` (`inspect`, `import`, `export` nehmen `&mut Store`; `Source::Map` liefert Einzelteile, kein `Whole`; `.bld`-Import behält `buildings_tail` der Zielkarte), Befehle `inspect_map_import`/`import_map_parts`/`export_map_part`, `Roots::read_path`/`write_path` mit `G4_IMPORT_ROOT`, `g4k check-data map:N:model_sha1|per_sha1`, `api.import.ts`, `docs/formats/nsbmd_header.md`; vier gated Import-Tests grün. `import_map_parts` liefert `[{ kind: "Map", index }]`; die `notes` der Prüfliste sind englisch und werden in der UI übersetzt. Offen für Task 3/4: `G4_IMPORT_ROOT` in `scripts/agent/studio-web.sh` und `scripts/gate.sh` setzen; Grenzen aus `check_limits.yaml` (3b.4a Task 1).
+
 ## Entscheidungen
 
 | Frage | Entscheidung | Grund |
