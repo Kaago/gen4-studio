@@ -258,15 +258,16 @@ pub fn trainer_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdE
         name_archive: bank_index(family, language, Bank::TrainerNames),
         text_archive,
         problems,
-        placeholder: session.store.placeholder_trainer() == Some(index),
+        placeholder: session.store.is_placeholder(index),
         locked,
         raw_locked,
     })
 }
 
-/// Refuses any change to the placeholder trainer of the sight script slot (read-only).
-pub fn refuse_placeholder(store: &Store, index: u16) -> Result<(), CmdError> {
-    if store.placeholder_trainer() == Some(index) {
+/// Refuses any change to the placeholder trainer of the sight script slot (read-only); a
+/// real trainer with the slot's ID is no placeholder (see [`Store::is_placeholder`]).
+pub fn refuse_placeholder(store: &mut Store, index: u16) -> Result<(), CmdError> {
+    if store.is_placeholder(index) {
         return Err(KernelError::ReadOnly {
             asset: trainer_id(index),
             reason: PLACEHOLDER_REASON.to_owned(),
@@ -329,7 +330,7 @@ pub fn apply(
     let id = trainer_id(index);
     // The placeholder is never edited, whatever the patch (its name and texts live outside the
     // locked asset, so the store alone would not refuse them).
-    refuse_placeholder(&session.store, index)?;
+    refuse_placeholder(&mut session.store, index)?;
     let family = session.project.family;
     let doc = session.store.trainer(index)?.clone();
     let who = title(session, index, doc.class);

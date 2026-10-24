@@ -68,6 +68,11 @@ pub struct TrainerTextsOutcome {
     pub problems: Vec<Problem>,
 }
 
+/// The reason undo gives at the step that created trainer `id` (the UI shows it as it is).
+pub fn not_undoable(id: u16) -> String {
+    format!("Trainer {id} anlegen lässt sich nicht rückgängig machen")
+}
+
 fn refused(text: impl Into<String>) -> KernelError {
     KernelError::Refused(text.into())
 }
@@ -100,7 +105,9 @@ pub fn create_trainer(
 /// the battle slots extends them first ([`scripts::extend_battle_slots_with`]). The
 /// trainer gets class `class`, no Pokémon, a party without moves and items and AI 1. The
 /// members are written at once and are not undoable; the name (at index ID) and
-/// `trtblofs[ID] = len(trtbl)` (gaps 0) are one undo step "Trainer <id> angelegt".
+/// `trtblofs[ID] = len(trtbl)` (gaps 0) are one history step "Trainer <id> angelegt", an
+/// undo barrier ([`Store::barrier_transaction`], reason [`not_undoable`]): undo stops there
+/// and never leaves the trainer without its name and offset.
 /// A failure after the script extension is [`KernelError::Partial`] naming what stays.
 pub fn create_trainer_with(
     project: &Project,
@@ -231,7 +238,17 @@ pub fn create_trainer_with(
         created: Vec::new(),
     };
     if extend {
-        let touched = scripts::extend_battle_slots_with(project, meta, id)?;
+        // A failed extension that could not put the old files back left the battle script
+        // changed: that stays, in the words `Progress::failed` uses.
+        let touched =
+            scripts::extend_battle_slots_with(project, meta, id).map_err(|e| match e {
+                KernelError::Partial(why) => KernelError::Partial(format!(
+                    "creating trainer {id}: battle script file {:04} stays changed; extending \
+                     the battle slots failed: {why}",
+                    meta.battle_file
+                )),
+                e => e,
+            })?;
         progress.extended = Some(meta.battle_file);
         for index in touched {
             store
@@ -269,8 +286,9 @@ pub fn create_trainer_with(
         .map(|_| trainer_name::wrap(PLACEHOLDER_NAME))
         .chain([trainer_name::wrap(name)])
         .collect();
+    // The members are on disk already: the step is an undo barrier, never undone without them.
     store
-        .transaction(&format!("Trainer {id} angelegt"), |tx| {
+        .barrier_transaction(&format!("Trainer {id} angelegt"), &not_undoable(id), |tx| {
             tx.edit_text_archive(names_archive, |doc| {
                 for text in new_names {
                     let n = doc.messages.len();
@@ -329,7 +347,7 @@ pub fn set_trainer_texts_labelled(
             "trainer {id} does not exist ({trainers} trainers)"
         )));
     }
-    if store.placeholder_trainer() == Some(id) {
+    if store.is_placeholder(id) {
         return Err(KernelError::ReadOnly {
             asset: AssetId {
                 kind: AssetKind::Trainer,
@@ -739,11 +757,49 @@ mod tests {
         assert_eq!(f.store.locked(trainer_id(3)), None);
         // Within the battle slots: the battle script stays as it was.
         assert_eq!(f.source(), BATTLE);
-        // Undo takes the name and the offset back; the members stay.
-        f.store.undo().unwrap();
-        assert_eq!(f.texts(TRAINER_NAMES).len(), 3);
-        assert_eq!(f.offsets(), [0, 0]);
+        // Creating is not undoable: undo refuses, the name and the offset stay with the members.
+        let err = f.store.undo().unwrap_err();
+        assert!(
+            matches!(&err, KernelError::Refused(r)
+                if r == "Trainer 3 anlegen lässt sich nicht rückgängig machen"),
+            "{err}"
+        );
+        assert_eq!(f.texts(TRAINER_NAMES)[3], "{TRAINER_NAME:Jens}");
+        assert_eq!(f.offsets(), [0, 0, 0, 8]);
         assert_eq!(f.count(), 4);
+    }
+
+    #[test]
+    fn creating_a_trainer_is_an_undo_barrier_that_keeps_earlier_steps() {
+        let mut f = fixture(true);
+        // An edit before the creation and one after it.
+        f.store
+            .edit_text_archive(BATTLE_TEXTS, "vorher", |d| {
+                d.messages[0].text = "Vorher".into()
+            })
+            .unwrap();
+        f.create(1, "Jens").unwrap();
+        f.store
+            .edit_text_archive(BATTLE_TEXTS, "nachher", |d| {
+                d.messages[0].text = "Nachher".into()
+            })
+            .unwrap();
+        f.store.undo().unwrap();
+        assert_eq!(f.texts(BATTLE_TEXTS)[0], "Vorher");
+        assert!(matches!(f.store.undo(), Err(KernelError::Refused(_))));
+        // Neither the creation nor the step behind it is undone.
+        assert_eq!(f.texts(BATTLE_TEXTS)[0], "Vorher");
+        assert_eq!(f.texts(TRAINER_NAMES).len(), 4);
+        assert_eq!(f.offsets(), [0, 0, 0, 8]);
+        assert_eq!(
+            f.store.history(),
+            (
+                vec!["vorher".to_owned(), "Trainer 3 angelegt".to_owned()],
+                vec!["nachher".to_owned()]
+            )
+        );
+        // A further create still finds a name per trainer.
+        assert_eq!(f.create(1, "Lars").unwrap().id, 5);
     }
 
     #[test]
@@ -837,6 +893,34 @@ mod tests {
         assert_eq!(again.locked(trainer_id(4)), Some(PLACEHOLDER_REASON));
         again.trainer(5).unwrap();
         assert_eq!(again.locked(trainer_id(5)), None);
+        assert!(again.is_placeholder(4));
+        assert!(!again.is_placeholder(5));
+    }
+
+    #[test]
+    fn a_real_trainer_at_the_sight_slot_id_stays_editable() {
+        let mut f = fixture(true);
+        // A hack whose own trainers 3 and 4 exist: 4 sits at the sight slot ID, with a class.
+        let mut props = [0u8; 20];
+        props[1] = 7;
+        props[12] = 1;
+        assert_eq!(f.store.append_trainer(&props, &[0; 8]).unwrap(), 3);
+        assert_eq!(f.store.append_trainer(&props, &[0; 8]).unwrap(), 4);
+        f.store.trainer(4).unwrap();
+        // Learning the sight slot ID with the trainer loaded does not lock it ...
+        f.store.set_placeholder_trainer(Some(4)).unwrap();
+        assert_eq!(f.store.locked(trainer_id(4)), None);
+        assert!(!f.store.is_placeholder(4));
+        f.store.edit_trainer(4, "Klasse", |t| t.class = 8).unwrap();
+        f.store.save().unwrap();
+        // ... nor does loading it in a store opened anew; its texts can be set.
+        let mut again = Store::new(f.project.clone());
+        again.set_placeholder_trainer(Some(4)).unwrap();
+        assert_eq!(again.trainer(4).unwrap().class, 8);
+        assert_eq!(again.locked(trainer_id(4)), None);
+        assert!(!again.is_placeholder(4));
+        f.store = again;
+        f.set_texts(4, &[(0, "Hallo!\\r")]).unwrap();
     }
 
     #[test]
@@ -871,6 +955,108 @@ mod tests {
         );
         let compiled = scripts::compile(&f.project).unwrap();
         assert!(compiled.problems.is_empty(), "{:?}", compiled.problems);
+    }
+
+    /// Runs `hook` inside the next battle slot extension of this thread (see
+    /// [`scripts::EXTENSION_HOOK`]).
+    fn on_extension(hook: impl Fn(scripts::ExtensionStage, &Project) + 'static) {
+        scripts::EXTENSION_HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+
+    /// Creates trainer 3 (no extension), then lets `hook` disturb the extension of the next
+    /// create (placeholder 4, trainer 5), which must fail. Returns its error, with the battle
+    /// script's member before it.
+    fn failed_extension(
+        f: &mut Fixture,
+        hook: impl Fn(scripts::ExtensionStage, &Project) + 'static,
+    ) -> (KernelError, Vec<u8>) {
+        f.create(1, "Jens").unwrap();
+        let old = f.member(AssetKind::Script, f.meta.battle_file);
+        on_extension(hook);
+        let err = f.create(1, "Lars").unwrap_err();
+        scripts::EXTENSION_HOOK.with(|h| h.borrow_mut().take());
+        (err, old)
+    }
+
+    fn battle_member(project: &Project, file: u16) -> PathBuf {
+        project.member_path(AssetKind::Script, file)
+    }
+
+    #[test]
+    fn a_compile_problem_in_the_extension_puts_source_and_member_back() {
+        let mut f = fixture(true);
+        let file = f.meta.battle_file;
+        let (err, old) = failed_extension(&mut f, move |stage, project| {
+            if stage == scripts::ExtensionStage::Written {
+                let ScriptSource::Rotom(text) = scripts::read_source(project, file).unwrap() else {
+                    unreachable!()
+                };
+                let broken = format!("{text}script script_9 #9:\n    NoSuchCommand 1\n");
+                scripts::write_source(project, file, &ScriptSource::Rotom(broken)).unwrap();
+            }
+        });
+        assert!(matches!(err, KernelError::Compile(_)), "{err}");
+        assert_eq!(f.source(), BATTLE);
+        assert_eq!(f.member(AssetKind::Script, file), old);
+        assert_eq!(f.count(), 4);
+    }
+
+    #[test]
+    fn a_member_unreadable_after_the_compile_puts_source_and_member_back() {
+        let mut f = fixture(true);
+        let file = f.meta.battle_file;
+        let (err, old) = failed_extension(&mut f, move |stage, project| {
+            if stage == scripts::ExtensionStage::Compiled {
+                std::fs::remove_file(battle_member(project, file)).unwrap();
+            }
+        });
+        assert!(matches!(err, KernelError::IoAt { .. }), "{err}");
+        assert_eq!(f.source(), BATTLE);
+        assert_eq!(f.member(AssetKind::Script, file), old);
+        assert_eq!(f.count(), 4);
+    }
+
+    #[test]
+    fn a_member_that_is_no_extension_puts_source_and_member_back() {
+        let mut f = fixture(true);
+        let file = f.meta.battle_file;
+        let (err, old) = failed_extension(&mut f, move |stage, project| {
+            if stage == scripts::ExtensionStage::Compiled {
+                std::fs::write(battle_member(project, file), [0xFF; 12]).unwrap();
+            }
+        });
+        assert!(matches!(err, KernelError::InvalidProject(_)), "{err}");
+        assert_eq!(f.source(), BATTLE);
+        assert_eq!(f.member(AssetKind::Script, file), old);
+        assert_eq!(f.count(), 4);
+    }
+
+    #[test]
+    fn an_extension_whose_old_source_cannot_be_put_back_is_partial() {
+        let mut f = fixture(true);
+        let file = f.meta.battle_file;
+        let (err, old) = failed_extension(&mut f, move |stage, project| {
+            if stage == scripts::ExtensionStage::Compiled {
+                // A member that is no extension, and a source path nothing can be written to.
+                std::fs::write(battle_member(project, file), [0xFF; 12]).unwrap();
+                let source = scripts::source_path(project, file, SourceKind::Script);
+                std::fs::remove_file(&source).unwrap();
+                std::fs::create_dir_all(source.join("blocked")).unwrap();
+            }
+        });
+        let KernelError::Partial(text) = &err else {
+            panic!("{err}")
+        };
+        assert!(
+            text.starts_with(&format!(
+                "creating trainer 5: battle script file {file:04} stays changed; extending the \
+                 battle slots failed: "
+            )),
+            "{text}"
+        );
+        // The member is back; no trainer was written.
+        assert_eq!(f.member(AssetKind::Script, file), old);
+        assert_eq!(f.count(), 4);
     }
 
     #[test]

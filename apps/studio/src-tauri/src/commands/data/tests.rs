@@ -1088,6 +1088,21 @@ fn create_trainer_command_reports_placeholder() {
     .unwrap_err();
     assert_eq!(err.code, "read_only", "{}", err.message);
     assert_eq!(history_impl(&state).unwrap().undo.len(), steps);
+    // Creating is not undoable: undo is refused with the reason, and nothing changes.
+    let history = history_impl(&state).unwrap();
+    let err = undo_impl(&state).unwrap_err();
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        (
+            "error",
+            "Trainer 5 anlegen lässt sich nicht rückgängig machen"
+        )
+    );
+    assert_eq!(history_impl(&state).unwrap(), history);
+    match trainer(&state, 5) {
+        DataDocDto::Trainer { name, .. } => assert_eq!(name, "Lars"),
+        _ => unreachable!(),
+    }
 }
 
 #[test]

@@ -21,7 +21,9 @@ use crate::state::AppState;
 
 /// Creates a trainer of class `class` named `name` at the next ID (see
 /// `trainer_create::create_trainer`: adopted scripts, a locked placeholder at the sight slot,
-/// battle script slots for IDs above them). Not undoable except the name and text offset step.
+/// battle script slots for IDs above them). Not undoable: its history step (name and text
+/// offset) is an undo barrier, and `undo` there is refused with "Trainer <id> anlegen lässt
+/// sich nicht rückgängig machen".
 pub fn create_trainer_impl(
     state: &AppState,
     class: u8,
@@ -79,7 +81,7 @@ pub fn set_trainer_texts_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     unlocked_family(&session.project)?;
-    super::trainer::refuse_placeholder(&session.store, trainer)?;
+    super::trainer::refuse_placeholder(&mut session.store, trainer)?;
     let (ids, before) = super::trainer::text_parts_before(session)?;
     let TrainerTextsOutcome { problems, .. } =
         trainer_create::set_trainer_texts(&mut session.store, &mut session.names, trainer, texts)?;

@@ -1238,13 +1238,45 @@ fn all_problems_in(project: &Project, report: &CompileReport, file: u16) -> Vec<
         .collect()
 }
 
+/// Where [`extend_battle_slots_with`] stands when its test hook runs: the extended source
+/// is written, or it is compiled.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExtensionStage {
+    Written,
+    Compiled,
+}
+
+#[cfg(test)]
+type ExtensionHook = Box<dyn Fn(ExtensionStage, &Project)>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hook into [`extend_battle_slots_with`] on this thread, to disturb the files
+    /// between its steps.
+    pub(crate) static EXTENSION_HOOK: std::cell::RefCell<Option<ExtensionHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn extension_hook(stage: ExtensionStage, project: &Project) {
+    EXTENSION_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook(stage, project);
+        }
+    });
+}
+
 /// Adds every slot up to `up_to_id` to the battle script's slot list, except the seen slot
 /// (`#[1-928]` → `#[1-928, 930]`), so trainers up to that ID battle when talked to. Writes
 /// the source and compiles; the new jump table entries point at the battle code and the
 /// code stays byte for byte. Nothing to do when the battle slots reach `up_to_id` already.
-/// An error, or any warning, of the compile in this file, or a member that is not the
-/// expected extension, puts the old source back (and compiles it again). Returns the text
-/// archives the compile changed ([`CompileReport::touched_archives`]).
+/// Any failure once the extended source is written (writing it, the compile, an error or
+/// any warning of the compile in this file, the member unreadable or not the expected
+/// extension) puts the old source and the old member back (compiling the old source again)
+/// and returns the failure as it is; when they cannot both be put back, it is
+/// [`KernelError::Partial`] naming what stays. Returns the text archives the compile changed
+/// ([`CompileReport::touched_archives`]).
 pub fn extend_battle_slots_with(
     project: &Project,
     meta: &TrainerScriptMeta,
@@ -1288,34 +1320,53 @@ pub fn extend_battle_slots_with(
     })?;
     let member = member_file(project, file);
     let old_member = std::fs::read(&member).map_err(io_at(&member))?;
-    write_source(project, file, &ScriptSource::Rotom(extended))?;
-    let restore = || {
-        // Best effort: the error that led here is the one to report.
+    // Every failure from here on goes through `restore`.
+    let restore = |error: KernelError| -> KernelError {
+        // The old source, compiled again, and the old member bytes; then a check of both.
         let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));
         let _ = compile(project);
         if std::fs::read(&member).ok().as_deref() != Some(old_member.as_slice()) {
             let _ = write_atomic(&project.root, &member, &old_member);
         }
-    };
-    let report = match compile(project) {
-        Ok(report) => report,
-        Err(e) => {
-            restore();
-            return Err(e);
+        let source_back =
+            matches!(read_source(project, file), Ok(ScriptSource::Rotom(now)) if now == text);
+        let member_back = std::fs::read(&member).ok().as_deref() == Some(old_member.as_slice());
+        let stays: Vec<&str> = [
+            (!source_back).then_some("its extended source"),
+            (!member_back).then_some("its compiled member"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if stays.is_empty() {
+            return error;
         }
+        KernelError::Partial(format!(
+            "{error}; putting the old source of battle script file {file:04} back failed, {} \
+             stays",
+            stays.join(" and ")
+        ))
     };
+    if let Err(e) = write_source(project, file, &ScriptSource::Rotom(extended)) {
+        return Err(restore(e));
+    }
+    #[cfg(test)]
+    extension_hook(ExtensionStage::Written, project);
+    let report = compile(project).map_err(restore)?;
+    #[cfg(test)]
+    extension_hook(ExtensionStage::Compiled, project);
     let problems = all_problems_in(project, &report, file);
     if !problems.is_empty() {
-        restore();
-        return Err(KernelError::Compile(problems));
+        return Err(restore(KernelError::Compile(problems)));
     }
-    let new_member = std::fs::read(&member).map_err(io_at(&member))?;
+    let new_member = match std::fs::read(&member) {
+        Ok(bytes) => bytes,
+        Err(e) => return Err(restore(io_at(&member)(e))),
+    };
     if let Some(why) = extension_mismatch(&old_member, &new_member, slots.seen, &added) {
-        restore();
-        return Err(KernelError::InvalidProject(format!(
-            "battle script file {file:04} did not compile as expected: {why}; the old source \
-             is back"
-        )));
+        return Err(restore(KernelError::InvalidProject(format!(
+            "battle script file {file:04} did not compile as expected: {why}"
+        ))));
     }
     Ok(report.touched_archives)
 }
