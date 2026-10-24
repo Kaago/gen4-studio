@@ -35,6 +35,14 @@ describe("ListPane", () => {
     expect(container.textContent).toContain("Inhalt");
   });
 
+  it("hands_a_switcher_to_the_head_whose_heading_becomes_a_menu_button", () => {
+    show(props({ title: "Pokémon", switcher: { items: [{ id: "pokedex", label: "Pokédex", count: 508 }], value: "pokedex", onChange: () => {} } }));
+    expect(container.querySelector("section")?.getAttribute("aria-label")).toBe("Pokémon");
+    const button = container.querySelector("h2 button");
+    expect(button?.textContent).toBe("Pokédex");
+    expect(button?.getAttribute("aria-haspopup")).toBe("menu");
+  });
+
   it("folds_on_a_double_click_of_the_grip_and_not_on_a_single_click", () => {
     const p = props();
     show(p);

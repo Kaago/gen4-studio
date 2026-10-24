@@ -112,6 +112,14 @@ describe("ListRow and TreeRow", () => {
     expect(item.getAttribute("title")).toBe("Hinweis");
   });
 
+  it("list_row_shows_leading_content_before_the_label", () => {
+    act(() => root.render(<ListRow label="Trank" leading={<span data-leading="">T</span>} selected={false} onSelect={() => {}} />));
+    const row = container.querySelector("[role=option]")!;
+    expect(row.querySelector("[data-leading]")).not.toBeNull();
+    // Before the label.
+    expect(row.textContent).toBe("TTrank");
+  });
+
   it("a_disabled_row_is_aria_disabled_and_does_not_select", () => {
     const onSelect = vi.fn();
     act(() => root.render(<ListRow label="Gesperrt" selected={false} onSelect={onSelect} disabled />));

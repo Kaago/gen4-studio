@@ -53,6 +53,13 @@ describe("Tabs", () => {
     expect(container.textContent).toContain("Inhalt von a");
   });
 
+  it("shows_the_content_in_a_tabpanel_labelled_by_the_active_tab", () => {
+    act(() => root.render(<Harness />));
+    const panel = container.querySelector<HTMLElement>("[role=tabpanel]")!;
+    expect(panel.textContent).toBe("Inhalt von a");
+    expect(document.getElementById(panel.getAttribute("aria-labelledby") ?? "")).toBe(tabs()[0]);
+  });
+
   it("puts_the_data_attributes_of_an_item_on_its_tab", () => {
     act(() => root.render(<Tabs items={[{ id: "7", label: "Datei 0007", dataAttrs: { "data-script": 7 } }]} value="7" onChange={() => {}} ariaLabel="Offene Dateien" />));
     expect(container.querySelector('[data-script="7"]')?.getAttribute("role")).toBe("tab");

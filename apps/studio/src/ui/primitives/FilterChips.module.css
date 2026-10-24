@@ -1,0 +1,62 @@
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.chip {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-taste);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--g4-dauer-kurz);
+}
+
+.chip:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--g4-auswahl-kante);
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+.chip svg {
+  font-size: var(--g4-schrift-groesse-xs);
+  flex: none;
+}
+
+/* The type colour before the name; the name carries the meaning. */
+.swatch {
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  flex: none;
+  border-radius: var(--g4-radius-plakette);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font-weight: 400;
+}
+
+.chip[aria-pressed="true"] .count {
+  color: inherit;
+}
+
+.more {
+  display: flex;
+  max-width: 280px;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-4);
+}

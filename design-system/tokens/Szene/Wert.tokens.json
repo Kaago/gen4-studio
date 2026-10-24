@@ -128,5 +128,187 @@
    "$type": "color",
    "$value": "#4A5263"
   }
+ },
+ "typ": {
+  "normal": {
+   "grund": {
+    "$type": "color",
+    "$value": "#A5A57B"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "kampf": {
+   "grund": {
+    "$type": "color",
+    "$value": "#BD3129"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#FFFFFF"
+   }
+  },
+  "flug": {
+   "grund": {
+    "$type": "color",
+    "$value": "#A58CEF"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "gift": {
+   "grund": {
+    "$type": "color",
+    "$value": "#9C429C"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#FFFFFF"
+   }
+  },
+  "boden": {
+   "grund": {
+    "$type": "color",
+    "$value": "#DEBD6B"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "gestein": {
+   "grund": {
+    "$type": "color",
+    "$value": "#B59C39"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "kaefer": {
+   "grund": {
+    "$type": "color",
+    "$value": "#A5B521"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "geist": {
+   "grund": {
+    "$type": "color",
+    "$value": "#735A94"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#FFFFFF"
+   }
+  },
+  "stahl": {
+   "grund": {
+    "$type": "color",
+    "$value": "#B5B5CE"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "fragezeichen": {
+   "grund": {
+    "$type": "color",
+    "$value": "#6B9C8C"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "feuer": {
+   "grund": {
+    "$type": "color",
+    "$value": "#EF8431"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "wasser": {
+   "grund": {
+    "$type": "color",
+    "$value": "#6B8CEF"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "pflanze": {
+   "grund": {
+    "$type": "color",
+    "$value": "#7BC652"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "elektro": {
+   "grund": {
+    "$type": "color",
+    "$value": "#F7CE31"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "psycho": {
+   "grund": {
+    "$type": "color",
+    "$value": "#F75A84"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "eis": {
+   "grund": {
+    "$type": "color",
+    "$value": "#94D6D6"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#182131"
+   }
+  },
+  "drache": {
+   "grund": {
+    "$type": "color",
+    "$value": "#7339F7"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#FFFFFF"
+   }
+  },
+  "unlicht": {
+   "grund": {
+    "$type": "color",
+    "$value": "#735A4A"
+   },
+   "schrift": {
+    "$type": "color",
+    "$value": "#FFFFFF"
+   }
+  }
  }
 }

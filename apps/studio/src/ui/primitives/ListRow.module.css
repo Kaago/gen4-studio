@@ -34,6 +34,12 @@
   cursor: not-allowed;
 }
 
+.leading {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
 .label {
   min-width: 0;
   overflow: hidden;

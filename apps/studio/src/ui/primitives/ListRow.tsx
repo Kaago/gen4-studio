@@ -12,6 +12,8 @@ export type ListRowProps = {
   /** Technical name or number, shown in mono and grey after the label. */
   tech?: string;
   icon?: IconName;
+  /** Content before the label, in place of or beside the icon (a `Sprite`, a `TypeBadge`). */
+  leading?: ReactNode;
   /** A second line below the label (a state, "gebaut vor 4 Minuten"); it describes the row, the label names it. */
   subtitle?: string;
   selected: boolean;
@@ -40,7 +42,7 @@ export function rowClass(selected: boolean, disabled: boolean | undefined): stri
 }
 
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
+export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled }: ListRowProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const subtitleId = `${id}-subtitle`;
@@ -60,6 +62,7 @@ export function ListRow({ label, tech, icon, subtitle, selected, onSelect, trail
       onClick={disabled ? undefined : onSelect}
       onKeyDown={disabled ? undefined : (e) => selectOnKey(e, onSelect)}
     >
+      {leading !== undefined && <span className={styles.leading}>{leading}</span>}
       {icon && <Icon name={icon} />}
       {subtitle !== undefined ? (
         <span className={styles.text}>

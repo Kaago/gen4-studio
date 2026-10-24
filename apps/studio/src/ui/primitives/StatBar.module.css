@@ -1,0 +1,72 @@
+.row {
+  display: grid;
+  grid-template-columns: 116px 3ch minmax(64px, 1fr) max-content;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  min-height: var(--g4-dichte-zeile);
+  padding: 0 var(--g4-raum-8);
+  border-left: var(--g4-strich-fokus) solid transparent;
+  font: var(--g4-font-text-s);
+}
+
+.deviates {
+  border-left-color: var(--g4-akzent-grund);
+}
+
+.label {
+  color: var(--g4-text-sekundaer);
+}
+
+.value {
+  text-align: end;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.track {
+  position: relative;
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-deck);
+}
+
+.bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+/* The average: a stroke across the track, a little taller than the bar so it reads over it. */
+.average {
+  position: absolute;
+  top: calc(-1 * var(--g4-raum-2));
+  bottom: calc(-1 * var(--g4-raum-2));
+  width: var(--g4-strich-fokus);
+  margin-left: calc(-0.5 * var(--g4-strich-fokus));
+  background: var(--g4-linie-stark);
+}
+
+.verdict {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .bar {
+    background: Highlight;
+  }
+
+  .average {
+    background: CanvasText;
+  }
+}

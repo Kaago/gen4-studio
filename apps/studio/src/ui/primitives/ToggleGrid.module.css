@@ -1,0 +1,15 @@
+.grid {
+  display: grid;
+  gap: 0 var(--g4-raum-16);
+  align-items: center;
+}
+
+.cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.tip {
+  display: inline-flex;
+}

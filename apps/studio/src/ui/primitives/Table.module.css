@@ -1,0 +1,79 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+}
+
+.table th {
+  height: var(--g4-dichte-steuer);
+  padding: 0 var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.table td {
+  height: var(--g4-dichte-zeile);
+  padding: 0 var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  /* No clipping: the focus ring of a field in the cell stays whole. */
+  overflow-wrap: anywhere;
+}
+
+.table .end {
+  text-align: end;
+}
+
+.row {
+  cursor: default;
+}
+
+.row:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.row[aria-selected="true"] {
+  background: var(--g4-auswahl-flaeche);
+}
+
+/* The accent stroke of the selected row sits on its first cell, as on a list row. */
+.row[aria-selected="true"] > td:first-child {
+  box-shadow: inset var(--g4-strich-fokus) 0 0 var(--g4-auswahl-kante);
+}
+
+.row[aria-disabled="true"] {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.row[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+/* A row is a stop of its own: the ring sits inside, so it is not cut off by the scrolling panel. */
+.row:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

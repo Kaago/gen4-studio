@@ -1,0 +1,49 @@
+.sprite {
+  display: inline-flex;
+  flex: none;
+  box-sizing: border-box;
+}
+
+img.sprite {
+  object-fit: contain;
+  /* DS pictures stay pixel sharp at any scale. */
+  image-rendering: pixelated;
+}
+
+.s24 {
+  width: 24px;
+  height: 24px;
+}
+
+.s32 {
+  width: 32px;
+  height: 32px;
+}
+
+.s48 {
+  width: 48px;
+  height: 48px;
+}
+
+.placeholder {
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--g4-radius-feld);
+  font: var(--g4-font-text-s-betont);
+  user-select: none;
+}
+
+.s48.placeholder {
+  font: var(--g4-font-text-l);
+  font-weight: 700;
+}
+
+.pokemon {
+  background: var(--g4-bereich-pokemon-flaeche);
+  color: var(--g4-bereich-pokemon);
+}
+
+.gegenstaende {
+  background: var(--g4-bereich-gegenstaende-flaeche);
+  color: var(--g4-bereich-gegenstaende);
+}
