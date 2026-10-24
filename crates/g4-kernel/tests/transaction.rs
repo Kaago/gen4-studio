@@ -3,7 +3,7 @@
 mod common;
 
 use std::collections::HashSet;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use g4_formats::error::FormatError;
@@ -12,6 +12,7 @@ use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, MapHeader, Store, WarpEvent};
 use g4_kernel::text::TextArchiveDoc;
 use proptest::prelude::*;
+use proptest::test_runner::{TestCaseError, TestRunner};
 
 fn store() -> (common::Synthetic, Store) {
     let s = common::synthetic_project();
@@ -94,19 +95,19 @@ fn transaction_returns_the_closures_value_and_no_change_when_nothing_changed() {
 
 #[test]
 fn undo_restores_every_part_byte_for_byte() {
-    let (s, mut st) = store();
-    let matrix_before = st.matrix(0).unwrap().write();
-    let event_before = st.event(0).unwrap().clone();
+    let (_s, mut st) = store();
+    st.matrix(0).unwrap();
+    st.event(0).unwrap();
+    let matrix_before = st.current_bytes(MATRIX).unwrap().unwrap();
+    let event_before = st.current_bytes(EVENT).unwrap().unwrap();
     matrix_and_event(&mut st, "beides").unwrap();
+    assert_ne!(st.current_bytes(MATRIX).unwrap().unwrap(), matrix_before);
+    assert_ne!(st.current_bytes(EVENT).unwrap().unwrap(), event_before);
     assert_eq!(st.undo().unwrap(), vec![MATRIX, EVENT]);
-    assert_eq!(st.matrix(0).unwrap().write(), matrix_before);
-    assert_eq!(*st.event(0).unwrap(), event_before);
+    assert_eq!(st.current_bytes(MATRIX).unwrap().unwrap(), matrix_before);
+    assert_eq!(st.current_bytes(EVENT).unwrap().unwrap(), event_before);
     // Dirty compares the serialized value with the bytes on disk: nothing differs.
     assert!(st.dirty().is_empty());
-    assert_eq!(
-        std::fs::read(s.dir.path().join("unpacked/eventFiles/0000")).unwrap(),
-        vec![0u8; 16]
-    );
     assert_eq!(st.history(), (vec![], vec!["beides".to_owned()]));
 }
 
@@ -195,7 +196,15 @@ fn undo_with_undecodable_part_changes_nothing() {
     // Damage the second part (the event file) from outside.
     st.corrupt_undo_part(1);
     let err = st.undo().unwrap_err();
-    assert!(err.to_string().contains("event file 0000"), "{err}");
+    assert!(
+        matches!(&err, KernelError::Restore { asset, .. } if *asset == EVENT),
+        "{err}"
+    );
+    assert!(
+        err.to_string()
+            .starts_with("event file 0000 cannot be restored: "),
+        "{err}"
+    );
     assert_eq!(
         *st.matrix(0).unwrap(),
         matrix,
@@ -216,6 +225,10 @@ fn redo_with_undecodable_part_changes_nothing() {
     st.undo().unwrap();
     st.corrupt_redo_part(0);
     let err = st.redo().unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Restore { asset, .. } if *asset == MATRIX),
+        "{err}"
+    );
     assert!(err.to_string().contains("matrix 0000"), "{err}");
     assert_eq!(st.matrix(0).unwrap().maps[0], 0);
     assert!(st.event(0).unwrap().warp_events.is_empty());
@@ -364,9 +377,6 @@ impl Snapshot {
     }
 }
 
-/// The synthetic project the property test reads; it never saves, so the cases share it.
-static FIXTURE: LazyLock<common::Synthetic> = LazyLock::new(common::synthetic_project);
-
 fn edit_alone(st: &mut Store, kind: usize, value: u16) {
     match kind {
         0 => st
@@ -431,64 +441,81 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
-
-    /// Every undo returns exactly the assets it restored and brings back the state before
-    /// the step; every redo the state after it; a new step drops what could be redone.
-    #[test]
-    fn undo_redo_are_inverse_over_mixed_kinds(ops in proptest::collection::vec(op(), 1..24)) {
-        let project = Project::open(FIXTURE.dir.path()).unwrap();
-        let mut st = Store::new(Arc::new(project));
-        let mut states = vec![Snapshot::of(&mut st)];
-        let mut at = 0;
-        for op in ops {
-            match op {
-                Op::Single(kind, value) => edit_alone(&mut st, kind, value),
-                Op::Pair(a, b, value) => {
-                    st.transaction("Paar", |tx| {
-                        edit_in(tx, a, value)?;
-                        edit_in(tx, b, value + 1)
-                    })
-                    .unwrap();
-                }
-                Op::Undo => {
-                    let restored = st.undo().unwrap();
-                    if at == 0 {
-                        prop_assert!(restored.is_empty());
-                    } else {
-                        at -= 1;
-                        let now = Snapshot::of(&mut st);
-                        prop_assert_eq!(&now, &states[at]);
-                        prop_assert_eq!(set(restored), set(now.changed(&states[at + 1])));
-                    }
-                    continue;
-                }
-                Op::Redo => {
-                    let restored = st.redo().unwrap();
-                    if at + 1 == states.len() {
-                        prop_assert!(restored.is_empty());
-                    } else {
-                        at += 1;
-                        let now = Snapshot::of(&mut st);
-                        prop_assert_eq!(&now, &states[at]);
-                        prop_assert_eq!(set(restored), set(now.changed(&states[at - 1])));
-                    }
-                    continue;
-                }
-            }
-            // An edit that changed something is a new step and drops the redo states.
-            let now = Snapshot::of(&mut st);
-            if now != states[at] {
-                states.truncate(at + 1);
-                states.push(now);
-                at += 1;
-            }
-            prop_assert_eq!(st.history().0.len(), at);
-            prop_assert_eq!(st.history().1.len(), states.len() - 1 - at);
-        }
-        while !st.undo().unwrap().is_empty() {}
-        prop_assert_eq!(Snapshot::of(&mut st), states[0].clone());
-        prop_assert!(st.dirty().is_empty());
+/// Every undo returns exactly the assets it restored and brings back the state before the
+/// step; every redo the state after it; a new step drops what could be redone. The cases
+/// share one synthetic project (they never save), which is removed when the run ends.
+#[test]
+fn undo_redo_are_inverse_over_mixed_kinds() {
+    let fixture = common::synthetic_project();
+    let config = ProptestConfig {
+        cases: 64,
+        // A runner outside `proptest!` knows no source file to store failures next to.
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    };
+    let result = TestRunner::new(config).run(&proptest::collection::vec(op(), 1..24), |ops| {
+        inverse_over_mixed_kinds(&fixture, ops)
+    });
+    if let Err(e) = result {
+        panic!("{e}");
     }
+}
+
+fn inverse_over_mixed_kinds(
+    fixture: &common::Synthetic,
+    ops: Vec<Op>,
+) -> Result<(), TestCaseError> {
+    let project = Project::open(fixture.dir.path()).unwrap();
+    let mut st = Store::new(Arc::new(project));
+    let mut states = vec![Snapshot::of(&mut st)];
+    let mut at = 0;
+    for op in ops {
+        match op {
+            Op::Single(kind, value) => edit_alone(&mut st, kind, value),
+            Op::Pair(a, b, value) => {
+                st.transaction("Paar", |tx| {
+                    edit_in(tx, a, value)?;
+                    edit_in(tx, b, value + 1)
+                })
+                .unwrap();
+            }
+            Op::Undo => {
+                let restored = st.undo().unwrap();
+                if at == 0 {
+                    prop_assert!(restored.is_empty());
+                } else {
+                    at -= 1;
+                    let now = Snapshot::of(&mut st);
+                    prop_assert_eq!(&now, &states[at]);
+                    prop_assert_eq!(set(restored), set(now.changed(&states[at + 1])));
+                }
+                continue;
+            }
+            Op::Redo => {
+                let restored = st.redo().unwrap();
+                if at + 1 == states.len() {
+                    prop_assert!(restored.is_empty());
+                } else {
+                    at += 1;
+                    let now = Snapshot::of(&mut st);
+                    prop_assert_eq!(&now, &states[at]);
+                    prop_assert_eq!(set(restored), set(now.changed(&states[at - 1])));
+                }
+                continue;
+            }
+        }
+        // An edit that changed something is a new step and drops the redo states.
+        let now = Snapshot::of(&mut st);
+        if now != states[at] {
+            states.truncate(at + 1);
+            states.push(now);
+            at += 1;
+        }
+        prop_assert_eq!(st.history().0.len(), at);
+        prop_assert_eq!(st.history().1.len(), states.len() - 1 - at);
+    }
+    while !st.undo().unwrap().is_empty() {}
+    prop_assert_eq!(Snapshot::of(&mut st), states[0].clone());
+    prop_assert!(st.dirty().is_empty());
+    Ok(())
 }

@@ -46,6 +46,10 @@ pub enum KernelError {
     /// The asset can be shown but not written back byte for byte, so editing is refused.
     #[error("{asset} is read-only: {reason}")]
     ReadOnly { asset: AssetId, reason: String },
+    /// Undo or redo could not restore a part of its changeset (its bytes do not decode, or
+    /// the asset is not loaded); nothing was changed.
+    #[error("{asset} cannot be restored: {reason}")]
+    Restore { asset: AssetId, reason: String },
     /// Scripts or texts did not compile; the problems carry file, line and column.
     #[error("{} problem(s) in scripts or texts", .0.len())]
     Compile(Vec<Problem>),
@@ -101,6 +105,14 @@ mod tests {
             }
             .to_string(),
             "map 0005 is read-only: 17 bytes read, 16 would be written"
+        );
+        assert_eq!(
+            KernelError::Restore {
+                asset: id,
+                reason: "it is not loaded".into()
+            }
+            .to_string(),
+            "map 0005 cannot be restored: it is not loaded"
         );
         assert_eq!(
             KernelError::NotEditable(AssetKind::AreaData).to_string(),

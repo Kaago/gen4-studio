@@ -395,9 +395,12 @@ mod tests {
         assert_eq!(counts[&AssetKind::Matrix], 1);
         assert_eq!(counts[&AssetKind::AreaData], 2);
         assert_eq!(counts[&AssetKind::Event], 2);
-        assert_eq!(counts[&AssetKind::TextArchive], 434);
+        assert_eq!(counts[&AssetKind::TextArchive], 698);
         assert_eq!(counts[&AssetKind::HeaderTable], 1);
         assert_eq!(counts[&AssetKind::Script], 3);
+        assert_eq!(counts[&AssetKind::Personal], 508);
+        assert_eq!(counts[&AssetKind::Item], 20);
+        assert_eq!(counts[&AssetKind::TrainerTextOffsets], 1);
         assert!(!counts.contains_key(&AssetKind::DynamicHeaders));
         // Serialized for the frontend as an object keyed by the kind name.
         let json = serde_json::to_value(&counts).unwrap();

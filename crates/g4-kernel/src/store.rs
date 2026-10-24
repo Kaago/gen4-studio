@@ -7,6 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use g4_formats::area_data::AreaData;
+use g4_formats::data::encounter::Encounters;
+use g4_formats::data::evolution::Evolution;
+use g4_formats::data::item::Item;
+use g4_formats::data::learnset::Learnset;
+use g4_formats::data::moves::Move;
+use g4_formats::data::personal::Personal;
+use g4_formats::data::record::RawRecord;
+use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
@@ -74,6 +82,18 @@ pub(crate) enum Loaded {
     HeaderTable(Vec<MapHeader>),
     /// A text archive; its bytes are the canonical JSON.
     TextArchive(TextArchiveDoc),
+    /// Boxed: a Platinum encounter file is 424 bytes inline.
+    Encounter(Box<Encounters>),
+    Personal(Personal),
+    Learnset(Learnset),
+    Evolution(Evolution),
+    Move(Move),
+    Item(Item),
+    TrainerTextTable(TrainerTextTable),
+    TrainerTextOffsets(TrainerTextOffsets),
+    /// A data member of a length its codec rejects, kept as read. Such an asset is always
+    /// locked (see [`decode`]).
+    Raw(Vec<u8>),
 }
 
 impl Loaded {
@@ -87,6 +107,22 @@ impl Loaded {
                 | AssetKind::Event
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
+        ) || Loaded::is_data(kind)
+    }
+
+    /// The editable data kinds: a member of the wrong length is shown locked as raw bytes
+    /// instead of failing to load.
+    fn is_data(kind: AssetKind) -> bool {
+        matches!(
+            kind,
+            AssetKind::Encounter
+                | AssetKind::Personal
+                | AssetKind::Learnset
+                | AssetKind::Evolution
+                | AssetKind::Move
+                | AssetKind::Item
+                | AssetKind::TrainerTextTable
+                | AssetKind::TrainerTextOffsets
         )
     }
 
@@ -129,17 +165,25 @@ impl Loaded {
             | AssetKind::InteriorBuildingModel
             | AssetKind::DynamicHeaders
             | AssetKind::Script => Err(KernelError::NotEditable(kind)),
-            // The data kinds are archives for build and counting only; editing comes later.
-            AssetKind::Encounter
-            | AssetKind::Personal
-            | AssetKind::Learnset
-            | AssetKind::Evolution
-            | AssetKind::Move
-            | AssetKind::Item
-            | AssetKind::TrainerProperties
-            | AssetKind::TrainerParty
-            | AssetKind::TrainerTextTable
-            | AssetKind::TrainerTextOffsets => Err(KernelError::NotEditable(kind)),
+            AssetKind::Encounter => Ok(Loaded::Encounter(Box::new(Encounters::read(
+                bytes, family,
+            )?))),
+            AssetKind::Personal => Ok(Loaded::Personal(Personal::read(bytes)?)),
+            AssetKind::Learnset => Ok(Loaded::Learnset(Learnset::read(bytes)?)),
+            AssetKind::Evolution => Ok(Loaded::Evolution(Evolution::read(bytes)?)),
+            AssetKind::Move => Ok(Loaded::Move(Move::read(bytes)?)),
+            AssetKind::Item => Ok(Loaded::Item(Item::read(bytes)?)),
+            AssetKind::TrainerTextTable => {
+                Ok(Loaded::TrainerTextTable(TrainerTextTable::read(bytes)?))
+            }
+            AssetKind::TrainerTextOffsets => {
+                Ok(Loaded::TrainerTextOffsets(TrainerTextOffsets::read(bytes)?))
+            }
+            // Archives for build and counting only: a trainer is edited as a pair of both
+            // members (3b.3b).
+            AssetKind::TrainerProperties | AssetKind::TrainerParty => {
+                Err(KernelError::NotEditable(kind))
+            }
         }
     }
 
@@ -158,7 +202,104 @@ impl Loaded {
                 Ok(headers.iter().flat_map(write_map_header_to_bytes).collect())
             }
             Loaded::TextArchive(doc) => Ok(doc.to_json()),
+            Loaded::Encounter(e) => Ok(e.write()),
+            Loaded::Personal(p) => Ok(p.write()),
+            Loaded::Learnset(l) => Ok(l.write()),
+            Loaded::Evolution(e) => Ok(e.write()),
+            Loaded::Move(m) => Ok(m.write()),
+            Loaded::Item(i) => Ok(i.write()),
+            Loaded::TrainerTextTable(t) => Ok(t.write()),
+            Loaded::TrainerTextOffsets(o) => Ok(o.write()),
+            Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
+    }
+}
+
+/// Decodes the bytes of `id` as read from disk, with the reason the asset is locked, if it
+/// is: a data member of a length its codec rejects becomes [`Loaded::Raw`], locked with
+/// a reason that names the asset and both lengths ("item 0017: 36 bytes, expected 34");
+/// any other value is locked when it would not be written back byte for byte (see
+/// [`unwritable_reason`]). Other decode errors are returned as they are.
+fn decode(
+    id: AssetId,
+    bytes: &[u8],
+    family: Family,
+    lang: &str,
+) -> Result<(Loaded, Option<String>), KernelError> {
+    match Loaded::from_bytes(id.kind, bytes, family, lang) {
+        Ok(value) => {
+            let locked = unwritable_reason(&value, bytes, family);
+            Ok((value, locked))
+        }
+        Err(KernelError::Format(FormatError::BadSize { expected, found }))
+            if Loaded::is_data(id.kind) =>
+        {
+            Ok((
+                Loaded::Raw(bytes.to_vec()),
+                Some(format!("{id}: {found} bytes, expected {expected}")),
+            ))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// A data record type the store edits, and the [`Loaded`] variant that holds it.
+trait Record: Sized {
+    const KIND: AssetKind;
+    fn of(value: &Loaded) -> Option<&Self>;
+    fn of_mut(value: &mut Loaded) -> Option<&mut Self>;
+}
+
+macro_rules! record {
+    ($($ty:ty => $variant:ident;)*) => {$(
+        impl Record for $ty {
+            const KIND: AssetKind = AssetKind::$variant;
+
+            fn of(value: &Loaded) -> Option<&Self> {
+                match value {
+                    // The binding derefs a boxed variant.
+                    Loaded::$variant(v) => {
+                        let v: &Self = v;
+                        Some(v)
+                    }
+                    _ => None,
+                }
+            }
+
+            fn of_mut(value: &mut Loaded) -> Option<&mut Self> {
+                match value {
+                    Loaded::$variant(v) => {
+                        let v: &mut Self = v;
+                        Some(v)
+                    }
+                    _ => None,
+                }
+            }
+        }
+    )*};
+}
+
+record! {
+    Encounters => Encounter;
+    Personal => Personal;
+    Learnset => Learnset;
+    Evolution => Evolution;
+    Move => Move;
+    Item => Item;
+    TrainerTextTable => TrainerTextTable;
+    TrainerTextOffsets => TrainerTextOffsets;
+}
+
+/// The record of type `T` in `asset`; a locked raw member is [`KernelError::ReadOnly`] with
+/// its lock reason.
+fn record_of<T: Record>(id: AssetId, asset: &Asset) -> Result<&T, KernelError> {
+    match (T::of(&asset.current), &asset.current) {
+        (Some(value), _) => Ok(value),
+        (None, Loaded::Raw(_)) => Err(KernelError::ReadOnly {
+            asset: id,
+            reason: asset.locked.clone().unwrap_or_default(),
+        }),
+        (None, _) => Err(mismatch(id)),
     }
 }
 
@@ -341,6 +482,121 @@ impl Tx<'_> {
             _ => Err(mismatch(id)),
         })
     }
+
+    /// Stages `edit` of data member `index` of `T`'s kind; a locked member (wrong length,
+    /// or not reproducible) is [`KernelError::ReadOnly`].
+    fn edit_record<T: Record>(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut T),
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        self.edit(id, |loaded| match T::of_mut(loaded) {
+            Some(value) => {
+                edit(value);
+                Ok(())
+            }
+            None => Err(mismatch(id)),
+        })
+    }
+
+    /// Data member `index` of `T`'s kind as this transaction sees it: with its staged edit,
+    /// if it has one, else as the store holds it.
+    fn record<T: Record>(&mut self, index: u16) -> Result<&T, KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        if let Some(staged) = self.staged.iter().find(|s| s.asset == id) {
+            return T::of(&staged.edited).ok_or_else(|| mismatch(id));
+        }
+        self.store.record(index)
+    }
+
+    /// Personal data `index` as this transaction sees it (its staged edit included).
+    pub fn personal(&mut self, index: u16) -> Result<&Personal, KernelError> {
+        self.record(index)
+    }
+
+    /// Learnset `index` as this transaction sees it (its staged edit included).
+    pub fn learnset(&mut self, index: u16) -> Result<&Learnset, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits encounter file `index`.
+    pub fn edit_encounter(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Encounters),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits personal data `index`.
+    pub fn edit_personal(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Personal),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits learnset `index`.
+    pub fn edit_learnset(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Learnset),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits evolution data `index`.
+    pub fn edit_evolution(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Evolution),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits move `index`.
+    pub fn edit_move(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Move),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits item data member `index` (a data member, not an item id).
+    pub fn edit_item(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Item),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits trainer text table member `index` (the game has one, member 0).
+    pub fn edit_trainer_text_table(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerTextTable),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
+
+    /// Edits trainer text offsets member `index` (the game has one, member 0).
+    pub fn edit_trainer_text_offsets(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerTextOffsets),
+    ) -> Result<(), KernelError> {
+        self.edit_record(index, edit)
+    }
 }
 
 pub struct Store {
@@ -483,9 +739,7 @@ impl Store {
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
-            let family = self.project.family;
-            let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
-            let locked = unwritable_reason(&current, &bytes, family);
+            let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
             self.assets.insert(
                 id,
                 Asset {
@@ -1033,6 +1287,163 @@ impl Store {
             .map(|((), change)| change)
     }
 
+    /// Data member `index` of `T`'s kind, loaded on first use; a member of the wrong length
+    /// is [`KernelError::ReadOnly`] with its lock reason.
+    fn record<T: Record>(&mut self, index: u16) -> Result<&T, KernelError> {
+        let id = AssetId {
+            kind: T::KIND,
+            index,
+        };
+        let asset: &Asset = self.load(id)?;
+        record_of(id, asset)
+    }
+
+    /// Runs `edit` on data member `index` of `T`'s kind as a one-part transaction. The id
+    /// is `None` when `edit` left the member as it was (nothing is recorded to undo then).
+    fn edit_record<T: Record>(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut T),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.transaction(label, |tx| tx.edit_record(index, edit))
+            .map(|((), change)| change)
+    }
+
+    /// Returns encounter file `index`, loading it on first use.
+    pub fn encounter(&mut self, index: u16) -> Result<&Encounters, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns personal data `index` (species or form), loading it on first use.
+    pub fn personal(&mut self, index: u16) -> Result<&Personal, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns learnset `index`, loading it on first use.
+    pub fn learnset(&mut self, index: u16) -> Result<&Learnset, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns evolution data `index`, loading it on first use.
+    pub fn evolution(&mut self, index: u16) -> Result<&Evolution, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns move `index`, loading it on first use.
+    pub fn move_data(&mut self, index: u16) -> Result<&Move, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns item data member `index` (a data member, not an item id), loading it on first
+    /// use.
+    pub fn item(&mut self, index: u16) -> Result<&Item, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns trainer text table member `index` (the game has one, member 0).
+    pub fn trainer_text_table(&mut self, index: u16) -> Result<&TrainerTextTable, KernelError> {
+        self.record(index)
+    }
+
+    /// Returns trainer text offsets member `index` (the game has one, member 0).
+    pub fn trainer_text_offsets(&mut self, index: u16) -> Result<&TrainerTextOffsets, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits encounter file `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_encounter(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Encounters),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits personal data `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_personal(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Personal),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits learnset `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_learnset(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Learnset),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits evolution data `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_evolution(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Evolution),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits move `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_move(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Move),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits item data member `index`. The id is `None` when `edit` changed nothing.
+    pub fn edit_item(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut Item),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits trainer text table member `index`. The id is `None` when `edit` changed
+    /// nothing.
+    pub fn edit_trainer_text_table(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerTextTable),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// Edits trainer text offsets member `index`. The id is `None` when `edit` changed
+    /// nothing.
+    pub fn edit_trainer_text_offsets(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerTextOffsets),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(index, label, edit)
+    }
+
+    /// The bytes of the loaded asset `id` as the store holds them, unsaved edits included
+    /// (a text archive: its canonical JSON; a locked member: the bytes it was read with).
+    /// `None` when `id` is not loaded; nothing is loaded here. An error when the value
+    /// cannot be serialized.
+    pub fn current_bytes(&self, id: AssetId) -> Result<Option<Vec<u8>>, KernelError> {
+        self.assets
+            .get(&id)
+            .map(|a| a.current.to_bytes(self.project.family))
+            .transpose()
+    }
+
     /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
     /// the archive, writes its member and its JSON at once and loads it. Returns its index.
     /// Not undoable.
@@ -1172,9 +1583,7 @@ impl Store {
         // not keep what it read before the file changed.
         self.drop_text_index(id);
         let bytes = self.read_member(id)?;
-        let family = self.project.family;
-        let current = Loaded::from_bytes(id.kind, &bytes, family, self.lang())?;
-        let locked = unwritable_reason(&current, &bytes, family);
+        let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
         self.assets.insert(
             id,
             Asset {
@@ -1237,7 +1646,7 @@ impl Store {
     /// Sets every asset of `change` to the side of its part that `side` picks and returns the
     /// assets in the order they were edited. All parts are decoded first, then applied in
     /// reverse order; the first part that does not decode (or whose asset is not loaded) is
-    /// an error naming its asset, and then no asset changes.
+    /// [`KernelError::Restore`] naming its asset, and then no asset changes.
     fn restore_parts(
         &mut self,
         change: &Changeset,
@@ -1250,14 +1659,18 @@ impl Store {
             .map(|part| {
                 let id = part.asset;
                 if !self.assets.contains_key(&id) {
-                    return Err(KernelError::InvalidProject(format!(
-                        "{id} cannot be restored: it is not loaded"
-                    )));
+                    return Err(KernelError::Restore {
+                        asset: id,
+                        reason: "it is not loaded".to_owned(),
+                    });
                 }
+                // Strict on purpose: a part holds the bytes of an editable value, never a
+                // locked raw member.
                 Loaded::from_bytes(id.kind, side(part), family, self.lang())
                     .map(|value| (id, value))
-                    .map_err(|e| {
-                        KernelError::InvalidProject(format!("{id} cannot be restored: {e}"))
+                    .map_err(|e| KernelError::Restore {
+                        asset: id,
+                        reason: e.to_string(),
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1606,6 +2019,8 @@ mod tests {
             AssetKind::BuildingTexture,
             AssetKind::BuildingModel,
             AssetKind::InteriorBuildingModel,
+            AssetKind::TrainerProperties,
+            AssetKind::TrainerParty,
         ] {
             assert!(!Loaded::is_editable(kind));
             assert!(matches!(
@@ -1849,15 +2264,15 @@ mod tests {
         #[test]
         fn create_text_archive_appends_member_and_json() {
             let (_s, mut st) = store();
-            assert_eq!(st.create_text_archive().unwrap(), 434);
-            assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), 435);
+            assert_eq!(st.create_text_archive().unwrap(), 698);
+            assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), 699);
             assert!(
                 st.project()
-                    .member_path(AssetKind::TextArchive, 434)
+                    .member_path(AssetKind::TextArchive, 698)
                     .is_file()
             );
-            assert!(json_path(&st, 434).is_file());
-            let doc = st.text_archive(434).unwrap();
+            assert!(json_path(&st, 698).is_file());
+            let doc = st.text_archive(698).unwrap();
             assert_eq!(doc.key, 0);
             let texts: Vec<_> = doc.messages.iter().map(|m| m.text.as_str()).collect();
             assert_eq!(texts, ["Neuer Text"]);

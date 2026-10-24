@@ -55,7 +55,8 @@ pub struct Synthetic {
 }
 
 /// ds-rom layout for Platinum US with 3 maps, 1 matrix (2x1, maps 0 and 1) and 2 area data
-/// entries, plus the event, text, texture and building model archives, all packed, plus
+/// entries, plus the event, text (698 members, see [`PT_TEXT_BANKS`]), texture and building
+/// model archives and the ten data archives (see `write_data_archives`), all packed, plus
 /// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02").
 pub fn synthetic_project() -> Synthetic {
     let dir = tempfile::tempdir().unwrap();
@@ -96,15 +97,16 @@ pub fn synthetic_project() -> Synthetic {
         "files/fielddata/eventdata/zone_event.narc",
         &[vec![0; 16], vec![0; 16]],
     );
-    // Member 433 is the Platinum location bank (see `uxie::text_bank::game_strings`); the
-    // members before it are placeholders.
-    let mut text_members = vec![vec![0xAA; 8]; 433];
-    text_members.push(text_archive_bytes(&[
-        "Nowhere",
-        "Twinleaf Town",
-        "Sandgem Town",
-    ]));
+    // Member 433 is the Platinum location bank (see `uxie::text_bank::game_strings`), the
+    // `PT_TEXT_BANKS` members are the name and description banks of `text_banks.yaml`; the
+    // other members up to 697 are placeholders.
+    let mut text_members = vec![vec![0xAA; 8]; PT_TEXT_ARCHIVES];
+    let banks: Vec<&[&str]> = PT_TEXT_BANKS.iter().map(|(_, m)| *m).collect();
+    for ((index, _), bytes) in PT_TEXT_BANKS.iter().zip(text_archives_bytes(&banks)) {
+        text_members[usize::from(*index)] = bytes;
+    }
     write_narc(root, "files/msgdata/pl_msg.narc", &text_members);
+    write_data_archives(root);
     let btx = [b"BTX0".as_slice(), &[0; 4]].concat();
     let bmd = [b"BMD0".as_slice(), &[0; 4]].concat();
     write_narc(
@@ -182,6 +184,119 @@ pub fn synthetic_project() -> Synthetic {
     Synthetic { dir }
 }
 
+/// Number of text archives of the fixture: members 0 to 697.
+pub const PT_TEXT_ARCHIVES: usize = 698;
+
+/// The decodable text archives of the fixture with their messages: the location bank 433
+/// and the Platinum banks of `text_banks.yaml` (item descriptions 391, items 392, species
+/// 412, abilities 610, battle texts 617, trainer names 618, trainer classes 619, types 624,
+/// move descriptions 646, moves 647, forms 697), each a small archive.
+pub const PT_TEXT_BANKS: [(u16, &[&str]); 12] = [
+    (391, &["", "The best Ball.", "A good Ball."]),
+    (392, &["None", "Master Ball", "Ultra Ball"]),
+    (412, &["-----", "Bulbasaur", "Ivysaur", "Venusaur"]),
+    (433, &["Nowhere", "Twinleaf Town", "Sandgem Town"]),
+    (610, &["-", "Stench", "Drizzle"]),
+    (617, &["Let's battle!", "I lost!"]),
+    (618, &["", "Kai", "Mia"]),
+    (619, &["Pokémon Trainer", "Youngster"]),
+    (624, &["Normal", "Fighting", "Flying"]),
+    (646, &["", "Pounds the foe.", "Chops the foe."]),
+    (647, &["-", "Pound", "Karate Chop"]),
+    (697, &["Normal Form", "Attack Form"]),
+];
+
+/// Members per data archive of the fixture (Platinum paths). Personal data, learnsets and
+/// evolutions have one member per species and form, as in Platinum.
+pub const PT_SPECIES_MEMBERS: usize = 508;
+pub const PT_MOVE_MEMBERS: usize = 4;
+pub const PT_ITEM_MEMBERS: usize = 20;
+pub const PT_ENCOUNTER_MEMBERS: usize = 2;
+pub const PT_TRAINER_MEMBERS: usize = 2;
+/// The item member DSPRE wrote with 36 bytes instead of 34.
+pub const LONG_ITEM: u16 = 17;
+
+/// Personal data of species `index` (44 bytes): base stats, types, abilities.
+pub fn synthetic_personal_bytes(index: u16) -> Vec<u8> {
+    let mut p = vec![0u8; 44];
+    let base = (index % 200) as u8;
+    p[..6].copy_from_slice(&[base + 1, base + 2, base + 3, base + 4, base + 5, base + 6]);
+    p[6] = (index % 17) as u8; // type 1
+    p[7] = ((index + 1) % 17) as u8; // type 2
+    p[0x16] = 1; // ability 1
+    p[0x1C] = (index % 256) as u8; // TM01 to TM08
+    p
+}
+
+/// A learnset of two moves (Pound at level 1, Karate Chop at 5), the terminator and the
+/// padding to four bytes, as Platinum writes it.
+pub const SYNTHETIC_LEARNSET: [u8; 8] = [0x01, 0x02, 0x02, 0x0A, 0xFF, 0xFF, 0x00, 0x00];
+
+/// Writes the data archives of `archives.yaml` at their Platinum paths.
+fn write_data_archives(root: &Path) {
+    let species = PT_SPECIES_MEMBERS as u16;
+    let personal: Vec<Vec<u8>> = (0..species).map(synthetic_personal_bytes).collect();
+    write_narc(root, "files/poketool/personal/pl_personal.narc", &personal);
+    write_narc(
+        root,
+        "files/poketool/personal/wotbl.narc",
+        &vec![SYNTHETIC_LEARNSET.to_vec(); PT_SPECIES_MEMBERS],
+    );
+    // Species 1 evolves at level 16 (method 4) into species 2.
+    let mut evolutions = vec![vec![0u8; 44]; PT_SPECIES_MEMBERS];
+    evolutions[1][..6].copy_from_slice(&[4, 0, 16, 0, 2, 0]);
+    write_narc(root, "files/poketool/personal/evo.narc", &evolutions);
+    // effect, category, power, type, accuracy, pp, ...
+    let moves: Vec<Vec<u8>> = (0..PT_MOVE_MEMBERS as u8)
+        .map(|i| {
+            let mut m = vec![0u8; 16];
+            m[..7].copy_from_slice(&[0, 0, 0, i * 10, 0, 100, 35]);
+            m
+        })
+        .collect();
+    write_narc(root, "files/poketool/waza/pl_waza_tbl.narc", &moves);
+    let items: Vec<Vec<u8>> = (0..PT_ITEM_MEMBERS as u16)
+        .map(|i| {
+            let len = if i == LONG_ITEM { 36 } else { 34 };
+            let mut item = vec![0u8; len];
+            item[..2].copy_from_slice(&(i * 100).to_le_bytes()); // price
+            item
+        })
+        .collect();
+    write_narc(root, "files/itemtool/itemdata/pl_item_data.narc", &items);
+    // Grass rate 10; grass slot 0 is level 2 species 1.
+    let mut encounter = vec![0u8; 424];
+    encounter[0] = 10;
+    encounter[4] = 2;
+    encounter[8] = 1;
+    write_narc(
+        root,
+        "files/fielddata/encountdata/pl_enc_data.narc",
+        &vec![encounter; PT_ENCOUNTER_MEMBERS],
+    );
+    // Trainer class 1 with one Pokémon: level 5, species 1.
+    let mut props = vec![0u8; 20];
+    props[1] = 1; // class
+    props[3] = 1; // party count
+    write_narc(
+        root,
+        "files/poketool/trainer/trdata.narc",
+        &vec![props; PT_TRAINER_MEMBERS],
+    );
+    write_narc(
+        root,
+        "files/poketool/trainer/trpoke.narc",
+        &vec![vec![0, 0, 5, 0, 1, 0, 0, 0]; PT_TRAINER_MEMBERS],
+    );
+    // Trainer 1 speaks battle texts 0 and 1 (triggers 0 and 2), at offset 0.
+    write_narc(
+        root,
+        "files/poketool/trmsg/trtbl.narc",
+        &[vec![1, 0, 0, 0, 1, 0, 2, 0]],
+    );
+    write_narc(root, "files/poketool/trmsg/trtblofs.narc", &[vec![0; 4]]);
+}
+
 /// The source of the fixture's script member 0.
 pub const SCRIPT_SOURCE: &str =
     "script Main #1:\n    Message 1\n    End\nscript Second #2:\n    End\n";
@@ -207,18 +322,27 @@ fn compile_script(source: &str) -> Vec<u8> {
 
 /// A binary text archive (chatot format, key 0) with the given messages, encoded by uxie.
 pub fn text_archive_bytes(messages: &[&str]) -> Vec<u8> {
+    text_archives_bytes(&[messages]).remove(0)
+}
+
+/// Several binary text archives like [`text_archive_bytes`], encoded by uxie in one call.
+pub fn text_archives_bytes(archives: &[&[&str]]) -> Vec<Vec<u8>> {
     let tmp = tempfile::tempdir().unwrap();
     let (src, dst) = (tmp.path().join("src"), tmp.path().join("dst"));
     std::fs::create_dir(&src).unwrap();
-    let messages: Vec<_> = messages
-        .iter()
-        .enumerate()
-        .map(|(i, m)| serde_json::json!({ "id": format!("msg_{i:05}"), "en_US": m }))
-        .collect();
-    let json = serde_json::json!({ "key": 0, "messages": messages });
-    std::fs::write(src.join("bank.json"), json.to_string()).unwrap();
+    for (n, messages) in archives.iter().enumerate() {
+        let messages: Vec<_> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| serde_json::json!({ "id": format!("msg_{i:05}"), "en_US": m }))
+            .collect();
+        let json = serde_json::json!({ "key": 0, "messages": messages });
+        std::fs::write(src.join(format!("bank{n}.json")), json.to_string()).unwrap();
+    }
     uxie::text_bank::encode_text_archives(&src, &dst).unwrap();
-    std::fs::read(dst.join("bank")).unwrap()
+    (0..archives.len())
+        .map(|n| std::fs::read(dst.join(format!("bank{n}"))).unwrap())
+        .collect()
 }
 
 /// A minimal valid Platinum map file; `seed` fills the 6-byte model block.

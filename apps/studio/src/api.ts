@@ -391,7 +391,8 @@ export interface AssetId {
 }
 
 /**
- * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only".
+ * Structured error of a backend command. `asset` is set when `code` is "stale" or "read_only",
+ * and for an "error" of an undo or redo that could not restore that asset.
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  */
