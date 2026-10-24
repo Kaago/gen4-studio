@@ -53,6 +53,14 @@ pub enum KernelError {
     /// Scripts or texts did not compile; the problems carry file, line and column.
     #[error("{} problem(s) in scripts or texts", .0.len())]
     Compile(Vec<Problem>),
+    /// A precondition of a command does not hold; nothing was changed. The text is shown to
+    /// the user as it is.
+    #[error("{0}")]
+    Refused(String),
+    /// A command failed after it had written something that stays (a member file, a compiled
+    /// script); the text says what was written and what failed.
+    #[error("{0}")]
+    Partial(String),
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.

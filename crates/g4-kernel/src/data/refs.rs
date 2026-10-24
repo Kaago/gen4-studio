@@ -452,16 +452,20 @@ impl Refs {
     }
 }
 
+/// The encounter file of `header` (its `wild_pokemon`), `None` when it has none.
+pub(crate) fn encounter_file(header: &MapHeader) -> Option<u16> {
+    match header {
+        MapHeader::DP(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
+        MapHeader::Pt(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
+        MapHeader::HGSS(h) => {
+            (h.wild_pokemon != NO_ENCOUNTERS_HGSS).then_some(u16::from(h.wild_pokemon))
+        }
+    }
+}
+
 fn header_refs(out: &mut Refs, headers: &[MapHeader]) {
     for (id, header) in headers.iter().enumerate() {
-        let file = match header {
-            MapHeader::DP(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
-            MapHeader::Pt(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
-            MapHeader::HGSS(h) => {
-                (h.wild_pokemon != NO_ENCOUNTERS_HGSS).then_some(u16::from(h.wild_pokemon))
-            }
-        };
-        if let Some(file) = file {
+        if let Some(file) = encounter_file(header) {
             out.push("wild_pokemon", Some(id), Target::Encounter(file));
         }
     }

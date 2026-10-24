@@ -708,7 +708,15 @@ pub struct Store {
     changed_at: HashMap<AssetId, u64>,
     /// Assets locked by [`Store::lock`], with the reason; applied whenever they are loaded.
     locks: HashMap<AssetId, String>,
+    /// The trainer ID of the sight script slot (`trainer_scripts.yaml`, see
+    /// [`crate::scripts::TrainerScriptMeta::seen_id`]): a trainer with this ID is the
+    /// placeholder `create_trainer` writes, locked with [`PLACEHOLDER_REASON`] whenever it
+    /// is loaded. Derived, never stored, so a reopened project shows it locked as well.
+    placeholder_trainer: Option<u16>,
 }
+
+/// Why the placeholder trainer of the sight script slot is read-only.
+pub const PLACEHOLDER_REASON: &str = "placeholder for the sight script slot";
 
 /// A message text and its lowercase form, for case-insensitive search.
 struct IndexedText {
@@ -763,7 +771,6 @@ fn mismatch(id: AssetId) -> KernelError {
 impl Store {
     pub fn new(project: Arc<Project>) -> Store {
         Store {
-            project,
             assets: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -774,6 +781,9 @@ impl Store {
             change_generation: 0,
             changed_at: HashMap::new(),
             locks: HashMap::new(),
+            placeholder_trainer: crate::scripts::trainer_script_meta(project.family)
+                .map(|meta| meta.seen_id()),
+            project,
         }
     }
 
@@ -849,7 +859,15 @@ impl Store {
         bytes: &[u8],
     ) -> Result<(Loaded, Option<String>), KernelError> {
         let (current, locked) = decode(id, bytes, self.project.family, self.lang())?;
-        Ok((current, locked.or_else(|| self.locks.get(&id).cloned())))
+        let placeholder = (id.kind == AssetKind::Trainer
+            && Some(id.index) == self.placeholder_trainer)
+            .then(|| PLACEHOLDER_REASON.to_owned());
+        Ok((
+            current,
+            locked
+                .or_else(|| self.locks.get(&id).cloned())
+                .or(placeholder),
+        ))
     }
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
@@ -1139,6 +1157,50 @@ impl Store {
             )));
         }
         Ok((index, path))
+    }
+
+    /// Writes a new trainer (its properties and its party member, see
+    /// [`Location::MemberPair`]) at the end of both archives and returns its index. Both
+    /// archives must end at the same index; when the party cannot be written, the new
+    /// properties file is removed again. Not undoable.
+    pub(crate) fn append_trainer(&mut self, props: &[u8], party: &[u8]) -> Result<u16, KernelError> {
+        let (index, _) = self.next_member(AssetKind::TrainerProperties)?;
+        let (party_index, _) = self.next_member(AssetKind::TrainerParty)?;
+        if index != party_index {
+            return Err(KernelError::InvalidProject(format!(
+                "{index} trainer properties but {party_index} trainer parties"
+            )));
+        }
+        self.append_member(AssetKind::TrainerProperties, props)?;
+        if let Err(e) = self.append_member(AssetKind::TrainerParty, party) {
+            // Best effort: the file was written a moment ago by this call.
+            let _ = std::fs::remove_file(
+                self.project
+                    .member_path(AssetKind::TrainerProperties, index),
+            );
+            return Err(e);
+        }
+        self.note_change(AssetId {
+            kind: AssetKind::Trainer,
+            index,
+        });
+        Ok(index)
+    }
+
+    /// Writes `bytes` as a new encounter file at the end of the archive and returns its
+    /// index. Refuses bytes of another length than the game's encounter file. Not undoable.
+    pub(crate) fn append_encounter(&mut self, bytes: &[u8]) -> Result<u16, KernelError> {
+        Encounters::read(bytes, self.project.family)?;
+        self.append_member(AssetKind::Encounter, bytes)
+    }
+
+    /// The bytes of encounter file `index` as the editor shows them: unsaved edits included,
+    /// a locked file as it is on disk.
+    pub(crate) fn encounter_bytes(&mut self, index: u16) -> Result<Vec<u8>, KernelError> {
+        self.member_bytes(AssetId {
+            kind: AssetKind::Encounter,
+            index,
+        })
     }
 
     /// Appends a new 1 x 1 matrix named `name` (one empty cell, no header or altitude section)
@@ -1595,6 +1657,31 @@ impl Store {
         reloaded
     }
 
+    /// The trainer ID of the sight script slot, whose trainer (if it exists) is the locked
+    /// placeholder; `None` where it is not known (Diamond/Pearl).
+    pub fn placeholder_trainer(&self) -> Option<u16> {
+        self.placeholder_trainer
+    }
+
+    /// Sets the placeholder trainer ID (see [`Store::placeholder_trainer`]); a loaded trainer
+    /// with that ID is locked at once (see [`Store::lock`]).
+    pub(crate) fn set_placeholder_trainer(&mut self, id: Option<u16>) -> Result<(), KernelError> {
+        self.placeholder_trainer = id;
+        match id {
+            Some(index) => {
+                let id = AssetId {
+                    kind: AssetKind::Trainer,
+                    index,
+                };
+                if self.assets.contains_key(&id) && self.locked(id).is_none() {
+                    self.lock(id, PLACEHOLDER_REASON)?;
+                }
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
     /// The bytes of the loaded asset `id` as the store holds them, unsaved edits included
     /// (a text archive: its canonical JSON; a locked member: the bytes it was read with).
     /// `None` when `id` is not loaded; nothing is loaded here. An error when the value
@@ -2037,8 +2124,7 @@ impl Store {
             match &location {
                 Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
                 Location::MemberPair { props, party } => {
-                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
-                    write_pair(&self.project.root, props, party, base, &bytes)?;
+                    write_pair(&self.project.root, props, party, &bytes)?;
                 }
                 Location::Slice { .. } => {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
@@ -2158,24 +2244,26 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
 
 /// Writes the bytes of a trainer ([`join_pair`]) to its two member files, each atomically:
 /// first the properties, then the party. When the party cannot be written, the properties
-/// are set back to `base` (the pair as last saved; without one the new properties file is
-/// removed), so the two files never stay half saved.
+/// file gets back the bytes it had before (read right before the write; without a file
+/// there, the new one is removed), so the two files never stay half saved. The store's base
+/// is not used for that: after [`Store::accept_disk_as_base`] adopted a deleted pair it is
+/// "absent" while the user may have put a properties file back meanwhile.
 fn write_pair(
     project_root: &Path,
     props_path: &Path,
     party_path: &Path,
-    base: Option<&[u8]>,
     bytes: &[u8],
 ) -> Result<(), KernelError> {
     let (props, party) = split_pair(bytes)?;
+    let old_props = read_file(props_path)?;
     write_atomic(project_root, props_path, props)?;
     if let Err(e) = write_atomic(project_root, party_path, party) {
         // Best effort: the error of the party write is the one to report.
-        match base.map(split_pair) {
-            Some(Ok((old, _))) => {
-                let _ = write_atomic(project_root, props_path, old);
+        match old_props {
+            Some(old) => {
+                let _ = write_atomic(project_root, props_path, &old);
             }
-            _ => {
+            None => {
                 let _ = std::fs::remove_file(props_path);
             }
         }
@@ -2362,6 +2450,35 @@ mod tests {
             before
         );
     }
+    /// A failed party write leaves the properties file as it was before the save: the bytes
+    /// on disk, not the store's base (which is "absent" after `accept_disk_as_base` adopted
+    /// a deleted pair).
+    #[cfg(feature = "test-support")]
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn write_pair_puts_the_old_properties_back_when_the_party_write_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let props = root.join("props");
+        let party = root.join("party");
+        // A non-empty folder where the party file goes: the rename onto it fails.
+        std::fs::create_dir(&party).unwrap();
+        std::fs::write(party.join("x"), b"x").unwrap();
+        let bytes = join_pair(&[1; 20], &[2; 8]);
+        std::fs::write(&props, [9; 20]).unwrap();
+        assert!(write_pair(root, &props, &party, &bytes).is_err());
+        assert_eq!(std::fs::read(&props).unwrap(), [9; 20]);
+        // No properties file before the save: none after.
+        std::fs::remove_file(&props).unwrap();
+        assert!(write_pair(root, &props, &party, &bytes).is_err());
+        assert!(!props.exists());
+        // A writable party: both files are written.
+        std::fs::remove_dir_all(&party).unwrap();
+        write_pair(root, &props, &party, &bytes).unwrap();
+        assert_eq!(std::fs::read(&props).unwrap(), [1; 20]);
+        assert_eq!(std::fs::read(&party).unwrap(), [2; 8]);
+    }
+
     #[cfg(feature = "test-support")]
     #[allow(clippy::unwrap_used)]
     mod text {

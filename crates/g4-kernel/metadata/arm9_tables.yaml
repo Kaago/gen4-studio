@@ -11,10 +11,11 @@
 #
 # Checked (docs/research/2026-10-23-3b3/task0-3b3a.md): CPUD, IPKD, IPKE. Platinum flags from
 # pokeplatinum vars_flags.txt; HGSS flags from pokeheartgold flags.h (TRAINER_FLAG_BASE 0x550,
-# next flag 0x82E).
-CPUD: { item_table: 0xF0D1C, item_count: 468, machine_table: 0xF0C54, mon_icon_palettes: 0xF07D8, mon_icon_palettes_len: 540, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 928 }
-IPKD: { item_table: 0x100148, item_count: 537, machine_table: 0x100080, mon_icon_palettes: 0xFFBC4, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 734 }
-IPKE: { item_table: 0x100194, item_count: 537, machine_table: 0x1000CC, mon_icon_palettes: 0xFFC10, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 734 }
+# next flag 0x82E). trainer_flag_capacity 1040: flags 0x550 + ID up to 0x95F, the "defeated"
+# flags the game reads for any trainer ID (trainer-mechanics-3b3b.md §4).
+CPUD: { item_table: 0xF0D1C, item_count: 468, machine_table: 0xF0C54, mon_icon_palettes: 0xF07D8, mon_icon_palettes_len: 540, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 1040 }
+IPKD: { item_table: 0x100148, item_count: 537, machine_table: 0x100080, mon_icon_palettes: 0xFFBC4, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 1040 }
+IPKE: { item_table: 0x100194, item_count: 537, machine_table: 0x1000CC, mon_icon_palettes: 0xFFC10, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 1040 }
 #
 # Unverified: DSPRE RomInfo (SetItemTableOffset, GetMachineMoveOffset), which keys them by
 # family and language only (Diamond = Pearl, HeartGold = SoulSilver). Item counts are the
