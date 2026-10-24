@@ -16,7 +16,7 @@ use crate::store::{ChangeId, MapHeader, Store};
 
 /// The refusal for an encounter file a HeartGold/SoulSilver header could not name (the UI
 /// shows it as it is).
-pub const HGSS_LIMIT: &str = "HeartGold kann höchstens 255 Begegnungsdateien ansprechen";
+pub const HGSS_LIMIT: &str = "HeartGold kann höchstens 255 Begegnungsdateien ansprechen; binde im Header-Editor eine vorhandene an.";
 
 /// Encounter files a header of `family` can name: HGSS stores the index in a byte with 0xFF
 /// for "none" (0 to 254); Platinum and DP in a u16 with 0xFFFF for "none".
@@ -50,7 +50,7 @@ pub fn create_encounter_file(
         return Err(KernelError::Refused(match family {
             Family::Hgss => HGSS_LIMIT.to_owned(),
             Family::Pt | Family::Dp => {
-                format!("{count} encounter files: a header can name no more")
+                format!("{count} Begegnungsdateien: ein Header kann keine weitere ansprechen.")
             }
         }));
     }
@@ -60,7 +60,8 @@ pub fn create_encounter_file(
             let bytes = store.encounter_bytes(source)?;
             if bytes.len() != len {
                 return Err(KernelError::Refused(format!(
-                    "encounter file {source} is {} bytes, expected {len}; it is not copied",
+                    "Begegnungsdatei {source:04} hat {} Bytes statt {len} und wird nicht kopiert. \
+                     Wähle eine andere Vorlage oder „Leer“.",
                     bytes.len()
                 )));
             }
@@ -84,12 +85,16 @@ pub fn split_encounter_file(
     let headers = store.header_table()?;
     let current = headers.get(usize::from(header)).ok_or_else(|| {
         KernelError::Refused(format!(
-            "header {header} does not exist ({} headers)",
+            "Header {header} gibt es nicht (das Projekt hat {} Header).",
             headers.len()
         ))
     })?;
-    let file = encounter_file(current)
-        .ok_or_else(|| KernelError::Refused(format!("header {header} has no encounter file")))?;
+    let file = encounter_file(current).ok_or_else(|| {
+        KernelError::Refused(format!(
+            "Header {header} hat keine Begegnungsdatei. Binde im Header-Editor eine an (Feld \
+                 „Begegnungen“), dann lässt sie sich abspalten."
+        ))
+    })?;
     let copy = create_encounter_file(project, store, Some(file))?;
     let label = format!("Begegnungsdatei {copy} für Header {header} abgespalten");
     let (_, change) = store
@@ -221,6 +226,11 @@ mod tests {
         // A header that does not exist is refused, nothing is created.
         let err = split_encounter_file(&project, &mut store, 99).unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        let headers = store.header_table().unwrap().len();
+        assert_eq!(
+            err.to_string(),
+            format!("Header 99 gibt es nicht (das Projekt hat {headers} Header).")
+        );
         assert_eq!(
             store.member_count(AssetKind::Encounter).unwrap(),
             PT_ENCOUNTER_MEMBERS + 1
@@ -236,6 +246,11 @@ mod tests {
         assert_eq!(wild(&mut store, 1), None);
         let err = split_encounter_file(&project, &mut store, 1).unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Header 1 hat keine Begegnungsdatei. Binde im Header-Editor eine an (Feld \
+             „Begegnungen“), dann lässt sie sich abspalten."
+        );
         assert_eq!(
             store.member_count(AssetKind::Encounter).unwrap(),
             PT_ENCOUNTER_MEMBERS

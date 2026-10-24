@@ -1005,7 +1005,7 @@ pub fn battle_script_file(project: &Project) -> Result<u16, KernelError> {
         .or_else(|| trainer_script_meta(project.family).map(|m| m.battle_file))
         .ok_or_else(|| {
             KernelError::Refused(
-                "Diamond/Pearl: the trainer battle script is not known without a test project"
+                "Diamant/Perl: das Kampf-Script der Trainer ist ohne Testprojekt nicht bekannt"
                     .to_owned(),
             )
         })
@@ -1017,7 +1017,7 @@ pub fn project_trainer_script_meta(project: &Project) -> Result<TrainerScriptMet
     let battle_file = battle_script_file(project)?;
     let meta = trainer_script_meta(project.family).ok_or_else(|| {
         KernelError::Refused(
-            "Diamond/Pearl: the sight script of trainers is not known without a test project"
+            "Diamant/Perl: das Sicht-Script der Trainer ist ohne Testprojekt nicht bekannt"
                 .to_owned(),
         )
     })?;
@@ -1047,7 +1047,8 @@ impl BattleSlots {
 /// The refusal when the battle script file has no rotom source.
 fn no_battle_source(file: u16) -> KernelError {
     KernelError::Refused(format!(
-        "battle script file {file:04} has no rotom source; adopt the scripts first"
+        "Kampf-Scriptdatei {file:04} hat keine rotom-Quelle. Erst Scripts übernehmen \
+         (Bereich Welt, Panel Script), dann lässt sich ein Trainer anlegen."
     ))
 }
 
@@ -1070,7 +1071,9 @@ fn analyze_battle_slots(text: &str, meta: &TrainerScriptMeta) -> Result<BattleSl
     let slots = declared_slots(text)?;
     let Some((_, battle_span)) = slots.iter().find(|(id, _)| *id == 1) else {
         return Err(KernelError::Refused(format!(
-            "battle script file {file:04} declares no slot 1"
+            "Kampf-Scriptdatei {file:04} hat keinen Platz 1: das Studio erkennt das Kampf-Script \
+             nicht. Stelle die Datei wieder her (DSPRE oder Sicherung), dann lässt sich ein \
+             Trainer anlegen."
         )));
     };
     let mut battle: Vec<u32> = slots
@@ -1086,15 +1089,17 @@ fn analyze_battle_slots(text: &str, meta: &TrainerScriptMeta) -> Result<BattleSl
     }
     if !slots.iter().any(|(id, _)| *id == seen) {
         return Err(KernelError::Refused(format!(
-            "battle script file {file:04}: slot {seen} after the battle slots is no script, \
-             expected the sight script"
+            "Kampf-Scriptdatei {file:04}: hinter den Kampfplätzen steht bei Platz {seen} kein \
+             Script, dort erwartet das Spiel das Sicht-Script. Stelle die Datei wieder her (DSPRE \
+             oder Sicherung), dann lässt sich ein Trainer anlegen."
         )));
     }
     let expected = u32::from(meta.seen_id());
     if seen != expected {
         return Err(KernelError::Refused(format!(
-            "battle script file {file:04}: the sight script is slot {seen}, the game starts \
-             slot {expected} (script {}); the file was rebuilt by another tool",
+            "Kampf-Scriptdatei {file:04}: das Sicht-Script ist Platz {seen}, das Spiel startet \
+             Platz {expected} (Script {}). Ein anderes Werkzeug hat die Datei umgebaut; stelle \
+             die alte Reihenfolge wieder her, dann lässt sich ein Trainer anlegen.",
             meta.seen_script
         )));
     }
@@ -1206,20 +1211,20 @@ fn jump_table(bytes: &[u8]) -> Option<(Vec<i64>, usize)> {
 fn extension_mismatch(old: &[u8], new: &[u8], seen: u32, added: &[u32]) -> Option<String> {
     let (Some((_, old_code)), Some((targets, new_code))) = (jump_table(old), jump_table(new))
     else {
-        return Some("the jump table has no end marker".to_owned());
+        return Some("der Sprungtabelle fehlt das Endzeichen".to_owned());
     };
     if old[old_code..] != new[new_code..] {
-        return Some("the code after the jump table changed".to_owned());
+        return Some("der Code hinter der Sprungtabelle hat sich geändert".to_owned());
     }
     let target = |slot: u32| targets.get(slot as usize - 1).copied();
     let battle = target(1);
     for &slot in added {
         if target(slot).is_none() || target(slot) != battle {
-            return Some(format!("slot {slot} does not point at the battle code"));
+            return Some(format!("Platz {slot} zeigt nicht auf den Kampf-Code"));
         }
     }
     if target(seen).is_none() || target(seen) == battle {
-        return Some(format!("slot {seen} no longer points at the sight code"));
+        return Some(format!("Platz {seen} zeigt nicht mehr auf den Sicht-Code"));
     }
     None
 }
@@ -1293,7 +1298,8 @@ pub fn extend_battle_slots_with(
     }
     if up_to == slots.seen {
         return Err(KernelError::Refused(format!(
-            "trainer {up_to_id} is the sight script slot and never battles when talked to"
+            "Trainer {up_to_id} ist der Platz des Sicht-Scripts und kämpft nie, wenn man ihn \
+             anspricht; das Studio legt dort nur den gesperrten Platzhalter an."
         )));
     }
     let declared = declared_slots(&text)?;
@@ -1305,7 +1311,8 @@ pub fn extend_battle_slots_with(
         .find(|&&slot| declared.iter().any(|(id, _)| *id == slot))
     {
         return Err(KernelError::Refused(format!(
-            "battle script file {file:04}: slot {taken} belongs to another script"
+            "Kampf-Scriptdatei {file:04}: Platz {taken} gehört einem anderen Script. Gib ihm eine \
+             andere Nummer, dann bekommt das Kampf-Script neue Plätze."
         )));
     }
     let span = declared
@@ -1315,7 +1322,8 @@ pub fn extend_battle_slots_with(
         .unwrap_or_default();
     let extended = add_battle_slots(&text, &span, &added).ok_or_else(|| {
         KernelError::Refused(format!(
-            "battle script file {file:04}: the header line of slot 1 was not found"
+            "Kampf-Scriptdatei {file:04}: die Kopfzeile von Platz 1 fehlt, das Studio kann keine \
+             Plätze anfügen. Stelle die Datei wieder her (DSPRE oder Sicherung)."
         ))
     })?;
     let member = member_file(project, file);
@@ -1365,7 +1373,7 @@ pub fn extend_battle_slots_with(
     };
     if let Some(why) = extension_mismatch(&old_member, &new_member, slots.seen, &added) {
         return Err(restore(KernelError::InvalidProject(format!(
-            "battle script file {file:04} did not compile as expected: {why}"
+            "Kampf-Scriptdatei {file:04} kam beim Kompilieren anders heraus als erwartet: {why}"
         ))));
     }
     Ok(report.touched_archives)
@@ -2485,10 +2493,21 @@ AlreadyGiven:
         // The game starts another slot for the sight: refused.
         let err = analyze_battle_slots(BATTLE, &meta(3004)).unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
-        assert!(err.to_string().contains("slot 4"), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Kampf-Scriptdatei 0003: das Sicht-Script ist Platz 4, das Spiel startet Platz 5 \
+             (Script 3004). Ein anderes Werkzeug hat die Datei umgebaut; stelle die alte \
+             Reihenfolge wieder her, dann lässt sich ein Trainer anlegen."
+        );
         // No script behind the battle slots.
         let err = analyze_battle_slots(&BATTLE.replace("#4", "#7"), &meta(3003)).unwrap_err();
         assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Kampf-Scriptdatei 0003: hinter den Kampfplätzen steht bei Platz 4 kein Script, \
+             dort erwartet das Spiel das Sicht-Script. Stelle die Datei wieder her (DSPRE oder \
+             Sicherung), dann lässt sich ein Trainer anlegen."
+        );
     }
 
     #[test]
