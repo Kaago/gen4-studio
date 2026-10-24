@@ -369,17 +369,25 @@ pub fn data_list_impl(
         .collect())
 }
 
-/// The first lock among `parts` (asset and read result) as reason and raw bytes.
-fn first_lock(
-    store: &Store,
-    parts: &[(AssetId, Option<&String>)],
-) -> Result<(Option<String>, Option<Vec<u8>>), CmdError> {
+/// The first lock among `parts` (asset and read result): its reason, raw bytes and asset.
+#[derive(Default)]
+struct Lock {
+    reason: Option<String>,
+    raw: Option<Vec<u8>>,
+    asset: Option<AssetId>,
+}
+
+fn first_lock(store: &Store, parts: &[(AssetId, Option<&String>)]) -> Result<Lock, CmdError> {
     for (id, reason) in parts {
         if let Some(reason) = reason {
-            return Ok((Some((*reason).clone()), store.current_bytes(*id)?));
+            return Ok(Lock {
+                reason: Some((*reason).clone()),
+                raw: store.current_bytes(*id)?,
+                asset: Some(*id),
+            });
         }
     }
-    Ok((None, None))
+    Ok(Lock::default())
 }
 
 fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
@@ -402,7 +410,7 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
             .map(|e| std::array::from_fn(|i| EvoEntryDto::from(e.entry(i)))),
     )?;
     let personal_id = asset(AssetKind::Personal, index);
-    let (locked, raw_locked) = first_lock(
+    let lock = first_lock(
         store,
         &[
             (personal_id, personal.as_ref().err()),
@@ -410,7 +418,8 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
             (asset(AssetKind::Evolution, index), evolution.as_ref().err()),
         ],
     )?;
-    let (personal, tm) = personal.unwrap_or_default();
+    // A locked personal member has no TM bits to show: all off.
+    let (personal, tm) = personal.unwrap_or_else(|_| (PersonalDto::default(), vec![false; 100]));
     let saved = store
         .saved_bytes(personal_id)
         .and_then(|bytes| Personal::read(bytes).ok())
@@ -421,8 +430,9 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         learnset: learnset.unwrap_or_default(),
         evolution: evolution.unwrap_or_default(),
         tm,
-        locked,
-        raw_locked,
+        locked: lock.reason,
+        raw_locked: lock.raw,
+        locked_asset: lock.asset,
     })
 }
 
@@ -445,15 +455,15 @@ fn move_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
             .move_data(index)
             .map(|m| fields::values(m, &names)),
     )?;
-    let (locked, raw_locked) = first_lock(
+    let lock = first_lock(
         &session.store,
         &[(asset(AssetKind::Move, index), read.as_ref().err())],
     )?;
     Ok(DataDocDto::Move {
         fields: read.unwrap_or_default(),
         description: description(session, Bank::MoveDescriptions, index),
-        locked,
-        raw_locked,
+        locked: lock.reason,
+        raw_locked: lock.raw,
     })
 }
 
@@ -466,7 +476,7 @@ fn item_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
             .item(member)
             .map(|i| fields::values(i, &names)),
     )?;
-    let (locked, raw_locked) = first_lock(
+    let lock = first_lock(
         &session.store,
         &[(asset(AssetKind::Item, member), read.as_ref().err())],
     )?;
@@ -477,8 +487,8 @@ fn item_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
         fields: read.unwrap_or_default(),
         description,
         shared_with,
-        locked,
-        raw_locked,
+        locked: lock.reason,
+        raw_locked: lock.raw,
     })
 }
 
@@ -489,7 +499,7 @@ fn encounter_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdErr
             .encounter(index)
             .map(|e| (encounter::methods(e), encounter::extras(e))),
     )?;
-    let (locked, raw_locked) = first_lock(
+    let lock = first_lock(
         &session.store,
         &[(asset(AssetKind::Encounter, index), read.as_ref().err())],
     )?;
@@ -497,8 +507,8 @@ fn encounter_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdErr
     Ok(DataDocDto::Encounter {
         methods,
         extras,
-        locked,
-        raw_locked,
+        locked: lock.reason,
+        raw_locked: lock.raw,
     })
 }
 

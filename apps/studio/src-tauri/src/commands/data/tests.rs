@@ -281,7 +281,7 @@ fn data_get_locked_member_reports_reason_and_raw_bytes() {
 }
 
 #[test]
-fn item_table_is_null_when_implausible() {
+fn items_are_keyed_by_data_member_for_an_unverified_game() {
     let (_fixture, state) = open_synthetic();
     assert_eq!(item_table_impl(&state).unwrap(), None);
     assert_eq!(machine_table_impl(&state).unwrap(), None);
@@ -606,4 +606,154 @@ fn vanilla_data_commands_on_copy() {
             ..
         }
     ));
+}
+
+/// The fixture as Platinum DE (CPUD, verified arm9 offsets) with an item table whose ids
+/// point at data member `id % 20`, TM01 teaching `tm01` and HM05 Defog.
+fn verified_platinum(tm01: u16) -> (g4_kernel::test_support::Synthetic, AppState) {
+    let (fixture, _) = open_synthetic();
+    let root = fixture.dir.path();
+    let header = root.join("header.yaml");
+    let yaml = std::fs::read_to_string(&header)
+        .unwrap()
+        .replace("CPUE", "CPUD");
+    std::fs::write(&header, yaml).unwrap();
+    let path = root.join("arm9/arm9.bin");
+    let mut arm9 = std::fs::read(&path).unwrap();
+    arm9.resize(0xF2000, 0);
+    let (machines, items) = (0xF0C54, 0xF0D1C);
+    arm9[machines..machines + 2].copy_from_slice(&tm01.to_le_bytes());
+    arm9[machines + 2 * 96..machines + 2 * 97].copy_from_slice(&432u16.to_le_bytes());
+    for id in 0..468u16 {
+        let at = items + 8 * usize::from(id);
+        arm9[at..at + 2].copy_from_slice(&(id % 20).to_le_bytes());
+    }
+    std::fs::write(&path, arm9).unwrap();
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, root.to_str().unwrap()).unwrap();
+    (fixture, state)
+}
+
+#[test]
+fn item_table_is_null_when_implausible() {
+    // TM01 must be Focus Punch (264): a patched arm9 that moved the table reads as missing.
+    let (_fixture, state) = verified_platinum(0);
+    assert_eq!(item_table_impl(&state).unwrap(), None);
+    assert_eq!(machine_table_impl(&state).unwrap(), None);
+    let rows = data_list_impl(&state, DataKind::Item, None).unwrap();
+    assert_eq!(rows.len(), 20, "by data member");
+    assert!(rows.iter().all(|r| r.name.is_empty()));
+    assert!(get_item_icon_impl(&state, 1).unwrap().is_empty());
+}
+
+#[test]
+fn items_are_keyed_by_item_id_with_a_plausible_table() {
+    let (_fixture, state) = verified_platinum(264);
+    let table = item_table_impl(&state).unwrap().unwrap();
+    assert_eq!(table.len(), 468);
+    assert_eq!(table[23].data, 3);
+    assert_eq!(machine_table_impl(&state).unwrap().unwrap()[0], 264);
+    let rows = data_list_impl(&state, DataKind::Item, None).unwrap();
+    assert_eq!(rows.len(), 468);
+    assert_eq!(rows[1].name, "Master Ball");
+    assert_eq!(rows[23].extra["data_index"], 3);
+    assert_eq!(
+        rows[37].locked.as_deref(),
+        Some("item 0017: 36 bytes, expected 34")
+    );
+    match data_get_impl(&state, DataKind::Item, 2).unwrap() {
+        DataDocDto::Item {
+            shared_with,
+            description,
+            ..
+        } => {
+            assert_eq!(&shared_with[..3], &[22, 42, 62]);
+            assert_eq!(description.unwrap().text, "A good Ball.");
+        }
+        other => panic!("{other:?}"),
+    }
+    let changed = data_edit_impl(
+        &state,
+        DataKind::Item,
+        2,
+        DataPatch::Item {
+            field: "price".into(),
+            value: 250,
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(changed, [id(AssetKind::Item, 2)], "the data member");
+    // Ids 2, 22, ..., 462 share member 2.
+    let shares = (2..468).step_by(20).count();
+    assert_eq!(
+        last_label(&state),
+        format!("Ultra Ball: Preis 200 → 250, gilt für {shares} Gegenstände")
+    );
+}
+
+#[test]
+fn learnsets_stay_within_what_the_game_reads() {
+    let (_fixture, state) = open_synthetic();
+    let entry = |move_id, level| LearnEntryDto { move_id, level };
+    let learnset = |entries| DataPatch::Learnset { entries };
+    for (patch, message) in [
+        (
+            learnset(vec![entry(1, 5); 21]),
+            "learnset of 21 entries, the game reads at most 20",
+        ),
+        // The fixture has moves 0 to 3; move 511 at level 127 would be the terminator.
+        (
+            learnset(vec![entry(511, 127)]),
+            "move 511 at level 127 does not fit a learnset entry (moves 0 to 3, levels up to 127)",
+        ),
+        (
+            learnset(vec![entry(1, 128)]),
+            "move 1 at level 128 does not fit a learnset entry (moves 0 to 3, levels up to 127)",
+        ),
+    ] {
+        let err = data_edit_impl(&state, DataKind::Learnset, 1, patch, None).unwrap_err();
+        assert_eq!((err.code, err.message.as_str()), ("error", message));
+    }
+    assert!(history_impl(&state).unwrap().undo.is_empty());
+    data_edit_impl(
+        &state,
+        DataKind::Learnset,
+        1,
+        learnset(vec![entry(3, 7); 20]),
+        None,
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_locked_species_part_names_its_asset() {
+    let (fixture, state) = open_synthetic();
+    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+    project.ensure_unpacked(AssetKind::Personal).unwrap();
+    std::fs::write(project.member_path(AssetKind::Personal, 5), [7u8; 40]).unwrap();
+    match data_get_impl(&state, DataKind::Species, 5).unwrap() {
+        DataDocDto::Species {
+            tm,
+            locked,
+            raw_locked,
+            locked_asset,
+            learnset,
+            ..
+        } => {
+            assert_eq!(
+                locked.as_deref(),
+                Some("personal data 0005: 40 bytes, expected 44")
+            );
+            assert_eq!(raw_locked, Some(vec![7; 40]));
+            assert_eq!(locked_asset, Some(id(AssetKind::Personal, 5)));
+            assert_eq!(tm, vec![false; 100]);
+            assert_eq!(learnset.len(), 2, "the sound parts still read");
+        }
+        other => panic!("{other:?}"),
+    }
+    match data_get_impl(&state, DataKind::Species, 6).unwrap() {
+        DataDocDto::Species { locked_asset, .. } => assert_eq!(locked_asset, None),
+        other => panic!("{other:?}"),
+    }
 }

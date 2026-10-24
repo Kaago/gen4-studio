@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use g4_kernel::data::refs::{Ref, Target};
 use g4_kernel::project::AssetKind;
 
-use super::display;
 use super::dto::{NavTargetDto, RefDto, TargetDto};
 use super::labels;
+use super::{display, encounter_users};
 use crate::errors::CmdError;
 use crate::state::Session;
 
@@ -48,8 +48,9 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
         store, names, refs, ..
     } = session;
     let found = refs.refs(store, target.into())?;
-    // Encounter file → the first header that uses it (where a click on an encounter leads).
-    let mut users: HashMap<u16, Option<u16>> = HashMap::new();
+    // Encounter file → the headers that use it (a click on an encounter leads to the first),
+    // read in one pass over the header table when the first encounter source comes up.
+    let mut users: Option<HashMap<u16, Vec<u16>>> = None;
     let mut out = Vec::with_capacity(found.len());
     for Ref {
         source,
@@ -65,18 +66,10 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                 (format!("Header {id:04}"), NavTargetDto::Header { id })
             }
             AssetKind::Encounter => {
-                let user = match users.get(&index) {
-                    Some(user) => *user,
-                    None => {
-                        let user = refs
-                            .refs(store, Target::Encounter(index))?
-                            .iter()
-                            .find(|r| r.source.kind == AssetKind::HeaderTable)
-                            .and_then(|r| r.slot);
-                        users.insert(index, user);
-                        user
-                    }
-                };
+                let user = users
+                    .get_or_insert_with(|| encounter_users(store))
+                    .get(&index)
+                    .and_then(|headers| headers.first().copied());
                 let nav = match user {
                     Some(id) => NavTargetDto::Header { id },
                     None => NavTargetDto::Encounter { index },

@@ -172,10 +172,12 @@ export type DataDocDto =
       saved: PersonalDto;
       learnset: LearnEntryDto[];
       evolution: EvoEntryDto[];
-      /** TM01..TM92, then HM01..HM08. */
+      /** TM01..TM92, then HM01..HM08 (all false while the personal data is locked). */
       tm: boolean[];
       locked: string | null;
       raw_locked: number[] | null;
+      /** The part `locked` and `raw_locked` are about: Personal, Learnset or Evolution (the first locked one). */
+      locked_asset: AssetId | null;
     }
   | { kind: "move"; fields: FieldValueDto[]; description: DescriptionDto | null; locked: string | null; raw_locked: number[] | null }
   | {

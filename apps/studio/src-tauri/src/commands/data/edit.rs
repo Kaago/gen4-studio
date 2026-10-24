@@ -2,7 +2,7 @@
 //! 85") unless the caller brings its own.
 
 use g4_formats::data::evolution::{EVO_ENTRIES, EvoEntry};
-use g4_formats::data::learnset::LearnEntry;
+use g4_formats::data::learnset::{LearnEntry, MAX_ENTRIES};
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
 use g4_formats::data::{item::Item, moves::Move};
@@ -106,10 +106,25 @@ pub fn apply(
             Ok(one(asset(AssetKind::Personal, index), change))
         }
         DataPatch::Learnset { entries } if species_kind => {
-            if let Some(bad) = entries.iter().find(|e| e.move_id > 0x1FF || e.level > 0x7F) {
+            if entries.len() > MAX_ENTRIES {
                 return Err(format!(
-                    "move {} at level {} does not fit a learnset entry (move up to 511, level up to 127)",
-                    bad.move_id, bad.level
+                    "learnset of {} entries, the game reads at most {MAX_ENTRIES}",
+                    entries.len()
+                )
+                .into());
+            }
+            // Bounding the move by the move members also keeps an entry from encoding as the
+            // terminator (move 511 at level 127).
+            let moves = store.project().member_count(AssetKind::Move)?;
+            if let Some(bad) = entries
+                .iter()
+                .find(|e| usize::from(e.move_id) >= moves || e.level > 0x7F)
+            {
+                return Err(format!(
+                    "move {} at level {} does not fit a learnset entry (moves 0 to {}, levels up to 127)",
+                    bad.move_id,
+                    bad.level,
+                    moves.saturating_sub(1)
                 )
                 .into());
             }

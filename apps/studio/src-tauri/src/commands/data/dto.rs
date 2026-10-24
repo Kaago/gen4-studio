@@ -209,6 +209,9 @@ pub enum DataDocDto {
         tm: Vec<bool>,
         locked: Option<String>,
         raw_locked: Option<Vec<u8>>,
+        /// The part `locked` and `raw_locked` are about (personal data, learnset or
+        /// evolutions; the first locked one).
+        locked_asset: Option<AssetId>,
     },
     Move {
         fields: Vec<FieldValueDto>,
