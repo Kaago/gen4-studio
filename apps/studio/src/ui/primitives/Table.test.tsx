@@ -46,6 +46,16 @@ describe("Table", () => {
   const grid = () => container.querySelector<HTMLElement>("[role=grid]")!;
   const bodyRows = () => [...container.querySelectorAll<HTMLElement>("[role=row][data-roving]")];
   const outside = (text: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text)!;
+  /** The elements Tab stops at, in document order. */
+  const tabOrder = () =>
+    [...container.querySelectorAll<HTMLElement>("input, button, [tabindex]")].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
+  /** Tab as a browser does it: the key goes to the focused element, and unless something used it, the focus moves along the Tab order. */
+  const tab = (from: HTMLElement, backwards = false) => {
+    if (pressKey(from, "Tab", { shiftKey: backwards }).defaultPrevented) return;
+    const order = tabOrder();
+    const next = order[order.indexOf(from) + (backwards ? -1 : 1)];
+    act(() => next?.focus());
+  };
 
   function Host(props: Partial<TableProps>) {
     const [selected, setSelected] = useState<string | undefined>(props.selected);
@@ -138,50 +148,86 @@ describe("Table", () => {
   it("tab_from_a_row_leaves_the_table_instead_of_walking_its_fields", () => {
     act(() => root.render(<Host selected="r1" />));
     const row = bodyRows()[1]!;
+    // The rows are one stop: no field of any row is in the Tab order while the focus is outside the rows.
+    expect(tabOrder()).toEqual([outside("Davor"), row, outside("Danach")]);
     act(() => row.focus());
-    const tab = pressKey(row, "Tab");
-    expect(tab.defaultPrevented).toBe(true);
+    expect(tabOrder()).toEqual([outside("Davor"), row, outside("Danach")]);
+    tab(row);
     expect(document.activeElement).toBe(outside("Danach"));
     act(() => row.focus());
-    pressKey(row, "Tab", { shiftKey: true });
+    tab(row, true);
     expect(document.activeElement).toBe(outside("Davor"));
   });
 
-  it("after_enter_tab_cycles_through_the_fields_of_that_row_only", () => {
+  it("a_table_at_the_end_of_the_page_lets_tab_go_on", () => {
+    act(() => root.render(<Table columns={columns} rows={learnset} ariaLabel="Lernset" selected="r0" />));
+    const row = bodyRows()[0]!;
+    act(() => row.focus());
+    // Nothing after the table: the table does not take the key, the browser moves on (to its own controls).
+    expect(pressKey(row, "Tab").defaultPrevented).toBe(false);
+    expect(pressKey(row, "Tab", { shiftKey: true }).defaultPrevented).toBe(false);
+  });
+
+  it("after_enter_the_fields_of_that_row_only_join_the_tab_order_and_tab_cycles_through_them", () => {
     act(() => root.render(<Host selected="r1" />));
     const row = bodyRows()[1]!;
     act(() => row.focus());
     pressKey(row, "Enter");
     const [field, button] = [row.querySelector("input")!, row.querySelector("button")!];
     expect(document.activeElement).toBe(field);
-    pressKey(field, "Tab");
+    expect(tabOrder()).toEqual([outside("Davor"), row, field, button, outside("Danach")]);
+    tab(field);
     expect(document.activeElement).toBe(button);
-    pressKey(button, "Tab");
+    tab(button);
     expect(document.activeElement).toBe(field);
-    pressKey(field, "Tab", { shiftKey: true });
+    tab(field, true);
     expect(document.activeElement).toBe(button);
     pressKey(button, "Escape");
     expect(document.activeElement).toBe(row);
+    expect(tabOrder()).toEqual([outside("Davor"), row, outside("Danach")]);
   });
 
-  it("tabbing_in_from_outside_lands_on_the_row_stop_not_on_a_field", () => {
-    act(() => root.render(<Host selected="r1" />));
+  it("tabbing_in_from_outside_lands_on_the_selected_row_and_selects_nothing_else", () => {
+    const onSelect = vi.fn();
+    act(() => root.render(<Host selected="r1" onSelect={onSelect} />));
     const before = outside("Davor");
     act(() => before.focus());
-    pressKey(before, "Tab");
-    // The browser moves the focus on to the next tabbable element in the page: the field of the first row.
-    act(() => bodyRows()[0]!.querySelector("input")!.focus());
+    tab(before);
     expect(document.activeElement).toBe(bodyRows()[1]);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(bodyRows().map((r) => r.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+    // And back in from behind.
+    act(() => outside("Danach").focus());
+    tab(outside("Danach"), true);
+    expect(document.activeElement).toBe(bodyRows()[1]);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("a_click_into_a_field_keeps_the_focus_there", () => {
-    act(() => root.render(<Host selected="r1" />));
-    const field = bodyRows()[0]!.querySelector("input")!;
+  it("a_click_into_a_field_of_another_row_keeps_the_focus_there_and_makes_that_row_the_selected_stop", () => {
+    const onSelect = vi.fn();
+    act(() => root.render(<Host selected="r1" onSelect={onSelect} />));
+    const row0 = bodyRows()[0]!;
+    const field = row0.querySelector("input")!;
     act(() => {
       field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       field.focus();
     });
     expect(document.activeElement).toBe(field);
+    expect(onSelect).toHaveBeenLastCalledWith("r0");
+    expect(row0.getAttribute("aria-selected")).toBe("true");
+    expect(tabOrder()).toEqual([outside("Davor"), row0, field, row0.querySelector("button"), outside("Danach")]);
+  });
+
+  it("a_field_that_sets_its_own_tab_index_later_stays_out_of_the_tab_order", () => {
+    act(() => root.render(<Host selected="r1" />));
+    const field = bodyRows()[0]!.querySelector("input")!;
+    act(() => field.setAttribute("tabindex", "0"));
+    // The observer runs after the mutation.
+    return Promise.resolve().then(() => {
+      expect(field.tabIndex).toBe(-1);
+      act(() => field.focus());
+      expect(field.getAttribute("tabindex")).toBe("0");
+    });
   });
 
   it("backspace_on_the_row_deletes_it_too_but_not_from_a_field", () => {
