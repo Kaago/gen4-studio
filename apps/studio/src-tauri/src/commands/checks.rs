@@ -1084,6 +1084,40 @@ mod tests {
     }
 
     #[test]
+    fn a_check_switched_on_during_a_running_pass_is_reported_by_the_answer() {
+        let (_fixture, state) = open_synthetic();
+        let code = "encounter.empty-slot";
+        set_check_enabled_impl(&state, code, false).unwrap();
+        let off = run_checks_impl(&state, CheckScope::Cheap).unwrap();
+        assert!(
+            off.skipped
+                .iter()
+                .any(|s| s.code == code && s.why == "disabled")
+        );
+        // A pass begins with the check off (a cold full pass on open takes seconds).
+        let input = state.begin_checks().unwrap();
+        std::thread::scope(|s| {
+            let switching = s.spawn(|| set_check_enabled_impl(&state, code, true).unwrap());
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(
+                !switching.is_finished(),
+                "the rerun waits for the running pass"
+            );
+            state.finish_checks(input.run(&[Group::Cheap]));
+            let on = switching.join().unwrap();
+            assert!(
+                !on.skipped.iter().any(|s| s.code == code),
+                "{:?}",
+                on.skipped
+            );
+            assert_eq!(rows(&on, code).len(), 2);
+        });
+        let status = checks_status_impl(&state).unwrap();
+        assert!(!status.skipped.iter().any(|s| s.code == code));
+        assert_eq!(rows(&status, code).len(), 2);
+    }
+
+    #[test]
     fn a_broken_ignore_file_names_itself_when_the_project_opens() {
         let (fixture, _state) = open_synthetic();
         std::fs::write(root_of(&fixture).join(IGNORE_FILE), "{ broken").unwrap();

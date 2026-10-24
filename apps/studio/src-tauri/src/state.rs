@@ -73,7 +73,8 @@ pub struct ChecksState {
     /// Set while a pass runs; shared with it, which clears it when it ends in any way
     /// (finished, dropped or panicked, see [`PassGuard`]).
     running: Arc<AtomicBool>,
-    /// Set when a pass was discarded because the store changed during it: run again.
+    /// Set when a pass was discarded because the store changed during it (or a check it
+    /// left out was switched on): run again.
     pub rerun: bool,
     /// When the store last changed ([`ChecksState::store_changed`]): the automatic cheap run
     /// waits until it has been quiet for a while ([`ChecksState::quiet_for`]).
@@ -111,12 +112,13 @@ impl ChecksState {
     }
 
     /// The last report if it is of the store's current generation `store_generation`
-    /// (`Store::change_generation`); `None` when there is none or the store changed since,
-    /// so a caller never shows findings of an older state.
+    /// (`Store::change_generation`) and of the current ignore list; `None` when there is
+    /// none, the store changed since, or a check it left out as disabled was switched on
+    /// since (its findings are missing), so a caller never shows findings of an older state.
     pub fn current_report(&self, store_generation: u64) -> Option<&ChecksReport> {
-        self.last
-            .as_ref()
-            .filter(|report| report.generation == store_generation)
+        self.last.as_ref().filter(|report| {
+            report.generation == store_generation && !report.lacks_enabled(&self.ignore)
+        })
     }
 
     /// How far the running pass got; `None` when none runs or it reported nothing yet.
@@ -286,8 +288,9 @@ impl AppState {
     }
 
     /// Ends a pass under the session lock: keeps its cache, and its report when the store is
-    /// still at its generation; else discards it and sets [`ChecksState::rerun`]. A session
-    /// closed or replaced meanwhile gets nothing. Either way the pass no longer runs.
+    /// still at its generation and no check the pass left out as disabled was switched on
+    /// meanwhile; else discards it and sets [`ChecksState::rerun`]. A session closed or
+    /// replaced meanwhile gets nothing. Either way the pass no longer runs.
     pub fn finish_checks(&self, result: PassResult) -> PassOutcome {
         let PassResult {
             project,
@@ -299,8 +302,10 @@ impl AppState {
         let Some(session) = guard.as_mut().filter(|s| Arc::ptr_eq(&s.project, &project)) else {
             return PassOutcome::NoSession;
         };
-        let current = report.is_current(&session.store);
         let checks = &mut session.checks;
+        // The pass ran with the ignore list it began with: a check switched on since is
+        // missing from its report as much as a change of the store would be.
+        let current = report.is_current(&session.store) && !report.lacks_enabled(&checks.ignore);
         // Under the session lock: a status query never sees the pass ended without its
         // report and cache in place.
         drop(pass);
@@ -621,6 +626,65 @@ mod tests {
         let guard = state.lock_session();
         let last = guard.as_ref().unwrap().checks.last.as_ref().unwrap();
         assert_eq!(last.ignored, [split]);
+    }
+
+    #[test]
+    fn a_check_switched_on_during_a_pass_is_never_reported_as_disabled() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        let code = "encounter.empty-slot";
+        let switch = |on: bool| {
+            let mut guard = state.lock_session();
+            let ignore = &mut guard.as_mut().unwrap().checks.ignore;
+            if on {
+                ignore.disabled.remove(code);
+            } else {
+                ignore.disabled.insert(code.to_owned());
+            }
+        };
+        let disabled = |report: &ChecksReport| {
+            report
+                .skipped
+                .iter()
+                .any(|(c, why)| *c == code && why == "disabled")
+        };
+        let current = || {
+            let guard = state.lock_session();
+            let session = guard.as_ref().unwrap();
+            session
+                .checks
+                .current_report(session.store.change_generation())
+                .cloned()
+        };
+
+        // Off: the report says so.
+        switch(false);
+        let PassOutcome::Done(off) = state.run_checks_pass(&[Group::Cheap]) else {
+            panic!("the pass did not finish");
+        };
+        assert!(disabled(&off));
+        // Switched on: that report lacks the check's findings and is no longer current.
+        switch(true);
+        assert!(current().is_none());
+
+        // Switched on while a pass runs with the list it began with: the pass is discarded
+        // and asks for a rerun, which reports the check.
+        switch(false);
+        let input = state.begin_checks().unwrap();
+        switch(true);
+        assert!(matches!(
+            state.finish_checks(input.run(&[Group::Cheap])),
+            PassOutcome::Stale
+        ));
+        assert!(state.lock_session().as_ref().unwrap().checks.rerun);
+        assert!(current().is_none_or(|r| !disabled(&r)));
+        let PassOutcome::Done(on) = state.run_checks_pass(&[Group::Cheap]) else {
+            panic!("the pass did not finish");
+        };
+        assert!(!disabled(&on));
+        assert_eq!(on.findings.iter().filter(|f| f.code == code).count(), 2);
+        let kept = current().unwrap();
+        assert_eq!((kept.findings, kept.skipped), (on.findings, on.skipped));
     }
 
     #[test]

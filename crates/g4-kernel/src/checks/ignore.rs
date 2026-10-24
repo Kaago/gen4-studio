@@ -184,6 +184,15 @@ impl IgnoreSet {
 }
 
 impl ChecksReport {
+    /// Whether the report left out a check as `disabled` that `ignore` switches on (again):
+    /// it lacks that check's findings, which only a run can add, so it is no report of a
+    /// state with this list.
+    pub fn lacks_enabled(&self, ignore: &IgnoreSet) -> bool {
+        self.skipped
+            .iter()
+            .any(|(code, why)| why == "disabled" && !ignore.is_disabled(code))
+    }
+
     /// Sorts the findings out anew by `ignore` after it changed, without a run: the findings
     /// of checks now switched off go and the check is listed in `skipped` as `disabled` (as a
     /// run would), the others are split into `findings` and `ignored` again, both in
@@ -514,6 +523,11 @@ mod tests {
         report.apply_ignore(&set);
         assert_eq!(report.skipped, once.skipped);
         assert_eq!(report.findings, once.findings);
+
+        // Switched on again: the report lacks the check's findings until a run.
+        assert!(!report.lacks_enabled(&set));
+        set.set_enabled("encounter.empty-slot", true).unwrap();
+        assert!(report.lacks_enabled(&set));
     }
 
     #[test]
