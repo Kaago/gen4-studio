@@ -60,6 +60,24 @@ describe("ImportPartsDialog", () => {
     expect(list.textContent).toContain("41.236 Bytes");
   });
 
+  it("does_not_preselect_an_empty_part_and_says_it_is_left_out_but_keeps_it_choosable", async () => {
+    vi.mocked(inspectMapImport).mockResolvedValue([
+      { part: "permissions", file: null, size: 2048, state: { kind: "ok" }, notes: [] },
+      { part: "buildings", file: null, size: 0, state: { kind: "ok" }, notes: [] },
+      { part: "bgs", file: null, size: 0, state: { kind: "ok" }, notes: [] },
+    ]);
+    await show();
+    const list = dialog().querySelector("[role=list][aria-label='Teile']")!;
+    expect([...list.querySelectorAll("li")].map((r) => (r as HTMLElement).dataset.state)).toEqual(["ok", "info", "info"]);
+    expect(list.textContent).toContain("Leer, wird nicht übernommen");
+    expect(box("Gebäude").getAttribute("aria-checked")).toBe("false");
+    expect(box("Hintergrundklang").getAttribute("aria-checked")).toBe("false");
+    expect(button("1 Teil übernehmen")).toBeDefined();
+    await act(async () => box("Gebäude").click());
+    expect(box("Gebäude").getAttribute("aria-checked")).toBe("true");
+    expect(button("2 Teile übernehmen")).toBeDefined();
+  });
+
   it("keeps_a_part_with_an_error_from_being_chosen_and_names_the_count_on_the_button", async () => {
     await show();
     expect(box("Gebäude").getAttribute("aria-disabled") === "true" || box("Gebäude").hasAttribute("data-disabled")).toBe(true);

@@ -2,6 +2,7 @@ import { getMatrix, undo } from "../api";
 import type { AssetId } from "../api";
 import { historyPlan } from "../reload";
 import type { ReloadAction } from "../reload";
+import { thumbnails } from "../world/thumbnailStore";
 import { pinAfterHistory } from "../workbench/pin";
 import type { EditBus } from "../bus/editBus";
 import { dataChangedOf } from "../data/dataBus";
@@ -20,7 +21,12 @@ interface HistoryReloadParams {
  * Undo and redo, and everything that has to be reloaded after the backend restored assets (see
  * `historyPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
  */
-export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadParams) {
+export function useHistoryReload({
+  bus,
+  session,
+  scene,
+  pins,
+}: HistoryReloadParams) {
   const { setPinned } = pins;
   const { fail, refreshDirty } = session;
 
@@ -34,7 +40,16 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
       bus.emit({ topic: "buildingData" });
       bus.emit({ topic: "eventData" });
       bus.emit({ topic: "textData", archive: null });
-      for (const kind of ["species", "learnset", "evolution", "move", "item", "encounter", "trainer"] as const) bus.emit({ topic: "dataChanged", kind, index: null });
+      for (const kind of [
+        "species",
+        "learnset",
+        "evolution",
+        "move",
+        "item",
+        "encounter",
+        "trainer",
+      ] as const)
+        bus.emit({ topic: "dataChanged", kind, index: null });
       // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
       setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
       await scene.syncHeaders();
@@ -45,7 +60,8 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
     }
   }
   // A stale resolution (see `fail`) reloads whatever matrix is shown when it is chosen.
-  session.staleRefresh.current = () => refreshAfterStale(scene.matrixRef.current?.index ?? null);
+  session.staleRefresh.current = () =>
+    refreshAfterStale(scene.matrixRef.current?.index ?? null);
 
   /** Carries out one action of a `reloadPlan`. */
   async function reloadAction(a: ReloadAction) {
@@ -60,6 +76,12 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         break;
       case "map":
         bus.emit({ topic: "mapRefetch", map: a.map });
+        break;
+      case "thumbnail":
+        thumbnails.invalidate(a.map);
+        break;
+      case "mapModel":
+        bus.emit({ topic: "modelsReload" });
         break;
       case "matrixPanel":
         bus.emit({ topic: "matrixData" });
@@ -102,7 +124,9 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
       matrix: shown?.index ?? null,
       maps: shown?.maps ?? [],
       area: scene.targetArea(),
-      eventFile: scene.headersRef.current.find((h) => h.id === scene.selectedRef.current)?.event_file_id ?? null,
+      eventFile:
+        scene.headersRef.current.find((h) => h.id === scene.selectedRef.current)
+          ?.event_file_id ?? null,
     });
     // One failing reload must not keep the others from running; the first failure is reported.
     let failure: unknown = null;
