@@ -6,7 +6,9 @@ import pytest
 
 from g4emu import scenario
 from g4emu.cli import main
-from g4emu.scenario import Scenario, bridge_command, g4k_command, load_scenario, run_scenario, substitute
+from g4emu.scenario import (
+    Scenario, bridge_command, g4k_command, load_scenario, resolve, run_scenario, substitute,
+)
 
 SCENARIO_YAML = """\
 game: CPUD
@@ -463,3 +465,187 @@ def test_g4k_command_build_failure_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(scenario.subprocess, "run", lambda cmd, **kw: R())
     with pytest.raises(RuntimeError, match="g4k"):
         g4k_command(tmp_path)
+
+
+# --- response placeholders: an edit [befehl, {argumente}, name] binds its result to `name` ---
+
+
+def test_substitute_leaves_deferred_names_untouched():
+    assert substitute("${t1.id}", {}, deferred={"t1"}) == "${t1.id}"
+    assert substitute("x ${t1} ${A}", {"A": "1"}, deferred={"t1"}) == "x ${t1} 1"
+    assert substitute({"k": ["${t1.maps.1.2}", "${A}"]}, {"A": "4"}, deferred={"t1"}) == {"k": ["${t1.maps.1.2}", 4]}
+    with pytest.raises(KeyError, match="t2"):
+        substitute("${t2}", {}, deferred={"t1"})
+
+
+def test_substitute_offsets_an_int_env_value():
+    assert substitute("${A+2999}", {"A": "928"}) == 3927
+    assert substitute("x${A-1}", {"A": "928"}) == "x927"
+    with pytest.raises(ValueError, match="A"):
+        substitute("${A+1}", {"A": "warp"})
+
+
+RESULTS = {"t1": {"id": 928, "placeholder": None, "maps": [[0, 0, 5], [1, 0, 700]]}, "enc": 183, "name": "Jens"}
+
+
+def test_resolve_whole_placeholders_keep_the_json_value():
+    assert resolve("${enc}", RESULTS) == 183
+    assert resolve("${t1.id}", RESULTS) == 928
+    assert resolve("${t1.placeholder}", RESULTS) is None
+    assert resolve("${t1.maps.1.2}", RESULTS) == 700  # list index by number
+    assert resolve("${t1.maps.1}", RESULTS) == [1, 0, 700]
+    assert resolve("${t1.id+2999}", RESULTS) == 3927
+    assert resolve({"a": ["${enc}", 7, "plain"]}, RESULTS) == {"a": [183, 7, "plain"]}
+
+
+def test_resolve_inline_placeholders_become_text():
+    assert resolve("encounter:${enc}:grass0=150", RESULTS) == "encounter:183:grass0=150"
+    assert resolve("${name} ${t1.id-1}", RESULTS) == "Jens 927"
+    with pytest.raises(ValueError, match="t1.maps"):
+        resolve("x ${t1.maps}", RESULTS)  # a list cannot stand inside text
+
+
+def test_resolve_reports_missing_fields_and_bad_offsets():
+    with pytest.raises(KeyError, match="t1.nope"):
+        resolve("${t1.nope}", RESULTS)
+    with pytest.raises(KeyError, match="t1.maps.7"):
+        resolve("${t1.maps.7}", RESULTS)
+    with pytest.raises(KeyError, match="t9"):
+        resolve("${t9}", RESULTS)
+    with pytest.raises(ValueError, match="name"):
+        resolve("${name+1}", RESULTS)  # an offset needs a number
+
+
+def test_resolve_merges_a_base_object():
+    hdr = {"Pt": {"wild_pokemon": 140, "script_file_id": 427, "flags": 11}}
+    patch = {"Pt": {"$base": "${hdr.Pt}", "wild_pokemon": "${enc}"}}
+    assert resolve(patch, {"hdr": hdr, "enc": 183}) == {"Pt": {"wild_pokemon": 183, "script_file_id": 427, "flags": 11}}
+    assert hdr["Pt"]["wild_pokemon"] == 140  # the result itself is not changed
+    with pytest.raises(ValueError, match=r"\$base"):
+        resolve({"$base": "${enc}", "x": 1}, {"enc": 183})
+
+
+BIND_YAML = """\
+game: CPUD
+edits:
+  - [create_trainer, {class: 9, name: "${NAME}"}, t1]
+  - [data_edit, {kind: trainer, index: "${t1.id}"}]
+  - [add_event, {eventFile: 5, patch: {script: "${t1.id+2999}"}}]
+build: out.nds
+check:
+  - [g4k, check-data, out.nds, --expect, "encounter:${t1.id}:grass0=${S}"]
+play:
+  - expect-map ${t1.id}
+  - walk-to "${X}" 4
+"""
+
+
+def test_load_scenario_keeps_bound_names_for_later(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, BIND_YAML), {"NAME": "Jens", "S": "150", "X": "8"})
+    assert sc.edits == [
+        ["create_trainer", {"class": 9, "name": "Jens"}, "t1"],
+        ["data_edit", {"kind": "trainer", "index": "${t1.id}"}],
+        ["add_event", {"eventFile": 5, "patch": {"script": "${t1.id+2999}"}}],
+    ]
+    assert sc.check == [["g4k", "check-data", "out.nds", "--expect", "encounter:${t1.id}:grass0=150"]]
+    assert sc.play == ["expect-map", "${t1.id}", "walk-to", "8", "4"]
+
+
+@pytest.mark.parametrize(
+    "edits, message",
+    [
+        ('[[a, {x: "${t1}"}], [b, {}, t1]]', "später"),  # used before the edit that binds it
+        ("[[a, {}, t1], [b, {}, t1]]", "t1"),  # bound twice
+        ("[[a, {}, NAME]]", "NAME"),  # clashes with a --set name
+        ('[[a, {}, "kein name"]]', "kein name"),
+        ("[[a, {}, t1, extra]]", "befehl"),
+    ],
+)
+def test_load_scenario_rejects_bad_bindings(tmp_path, edits, message):
+    text = f"game: CPUD\nedits: {edits}\n"
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {"NAME": "x"})
+
+
+FAKE_BRIDGE_PY = """\
+import json, sys
+batch = json.load(open(sys.argv[2]))
+with open(sys.argv[-1] + "/batches.jsonl", "a") as log:
+    log.write(json.dumps(batch) + "\\n")
+for name, args in batch:
+    if name == "fail":
+        print(json.dumps({"command": name, "ok": False, "error": {"code": "error", "message": "nein"}}))
+        sys.exit(1)
+    print(json.dumps({"command": name, "ok": True, "result": args.get("give") if isinstance(args, dict) else None}))
+"""
+
+
+def fake_answering_bridge(tmp_path: Path) -> Path:
+    """A bridge whose command result is its `give` argument; logs every batch to tmp_path/batches.jsonl."""
+    script = tmp_path / "fake_bridge.py"
+    script.write_text(FAKE_BRIDGE_PY, encoding="utf-8")
+    return make_fake_bridge(tmp_path, f'exec python3 -I {script} "$@" {tmp_path}\n')
+
+
+def test_bound_results_reach_later_edits_checks_and_play(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, f'echo "$@" >> {tmp_path / "g4k-args"}\n')))
+    played = {}
+    monkeypatch.setattr(scenario, "_play", lambda rom, save, out, steps, core: played.update(steps=steps) or (0, []))
+    project = roms / "_testkopien" / "proj"
+    out = tmp_path / "out"
+    sc = simple_scenario(
+        edits=[
+            ["create_area", {"give": {"header": 593, "maps": [[0, 0, 600], [1, 0, 601]]}}, "area"],
+            ["get_header", {"id": "${area.header}", "give": {"Pt": {"wild_pokemon": 140, "flags": 11}}}, "hdr"],
+            ["create_encounter_file", {"give": 183}, "enc"],
+            ["set_header", {"id": "${area.header}", "header": {"Pt": {"$base": "${hdr.Pt}", "wild_pokemon": "${enc}"}}}],
+            ["set_permission", {"index": "${area.maps.1.2}", "x": 12}],
+        ],
+        check=[["g4k", "check-data", "out.nds", "--expect", "encounter:${enc}:grass0=150"]],
+        play=["expect-map", "${area.header}", "shot", "x${enc}"],
+    )
+    code = run_scenario(sc, project, out, tmp_path, tmp_path / "saves")
+    assert code == 0
+    batches = [json.loads(line) for line in (tmp_path / "batches.jsonl").read_text().splitlines()]
+    opened = ["open_project", {"path": str(project.resolve())}]
+    # every named edit ends a bridge session (saved), the next one opens the project again
+    assert batches[0] == [opened, sc.edits[0][:2], ["save", {}]]
+    assert batches[1] == [opened, ["get_header", {"id": 593, "give": {"Pt": {"wild_pokemon": 140, "flags": 11}}}], ["save", {}]]
+    assert batches[2] == [opened, ["create_encounter_file", {"give": 183}], ["save", {}]]
+    assert batches[3] == [
+        opened,
+        ["set_header", {"id": 593, "header": {"Pt": {"wild_pokemon": 183, "flags": 11}}}],
+        ["set_permission", {"index": 601, "x": 12}],
+        ["save", {}],
+        ["build_rom", {"out": str(project.resolve() / "out.nds")}],
+    ]
+    assert len(batches) == 4
+    assert (out / "edits.json").is_file() and (out / "edits-4.json").is_file()
+    assert (tmp_path / "g4k-args").read_text().split() == ["check-data", "out.nds", "--expect", "encounter:183:grass0=150"]
+    assert played["steps"] == ["expect-map", "593", "shot", "x183"]
+    results = json.loads((out / "results.json").read_text())
+    assert results["enc"] == 183 and results["area"]["header"] == 593
+    assert len((out / "bridge.jsonl").read_text().splitlines()) == 3 + 3 + 3 + 5
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["ok"] is True
+
+
+def test_a_failing_session_stops_before_the_next(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    sc = simple_scenario(edits=[["fail", {}, "x"], ["never", {"v": "${x}"}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 1 and played == []
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1
+    assert "studio-bridge batch fehlgeschlagen" in capsys.readouterr().err
+
+
+def test_a_missing_field_in_a_result_fails_the_scenario(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["make", {"give": {"id": 1}}, "t"], ["use", {"v": "${t.nope}"}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 1
+    assert "t.nope" in capsys.readouterr().err
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1

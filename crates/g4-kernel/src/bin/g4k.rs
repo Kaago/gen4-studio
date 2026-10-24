@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use ds_rom::rom::{FileSystem, raw};
+use g4_formats::data::encounter::{Encounters, Method};
 use g4_formats::data::learnset::Learnset;
 use g4_formats::data::moves::Move;
 use g4_formats::data::record::{FieldKind, RawRecord};
@@ -51,8 +52,10 @@ enum Command {
     CheckData {
         rom: PathBuf,
         /// `KIND:MEMBER:FIELD=VALUE`, for example `species:397:attack=85`. KIND is species,
-        /// move, item or learnset; MEMBER the member index in the archive (item: the data
-        /// member, not the item id); a learnset has the field `len` (number of entries).
+        /// move, item, learnset or encounter; MEMBER the member index in the archive (item: the
+        /// data member, not the item id); a learnset has the field `len` (number of entries); an
+        /// encounter file `grass_rate`, `grassN` (species of grass slot N, 0 to 11; HeartGold:
+        /// the day column), `grassN_level` and in HeartGold `grassN_morning`, `grassN_night`.
         #[arg(long = "expect", required = true, value_parser = parse_expectation)]
         expect: Vec<Expectation>,
     },
@@ -249,6 +252,7 @@ enum DataKind {
     Move,
     Item,
     Learnset,
+    Encounter,
 }
 
 /// Fields of a species, read with `uxie::PersonalData` (names as in `Personal::FIELDS`).
@@ -304,6 +308,7 @@ impl DataKind {
             DataKind::Move => "move",
             DataKind::Item => "item",
             DataKind::Learnset => "learnset",
+            DataKind::Encounter => "encounter",
         }
     }
 
@@ -313,29 +318,37 @@ impl DataKind {
             DataKind::Move => AssetKind::Move,
             DataKind::Item => AssetKind::Item,
             DataKind::Learnset => AssetKind::Learnset,
+            DataKind::Encounter => AssetKind::Encounter,
         }
     }
 
     /// The fields an expectation may name.
-    fn fields(self) -> Vec<&'static str> {
+    fn fields(self) -> Vec<String> {
+        let names = |list: &[&str]| list.iter().map(|f| f.to_string()).collect();
         match self {
-            DataKind::Species => SPECIES_FIELDS.to_vec(),
-            DataKind::Item => ITEM_FIELDS.to_vec(),
+            DataKind::Species => names(SPECIES_FIELDS),
+            DataKind::Item => names(ITEM_FIELDS),
             DataKind::Move => Move::FIELDS
                 .iter()
                 .filter(|f| f.kind != FieldKind::Bytes)
-                .map(|f| f.name)
+                .map(|f| f.name.to_string())
                 .collect(),
-            DataKind::Learnset => vec!["len"],
+            DataKind::Learnset => names(&["len"]),
+            DataKind::Encounter => std::iter::once("grass_rate".to_string())
+                .chain((0..GRASS_SLOTS).flat_map(|i| {
+                    ["", "_level", "_morning", "_night"].map(|column| format!("grass{i}{column}"))
+                }))
+                .collect(),
         }
     }
 
-    /// The value of `field` in the member `bytes`.
-    fn read(self, bytes: &[u8], field: &str) -> Result<i64, String> {
+    /// The value of `field` in the member `bytes` of a ROM of `family`.
+    fn read(self, bytes: &[u8], family: Family, field: &str) -> Result<i64, String> {
         match self {
             DataKind::Species => species_field(bytes, field),
             DataKind::Item => item_field(bytes, field),
             DataKind::Move => move_field(bytes, field),
+            DataKind::Encounter => encounter_field(bytes, family, field),
             DataKind::Learnset => {
                 let learnset = Learnset::read(bytes).map_err(|e| e.to_string())?;
                 match field {
@@ -377,14 +390,15 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
         "move" => DataKind::Move,
         "item" => DataKind::Item,
         "learnset" => DataKind::Learnset,
+        "encounter" => DataKind::Encounter,
         _ => {
             return Err(format!(
-                "{text}: unknown kind {kind} (species, move, item, learnset)"
+                "{text}: unknown kind {kind} (species, move, item, learnset, encounter)"
             ));
         }
     };
     let fields = kind.fields();
-    if !fields.contains(&field) {
+    if !fields.iter().any(|f| f == field) {
         return Err(format!(
             "{} has no field {field} (fields: {})",
             kind.name(),
@@ -459,6 +473,47 @@ fn item_field(bytes: &[u8], field: &str) -> Result<i64, String> {
     Ok(value)
 }
 
+/// Grass slots of an encounter file (both families).
+const GRASS_SLOTS: usize = 12;
+
+/// `grass_rate`, `grassN` (the species; HeartGold: the day column), `grassN_level`,
+/// `grassN_morning` and `grassN_night` (HeartGold only) of an encounter file.
+fn encounter_field(bytes: &[u8], family: Family, field: &str) -> Result<i64, String> {
+    let encounters = Encounters::read(bytes, family).map_err(|e| e.to_string())?;
+    let grass = encounters
+        .methods()
+        .into_iter()
+        .find(|m| m.method == Method::Grass)
+        .ok_or("the file has no grass method")?;
+    if field == "grass_rate" {
+        return Ok(grass.rate.into());
+    }
+    let unknown = || format!("encounter has no field {field}");
+    let rest = field.strip_prefix("grass").ok_or_else(unknown)?;
+    let (slot, column) = match rest.split_once('_') {
+        Some((slot, column)) => (slot, Some(column)),
+        None => (rest, None),
+    };
+    let slot = slot
+        .parse::<usize>()
+        .ok()
+        .and_then(|i| grass.slots.get(i))
+        .ok_or_else(unknown)?;
+    // HeartGold's (morning, night) species next to the day species; Platinum has one column.
+    let other = |i: usize| {
+        slot.alt_species
+            .map(|alt| i64::from(alt[i]))
+            .ok_or_else(|| format!("{family:?} encounter files have no {field}"))
+    };
+    match column {
+        None => Ok(slot.species.into()),
+        Some("level") => Ok(slot.min.into()),
+        Some("morning") => other(0),
+        Some("night") => other(1),
+        Some(_) => Err(unknown()),
+    }
+}
+
 fn move_field(bytes: &[u8], field: &str) -> Result<i64, String> {
     let m = Move::read(bytes).map_err(|e| e.to_string())?;
     let span = Move::FIELDS
@@ -524,7 +579,7 @@ fn check_data(rom: &Path, expectations: &[Expectation]) -> Result<(), Failure> {
     for e in expectations {
         let members = &narcs[&e.kind].members;
         let found = match members.get(usize::from(e.member)) {
-            Some(bytes) => e.kind.read(bytes, &e.field),
+            Some(bytes) => e.kind.read(bytes, family, &e.field),
             None => Err(format!("the archive has {} members", members.len())),
         };
         match found {
@@ -566,10 +621,77 @@ mod tests {
                 bytes[..2].copy_from_slice(&0xFFFFu16.to_le_bytes());
             }
             for field in kind.fields() {
-                assert_eq!(kind.read(&bytes, field), Ok(0), "{} {field}", kind.name());
+                let field = field.as_str();
+                assert_eq!(
+                    kind.read(&bytes, Family::Pt, field),
+                    Ok(0),
+                    "{} {field}",
+                    kind.name()
+                );
                 let e = parse_expectation(&format!("{}:7:{field}=-3", kind.name())).unwrap();
                 assert_eq!((e.kind, e.member, e.value), (kind, 7, -3));
             }
+        }
+    }
+
+    #[test]
+    fn encounter_fields_read_the_grass_slots_of_both_families() {
+        // Platinum: rate u32 at 0, slot i = level u32 at 4 + 8i, species u32 at 8 + 8i.
+        let mut pt = vec![0u8; 424];
+        pt[0] = 100;
+        pt[0x04 + 8 * 3] = 5;
+        pt[0x08 + 8 * 3..0x0A + 8 * 3].copy_from_slice(&150u16.to_le_bytes());
+        let read =
+            |bytes: &[u8], family, field: &str| DataKind::Encounter.read(bytes, family, field);
+        assert_eq!(read(&pt, Family::Pt, "grass_rate"), Ok(100));
+        assert_eq!(read(&pt, Family::Pt, "grass3"), Ok(150));
+        assert_eq!(read(&pt, Family::Pt, "grass3_level"), Ok(5));
+        assert_eq!(read(&pt, Family::Pt, "grass0"), Ok(0));
+        assert!(
+            read(&pt, Family::Pt, "grass3_morning").is_err(),
+            "Platinum has one column"
+        );
+        // HeartGold: levels u8 at 8, morning/day/night species u16 at 0x14/0x2C/0x44.
+        let mut hg = vec![0u8; 196];
+        hg[0] = 100;
+        hg[0x08 + 11] = 7;
+        hg[0x14 + 22..0x16 + 22].copy_from_slice(&151u16.to_le_bytes());
+        hg[0x2C + 22..0x2E + 22].copy_from_slice(&152u16.to_le_bytes());
+        hg[0x44 + 22..0x46 + 22].copy_from_slice(&153u16.to_le_bytes());
+        assert_eq!(read(&hg, Family::Hgss, "grass_rate"), Ok(100));
+        assert_eq!(
+            read(&hg, Family::Hgss, "grass11"),
+            Ok(152),
+            "the day column"
+        );
+        assert_eq!(read(&hg, Family::Hgss, "grass11_morning"), Ok(151));
+        assert_eq!(read(&hg, Family::Hgss, "grass11_night"), Ok(153));
+        assert_eq!(read(&hg, Family::Hgss, "grass11_level"), Ok(7));
+        // a member of the wrong length is reported, not read
+        assert!(read(&hg, Family::Pt, "grass0").is_err());
+        // every listed field reads (HeartGold has all columns) and parses
+        let fields = DataKind::Encounter.fields();
+        assert_eq!(fields.len(), 1 + 12 * 4);
+        for field in &fields {
+            assert_eq!(read(&[0u8; 196], Family::Hgss, field), Ok(0), "{field}");
+            let e = parse_expectation(&format!("encounter:7:{field}=-3")).unwrap();
+            assert_eq!((e.kind, e.member, e.value), (DataKind::Encounter, 7, -3));
+        }
+    }
+
+    #[test]
+    fn encounter_expectations_parse() {
+        let e = parse_expectation("encounter:140:grass0=150").unwrap();
+        assert_eq!(
+            (e.kind, e.member, e.field.as_str(), e.value),
+            (DataKind::Encounter, 140, "grass0", 150)
+        );
+        for text in [
+            "encounter:1:grass12=1",
+            "encounter:1:grass=1",
+            "encounter:1:surf0=1",
+        ] {
+            assert!(parse_expectation(text).is_err(), "{text}");
         }
     }
 
