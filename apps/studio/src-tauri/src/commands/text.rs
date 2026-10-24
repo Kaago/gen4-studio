@@ -350,14 +350,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_text_warns_on_overflow() {
+    fn validate_text_warns_on_encoder_problems_only() {
         assert!(validate_text_impl("Hello".to_owned()).is_empty());
-        let problems = validate_text_impl("W".repeat(60));
+        // The line width is the `text.too-wide` check's, not this live validation's.
+        assert!(validate_text_impl("W".repeat(60)).is_empty());
+        let problems = validate_text_impl("[NOPE]".to_owned());
         assert!(!problems.is_empty());
         assert_eq!(problems[0].severity, "warning");
         assert_eq!(problems[0].source, "text");
         assert!(
-            problems[0].message.contains("px"),
+            problems[0].message.contains("NOPE"),
             "{}",
             problems[0].message
         );
@@ -372,7 +374,7 @@ mod tests {
             ARCHIVE,
             TextEdit::Set {
                 index: 2,
-                text: "W".repeat(60),
+                text: "[NOPE]".to_owned(),
             },
         )
         .unwrap();

@@ -30,6 +30,7 @@ impl ProblemDto {
             severity: match problem.severity {
                 Severity::Error => "error",
                 Severity::Warning => "warning",
+                Severity::Info => "info",
             },
             file: file.to_string_lossy().replace('\\', "/"),
             line: problem.line,

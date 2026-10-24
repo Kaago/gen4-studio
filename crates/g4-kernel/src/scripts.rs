@@ -603,6 +603,12 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         for done in &result.successes {
             compiled.extend(file_number(&done.output));
             for warning in &done.warnings {
+                // The line width belongs to the `text.too-wide` check (216 px, dialog
+                // archives only); rotom's own width warning is dropped here.
+                // rotom v0.7.0: src/compiler/diagnostic/warning.rs CompileWarning::MessageLineTooLong
+                if matches!(warning, rotom::CompileWarning::MessageLineTooLong { .. }) {
+                    continue;
+                }
                 // rotom v0.7.0: src/compiler/diagnostic/warning.rs CompileWarning::span, message
                 let (line, col) = position_of(&done.source, warning.span().start);
                 problems.push(Problem {
@@ -1729,6 +1735,32 @@ mod tests {
         assert_eq!((problem.line, problem.col), (3, 2), "{problem:?}");
         assert!(problem.message.contains("NoSuchCommand"), "{problem:?}");
         assert_eq!(member(&p, 0), before);
+    }
+
+    #[test]
+    fn compile_drops_message_line_too_long() {
+        let (_s, p) = adopted();
+        // One 60-character segment is wider than the dialog; rotom warns about it, the
+        // `text.too-wide` check owns that finding now.
+        let long = "W".repeat(60);
+        write_source(
+            &p,
+            0,
+            &ScriptSource::Rotom(format!(
+                "script Main #1:\n    Message \"{long}\"\n    End\n"
+            )),
+        )
+        .unwrap();
+        let report = compile(&p).unwrap();
+        assert_eq!(report.compiled, [0], "{report:?}");
+        assert!(
+            report
+                .problems
+                .iter()
+                .all(|p| !p.message.contains("maximum dialog width")),
+            "{:?}",
+            report.problems
+        );
     }
 
     #[test]

@@ -119,7 +119,8 @@ Studios geändert (in DSPRE `main`) und gewinnt.
 
 ## Prüfungen
 
-`validate` ist ein Trockenlauf des Kodierers (`chatot::validate_message`) plus die
-Zeilenbreite: jede durch `\n`, `\r`, `\f` getrennte Zeile darf höchstens 200 px messen
-(`DIALOG_LINE_MAX_PX`, Glyphbreiten aus chatot, Steuercodes in `{...}` zählen 0). Beides sind
-Warnungen, sie blockieren das Speichern nicht.
+`validate` ist ein Trockenlauf des Kodierers (`chatot::validate_message`). Die Probleme sind
+Warnungen, sie blockieren das Speichern nicht. Die Zeilenbreite prüft `validate` nicht mehr (früher
+200 px, `DIALOG_LINE_MAX_PX`): sie gehört zur Prüfung `text.too-wide` im Modul `checks`, mit
+`dialog_line_px` aus [check_limits.md](check_limits.md) (216 px, nur Dialogarchive). Die
+Übersetzung von Scripts meldet rotoms eigene Zeilenwarnung (`MessageLineTooLong`) ebenfalls nicht.
