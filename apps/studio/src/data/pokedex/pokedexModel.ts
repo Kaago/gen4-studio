@@ -2,6 +2,7 @@ import { fieldLabels } from "../../api";
 import type { AssetId, DataRowDto, LearnEntryDto, NameTablesDto, PersonalDto, PersonalField, SpeciesRowExtra, SpeciesTab } from "../../api";
 import type { SelectOption } from "../../ui/primitives";
 import { typeName } from "../../ui/primitives/pokemonTypes";
+import { id4 } from "../../workbench/terms";
 
 /** The six base stats in the order the games list them (summary screen). */
 export type StatField = "hp" | "attack" | "defense" | "sp_attack" | "sp_defense" | "speed";
@@ -23,6 +24,9 @@ const LAST_FORM = 507;
 const isForm = (index: number) => index >= FIRST_FORM && index <= LAST_FORM;
 /** A species of its own: not member 0 (the placeholder), not an egg, not a form; members after the forms (a hack's) count as species. */
 const isSpecies = (index: number) => index !== 0 && (index <= LAST_SPECIES || index > LAST_FORM);
+
+/** What an evolution can lead to (and a species in the party can be): a species of its own, no placeholder, egg or form member. */
+export const isEvolutionTarget = isSpecies;
 
 const statsOf = (row: DataRowDto) => {
   const extra = row.extra as SpeciesRowExtra | null;
@@ -129,7 +133,7 @@ export const EVO_METHODS: readonly (SelectOption<number> & { param: ParamKind })
     ["Level, Angriff kleiner als Verteidigung", "level"],
     ["Level, Persönlichkeitswert niedrig", "level"],
     ["Level, Persönlichkeitswert hoch", "level"],
-    ["Level, wie Ninjask", "level"],
+    ["Level, Ninjask-Zweig", "level"],
     ["Level, Ninjatom bei freiem Platz", "level"],
     ["Schönheit", "beauty"],
     ["Gegenstand anwenden, männlich", "item"],
@@ -181,6 +185,45 @@ export const machineLabel = (n: number): string => (n < TM_COUNT ? `TM${String(n
 /** The game reads at most 20 level-up moves (pokeplatinum `MAX_LEARNSET_ENTRIES`). */
 export const MAX_LEARNSET = 20;
 
+/** A learnset entry by what it is, not where it stands: its move and which entry of that move it is (a list may teach a move twice). */
+export interface LearnRef {
+  move_id: number;
+  nth: number;
+}
+
+/** The identity of every entry, in the list's order. */
+export function learnRefs(entries: readonly LearnEntryDto[]): LearnRef[] {
+  const seen = new Map<number, number>();
+  return entries.map((e) => {
+    const nth = seen.get(e.move_id) ?? 0;
+    seen.set(e.move_id, nth + 1);
+    return { move_id: e.move_id, nth };
+  });
+}
+
+/** The row key of an entry: it follows the entry when a new level sorts it elsewhere. */
+export const learnKey = (ref: LearnRef): string => `m${ref.move_id}-${ref.nth}`;
+
+/** Where entry `ref` stands in `entries`; -1 when it is gone. */
+export function findLearn(entries: readonly LearnEntryDto[], ref: LearnRef): number {
+  let nth = 0;
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i]!.move_id !== ref.move_id) continue;
+    if (nth === ref.nth) return i;
+    nth++;
+  }
+  return -1;
+}
+
+/**
+ * Which parts of a species have the wrong length (their fields are locked). The kernel names the first locked part; a lock that names
+ * none is taken as one of the personal data.
+ */
+export function lockedParts(doc: { locked: string | null; locked_asset: AssetId | null }): { personal: boolean; learnset: boolean; evolution: boolean } {
+  const kind = doc.locked === null ? null : (doc.locked_asset?.kind ?? "Personal");
+  return { personal: kind === "Personal", learnset: kind === "Learnset", evolution: kind === "Evolution" };
+}
+
 /** The learnset by level; moves of the same level keep their order (the order the game teaches them in). */
 export const sortLearnset = (entries: readonly LearnEntryDto[]): LearnEntryDto[] =>
   entries
@@ -208,7 +251,6 @@ export const TAB_ASSETS: Record<SpeciesTab, readonly AssetId["kind"][]> = {
   raw: ["Personal", "Learnset", "Evolution"],
 };
 
-export const id4 = (n: number): string => String(n).padStart(4, "0");
 
 /**
  * The name of entry `id` of a name table: what the text archive says, else `word` with the number ("Attacke 0469"), also for the kernel's

@@ -29,6 +29,18 @@ export interface Species {
    * document read the changed parts again (`dataChanged`) and the dirty count catches up. Resolves to whether it went through.
    */
   edit(index: number, patch: DataPatch, label: string): Promise<boolean>;
+  /**
+   * Like `edit`, for a patch that depends on what the species holds (a learnset or an evolution entry is written whole): `make` builds it
+   * when its turn comes, from the species as the edits before it left it (read anew then), not from the document on screen, which may
+   * not have caught up yet. `make` returning null writes nothing.
+   */
+  update(index: number, make: (doc: SpeciesDoc) => SpeciesEdit | null): Promise<boolean>;
+}
+
+/** A patch and its undo label. */
+export interface SpeciesEdit {
+  patch: DataPatch;
+  label: string;
 }
 
 /**
@@ -78,12 +90,22 @@ export function useSpecies(index: number | null): Species {
   const latest = useRef({ project, bus, onEdited });
   latest.current = { project, bus, onEdited };
   const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const edit = useCallback((target: number, patch: DataPatch, label: string): Promise<boolean> => {
+  // `make` gets the species as the backend holds it now (`fresh`), or nothing for a patch that stands on its own.
+  const write = useCallback((target: number, fresh: boolean, make: (doc: SpeciesDoc | null) => SpeciesEdit | null): Promise<boolean> => {
     const owner = latest.current.project;
     const job = chain.current.then(async () => {
       // An edit that outlives its project is dropped.
       if (latest.current.project !== owner) return false;
       try {
+        let now: SpeciesDoc | null = null;
+        if (fresh) {
+          const doc = await dataGet("species", target);
+          if (doc.kind !== "species") throw new Error("Die Antwort enthält keine Pokémon-Daten.");
+          now = doc;
+        }
+        const made = make(now);
+        if (made === null) return false;
+        const { patch, label } = made;
         const changed = await dataEdit("species", target, patch, label);
         setEditError(null);
         if (changed.length > 0) {
@@ -102,7 +124,9 @@ export function useSpecies(index: number | null): Species {
     chain.current = job;
     return job;
   }, []);
+  const edit = useCallback((target: number, patch: DataPatch, label: string) => write(target, false, () => ({ patch, label })), [write]);
+  const update = useCallback((target: number, make: (doc: SpeciesDoc) => SpeciesEdit | null) => write(target, true, (doc) => (doc === null ? null : make(doc))), [write]);
 
   const current = loaded !== null && loaded.index === index ? loaded : null;
-  return { doc: current?.doc ?? null, error: current?.error ?? null, loading: index !== null && current === null, editError, edit };
+  return { doc: current?.doc ?? null, error: current?.error ?? null, loading: index !== null && current === null, editError, edit, update };
 }

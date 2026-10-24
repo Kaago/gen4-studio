@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataEdit, dataGet, dataRaw } from "../../api";
+import { dataEdit, dataGet, dataRaw, machineTable } from "../../api";
 import type { EditEvent } from "../../bus/editBus";
-import { pressKey, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
+import { openSelect, pressKey, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
-import { LEARNSET, STARAVIA, pokedexHarness, staraviaDoc, wireApi } from "./pokedexTesting";
+import { EVOLUTION, LEARNSET, STARAVIA, pokedexHarness, staraviaDoc, statefulBackend, wireApi } from "./pokedexTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -256,5 +256,135 @@ describe("PokedexHand", () => {
     vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ personal: { ...STARAVIA, attack: 85 } }));
     await h.open();
     expect(h.field("Angriff")?.value).toBe("85");
+  });
+
+  describe("edits made faster than the editor reads", () => {
+    const learnPatches = () => vi.mocked(dataEdit).mock.calls.map(([, , patch]) => ("Learnset" in patch ? patch.Learnset.entries : null));
+
+    it("builds_a_learnset_edit_from_the_state_the_edit_before_it_left", async () => {
+      statefulBackend();
+      await h.open();
+      await h.showTab("Lernset");
+      const level = h.field("Level von Ruckzuckhieb")!;
+      typeInto(level, "12");
+      pressKey(level, "Enter");
+      // No await in between: the first write has not come back, the editor still shows the old list.
+      act(() => h.hand().querySelector<HTMLElement>('button[aria-label="Heuler auf Level 1 entfernen"]')!.click());
+      await flush();
+      await flush();
+      expect(learnPatches()).toEqual([
+        [LEARNSET[0], LEARNSET[1], LEARNSET[3], { move_id: 98, level: 12 }],
+        [LEARNSET[0], LEARNSET[3], { move_id: 98, level: 12 }],
+      ]);
+      expect(vi.mocked(dataEdit).mock.calls[1]?.[3]).toBe("Staravia: Lernset 4 → 3 Attacken");
+    });
+
+    it("builds_an_evolution_edit_from_the_state_the_edit_before_it_left", async () => {
+      statefulBackend();
+      await h.open();
+      await h.showTab("Entwicklung");
+      const first = h.hand().querySelector<HTMLElement>('[data-evo="0"]')!;
+      const level = first.querySelector<HTMLInputElement>('input[aria-label="Level, Entwicklung 1"]')!;
+      typeInto(level, "30");
+      pressKey(level, "Enter");
+      openSelect(first.querySelector<HTMLElement>('[aria-label="Methode, Entwicklung 1"]')!);
+      act(() => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Level, männlich")!.click());
+      await flush();
+      await flush();
+      expect(vi.mocked(dataEdit).mock.calls.map(([, , patch, label]) => [patch, label])).toEqual([
+        [{ Evolution: { slot: 0, method: 4, param: 30, target: 398 } }, "Staravia: Entwicklung 1 Level 34 → 30"],
+        [{ Evolution: { slot: 0, method: 22, param: 30, target: 398 } }, "Staravia: Entwicklung 1 Methode Level → Level, männlich"],
+      ]);
+    });
+
+    it("keeps_the_focus_on_a_learnset_row_that_a_new_level_moves", async () => {
+      const state = statefulBackend();
+      await h.open();
+      await h.showTab("Lernset");
+      const keyOf = (move: number) => h.hand().querySelector(`[data-move="${move}"]`);
+      const before = keyOf(98);
+      const level = h.field("Level von Ruckzuckhieb")!;
+      typeInto(level, "12");
+      pressKey(level, "Enter");
+      await flush();
+      await flush();
+      expect(state.doc.learnset.map((e) => e.move_id)).toEqual([33, 45, 17, 98]);
+      // The row moved to the end and is the same element: React kept it (and the focus inside it).
+      expect(keyOf(98)).toBe(before);
+      expect([...h.hand().querySelectorAll("[data-learn]")].map((r) => r.getAttribute("data-move"))).toEqual(["33", "45", "17", "98"]);
+    });
+  });
+
+  describe("evolution methods", () => {
+    it("starts_an_empty_entry_at_level_1_and_offers_to_pick_its_target", async () => {
+      await h.open();
+      await h.showTab("Entwicklung");
+      const second = h.hand().querySelector<HTMLElement>('[data-evo="1"]')!;
+      openSelect(second.querySelector<HTMLElement>('[aria-label="Methode, Entwicklung 2"]')!);
+      await h.click([...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Level"));
+      expect(dataEdit).toHaveBeenCalledWith("species", 397, { Evolution: { slot: 1, method: 4, param: 1, target: 0 } }, "Staravia: Entwicklung 2 Methode Keine → Level");
+    });
+
+    it("keeps_the_parameter_of_a_method_of_the_same_kind_and_drops_it_for_another", async () => {
+      await h.open();
+      await h.showTab("Entwicklung");
+      const first = h.hand().querySelector<HTMLElement>('[data-evo="0"]')!;
+      openSelect(first.querySelector<HTMLElement>('[aria-label="Methode, Entwicklung 1"]')!);
+      await h.click([...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Gegenstand anwenden"));
+      expect(dataEdit).toHaveBeenCalledWith("species", 397, { Evolution: { slot: 0, method: 7, param: 0, target: 398 } }, "Staravia: Entwicklung 1 Methode Level → Gegenstand anwenden");
+    });
+
+    it("asks_for_a_target_where_an_entry_has_none_and_offers_only_species", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ evolution: [{ method: 4, param: 20, target: 0 }, ...EVOLUTION.slice(1)] }));
+      await h.open();
+      await h.showTab("Entwicklung");
+      const first = h.hand().querySelector<HTMLElement>('[data-evo="0"]')!;
+      expect(first.querySelector("button[data-species-ref]")).toBeNull();
+      const pick = first.querySelector<HTMLButtonElement>('button[aria-label^="Ziel, Entwicklung 1 wählen"]')!;
+      expect(pick.textContent).toBe("Ziel wählen");
+      await h.click(pick);
+      // Not member 0, not the eggs (494, 495), not the forms (496 to 507).
+      expect(h.options().map((o) => o.textContent?.match(/\d{4}$/)?.[0])).toEqual(["0001", "0396", "0397", "0398", "0520"]);
+    });
+  });
+
+  it("offers_no_move_0_for_the_learnset", async () => {
+    await h.open();
+    await h.showTab("Lernset");
+    await h.click(h.hand().querySelector<HTMLElement>("[data-add-learn]"));
+    expect(h.options().some((o) => o.textContent?.endsWith("0000"))).toBe(false);
+    expect(h.options().length).toBeGreaterThan(0);
+  });
+
+  it("says_why_the_machine_table_could_not_be_read", async () => {
+    vi.mocked(machineTable).mockRejectedValue({ code: "error", message: "arm9 nicht lesbar", asset: null });
+    await h.open();
+    await h.showTab("TM/VM");
+    expect(h.hand().querySelector("[role=alert]")?.textContent).toContain("arm9 nicht lesbar");
+  });
+
+  describe("locked parts", () => {
+    it("locks_only_the_learnset_when_the_learnset_has_the_wrong_length", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "learnset 0397: 7 bytes, expected 44", raw_locked: [1, 2, 3, 4, 5, 6, 7], locked_asset: { kind: "Learnset", index: 397 } }));
+      await h.open();
+      expect(h.hand().textContent).toContain("Lernset 0397: 7 Bytes statt 44");
+      expect(h.field("Angriff")?.disabled).toBe(false);
+      await h.showTab("Lernset");
+      expect(h.hand().querySelector<HTMLButtonElement>("[data-add-learn]")?.disabled).toBe(true);
+      expect(h.field("Level von Tackle")?.disabled).toBe(true);
+      await h.showTab("TM/VM");
+      expect(h.hand().querySelector<HTMLButtonElement>("[data-copy-moves]")?.disabled).toBe(true);
+      expect(h.hand().querySelector<HTMLElement>("[role=checkbox]")?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    it("locks_only_the_evolutions_when_they_have_the_wrong_length", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "evolution 0397: 40 bytes, expected 44", raw_locked: [], locked_asset: { kind: "Evolution", index: 397 } }));
+      await h.open();
+      expect(h.hand().textContent).toContain("Entwicklungen 0397: 40 Bytes statt 44");
+      await h.showTab("Entwicklung");
+      expect(h.hand().querySelector<HTMLInputElement>('input[aria-label="Level, Entwicklung 1"]')?.disabled).toBe(true);
+      await h.showTab("Lernset");
+      expect(h.hand().querySelector<HTMLButtonElement>("[data-add-learn]")?.disabled).toBe(false);
+    });
   });
 });

@@ -9,10 +9,10 @@ import { AbilitiesTab } from "./AbilitiesTab";
 import { EvolutionTab } from "./EvolutionTab";
 import { LearnsetTab } from "./LearnsetTab";
 import { MachinesTab } from "./MachinesTab";
-import { TABS, TAB_ASSETS, lockText, personalLabel } from "./pokedexModel";
+import { TABS, TAB_ASSETS, lockText, lockedParts, personalLabel } from "./pokedexModel";
 import { RawTab } from "./RawTab";
 import { useSpecies } from "./useSpecies";
-import type { SpeciesDoc } from "./useSpecies";
+import type { SpeciesDoc, SpeciesEdit } from "./useSpecies";
 import { ValuesTab } from "./ValuesTab";
 import styles from "./Pokedex.module.css";
 
@@ -32,6 +32,8 @@ export interface Editing {
   locked: { personal: boolean; learnset: boolean; evolution: boolean };
   /** Writes one patch to this species as one undo step. */
   edit(patch: DataPatch, label: string): Promise<boolean>;
+  /** Writes one patch built from the species as the edits before it left it (see `useSpecies().update`). */
+  update(make: (doc: SpeciesDoc) => SpeciesEdit | null): Promise<boolean>;
   /** Writes one personal field, labelled with its old and new value. */
   setPersonal(field: NumericField, value: number): void;
 }
@@ -44,7 +46,7 @@ export interface Editing {
 export function PokedexHand() {
   const { row, labelOf, names, selected, dirty, target } = useDataArea("pokemon");
   const tinkering = useShell().state.depth === "tuefteln";
-  const { doc, error, editError, edit } = useSpecies(selected);
+  const { doc, error, editError, edit, update } = useSpecies(selected);
   const [tab, setTab] = useState<SpeciesTab>("values");
   // The field focused last, for the raw data's mark (its key in the field map: "attack", "method0").
   const [lastField, setLastField] = useState<string | undefined>(undefined);
@@ -58,28 +60,27 @@ export function PokedexHand() {
   const index = selected ?? 0;
   const shown: SpeciesTab = tab === "raw" && !tinkering ? "values" : tab;
 
+  // The label names the value the field had when the write comes (an edit before it may have changed it).
   const setPersonal = useCallback(
-    (field: NumericField, value: number) => {
-      if (doc === null) return;
-      void edit(index, { Personal: { field, value } }, personalLabel(name, field, doc.personal[field], value, names));
-    },
-    [doc, edit, index, name, names],
+    (field: NumericField, value: number) =>
+      void update(index, (now) => (now.personal[field] === value ? null : { patch: { Personal: { field, value } }, label: personalLabel(name, field, now.personal[field], value, names) })),
+    [update, index, name, names],
   );
 
   const editing = useMemo<Editing | null>(() => {
     if (doc === null) return null;
-    const lockedKind = doc.locked === null ? null : (doc.locked_asset?.kind ?? "Personal");
     return {
       index,
       name,
       doc,
       names,
       showBase: tinkering,
-      locked: { personal: lockedKind === "Personal", learnset: lockedKind === "Learnset", evolution: lockedKind === "Evolution" },
+      locked: lockedParts(doc),
       edit: (patch, label) => edit(index, patch, label),
+      update: (make) => update(index, make),
       setPersonal,
     };
-  }, [doc, index, name, names, tinkering, edit, setPersonal]);
+  }, [doc, index, name, names, tinkering, edit, update, setPersonal]);
 
   const items = useMemo<TabItem[]>(
     () =>

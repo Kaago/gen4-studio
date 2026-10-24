@@ -124,6 +124,33 @@ export function wireApi(doc: () => DataDocDto = () => staraviaDoc()) {
   URL.revokeObjectURL = vi.fn();
 }
 
+/**
+ * A backend that keeps Staravia's document: `data_get` answers the current one, `data_edit` applies learnset, evolution and personal
+ * patches to it (as the kernel would) and answers the asset it changed. For edits made faster than the editor reads again.
+ */
+export function statefulBackend(start: Extract<DataDocDto, { kind: "species" }> = staraviaDoc() as Extract<DataDocDto, { kind: "species" }>) {
+  const state = { doc: start };
+  vi.mocked(api.dataGet).mockImplementation(async () => state.doc);
+  vi.mocked(api.dataEdit).mockImplementation(async (_kind, index, patch) => {
+    const doc = state.doc;
+    if ("Learnset" in patch) {
+      state.doc = { ...doc, learnset: patch.Learnset.entries };
+      return [{ kind: "Learnset", index }];
+    }
+    if ("Evolution" in patch) {
+      const { slot, method, param, target } = patch.Evolution;
+      state.doc = { ...doc, evolution: doc.evolution.map((e, i) => (i === slot ? { method, param, target } : e)) };
+      return [{ kind: "Evolution", index }];
+    }
+    if ("Personal" in patch) {
+      state.doc = { ...doc, personal: { ...doc.personal, [patch.Personal.field]: patch.Personal.value } };
+      return [{ kind: "Personal", index }];
+    }
+    return [];
+  });
+  return state;
+}
+
 /** The Pokémon area with its list, view and hand; `selected` is chosen in the Pokédex before it shows, at `depth`. */
 export function pokedexHarness() {
   const h = dataHarness((props) => (

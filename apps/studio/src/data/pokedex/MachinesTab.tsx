@@ -1,32 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
-import { machineTable } from "../../api";
-import { Button, ToggleGrid } from "../../ui/primitives";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorText, machineTable } from "../../api";
+import { Button, Notice, ToggleGrid } from "../../ui/primitives";
 import type { ToggleCell } from "../../ui/primitives";
+import { id4 } from "../../workbench/terms";
 import { useDataArea } from "../useDataArea";
 import { ChoicePicker, useChoices } from "./pickers";
 import type { Editing } from "./PokedexHand";
-import { MACHINE_COUNT, id4, machineLabel, moveName } from "./pokedexModel";
+import { MACHINE_COUNT, machineLabel, moveName } from "./pokedexModel";
 import styles from "./Pokedex.module.css";
 
-/**
- * The moves of TM01 to TM92 and HM01 to HM08 from arm9, read once per project; null while unread or when the game's table is not
- * available (the grid then shows bare numbers).
- */
-function useMachines(): readonly number[] | null {
+interface Machines {
+  /** The move of each machine; null while unread, when the game's table is not available, or when it could not be read. */
+  moves: readonly number[] | null;
+  /** Why the table could not be read (a null answer is no error: the table is not available for this game). */
+  error: string | null;
+}
+
+const UNREAD: Machines = { moves: null, error: null };
+
+/** The moves of TM01 to TM92 and HM01 to HM08 from arm9, read when the tab shows; without them the grid shows bare numbers. */
+function useMachines(): Machines {
   const { project } = useDataArea("pokemon");
-  const [machines, setMachines] = useState<{ project: unknown; moves: readonly number[] | null } | null>(null);
+  const [read, setRead] = useState<(Machines & { project: unknown }) | null>(null);
   useEffect(() => {
     if (project === null) return;
     let current = true;
     machineTable().then(
-      (moves) => current && setMachines({ project, moves }),
-      () => current && setMachines({ project, moves: null }),
+      (moves) => current && setRead({ project, moves, error: null }),
+      (e: unknown) => current && setRead({ project, moves: null, error: errorText(e) }),
     );
     return () => {
       current = false;
     };
   }, [project]);
-  return machines !== null && machines.project === project ? machines.moves : null;
+  return read !== null && read.project === project ? read : UNREAD;
 }
 
 /**
@@ -35,9 +42,11 @@ function useMachines(): readonly number[] | null {
  */
 export function MachinesTab({ e }: { e: Editing }) {
   const { rows, labelOf } = useDataArea("pokemon");
-  const machines = useMachines();
+  const { moves: machines, error } = useMachines();
   const [copying, setCopying] = useState(false);
-  const species = useChoices("species", copying, e.index);
+  const self = e.index;
+  const others = useCallback((index: number) => index !== self, [self]);
+  const species = useChoices("species", copying, others);
   const tm = e.doc.tm;
   const on = tm.filter(Boolean).length;
   const cells = useMemo<ToggleCell[]>(
@@ -65,6 +74,7 @@ export function MachinesTab({ e }: { e: Editing }) {
           Von anderer Art übernehmen …
         </Button>
       </div>
+      {error !== null && <Notice kind="error">{`Die Attacken der TM und VM sind nicht lesbar: ${error}`}</Notice>}
       <ToggleGrid ariaLabel="TM und VM" cells={cells} columns={10} onToggle={toggle} />
       <ChoicePicker open={copying} onOpenChange={setCopying} title="Von anderer Art übernehmen" items={species} onPick={copyFrom} footer={`Ersetzt TM/VM und Lernset von ${e.name}`} />
     </div>

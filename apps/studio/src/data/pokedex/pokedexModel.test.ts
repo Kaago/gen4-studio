@@ -10,7 +10,9 @@ import {
   evYieldWord,
   genderText,
   hatchText,
+  isEvolutionTarget,
   lockText,
+  lockedParts,
   machineLabel,
   paramKind,
   sortLearnset,
@@ -123,6 +125,23 @@ describe("pokedexModel", () => {
     expect(lockText("evolution 0001: 40 bytes, expected 44", { kind: "Evolution", index: 1 })).toBe("Entwicklungen 0001: 40 Bytes statt 44");
     // A reason in another shape stays as the kernel says it, after the part.
     expect(lockText("something else", { kind: "Personal", index: 2 })).toBe("Pokémon-Daten 0002: something else");
+  });
+
+  it("names_the_part_a_lock_holds_and_takes_a_lock_without_a_part_as_the_personal_data", () => {
+    const doc = (locked: string | null, kind: "Personal" | "Learnset" | "Evolution" | null) => ({ locked, locked_asset: kind === null ? null : { kind, index: 1 } });
+    expect(lockedParts(doc(null, null))).toEqual({ personal: false, learnset: false, evolution: false });
+    expect(lockedParts(doc("x", null))).toEqual({ personal: true, learnset: false, evolution: false });
+    expect(lockedParts(doc("x", "Personal"))).toEqual({ personal: true, learnset: false, evolution: false });
+    expect(lockedParts(doc("x", "Learnset"))).toEqual({ personal: false, learnset: true, evolution: false });
+    expect(lockedParts(doc("x", "Evolution"))).toEqual({ personal: false, learnset: false, evolution: true });
+  });
+
+  it("takes_only_species_as_evolution_targets", () => {
+    expect([0, 1, 493, 494, 495, 496, 507, 508].filter(isEvolutionTarget)).toEqual([1, 493, 508]);
+  });
+
+  it("names_the_ninjask_branch", () => {
+    expect(EVO_METHODS[13]?.label).toBe("Level, Ninjask-Zweig");
   });
 
   it("names_the_machines_tm01_to_tm92_then_vm01_to_vm08", () => {

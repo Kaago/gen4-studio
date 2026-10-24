@@ -1,3 +1,4 @@
+import { id4 } from "../../workbench/terms";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { DataRowDto, ItemEntryDto, MoveRowExtra, SpeciesRowExtra } from "../../api";
@@ -8,7 +9,7 @@ import { CATEGORY_NAMES } from "../dataModel";
 import { useDataSnapshot } from "../dataStore";
 import { itemIcon, itemIconKey, monIcon, monIconKey } from "../icons";
 import { useDataArea } from "../useDataArea";
-import { abilityName, id4, itemName, moveName } from "./pokedexModel";
+import { abilityName, itemName, moveName } from "./pokedexModel";
 import styles from "./Pokedex.module.css";
 
 /** What a pick field offers: the species, the moves, the items or the abilities of the project. */
@@ -23,16 +24,16 @@ export interface PickFieldProps {
   /** Called with the number picked (species member, move, item id, ability). */
   onPick: (value: number) => void;
   disabled?: boolean;
-  /** Members not to offer (the species itself). */
-  exclude?: number;
+  /** The species to offer (all without it); keep its identity between renders. */
+  only?: (index: number) => boolean;
   /** The button's text when the value shows beside it (a reference to the target): "Ändern …". */
   trigger?: string;
 }
 
 /** A value chosen from a long list: a button with the current value that opens a picker over the project's entries. */
-export function PickField({ label, text, choice, onPick, disabled, exclude, trigger }: PickFieldProps) {
+export function PickField({ label, text, choice, onPick, disabled, only, trigger }: PickFieldProps) {
   const [open, setOpen] = useState(false);
-  const items = useChoices(choice, open, exclude);
+  const items = useChoices(choice, open, only);
   return (
     <>
       <Button kind={trigger ? "quiet" : "secondary"} size="s" aria-label={`${label} wählen, jetzt ${text}`} disabled={disabled} onClick={() => setOpen(true)}>
@@ -54,7 +55,7 @@ const NONE: readonly PickerItem[] = [];
  * The entries of `choice` while `open` (built only then): species with their types, moves with type and category, items with their bag
  * icon (with the item table), abilities by name. The moves and items lists are read from the store the first time they are offered.
  */
-export function useChoices(choice: Choice, open: boolean, exclude?: number): readonly PickerItem[] {
+export function useChoices(choice: Choice, open: boolean, only?: (index: number) => boolean): readonly PickerItem[] {
   const { project, store, rows, labelOf, names, itemTable } = useDataArea("pokemon");
   const snapshot = useDataSnapshot(store);
   useEffect(() => {
@@ -67,15 +68,18 @@ export function useChoices(choice: Choice, open: boolean, exclude?: number): rea
     if (!open) return NONE;
     switch (choice) {
       case "species":
-        return rows.filter((r) => r.index !== exclude).map((r) => speciesItem(r, labelOf(r)));
+        return (only ? rows.filter((r) => only(r.index)) : rows).map((r) => speciesItem(r, labelOf(r)));
       case "move":
-        return moves ? moves.map((r) => moveItem(r, moveName(names.moves, r.index))) : names.moves.map((_, id) => ({ id, label: moveName(names.moves, id), tech: id4(id) }));
+        // Move 0 is no move: a learnset or an evolution cannot name it.
+        return moves
+          ? moves.filter((r) => r.index !== 0).map((r) => moveItem(r, moveName(names.moves, r.index)))
+          : names.moves.flatMap((_, id) => (id === 0 ? [] : [{ id, label: moveName(names.moves, id), tech: id4(id) }]));
       case "item":
         return names.items.map((_, id) => itemItem(id, itemName(names.items, id), itemTable?.[id]));
       case "ability":
         return names.abilities.map((_, id) => ({ id, label: abilityName(names.abilities, id), tech: id4(id) }));
     }
-  }, [open, choice, rows, labelOf, exclude, moves, names, itemTable]);
+  }, [open, choice, rows, labelOf, only, moves, names, itemTable]);
 }
 
 /** The types of a species row as badges. */

@@ -1,3 +1,4 @@
+import { id4 } from "../../workbench/terms";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DataKind, HeaderSummary, NavTargetDto, RefDto } from "../../api";
 import { errorText, refs } from "../../api";
@@ -6,7 +7,7 @@ import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
 import { monIcon, monIconKey, useIcon } from "../icons";
 import { useDataArea } from "../useDataArea";
-import { STATS, abilityName, id4, lockText, statAverages, statSum } from "./pokedexModel";
+import { STATS, abilityName, lockText, lockedParts, statAverages, statSum } from "./pokedexModel";
 import { useSpecies } from "./useSpecies";
 import styles from "./Pokedex.module.css";
 
@@ -142,7 +143,7 @@ export function PokedexView() {
   const icon = useIcon(selected === null ? null : monIconKey(selected), () => monIcon(selected ?? 0), true);
   if (row === null || selected === null) return null;
   const name = labelOf(row);
-  const personalLocked = doc !== null && doc.locked !== null && doc.locked_asset?.kind === "Personal";
+  const personalLocked = doc !== null && lockedParts(doc).personal;
   const personal = doc?.personal;
   const abilities = personal ? [personal.ability1, personal.ability2].filter((a, i, all) => a !== 0 && all.indexOf(a) === i) : [];
   return (

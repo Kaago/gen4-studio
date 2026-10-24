@@ -111,4 +111,17 @@ describe("PokedexView", () => {
     expect(h.view().textContent).toContain("Pokémon-Daten 0397: 36 Bytes statt 44");
     expect(meters()).toHaveLength(0);
   });
+
+  it("takes_a_lock_without_its_part_as_one_of_the_personal_data_like_the_hand", async () => {
+    vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "personal 0397: 36 bytes, expected 44", raw_locked: [], locked_asset: null }));
+    await h.open();
+    expect(meters()).toHaveLength(0);
+    expect(h.hand().querySelector<HTMLInputElement>('input[aria-label="Angriff"]')?.disabled).toBe(true);
+  });
+
+  it("keeps_the_values_when_only_the_learnset_is_locked", async () => {
+    vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "learnset 0397: 7 bytes, expected 44", raw_locked: [], locked_asset: { kind: "Learnset", index: 397 } }));
+    await h.open();
+    expect(meters()).toHaveLength(6);
+  });
 });
