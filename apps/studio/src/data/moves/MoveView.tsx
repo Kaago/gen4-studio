@@ -185,8 +185,8 @@ export function MoveView() {
           {locked !== null && <Notice kind="warning">{`${lockText(locked, selected)}. Ihre Werte sind nicht lesbar.`}</Notice>}
           {doc !== null && locked === null && <Facts v={moveValues(doc.fields)} />}
         </section>
-        {doc !== null && <Description key={selected} description={doc.description} />}
-        <Uses key={selected} index={selected} />
+        {doc !== null && <Description key={`description${selected}`} description={doc.description} />}
+        <Uses key={`uses${selected}`} index={selected} />
       </div>
     </section>
   );
