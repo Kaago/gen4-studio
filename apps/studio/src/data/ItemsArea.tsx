@@ -7,18 +7,23 @@ import type { DataSub } from "./dataModel";
 import { ItemHand } from "./items/ItemHand";
 import { ItemsList } from "./items/ItemsList";
 import { ItemView } from "./items/ItemView";
-import { dataAreaProvider, useDataAreaModel, useDataArea } from "./useDataArea";
+import { dataAreaProvider, dataSearchProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
 const Provider = dataAreaProvider("gegenstaende");
+const SearchProvider = dataSearchProvider("gegenstaende");
 
 /**
  * The Gegenstände area's model for its list, view, hand and status parts (`useDataArea("gegenstaende")`). Memoised: it renders when
  * `context` changes or its children do. It has one part (shops come later), so no switcher.
  */
 export const ItemsArea = memo(function ItemsArea({ context, children }: { context: DataAreaProps; children?: ReactNode }) {
-  const model = useDataAreaModel("gegenstaende", context);
-  return <Provider value={model}>{children}</Provider>;
+  const { model, search } = useDataAreaModel("gegenstaende", context);
+  return (
+    <Provider value={model}>
+      <SearchProvider value={search}>{children}</SearchProvider>
+    </Provider>
+  );
 });
 
 /** The part of the area: the items editor (list, view and hand in `data/items/`). */

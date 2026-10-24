@@ -11,18 +11,23 @@ import { PokedexHand } from "./pokedex/PokedexHand";
 import { PokedexList } from "./pokedex/PokedexList";
 import { PokedexView } from "./pokedex/PokedexView";
 import { speciesCount } from "./pokedex/pokedexModel";
-import { dataAreaProvider, useDataAreaModel, useDataArea } from "./useDataArea";
+import { dataAreaProvider, dataSearchProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
 const Provider = dataAreaProvider("pokemon");
+const SearchProvider = dataSearchProvider("pokemon");
 
 /**
  * The Pokémon area's model for its list, view, hand and status parts (`useDataArea("pokemon")`). Memoised: it renders when `context`
  * changes (the owner keeps it) or its children do, not for every render of the app.
  */
 export const PokemonArea = memo(function PokemonArea({ context, children }: { context: DataAreaProps; children?: ReactNode }) {
-  const model = useDataAreaModel("pokemon", context);
-  return <Provider value={model}>{children}</Provider>;
+  const { model, search } = useDataAreaModel("pokemon", context);
+  return (
+    <Provider value={model}>
+      <SearchProvider value={search}>{children}</SearchProvider>
+    </Provider>
+  );
 });
 
 /**

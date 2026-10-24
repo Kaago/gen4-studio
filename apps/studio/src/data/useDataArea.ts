@@ -56,8 +56,6 @@ export interface DataAreaModel {
   row: DataRowDto | null;
   /** Every row of the part's list (empty while it is read). */
   rows: readonly DataRowDto[];
-  /** The rows the search and the filter leave. */
-  shown: readonly DataRowDto[];
   /** The name a row shows (`rowLabel`). */
   labelOf(row: DataRowDto): string;
   names: NameTablesDto;
@@ -69,12 +67,6 @@ export interface DataAreaModel {
   error: string | null;
   /** Why the data cannot be read at all (Diamond and Pearl), as the backend says it. */
   locked: string | null;
-  query: string;
-  setQuery(query: string): void;
-  filter: ListFilter;
-  setFilter(filter: ListFilter): void;
-  /** Clears the search and the filter. */
-  clearFilter(): void;
   goTo(target: NavTarget): void;
   /** The lists of the project: an editor reads the other lists it offers (moves, items) from it. */
   store: DataStore;
@@ -84,6 +76,27 @@ export interface DataAreaModel {
   onEdited(): void;
   bus: EditBus;
   headers: readonly HeaderSummary[];
+}
+
+/**
+ * The search and the filter of the part that shows, and the rows they leave (`useDataSearch`). Apart from the model, so that typing in the
+ * search renders the list and not the view and the hand, which read the model only (Spec §9: a list renders in under 50 ms).
+ */
+export interface DataSearchModel {
+  /** The rows the search and the filter leave. */
+  shown: readonly DataRowDto[];
+  query: string;
+  setQuery(query: string): void;
+  filter: ListFilter;
+  setFilter(filter: ListFilter): void;
+  /** Clears the search and the filter. */
+  clearFilter(): void;
+}
+
+/** The model of a data area and its search, provided apart (`dataAreaProvider`, `dataSearchProvider`). */
+export interface DataAreaModels {
+  model: DataAreaModel;
+  search: DataSearchModel;
 }
 
 const NO_NAMES: NameTablesDto = {
@@ -106,7 +119,7 @@ const NO_SEARCH: Search = { query: "", filter: NO_FILTER };
  * Builds the model of `area`: the part and the selections live in the shell state (remembered between runs), search and filter here, per
  * part (gone with another project); the rows come from the store, read once the area is `active`.
  */
-export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModel {
+export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModels {
   const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
@@ -193,7 +206,7 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   const waiting = kind !== null && (data.rows[kind] === undefined || (kind === "item" && data.itemTable === undefined));
   const loading = project !== null && waiting && data.locked === null && error === null;
 
-  return useMemo<DataAreaModel>(
+  const model = useMemo<DataAreaModel>(
     () => ({
       area,
       project,
@@ -205,18 +218,12 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       select,
       row,
       rows,
-      shown,
       labelOf,
       names: data.names ?? NO_NAMES,
       itemTable: data.itemTable,
       loading,
       error,
       locked: data.locked,
-      query: search.query,
-      setQuery,
-      filter: search.filter,
-      setFilter,
-      clearFilter,
       goTo,
       store,
       target,
@@ -225,8 +232,13 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       bus,
       headers,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, shown, labelOf, data.names, data.itemTable, loading, error, data.locked, search, setQuery, setFilter, clearFilter, goTo, store, target, dirty, onEdited, bus, headers],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers],
   );
+  const searchModel = useMemo<DataSearchModel>(
+    () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),
+    [shown, search, setQuery, setFilter, clearFilter],
+  );
+  return { model, search: searchModel };
 }
 
 /** Where a member of a part leads (the breadcrumb's last crumb); null for a part without members yet. */
@@ -248,12 +260,27 @@ const CONTEXTS: Record<DataArea, Context<DataAreaModel | null>> = {
   gegenstaende: createContext<DataAreaModel | null>(null),
 };
 
+const SEARCHES: Record<DataArea, Context<DataSearchModel | null>> = {
+  pokemon: createContext<DataSearchModel | null>(null),
+  gegenstaende: createContext<DataSearchModel | null>(null),
+};
+
 /** The provider of an area's model (`PokemonArea`, `ItemsArea`). */
 export const dataAreaProvider = (area: DataArea) => CONTEXTS[area].Provider;
+
+/** The provider of an area's search (`PokemonArea`, `ItemsArea`), inside the model's. */
+export const dataSearchProvider = (area: DataArea) => SEARCHES[area].Provider;
 
 /** The model of the data area `area` around the caller. */
 export function useDataArea(area: DataArea): DataAreaModel {
   const model = useContext(CONTEXTS[area]);
   if (model === null) throw new Error(`useDataArea outside the ${area} area`);
   return model;
+}
+
+/** The search of the data area `area` around the caller: only the lists read it. */
+export function useDataSearch(area: DataArea): DataSearchModel {
+  const search = useContext(SEARCHES[area]);
+  if (search === null) throw new Error(`useDataSearch outside the ${area} area`);
+  return search;
 }

@@ -4,7 +4,7 @@ import { FilterChips, SelectField, TypeBadge, pokemonTypes } from "../../ui/prim
 import type { SelectOption } from "../../ui/primitives";
 import { DataList } from "../DataList";
 import { CATEGORY_NAMES } from "../dataModel";
-import { useDataArea } from "../useDataArea";
+import { useDataArea, useDataSearch } from "../useDataArea";
 import styles from "./Moves.module.css";
 
 const extraOf = (row: DataRowDto) => row.extra as MoveRowExtra | null;
@@ -23,7 +23,8 @@ const CATEGORY_FILTER: readonly SelectOption<number>[] = [{ value: -1, label: "A
  * number and a dot when the move is unsaved (a category word would cut the name short in the list's width).
  */
 export function MovesList() {
-  const { rows, filter, setFilter, dirty } = useDataArea("pokemon");
+  const { rows, dirty } = useDataArea("pokemon");
+  const { filter, setFilter } = useDataSearch("pokemon");
   const options = useMemo(
     () => pokemonTypes.map((t) => ({ value: String(t.id), label: t.name, type: t.id, count: rows.filter((r) => extraOf(r)?.type === t.id).length })),
     [rows],

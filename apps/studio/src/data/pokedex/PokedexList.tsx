@@ -3,7 +3,7 @@ import type { DataRowDto, SpeciesRowExtra } from "../../api";
 import { FilterChips, pokemonTypes } from "../../ui/primitives";
 import { DataList, RowIcon } from "../DataList";
 import { monIcon, monIconKey } from "../icons";
-import { useDataArea } from "../useDataArea";
+import { useDataArea, useDataSearch } from "../useDataArea";
 import { TAB_ASSETS } from "./pokedexModel";
 import styles from "./Pokedex.module.css";
 
@@ -17,7 +17,8 @@ const typesOf = (row: DataRowDto): readonly number[] => (row.extra as SpeciesRow
 
 /** The list of the Pokédex: search by name or number, type chips with their counts, icon, name and number, and a dot on unsaved species. */
 export function PokedexList() {
-  const { rows, filter, setFilter, dirty } = useDataArea("pokemon");
+  const { rows, dirty } = useDataArea("pokemon");
+  const { filter, setFilter } = useDataSearch("pokemon");
   const options = useMemo(
     () =>
       pokemonTypes.map((t) => ({

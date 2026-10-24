@@ -4,7 +4,7 @@ import { FilterChips, Notice } from "../../ui/primitives";
 import { DataList, RowIcon } from "../DataList";
 import { POCKET_NAMES, itemPocket, itemPrice } from "../dataModel";
 import { itemIcon, itemIconKey } from "../icons";
-import { useDataArea } from "../useDataArea";
+import { useDataArea, useDataSearch } from "../useDataArea";
 import { dataMemberOf, hasIcon } from "./itemModel";
 import styles from "./Items.module.css";
 
@@ -20,7 +20,8 @@ function ItemIcon({ row, label, entry }: { row: DataRowDto; label: string; entry
  * the data members ("Daten 0017") without icons, and a note says why.
  */
 export function ItemsList() {
-  const { rows, filter, setFilter, dirty, itemTable } = useDataArea("gegenstaende");
+  const { rows, dirty, itemTable } = useDataArea("gegenstaende");
+  const { filter, setFilter } = useDataSearch("gegenstaende");
   const options = useMemo(() => POCKET_NAMES.map((label, pocket) => ({ value: String(pocket), label, count: rows.filter((r) => itemPocket(r) === pocket).length })), [rows]);
   const chosen = useMemo(() => new Set(filter.pocket === null ? [] : [String(filter.pocket)]), [filter.pocket]);
   const onPockets = useCallback(

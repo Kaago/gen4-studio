@@ -7,7 +7,7 @@ import { useVisible } from "../workbench/useVisible";
 import { filterText, isFiltered, lockReason } from "./dataModel";
 import type { DataArea } from "./dataModel";
 import { useIcon } from "./icons";
-import { useDataArea } from "./useDataArea";
+import { useDataArea, useDataSearch } from "./useDataArea";
 import styles from "./DataArea.module.css";
 
 /** How a list shows its rows: the attribute that names a row's member, and what stands before and after its name. */
@@ -65,7 +65,8 @@ const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSele
  * filter in words with "Filter lösen", and the rows. The selection comes into view when it is made elsewhere (a link).
  */
 export function DataList({ area, label, filters, attr, leading, trailing }: DataListProps) {
-  const { shown, selected, select, query, setQuery, filter, clearFilter, labelOf } = useDataArea(area);
+  const { selected, select, labelOf } = useDataArea(area);
+  const { shown, query, setQuery, filter, clearFilter } = useDataSearch(area);
   // The callbacks of the rows; a new object only when the list's look changes, so the memoised rows keep still otherwise.
   const rows = useRowsSpec(attr, leading, trailing);
   const onSelect = useCallback((index: number) => select(index), [select]);
