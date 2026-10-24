@@ -27,7 +27,7 @@ pub const ROTOM_TOML: &str = "rotom.toml";
 const DATABASE_DIR: &str = ".rotom/command_database";
 const CACHE_DIR: &str = ".rotom/cache";
 const STATUS_DIR: &str = ".rotom/status";
-const SOURCE_ROOT: &str = "expanded/scripts";
+pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
 /// Script numbers from here on are common scripts, shared by all maps.
 const FIRST_COMMON_SCRIPT: u16 = 2000;
 /// Longest excerpt a search hit carries, in characters.
@@ -890,17 +890,24 @@ pub fn new_script_file_reported(
     Ok((file, report.touched_archives))
 }
 
-/// The script slots (`#n`) a rotom source declares, with the span of their statement.
-fn declared_slots(text: &str) -> Result<Vec<(u32, std::ops::Range<usize>)>, KernelError> {
-    use rotom::compiler::ast::StatementKind;
+/// The rotom AST of a source, parsed fault-tolerantly (a half-written file still yields its
+/// scripts); `None` when the parser gives up all the same.
+pub(crate) fn parse_source(
+    text: &str,
+) -> Result<Option<rotom::compiler::ast::ScriptFile>, KernelError> {
     // rotom v0.7.0: src/compiler/parser.rs Parser::new_fallible (keeps parsing after an
-    // error, so a half-written file still yields its scripts), parse_script_file
+    // error), parse_script_file
     let parsed = guard_panic("rotom", || {
         rotom::Parser::new_fallible(rotom::Lexer::new(text)).parse_script_file()
     })?;
-    let Ok(file) = parsed else {
-        return Ok(Vec::new());
-    };
+    Ok(parsed.ok())
+}
+
+/// The script slots (`#n`) the parsed source `file` declares, with the span of their statement.
+pub(crate) fn slots_in(
+    file: &rotom::compiler::ast::ScriptFile,
+) -> Vec<(u32, std::ops::Range<usize>)> {
+    use rotom::compiler::ast::StatementKind;
     let mut slots = Vec::new();
     for item in &file.items {
         if let StatementKind::Function { headers, .. } = &item.node {
@@ -912,7 +919,16 @@ fn declared_slots(text: &str) -> Result<Vec<(u32, std::ops::Range<usize>)>, Kern
             );
         }
     }
-    Ok(slots)
+    slots
+}
+
+/// The script slots (`#n`) a rotom source declares, with the span of their statement.
+pub(crate) fn declared_slots(
+    text: &str,
+) -> Result<Vec<(u32, std::ops::Range<usize>)>, KernelError> {
+    Ok(parse_source(text)?
+        .map(|file| slots_in(&file))
+        .unwrap_or_default())
 }
 
 /// Appends `\nscript script_<N> #<N>:\n\tEnd\n` with N one above the highest `#n`, writes and

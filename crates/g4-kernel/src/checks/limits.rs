@@ -5,6 +5,7 @@
 
 use std::sync::OnceLock;
 
+use g4_formats::game::Family;
 use serde::Deserialize;
 
 use crate::project::Project;
@@ -62,6 +63,38 @@ pub struct EventFileLimits {
 #[serde(deny_unknown_fields)]
 pub struct ScriptLimits {
     pub decoration: Limit<u16>,
+    /// The commands whose argument is a message of the script's text archive.
+    pub message_params: MessageParams,
+}
+
+/// A script command and the position (0-based) of its message argument.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageParam {
+    pub command: String,
+    pub arg: usize,
+}
+
+/// The message commands per family (`script.message-missing`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageParams {
+    pub dp: Vec<MessageParam>,
+    pub pt: Vec<MessageParam>,
+    pub hgss: Vec<MessageParam>,
+    pub verified: bool,
+    pub source: String,
+}
+
+impl MessageParams {
+    /// The list of `family`.
+    pub fn of(&self, family: Family) -> &[MessageParam] {
+        match family {
+            Family::Dp => &self.dp,
+            Family::Pt => &self.pt,
+            Family::Hgss => &self.hgss,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -149,6 +182,11 @@ impl Limits {
             row("event_file.shared", &self.event_file.shared),
             row("script.decoration", &self.script.decoration),
             LimitEntry {
+                key: "script.message_params",
+                verified: self.script.message_params.verified,
+                source: &self.script.message_params.source,
+            },
+            LimitEntry {
                 key: "encounter.none",
                 verified: self.encounter.none.verified,
                 source: &self.encounter.none.source,
@@ -200,7 +238,13 @@ mod tests {
 
         // Every entry names its source.
         let entries = l.entries();
-        assert_eq!(entries.len(), 11);
+        assert_eq!(entries.len(), 12);
+        // The message commands per family (task0 section 4: Pt 15).
+        let params = &l.script.message_params;
+        assert_eq!(params.of(Family::Pt).len(), 15);
+        assert_eq!(params.of(Family::Hgss).len(), 11);
+        assert_eq!(params.of(Family::Dp).len(), 8);
+        assert!(params.source.contains("platinum") && params.source.contains("hgss"));
         for e in &entries {
             assert!(!e.source.trim().is_empty(), "{} has no source", e.key);
         }

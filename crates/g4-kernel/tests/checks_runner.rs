@@ -4,6 +4,7 @@
 //! ignore list and the generation it saw.
 mod common;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -13,6 +14,7 @@ use g4_kernel::checks::{
     SnapshotCache, Subject,
 };
 use g4_kernel::project::{AssetKind, Project};
+use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::store::{AssetId, MapHeader, Store, WarpEvent};
 
 fn id(kind: AssetKind, index: u16) -> AssetId {
@@ -296,7 +298,11 @@ fn the_catalogue_reads_the_store_overlay_and_the_disk() {
         &Group::ALL,
         |_, _, _| {},
     );
-    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    // Without adopted scripts only the message check cannot run.
+    assert_eq!(
+        report.skipped,
+        [("script.message-missing", "scripts not adopted".to_owned())]
+    );
     let found = |code: &str, subject: Subject, key: &str| {
         report
             .findings
@@ -307,10 +313,71 @@ fn the_catalogue_reads_the_store_overlay_and_the_disk() {
     // asset.unreadable names the lock.
     let locked = format!("locked:item:{}", common::LONG_ITEM);
     assert!(found("asset.unreadable", Subject::Project, &locked));
+    // The per-archive group names the text archive that does not decode, the per-script
+    // group header 1, whose level script is script file 0 (read from the members).
+    assert!(found(
+        "text.json-broken",
+        Subject::TextArchive(0),
+        "unreadable"
+    ));
+    assert!(found(
+        "header.script-kind",
+        Subject::Header(1),
+        "level_script_id"
+    ));
     // Every finding carries its sentence and arguments.
     for f in &report.findings {
         assert!(!f.message.is_empty() && !f.args.is_empty(), "{f:?}");
     }
+}
+
+#[test]
+fn the_script_checks_read_the_adopted_sources() {
+    let (_s, project, st) = synthetic();
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    // Script file 0 runs on header 0 (text archive 433) and header 1 (archive 0, which does
+    // not decode and so does not count): message 40 is past the end of 433.
+    let source =
+        "script Main #1:\n    Message 1\n    Message 40\n    End\nscript Second #2:\n    End\n";
+    scripts::write_source(&project, 0, &ScriptSource::Rotom(source.into())).unwrap();
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::PerScript],
+        |_, _, _| {},
+    );
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let missing: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == "script.message-missing")
+        .collect();
+    assert_eq!(missing.len(), 1, "{:?}", report.findings);
+    assert_eq!(missing[0].subject, Subject::ScriptFile(0));
+    assert_eq!(
+        missing[0].file,
+        Some((PathBuf::from("expanded/scripts/0000.rotom"), 3, 13))
+    );
+    assert_eq!(missing[0].args[..4], ["0", "1", "40", "433"]);
+    // Header 1's level script is script file 0, now read from the sources.
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == "header.script-kind"
+                && f.subject == Subject::Header(1)
+                && f.key == "level_script_id")
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.code == "script.unreadable")
+    );
+    // The sources (with what the checks read from them) are cached for the next run.
+    assert_eq!(snap.into_cache().len().1, 3);
 }
 
 #[test]

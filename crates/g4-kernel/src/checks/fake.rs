@@ -2,7 +2,9 @@
 //! builders for the fixtures they share.
 #![allow(clippy::unwrap_used)]
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use g4_formats::area_data::AreaData;
 use g4_formats::data::encounter::Encounters;
@@ -15,8 +17,10 @@ use g4_formats::test_support::{bmd0, mdl0_block};
 use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
 use uxie::map_header::{MapHeader, MapHeaderHGSS, MapHeaderPt};
 
-use super::{Finding, Limits, Source, SourceCheck, Unreadable};
+use super::scripts::{ScriptFacts, ScriptInput, facts_of};
+use super::{Finding, Limits, Source, SourceCheck, TextEntry, Unreadable};
 use crate::project::{AssetId, AssetKind};
+use crate::text::{TextArchiveDoc, TextMessage};
 
 /// Every value a check reads; a kind's count is the length of its list unless `counts`
 /// names another.
@@ -34,6 +38,22 @@ pub(crate) struct Fake {
     pub items: usize,
     pub unreadable: Vec<Unreadable>,
     pub locked: Vec<(AssetId, String)>,
+    /// Whether the scripts are adopted (the script files are then rotom sources).
+    pub adopted: bool,
+    pub scripts: Vec<FakeScript>,
+    pub texts: Vec<Option<TextArchiveDoc>>,
+    pub text_unreadable: Vec<(u16, String)>,
+    /// What a check noted it left undone.
+    pub skips: RefCell<Vec<String>>,
+}
+
+/// A script file of a [`Fake`]: its rotom source or level script JSON (adopted), its member,
+/// or why it cannot be read.
+pub(crate) enum FakeScript {
+    Rotom(String),
+    Level(String),
+    Member(Vec<u8>),
+    Unreadable(String),
 }
 
 impl Fake {
@@ -53,6 +73,31 @@ impl Fake {
             items: 468,
             unreadable: Vec::new(),
             locked: Vec::new(),
+            adopted: false,
+            scripts: Vec::new(),
+            texts: Vec::new(),
+            text_unreadable: Vec::new(),
+            skips: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Runs `check` and returns its findings and the notes of what it left undone (panics
+    /// when it skips as a whole).
+    pub fn run_noting(&self, check: &impl SourceCheck) -> (Vec<Finding>, Vec<String>) {
+        self.skips.borrow_mut().clear();
+        let found = self.run(check);
+        (found, self.skips.borrow_mut().drain(..).collect())
+    }
+
+    /// Why `check` skips as a whole (panics when it runs).
+    pub fn skip_reason(&self, check: &impl SourceCheck) -> String {
+        let mut out = Vec::new();
+        match check.check(self, Limits::get(), &mut out) {
+            Ok(()) => panic!("ran, found {out:?}"),
+            Err(s) => {
+                assert!(out.is_empty());
+                s.why
+            }
         }
     }
 
@@ -118,6 +163,8 @@ impl Source for Fake {
             AssetKind::AreaData => self.areas.len(),
             AssetKind::Trainer => self.trainers.len(),
             AssetKind::Encounter => self.encounters.len(),
+            AssetKind::Script => self.scripts.len(),
+            AssetKind::TextArchive => self.texts.len(),
             AssetKind::HeaderTable => 1,
             _ => 0,
         }
@@ -149,6 +196,59 @@ impl Source for Fake {
     fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>) {
         (self.unreadable.clone(), self.locked.clone())
     }
+    fn scripts_adopted(&self) -> bool {
+        self.adopted
+    }
+    fn script_facts(&self, file: u16) -> Option<Arc<ScriptFacts>> {
+        let params = Limits::get().script.message_params.of(self.family);
+        let facts = match self.scripts.get(usize::from(file))? {
+            FakeScript::Rotom(text) => facts_of(self.family, params, ScriptInput::Rotom(text)),
+            FakeScript::Level(json) => facts_of(self.family, params, ScriptInput::LevelJson(json)),
+            FakeScript::Member(bytes) => facts_of(self.family, params, ScriptInput::Member(bytes)),
+            FakeScript::Unreadable(why) => ScriptFacts::Unreadable(why.clone()),
+        };
+        Some(Arc::new(facts))
+    }
+    fn text(&self, archive: u16) -> Option<Arc<TextEntry>> {
+        let doc = at(&self.texts, archive)?.clone();
+        Some(Arc::new(TextEntry::new(doc, false)))
+    }
+    fn text_unreadable(&self) -> Vec<(u16, String)> {
+        self.text_unreadable.clone()
+    }
+    fn note_skip(&self, why: String) {
+        self.skips.borrow_mut().push(why);
+    }
+}
+
+/// A text archive of `messages`.
+pub(crate) fn texts(messages: &[&str]) -> TextArchiveDoc {
+    TextArchiveDoc {
+        key: 0,
+        lang: "de_DE".into(),
+        messages: messages
+            .iter()
+            .enumerate()
+            .map(|(i, text)| TextMessage {
+                id: crate::text::default_message_id(i),
+                text: (*text).to_owned(),
+                other: serde_json::Map::new(),
+            })
+            .collect(),
+    }
+}
+
+/// A script member whose jump table has `slots` entries, all pointing at one `End`
+/// (opcode 2) after the 0xFD13 end.
+pub(crate) fn script_member(slots: u32) -> Vec<u8> {
+    let code = 4 * slots as usize + 2;
+    let mut bytes = Vec::new();
+    for k in 0..slots as usize {
+        let rel = code as i32 - (4 * k as i32 + 4);
+        bytes.extend_from_slice(&rel.to_le_bytes());
+    }
+    bytes.extend_from_slice(&[0x13, 0xFD, 0x02, 0x00]);
+    bytes
 }
 
 /// A Platinum header on `matrix` with `event_file`, script file 0, level script 1, text

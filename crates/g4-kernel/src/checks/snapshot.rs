@@ -33,6 +33,7 @@ use serde::Serialize;
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
+use super::scripts::{ScriptFacts, ScriptInput, facts_of};
 use crate::disk::Disk;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
@@ -78,6 +79,18 @@ pub struct TextEntry {
     pub doc: TextArchiveDoc,
     /// From the store's unsaved document rather than the disk.
     pub unsaved: bool,
+    /// The encoder's problems per message (`text.encode`), worked out once.
+    pub(crate) encode_problems: OnceLock<Vec<(usize, Vec<text::Problem>)>>,
+}
+
+impl TextEntry {
+    pub(crate) fn new(doc: TextArchiveDoc, unsaved: bool) -> TextEntry {
+        TextEntry {
+            doc,
+            unsaved,
+            encode_problems: OnceLock::new(),
+        }
+    }
 }
 
 /// The source of an adopted script file. Shared with the cache like [`TextEntry`].
@@ -87,6 +100,8 @@ pub struct ScriptEntry {
     pub kind: SourceKind,
     /// The `.rotom` source or the level script JSON; empty for [`SourceKind::Binary`].
     pub source: String,
+    /// What the script checks read from it, worked out once and cached with the source.
+    facts: OnceLock<Arc<ScriptFacts>>,
 }
 
 /// A cache entry: its key and the value, or why it could not be read.
@@ -153,9 +168,13 @@ pub struct Snapshot {
     counts: Mutex<HashMap<AssetKind, usize>>,
     texts: OnceLock<Vec<OnceLock<Option<Arc<TextEntry>>>>>,
     scripts: OnceLock<Vec<OnceLock<Option<Arc<ScriptEntry>>>>>,
+    /// Per script file: what the script checks read from it ([`Snapshot::script_facts`]).
+    script_facts: OnceLock<Vec<OnceLock<Arc<ScriptFacts>>>>,
     packed_text_stamp: OnceLock<Option<(u64, u128)>>,
     cache: Mutex<SnapshotCache>,
     unreadable: Mutex<BTreeMap<(usize, Option<u16>), Unreadable>>,
+    /// Work the running check left undone ([`Snapshot::note_skip`]), until the runner takes it.
+    skips: Mutex<Vec<String>>,
 }
 
 impl Snapshot {
@@ -176,9 +195,11 @@ impl Snapshot {
             counts: Mutex::new(HashMap::new()),
             texts: OnceLock::new(),
             scripts: OnceLock::new(),
+            script_facts: OnceLock::new(),
             packed_text_stamp: OnceLock::new(),
             cache: Mutex::new(cache),
             unreadable: Mutex::new(BTreeMap::new()),
+            skips: Mutex::new(Vec::new()),
             project,
         };
         for (id, why) in overlay.unwritable {
@@ -228,7 +249,8 @@ impl Snapshot {
     }
 
     /// Reads every kind the catalogue checks: the header table, the members of
-    /// [`MEMBER_KINDS`], the text archives and, when adopted, the script sources, reporting
+    /// [`MEMBER_KINDS`], the text archives and the script files (sources when adopted, else
+    /// members, with what the script checks read from them), reporting
     /// progress as `(label, done, total)`.
     pub fn load_all(&self, progress: &mut dyn FnMut(&str, u32, u32)) {
         self.load_members(&mut |done, total| progress(PROGRESS_LOAD, done, total));
@@ -472,17 +494,14 @@ impl Snapshot {
         {
             Some(doc) => (
                 key_of(&("unsaved", generation)),
-                Box::new(move || Ok(TextEntry { doc, unsaved: true })),
+                Box::new(move || Ok(TextEntry::new(doc, true))),
             ),
             None => match self.text_file(index) {
                 Ok(Some((stamp, file))) => (
                     key_of(&("disk", generation, stamp)),
                     Box::new(move || {
                         self.read_text(index, file)
-                            .map(|doc| TextEntry {
-                                doc,
-                                unsaved: false,
-                            })
+                            .map(|doc| TextEntry::new(doc, false))
                             .map_err(|e| e.to_string())
                     }),
                 ),
@@ -592,15 +611,16 @@ impl Snapshot {
             .clone()
     }
 
-    /// Reads every script source, on several threads, reporting `(done, total)`; nothing
-    /// without adopted scripts.
+    /// Reads every script file for the script checks, on several threads, reporting
+    /// `(done, total)`: its source when the scripts are adopted (else its member) and what
+    /// the checks read from it ([`Snapshot::script_facts`]).
     pub fn load_scripts(&self, progress: &mut dyn FnMut(u32, u32)) {
-        let slots = self.script_slots();
-        let total = slots.len() as u32;
+        let count = self.script_count();
+        let total = count as u32;
         parallel(
-            slots.len(),
+            count,
             |i| {
-                slots[i].get_or_init(|| self.load_script(i as u16));
+                self.script_facts(i as u16);
             },
             |done| progress(done as u32, total),
         );
@@ -631,13 +651,81 @@ impl Snapshot {
                 SourceKind::Binary => Ok(String::new()),
                 _ => std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display())),
             };
-            let value = source.map(|source| Arc::new(ScriptEntry { file, kind, source }));
+            let value = source.map(|source| {
+                Arc::new(ScriptEntry {
+                    file,
+                    kind,
+                    source,
+                    facts: OnceLock::new(),
+                })
+            });
             lock(&self.cache).scripts.insert(file, (key, value.clone()));
             value
         });
         value
             .map_err(|why| self.note(AssetKind::Script, Some(file), why))
             .ok()
+    }
+
+    /// What script file `file` holds for the script checks, worked out once per snapshot
+    /// (and, for an adopted source, cached with it across runs): from the rotom source or
+    /// level script JSON when the scripts are adopted, else (and for a file rotom could not
+    /// decompile) from the member. `None` past the last member.
+    pub(crate) fn script_facts(&self, file: u16) -> Option<Arc<ScriptFacts>> {
+        let slots = self
+            .script_facts
+            .get_or_init(|| (0..self.script_count()).map(|_| OnceLock::new()).collect());
+        Some(
+            slots
+                .get(usize::from(file))?
+                .get_or_init(|| self.work_out_facts(file))
+                .clone(),
+        )
+    }
+
+    fn work_out_facts(&self, file: u16) -> Arc<ScriptFacts> {
+        let family = self.family();
+        let params = super::Limits::get().script.message_params.of(family);
+        let unreadable = |snap: &Snapshot| {
+            let why = lock(&snap.unreadable)
+                .get(&(AssetKind::Script.slot(), Some(file)))
+                .map_or_else(|| "it cannot be read".to_owned(), |u| u.why.clone());
+            Arc::new(ScriptFacts::Unreadable(why))
+        };
+        let from_member = |snap: &Snapshot| match snap.script_member(file) {
+            Some(bytes) => Arc::new(facts_of(family, params, ScriptInput::Member(&bytes))),
+            None => unreadable(snap),
+        };
+        if !self.scripts_adopted {
+            return from_member(self);
+        }
+        let Some(entry) = self.script_source(file) else {
+            return unreadable(self);
+        };
+        entry
+            .facts
+            .get_or_init(|| match entry.kind {
+                SourceKind::Script => {
+                    Arc::new(facts_of(family, params, ScriptInput::Rotom(&entry.source)))
+                }
+                SourceKind::LevelScript => Arc::new(facts_of(
+                    family,
+                    params,
+                    ScriptInput::LevelJson(&entry.source),
+                )),
+                SourceKind::Binary => from_member(self),
+            })
+            .clone()
+    }
+
+    /// Notes that the running check left part of its work undone; see [`Runner`](super::Runner).
+    pub(crate) fn note_skip(&self, why: String) {
+        lock(&self.skips).push(why);
+    }
+
+    /// The notes of [`Snapshot::note_skip`] since the last call.
+    pub(crate) fn take_skips(&self) -> Vec<String> {
+        std::mem::take(&mut *lock(&self.skips))
     }
 
     /// The compiled member of script file `file` as it is on disk (not cached); `None` when

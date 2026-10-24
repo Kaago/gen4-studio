@@ -50,6 +50,54 @@ script:
     value: 0
     verified: false
     source: "measured: 202 vanilla objects with script 0 on Platin DE; checks-report.md event.trigger-empty and its list of unverified assumptions"
+  # The script commands whose argument `arg` (0-based) is a message number of the text archive
+  # of the header that runs the script (script.message-missing). Derived from the bundled command
+  # databases: every command with a parameter named `text_slot` or typed `msg_id`, without the
+  # commands that name their own archive (MessageFromBank*, *FromArchive, MsgBoxExtern), the TV
+  # commands (their message comes from a TV archive) and the menu entries (AddMenuEntryImm,
+  # MenuItemAdd, HGSS ScrCmd_066; a menu can read the global menu archive). A command is matched
+  # through rotom's database, so its legacy (DSPRE) name and ScrCmd_* alias count as well.
+  # A number of 0x4000 and above is a variable (flex and Var parameters), not a message.
+  message_params:
+    dp:
+      - { command: MessageInstant, arg: 0 }
+      - { command: Message, arg: 0 }
+      - { command: MessageVar, arg: 0 }
+      - { command: MessageNoSkip, arg: 0 }
+      - { command: MessageSynchronized, arg: 0 }
+      - { command: DrawSignpostInstantMessage, arg: 0 }
+      - { command: DrawSignpostScrollingMessage, arg: 0 }
+      - { command: MessageUnown, arg: 0 }
+    pt:
+      - { command: MessageInstant, arg: 0 }
+      - { command: Message, arg: 0 }
+      - { command: MessageVar, arg: 0 }
+      - { command: MessageNoSkip, arg: 0 }
+      - { command: MessageSynchronized, arg: 0 }
+      - { command: DrawSignpostInstantMessage, arg: 0 }
+      - { command: DrawSignpostScrollingMessage, arg: 0 }
+      - { command: MessageUnown, arg: 0 }
+      - { command: ShowMapSign, arg: 0 }
+      - { command: ShowArrowSign, arg: 0 }
+      - { command: ShowLandmarkSign, arg: 0 }
+      - { command: ShowScrollingSign, arg: 0 }
+      - { command: NPCMessage, arg: 0 }
+      - { command: EventMessage, arg: 0 }
+      - { command: PokemonCryAndMessage, arg: 1 }
+    hgss:
+      - { command: NonNPCMsg, arg: 0 }
+      - { command: NPCMsg, arg: 0 }
+      - { command: NonNPCMsgVar, arg: 0 }
+      - { command: NPCMsgVar, arg: 0 }
+      - { command: ScrCmd_048, arg: 0 }
+      - { command: DirectionSignpost, arg: 0 }
+      - { command: TrainerTips, arg: 0 }
+      - { command: ScrCmd_527, arg: 0 }
+      - { command: SimpleNPCMsg, arg: 0 }
+      - { command: TrainerTipsEx, arg: 1 }
+      - { command: DirectionSignpostEx, arg: 2 }
+    verified: false
+    source: "derived from metadata/scrcmd/{diamond_pearl,platinum,hgss}_v2.json (DS-Pokemon-Rom-Editor/scrcmd-database revision 33, the database rotom v0.7.0 fb11503 reads; Pt and HGSS synced from pret/pokeplatinum c248fb3 and pret/pokeheartgold 9d8b759): parameter name text_slot or type msg_id, rule of task0-3b4.md section 4 (Pt 15 commands; HGSS 11 here, task0 counted 12)"
 
 encounter:
   # Header value for no wild encounters: Platin 0xFFFF, HGSS 0xFF.

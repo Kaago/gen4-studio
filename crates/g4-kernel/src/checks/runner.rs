@@ -64,7 +64,9 @@ pub struct ChecksReport {
     /// Findings on the ignore list, in the same order.
     pub ignored: Vec<Finding>,
     /// Checks that did not run, with the reason (`disabled`, a missing input, a failure), in
-    /// catalogue order.
+    /// catalogue order. A check that ran but left part of its work undone (script files it
+    /// cannot decode, common script files without a header) is listed once per note, next
+    /// to its findings.
     pub skipped: Vec<(&'static str, String)>,
     /// The groups this run covered: a cheap run says nothing about script and text findings.
     pub groups: Vec<Group>,
@@ -87,7 +89,8 @@ pub struct Runner;
 
 /// What one check produced.
 enum Outcome {
-    Found(Vec<Finding>),
+    /// The findings, and what the check noted it left undone (a file it could not read).
+    Found(Vec<Finding>, Vec<String>),
     Skipped(String),
 }
 
@@ -166,7 +169,10 @@ impl Runner {
             match outcome {
                 None => {}
                 Some(Outcome::Skipped(why)) => report.skipped.push((check.code(), why)),
-                Some(Outcome::Found(findings)) => {
+                Some(Outcome::Found(findings, notes)) => {
+                    for why in notes {
+                        report.skipped.push((check.code(), why));
+                    }
                     for finding in findings {
                         if ignore.ignores(&finding) {
                             report.ignored.push(finding);
@@ -182,11 +188,16 @@ impl Runner {
     }
 }
 
-/// Runs `check`, turning `Err` and a panic into a skip.
+/// Runs `check`, turning `Err` and a panic into a skip; the notes of a partial skip
+/// ([`Snapshot::note_skip`]) go with the findings of a check that ran.
 fn run_one(check: &dyn Check, snap: &Snapshot, limits: &Limits) -> Outcome {
     let mut out = Vec::new();
-    match catch_unwind(AssertUnwindSafe(|| check.run(snap, limits, &mut out))) {
-        Ok(Ok(())) => Outcome::Found(out),
+    // Notes of an earlier check that did not run to the end are not this check's.
+    snap.take_skips();
+    let result = catch_unwind(AssertUnwindSafe(|| check.run(snap, limits, &mut out)));
+    let notes = snap.take_skips();
+    match result {
+        Ok(Ok(())) => Outcome::Found(out, notes),
         Ok(Err(Skipped { why })) => Outcome::Skipped(why),
         Err(panic) => {
             let message = panic

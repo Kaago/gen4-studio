@@ -6,6 +6,7 @@
 //! that register in [`Registry::all`]. See `docs/formats/check_limits.md` for the limits.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use g4_formats::area_data::AreaData;
 use g4_formats::data::encounter::Encounters;
@@ -24,8 +25,12 @@ mod data;
 mod fake;
 pub mod limits;
 pub mod runner;
+mod scripts;
 pub mod snapshot;
+mod text;
 mod world;
+
+pub(crate) use scripts::ScriptFacts;
 
 pub use limits::Limits;
 pub use runner::{ChecksReport, IgnoreKey, IgnoreSet, Runner};
@@ -170,6 +175,12 @@ impl Finding {
         self.fixes = fixes.into_iter().collect();
         self
     }
+
+    /// With the source file (relative to the project) and the 1-based line and column.
+    pub fn with_file(mut self, path: impl Into<PathBuf>, line: u32, col: u32) -> Finding {
+        self.file = Some((path.into(), line, col));
+        self
+    }
 }
 
 /// Why a check did not run (a missing input, say); reported next to the findings.
@@ -213,6 +224,19 @@ pub(crate) trait Source {
     /// archives or script sources), then returns what could not be read so far and the
     /// locked assets.
     fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>);
+    /// Whether the project's scripts are adopted (rotom sources exist).
+    fn scripts_adopted(&self) -> bool;
+    /// What script file `file` holds (its slots, level script, message uses), from its
+    /// source when the scripts are adopted, else from the member; `None` past the last file.
+    fn script_facts(&self, file: u16) -> Option<Arc<ScriptFacts>>;
+    /// Text archive `archive` (an unsaved document wins over the disk); `None` when it does
+    /// not exist or cannot be read.
+    fn text(&self, archive: u16) -> Option<Arc<TextEntry>>;
+    /// The text archives that could not be read so far, with the reason.
+    fn text_unreadable(&self) -> Vec<(u16, String)>;
+    /// Notes that the running check left part of its work undone (a script file it cannot
+    /// decode, say); the runner reports it in `skipped` next to the check's findings.
+    fn note_skip(&self, why: String);
 }
 
 impl Source for Snapshot {
@@ -268,13 +292,34 @@ impl Source for Snapshot {
             .collect();
         (self.unreadable(), locked)
     }
+    fn scripts_adopted(&self) -> bool {
+        Snapshot::scripts_adopted(self)
+    }
+    fn script_facts(&self, file: u16) -> Option<Arc<ScriptFacts>> {
+        Snapshot::script_facts(self, file)
+    }
+    fn text(&self, archive: u16) -> Option<Arc<TextEntry>> {
+        self.text_archive(archive)
+    }
+    fn text_unreadable(&self) -> Vec<(u16, String)> {
+        self.unreadable()
+            .into_iter()
+            .filter(|u| u.kind == AssetKind::TextArchive)
+            .filter_map(|u| Some((u.index?, u.why)))
+            .collect()
+    }
+    fn note_skip(&self, why: String) {
+        Snapshot::note_skip(self, why);
+    }
 }
 
-/// A world or data check: runs on a [`Source`], in the cheap group.
+/// A check of the catalogue: runs on a [`Source`] (the world and data checks in the cheap
+/// group, the script and text checks per script file and text archive).
 pub(crate) trait SourceCheck: Sync {
     const CODE: &'static str;
     /// The highest severity the check reports (`trainer.no-party` also reports warnings).
     const SEVERITY: Severity;
+    const GROUP: Group = Group::Cheap;
     fn check(
         &self,
         src: &dyn Source,
@@ -291,7 +336,7 @@ impl<T: SourceCheck> Check for T {
         T::SEVERITY
     }
     fn group(&self) -> Group {
-        Group::Cheap
+        T::GROUP
     }
     fn run(&self, snap: &Snapshot, limits: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
         self.check(snap, limits, out)
@@ -302,10 +347,12 @@ impl<T: SourceCheck> Check for T {
 pub struct Registry;
 
 impl Registry {
-    /// Every registered check, in catalogue order: the world checks, the data checks, and
-    /// last `asset.unreadable`, which reads every member the cheap checks use first.
+    /// Every registered check, in catalogue order: the world checks, the data checks,
+    /// `asset.unreadable` (the last cheap one, it reads every member the cheap checks use
+    /// first), then the script checks (per script file) and the text checks (per text
+    /// archive).
     pub fn all() -> &'static [&'static dyn Check] {
-        static ALL: [&dyn Check; 30] = [
+        static ALL: [&dyn Check; 39] = [
             &world::WarpDestHeader,
             &world::WarpDestWarp,
             &world::WarpOffMap,
@@ -336,6 +383,15 @@ impl Registry {
             &data::EncounterMinMax,
             &data::EncounterRateByte,
             &world::AssetUnreadable,
+            &scripts::EventScriptMissing,
+            &scripts::HeaderLevelTarget,
+            &scripts::HeaderScriptKind,
+            &scripts::ScriptMessageMissing,
+            &scripts::ScriptUnreadable,
+            &text::TextTooWide,
+            &text::TextThreeLines,
+            &text::TextEncode,
+            &text::TextJsonBroken,
         ];
         &ALL
     }
@@ -413,14 +469,40 @@ mod tests {
     }
 
     #[test]
-    fn registry_lists_each_code_once_in_the_cheap_group() {
+    fn registry_lists_each_code_once_in_its_group() {
         let all = Registry::all();
         let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
-        assert_eq!(codes.len(), 30);
-        assert_eq!(codes.last(), Some(&"asset.unreadable"));
-        assert!(all.iter().all(|c| c.group() == Group::Cheap));
+        assert_eq!(codes.len(), 39);
+        let in_group = |group: Group| -> Vec<&str> {
+            all.iter()
+                .filter(|c| c.group() == group)
+                .map(|c| c.code())
+                .collect()
+        };
+        let cheap = in_group(Group::Cheap);
+        assert_eq!(cheap.len(), 30);
+        assert_eq!(cheap.last(), Some(&"asset.unreadable"));
+        assert_eq!(
+            in_group(Group::PerScript),
+            [
+                "event.script-missing",
+                "header.level-target",
+                "header.script-kind",
+                "script.message-missing",
+                "script.unreadable",
+            ]
+        );
+        assert_eq!(
+            in_group(Group::PerArchive),
+            [
+                "text.too-wide",
+                "text.three-lines",
+                "text.encode",
+                "text.json-broken"
+            ]
+        );
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), 30, "a code is registered twice");
+        assert_eq!(codes.len(), 39, "a code is registered twice");
     }
 }
