@@ -33,7 +33,7 @@ export const fieldsOf = (values: Record<string, number>): FieldValueDto[] =>
 export const DESCRIPTION = "Trifft den Gegner mit weit\\nausgebreiteten Flügeln.";
 
 export function wingAttackDoc(over: Record<string, number> = {}, doc: Partial<Extract<DataDocDto, { kind: "move" }>> = {}): DataDocDto {
-  return { kind: "move", fields: fieldsOf({ ...WING_ATTACK, ...over }), description: { archive: 646, message: 17, text: DESCRIPTION }, locked: null, raw_locked: null, ...doc };
+  return { kind: "move", fields: fieldsOf({ ...WING_ATTACK, ...over }), description: { archive: 646, message: 17, text: DESCRIPTION }, name_archive: 647, locked: null, raw_locked: null, ...doc };
 }
 
 const row = (index: number, name: string, extra: MoveRowExtra): DataRowDto => ({ ...move(index, name), extra });

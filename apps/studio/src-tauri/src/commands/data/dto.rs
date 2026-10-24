@@ -213,17 +213,22 @@ pub enum DataDocDto {
         /// evolutions; the first locked one).
         locked_asset: Option<AssetId>,
     },
+    /// A move. `name_archive` is the text archive of the move names (message = move index);
+    /// `None` where the game's banks do not name it.
     Move {
         fields: Vec<FieldValueDto>,
         description: Option<DescriptionDto>,
+        name_archive: Option<u16>,
         locked: Option<String>,
         raw_locked: Option<Vec<u8>>,
     },
     /// An item: by item id with the arm9 item table, else by data member. `shared_with` lists
-    /// the other item ids that use the same data member.
+    /// the other item ids that use the same data member. `name_archive` is the text archive of
+    /// the item names (message = item id); `None` without the item table or a known bank.
     Item {
         fields: Vec<FieldValueDto>,
         description: Option<DescriptionDto>,
+        name_archive: Option<u16>,
         shared_with: Vec<u16>,
         locked: Option<String>,
         raw_locked: Option<Vec<u8>>,

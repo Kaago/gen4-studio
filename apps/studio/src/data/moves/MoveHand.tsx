@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
 import { dataRaw, errorText, fieldLabels } from "../../api";
 import type { RawDto } from "../../api";
@@ -98,8 +98,8 @@ function BehaviourColumn({ e }: { e: Editing }) {
   );
 }
 
-/** The bytes of the move as the store holds them, read again with every new document (an edit, undo, redo). */
-function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc; highlight: string | undefined }) {
+/** The bytes of the move as the store holds them, read again with every document read (after an edit, undo, redo). */
+function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc | null; highlight: string | undefined }) {
   const [raw, setRaw] = useState<{ raw: RawDto | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
@@ -117,7 +117,7 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: MoveDoc; high
 }
 
 /** Rohdaten (Tüfteln): the effect id, every bit of the flags byte, the bytes with the field focused last marked. */
-function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: number; doc: MoveDoc; highlight: string | undefined }) {
+function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: number; doc: MoveDoc | null; highlight: string | undefined }) {
   return (
     <Column title="Rohdaten" note="Tüfteln">
       {e !== null && (
@@ -144,11 +144,10 @@ function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: num
 export function MoveHand() {
   const { row, labelOf, selected } = useDataArea("pokemon");
   const tinkering = useShell().state.depth === "tuefteln";
-  const { doc, error, editError, edit } = useMove(selected);
+  // `doc` is the move with the edits still waiting laid over it: a checkbox shows its new state at once and keeps it.
+  const { doc, read, error, editError, update } = useMove(selected);
   // The field focused last, for the raw data's mark (its key in the field map).
   const [lastField, setLastField] = useState<string | undefined>(undefined);
-  // The flags byte as the edits sent so far leave it, until the document is read again: two flags set in a row both stay.
-  const pendingFlags = useRef<{ doc: MoveDoc; flags: number } | null>(null);
 
   if (row === null || selected === null) return null;
   if (doc === null) {
@@ -157,25 +156,26 @@ export function MoveHand() {
   const name = labelOf(row);
   const index = selected;
   const v = moveValues(doc.fields);
-  const flags = pendingFlags.current?.doc === doc ? pendingFlags.current.flags : (v.flags ?? 0);
+  // Patch and label come from the move as the backend holds it when the edit runs, after the edits before it.
   const editing: Editing | null =
     doc.locked !== null
       ? null
       : {
           v,
           showBase: tinkering,
-          flags,
+          flags: v.flags ?? 0,
           set(field, value) {
-            const old = v[field];
-            if (old === undefined || old === value) return;
-            void edit(index, { Move: { field, value } }, moveLabel(name, field, old, value));
+            void update(index, (now) => {
+              const old = moveValues(now.fields)[field];
+              return old === undefined || old === value ? null : { patch: { Move: { field, value } }, label: moveLabel(name, field, old, value) };
+            });
           },
           setFlag(flag, on) {
-            const next = withFlag(flags, flag.mask, on);
-            if (next === flags) return;
-            pendingFlags.current = { doc, flags: next };
-            void edit(index, { Move: { field: "flags", value: next } }, flagLabel(name, flag, on)).then((ok) => {
-              if (!ok) pendingFlags.current = null;
+            void update(index, (now) => {
+              const old = moveValues(now.fields).flags;
+              if (old === undefined) return null;
+              const next = withFlag(old, flag.mask, on);
+              return next === old ? null : { patch: { Move: { field: "flags", value: next } }, label: flagLabel(name, flag, on) };
             });
           },
         };
@@ -196,7 +196,7 @@ export function MoveHand() {
       <div className={styles.columns}>
         {editing !== null && <BaseColumn e={editing} />}
         {editing !== null && <BehaviourColumn e={editing} />}
-        {tinkering && <RawColumn e={editing} index={index} doc={doc} highlight={lastField} />}
+        {tinkering && <RawColumn e={editing} index={index} doc={read} highlight={lastField} />}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataGet, refs } from "../../api";
+import type { RefDto } from "../../api";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { movesHarness, wingAttackDoc, wireApi } from "./movesTesting";
@@ -41,7 +42,7 @@ describe("MoveView", () => {
     expect(h.view().querySelector("h2")?.textContent).toContain("Flügelschlag");
     expect(card().querySelector("[data-type]")?.textContent).toBe("Flug");
     const text = card().textContent ?? "";
-    for (const part of ["Physisch", "Nr. 0017", "60 Stärke", "100 % Genauigkeit", "35 AP", "Macht Kontakt", "Schutz wirkt", "Spiegeltrick wirkt", "King-Stein wirkt", "Priorität 0", "Ein gewähltes Pokémon"]) {
+    for (const part of ["Physisch", "Nr. 0017", "60 Stärke", "100 % Genauigkeit", "35 AP", "Macht Kontakt", "Schutzschild wirkt", "Spiegeltrick wirkt", "King-Stein wirkt", "Priorität 0", "Ein gewähltes Pokémon"]) {
       expect(text).toContain(part);
     }
     // Bit 6 has no name: the card does not show it; magic coat and snatch are not set.
@@ -57,11 +58,20 @@ describe("MoveView", () => {
     expect(card().textContent).toContain("Status");
   });
 
-  it("leads_from_the_name_to_its_text_archive", async () => {
+  it("leads_from_the_name_to_the_name_archive_the_backend_names", async () => {
+    vi.mocked(dataGet).mockResolvedValue(wingAttackDoc({}, { name_archive: 750 }));
     await h.open();
     const name = h.view().querySelector<HTMLButtonElement>("h2 button")!;
+    expect(name.textContent).toBe("FlügelschlagArchiv 0750");
     await h.click(name);
-    expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "textArchive", index: 647, message: 17 });
+    expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "textArchive", index: 750, message: 17 });
+  });
+
+  it("names_the_move_without_a_link_when_no_archive_names_it", async () => {
+    vi.mocked(dataGet).mockResolvedValue(wingAttackDoc({}, { name_archive: null }));
+    await h.open();
+    expect(h.view().querySelector("h2")?.textContent).toBe("Flügelschlag");
+    expect(h.view().querySelector("h2 button")).toBeNull();
   });
 
   it("shows_the_description_on_the_ds_screen_and_leads_to_its_text", async () => {
@@ -93,6 +103,18 @@ describe("MoveView", () => {
     const trainer = uses.querySelector<HTMLButtonElement>("[data-trainer]")!;
     expect(trainer.disabled).toBe(true);
     expect(trainer.textContent).toContain("Wanderer Kai");
+  });
+
+  it("shows_all_learnsets_of_one_move_and_starts_short_again_for_the_next", async () => {
+    const learnset = (index: number): RefDto => ({ source: { kind: "Learnset", index }, field: "move", slot: 0, label: `Art ${index}, Lernset Platz 1`, nav: { kind: "species", index, tab: "learnset" } });
+    vi.mocked(refs).mockResolvedValue(Array.from({ length: 15 }, (_, i) => learnset(i + 1)));
+    await h.open();
+    const chips = () => h.view().querySelectorAll("[data-learnset]").length;
+    expect(chips()).toBe(12);
+    await h.click(chip("Alle zeigen, 3 weitere"));
+    expect(chips()).toBe(15);
+    await h.click(h.q<HTMLElement>('[data-move="33"]'));
+    expect(chips()).toBe(12);
   });
 
   it("follows_an_edit_of_the_move", async () => {

@@ -224,8 +224,11 @@ fn data_get_locked_member_reports_reason_and_raw_bytes() {
             raw_locked,
             shared_with,
             description,
+            name_archive,
         } => {
             assert!(fields.is_empty());
+            // Without the item table the member has no item id, so no name either.
+            assert_eq!(name_archive, None);
             assert_eq!(locked.as_deref(), Some(reason));
             let raw = raw_locked.unwrap();
             assert_eq!(raw.len(), 36);
@@ -314,14 +317,21 @@ fn moves_encounters_and_trainers() {
         json!({ "type": 0, "category": 0, "power": 10, "accuracy": 100, "pp": 35 })
     );
     match data_get_impl(&state, DataKind::Move, 1).unwrap() {
-        DataDocDto::Move { description, .. } => assert_eq!(
+        DataDocDto::Move {
             description,
-            Some(DescriptionDto {
-                archive: 646,
-                message: 1,
-                text: "Pounds the foe.".into()
-            })
-        ),
+            name_archive,
+            ..
+        } => {
+            assert_eq!(
+                description,
+                Some(DescriptionDto {
+                    archive: 646,
+                    message: 1,
+                    text: "Pounds the foe.".into()
+                })
+            );
+            assert_eq!(name_archive, Some(647));
+        }
         other => panic!("{other:?}"),
     }
     data_edit_impl(
@@ -665,8 +675,10 @@ fn items_are_keyed_by_item_id_with_a_plausible_table() {
         DataDocDto::Item {
             shared_with,
             description,
+            name_archive,
             ..
         } => {
+            assert_eq!(name_archive, Some(392));
             assert_eq!(&shared_with[..3], &[22, 42, 62]);
             assert_eq!(description.unwrap().text, "A good Ball.");
         }

@@ -4,7 +4,7 @@ import { errorText, refs } from "../../api";
 import { Badge, Button, DSScreen, Notice, Reference, TypeBadge } from "../../ui/primitives";
 import { pages } from "../../workbench/text/textModel";
 import { useDataArea } from "../useDataArea";
-import { NAMED_FLAGS, categoryName, hasFlag, id4, lockText, moveUses, moveValues, nameBank, priorityText, targetName, usesText } from "./moveModel";
+import { NAMED_FLAGS, categoryName, hasFlag, id4, lockText, moveUses, moveValues, priorityText, targetName, usesText } from "./moveModel";
 import type { MoveValues } from "./moveModel";
 import { useMove } from "./useMove";
 import styles from "./Moves.module.css";
@@ -164,11 +164,12 @@ function Facts({ v }: { v: MoveValues }) {
 
 /** The view (Schau) of a move: its card (type, category, power, accuracy, PP, traits), its description on the DS screen, where it is used. */
 export function MoveView() {
-  const { row, labelOf, selected, project, goTo } = useDataArea("pokemon");
+  const { row, labelOf, selected, goTo } = useDataArea("pokemon");
   const { doc, error } = useMove(selected);
   if (row === null || selected === null) return null;
   const name = labelOf(row);
-  const bank = nameBank(project);
+  // The text archive of the move names, as the backend names it for this game and language.
+  const bank = doc?.name_archive ?? null;
   const locked = doc?.locked ?? null;
   return (
     <section className={styles.view} aria-label={`Übersicht ${name}`} data-move={selected}>
@@ -185,7 +186,7 @@ export function MoveView() {
           {doc !== null && locked === null && <Facts v={moveValues(doc.fields)} />}
         </section>
         {doc !== null && <Description key={selected} description={doc.description} />}
-        <Uses index={selected} />
+        <Uses key={selected} index={selected} />
       </div>
     </section>
   );

@@ -179,11 +179,24 @@ export type DataDocDto =
       /** The part `locked` and `raw_locked` are about: Personal, Learnset or Evolution (the first locked one). */
       locked_asset: AssetId | null;
     }
-  | { kind: "move"; fields: FieldValueDto[]; description: DescriptionDto | null; locked: string | null; raw_locked: number[] | null }
+  | {
+      kind: "move";
+      fields: FieldValueDto[];
+      description: DescriptionDto | null;
+      /** The text archive of the move names (message = move index); null where the game's banks do not name it. */
+      name_archive: number | null;
+      locked: string | null;
+      raw_locked: number[] | null;
+    }
   | {
       kind: "item";
       fields: FieldValueDto[];
       description: DescriptionDto | null;
+      /**
+       * The text archive of the item names (message = item id); null without the item table. The backend always sends it; optional here
+       * until the items editor reads it.
+       */
+      name_archive?: number | null;
       /** The other item ids that use the same data member. */
       shared_with: number[];
       locked: string | null;

@@ -1,5 +1,5 @@
 import { fieldLabels } from "../../api";
-import type { FieldValueDto, ProjectInfo, RefDto } from "../../api";
+import type { FieldValueDto, RefDto } from "../../api";
 import type { SelectOption } from "../../ui/primitives";
 import { typeName } from "../../ui/primitives/pokemonTypes";
 import { CATEGORY_NAMES } from "../dataModel";
@@ -56,7 +56,7 @@ export interface MoveFlag {
  */
 export const FLAGS: readonly MoveFlag[] = [
   { label: "Macht Kontakt", named: true },
-  { label: "Schutz wirkt", named: true },
+  { label: "Schutzschild wirkt", named: true },
   { label: "Magiemantel wirkt", named: true },
   { label: "Übernahme wirkt", named: true },
   { label: "Spiegeltrick wirkt", named: true },
@@ -78,8 +78,11 @@ export const hex2 = (n: number): string => `0x${n.toString(16).toUpperCase().pad
 /** The most PP the move reaches with PP-Ups (three of them add a fifth each): 35 → 56. */
 export const ppMax = (pp: number): number => Math.floor((pp * 8) / 5);
 
-/** The priority in words: "Priorität 0", "Priorität +1", "Priorität −1" (typographic minus). */
-export const priorityText = (priority: number): string => `Priorität ${priority > 0 ? `+${priority}` : priority < 0 ? `−${-priority}` : "0"}`;
+/** A signed number with its sign: "+1", "0", "−1" (typographic minus). */
+const signed = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `\u2212${-n}` : "0");
+
+/** The priority in words: "Priorität 0", "Priorität +1", "Priorität −1". */
+export const priorityText = (priority: number): string => `Priorität ${signed(priority)}`;
 
 /** A value of a move in words for an undo label ("Flug", "Physisch", "Beide Gegner"); numbers stay numbers. */
 export function moveText(field: MoveField, value: number): string {
@@ -92,6 +95,8 @@ export function moveText(field: MoveField, value: number): string {
       return targetName(value);
     case "flags":
       return hex2(value);
+    case "priority":
+      return signed(value);
     default:
       return String(value);
   }
@@ -111,21 +116,6 @@ export const flagLabel = (name: string, flag: MoveFlag, on: boolean): string => 
 export function lockText(locked: string, index: number): string {
   const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
   return lengths ? `Attacke ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `Attacke ${id4(index)}: ${locked}`;
-}
-
-/**
- * The text archive of the move names (`text_banks.yaml` `moves`): Platinum 647, HeartGold and SoulSilver 750, with the Japanese and
- * Korean sets of their own; null where it is not known (Diamond and Pearl are locked anyway).
- */
-const NAME_BANKS: Record<string, { western: number; Japanese: number; Korean: number }> = {
-  Pt: { western: 647, Japanese: 636, Korean: 637 },
-  Hgss: { western: 750, Japanese: 739, Korean: 743 },
-};
-
-export function nameBank(project: Pick<ProjectInfo, "family" | "language"> | null): number | null {
-  const banks = project === null ? undefined : NAME_BANKS[project.family];
-  if (banks === undefined || project === null) return null;
-  return project.language === "Japanese" ? banks.Japanese : project.language === "Korean" ? banks.Korean : banks.western;
 }
 
 /** The references to a move by kind, each source member once: the learnsets that teach it, the trainers whose teams use it, the evolutions it triggers. */

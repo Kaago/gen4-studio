@@ -459,9 +459,12 @@ fn move_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
         &session.store,
         &[(asset(AssetKind::Move, index), read.as_ref().err())],
     )?;
+    let project = &session.project;
+    let name_archive = bank_index(project.family, project.language, Bank::Moves);
     Ok(DataDocDto::Move {
         fields: read.unwrap_or_default(),
         description: description(session, Bank::MoveDescriptions, index),
+        name_archive,
         locked: lock.reason,
         raw_locked: lock.raw,
     })
@@ -483,9 +486,13 @@ fn item_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
     let shared_with = id.map_or_else(Vec::new, |id| shared_with(&session.project, id, member));
     // Item descriptions are indexed by item id, which is unknown without the table.
     let description = id.and_then(|id| description(session, Bank::ItemDescriptions, id));
+    // Item names are indexed by item id too.
+    let project = &session.project;
+    let name_archive = id.and(bank_index(project.family, project.language, Bank::Items));
     Ok(DataDocDto::Item {
         fields: read.unwrap_or_default(),
         description,
+        name_archive,
         shared_with,
         locked: lock.reason,
         raw_locked: lock.raw,
