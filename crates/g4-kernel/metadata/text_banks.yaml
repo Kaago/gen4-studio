@@ -1,8 +1,10 @@
-# Text archive (member of textArchives) holding each name or text bank, per game family, for
-# Western ROMs (English, French, German, Italian, Spanish). Japanese and Korean ROMs use other
-# numbers and are not listed.
-# Platinum and HGSS: checked by message count on CPUD, IPKD and IPKE
-# (docs/research/2026-10-23-3b3/task0-3b3a.md section 3).
+# Text archive (member of textArchives) holding each name or text bank, per game family.
+# The family keys hold the Western ROMs (English, French, German, Italian, Spanish).
+# `by_language` replaces the whole set for Japanese (`ja`) and Korean (`ko`) ROMs: a bank missing
+# there is unknown for that language (it never falls back to the Western number).
+# Platinum and HGSS Western: checked by message count on CPUD, IPKD and IPKE
+# (docs/research/2026-10-23-3b3/task0-3b3a.md section 3). Everything marked `unverified` comes
+# from uxie TextBankIds (0.9.7) without a project to check it.
 pt:
   species: 412
   moves: 647
@@ -15,6 +17,9 @@ pt:
   trainer_classes: 619
   battle_texts: 617
   forms: 697
+  by_language:
+    ja: { unverified: true, species: 408, moves: 636, items: 390, abilities: 604, types: 616, trainer_names: 611, trainer_classes: 612 }
+    ko: { unverified: true, species: 408, moves: 637, items: 390, abilities: 605, types: 617, trainer_names: 612, trainer_classes: 613 }
 hgss:
   species: 237
   moves: 750
@@ -27,8 +32,10 @@ hgss:
   trainer_classes: 730
   battle_texts: 728
   forms: 802
-# Diamond / Pearl: uxie TextBankIds, no project at hand to check them; no battle texts or
-# forms.
+  by_language:
+    ja: { unverified: true, species: 232, moves: 739, items: 219, abilities: 711, types: 724, trainer_names: 719, trainer_classes: 720 }
+    ko: { unverified: true, species: 233, moves: 743, items: 220, abilities: 715, types: 728, trainer_names: 723, trainer_classes: 724 }
+# Diamond / Pearl: no project at hand; no battle texts or forms.
 dp:
   unverified: true
   species: 362
@@ -38,3 +45,6 @@ dp:
   types: 565
   trainer_names: 559
   trainer_classes: 560
+  by_language:
+    ja: { unverified: true, species: 356, moves: 575, items: 341, abilities: 544, types: 555, trainer_names: 550, trainer_classes: 551 }
+    ko: { unverified: true, species: 357, moves: 577, items: 342, abilities: 546, types: 557, trainer_names: 552, trainer_classes: 553 }

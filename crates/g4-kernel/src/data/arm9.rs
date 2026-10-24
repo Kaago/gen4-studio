@@ -48,7 +48,9 @@ pub fn arm9_layout(game_code: &str) -> Option<Arm9Layout> {
     layouts().remove(game_code)
 }
 
-/// The tables of one project, read on first use.
+/// The tables of one project, read on first use. By design a table that is not available
+/// then (no offset, short arm9, implausible) stays `None` for the life of the `Project`: the
+/// arm9 is never written by the studio, and a session sees one consistent answer.
 #[derive(Debug, Default)]
 pub(crate) struct Arm9Cache(OnceLock<Arm9Tables>);
 

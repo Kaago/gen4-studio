@@ -58,17 +58,28 @@ fn expected_members(name: &str, family: Family) -> usize {
 }
 
 /// The `NNNN` members of `unpacked/<name>` in index order, checked against
-/// the vanilla count (an empty folder fails).
+/// the vanilla count (an empty folder fails). A member folder holds nothing
+/// but `NNNN` files: any other entry fails the test.
 fn members(root: &Path, name: &str, family: Family) -> Vec<Vec<u8>> {
     let dir = root.join("unpacked").join(name);
-    let mut files: Vec<(usize, PathBuf)> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
-        .map(|e| e.unwrap())
-        .filter_map(|e| {
-            let n = e.file_name().to_str()?.parse::<usize>().ok()?;
-            Some((n, e.path()))
-        })
-        .collect();
+    let mut files: Vec<(usize, PathBuf)> = Vec::new();
+    let mut strays: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+        let entry = entry.unwrap();
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let is_member = file_name.len() == 4
+            && file_name.bytes().all(|b| b.is_ascii_digit())
+            && entry.file_type().unwrap().is_file();
+        if is_member {
+            files.push((file_name.parse().unwrap(), entry.path()));
+        } else {
+            strays.push(file_name);
+        }
+    }
+    assert!(
+        strays.is_empty(),
+        "{name}: not NNNN member files: {strays:?}"
+    );
     files.sort();
     assert!(!files.is_empty(), "{name}: no members in {}", dir.display());
     assert_eq!(
@@ -257,11 +268,104 @@ fn vanilla_items_match_uxie() {
         assert_eq!(ours.battle_use_func(), ux.battle_use_func, "{at}");
         assert_eq!(ours.party_use(), ux.party_use, "{at}");
         let (flags, values) = ux.party_use_param.to_parts();
+        // Layout check: the seven flag bytes are where uxie reads them.
         assert_eq!(
             ours.raw()[0x0E..0x15],
             flags.into_bytes(),
-            "{at} party flags"
+            "{at} party flag bytes"
         );
+        // Every named party flag against uxie's getter of the same bits.
+        let named_flags = [
+            ("slp_heal", ours.slp_heal(), flags.heal_sleep()),
+            ("psn_heal", ours.psn_heal(), flags.heal_poison()),
+            ("brn_heal", ours.brn_heal(), flags.heal_burn()),
+            ("frz_heal", ours.frz_heal(), flags.heal_freeze()),
+            ("prlz_heal", ours.prlz_heal(), flags.heal_paralysis()),
+            ("cfs_heal", ours.cfs_heal(), flags.heal_confusion()),
+            ("inf_heal", ours.inf_heal(), flags.heal_attract()),
+            ("guard_spec", ours.guard_spec(), flags.guard_spec()),
+            ("revive", ours.revive(), flags.revive()),
+            ("revive_all", ours.revive_all(), flags.revive_all()),
+            ("level_up", ours.level_up(), flags.level_up()),
+            ("evolve", ours.evolve(), flags.evolve()),
+            ("pp_up", ours.pp_up(), flags.pp_up()),
+            ("pp_max", ours.pp_max(), flags.pp_max()),
+            ("pp_restore", ours.pp_restore(), flags.pp_restore()),
+            (
+                "pp_restore_all",
+                ours.pp_restore_all(),
+                flags.pp_restore_all(),
+            ),
+            ("hp_restore", ours.hp_restore(), flags.hp_restore()),
+            ("hp_ev_flag", ours.hp_ev_flag(), flags.give_hp_evs()),
+            (
+                "attack_ev_flag",
+                ours.attack_ev_flag(),
+                flags.give_atk_evs(),
+            ),
+            (
+                "defense_ev_flag",
+                ours.defense_ev_flag(),
+                flags.give_def_evs(),
+            ),
+            (
+                "speed_ev_flag",
+                ours.speed_ev_flag(),
+                flags.give_speed_evs(),
+            ),
+            (
+                "sp_attack_ev_flag",
+                ours.sp_attack_ev_flag(),
+                flags.give_spatk_evs(),
+            ),
+            (
+                "sp_defense_ev_flag",
+                ours.sp_defense_ev_flag(),
+                flags.give_spdef_evs(),
+            ),
+            (
+                "friendship_low_flag",
+                ours.friendship_low_flag(),
+                flags.give_friendship_low(),
+            ),
+            (
+                "friendship_mid_flag",
+                ours.friendship_mid_flag(),
+                flags.give_friendship_med(),
+            ),
+            (
+                "friendship_high_flag",
+                ours.friendship_high_flag(),
+                flags.give_friendship_high(),
+            ),
+        ];
+        for (field, mine, theirs) in named_flags {
+            assert_eq!(mine, theirs, "{at} {field}");
+        }
+        let named_stages = [
+            ("attack_stages", ours.attack_stages(), flags.atk_stages()),
+            ("defense_stages", ours.defense_stages(), flags.def_stages()),
+            (
+                "sp_attack_stages",
+                ours.sp_attack_stages(),
+                flags.spatk_stages(),
+            ),
+            (
+                "sp_defense_stages",
+                ours.sp_defense_stages(),
+                flags.spdef_stages(),
+            ),
+            ("speed_stages", ours.speed_stages(), flags.speed_stages()),
+            (
+                "accuracy_stages",
+                ours.accuracy_stages(),
+                flags.acc_stages(),
+            ),
+            ("crit_stages", ours.crit_stages(), flags.crit_stages()),
+        ];
+        for (field, mine, theirs) in named_stages {
+            assert_eq!(mine, theirs, "{at} {field}");
+        }
         assert_eq!(
             [
                 ours.hp_ev(),
