@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
+import type { DataRowDto } from "../api";
 import { ListPane } from "../ui/frame/ListPane";
 import { EmptyState, PanelHead } from "../ui/primitives";
 import { AREA_LABEL, SUB_LABEL, SUB_LOCKED } from "./dataModel";
@@ -11,6 +12,8 @@ export interface DataPart {
   List: ComponentType;
   View: ComponentType;
   Hand: ComponentType;
+  /** What the list head says the list holds ("493 Arten, 12 Formen"); without, the rows counted ("471 Attacken"). */
+  count?: (rows: readonly DataRowDto[]) => string;
 }
 
 /** What the view and the hand say while nothing of a part is chosen. */
@@ -49,7 +52,8 @@ export function DataListPane({ area, parts, open, onToggle }: { area: DataArea; 
   const { sub, switcher, kind, rows } = useDataArea(area);
   const blocked = useBlocked(area);
   const List = parts[sub]?.List;
-  const subtitle = kind !== null && !blocked && rows.length > 0 ? count(kind, rows.length) : undefined;
+  const counted = parts[sub]?.count;
+  const subtitle = kind !== null && !blocked && rows.length > 0 ? (counted ? counted(rows) : count(kind, rows.length)) : undefined;
   return (
     <ListPane title={AREA_LABEL[area]} subtitle={subtitle} switcher={switcher ?? undefined} open={open} onToggle={onToggle}>
       {blocked ?? (List ? <List /> : <EmptyState what={SUB_LABEL[sub]} why={NOTHING_CHOSEN[sub].why} />)}

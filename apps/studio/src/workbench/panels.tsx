@@ -349,14 +349,20 @@ export function TextEditTab() {
  * renders again only when one of its inputs changes.
  */
 export function DataAreaHost({ store, target, onTrail, children }: { store: DataStore; target: DataNav | null; onTrail: (area: DataArea, crumbs: Crumb[]) => void; children?: ReactNode }) {
-  const { info, goTo } = useWorkbench();
+  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
   const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
   const pokemonActive = shown === "pokemon";
   const itemsActive = shown === "gegenstaende";
-  const pokemon = useMemo<DataAreaProps>(() => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail }), [info, store, pokemonActive, target, goTo, pokemonTrail]);
-  const items = useMemo<DataAreaProps>(() => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail }), [info, store, itemsActive, target, goTo, itemsTrail]);
+  const pokemon = useMemo<DataAreaProps>(
+    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers }),
+    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers],
+  );
+  const items = useMemo<DataAreaProps>(
+    () => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail, dirty, onEdited, bus, headers }),
+    [info, store, itemsActive, target, goTo, itemsTrail, dirty, onEdited, bus, headers],
+  );
   return (
     <PokemonArea context={pokemon}>
       <ItemsArea context={items}>{children}</ItemsArea>

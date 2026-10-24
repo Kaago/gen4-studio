@@ -1,0 +1,229 @@
+/* The Pokédex: its list's unsaved dot, its view (Schau) and its editor (Hand). */
+
+/* The unsaved dot at the end of a list row. */
+.dot {
+  display: inline-flex;
+  width: var(--g4-raum-16);
+  height: var(--g4-raum-16);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.dot::before {
+  content: "";
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-4);
+}
+
+/* A picker row's picture: an icon, type badges. */
+.preview {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.pickText {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.muted {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.inline {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+/* The view. */
+.view {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-12) var(--g4-raum-16);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.headText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.name {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.headFacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin-left: auto;
+}
+
+.abilities {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.viewBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-16);
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+  margin: 0;
+  font: var(--g4-font-text-m-betont);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-6);
+}
+
+.sum {
+  margin: 0;
+  font: var(--g4-font-text-s-betont);
+}
+
+/* The editor. */
+.hand {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.handEmpty {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.notices {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8) var(--g4-raum-12) 0;
+}
+
+.tabBody {
+  min-height: 0;
+  padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
+}
+
+/* Columns side by side, divided by a line, wrapping in a narrow hand. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--g4-raum-12) var(--g4-raum-16);
+}
+
+.column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  padding-left: var(--g4-raum-12);
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.columnTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-6);
+  margin: 0 0 var(--g4-raum-4);
+  font: var(--g4-font-text-s-betont);
+}
+
+.columnNote {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.tableTab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+}
+
+.rawPart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}

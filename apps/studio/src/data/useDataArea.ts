@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Context } from "react";
-import type { DataRowDto, ItemEntryDto, NameTablesDto, ProjectInfo } from "../api";
+import type { AssetId, DataRowDto, HeaderSummary, ItemEntryDto, NameTablesDto, ProjectInfo } from "../api";
+import type { EditBus } from "../bus/editBus";
 import { useShell } from "../ui/frame/ShellContext";
 import { POKEMON_SUBS } from "../ui/frame/shellState";
 import type { PokemonSub } from "../ui/frame/shellState";
@@ -26,6 +27,14 @@ export interface DataAreaProps {
   goTo: (target: NavTarget) => void;
   /** Hears the breadcrumb of the area (the hinge shows it). Must keep its identity. */
   onTrail?: (crumbs: Crumb[]) => void;
+  /** The assets with unsaved changes: the lists and editors mark their members. */
+  dirty: readonly AssetId[];
+  /** An editor wrote a member: the dirty count and the history catch up. */
+  onEdited: () => void;
+  /** The edit bus: an editor announces what it wrote (`dataChanged`) and hears what undo, redo and reload restored. */
+  bus: EditBus;
+  /** The header table: an encounter file is named by the place of a header that uses it. */
+  headers: readonly HeaderSummary[];
 }
 
 /** The state of a data area for its list, view, hand and status parts (`useDataArea`). */
@@ -67,6 +76,14 @@ export interface DataAreaModel {
   /** Clears the search and the filter. */
   clearFilter(): void;
   goTo(target: NavTarget): void;
+  /** The lists of the project: an editor reads the other lists it offers (moves, items) from it. */
+  store: DataStore;
+  /** The member a link asked for last (its `tab` names the editor tab to show); null: none. */
+  target: DataNav | null;
+  dirty: readonly AssetId[];
+  onEdited(): void;
+  bus: EditBus;
+  headers: readonly HeaderSummary[];
 }
 
 const NO_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [] };
@@ -81,7 +98,7 @@ const NO_SEARCH: Search = { query: "", filter: NO_FILTER };
  * part (gone with another project); the rows come from the store, read once the area is `active`.
  */
 export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModel {
-  const { project, store, active, target, goTo, onTrail } = props;
+  const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -192,8 +209,14 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       setFilter,
       clearFilter,
       goTo,
+      store,
+      target,
+      dirty,
+      onEdited,
+      bus,
+      headers,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, shown, labelOf, data.names, data.itemTable, loading, error, data.locked, search, setQuery, setFilter, clearFilter, goTo],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, shown, labelOf, data.names, data.itemTable, loading, error, data.locked, search, setQuery, setFilter, clearFilter, goTo, store, target, dirty, onEdited, bus, headers],
   );
 }
 

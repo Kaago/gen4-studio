@@ -1,12 +1,14 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
-import type { DataRowDto } from "../api";
 import { dataStatus } from "../app/statusContext";
-import { DataList, RowIcon } from "./DataList";
+import { DataList } from "./DataList";
 import { DataListPane, DataPanel, chosenHead } from "./DataParts";
 import type { DataPart } from "./DataParts";
 import type { DataSub } from "./dataModel";
-import { monIcon, monIconKey } from "./icons";
+import { PokedexHand } from "./pokedex/PokedexHand";
+import { PokedexList } from "./pokedex/PokedexList";
+import { PokedexView } from "./pokedex/PokedexView";
+import { speciesCount } from "./pokedex/pokedexModel";
 import { dataAreaProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
@@ -21,13 +23,6 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
   return <Provider value={model}>{children}</Provider>;
 });
 
-/** The menu icon of a species row. */
-const speciesIcon = (row: DataRowDto, label: string) => <RowIcon iconKey={monIconKey(row.index)} load={() => monIcon(row.index)} label={label} area="pokemon" />;
-
-function SpeciesList() {
-  return <DataList area="pokemon" label="Pokédex" attr="data-species" leading={speciesIcon} />;
-}
-
 function MovesList() {
   return <DataList area="pokemon" label="Attacken" attr="data-move" />;
 }
@@ -39,7 +34,7 @@ const Chosen = chosenHead("pokemon");
  * replace their entries; Trainer and Begegnungen come with Phase 3b.3b (their entries are locked in the switcher).
  */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
-  pokedex: { List: SpeciesList, View: Chosen, Hand: Chosen },
+  pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
   moves: { List: MovesList, View: Chosen, Hand: Chosen },
 };
 

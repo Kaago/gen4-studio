@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import type { DataRowDto, ItemEntryDto, NameTablesDto, ProjectInfo } from "../api";
+import { createEditBus } from "../bus/editBus";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import type { Crumb } from "../workbench/breadcrumb";
 import { DataStore } from "./dataStore";
@@ -61,8 +62,9 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
   const root: Root = createRoot(container);
   const store = new DataStore();
   const trails: Crumb[][] = [];
-  const calls = { goTo: vi.fn(), onTrail: vi.fn((crumbs: Crumb[]) => void trails.push(crumbs)) };
-  const base = (over: Partial<DataAreaProps> = {}): DataAreaProps => ({ project: projectPt, store, active: true, target: null, ...calls, ...over });
+  const bus = createEditBus();
+  const calls = { goTo: vi.fn(), onTrail: vi.fn((crumbs: Crumb[]) => void trails.push(crumbs)), onEdited: vi.fn() };
+  const base = (over: Partial<DataAreaProps> = {}): DataAreaProps => ({ project: projectPt, store, active: true, target: null, dirty: [], bus, headers: [], ...calls, ...over });
   const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{tree(props)}</ShellProvider>));
   const q = <E extends Element = HTMLElement>(selector: string) => container.querySelector<E>(selector);
   const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("button")];
@@ -73,5 +75,5 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
     act(() => root.unmount());
     container.remove();
   };
-  return { container, store, calls, base, show, q, button, buttons, trail, lastTrail, unmount };
+  return { container, store, bus, calls, base, show, q, button, buttons, trail, lastTrail, unmount };
 }

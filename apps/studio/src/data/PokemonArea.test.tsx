@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataList, getMonIcon, itemTable, nameTables } from "../api";
+import { dataGet, dataList, getMonIcon, itemTable, nameTables, refs } from "../api";
 import { readShellState, writeShellState } from "../ui/frame/shellState";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { MOVES, NAMES, SPECIES, dataHarness, flush, move, openMenu, projectDp, species } from "./dataTesting";
 import { resetIcons } from "./icons";
+import { staraviaDoc } from "./pokedex/pokedexTesting";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "./PokemonArea";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -15,6 +16,8 @@ vi.mock("../api", async (importOriginal) => ({
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
   getItemIcon: vi.fn(),
+  dataGet: vi.fn(),
+  refs: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,6 +31,8 @@ describe("PokemonArea", () => {
     vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
     vi.mocked(itemTable).mockReset().mockResolvedValue(null);
     vi.mocked(getMonIcon).mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
+    vi.mocked(dataGet).mockReset().mockImplementation(async () => staraviaDoc());
+    vi.mocked(refs).mockReset().mockResolvedValue([]);
     URL.createObjectURL = vi.fn(() => "blob:icon");
     URL.revokeObjectURL = vi.fn();
     Element.prototype.scrollIntoView = () => {};
@@ -126,8 +131,10 @@ describe("PokemonArea", () => {
     expect(h.q("[data-view]")?.textContent).toContain("Kein Pokémon gewählt.");
     expect(h.q("[data-view]")?.textContent).toContain("Wähle links eine Art; hier erscheinen Werte und Fundorte.");
     await act(async () => rowOf("data-species", 397)!.click());
+    await flush();
     expect(h.q("[data-view]")?.textContent).toContain("Staravia");
-    expect(h.q("[data-hand]")?.textContent).toContain("Staravia");
+    // The editor of the Pokédex: its tabs, named after the species.
+    expect(h.q("[data-hand] [role=tablist]")?.getAttribute("aria-label")).toBe("Staravia bearbeiten");
   });
 
   it("says_no_project_without_one", async () => {
