@@ -8,7 +8,7 @@
 //! - trainer properties → trainer class and items; trainer parties → species, items, moves
 //!   (a trainer the store holds as a document, `AssetKind::Trainer`, is read from that
 //!   document with its unsaved edits; a change of it recomputes both of its sources)
-//! - object events: a script in [`TRAINER_SCRIPTS`] → trainer
+//! - object events: a script in [`TRAINER_SCRIPTS`] or [`PARTNER_SCRIPTS`] → trainer
 //! - personal data: `item1`, `item2` → items
 //! - learnsets → moves
 //! - evolutions: the target → species; the parameter → item, move or species by method
@@ -68,8 +68,13 @@ pub struct Ref {
 }
 
 /// Overworld scripts that start a trainer battle: script `3000 + n - 1` is trainer `n`
-/// (spec §2, "Event ↔ Trainer"; 5000–6999 are partner battles, not counted).
+/// (spec §2, "Event ↔ Trainer").
 pub const TRAINER_SCRIPTS: RangeInclusive<u16> = 3000..=4999;
+
+/// Overworld scripts of a double battle partner: script `5000 + n - 1` is trainer `n` as a
+/// partner (trainer-mechanics-3b3b.md §8.4, ruling R9); counted as a reference to trainer `n`
+/// like [`TRAINER_SCRIPTS`].
+pub const PARTNER_SCRIPTS: RangeInclusive<u16> = 5000..=6999;
 
 /// Evolution methods whose parameter is an item id: 6 (trade holding it), 7 (use it),
 /// 16, 17 (use it, male / female: Dawn Stone), 18, 19 (level up holding it, by day / by
@@ -579,8 +584,12 @@ fn encounter_refs(out: &mut Refs, encounters: &Encounters) {
 
 fn event_refs(out: &mut Refs, events: &EventFile) {
     for (slot, object) in events.object_events.iter().enumerate() {
-        if TRAINER_SCRIPTS.contains(&object.script) {
-            let trainer = object.script - TRAINER_SCRIPTS.start() + 1;
+        let start = [&TRAINER_SCRIPTS, &PARTNER_SCRIPTS]
+            .into_iter()
+            .find(|range| range.contains(&object.script))
+            .map(|range| *range.start());
+        if let Some(start) = start {
+            let trainer = object.script - start + 1;
             out.push("script", Some(slot), Target::Trainer(trainer));
         }
     }

@@ -95,7 +95,8 @@ fn event_bytes(scripts: &[u16]) -> Vec<u8> {
 ///   items 80 to 85 → species 3 to 8
 /// - trainers: 0 class 1 with species 1; 1 class 2 with item 50, moves and items: species
 ///   6 (form 1) holding item 51 with moves 7 and 8
-/// - events: 0 one object with script 3000; 1 objects with scripts 4999, 5000, 2999
+/// - events: 0 one object with script 3000; 1 objects with scripts 4999, 5000 (partner of
+///   trainer 1), 2999
 /// - headers: 0 uses encounter file 1, 1 none (0xFFFF)
 fn fixture() -> common::Synthetic {
     let s = common::synthetic_project();
@@ -378,14 +379,23 @@ fn event_script_3000_references_trainer_1() {
     let mut index = RefIndex::new();
     assert_eq!(
         index.refs(&st, Target::Trainer(1)).unwrap(),
-        [r(
-            id(AssetKind::Event, 0),
-            "script",
-            Some(0),
-            Target::Trainer(1)
-        )]
+        [
+            r(
+                id(AssetKind::Event, 0),
+                "script",
+                Some(0),
+                Target::Trainer(1)
+            ),
+            // 5000 is trainer 1 as a double battle partner (5000 + ID - 1).
+            r(
+                id(AssetKind::Event, 1),
+                "script",
+                Some(1),
+                Target::Trainer(1)
+            ),
+        ]
     );
-    // 4999 is the last trainer script; 5000 (partner) and 2999 are none.
+    // 4999 is the last trainer script; 2999 is none.
     assert_eq!(
         index.refs(&st, Target::Trainer(2000)).unwrap(),
         [r(
