@@ -1,0 +1,78 @@
+.frame {
+  width: 100%;
+}
+
+/* 256 x 192 DS pixels times the whole-number scale from `--ds-scale`. */
+.screen {
+  position: relative;
+  width: calc(256px * var(--ds-scale));
+  height: calc(192px * var(--ds-scale));
+  overflow: hidden;
+  background: var(--g4-szene-ds-grund);
+  border-radius: calc(2px * var(--ds-scale));
+}
+
+.background {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Box measures from design-system/openpencil/jsx-lib.js: x 4, height 54, 4 from the bottom, padding 9/6, edge 2. */
+.box {
+  position: absolute;
+  left: calc(4px * var(--ds-scale));
+  bottom: calc(4px * var(--ds-scale));
+  width: calc(248px * var(--ds-scale));
+  height: calc(54px * var(--ds-scale));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ds-scale));
+  padding: calc(6px * var(--ds-scale)) calc(9px * var(--ds-scale));
+  border-style: solid;
+  border-width: calc(2px * var(--ds-scale));
+  border-radius: calc(4px * var(--ds-scale));
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(12px * var(--ds-scale));
+  line-height: calc(16px * var(--ds-scale));
+  font-weight: 400;
+  overflow: hidden;
+}
+
+.textbox {
+  background: var(--g4-szene-ds-textbox-flaeche);
+  border-color: var(--g4-szene-ds-textbox-rahmen);
+  color: var(--g4-szene-ds-textbox-text);
+}
+
+.sign {
+  background: var(--g4-szene-ds-schild-flaeche);
+  border-color: var(--g4-szene-ds-schild-rahmen);
+  color: var(--g4-szene-ds-schild-text);
+}
+
+.line {
+  flex: none;
+  height: calc(16px * var(--ds-scale));
+  white-space: pre;
+  overflow: hidden;
+}
+
+.prompt {
+  position: absolute;
+  right: calc(6px * var(--ds-scale));
+  bottom: calc(2px * var(--ds-scale));
+  color: var(--g4-szene-ds-pfeil);
+  font-size: calc(10px * var(--ds-scale));
+  line-height: 1;
+}
+
+.overflow {
+  position: absolute;
+  top: calc(2px * var(--ds-scale));
+  right: calc(4px * var(--ds-scale));
+  display: inline-flex;
+  color: var(--g4-status-warnung);
+  font-size: calc(12px * var(--ds-scale));
+}

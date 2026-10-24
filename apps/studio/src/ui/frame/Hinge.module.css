@@ -81,9 +81,11 @@
   text-overflow: ellipsis;
 }
 
-/* The earlier crumbs keep their text (up to a generous cap); only the last one gives way. */
+/* The earlier crumbs keep their text (up to a generous cap) while there is room; in a narrow hinge they give way first
+   (a much larger shrink factor), down to a few letters, so the last crumb, the selection, stays readable. */
 .crumb {
-  flex: none;
+  flex: 0 12 auto;
+  min-width: calc(var(--g4-raum-16) * 3);
   max-width: calc(var(--g4-raum-16) * 12);
   color: var(--g4-scharnier-leise);
 }
@@ -91,6 +93,7 @@
 /* The last crumb takes the remaining space and ends in an ellipsis; the hinge titles carry the full text. */
 .last {
   flex: 0 1 auto;
+  min-width: calc(var(--g4-raum-16) * 4);
   color: var(--g4-scharnier-text);
   font: var(--g4-font-text-s-betont);
 }
@@ -129,11 +132,22 @@
   flex: none;
 }
 
+/* The slot of the wizard's step bar (filled through a portal); `display` would otherwise win over the hidden attribute. */
 .wizard {
   display: flex;
   min-width: 0;
+  height: 100%;
   flex: 1 1 0;
   align-items: center;
+}
+
+.wizard[hidden] {
+  display: none;
+}
+
+/* A wizard is open: the upper edge takes the colour of the world. */
+.wizardMode {
+  border-top-color: var(--g4-bereich-welt-punkt);
 }
 
 .right {

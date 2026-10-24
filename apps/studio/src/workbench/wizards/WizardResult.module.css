@@ -1,0 +1,30 @@
+/* What the wizard made: the notice on top, the next steps below. */
+.result {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.line {
+  margin: 0;
+}
+
+.line + .line {
+  margin-top: var(--g4-raum-4);
+}
+
+.heading {
+  margin: var(--g4-raum-4) 0 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.next {
+  margin: 0;
+  padding-left: var(--g4-raum-16);
+}
+
+.next > li + li {
+  margin-top: var(--g4-raum-2);
+}

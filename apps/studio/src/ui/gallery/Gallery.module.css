@@ -151,6 +151,32 @@
   background: var(--g4-flaeche-welt);
 }
 
+/* Stands in for a map picture behind the DS screen. */
+.mapStub {
+  width: 100%;
+  height: 100%;
+  background: var(--g4-flaeche-welt);
+  opacity: 0.4;
+}
+
+/* The hinge as it sits between the decks: full width, its own height. */
+.hingeFrame {
+  display: flex;
+  flex-direction: column;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
+/* The start pane in a bounded box instead of the whole window. */
+.startFrame {
+  max-height: 520px;
+  overflow: auto;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-gehaeuse);
+}
+
 .dialogRow {
   display: flex;
   align-items: flex-end;

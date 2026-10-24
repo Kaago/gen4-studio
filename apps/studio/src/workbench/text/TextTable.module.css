@@ -1,0 +1,78 @@
+/* The grid fills its column: the head stays, the body scrolls. */
+.table {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  font: var(--g4-font-text-s);
+}
+
+/* The column layouts. Messages: number, text, longest line. Hits: archive, message, excerpt. */
+.messages {
+  --text-table-columns: 48px minmax(0, 1fr) 132px;
+}
+
+.hits {
+  --text-table-columns: 64px 48px minmax(0, 1fr);
+}
+
+.head {
+  flex: none;
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.headRow,
+.row {
+  display: grid;
+  grid-template-columns: var(--text-table-columns);
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-8);
+}
+
+.headRow {
+  min-height: var(--g4-dichte-zeile);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Every row has the same height: the windowing counts on it. */
+.row {
+  box-sizing: border-box;
+  height: var(--g4-dichte-zeile);
+  border-radius: var(--g4-radius-feld);
+  color: var(--g4-text-primaer);
+  cursor: pointer;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.row:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: -2px;
+}
+
+.selected,
+.selected:hover {
+  background: var(--g4-auswahl-flaeche);
+  box-shadow: inset var(--g4-strich-fokus) 0 0 var(--g4-auswahl-kante);
+}
+
+.cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  overflow: hidden;
+  white-space: nowrap;
+}

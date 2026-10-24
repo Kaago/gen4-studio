@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * The draft behaviour of `DraftInput`, shared by the text and number fields: the text being typed lives here, the owner
+ * The draft behaviour shared by the text and number fields: the text being typed lives here, the owner
  * hears about it only through `onCommit` (on `flush`, and once more when the field unmounts mid-typing), and after a
  * commit the field shows `value` again until the owner passes a new one. A refused entry thus never lingers in the field.
  */

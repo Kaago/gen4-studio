@@ -103,6 +103,14 @@
   --g4-szene-hoehe-6: #FFEF42;
   --g4-szene-auswahl-kern: #FFFFFF;
   --g4-szene-auswahl-halo: #3152DE;
+  --g4-szene-ds-grund: #182131;
+  --g4-szene-ds-textbox-flaeche: #F7F7FF;
+  --g4-szene-ds-textbox-rahmen: #4A5263;
+  --g4-szene-ds-textbox-text: #394252;
+  --g4-szene-ds-schild-flaeche: #E7D6B5;
+  --g4-szene-ds-schild-rahmen: #6B5229;
+  --g4-szene-ds-schild-text: #423921;
+  --g4-szene-ds-pfeil: #4A5263;
   /* Raum, Form, Schriftgrößen */
   --g4-raum-0: 0px;
   --g4-raum-2: 2px;

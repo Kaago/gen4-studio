@@ -58,6 +58,15 @@ describe("Segmented", () => {
     expect(pressed().map((b) => b.textContent)).toEqual(["Baum"]);
   });
 
+  it("disables_a_single_option_and_never_picks_it", () => {
+    const onChange = vi.fn();
+    act(() => root.render(<Segmented options={[options[0], { ...options[1], disabled: true }]} value="baum" onChange={onChange} ariaLabel="Ansicht" />));
+    expect(buttons().map((b) => b.disabled)).toEqual([false, true]);
+    act(() => buttons()[1].click());
+    expect(onChange).not.toHaveBeenCalled();
+    expect(pressed().map((b) => b.textContent)).toEqual(["Baum"]);
+  });
+
   it("supports_the_small_size_and_icon_only_options_with_a_name", () => {
     act(() =>
       root.render(

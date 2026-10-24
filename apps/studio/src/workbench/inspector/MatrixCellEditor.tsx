@@ -10,6 +10,7 @@ import { useMatrix } from "../useMatrix";
 import styles from "./Editor.module.css";
 import { isDirty } from "./dirtyAssets";
 import { InspectorHead } from "./InspectorHead";
+import { RawRowSection } from "./RawRowSection";
 import { TechnicalSection } from "./TechnicalSection";
 
 /** What the cell editor needs from App. */
@@ -144,6 +145,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         ) : (
           <p className={styles.note}>Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar).</p>
         )}
+        {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <div className={styles.actions}>
           <Button kind="secondary" disabled={map === null || working} onClick={() => map !== null && void duplicate(map)}>

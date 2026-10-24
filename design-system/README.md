@@ -1,6 +1,6 @@
 # Gen4 Studio Design-System „Doppeldeck“
 
-Stand: 23.10.2026. Quelle der Gestaltung ist die OpenPencil-Datei [`Editor_DesignSystem.fig`](Editor_DesignSystem.fig). Quelle der Werte sind die DTCG-Tokens in [`tokens/`](tokens). Dieser Ordner liefert alles, was die Tauri-2-App (React, Dockview, three.js, CodeMirror/Monaco) zum Umsetzen braucht.
+Stand: 24.10.2026. Quelle der Gestaltung ist die OpenPencil-Datei [`Editor_DesignSystem.fig`](Editor_DesignSystem.fig). Quelle der Werte sind die DTCG-Tokens in [`tokens/`](tokens). Dieser Ordner liefert alles, was die Tauri-2-App (React, Dockview, three.js, CodeMirror/Monaco) zum Umsetzen braucht.
 
 Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Nintendo DS erschaffen (Basis Platin, HeartGold, SoulSilver). Das Design-System richtet sich an zwei Gruppen zugleich: Einsteiger, die Orte, Figuren und Geschichten erzählen wollen, und Profis, die an Skripten und Rohdaten tüfteln. Es beschreibt den Zielzustand mit allen Features, nicht den heutigen Stand der App.
 
@@ -54,7 +54,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 | Sammlung | Modi | Inhalt |
 |---|---|---|
 | Primitiv | Wert | Rampen Platin (Neutrale), Kobalt, Bernstein, Signal, Moos, Zerr, Koralle, Lagune, Sand |
-| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js; gleich in beiden Themen |
+| Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm; gleich in beiden Themen |
 | Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*` |
 | Raum | Wert | `raum/0…64` (Pixel im Namen), `radius/feld|taste|bildschirm|fenster|plakette`, `strich/*`, `schrift/groesse/*`, `schrift/zeile/*` |
 | Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug` |
@@ -130,6 +130,7 @@ Für die Umsetzung eignen sich Radix- oder Reka-Primitives (Dialog, Popover, Tab
 - Farben aus `apps/studio/src/ui/tokens/tokens.ts` (`szene`), Material `toneMapped: false`, `depthWrite: false`, `polygonOffset`. Füllung 42 % Deckkraft, opake Kontur mit dunklem Halo.
 - Gelände: blockiert diagonal schraffiert, Wasser Wellen, hohes Gras Punkte, Vorsprung Pfeil in Sprungrichtung, Eis Kreuzschraffur, Spezial Schachbrett, unbekannt gestrichelt. Muster hängen an Kachelkoordinaten (`gelaendeMuster`).
 - Ereignisse: Figur Kreis, Trainer Kreis mit Sichtlinie, Tür Raute, Auslöser gestrichelte Fläche, Schild Etikett, Gegenstand rundes Quadrat. Auswahl mit 3-px-Kobalt-Halo.
+- DS-Bildschirm (Gruppe `ds`, Spielinhalt, gleich in beiden Themen): `ds/grund` ist die Spielfläche hinter der Box, `ds/textbox/*` und `ds/schild/*` (je `flaeche`, `rahmen`, `text`) sind die Textbox und die Schildbox des Spiels, `ds/pfeil` der Weiter-Pfeil. In CSS `--g4-szene-ds-textbox-flaeche` usw., in `tokens.ts` als `szene.ds['textbox/flaeche']`. Text auf Fläche hat mindestens 4,5:1 (`check_tokens.py`).
 - Höhen: sieben Stufen cividis, eine Stufe ist eine halbe Kachel, Isolinien bei Stufenwechsel.
 - Standardkamera ist die Gen-4-Kamera; „Draufsicht“ schaltet orthografisch zum präzisen Malen.
 
@@ -150,16 +151,28 @@ Jeder Screen ist 1440 × 900 und zeigt einen konkreten Moment mit echten Zustän
 
 ## Was die App umsetzt
 
-Stand nach Phase 3c.1 (Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md)). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
+Stand nach Phase 3c (3c.1 und 3c.2; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md), Gate: [docs/phase-3c-gate.md](../docs/phase-3c-gate.md)). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
 
-Umgesetzt (3c.1):
-- Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons; Thema in der Titelleiste (Hell und Dunkel; „System“ folgt mit den Einstellungen in 3c.2) und Dichte (Komfort, Kompakt) in der Statusleiste umschaltbar.
-- Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand), sichtbar in der Galerie (`?gallery` im Browser-Modus).
-- Der Rahmen: Titelleiste, Atlas (Start, Welt, sechs gesperrte Bereiche, Hilfe), Liste „Orte“, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts.
-- Der Bereich Welt im neuen Raster: 3D, Raster und Weltkarte als Schau; Werkzeuge mit Buchstabenkürzeln (V B F T A S G), Inspector und „An diesem Ort“ als Hand; Text, Script und Probleme als Reiter der Hand (innen noch im alten Stil); Szenenfarben aus den Tokens.
-- Die Regeln aus diesem README prüft das Gate: `check-tokens.sh` (Raster, Kontraste, eingecheckte Dateien gleich frischem Export) und `check-styles.sh` (keine Hex-Farben, keine Primitive, keine Inline-Styles außer `/* dyn */`; Ausnahmeliste `scripts/check-styles.allow` für Dateien, die 3c.2 umzieht).
+Umgesetzt:
+- Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons. Thema Hell, Dunkel oder „Wie System“ (Einstellungen; der Knopf in der Titelleiste wechselt Hell und Dunkel), Dichte Komfort oder Kompakt (Einstellungen und Statusleiste). CodeMirror und die 3D-Szene folgen dem Thema.
+- Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Tastenkürzel, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Reiter, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Abschnitt, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand, DS-Bildschirm), sichtbar in der Galerie (`?gallery` im Browser-Modus, mit einer Seite „Rahmen“).
+- Der Rahmen: Titelleiste, Atlas (Start, Welt, Texte, Technik, drei gesperrte Bereiche, Hilfe, Einstellungen), Liste je Bereich, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts, Befehlspalette ⌘K.
+- Welt: 3D, Raster und Weltkarte als Schau; Werkzeuge mit Buchstabenkürzeln (V, B, F, T, A, S, G), Inspector und „An diesem Ort“ als Hand, Script und Probleme als Reiter daneben; Szenenfarben aus den Tokens.
+- Texte nach dem Screen „Texte: Archiv 0412“: Archive als Liste (Orte und Spielweit), DS-Bildschirm mit Seitenkarten als Schau, Nachrichtentabelle mit Längenbalken und Editor als Hand.
+- Assistenten als Schrittleiste im Scharnier, der Schritt in der Hand; Zusammenfassung mit „Nicht rückgängig“, Ergebnis mit „Zeigen“, „Hier spielen“ und „Schließen“.
+- Start („Willkommen zurück“ mit den zuletzt geöffneten Projekten), Technik (Prüfen und Bauen, Patches, Emulator, Werkzeuge), Einstellungen (Darstellung, Emulator, Tastenkürzel); Hilfe öffnet das Glossar als Dialog.
+- Tiefe Tüfteln: Rohwerte und Hex im Inspector, Kennungen im Explorer, Header-ID und Höhe im Raster mit Rohdaten der Zeile, Dateipfade in Probleme und Script.
+- Die Regeln aus diesem README prüft das Gate: `check-tokens.sh` (Raster, Kontraste, eingecheckte Dateien gleich frischem Export) und `check-styles.sh` (keine Hex-Farben, keine Primitive, keine Inline-Styles außer `/* dyn */`; die Ausnahmeliste `scripts/check-styles.allow` ist leer).
 
-Folgt in 3c.2: Bereich Texte mit DS-Bildschirm-Vorschau, Script und Probleme im neuen Stil, Assistenten als Schrittleiste im Scharnier, Start, Technik, Einstellungen und Hilfe als Flächen, Befehlspalette ⌘K.
+Abweichungen vom Design-System, bewusst oder bis auf Weiteres:
+- Die Tiefe Erzählen fehlt (nur Bauen und Tüfteln), ebenso die Live-Vorschau der Assistenten in der Schau und das Rezept-Ergebnis „nächster sinnvoller Schritt“ als Taste (das Ergebnis nennt ihn als Text).
+- Windows: keine eigenen Fensterknöpfe und kein eigenes Menü; die Titelleiste liegt unter der Systemleiste.
+- Technik › Werkzeuge zeigt den Zustand von apicula und rotom-lsp, aber keinen Pfad (kein Befehl liefert ihn).
+- Die Archivliste der Texte nennt die Zahl der Nachrichten nur am geladenen Archiv.
+- Die Zeilengrenze der Texte (38 Zeichen, „34 von 38“) zählt Zeichen; die Warnungen des Backends messen die Breite (200 px).
+- Einstellungen › Tastenkürzel zeigt nur die ⌘-Kürzel, die Buchstaben der Werkzeuge stehen in der Statusleiste und an den Werkzeugen.
+- Im Raster zeigt auch Bauen die Kennungen der Zellen (wie vor 3c); Tüfteln fügt Header-ID und Höhe hinzu.
+- `Editor_DesignSystem.fig` kennt die Tokens der Gruppe `szene/ds` (DS-Bildschirm) erst, wenn der Nutzer `tokens/` in OpenPencil einspielt („Design-Tokens importieren“); bis dahin fehlen diese Variablen in der Datei, App und `tokens/` haben sie.
 
 Nicht in 3c (§1 der Spezifikation): die Bereiche Geschichten, Pokémon und Gegenstände (im Atlas gesperrt); Tiefe Erzählen mit Rezepten und reduziertem Inspector; Live-Vorschau der Assistenten in der Schau; Story-Graph; Spielmodus mit Live-Flags und bernsteinfarbenem Scharnier; Veröffentlichen; Plugins; Gelände malen und Draufsicht-Kamera; Muster im Gelände-Overlay; Höhen-Overlay in der Schau; eigene Fensterknöpfe auf Windows; senkrechtes Scharnier ab 2200 px; die Komponenten Typ-Plakette, Wertebalken, Budget, Pokémon-Karte, Story-Knoten und Rezept-Taste (kommen mit ihrem Editor). Die Roadmap führt sie unter „Aus dem Design-System, später“ ([docs/ROADMAP.md](../docs/ROADMAP.md)).
 

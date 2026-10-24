@@ -9,7 +9,7 @@ import { useRovingList } from "./useRovingList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function List({ labels, selected, orientation }: { labels: string[]; selected?: string; orientation?: "vertical" | "horizontal" }) {
+function List({ labels, selected, orientation }: { labels: string[]; selected?: string; orientation?: "vertical" | "horizontal" | "grid" }) {
   const ref = useRef<HTMLDivElement>(null);
   useRovingList(ref, { orientation });
   return (
@@ -94,6 +94,32 @@ describe("useRovingList", () => {
     expect(tabStops()).toEqual(["A"]);
     pressKey(rows()[0]!, "ArrowRight");
     expect(tabStops()).toEqual(["B"]);
+  });
+
+  it("a_grid_moves_by_one_with_left_and_right_and_by_a_row_with_up_and_down", () => {
+    act(() => root.render(<List labels={["A", "B", "C", "D", "E"]} orientation="grid" />));
+    // Three columns: A B C on the first row, D E on the second (jsdom has no layout, so the rows are given).
+    // The page position counts, not offsetTop (which a positioned cell around each item would make 0 for all).
+    rows().forEach((r, i) => {
+      Object.defineProperty(r, "offsetTop", { configurable: true, value: 0 });
+      r.getBoundingClientRect = () => ({ top: i < 3 ? 10 : 110 }) as DOMRect;
+    });
+    pressKey(rows()[0]!, "ArrowRight");
+    expect(tabStops()).toEqual(["B"]);
+    pressKey(rows()[1]!, "ArrowDown");
+    expect(tabStops()).toEqual(["E"]);
+    expect(document.activeElement).toBe(rows()[4]);
+    pressKey(rows()[4]!, "ArrowLeft");
+    expect(tabStops()).toEqual(["D"]);
+    pressKey(rows()[3]!, "ArrowUp");
+    expect(tabStops()).toEqual(["A"]);
+    // Below C there is no card: Down stays.
+    pressKey(rows()[0]!, "End");
+    pressKey(rows()[4]!, "ArrowUp");
+    expect(tabStops()).toEqual(["B"]);
+    pressKey(rows()[1]!, "ArrowRight");
+    pressKey(rows()[2]!, "ArrowDown");
+    expect(tabStops()).toEqual(["C"]);
   });
 
   it("focusing_a_row_makes_it_the_tab_stop", () => {

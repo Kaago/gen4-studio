@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EmptyState } from "./EmptyState";
 import { InspectorRow } from "./InspectorRow";
 import { PanelHead } from "./PanelHead";
+import { readCss, ruleBody } from "../cssSource";
 import { Section } from "./Section";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -100,6 +101,23 @@ describe("Section, InspectorRow, PanelHead and EmptyState", () => {
     expect(container.querySelector("h2")?.textContent).toBe("Orte");
     expect(container.textContent).toContain("Platin");
     expect(container.querySelector("header button")?.textContent).toBe("Neu");
+  });
+
+  it("panel_head_keeps_a_status_apart_from_the_actions", () => {
+    // A narrow head puts the status beside the title and the actions on their own row (container query in the CSS).
+    act(() => root.render(<PanelHead title="Script" actions={<button type="button">Speichern</button>} status={<span>rotom-lsp fehlt</span>} />));
+    const status = container.querySelector("header [data-panel-status]");
+    expect(status?.textContent).toBe("rotom-lsp fehlt");
+    expect(status?.querySelector("button")).toBeNull();
+    expect(container.querySelector("header button")?.closest("[data-panel-status]")).toBeNull();
+    act(() => root.render(<PanelHead title="Orte" />));
+    expect(container.querySelector("[data-panel-status]")).toBeNull();
+    // Narrow: the status moves beside the title and the actions take a row of their own (two rows, not three).
+    const css = readCss("./PanelHead.module.css", import.meta.url);
+    expect(ruleBody(css, ".withStatus")).toMatch(/container-type:\s*inline-size/);
+    expect(css).toMatch(/@container \(max-width: \d+px\)/);
+    expect(ruleBody(css, ".withStatus > .actions")).toMatch(/flex-basis:\s*100%/);
+    expect(ruleBody(css, ".withStatus > .status")).toMatch(/margin-left:\s*auto/);
   });
 
   it("empty_state_says_what_and_why_and_offers_an_action", () => {

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity } from "../tokens/theme";
-import type { Density } from "../tokens/theme";
+import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
+import type { Density, Theme } from "../tokens/theme";
 import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
 import type { AreaId, Depth, RecentProject, ShellState, Tool } from "./shellState";
 
@@ -20,8 +20,14 @@ export interface ShellApi {
   forget: (path: string) => void;
   /** The theme that is shown; the title bar button switches hell and dunkel ("System" is a setting). */
   theme: "hell" | "dunkel";
+  /** The theme as chosen in the settings: "system" follows the OS. */
+  themeSetting: Theme;
+  /** Applies and remembers a theme setting (the settings' segmented control). */
+  setTheme: (t: Theme) => void;
+  /** Switches the shown theme and fixes the setting to it. */
   toggleTheme: () => void;
   density: Density;
+  setDensity: (d: Density) => void;
   toggleDensity: () => void;
 }
 
@@ -38,12 +44,13 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     return initialArea === undefined ? read : { ...read, area: initialArea };
   });
   const [tool, setTool] = useState<Tool>("select");
-  const [theme, setTheme] = useState(effectiveTheme);
-  const [density, setDensity] = useState(readDensity);
+  const [theme, setShownTheme] = useState(effectiveTheme);
+  const [themeSetting, setThemeSetting] = useState(readTheme);
+  const [density, setDensityState] = useState(readDensity);
 
   useEffect(() => writeShellState(state), [state]);
   // An OS switch while the theme is "System" also arrives here.
-  useEffect(() => onThemeChange(setTheme), []);
+  useEffect(() => onThemeChange(setShownTheme), []);
 
   const setArea = useCallback((area: AreaId) => setState((s) => (s.area === area ? s : { ...s, area })), []);
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
@@ -52,16 +59,40 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   const setDepth = useCallback((depth: Depth) => setState((s) => (s.depth === depth ? s : { ...s, depth })), []);
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
-  const toggleTheme = useCallback(() => applyTheme(effectiveTheme() === "hell" ? "dunkel" : "hell"), []);
-  const toggleDensity = useCallback(() => {
-    const next: Density = density === "komfort" ? "kompakt" : "komfort";
-    applyDensity(next);
-    setDensity(next);
-  }, [density]);
+  const setTheme = useCallback((t: Theme) => {
+    applyTheme(t);
+    setThemeSetting(t);
+    // The listener above hears only an effective switch; set it here too, so the shown theme is right whatever the listener did.
+    setShownTheme(effectiveTheme());
+  }, []);
+  const toggleTheme = useCallback(() => setTheme(effectiveTheme() === "hell" ? "dunkel" : "hell"), [setTheme]);
+  const setDensity = useCallback((d: Density) => {
+    applyDensity(d);
+    setDensityState(d);
+  }, []);
+  const toggleDensity = useCallback(() => setDensity(density === "komfort" ? "kompakt" : "komfort"), [density, setDensity]);
 
   const value = useMemo<ShellApi>(
-    () => ({ state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, tool, setTool, remember, forget, theme, toggleTheme, density, toggleDensity }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, tool, remember, forget, theme, toggleTheme, density, toggleDensity],
+    () => ({
+      state,
+      setArea,
+      setListOpen,
+      setHandHeight,
+      toggleHandCollapsed,
+      setDepth,
+      tool,
+      setTool,
+      remember,
+      forget,
+      theme,
+      themeSetting,
+      setTheme,
+      toggleTheme,
+      density,
+      setDensity,
+      toggleDensity,
+    }),
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, tool, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

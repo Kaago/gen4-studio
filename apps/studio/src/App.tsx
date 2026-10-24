@@ -1,50 +1,65 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
-import { ExplorerPane, HAND_COMPONENTS, SCHAU_COMPONENTS } from "./workbench/panels";
-import { buildPlaces } from "./workbench/places";
+import { DECK_COMPONENTS, ExplorerPane, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
+import type { TextShown } from "./workbench/text/TextArea";
+import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
-import { crumbsFor } from "./workbench/breadcrumb";
+import { crumbsFor, textCrumbs } from "./workbench/breadcrumb";
+import type { Crumb } from "./workbench/breadcrumb";
+import { DECK_AREAS, deckPanels, dropOldLayouts, isDeckArea } from "./workbench/layout";
+import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
-import { Deck } from "./ui/frame/Deck";
+import { Deck, resetLayout } from "./ui/frame/Deck";
 import { HelpDialog } from "./ui/frame/HelpDialog";
+import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { StartPane } from "./ui/frame/StartPane";
+import { SettingsArea } from "./einstellungen/SettingsArea";
+import { TechnikArea } from "./technik/TechnikArea";
+import type { TechnikEntry } from "./technik/TechnikArea";
+import { toolStatus } from "./app/toolStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
+import { AREAS } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
+import { archivePlaces, archiveRows, usersByArchive } from "./workbench/text/textModel";
 import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { redo, undo } from "./api";
-import type { HeaderSummary } from "./api";
+import { listScriptFiles, redo, undo } from "./api";
+import type { HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
+import { paletteEntries } from "./app/paletteEntries";
+import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
+import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
-import type { DockApis } from "./app/useSceneSync";
+import type { AreaDocks } from "./app/useSceneSync";
 import { useShortcuts } from "./app/useShortcuts";
 import { useStableCallback } from "./app/useStable";
 import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
 import { useWizards } from "./app/useWizards";
 import type { Created } from "./app/useWizards";
+import { WizardHints, WizardStep } from "./app/WizardHints";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
@@ -56,15 +71,16 @@ import { inTauri } from "./platform/transport";
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
   geschichten: "Kommt mit Phase 3b.3",
   pokemon: "Kommt mit Phase 3b.3",
   gegenstaende: "Kommt mit Phase 3b.3",
-  texte: "Kommt mit 3c.2",
-  technik: "Kommt mit 3c.2",
-  einstellungen: "Kommt mit 3c.2",
 };
+
+/** While a wizard is open, the world is the only area: the others wait until it is done. */
+const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
+const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
@@ -77,7 +93,15 @@ const BRIDGE_DOWN = "Brücke nicht erreichbar";
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
-  const [initialArea] = useState<AreaId>(() => (!inTauri() && projectFromUrl(window.location.search) !== null ? "welt" : "start"));
+  const [initialArea] = useState<AreaId>(() => {
+    // Once at the start, before a dock reads its layout: the layouts of v7 (the world's hand still had the text panel) go.
+    try {
+      dropOldLayouts(localStorage);
+    } catch {
+      /* no storage: nothing to drop */
+    }
+    return !inTauri() && projectFromUrl(window.location.search) !== null ? "welt" : "start";
+  });
   return (
     <ShellProvider initialArea={initialArea}>
       <AppBody />
@@ -90,39 +114,59 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
+  const wizardOpen = useRef(false);
+  // A link does not leave the world while a wizard is open there.
+  const showArea = useStableCallback((target: AreaId) => {
+    if (wizardOpen.current && target !== "welt") return;
+    setArea(target);
+  });
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  // The dockview apis of the deck's two docks: a link focuses the panel that shows its target, in the dock that has it.
-  const [dockApi] = useState<DockApis>(() => ({ schau: { current: null as DockviewApi | null }, hand: { current: null as DockviewApi | null } }));
-  // A collapsed hand opens before one of its panels is brought to the front.
-  const revealHand = useStableCallback(() => {
-    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
+  // The dockview apis of the two docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it.
+  const [docks] = useState<AreaDocks>(() => {
+    const none = () => ({ current: null as DockviewApi | null });
+    return { welt: { schau: none(), hand: none() }, texte: { schau: none(), hand: none() } };
   });
+  // A collapsed hand opens before one of its panels is brought to the front; not while a wizard's step holds the hand.
+  const revealHand = useStableCallback((target: DeckArea) => {
+    if (wizardOpen.current) return;
+    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
+  });
+  const revealWorldHand = useStableCallback(() => revealHand("welt"));
 
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
 
-  // The archive and message the text panel is asked to open: a new object per request, so the same one can be asked for twice.
+  // The archive and message the texts are asked to open: a new object per request, so the same one can be asked for twice. It lives here,
+  // not in the text area, so a link that comes before the texts were ever shown (their deck is built on the first visit) is not lost.
   const [textTarget, setTextTarget] = useState<TextTarget | null>(null);
   const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
+  // The archive and message the texts show (their hinge's breadcrumb follows them).
+  const [textShown, setTextShown] = useState<TextShown>({ archive: null, message: null });
 
   // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the world.
-  const showProblems = useCallback(() => {
-    setArea("welt");
+  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
+  // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
+  const showProblems = useStableCallback(() => {
+    // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
+    if (wizardOpen.current) return;
+    const shown = shell.state.area;
+    const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
+    setArea(target);
     try {
-      const panel = dockApi.hand.current?.getPanel("problems");
+      const panel = docks[target].hand.current?.getPanel("problems");
       if (panel) {
-        revealHand();
+        revealHand(target);
         panel.focus();
       }
     } catch {
       /* the deck is going away */
     }
-  }, [setArea, dockApi, revealHand]);
+  });
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
@@ -132,17 +176,26 @@ function AppBody() {
   unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
   // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
-  const pin = useInspectorReveal(pins.setPinned, dockApi, revealHand);
+  const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand, () => wizardOpen.current);
+  // A link to a text or a script while a wizard is open goes nowhere: the texts would open it unasked later, and a script would open in
+  // the hand under the wizard (raising the hand's remembered height).
+  const openTextLink = useStableCallback((index: number, message?: number) => {
+    if (!wizardOpen.current) onOpenText(index, message);
+  });
+  const openScriptLink = useStableCallback((file: number, line?: number) => {
+    if (!wizardOpen.current) scripts.api.open(file, line);
+  });
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
     fail: session.fail,
     refreshDirty: session.refreshDirty,
     setPinned: pin,
-    dockApi,
+    docks,
+    setArea: showArea,
     revealHand,
-    onOpenText,
-    onOpenScript: scripts.api.open,
+    onOpenText: openTextLink,
+    onOpenScript: openScriptLink,
   });
   const world = useWorldActions({
     bus,
@@ -182,7 +235,13 @@ function AppBody() {
       // A read that failed reported itself: the announcement does not wipe that.
       if (made && made.header === null) session.setMessage(announce(made.announcement));
     },
+    // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
+    onOpen: () => {
+      setArea("welt");
+      shell.setTool("select");
+    },
   });
+  wizardOpen.current = wizards.request !== null;
   useEffect(() => {
     const show = showAfterSync.current;
     if (show === null) return;
@@ -197,6 +256,9 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step } = useHistoryReload({ bus, session, scene, pins });
+  // The undo history of every hinge, read once per change for all of them (a deck per area, each with its hinge).
+  const [historyFeed] = useState(() => new HistoryFeed());
+  useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);
   // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo; the first one that fails ends it.
   const onUndoTo = useStableCallback(async (stepsBack: number) => {
     for (let i = 0; i < stepsBack; i++) if (!(await step(undo))) return;
@@ -231,20 +293,32 @@ function AppBody() {
     if (kind !== undefined) void world.onAddEvent(kind, { x: tile.absX, z: tile.absZ });
     else if (used === "building") void world.onAddBuilding(null, { map: tile.mapId, x: tile.x, y: tile.y });
   });
+  // The command palette (⌘K or the title bar's search button); not while a wizard is open, which locks everything but the world.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useStableCallback(() => {
+    if (!wizardOpen.current) setPaletteOpen(true);
+  });
+  // Whether the event tools are locked (set below, once the place is known): their letters then do nothing, like their buttons.
+  const eventsBlockedRef = useRef(false);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
+    onOpenProject: () => openProject(),
+    onPalette: openPalette,
     step,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
     onTool,
     toolsActive: area === "welt",
+    toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */
   function resetProject(headers: HeaderSummary[]) {
     showAfterSync.current = null;
+    // A wizard works on the project it was opened in.
+    wizards.close();
     problems.clear();
     scene.resetForProject(headers);
     world.resetForProject();
@@ -269,7 +343,16 @@ function AppBody() {
   }, [session.info, remember, setArea]);
   // Recent projects that could not be opened this time (their folder is gone, or it is not a project any more).
   const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
+  /**
+   * Asks for a project and opens it; not while a build or save runs, nor while a wizard works on the open project (the title bar's
+   * button is disabled then too).
+   */
+  function openProject() {
+    if (!session.busy && wizards.request === null) void session.onOpen(resetProject);
+  }
   async function onOpenRecent(path: string) {
+    // A build or save in flight works on the open project: another one must not replace it under it.
+    if (session.busy) return;
     const result = await session.onOpen(resetProject, path);
     if (result === "cancelled") return;
     setMissing((before) => {
@@ -286,6 +369,13 @@ function AppBody() {
   }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
+  // The entry Technik shows; kept while another area shows.
+  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
+  const onHeaderPatch = useStableCallback(async () => {
+    bus.emit({ topic: "headerTable" });
+    await scene.syncHeaders();
+  });
 
   // The dev bridge: the status line says whether it answers. It does until the transport says it does not; any info after that means it does again.
   const [bridgeLost, setBridgeLost] = useState(false);
@@ -296,9 +386,9 @@ function AppBody() {
   }, [session.message]);
   const bridge = inTauri() ? "none" : bridgeLost ? "missing" : "ok";
 
-  // The dock is built the first time the world shows and then stays (hidden) while another area covers it: the scene keeps its models.
-  const deckBuilt = useRef(false);
-  if (area === "welt") deckBuilt.current = true;
+  // An area's list and deck are built the first time it shows and then stay (hidden) while another area shows: the scene keeps its models.
+  const built = useRef<Set<DeckArea>>(new Set());
+  if (isDeckArea(area)) built.current.add(area);
 
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
@@ -317,6 +407,7 @@ function AppBody() {
 
   // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.
   const eventsBlocked = world.eventLock !== null || data.eventFileId === null;
+  eventsBlockedRef.current = eventsBlocked;
   useEffect(() => {
     if (eventsBlocked && isEventTool(shell.tool)) shell.setTool("select");
   }, [eventsBlocked, shell.tool]);
@@ -350,85 +441,234 @@ function AppBody() {
     () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo }),
     [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo],
   );
-  const onDragHeight = useStableCallback((height: number) => {
-    // Dragging a collapsed hinge opens the hand to where it is dragged.
-    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
-    shell.setHandHeight("welt", height);
+  // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
+  const textTrail = useMemo(() => {
+    const { archive, message } = textShown;
+    const user = archive === null ? undefined : scene.headers.find((h) => h.text_archive_id === archive);
+    const place = user === undefined ? undefined : placeOf(places, user.id);
+    return textCrumbs({
+      archive,
+      place: place !== undefined && place.key !== UNNAMED_KEY ? place.name : null,
+      message,
+      goTo: data.goTo,
+    });
+  }, [textShown, scene.headers, places, data.goTo]);
+  // The script files the palette lists: read each time it opens, only when rotom has adopted the scripts. Tagged with the project they
+  // belong to, so a late answer for another one is not listed.
+  const adopted = scripts.api.status?.adopted === true;
+  const [scriptFiles, setScriptFiles] = useState<{ info: ProjectInfo; list: ScriptFileDto[] } | null>(null);
+  useEffect(() => {
+    const project = session.info;
+    if (!paletteOpen || !adopted || project === null) return;
+    let current = true;
+    listScriptFiles().then(
+      (list) => current && setScriptFiles({ info: project, list }),
+      // The palette then lists no scripts; the explorer's script node says what went wrong when it is opened.
+      ignoreError,
+    );
+    return () => {
+      current = false;
+    };
+  }, [paletteOpen, adopted, session.info]);
+  const archives = useMemo(() => {
+    const users = usersByArchive(scene.headers);
+    return archiveRows(session.counts.TextArchive, users, archivePlaces(scene.headers, users));
+  }, [scene.headers, session.counts.TextArchive]);
+  const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
+  const paletteItems = useMemo(
+    () =>
+      paletteEntries({
+        places,
+        headers: scene.headers,
+        archives,
+        scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
+        hasProject: session.info !== null,
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck },
+      }),
+    [places, scene.headers, archives, adopted, scriptFiles, session.info, session.busy, area, paletteDeck],
+  );
+  /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
+  const runPalette = useStableCallback((entry: PaletteEntry) => {
+    const { run } = entry;
+    if (run.kind === "goTo") {
+      data.goTo(run.target);
+      return;
+    }
+    switch (run.command) {
+      case "open":
+        openProject();
+        break;
+      case "save":
+        if (session.info && !session.busy) void session.onSave();
+        break;
+      case "build":
+        if (session.info && !session.busy) void session.onBuild();
+        break;
+      case "play":
+        void onPlay();
+        break;
+      case "area":
+      case "room":
+        if (session.info) wizards.open({ kind: run.command });
+        break;
+      case "list":
+        shell.setListOpen(area, !shell.state.listOpen[area]);
+        break;
+      case "layout":
+        resetLayout(paletteDeck, docks[paletteDeck]);
+        break;
+      case "theme":
+        shell.toggleTheme();
+        break;
+      case "density":
+        shell.toggleDensity();
+        break;
+      case "terms":
+        setHelpOpen(true);
+        break;
+      case "settings":
+        showArea("einstellungen");
+        break;
+      case "welt":
+      case "texte":
+      case "technik":
+        showArea(run.command);
+        break;
+    }
   });
-  const onToggleCollapse = useStableCallback(() => shell.toggleHandCollapsed("welt"));
+  // Each hinge works on the hand of its own area (only the shown area's hinge can be reached).
+  const onDragHeight = useStableCallback((target: DeckArea, height: number) => {
+    // Dragging a collapsed hinge opens the hand to where it is dragged.
+    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
+    shell.setHandHeight(target, height);
+  });
+  const onToggleCollapse = useStableCallback((target: DeckArea) => shell.toggleHandCollapsed(target));
 
   const { info } = session;
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
-    area === "welt" ? undefined : area === "start" ? (
-      <StartPane recent={shell.state.recent} missing={missing} onOpen={() => void session.onOpen(resetProject)} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+    isDeckArea(area) ? undefined : area === "start" ? (
+      <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+    ) : area === "technik" ? (
+      <TechnikArea
+        project={info?.root ?? null}
+        entry={technikEntry}
+        onEntry={setTechnikEntry}
+        listOpen={shell.state.listOpen.technik}
+        onToggleList={() => shell.setListOpen("technik", !shell.state.listOpen.technik)}
+        problems={problems}
+        depth={shell.state.depth}
+        goTo={data.goTo}
+        busy={session.busy}
+        lastBuiltAt={session.lastBuiltAt}
+        lastRom={session.lastRom}
+        onBuild={() => void session.onBuild()}
+        onRun={() => void session.onRun()}
+        canRun={inTauri()}
+        onOpenProject={openProject}
+        emulatorPath={session.emulatorPath}
+        onPickEmulator={() => void session.onPickEmulator()}
+        tools={toolStatus}
+        onHeaderPatch={onHeaderPatch}
+        onHeaderPatchRepaired={session.patchRepaired}
+      />
+    ) : area === "einstellungen" ? (
+      <SettingsArea
+        theme={shell.themeSetting}
+        density={shell.density}
+        emulatorPath={session.emulatorPath}
+        onTheme={shell.setTheme}
+        onDensity={shell.setDensity}
+        onPickEmulator={() => void session.onPickEmulator()}
+      />
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
     );
+  // The world's deck keeps the slots of the wizard's bar and step; they show while a wizard is open.
+  const showsWizard = wizards.request !== null;
+  /** The deck of an area: its two docks and its hinge, which works on that area's hand and shows `trail`. */
+  const deckOf = (target: DeckArea, trail: Crumb[]) => (
+    <Deck
+      area={target}
+      wizard={target === "welt" ? showsWizard : undefined}
+      schauComponents={DECK_COMPONENTS[target].schau}
+      handComponents={DECK_COMPONENTS[target].hand}
+      schauRef={docks[target].schau}
+      handRef={docks[target].hand}
+      hinge={
+        <HingeHost
+          problems={problems}
+          history={historyFeed}
+          crumbs={trail}
+          depth={shell.state.depth}
+          onDepth={shell.setDepth}
+          onProblems={showProblems}
+          onUndoTo={onUndoTo}
+          onRedo={onRedo}
+          onPlay={onPlay}
+          playing={session.busy}
+          canPlay={info !== null}
+          onDragHeight={(height) => onDragHeight(target, height)}
+          onToggleCollapse={() => onToggleCollapse(target)}
+          wizard={target === "welt" ? showsWizard : undefined}
+        />
+      }
+    />
+  );
 
   return (
     <>
       <Workbench data={data} live={live}>
-        <Shell
-          title={
-            <TitleBar
-              projectName={info ? projectName(info.root) : null}
-              game={info ? gameLabel(info) : null}
-              dirtyCount={session.dirtyCount + scripts.dirtyCount}
-              busy={session.busy}
-              onOpen={() => void session.onOpen(resetProject)}
-              onSave={() => void session.onSave()}
-              onBuild={() => void session.onBuild()}
-              onHelp={onHelp}
-              theme={shell.theme}
-              onToggleTheme={shell.toggleTheme}
-            />
-          }
-          atlas={<Atlas area={area} onArea={setArea} onHelp={onHelp} locked={LOCKED_AREAS} lockedHint={LOCKED_HINTS} density={shell.density} />}
-          list={deckBuilt.current ? <ExplorerPane /> : undefined}
-          deck={
-            deckBuilt.current ? (
-              <Deck
-                area="welt"
-                schauComponents={SCHAU_COMPONENTS}
-                handComponents={HAND_COMPONENTS}
-                schauRef={dockApi.schau}
-                handRef={dockApi.hand}
-                hinge={
-                  <HingeHost
-                    bus={bus}
-                    problems={problems}
-                    historyRevision={session.dirtyRevision}
-                    hasProject={info !== null}
-                    crumbs={crumbs}
-                    depth={shell.state.depth}
-                    onDepth={shell.setDepth}
-                    onProblems={showProblems}
-                    onUndoTo={onUndoTo}
-                    onRedo={onRedo}
-                    onPlay={onPlay}
-                    playing={session.busy}
-                    canPlay={info !== null}
-                    onDragHeight={onDragHeight}
-                    onToggleCollapse={onToggleCollapse}
-                  />
-                }
+        {/* Around the whole frame: the texts' list, deck and status parts share the text area's state. */}
+        <TextAreaHost onShown={setTextShown}>
+          <Shell
+            title={
+              <TitleBar
+                projectName={info ? projectName(info.root) : null}
+                game={info ? gameLabel(info) : null}
+                dirtyCount={session.dirtyCount + scripts.dirtyCount}
+                // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
+                busy={session.busy || showsWizard}
+                onOpen={openProject}
+                onSave={() => void session.onSave()}
+                onBuild={() => void session.onBuild()}
+                onHelp={onHelp}
+                onPalette={openPalette}
+                paletteDisabled={showsWizard}
+                theme={shell.theme}
+                onToggleTheme={shell.toggleTheme}
               />
-            ) : undefined
-          }
-          pane={pane}
-          status={
-            <StatusLine
-              left={area === "welt" ? <ToolHints tool={shell.tool} /> : null}
-              middle={context}
-              right={<ProblemCount store={problems} />}
-              bridge={bridge}
-              density={shell.density}
-              onToggleDensity={shell.toggleDensity}
-              build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-            />
-          }
-        />
+            }
+            atlas={
+              <Atlas
+                area={area}
+                onArea={setArea}
+                onHelp={onHelp}
+                locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
+                lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
+                density={shell.density}
+              />
+            }
+            area={area}
+            areas={Object.fromEntries(
+              DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
+            )}
+            pane={pane}
+            status={
+              <StatusLine
+                left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
+                middle={
+                  showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : area === "einstellungen" ? "Änderungen gelten sofort und für alle Projekte" : area === "welt" ? context : null
+                }
+                right={<ProblemCount store={problems} />}
+                bridge={bridge}
+                density={shell.density}
+                onToggleDensity={shell.toggleDensity}
+                build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+              />
+            }
+          />
+        </TextAreaHost>
       </Workbench>
       <WizardHost
         wizards={wizards}
@@ -441,14 +681,13 @@ function AppBody() {
         selected={selectedHeader}
         shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
-        onHeaderPatch={async () => {
-          // The header table now lives in files: the header editor reads it again, and so does the list.
-          bus.emit({ topic: "headerTable" });
-          await scene.syncHeaders();
-        }}
+        onHeaderPatch={onHeaderPatch}
+        onHeaderPatchRepaired={session.patchRepaired}
         onError={session.fail}
+        onPlay={() => void onPlay()}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}
     </>
   );

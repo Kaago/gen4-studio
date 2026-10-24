@@ -1,10 +1,10 @@
 import { memo, useMemo, useRef } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
 import styles from "./AreaGrid.module.css";
+import { rawCell } from "./matrix";
 import { id4 } from "./terms";
 import { useVisible } from "./useVisible";
 import { GRID_GAP } from "./worldMap";
@@ -26,6 +26,8 @@ export interface AreaGridProps {
   cache?: ThumbnailCache;
   /** Colour per cell (place), optional. */
   colorOf?: (header: number | null) => string | null;
+  /** The depth Tüfteln: every filled cell writes its map, header and altitude as three lines of raw values. */
+  tinker?: boolean;
 }
 
 interface CellProps {
@@ -41,12 +43,13 @@ interface CellProps {
   /** The grid has a header section. */
   hasHeaders: boolean;
   cache: ThumbnailCache;
+  tinker: boolean;
   onClick?: AreaGridProps["onCellClick"];
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
-const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, onClick, onDoubleClick }: CellProps) {
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, tinker, onClick, onDoubleClick }: CellProps) {
   const button = useRef<HTMLButtonElement>(null);
   const visible = useVisible(button, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
@@ -59,10 +62,13 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   if (failure) parts.push(`Bild fehlgeschlagen: ${failure}`);
 
   // What only the data knows: the picture, the place colour.
-  const style: CSSProperties = {};
-  if (map !== null && typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
-  else if (map !== null && color) style.backgroundColor = color; /* dyn */
-  if (map !== null && color) style.boxShadow = `inset 0 -4px 0 ${color}`; /* dyn */
+  const pictured = map !== null && typeof picture === "string";
+  const tinted = map !== null && color !== null && color !== "";
+  const style = {
+    backgroundImage: pictured ? `url("${picture}")` : undefined, /* dyn */
+    backgroundColor: !pictured && tinted ? color : undefined, /* dyn */
+    boxShadow: tinted ? `inset 0 -4px 0 ${color}` : undefined, /* dyn */
+  };
   const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : ""].join(" ");
 
   return (
@@ -70,6 +76,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
       ref={button}
       type="button"
       data-cell={cellKey(x, y)}
+      data-raw={tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined}
       aria-pressed={selected}
       title={parts.join(" · ")}
       className={classes}
@@ -79,6 +86,12 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
     >
       {map === null ? (
         "—"
+      ) : tinker ? (
+        <span className={styles.raw}>
+          <span>{id4(map)}</span>
+          {hasHeaders && header !== null && <span>{id4(header)}</span>}
+          {altitude !== null && <span>{altitude}</span>}
+        </span>
       ) : (
         <>
           {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
@@ -91,7 +104,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
 });
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
-export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf }: AreaGridProps) {
+export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf, tinker = false }: AreaGridProps) {
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
   const columns = matrix.width + (onExtend ? 1 : 0);
@@ -132,6 +145,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           selected={selected?.has(cellKey(x, y)) ?? false}
           hasHeaders={matrix.headers != null}
           cache={cache}
+          tinker={tinker}
           onClick={onCellClick}
           onDoubleClick={onCellDoubleClick}
         />,

@@ -165,7 +165,7 @@ ts.append('/** Szenenfarben als Zahl für THREE.Color. Material mit toneMapped: 
 ts.append('export const szene = {')
 groups = {}
 for k, v in szene.items():
-    g, n = k.split('/')
+    g, n = k.split('/', 1)
     groups.setdefault(g, {})[n] = v['$value']
 for g, items in groups.items():
     key = g.replace('-', '_')

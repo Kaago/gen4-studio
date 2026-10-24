@@ -1,17 +1,17 @@
 import { indentWithTab } from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
-import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
+import { indentUnit } from "@codemirror/language";
 import { forEachDiagnostic, setDiagnosticsEffect, type Diagnostic } from "@codemirror/lint";
 import type { LSPClient } from "@codemirror/lsp-client";
 import { Annotation, Compartment, EditorState, Transaction, type Extension } from "@codemirror/state";
-import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
-import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { useEffect, useLayoutEffect, useMemo, useRef, type JSX } from "react";
 import type { ScriptDocument } from "./documents";
 import { codeLenses, inlayHints } from "./lspExtras";
 import { rotomLanguage } from "./rotomLanguage";
+import { ROTOM_THEME } from "./rotomTheme";
+import styles from "./ScriptEditor.module.css";
 
 export interface ScriptEditorProps {
   doc: ScriptDocument;
@@ -24,40 +24,12 @@ export interface ScriptEditorProps {
   onChange: (text: string) => void;
   /** The diagnostics of the shown document: after each change of them, and when a document is shown. */
   onDiagnostics: (d: Diagnostic[]) => void;
-  theme: "light" | "dark";
+  theme: "hell" | "dunkel";
 }
-
-const lightHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: "#2563eb", fontWeight: "600" },
-  { tag: tags.function(tags.variableName), color: "#b45309" },
-  { tag: tags.variableName, color: "#111827" },
-  { tag: tags.number, color: "#0f766e" },
-  { tag: tags.string, color: "#15803d" },
-  { tag: tags.comment, color: "#6b7280", fontStyle: "italic" },
-  { tag: tags.meta, color: "#7c3aed" },
-  { tag: tags.operator, color: "#6b7280" },
-  { tag: tags.propertyName, color: "#2563eb" },
-  { tag: [tags.bool, tags.null], color: "#7c3aed" },
-]);
-
-const lightTheme: Extension = [
-  EditorView.theme(
-    {
-      "&": { backgroundColor: "#ffffff", color: "#111827" },
-      ".cm-gutters": { backgroundColor: "#f9fafb", color: "#6b7280", border: "none", borderRight: "1px solid #e5e7eb" },
-      ".cm-activeLine": { backgroundColor: "#f3f4f6" },
-      ".cm-activeLineGutter": { backgroundColor: "#eff6ff" },
-      ".cm-cursor": { borderLeftColor: "#111827" },
-      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "#dbeafe" },
-    },
-    { dark: false },
-  ),
-  syntaxHighlighting(lightHighlight),
-];
 
 const baseTheme = EditorView.theme({
   "&": { height: "100%" },
-  ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+  ".cm-scroller": { overflow: "auto" },
 });
 
 const ROTOM: Extension = [rotomLanguage, indentUnit.of("\t")];
@@ -102,6 +74,11 @@ const bridges = new WeakMap<EditorView, Bridge>();
 // Cmd+S is not bound here: the window's shortcut (`useShortcuts`) saves the store first and then the open scripts, and
 // the editor must let the key through to it (a second save from here would run ahead of the store's).
 const bridge: Extension = EditorView.updateListener.of((update) => bridges.get(update.view)?.update(update));
+
+/** A shown document starts where its cursor is (a jump from an event or a problem), not at line 1: a new state does not scroll by itself. */
+function revealCursor(view: EditorView) {
+  if (view.state.selection.main.head > 0) view.dispatch({ scrollIntoView: true });
+}
 
 function createState(doc: ScriptDocument, wanted: Wanted): EditorState {
   return EditorState.create({
@@ -163,7 +140,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
   const wanted = useMemo<Wanted>(
     () => ({
       language: language === "rotom" ? ROTOM : json(),
-      theme: theme === "dark" ? oneDark : lightTheme,
+      theme: ROTOM_THEME[theme],
       lsp: lspExtension(lsp, uri, language),
     }),
     [language, theme, lsp, uri],
@@ -197,6 +174,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     });
     viewRef.current = view;
     report();
+    revealCursor(view);
     return () => {
       bridges.delete(view);
       viewRef.current = null;
@@ -213,6 +191,7 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
       shown.current = doc;
       doc.state = reconfigured(doc.state ?? createState(doc, wantedRef.current), wantedRef.current);
       view.setState(doc.state);
+      revealCursor(view);
       switched = true;
     }
     // The client, uri or theme of the shown document changed.
@@ -240,5 +219,5 @@ export function ScriptEditor(props: ScriptEditorProps): JSX.Element {
     if (switched) latest.current.onDiagnostics(diagnosticsOf(view.state));
   });
 
-  return <div ref={host} style={{ height: "100%", minHeight: 0 }} />;
+  return <div ref={host} className={styles.host} />;
 }

@@ -42,7 +42,7 @@ describe("NumberField", () => {
   }
   const input = () => container.querySelector<HTMLInputElement>("input[aria-label='Modell']")!;
   const text = () => container.textContent ?? "";
-  /** Enter blurs the field, as in a browser; the jsdom test has to put the focus there first. */
+  /** Enter commits and keeps the focus; the jsdom test has to put the focus there first. */
   const typeAndEnter = (t: string) => {
     act(() => input().focus());
     typeInto(input(), t);
@@ -55,6 +55,25 @@ describe("NumberField", () => {
     typeInto(input(), t);
     act(() => input().blur());
   };
+
+  it("uses_enter_only_while_it_holds_typed_text", () => {
+    // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
+    act(() => root.render(<Owner />));
+    act(() => input().focus());
+    expect(pressKey(input(), "Enter").defaultPrevented).toBe(false);
+    act(() => input().focus());
+    typeInto(input(), "200");
+    expect(pressKey(input(), "Enter").defaultPrevented).toBe(true);
+    expect(commits.mock.calls).toEqual([[200]]);
+  });
+
+  it("keeps_the_focus_after_committing_with_enter", () => {
+    // A keyboard user goes on with Tab from the field (Inspector): Enter must not drop the focus to the page.
+    act(() => root.render(<Owner />));
+    typeAndEnter("200");
+    expect(commits.mock.calls).toEqual([[200]]);
+    expect(document.activeElement).toBe(input());
+  });
 
   it("commits_on_enter_and_blur_and_reverts_on_escape", () => {
     act(() => root.render(<Owner />));
@@ -147,6 +166,56 @@ describe("NumberField", () => {
     typeAndEnter("12.5");
     expect(commits).not.toHaveBeenCalled();
     expect(text()).toContain("ganze Zahl");
+  });
+
+  /** An owner whose value may be missing (a door tile not chosen yet, area data that stays as it is). */
+  function Optional(props: { start: number | null; clearable?: boolean }) {
+    const [value, setValue] = useState<number | null>(props.start);
+    return (
+      <NumberField
+        label="Modell"
+        value={value}
+        max={31}
+        onCommit={(n) => {
+          commits(n);
+          setValue(n);
+        }}
+        onClear={
+          props.clearable
+            ? () => {
+                commits(null);
+                setValue(null);
+              }
+            : undefined
+        }
+      />
+    );
+  }
+
+  it("shows_a_missing_value_as_an_empty_field_and_takes_a_typed_one", () => {
+    act(() => root.render(<Optional start={null} />));
+    expect(input().value).toBe("");
+    typeAndBlur("");
+    expect(commits).not.toHaveBeenCalled();
+    typeAndBlur("40");
+    expect(commits).not.toHaveBeenCalled();
+    expect(text()).toContain("höchstens 31");
+    expect(input().value).toBe("");
+    typeAndEnter("12");
+    expect(commits.mock.calls).toEqual([[12]]);
+    expect(input().value).toBe("12");
+    // Without `onClear` an emptied field is refused.
+    typeAndBlur("");
+    expect(text()).toContain("Gib eine Zahl ein");
+    expect(input().value).toBe("12");
+  });
+
+  it("hands_an_emptied_field_to_onClear_when_the_owner_takes_one", () => {
+    act(() => root.render(<Optional start={3} clearable />));
+    typeAndBlur("");
+    expect(commits.mock.calls).toEqual([[null]]);
+    expect(input().value).toBe("");
+    expect(text()).not.toContain("Gib eine Zahl ein");
   });
 
   it("takes_the_smaller_of_max_and_the_bit_width_as_the_ceiling", () => {

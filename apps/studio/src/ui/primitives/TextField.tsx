@@ -25,7 +25,8 @@ export type TextFieldProps = {
 };
 
 /**
- * A text field that writes on blur or Enter, like `DraftInput`: Escape takes the typed text back (and uses the key, so a
+ * A text field that writes on blur or Enter, never per keystroke (a search field that still holds text is cleared by
+ * Escape before the key goes on): Escape takes the typed text back (and uses the key, so a
  * dialog around the field stays open), and `data-draft` marks the field for `escapeCloses`.
  */
 export function TextField({ label, value, onCommit, onChange, type = "text", error, hint, disabled, placeholder, multiline, showLabel }: TextFieldProps) {
@@ -50,12 +51,19 @@ export function TextField({ label, value, onCommit, onChange, type = "text", err
         onBlur={draft.flush}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            e.currentTarget.blur();
+            // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+            // The focus stays in the field, so a keyboard user goes on from here with Tab.
+            if (draft.edited) e.preventDefault();
+            draft.flush();
           } else if (e.key === "Escape" && draft.edited) {
             // Taking back the typed text uses the key: a dialog around the field must not close as well.
             e.preventDefault();
             draft.revert();
+          } else if (e.key === "Escape" && type === "search" && draft.text !== "") {
+            // A search that filters while typing holds no draft; Escape clears it first and uses the key, the next one closes.
+            e.preventDefault();
+            onChange?.("");
+            onCommit("");
           }
         }}
       />

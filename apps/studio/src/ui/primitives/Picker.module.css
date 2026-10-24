@@ -92,6 +92,16 @@
   outline: none;
 }
 
+.row[data-disabled] {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.row[data-disabled][data-highlighted] {
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+}
+
 .preview {
   display: inline-flex;
   flex: none;
@@ -171,4 +181,50 @@
   border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
+}
+
+.text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.description {
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-highlighted] .description {
+  color: inherit;
+}
+
+.shortcut {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+}
+
+/* The count and the shortcut both sit at the end; only the first takes the free space. */
+.count + .shortcut {
+  margin-left: var(--g4-raum-8);
+}
+
+/* The typed text inside a hit: a heavier weight and the accent, no background (the highlighted row has one). */
+.mark {
+  background: transparent;
+  color: var(--g4-akzent-text);
+  font-weight: 700;
+}
+
+.paletteBody .list {
+  max-height: min(440px, 60vh);
+}
+
+.paletteFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--g4-raum-12);
 }

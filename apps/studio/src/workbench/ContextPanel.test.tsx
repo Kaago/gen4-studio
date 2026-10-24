@@ -114,6 +114,30 @@ describe("ContextPanel", () => {
     expect(onOpenHeader).toHaveBeenCalledOnce();
   });
 
+  it("follows_a_door_to_its_header_on_enter_and_nothing_else_does", () => {
+    show();
+    pressKey(row("Warp 0"), "Enter");
+    expect(onOpenHeader).toHaveBeenCalledWith(414);
+    // Enter selects the door as well, like the click of a double click.
+    expect(onSelectEvent).toHaveBeenCalledWith({ file: 7, kind: "warp", index: 0 });
+    pressKey(row("Objekt 0"), "Enter");
+    pressKey(row("Gebäude 1"), "Enter");
+    expect(onOpenHeader).toHaveBeenCalledOnce();
+    show({ headers: [] });
+    pressKey(row("Warp 0"), "Enter");
+    expect(onOpenHeader).toHaveBeenCalledOnce();
+  });
+
+  it("says_it_is_loading_while_the_events_of_the_place_load_instead_of_calling_it_empty", () => {
+    show({ events: null, buildings: [], loading: true });
+    expect(container.textContent).toContain("Lade …");
+    expect(container.textContent).not.toContain("Hier ist noch nichts.");
+    // Read (or unreadable): the place is what it is.
+    show({ events: null, buildings: [], loading: false });
+    expect(container.textContent).not.toContain("Lade …");
+    expect(container.textContent).toContain("Hier ist noch nichts.");
+  });
+
   it("does_not_follow_a_door_to_a_header_that_does_not_exist", () => {
     show({ headers: [] });
     act(() => void row("Warp 0").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));

@@ -35,6 +35,9 @@ describe("escapeCloses", () => {
   it("does_not_close_when_the_key_was_used_or_a_field_still_holds_text", () => {
     expect(escapeCloses(key(input("number", "12", true), "Escape", true))).toBe(false);
     expect(escapeCloses(key(input("search", "Zweiblatt")))).toBe(false);
+    // A draft search field (TextField type="search") that still holds text clears itself first, too.
+    expect(escapeCloses(key(input("search", "nachbar", true)))).toBe(false);
+    expect(escapeCloses(key(input("search", "", true)))).toBe(true);
     expect(escapeCloses(key(document.createElement("select")))).toBe(false);
     expect(escapeCloses(key(document.createElement("textarea")))).toBe(false);
     expect(escapeCloses(key(document, "Enter"))).toBe(false);

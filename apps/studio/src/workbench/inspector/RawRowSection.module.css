@@ -1,0 +1,33 @@
+/* The raw row of a matrix: numbers in the mono face, the chosen cell on the selection colour. A wide row scrolls instead of widening the inspector. */
+.scroll {
+  overflow-x: auto;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+}
+
+.table {
+  border-collapse: collapse;
+  font: var(--g4-font-code-s);
+}
+
+.table th,
+.table td {
+  padding: var(--g4-raum-2) var(--g4-raum-6);
+  text-align: right;
+  font-weight: normal;
+  user-select: text;
+}
+
+.table thead th,
+.table tbody th {
+  color: var(--g4-text-sekundaer);
+}
+
+.table tbody th {
+  text-align: left;
+  font: var(--g4-font-text-xs);
+}
+
+.chosen {
+  outline: var(--g4-strich-fokus) solid var(--g4-auswahl-kante);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}

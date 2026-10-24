@@ -41,6 +41,27 @@
   white-space: nowrap;
 }
 
+/* Label and subtitle stacked; the row grows to two lines. */
+.text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: var(--g4-raum-4) 0;
+}
+
+.subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.selected .subtitle {
+  color: inherit;
+}
+
 .tech {
   min-width: 0;
   /* In a narrow row the technical part gives way first: the name is what the row is for. */

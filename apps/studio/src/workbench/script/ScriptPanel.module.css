@@ -1,0 +1,45 @@
+.panel {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+}
+
+/* The tabs of the open documents fill the rest; the editor is the content of the selected one. */
+.tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.tabs > * {
+  flex: 1;
+}
+
+/* The badge says the language server's state in two words (the whole note is its tooltip): it stays on one line. */
+.lsp {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lsp > * {
+  white-space: nowrap;
+}
+
+.note {
+  margin: 0;
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.scroll {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+}

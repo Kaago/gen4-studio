@@ -1,0 +1,64 @@
+.panel {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+}
+
+.body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--g4-font-text-s);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table td.message,
+.table th.message {
+  width: 100%;
+  white-space: normal;
+}
+
+.position {
+  font: var(--g4-font-code-s);
+  color: var(--g4-text-sekundaer);
+}
+
+.severity {
+  display: inline-flex;
+  font-size: var(--g4-dichte-symbol);
+}
+
+.error {
+  color: var(--g4-status-fehler);
+}
+
+.warning {
+  color: var(--g4-status-warnung);
+}

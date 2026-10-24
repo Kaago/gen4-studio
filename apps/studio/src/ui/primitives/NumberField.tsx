@@ -11,9 +11,12 @@ import styles from "./NumberField.module.css";
 export type NumberFieldProps = {
   /** Always the accessible name; shown above the field (and then the scrub handle) only with `showLabel`. */
   label: string;
-  value: number;
+  /** Null: no value yet (a tile not chosen, a setting that stays as it is); the field shows empty. */
+  value: number | null;
   /** Called with a valid, in-range number on blur or Enter, after a step, and when a scrub ends; never per keystroke. */
   onCommit: (value: number) => void;
+  /** An emptied field means "no value" and calls this; without it an empty entry is refused like any unreadable one. */
+  onClear?: () => void;
   min?: number;
   max?: number;
   base?: NumberBase;
@@ -42,12 +45,13 @@ const BASES = [
 /**
  * A whole-number field. What is typed stays a draft until blur or Enter; an entry that is unreadable or outside
  * `min..max` (or the bit width) is refused with the bound named, keeps the old value, and is never clamped to the bound.
+ * A `null` value shows an empty field; emptying the field is an entry of its own only for an owner with `onClear`.
  *
  * Base UI's `NumberField` supplies the scrub area (drag the label or the grip). Its own text handling would clamp on
  * blur and formats only decimals, so the input's change, key, paste and value are taken over: Base UI's value changes
  * are listened to for the `scrub` reason only, and `allowOutOfRange` is set so it never rewrites typed text either.
  */
-export function NumberField({ label, value, onCommit, min = 0, max, base: baseProp = "dec", bits, step = 1, hint, disabled, showBase, showLabel }: NumberFieldProps) {
+export function NumberField({ label, value, onCommit, onClear, min = 0, max, base: baseProp = "dec", bits, step = 1, hint, disabled, showBase, showLabel }: NumberFieldProps) {
   const [chosenBase, setChosenBase] = useState<NumberBase | null>(null);
   const base = chosenBase ?? baseProp;
   const top = ceiling(max, bits);
@@ -58,7 +62,12 @@ export function NumberField({ label, value, onCommit, min = 0, max, base: basePr
   // A new value or another base makes an old refusal moot.
   useEffect(() => setError(null), [value, base]);
 
-  const draft = useDraft(formatNumber(value, base), (text) => {
+  const draft = useDraft(value === null ? "" : formatNumber(value, base), (text) => {
+    if (onClear && text.trim() === "") {
+      setError(null);
+      if (value !== null) onClear();
+      return;
+    }
     const checked = checkNumber(text, base, min, top);
     if (!checked.ok) {
       setError(checked.error);
@@ -70,7 +79,8 @@ export function NumberField({ label, value, onCommit, min = 0, max, base: basePr
 
   const stepBy = (direction: 1 | -1, factor: number) => {
     const from = parseNumber(draft.text, base) ?? value;
-    const next = from + direction * step * factor;
+    // An empty field starts at the lowest value.
+    const next = from === null ? min : from + direction * step * factor;
     // A step is not an entry: at a bound it simply stops.
     if (next < min || (top !== undefined && next > top)) return;
     draft.revert();
@@ -81,7 +91,8 @@ export function NumberField({ label, value, onCommit, min = 0, max, base: basePr
   // Base UI scrubs in fractions of `step` (a quarter per pixel, see below); what is shown and committed is whole steps
   // counted from where the drag began, so the value moves once per 4 px and never past a bound.
   const snapScrub = (v: number) => {
-    const snapped = value + Math.trunc((v - value) / step) * step;
+    const from = value ?? min;
+    const snapped = from + Math.trunc((v - from) / step) * step;
     return Math.min(top ?? snapped, Math.max(min, snapped));
   };
   const invalid = error !== null;
@@ -139,8 +150,10 @@ export function NumberField({ label, value, onCommit, min = 0, max, base: basePr
               // Base UI would block the letters of a hex entry and step on its own terms.
               e.preventBaseUIHandler();
               if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
+                // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+                // The focus stays in the field, so a keyboard user goes on from here with Tab.
+                if (draft.edited) e.preventDefault();
+                draft.flush();
               } else if (e.key === "Escape") {
                 if (draft.edited) {
                   // Taking back the typed text uses the key: a dialog around the field must not close as well.

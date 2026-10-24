@@ -19,9 +19,11 @@ describe("useInspectorReveal", () => {
   const focusInspector = vi.fn();
   const getPanel = vi.fn((id: string) => (id === "inspector" ? { focus: focusInspector } : undefined));
   const dockApi = { schau: { current: null }, hand: { current: { getPanel } } } as unknown as DockApis;
+  // Whether a wizard holds the hand.
+  let paused = false;
 
   function Probe() {
-    pin = useInspectorReveal(setPinned, dockApi, revealHand);
+    pin = useInspectorReveal(setPinned, dockApi, revealHand, () => paused);
     return null;
   }
 
@@ -76,6 +78,15 @@ describe("useInspectorReveal", () => {
     pin({ kind: "header", id: 4 });
     expect(focusInspector).not.toHaveBeenCalled();
     editable.remove();
+  });
+
+  it("pins_but_leaves_the_hand_alone_while_a_wizard_holds_it", () => {
+    paused = true;
+    pin({ kind: "building", map: 1, index: 0 });
+    paused = false;
+    expect(setPinned).toHaveBeenCalledOnce();
+    expect(revealHand).not.toHaveBeenCalled();
+    expect(focusInspector).not.toHaveBeenCalled();
   });
 
   it("still_pins_when_the_deck_has_no_hand_yet", () => {

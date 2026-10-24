@@ -1,0 +1,150 @@
+/* The step bar fills the hinge (it sits in the hinge's wizard slot): the hinge's tokens are dark, its keys `onHinge`. */
+.bar {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--g4-raum-16);
+}
+
+.head {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* 26 px: the area symbol on the area's surface. */
+.chip {
+  display: inline-flex;
+  width: calc(var(--g4-raum-24) + var(--g4-raum-2));
+  height: calc(var(--g4-raum-24) + var(--g4-raum-2));
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-bereich-welt-flaeche);
+  color: var(--g4-bereich-welt);
+  font-size: var(--g4-raum-16);
+}
+
+/* Zen Maru, the small title style brought down to 15 px for the 44 px bar. */
+.title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--g4-scharnier-text);
+  font: var(--g4-font-titel-s);
+  font-size: 15px;
+  line-height: var(--g4-schrift-zeile-m);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steps {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+/* The 16 × 2 px line between two steps: lit up to the current step. */
+.link {
+  width: var(--g4-raum-16);
+  height: var(--g4-raum-2);
+  flex: none;
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-scharnier-leise);
+}
+
+.step[data-state="open"] .link {
+  background: var(--g4-scharnier-kante);
+}
+
+.pill {
+  display: inline-flex;
+  min-width: 0;
+  height: calc(var(--g4-raum-24) + var(--g4-raum-4));
+  align-items: center;
+  gap: var(--g4-raum-6);
+  padding: 0 var(--g4-raum-8) 0 var(--g4-raum-4);
+  border-radius: var(--g4-radius-plakette);
+  color: var(--g4-scharnier-leise);
+  font: var(--g4-font-text-s);
+  white-space: nowrap;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mark {
+  display: inline-flex;
+  width: var(--g4-raum-20);
+  height: var(--g4-raum-20);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: var(--g4-strich-standard) solid var(--g4-scharnier-leise);
+  border-radius: var(--g4-radius-plakette);
+  font: var(--g4-font-text-xs);
+  font-weight: 700;
+}
+
+.step[data-state="done"] .pill {
+  color: var(--g4-scharnier-text);
+}
+
+.step[data-state="done"] .mark {
+  border-color: transparent;
+  background: var(--g4-scharnier-taste);
+}
+
+/* Where the bar is narrow (a list beside the deck, compact density) the other steps shorten; the current one keeps its whole name. */
+.step[data-state="current"] {
+  flex: none;
+}
+
+.step[data-state="current"] .pill {
+  background: var(--g4-scharnier-text);
+  color: var(--g4-scharnier-grund);
+  font: var(--g4-font-text-s-betont);
+  font-weight: 700;
+}
+
+.step[data-state="current"] .mark {
+  border-color: transparent;
+  background: var(--g4-scharnier-grund);
+  color: var(--g4-scharnier-text);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* A button with its key beside it (the button's text stays what it does). */
+.keyed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}

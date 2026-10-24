@@ -10,6 +10,10 @@ import type { EditBus } from "../bus/editBus";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptBridge } from "../workbench/script/useScripts";
 import { eventReadOnlyReason, lockedText } from "../world/events";
+import { listToasts, toast } from "../ui/frame/toasts";
+
+/** Says that the Dynamic Headers patch calls a wrong function; the toast with this text offers the repair. */
+const BROKEN_PATCH = "Patch „Dynamische Header“ fehlerhaft: das Spiel bleibt nach dem Intro schwarz (falscher Funktionsaufruf, wie ihn DSPRE für Platin DE/FR/IT/ES schreibt).";
 
 const EMULATOR_KEY = "g4.emulatorPath";
 
@@ -64,6 +68,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
+  /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
+  const [emulatorPath, setEmulatorPath] = useState<string | null>(() => storedEmulator());
   const [counts, setCounts] = useState<MemberCounts>({});
   /** Bumped whenever the dirty count was read again, i.e. after every write the app makes: the hinge reads the undo history then. */
   const [dirtyRevision, setDirtyRevision] = useState(0);
@@ -212,17 +218,22 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     const repair = async () => {
       try {
         await repairHeaderPatch();
-        setMessage({ kind: "info", text: "Patch „Dynamische Header“ repariert: arm9.bin geändert, bitte ROM neu bauen." });
+        patchRepaired();
       } catch (e) {
         setMessage({ kind: "error", text: errorText(e) });
       }
     };
-    setMessage({
-      kind: "error",
-      text: "Patch „Dynamische Header“ fehlerhaft: das Spiel bleibt nach dem Intro schwarz (falscher Funktionsaufruf, wie ihn DSPRE für Platin DE/FR/IT/ES schreibt).",
-      actions: [{ label: "Patch reparieren", run: () => void repair() }],
-    });
+    setMessage({ kind: "error", text: BROKEN_PATCH, actions: [{ label: "Patch reparieren", run: () => void repair() }] });
   }
+
+  /**
+   * The patch was repaired (from the toast, in Technik › Patches or in a wizard's header step): the error toast that offered the repair goes
+   * (an error toast outlives its message, see `useToastMirror`), and the session says what changed and what to do next.
+   */
+  const patchRepaired = useCallback(() => {
+    for (const shown of listToasts()) if (shown.kind === "error" && shown.text === BROKEN_PATCH) toast.dismiss(shown.id);
+    setMessage({ kind: "info", text: "Patch „Dynamische Header“ repariert: arm9.bin geändert, bitte ROM neu bauen." });
+  }, []);
 
   /**
    * Saves everything dirty in the store. Text warnings go to the problems store; the language server is told about the archives written. A header
@@ -302,6 +313,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     const chosen = await openPath({ directory: false, title: "Emulator wählen (z. B. melonDS)" });
     if (chosen === null) return null;
     storeEmulator(chosen);
+    setEmulatorPath(chosen);
     return chosen;
   }
 
@@ -325,6 +337,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       } catch (e) {
         // A wrong choice cannot be undone anywhere else in the UI: forget it, so the next start asks again.
         forgetEmulator();
+        setEmulatorPath(null);
         const why = errorText(e);
         setMessage({ kind: "error", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Beim nächsten Start fragt das Studio erneut nach dem Emulator.` });
         return;
@@ -345,6 +358,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     busy,
     lastRom,
     lastBuiltAt,
+    emulatorPath,
     counts,
     dirtyRevision,
     staleRefresh,
@@ -359,6 +373,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     onBuild,
     onPickEmulator,
     onRun,
+    patchRepaired,
   };
 }
 

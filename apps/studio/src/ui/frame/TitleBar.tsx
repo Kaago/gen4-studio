@@ -1,5 +1,5 @@
 import { isMacTauri } from "../../platform/os";
-import { Icon, IconButton, Kbd, Tooltip } from "../primitives";
+import { Icon, IconButton, Kbd } from "../primitives";
 import styles from "./TitleBar.module.css";
 
 /** Room for the macOS traffic lights when the title bar overlays the window content. */
@@ -16,6 +16,10 @@ export type TitleBarProps = {
   onSave: () => void;
   onBuild: () => void;
   onHelp: () => void;
+  /** Opens the command palette (also ⌘K). */
+  onPalette: () => void;
+  /** The palette cannot open now (a wizard is open). */
+  paletteDisabled?: boolean;
   /** The theme that is shown; the button switches to the other one. */
   theme: "hell" | "dunkel";
   onToggleTheme: () => void;
@@ -27,7 +31,7 @@ const unsavedText = (n: number) => `${n} ${n === 1 ? "Änderung" : "Änderungen"
  * The 40 px bar on top. Its row (and every text in it, since Tauri drags only by the element that carries the attribute)
  * is a drag region; the buttons are not.
  */
-export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, onBuild, onHelp, theme, onToggleTheme }: TitleBarProps) {
+export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, onBuild, onHelp, onPalette, paletteDisabled = false, theme, onToggleTheme }: TitleBarProps) {
   const open = projectName !== null;
   const inset = isMacTauri();
   return (
@@ -54,13 +58,11 @@ export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, 
           ))}
       </div>
       <div className={styles.middle} data-tauri-drag-region="">
-        <Tooltip content="Kommt mit 3c.2">
-          <button type="button" className={styles.palette} aria-disabled="true">
-            <Icon name="search" />
-            <span className={styles.paletteText}>Suchen oder Befehl eingeben</span>
-            <Kbd keys="⌘K" />
-          </button>
-        </Tooltip>
+        <button type="button" className={styles.palette} disabled={paletteDisabled} aria-keyshortcuts="Meta+K" onClick={onPalette}>
+          <Icon name="search" />
+          <span className={styles.paletteText}>Suchen oder Befehl eingeben</span>
+          <Kbd keys="⌘K" />
+        </button>
       </div>
       <div className={styles.right} data-tauri-drag-region="">
         <IconButton label="Speichern" icon="save" shortcut="⌘S" disabled={!open || busy} onClick={onSave} />

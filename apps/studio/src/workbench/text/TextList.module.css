@@ -1,0 +1,49 @@
+/* The filter above a scrolling tree, the sum of the overlong texts below it. */
+.column {
+  display: flex;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+}
+
+.top {
+  flex: none;
+  padding: var(--g4-raum-8);
+}
+
+.host {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--g4-raum-4) var(--g4-raum-8);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.note {
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.sum {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  margin: 0;
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.sum svg {
+  flex: none;
+  color: var(--g4-status-warnung);
+}

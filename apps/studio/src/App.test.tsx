@@ -9,6 +9,7 @@ import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
 import { readShellState, writeShellState } from "./ui/frame/shellState";
 import type { RecentProject } from "./ui/frame/shellState";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
@@ -20,7 +21,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0 }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][] }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -29,20 +30,42 @@ vi.mock("./workbench/Workbench", () => ({
     return children;
   },
 }));
-vi.mock("./workbench/panels", () => ({ ExplorerPane: () => null, SCHAU_COMPONENTS: {}, HAND_COMPONENTS: {} }));
+vi.mock("./workbench/panels", () => ({
+  ExplorerPane: () => null,
+  TextArchivesPane: () => null,
+  TextAreaHost: ({ children }: { children: unknown }) => children,
+  TextHints: () => null,
+  TextStatus: () => null,
+  DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} } },
+}));
 vi.mock("./ui/frame/Deck", async () => {
-  const { useEffect } = await import("react");
+  const { Fragment, createElement, useEffect } = await import("react");
   type Ref = { current: unknown };
-  /** A dockview api that knows these panels: a link focuses the panel that shows its target. */
-  const dock = (ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(id) } : undefined) });
+  /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
+  const dock = (area: string, ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`) } : undefined) });
+  const PANELS: Record<string, [string[], string[]]> = {
+    welt: [
+      ["world", "matrix", "worldmap"],
+      ["inspector", "script", "problems"],
+    ],
+    texte: [["textView"], ["textEdit", "problems"]],
+  };
   return {
-    Deck: ({ schauRef, handRef, hinge }: { schauRef: Ref; handRef: Ref; hinge: unknown }) => {
-      schauRef.current = dock(["world", "matrix", "worldmap"]);
-      handRef.current = dock(["inspector", "text", "script", "problems"]);
+    resetLayout: (...args: unknown[]) => void shown.resets.push(args),
+    // The hand is a bare element: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
+    Deck: ({ area, schauRef, handRef, hinge, wizard }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown; wizard?: boolean }) => {
+      schauRef.current = dock(area, PANELS[area]![0]);
+      handRef.current = dock(area, PANELS[area]![1]);
       useEffect(() => {
         shown.mounts++;
       }, []);
-      return hinge;
+      return createElement(
+        Fragment,
+        null,
+        hinge as never,
+        createElement("div", { "data-dock": "hand", hidden: wizard === true }),
+        wizard === undefined ? null : createElement("div", { "data-wizard-hand": "", hidden: !wizard }),
+      );
     },
   };
 });
@@ -110,6 +133,7 @@ describe("App wiring", () => {
     shown.renders = 0;
     shown.focused = [];
     shown.mounts = 0;
+    shown.resets = [];
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -137,6 +161,8 @@ describe("App wiring", () => {
     resetToasts();
     env.tauri = false;
     window.history.replaceState(null, "", "/");
+    // Also when a test failed before it got there: the next test starts without a chosen emulator.
+    localStorage.removeItem("g4.emulatorPath");
   });
 
   /** Clicks the button with this text or accessible name (the first one in the document). */
@@ -164,6 +190,8 @@ describe("App wiring", () => {
     );
   }
   const atlasEntry = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent === name);
+  /** The list or the deck column of an area in the shell (null while the area was never shown). */
+  const area = (id: string, part: "list" | "deck") => container.querySelector<HTMLElement>(`[data-area="${id}"][data-part="${part}"]`);
   const statusLine = () => container.querySelector("footer")?.textContent ?? "";
   const titleBar = () => container.querySelector("header")?.textContent ?? "";
   const alerts = () => [...container.querySelectorAll("[role=alert]")].map((e) => e.textContent ?? "");
@@ -256,7 +284,8 @@ describe("App wiring", () => {
     expect(data().warpLinks).toEqual([]);
     const opener = data().onOpenWizard;
     await act(async () => opener({ kind: "area" }));
-    expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Gebiet anlegen");
+    const titleId = container.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby");
+    expect(titleId && document.getElementById(titleId)?.textContent).toBe("Gebiet anlegen");
     await select(listed[0]);
     // Opening the wizard and everything after it leaves the workbench's data alone.
     expect(data().onOpenWizard).toBe(opener);
@@ -359,6 +388,55 @@ describe("App wiring", () => {
       expect(shown.mounts).toBe(1);
     });
 
+    it("the_settings_area_switches_theme_and_density_at_once_and_says_so_in_the_status_line", async () => {
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      expect(atlasEntry("Einstellungen")?.getAttribute("aria-current")).toBe("page");
+      expect(container.textContent).toContain("Darstellung");
+      expect(statusLine()).toContain("Änderungen gelten sofort und für alle Projekte");
+      const option = (group: string, text: string) =>
+        [...(container.querySelector(`[role=group][aria-label="${group}"]`)?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text)!;
+      await act(async () => option("Thema", "Dunkel").click());
+      expect(document.documentElement.dataset.theme).toBe("dunkel");
+      await act(async () => option("Dichte", "Kompakt").click());
+      expect(document.documentElement.dataset.dichte).toBe("kompakt");
+      // The status line's density button follows the setting.
+      expect(statusLine()).toContain("Kompakt");
+      await act(async () => option("Thema", "Wie System").click());
+      expect(document.documentElement.dataset.theme).toBeUndefined();
+      expect(localStorage.getItem("g4.theme")).toBe("system");
+    });
+
+    it("cmd_o_opens_a_project_from_any_area", async () => {
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      vi.mocked(openPath).mockClear();
+      vi.mocked(openPath).mockResolvedValue(null);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).toHaveBeenCalledOnce();
+    });
+
+    it("opens_no_project_while_a_build_runs_neither_by_cmd_o_nor_from_the_start_pane", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let finish: (value: Awaited<ReturnType<typeof buildRom>>) => void = () => {};
+      vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      await click("Bauen");
+      expect(buildRom).toHaveBeenCalledOnce();
+      vi.mocked(openPath).mockClear();
+      vi.mocked(openProject).mockClear();
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).not.toHaveBeenCalled();
+      await act(async () => atlasEntry("Start")!.click());
+      await act(async () => row("/p")!.click());
+      const startOpen = [...container.querySelectorAll("main button")].find((b) => b.textContent?.startsWith("Projekt öffnen"));
+      await act(async () => (startOpen as HTMLButtonElement).click());
+      expect(openPath).not.toHaveBeenCalled();
+      expect(openProject).not.toHaveBeenCalled();
+      // Once the build is done, Cmd+O opens again.
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      vi.mocked(openPath).mockResolvedValue(null);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
+      expect(openPath).toHaveBeenCalledOnce();
+    });
+
     it("a_recent_project_that_cannot_be_opened_says_so_and_can_leave_the_list", async () => {
       seed(recent("gone"), recent("here"));
       await renderFresh();
@@ -446,6 +524,16 @@ describe("App wiring", () => {
       expect(alerts()).toEqual([]);
     });
 
+    it("shows_the_problems_of_the_world_when_they_are_offered_on_an_area_without_them", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockRejectedValue({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] });
+      await act(async () => atlasEntry("Start")!.click());
+      await click("Bauen");
+      await click("Probleme zeigen");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.focused).toEqual(["problems"]);
+    });
+
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
       expect(statusLine()).toContain("Noch nicht gebaut");
       vi.mocked(savePath).mockResolvedValue("/out.nds");
@@ -469,11 +557,66 @@ describe("App wiring", () => {
     });
 
     it("locks_the_areas_that_do_not_exist_yet_and_stays_where_it_is", async () => {
-      for (const name of ["Geschichten", "Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) {
+      for (const name of ["Geschichten", "Pokémon", "Gegenstände"]) {
         expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
         await act(async () => atlasEntry(name)!.click());
       }
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      for (const name of ["Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    it("opens_technik_with_its_list_and_surface_and_its_patch_entry_reads_the_patch_state", async () => {
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
+      await act(async () => atlasEntry("Technik")!.click());
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      const list = container.querySelector('[role=listbox][aria-label="Technik"]');
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(4);
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
+      const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
+      await act(async () => patches.click());
+      await act(async () => {});
+      expect(container.querySelector("[data-patch]")?.textContent).toBe("Verfügbar");
+      // The world stays mounted behind the surface.
+      expect(shown.mounts).toBe(1);
+    });
+
+    it("technik_and_einstellungen_show_the_emulator_the_session_picked", async () => {
+      vi.mocked(openPath).mockResolvedValue("/Applications/melonDS.app");
+      await act(async () => atlasEntry("Einstellungen")!.click());
+      expect(container.textContent).toContain("Kein Emulator gewählt");
+      await click("Emulator wählen");
+      expect(container.textContent).toContain("/Applications/melonDS.app");
+      await act(async () => atlasEntry("Technik")!.click());
+      const emulator = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Emulator"))!;
+      expect(emulator.textContent).toContain("/Applications/melonDS.app");
+    });
+
+    it("opens_the_texts_with_their_own_list_and_deck_and_keeps_the_world_mounted_behind_them", async () => {
+      expect(shown.mounts).toBe(1);
+      expect(area("texte", "deck")).toBeNull();
+      await act(async () => atlasEntry("Texte")!.click());
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(area("texte", "list")!.hidden).toBe(false);
+      expect(area("texte", "deck")!.hidden).toBe(false);
+      expect(area("welt", "list")!.hidden).toBe(true);
+      expect(area("welt", "deck")!.hidden).toBe(true);
+      // The texts' hinge names the area; the world's tools are not hinted in the status line.
+      expect(area("texte", "deck")!.querySelector("nav")?.textContent).toBe("Texte");
+      expect(statusLine()).not.toContain("Auswählen");
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(area("welt", "deck")!.hidden).toBe(false);
+      expect(area("texte", "deck")!.hidden).toBe(true);
+      // Each deck was built once and stays.
+      expect(shown.mounts).toBe(2);
+    });
+
+    it("drops_the_layouts_of_v7_once_at_the_start", async () => {
+      localStorage.setItem("g4.layout.v7.welt.hand", "{}");
+      localStorage.setItem("g4.layout.v8.welt.hand", "{}");
+      await renderFresh();
+      expect(localStorage.getItem("g4.layout.v7.welt.hand")).toBeNull();
+      expect(localStorage.getItem("g4.layout.v8.welt.hand")).toBe("{}");
     });
 
     it("names_what_the_status_line_shows_in_its_middle", async () => {
@@ -481,6 +624,20 @@ describe("App wiring", () => {
       expect(statusLine()).toContain("Ort 1, Raster 1");
       await act(async () => data().onInspect(tile(4)));
       expect(statusLine()).toContain("Kachel x 4, y 0");
+    });
+
+    it("leaves_the_middle_of_the_status_line_empty_on_start_and_technik", async () => {
+      // The world's context (header, tile) belongs to the world: the panes without a deck do not show it.
+      await select(listed[1]);
+      expect(statusLine()).toContain("Ort 1, Raster 1");
+      for (const name of ["Start", "Technik"]) {
+        await act(async () => atlasEntry(name)!.click());
+        expect(atlasEntry(name)?.getAttribute("aria-current")).toBe("page");
+        expect(statusLine()).not.toContain("Ort 1");
+        expect(statusLine()).not.toContain("Raster 1");
+      }
+      await act(async () => atlasEntry("Welt")!.click());
+      expect(statusLine()).toContain("Ort 1, Raster 1");
     });
   });
 
@@ -603,6 +760,105 @@ describe("App wiring", () => {
       await pressHinge("1 Warnung");
       expect(shown.focused).toEqual(["problems"]);
       expect(handState().collapsed).toBe(false);
+    });
+
+    it("goes_to_the_texts_for_a_link_to_a_text_archive_and_keeps_the_target_until_the_texts_are_built", async () => {
+      await select(listed[1]);
+      shown.focused = [];
+      await act(async () => data().goTo({ kind: "textArchive", index: 23, message: 2 }));
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(data().textTarget).toEqual({ index: 23, message: 2 });
+      // The selection of the world stays as it was.
+      expect(data().selected).toBe(1);
+      expect(area("texte", "deck")!.hidden).toBe(false);
+      // The deck was built by that link: the messages get the focus once its docks are there.
+      await tick(100);
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+      // Once built, a link focuses the messages in the texts' own hand at once.
+      shown.focused = [];
+      await act(async () => data().goTo({ kind: "textArchive", index: 24 }));
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+      expect(data().textTarget).toEqual({ index: 24, message: null });
+    });
+
+    it("opens_a_collapsed_hand_of_the_texts_for_a_link_before_the_texts_were_ever_shown", async () => {
+      writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, texte: true } });
+      await renderFresh();
+      expect(area("texte", "deck")).toBeNull();
+      await act(async () => data().goTo({ kind: "textArchive", index: 23 }));
+      expect(readShellState().handCollapsed.texte).toBe(false);
+      await tick(100);
+      expect(shown.focused).toEqual(["texte/textEdit"]);
+    });
+
+    it("reads_the_history_once_per_change_also_when_both_decks_are_built", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => atlasEntry("Welt")!.click());
+      await tick(150);
+      vi.mocked(history).mockClear();
+      vi.mocked(history).mockResolvedValue({ undo: ["a", "b"], redo: [] });
+      await act(async () => data().bus.emit({ topic: "matrixData" }));
+      await tick(150);
+      expect(history).toHaveBeenCalledTimes(1);
+      // Both hinges show what that one read gave.
+      const counts = [...container.querySelectorAll('[role="toolbar"][aria-label="Scharnier"]')].map(
+        (bar) => [...bar.querySelectorAll("button")].find((b) => /^Verlauf/.test(b.getAttribute("aria-label") ?? b.textContent ?? ""))?.textContent,
+      );
+      expect(counts).toHaveLength(2);
+      for (const text of counts) expect(text).toContain("2");
+    });
+
+    it("goes_back_to_the_world_for_a_link_to_a_script_or_a_header_from_the_texts", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      shown.focused = [];
+      await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(shown.focused).toEqual(["script"]);
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => data().goTo({ kind: "header", id: 1 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      // A header the project does not have leads nowhere: the area stays.
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => data().goTo({ kind: "header", id: 999 }));
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {
+      // The world's hand is folded and low when the texts show.
+      await act(async () => void area("welt", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(handState()).toEqual({ height: 286, collapsed: true });
+      await act(async () => atlasEntry("Texte")!.click());
+      shown.focused = [];
+      // As a script problem in the texts' hand does it.
+      await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(handState().collapsed).toBe(false);
+      expect(handState().height).toBeGreaterThanOrEqual(400);
+      expect(shown.focused).toEqual(["script"]);
+      expect(data().scripts.active).toBe(42);
+      // The texts' hand is left as it was.
+      expect(readShellState().handCollapsed.texte).toBe(false);
+    });
+
+    it("folds_the_hand_of_the_area_whose_hinge_is_used", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      const grip = area("texte", "deck")!.querySelector("[data-hinge-grip]")!;
+      await act(async () => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(readShellState().handCollapsed.texte).toBe(true);
+      expect(readShellState().handCollapsed.welt).toBe(false);
+    });
+
+    it("opens_the_problems_in_the_hand_of_the_texts_while_the_texts_show", async () => {
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => void area("texte", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(readShellState().handCollapsed.texte).toBe(true);
+      shown.focused = [];
+      const light = [...area("texte", "deck")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Alles stimmig")!;
+      await act(async () => light.click());
+      expect(shown.focused).toEqual(["texte/problems"]);
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      expect(readShellState().handCollapsed.texte).toBe(false);
+      expect(readShellState().handCollapsed.welt).toBe(false);
     });
 
     it("switches_the_depth_and_remembers_it", async () => {
@@ -810,6 +1066,28 @@ describe("App wiring", () => {
     expect(live().message?.text).toContain("repariert");
   });
 
+  it("repairing_the_patch_in_technik_says_so_and_closes_the_broken_patch_toast", async () => {
+    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: true, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(repairHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+    await click("Projekt öffnen");
+    const broken = () => listToasts().filter((t) => t.kind === "error" && t.text.includes("fehlerhaft"));
+    expect(broken()).toHaveLength(1);
+    await act(async () => atlasEntry("Technik")!.click());
+    const patches = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Patches"))!;
+    await act(async () => patches.click());
+    await act(async () => {});
+    expect(container.querySelector("[data-patch]")?.textContent).toBe("Fehlerhaft");
+    const repairButton = [...container.querySelectorAll<HTMLButtonElement>("[data-technik] button")].find((b) => b.textContent === "Patch reparieren")!;
+    await act(async () => repairButton.click());
+    await act(async () => {});
+    expect(repairHeaderPatch).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-patch]")?.textContent).toBe("Angewendet");
+    // The toast that offered the repair is gone with the fault, and the session says what changed.
+    expect(broken()).toEqual([]);
+    expect(live().message?.kind).toBe("info");
+    expect(live().message?.text).toContain("repariert");
+  });
+
   it("opens_the_project_when_the_patch_state_cannot_be_read", async () => {
     vi.mocked(headerPatchStatus).mockRejectedValue(new Error("arm9.bin fehlt"));
     await click("Projekt öffnen");
@@ -821,7 +1099,8 @@ describe("App wiring", () => {
     const summary = (index: number) => ({ index, name: `m${index}`, width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 });
     const press = (el: Element | null | undefined) => act(async () => (el as HTMLElement).click());
     const buttons = () => [...container.querySelectorAll("button")];
-    const sourceSelect = () => container.querySelector<HTMLSelectElement>("select");
+    /** The source select of the area wizard (a Base UI select: a button with the role combobox). */
+    const sourceSelect = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Raster der Quelle"]');
 
     beforeEach(async () => {
       // The project is already open (and its overview empty): the matrices are read again.
@@ -839,7 +1118,10 @@ describe("App wiring", () => {
       await press(container.querySelector('[data-cell="0,0"]'));
       await click("Weiter");
       await click("Weiter");
-      await press(buttons().find((b) => b.textContent?.startsWith("0001")));
+      // Header 0001 is chosen in the header picker (a dialog in the document, outside the deck).
+      await click("Header wählen…");
+      await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+      await press([...document.querySelectorAll("[role=option]")].find((o) => o.textContent?.includes("0001")));
       await click("Weiter");
       await click("Anlegen");
       expect(createArea).toHaveBeenCalledOnce();
@@ -869,7 +1151,7 @@ describe("App wiring", () => {
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await create();
       expect(data().selected).toBe(0);
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       // Header 1 was selected with its new matrix, not the one the old header list had for it.
       expect(data().selected).toBe(1);
       expect(vi.mocked(getMatrix).mock.calls[vi.mocked(getMatrix).mock.calls.length - 1]?.[0]).toBe(5);
@@ -883,7 +1165,7 @@ describe("App wiring", () => {
       expect(data().matrix?.index).toBe(1);
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await create();
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(data().selected).toBe(1);
       expect(data().matrix?.index).toBe(5);
       expect(live().message?.text).toContain("Raster 0005");
@@ -895,7 +1177,7 @@ describe("App wiring", () => {
       await create();
       const read = vi.mocked(listHeaders).getMockImplementation();
       vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(data().selected).toBe(0);
       expect(live().message?.kind).toBe("error");
       expect(live().message?.text).not.toContain("Raster 0005");
@@ -914,7 +1196,7 @@ describe("App wiring", () => {
       await create();
       const read = vi.mocked(listHeaders).getMockImplementation();
       vi.mocked(listHeaders).mockRejectedValue(new Error("no list"));
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(live().message?.kind).toBe("error");
       // The next read (here after a header edit) lists header 1 on the new matrix: the creation is over, nothing selects it.
       vi.mocked(listHeaders).mockImplementation(read!);
@@ -934,7 +1216,7 @@ describe("App wiring", () => {
         if (index === 5) throw new Error("matrix 0005 unreadable");
         return matrixOf(index);
       });
-      await click("Im Studio zeigen");
+      await click("Zeigen");
       expect(live().message?.kind).toBe("error");
       expect(live().message?.text).toContain("matrix 0005 unreadable");
     });
@@ -942,10 +1224,118 @@ describe("App wiring", () => {
     it("copies from the matrix of the selected header unless the request names one", async () => {
       await select(listed[1]);
       await act(async () => data().onOpenWizard({ kind: "area" }));
-      expect(sourceSelect()?.value).toBe("1");
+      expect(sourceSelect()?.textContent).toContain("Raster 0001");
       await click("Abbrechen");
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
-      expect(sourceSelect()?.value).toBe("0");
+      expect(sourceSelect()?.textContent).toContain("Raster 0000");
+    });
+  });
+
+  describe("wizard in the deck", () => {
+    const weltDeck = () => area("welt", "deck")!;
+    const barSlot = () => weltDeck().querySelector<HTMLElement>("[data-wizard-bar]")!;
+    const handDock = () => weltDeck().querySelector<HTMLElement>('[data-dock="hand"]')!;
+    const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
+
+    it("shows an open wizard in the world's hinge and hand, hides the hand dock and locks the other areas of the atlas", async () => {
+      // Opened from the texts, it takes the user to the world.
+      await click("Texte");
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(barSlot().hidden).toBe(false);
+      expect(barSlot().textContent).toContain("Gebiet anlegen");
+      expect(barSlot().querySelector('ol[aria-label="Schritte"]')).not.toBeNull();
+      expect(weltDeck().querySelector('[data-wizard-hand] [role="dialog"]')).not.toBeNull();
+      expect(handDock().hidden).toBe(true);
+      // The hinge of the texts has no wizard slot.
+      expect(area("texte", "deck")!.querySelector("[data-wizard-bar]")).toBeNull();
+      for (const name of ["Start", "Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
+      expect(atlasEntry("Welt")?.getAttribute("aria-disabled")).toBeNull();
+      await click("Texte");
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(statusLine()).toContain("↵ Weiter, ⌘[ Zurück, Esc Abbrechen");
+      expect(statusLine()).toContain("Schritt 1 von 4: Quelle");
+      await click("Abbrechen");
+      expect(barSlot().hidden).toBe(true);
+      expect(handDock().hidden).toBe(false);
+      expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).toBeNull();
+      expect(statusLine()).not.toContain("Schritt 1 von 4");
+    });
+
+    it("keeps the workbench's keys off and the tool on Auswählen while a wizard is open", async () => {
+      env.tauri = true;
+      vi.mocked(save).mockResolvedValue(undefined as never);
+      await select(listed[0]);
+      await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+      await act(async () => data().onTool("paint"));
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(data().tool).toBe("select");
+      expect(data().selectedBuilding).toEqual({ map: 0, index: 1 });
+      await press({ key: "Delete" });
+      await press({ key: "z", metaKey: true });
+      await press({ key: "s", metaKey: true });
+      await press({ key: "r", metaKey: true });
+      await press({ key: "b" });
+      expect(ask).not.toHaveBeenCalled();
+      expect(undo).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(data().tool).toBe("select");
+      expect(data().selectedBuilding).toEqual({ map: 0, index: 1 });
+    });
+
+    it("follows no link out of the world while a wizard is open, and keeps no text for later", async () => {
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await act(async () => data().goTo({ kind: "textArchive", index: 23, message: 2 }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(data().textTarget).toBeNull();
+      await click("Abbrechen");
+      expect(data().textTarget).toBeNull();
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("does not bring the problems forward while a wizard is open", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      // The build starts before the wizard opens (the title bar's "Bauen" is locked while one is open) and fails while it is.
+      let fail: (reason: unknown) => void = () => {};
+      vi.mocked(buildRom).mockImplementation(() => new Promise((_, reject) => (fail = reject)));
+      writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, welt: true } });
+      await renderFresh();
+      await click("Projekt öffnen");
+      await click("Bauen");
+      expect(buildRom).toHaveBeenCalledOnce();
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      shown.focused = [];
+      await act(async () => fail({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] }));
+      await click("Probleme zeigen");
+      expect(shown.focused).toEqual([]);
+      expect(readShellState().handCollapsed.welt).toBe(true);
+      expect(barSlot().hidden).toBe(false);
+    });
+
+    it("locks open, save and build in the title bar while a wizard is open, and opens no other project under it", async () => {
+      // Spec §5.5: while a wizard works on the project nothing else may change it (a project opened under it would close it).
+      const titleButton = (label: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`)!;
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      for (const label of ["Projekt öffnen", "Speichern", "Bauen"]) expect(titleButton(label).disabled).toBe(true);
+      vi.mocked(openProject).mockClear();
+      vi.mocked(openPath).mockClear();
+      await act(async () => titleButton("Projekt öffnen").click());
+      expect(openPath).not.toHaveBeenCalled();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      expect(barSlot().hidden).toBe(false);
+      await click("Abbrechen");
+      for (const label of ["Projekt öffnen", "Bauen"]) expect(titleButton(label).disabled).toBe(false);
+    });
+
+    it("leaves the hand of the world alone while a wizard holds it", async () => {
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      shown.focused = [];
+      await select(listed[1]);
+      expect(shown.focused).toEqual([]);
     });
   });
 
@@ -964,6 +1354,96 @@ describe("App wiring", () => {
     await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 1 } }));
     await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
     expect(selectedCells()).toEqual([]);
+  });
+
+  describe("command palette", () => {
+    const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]");
+    const paletteButton = () => [...container.querySelectorAll<HTMLButtonElement>("header button")].find((b) => b.textContent?.includes("Suchen oder Befehl eingeben"))!;
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+    const pressCmdK = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    /** Types into the open palette, presses Enter and waits for the tick on which the palette runs the entry. */
+    async function run(text: string) {
+      typeInSearch(paletteInput()!, text);
+      pressKey(paletteInput()!, "Enter");
+      await settle();
+    }
+
+    it("opens_on_cmd_k_and_from_the_title_bar_button_and_closes_on_escape", async () => {
+      expect(paletteInput()).toBeNull();
+      await pressCmdK();
+      expect(paletteInput()).not.toBeNull();
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Befehlspalette");
+      pressKey(paletteInput()!, "Escape");
+      await settle();
+      expect(paletteInput()).toBeNull();
+      await act(async () => paletteButton().click());
+      expect(paletteInput()).not.toBeNull();
+    });
+
+    it("runs_save_after_the_palette_closed", async () => {
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "speichern");
+      pressKey(paletteInput()!, "Enter");
+      expect(save).not.toHaveBeenCalled();
+      await settle();
+      expect(save).toHaveBeenCalledOnce();
+      expect(paletteInput()).toBeNull();
+    });
+
+    it("resets_the_layout_of_the_world_deck", async () => {
+      await pressCmdK();
+      await run("layout zurück");
+      expect(shown.resets).toHaveLength(1);
+      expect(shown.resets[0]![0]).toBe("welt");
+      expect(shown.resets[0]![1]).toMatchObject({ schau: expect.anything(), hand: expect.anything() });
+    });
+
+    it("goes_to_a_header_by_its_number_and_to_an_area_by_name", async () => {
+      await pressCmdK();
+      await run("0001");
+      expect(data().selected).toBe(1);
+      await pressCmdK();
+      await run("bereich texte");
+      expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+      await pressCmdK();
+      await run("einstellungen");
+      expect(atlasEntry("Einstellungen")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("opens_the_terms_and_toggles_the_list", async () => {
+      await pressCmdK();
+      await run("begriffe");
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Die Begriffe, mit denen das Studio");
+      pressKey(document.querySelector<HTMLElement>("[role=dialog]")!, "Escape");
+      await settle();
+      const before = readShellState().listOpen.welt;
+      await pressCmdK();
+      await run("liste ein");
+      expect(readShellState().listOpen.welt).toBe(!before);
+    });
+
+    it("opens_a_wizard_from_the_palette_and_is_off_while_one_is_open", async () => {
+      await pressCmdK();
+      await run("gebiet anlegen");
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      await pressCmdK();
+      expect(paletteInput()).toBeNull();
+      expect(paletteButton().disabled).toBe(true);
+    });
+
+    it("lists_only_commands_without_a_project_with_the_wizards_locked", async () => {
+      await renderFresh();
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "anlegen");
+      expect(options().map((o) => o.getAttribute("aria-disabled"))).toEqual(["true", "true"]);
+      typeInSearch(paletteInput()!, "0001");
+      expect(options()).toHaveLength(0);
+    });
   });
 
   describe("undo", () => {

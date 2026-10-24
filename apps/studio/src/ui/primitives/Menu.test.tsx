@@ -71,6 +71,17 @@ describe("Menu and Popover", () => {
     expect(trigger().getAttribute("aria-label")).toBe("Verlauf");
   });
 
+  it("on_open_change_reports_opening_and_closing", () => {
+    const onOpenChange = vi.fn();
+    act(() => root.render(<Menu trigger="Verlauf" items={[{ label: "Eins", onSelect: () => {} }]} onOpenChange={onOpenChange} />));
+    expect(onOpenChange).not.toHaveBeenCalled();
+    press(trigger());
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    act(() => items()[0]!.click());
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onOpenChange.mock.calls.map((c) => c[0])).toEqual([true, false]);
+  });
+
   it("popover_opens_its_content_from_the_trigger", () => {
     act(() =>
       root.render(

@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
@@ -10,6 +11,7 @@ import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
 import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
+import type { DeckArea, DeckId } from "./layout";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
@@ -17,8 +19,11 @@ import { SceneBar } from "./SceneBar";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import type { ScriptPanelContext } from "./script/ScriptPanel";
-import { TextPanel } from "./text/TextPanel";
-import type { TextPanelContext } from "./text/TextPanel";
+import { TextArea, TextHints, TextStatus } from "./text/TextArea";
+import type { TextAreaProps, TextShown } from "./text/TextArea";
+import { TextHand } from "./text/TextHand";
+import { TextList } from "./text/TextList";
+import { TextView } from "./text/TextView";
 import styles from "./panels.module.css";
 import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
@@ -141,12 +146,13 @@ export function MatrixTab() {
       sceneMatrix,
       revision: matrixRevision,
       selection,
+      depth: d.depth,
       goTo,
       onEdited: onMatrixEdited,
       onCountsChanged,
       onError,
     }),
-    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, goTo, onMatrixEdited, onCountsChanged, onError],
+    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError],
   );
   return <MatrixPanel context={context} />;
 }
@@ -164,24 +170,11 @@ export function WorldMapTab() {
   return <WorldMapPanel context={context} />;
 }
 
-export function TextTab() {
-  const d = useWorkbench();
-  // Changes whenever a text archive may have moved behind the panel (undo, redo, reload).
-  const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, goTo, onEdited, onCountsChanged, onError } = d;
-  // Memoised with the memoised panel: it renders again only when one of these changes.
-  const context = useMemo<TextPanelContext>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, goTo, onEdited, onCountsChanged, onError }),
-    [info, headers, memberCounts, textTarget, textRevision, goTo, onEdited, onCountsChanged, onError],
-  );
-  return <TextPanel context={context} />;
-}
-
 export function ScriptTab() {
   const d = useWorkbench();
-  const { info, scripts, problems, bus, onError } = d;
+  const { info, scripts, problems, bus, depth, onError } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes (`scripts` with its revision).
-  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, onError }), [info, scripts, problems, bus, onError]);
+  const context = useMemo<ScriptPanelContext>(() => ({ project: info, scripts, problems, bus, depth, onError }), [info, scripts, problems, bus, depth, onError]);
   return (
     <Suspense fallback={<p className={styles.loading}>Editor wird geladen …</p>}>
       <ScriptPanel context={context} />
@@ -190,8 +183,8 @@ export function ScriptTab() {
 }
 
 export function ProblemsTab() {
-  const { problems, goTo } = useWorkbench();
-  const context = useMemo<ProblemsPanelContext>(() => ({ problems, goTo }), [problems, goTo]);
+  const { problems, depth, goTo } = useWorkbench();
+  const context = useMemo<ProblemsPanelContext>(() => ({ problems, depth, goTo }), [problems, depth, goTo]);
   return <ProblemsPanel context={context} />;
 }
 
@@ -203,14 +196,14 @@ export function ToolsTab() {
   return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
 }
 
-/** The scene and the inspector report a failed read of the events already. */
-const ignoreError = () => {};
-
 export function ContextTab() {
   const d = useWorkbench();
-  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo).
+  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
+  // failed read already; here it only ends the "Lade …".
   const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
-  const events = useEvents(d.eventFileId, ignoreError, eventsRevision);
+  const [failedFile, setFailedFile] = useState<number | null>(null);
+  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
+  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
   const { goTo, onSelectEvent, onSelectBuilding } = d;
   const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
   return (
@@ -224,6 +217,7 @@ export function ContextTab() {
       onSelectEvent={onSelectEvent}
       onSelectBuilding={onSelectBuilding}
       onOpenHeader={onOpenHeader}
+      loading={loading}
     />
   );
 }
@@ -306,6 +300,53 @@ export function InspectorPanel() {
   );
 }
 
-/** The panels of the view dock and of the hand dock, by id. Module-level constants: dockview would remount every panel if they changed. */
-export const SCHAU_COMPONENTS: DockComponents = { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab };
-export const HAND_COMPONENTS: DockComponents = { tools: ToolsTab, inspector: InspectorPanel, text: TextTab, script: ScriptTab, problems: ProblemsTab, context: ContextTab };
+/**
+ * The text area's model around the frame (App puts it around the shell): the texts' list, view, hand and status parts read it. The
+ * context it is given is memoised, so the area renders again only when one of its inputs changes, not for a hover or a message.
+ */
+export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShown) => void; children?: ReactNode }) {
+  const d = useWorkbench();
+  // Changes whenever a text archive may have moved behind the area (undo, redo, reload).
+  const textRevision = useBusRevision(d.bus, "textData");
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError } = d;
+  const context = useMemo<TextAreaProps>(
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, onCountsChanged, onError, onShown],
+  );
+  return <TextArea context={context}>{children}</TextArea>;
+}
+
+export { TextHints, TextStatus };
+
+/** The list of the texts: the text archives; whether it is folded is the shell's state of the texts. */
+export function TextArchivesPane() {
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.texte;
+  const onToggle = useStableCallback(() => setListOpen("texte", !listOpen));
+  return <TextList open={listOpen} onToggle={onToggle} />;
+}
+
+/** The view of the texts: the chosen message on the DS screen. */
+export function TextViewTab() {
+  return <TextView />;
+}
+
+/** The messages of the chosen archive, the search and the field of the chosen message. */
+export function TextEditTab() {
+  return <TextHand />;
+}
+
+/**
+ * The panels of the view dock and of the hand dock of each area, by id. Module-level constants: dockview would remount every panel if they
+ * changed. The problems are in both hands: each area's dock is its own dockview, and every instance reads the one problems store.
+ */
+export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
+  welt: {
+    schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
+    hand: { tools: ToolsTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
+  },
+  texte: {
+    schau: { textView: TextViewTab },
+    hand: { textEdit: TextEditTab, problems: ProblemsTab },
+  },
+};

@@ -12,6 +12,10 @@ interface ShortcutHandlers {
   onSave: () => Promise<void>;
   /** "Hier spielen": save, build, run. Only asked for inside the app (in a browser Cmd+R reloads the page). */
   onPlay: () => Promise<void>;
+  /** Cmd+O: asks for a project folder and opens it (asking first about unsaved edits, like the title bar's button). */
+  onOpenProject: () => void;
+  /** Cmd+K: opens the command palette. */
+  onPalette: () => void;
   step: (action: typeof undo) => Promise<unknown>;
   onDeleteBuilding: (map: number, index: number) => void | Promise<void>;
   onDeleteEvent: (file: number, kind: EventKind, index: number) => void | Promise<void>;
@@ -20,10 +24,15 @@ interface ShortcutHandlers {
   onTool: (tool: Tool) => void;
   /** Whether the world (the deck with the scene) is shown: only then do the tool letters and Escape-to-"Auswählen" act. */
   toolsActive: boolean;
+  /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
+  toolLocked: (tool: Tool) => boolean;
 }
 
-/** Whether a modal dialog is open: its own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. */
-const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+/**
+ * Whether a modal dialog or a wizard is open: their own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. A wizard is not
+ * modal (the view stays usable), but while it works on the project nothing else may change it.
+ */
+const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"], [data-wizard]') !== null;
 
 /** Whether the key goes to something that takes letters for itself: a text field, or an open menu or list (type-ahead, Escape closes it). */
 function inField(target: HTMLElement | null): boolean {
@@ -31,9 +40,9 @@ function inField(target: HTMLElement | null): boolean {
 }
 
 /**
- * Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
+ * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
  * "Auswählen", and Delete / Escape on a pinned building or
- * event, none of them while a modal dialog is open. Registered once; the handlers of the latest render are called through a ref.
+ * event, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
   // Shortcuts always call the handlers of the latest render.
@@ -44,7 +53,9 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       // A wizard or dialog covers the workbench: Escape must not unpin, Delete must not delete and undo must not run behind it.
       if (modalOpen()) return;
       const selected = pinnedRef.current;
-      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat) {
+      // Only while the world is shown (on another area the selection stays pinned in the hidden world, the keys are not its), and not
+      // when something else already handled the key (a document tab in "Offene Scripts" closes on Delete).
+      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat && latest.current.toolsActive && !e.defaultPrevented) {
         // Delete (Backspace on a Mac keyboard) removes the selected building or event after asking;
         // neither it nor Escape touches a form field that is being typed in.
         if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey })) {
@@ -64,7 +75,8 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       if (latest.current.toolsActive && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
         const tool = toolForKey(e.key);
         if (tool !== null) {
-          latest.current.onTool(tool);
+          // The palette's button of a locked tool cannot be pressed; its letter cannot switch to it either.
+          if (!latest.current.toolLocked(tool)) latest.current.onTool(tool);
           return;
         }
         if (e.key === "Escape" && !e.defaultPrevented) {
@@ -79,6 +91,14 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       } else if (action === "save") {
         e.preventDefault();
         void latest.current.onSave();
+      } else if (action === "open" || action === "palette") {
+        // A key an editor already used is not ours: on a Mac CodeMirror's Ctrl+K deletes to the line end, Ctrl+O splits the line.
+        if (e.defaultPrevented) return;
+        // The browser's own "open file" and Cmd+K (search bar) stay away; a held key asks or opens once.
+        e.preventDefault();
+        if (e.repeat) return;
+        if (action === "open") latest.current.onOpenProject();
+        else latest.current.onPalette();
       } else if (action === "play") {
         e.preventDefault();
         // A held key must not start a build per repeat.

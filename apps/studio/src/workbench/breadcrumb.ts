@@ -67,3 +67,26 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, event
   }
   return crumbs;
 }
+
+export interface TextCrumbInput {
+  /** The archive the texts show (null: none chosen). */
+  archive: number | null;
+  /** The name of the place whose header uses the archive; null or missing for an archive no place uses. */
+  place?: string | null;
+  /** The chosen message; null or missing: none. */
+  message?: number | null;
+  /** Makes the archive and the message links. */
+  goTo?: (target: NavTarget) => void;
+}
+
+/** The breadcrumb of the texts: Texte › Archiv 0412, Zweiblattdorf › Nachricht 005. Without an archive only the area. */
+export function textCrumbs({ archive, place, message, goTo }: TextCrumbInput): Crumb[] {
+  const crumbs: Crumb[] = [{ label: "Texte" }];
+  if (archive === null) return crumbs;
+  const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
+  crumbs.push({ label: place ? `Archiv ${id4(archive)}, ${place}` : `Archiv ${id4(archive)}`, onClick: link({ kind: "textArchive", index: archive }) });
+  if (message !== null && message !== undefined) {
+    crumbs.push({ label: `Nachricht ${String(message).padStart(3, "0")}`, onClick: link({ kind: "textArchive", index: archive, message }) });
+  }
+  return crumbs;
+}

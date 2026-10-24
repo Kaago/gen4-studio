@@ -1,0 +1,41 @@
+.search {
+  width: 100%;
+}
+
+/* The template rooms by place; the list scrolls inside the column. */
+.list {
+  display: flex;
+  width: 100%;
+  max-height: 260px;
+  flex-direction: column;
+  overflow-y: auto;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+}
+
+.place {
+  padding: var(--g4-raum-8) var(--g4-dichte-zeile-innen) var(--g4-raum-4);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-dichte-zeile-innen);
+  color: var(--g4-text-sekundaer);
+}
+
+/* The template's map as the thumbnail store drew it. */
+.picture {
+  width: 160px;
+  height: 160px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  image-rendering: pixelated;
+}

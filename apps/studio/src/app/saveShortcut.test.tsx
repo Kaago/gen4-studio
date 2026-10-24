@@ -49,14 +49,17 @@ describe("Cmd+S inside the script editor", () => {
       onSave: session.onSave,
       step: async () => {},
       onPlay: async () => {},
+      onOpenProject: () => {},
+      onPalette: () => {},
       onDeleteBuilding: () => {},
       onTool: () => {},
       toolsActive: true,
+      toolLocked: () => false,
       onDeleteEvent: () => {},
       unpinSelection: () => {},
     });
     const doc = scripts.api.documents.get(3);
-    return doc ? <ScriptEditor doc={doc} language="rotom" lsp={null} uri="file:///p/expanded/scripts/0003.rotom" onChange={() => scripts.api.onChange(3)} onDiagnostics={() => {}} theme="light" /> : null;
+    return doc ? <ScriptEditor doc={doc} language="rotom" lsp={null} uri="file:///p/expanded/scripts/0003.rotom" onChange={() => scripts.api.onChange(3)} onDiagnostics={() => {}} theme="hell" /> : null;
   }
   const bus = createEditBus();
   const problems = new ProblemsStore();

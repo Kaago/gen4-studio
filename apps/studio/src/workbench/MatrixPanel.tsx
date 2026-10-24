@@ -3,6 +3,7 @@ import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
 import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { AreaGrid, cellKey } from "./AreaGrid";
+import type { Depth } from "../ui/frame/shellState";
 import { Button, EmptyState, Notice, NumberField, PanelHead, Switch, TextField } from "../ui/primitives";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 import { resizePreview } from "./matrix";
@@ -26,6 +27,8 @@ export interface MatrixPanelContext {
   revision: number;
   /** The cell shown in the inspector, if any. */
   selection: { matrix: number; x: number; y: number } | null;
+  /** The depth of the app: Tüfteln writes the raw values into every cell. */
+  depth: Depth;
   /** Follows a link: a click shows the cell in the inspector, a double click on a cell with a header opens the header. */
   goTo: (target: NavTarget) => void;
   /** A matrix was edited: refresh dirty count and, if it is the scene's matrix, the scene. */
@@ -41,7 +44,7 @@ function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boole
 
 /** Memoised: renders when `context` changes (the owner keeps it, see `MatrixTab`), not for every render of the panel host. */
 export const MatrixPanel = memo(function MatrixPanel({ context }: { context: MatrixPanelContext }) {
-  const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, goTo, onEdited, onCountsChanged, onError } = context;
+  const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, depth, goTo, onEdited, onCountsChanged, onError } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
@@ -176,6 +179,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
               cellSize={64}
               selected={selected}
               colorOf={colorOf}
+              tinker={depth === "tuefteln"}
               onCellClick={onCellClick}
               onCellDoubleClick={onCellDoubleClick}
               onExtend={onExtend}

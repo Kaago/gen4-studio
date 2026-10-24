@@ -5,7 +5,8 @@ import { Tooltip } from "./Tooltip";
 import type { IconName } from "./icons";
 import styles from "./Segmented.module.css";
 
-export type SegmentedOption<V extends string> = { value: V; label: string; icon?: IconName };
+/** `disabled`: the option shows but cannot be picked (e.g. a choice the game does not support). */
+export type SegmentedOption<V extends string> = { value: V; label: string; icon?: IconName; disabled?: boolean };
 
 export type SegmentedProps<V extends string> = {
   options: readonly SegmentedOption<V>[];
@@ -34,12 +35,12 @@ export function Segmented<V extends string>({ options, value, onChange, ariaLabe
         const icon = o.icon && <Icon name={o.icon} weight={o.value === value ? "fill" : "regular"} />;
         return iconOnly && o.icon ? (
           <Tooltip key={o.value} content={o.label}>
-            <Toggle<V> value={o.value} className={styles.option} aria-label={o.label}>
+            <Toggle<V> value={o.value} className={styles.option} aria-label={o.label} disabled={o.disabled}>
               {icon}
             </Toggle>
           </Tooltip>
         ) : (
-          <Toggle<V> key={o.value} value={o.value} className={styles.option}>
+          <Toggle<V> key={o.value} value={o.value} className={styles.option} disabled={o.disabled}>
             {icon}
             {o.label}
           </Toggle>

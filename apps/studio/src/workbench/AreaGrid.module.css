@@ -84,3 +84,15 @@
   top: var(--g4-raum-2);
   right: var(--g4-raum-2);
 }
+
+/* The raw values of the depth Tüfteln: map, header and altitude on a plate of the sheet colour, one line each. */
+.raw {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--g4-raum-4);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-sekundaer);
+  line-height: 14px;
+  text-align: center;
+}

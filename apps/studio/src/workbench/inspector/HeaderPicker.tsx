@@ -1,5 +1,4 @@
 import { useMemo, useRef } from "react";
-import type { CSSProperties } from "react";
 import type { HeaderSummary } from "../../api";
 import { Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -21,9 +20,7 @@ function HeaderPreview({ header, cache }: { header: HeaderSummary; cache: Thumbn
   const matrix = useMatrix(visible ? header.matrix_id : null, 0, ignore);
   const map = matrix ? mapOfHeader(matrix, header.id) : null;
   const picture = useThumbnail(cache, map, header.area_data_id, visible);
-  const style: CSSProperties = {};
-  if (typeof picture === "string") style.backgroundImage = `url("${picture}")`; /* dyn */
-  return <span ref={tile} className={styles.preview} style={style} /* dyn */ data-preview={header.id} />;
+  return <span ref={tile} className={styles.preview} style={typeof picture === "string" ? { backgroundImage: `url("${picture}")` } : undefined} /* dyn */ data-preview={header.id} />;
 }
 
 export interface HeaderPickerProps {
@@ -35,22 +32,25 @@ export interface HeaderPickerProps {
   title?: string;
   /** The map pictures; the app-wide cache by default. */
   cache?: ThumbnailCache;
+  /** A line under a header's name (the wizards say how many warps lead there); none by default. */
+  describe?: (header: HeaderSummary) => string;
 }
 
 /** Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id. */
-export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails }: HeaderPickerProps) {
+export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails, describe }: HeaderPickerProps) {
   const items = useMemo<PickerItem[]>(
     () =>
       open
         ? headers.map((h) => ({
             id: h.id,
             label: h.location_name || h.internal_name,
+            description: describe?.(h),
             tech: h.location_name ? `${id4(h.id)} · ${h.internal_name}` : id4(h.id),
             area: "welt",
             preview: <HeaderPreview header={h} cache={cache} />,
           }))
         : [],
-    [open, headers, cache],
+    [open, headers, cache, describe],
   );
   return <Picker open={open} onOpenChange={onOpenChange} title={title} items={items} placeholder="Ort, Kürzel oder Nummer suchen" onPick={(item) => onPick(Number(item.id))} />;
 }

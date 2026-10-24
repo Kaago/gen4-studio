@@ -64,6 +64,27 @@ describe("TextField", () => {
     expect(field().value).toBe("Route 202");
   });
 
+  it("keeps_the_focus_after_committing_with_enter", () => {
+    // A keyboard user goes on with Tab from the field (Inspector): Enter must not drop the focus to the page.
+    act(() => root.render(<Owner />));
+    act(() => field().focus());
+    typeInto(field(), "Route 202");
+    pressKey(field(), "Enter");
+    expect(commits.mock.calls).toEqual([["Route 202"]]);
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("uses_enter_only_while_it_holds_typed_text", () => {
+    // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
+    act(() => root.render(<Owner />));
+    act(() => field().focus());
+    expect(pressKey(field(), "Enter").defaultPrevented).toBe(false);
+    act(() => field().focus());
+    typeInto(field(), "Route 202");
+    expect(pressKey(field(), "Enter").defaultPrevented).toBe(true);
+    expect(commits.mock.calls).toEqual([["Route 202"]]);
+  });
+
   it("commits_on_blur", () => {
     act(() => root.render(<Owner />));
     act(() => field().focus());
@@ -88,6 +109,27 @@ describe("TextField", () => {
     expect(esc.defaultPrevented).toBe(true);
     act(() => field().blur());
     expect(commits).not.toHaveBeenCalled();
+  });
+
+  it("clears_a_filled_search_on_escape_and_uses_the_key_then_leaves_it_alone", () => {
+    const changes = vi.fn();
+    function Search() {
+      const [value, setValue] = useState("");
+      const set = (t: string) => {
+        changes(t);
+        setValue(t);
+      };
+      return <TextField label="Suche" type="search" value={value} onChange={set} onCommit={set} />;
+    }
+    act(() => root.render(<Search />));
+    act(() => field().focus());
+    typeInto(field(), "nachbar");
+    expect(field().value).toBe("nachbar");
+    expect(pressKey(field(), "Escape").defaultPrevented).toBe(true);
+    expect(field().value).toBe("");
+    expect(changes).toHaveBeenLastCalledWith("");
+    // Empty now: the next Escape belongs to whatever is around the field.
+    expect(pressKey(field(), "Escape").defaultPrevented).toBe(false);
   });
 
   it("leaves_escape_alone_when_nothing_was_typed", () => {
@@ -141,6 +183,42 @@ describe("TextField", () => {
     typeInto(field(), "b");
     act(() => container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(commits.mock.calls).toEqual([["b"]]);
+  });
+
+  it("does_not_commit_again_when_it_unmounts_right_after_the_blur", () => {
+    // Gate 3b.1 (A) 6 (from the former DraftInput): "Weiter" right after typing; blur and click land before the field
+    // shows the new value, and the unmount committed a draft that was no longer the typed text.
+    function Step() {
+      const [value, setValue] = useState("Neues Gebiet");
+      const [shown, setShown] = useState(true);
+      return (
+        <div>
+          {shown && (
+            <TextField
+              label="Name"
+              value={value}
+              onCommit={(t) => {
+                commits(t);
+                setValue(t);
+              }}
+            />
+          )}
+          <span data-value>{value}</span>
+          <button type="button" onClick={() => setShown(false)}>
+            Weiter
+          </button>
+        </div>
+      );
+    }
+    act(() => root.render(<Step />));
+    act(() => field().focus());
+    typeInto(field(), "Route 231");
+    act(() => {
+      field().blur();
+      container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(commits.mock.calls).toEqual([["Route 231"]]);
+    expect(container.querySelector("[data-value]")?.textContent).toBe("Route 231");
   });
 
   it("tells_a_live_listener_about_every_keystroke_and_still_commits_only_on_enter_or_blur", () => {

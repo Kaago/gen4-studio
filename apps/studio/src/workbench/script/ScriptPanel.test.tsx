@@ -10,8 +10,11 @@ import type { ProjectInfo, SaveScriptDto, ScriptsStatusDto } from "../../api";
 import { addScript, adoptScripts, lspSend, lspStart, lspStop, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
 import { createEditBus } from "../../bus/editBus";
 import type { EditBus, EditEvent } from "../../bus/editBus";
+import type { Depth } from "../../ui/frame/shellState";
 import { ProblemsStore } from "../problems/problems";
 import { ScriptPanel } from "./ScriptPanel";
+import { toolStatus } from "../../app/toolStatus";
+import { scriptDirtyStore } from "./scriptDirtyStore";
 import { useScripts } from "./useScripts";
 import type { ScriptsApi } from "./useScripts";
 
@@ -46,12 +49,12 @@ describe("ScriptPanel", () => {
   let events: EditEvent[];
   const onError = vi.fn();
 
-  function Host({ project }: { project: ProjectInfo | null }) {
+  function Host({ project, depth = "bauen" }: { project: ProjectInfo | null; depth?: Depth }) {
     const { api: scripts } = useScripts({ info: project, bus, problems, onError });
     api = scripts;
-    return <ScriptPanel context={{ project, scripts, problems, bus, onError }} />;
+    return <ScriptPanel context={{ project, scripts, problems, bus, depth, onError }} />;
   }
-  const render = (project: ProjectInfo | null = projectA) => act(async () => root.render(<Host project={project} />));
+  const render = (project: ProjectInfo | null = projectA, depth: Depth = "bauen") => act(async () => root.render(<Host project={project} depth={depth} />));
   const settle = () => act(async () => {});
 
   beforeEach(() => {
@@ -77,14 +80,19 @@ describe("ScriptPanel", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.body.querySelectorAll("[role=menu]").forEach((m) => m.remove());
   });
 
   const view = () => EditorView.findFromDOM(container.querySelector(".cm-editor") as HTMLElement)!;
   const typeAt = (pos: number, text: string) => act(() => view().dispatch({ changes: { from: pos, insert: text }, userEvent: "input.type" }));
   const button = (name: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === name);
   const tab = (file: number) => container.querySelector<HTMLButtonElement>(`[data-script="${file}"]`);
+  /** Whether the document's tab shows the unsaved dot. */
+  const unsaved = (file: number) => tab(file)?.parentElement?.querySelector('[aria-label="ungespeichert"]') != null;
+  const title = () => container.querySelector("h2")?.textContent;
   const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
   const open = (file: number, line?: number) => act(async () => api.open(file, line));
+  const lspBadge = () => container.querySelector("[data-lsp] > span");
 
   it("shows_the_adoption_box_until_adopted_then_the_report_and_then_the_editor", async () => {
     vi.mocked(scriptsStatus).mockResolvedValueOnce({ adopted: false, file_count: 12 });
@@ -123,18 +131,43 @@ describe("ScriptPanel", () => {
     await settle();
     await open(42);
     expect(view().state.doc.toString()).toBe(SCRIPT);
-    expect(container.querySelector("strong")?.textContent).toBe("Scriptdatei 0042");
+    expect(title()).toBe("Scriptdatei 0042");
     expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
     expect(readScript).toHaveBeenCalledWith(42);
   });
 
-  it("gives_the_active_tab_its_own_text_colour_with_its_surface_so_the_dark_theme_stays_readable", async () => {
+  it("shows_the_open_documents_as_tabs_of_one_tab_list_with_the_shown_one_selected", async () => {
     await render();
     await settle();
+    await open(1);
+    await open(2);
+    const list = container.querySelector('[role="tablist"]');
+    expect(list?.getAttribute("aria-label")).toBe("Offene Scripts");
+    expect([...list!.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(["Scriptdatei 0001", "Scriptdatei 0002"]);
+    expect(tab(2)?.getAttribute("role")).toBe("tab");
+    expect(tab(2)?.getAttribute("aria-selected")).toBe("true");
+    expect(tab(1)?.getAttribute("aria-selected")).toBe("false");
+    // The editor is the content of the selected tab.
+    expect(container.querySelector('[role="tabpanel"] .cm-editor')).not.toBeNull();
+  });
+
+  it("says_how_a_script_opens_while_none_is_open", async () => {
+    await render();
+    await settle();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.textContent).toContain("Kein Script geöffnet.");
+    expect(container.textContent).toContain("Eine Scriptdatei öffnet sich über den Header, ein Event oder ein Problem.");
+  });
+
+  it("shows_the_file_path_under_the_title_only_in_tuefteln", async () => {
+    await render(projectA, "bauen");
+    await settle();
     await open(42);
-    expect(tab(42)?.getAttribute("aria-current")).toBe("true");
-    expect(tab(42)?.style.background).toBe("var(--g4-auswahl-flaeche)");
-    expect(tab(42)?.style.color).toBe("var(--g4-text-primaer)");
+    expect(title()).toBe("Scriptdatei 0042");
+    expect(container.textContent).not.toContain("expanded/scripts/0042.rotom");
+    await render(projectA, "tuefteln");
+    expect(title()).toBe("Scriptdatei 0042");
+    expect(container.querySelector("header")?.textContent).toContain("expanded/scripts/0042.rotom");
   });
 
   it("opens_a_level_script_as_json_and_saves_the_parsed_document", async () => {
@@ -142,7 +175,7 @@ describe("ScriptPanel", () => {
     await render();
     await settle();
     await open(7);
-    expect(container.querySelector("strong")?.textContent).toBe("Level-Script 0007 (JSON)");
+    expect(title()).toBe("Level-Script 0007 (JSON)");
     expect(JSON.parse(view().state.doc.toString())).toEqual({ on_load: [1, 2] });
     typeAt(view().state.doc.length, " ");
     click(button("Speichern"));
@@ -163,20 +196,43 @@ describe("ScriptPanel", () => {
     expect(saveLevelScript).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0]![0]).toMatchObject({ code: "error", message: expect.stringContaining("Level-Script 0007: ungültiges JSON") });
-    expect(tab(7)?.textContent).toContain("●");
+    expect(unsaved(7)).toBe(true);
   });
 
   it("marks_a_document_with_a_dot_while_it_differs_from_the_disk_and_clears_it_on_save", async () => {
     await render();
     await settle();
     await open(42);
-    expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
+    expect(unsaved(42)).toBe(false);
     typeAt(0, "// ");
-    expect(tab(42)?.textContent).toBe("● Scriptdatei 0042");
+    expect(unsaved(42)).toBe(true);
+    // The name stays the name; the dot says it.
+    expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
     click(button("Speichern"));
     await settle();
     expect(saveScript).toHaveBeenCalledWith(42, `// ${SCRIPT}`);
-    expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
+    expect(unsaved(42)).toBe(false);
+  });
+
+  it("tells_the_dock_tab_how_many_documents_are_unsaved", async () => {
+    await render();
+    await settle();
+    await open(1);
+    await open(2);
+    expect(scriptDirtyStore.get()).toBe(0);
+    typeAt(0, "B:");
+    expect(scriptDirtyStore.get()).toBe(1);
+    click(tab(1));
+    await settle();
+    typeAt(0, "A:");
+    expect(scriptDirtyStore.get()).toBe(2);
+    click(button("Speichern"));
+    await settle();
+    expect(scriptDirtyStore.get()).toBe(1);
+    // Gone with the panel.
+    act(() => root.unmount());
+    expect(scriptDirtyStore.get()).toBe(0);
+    root = createRoot(container);
   });
 
   it("saves_with_the_save_button_and_puts_the_compile_problems_of_the_file_into_the_store", async () => {
@@ -219,13 +275,17 @@ describe("ScriptPanel", () => {
     await open(42);
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("missing");
-    expect(container.textContent).toContain("rotom-lsp fehlt — Completion und Diagnosen aus");
+    // The badge says the short state; the backend's whole note is its tooltip.
+    expect(lspBadge()?.textContent).toBe("rotom-lsp fehlt");
+    expect(lspBadge()?.getAttribute("title")).toBe("rotom-lsp fehlt — Completion und Diagnosen aus");
+    // The badge is the head's status, beside the title, not one of its actions (a narrow head wraps the actions onto their own row).
+    expect(container.querySelector("header [data-panel-status] [data-lsp]")).not.toBeNull();
     typeAt(0, "// ");
     click(button("Speichern"));
     await settle();
     expect(saveScript).toHaveBeenCalledWith(42, `// ${SCRIPT}`);
     expect(onError).not.toHaveBeenCalled();
-    expect(tab(42)?.textContent).toBe("Scriptdatei 0042");
+    expect(unsaved(42)).toBe(false);
     // Without a client, the outline has nothing to ask.
     expect(button("Gliederung")?.disabled).toBe(true);
   });
@@ -244,8 +304,7 @@ describe("ScriptPanel", () => {
     click(tab(2));
     await settle();
     expect(view().state.doc.toString()).toBe("B:script Other #1:\n");
-    expect(tab(1)?.textContent).toBe("● Scriptdatei 0001");
-    expect(tab(2)?.textContent).toBe("● Scriptdatei 0002");
+    expect([unsaved(1), unsaved(2)]).toEqual([true, true]);
   });
 
   it("moves_the_cursor_to_the_line_when_a_file_is_opened_at_one", async () => {
@@ -405,15 +464,17 @@ describe("ScriptPanel", () => {
     expect(api.documents.list()).toEqual([]);
   });
 
-  /** A language server that answers `initialize`; returns what the client sent. */
-  function answeringServer() {
+  /** A language server that answers `initialize` and the given methods; returns what the client sent. */
+  function answeringServer(answers: Record<string, (params: any) => unknown> = {}) {
     const sent: { id?: number; method: string; params?: any }[] = [];
     let push: (body: string) => void = () => {};
     vi.mocked(lspStart).mockImplementation(async (onMessage) => void (push = onMessage));
     vi.mocked(lspSend).mockImplementation(async (body) => {
       const message = JSON.parse(body);
       sent.push(message);
-      if (message.method === "initialize") queueMicrotask(() => push(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { capabilities: {} } })));
+      if (message.method === "initialize") queueMicrotask(() => push(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { capabilities: { documentSymbolProvider: true } } })));
+      const answer = answers[message.method];
+      if (answer && message.id !== undefined) queueMicrotask(() => push(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.params) })));
     });
     return sent;
   }
@@ -537,15 +598,94 @@ describe("ScriptPanel", () => {
     expect(lspStop).not.toHaveBeenCalled();
   });
 
+  it("shows_the_language_server_state_as_a_badge", async () => {
+    vi.mocked(lspStart).mockResolvedValue(undefined);
+    await render();
+    await settle();
+    const badge = container.querySelector("[data-lsp]");
+    expect(badge?.getAttribute("data-lsp")).toBe("running");
+    expect(badge?.textContent).toBe("rotom-lsp läuft");
+    expect(button("Neu starten")).toBeUndefined();
+  });
+
+  it("loads_the_outline_when_its_menu_opens_and_jumps_to_the_picked_script", async () => {
+    const sent = answeringServer({
+      "textDocument/documentSymbol": () => [
+        { name: "Main", detail: "#1", kind: 12, range: { start: { line: 0, character: 0 }, end: { line: 1, character: 4 } }, selectionRange: { start: { line: 0, character: 7 }, end: { line: 0, character: 11 } } },
+        { name: "Other", kind: 12, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } } },
+      ],
+    });
+    await render();
+    await settle();
+    await settle();
+    await open(42, 1);
+    await settle();
+    // Nothing is asked before the menu opens.
+    expect(sent.filter((m) => m.method === "textDocument/documentSymbol")).toHaveLength(0);
+    const trigger = button("Gliederung")!;
+    expect(trigger.disabled).toBe(false);
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.click();
+    });
+    await settle();
+    await settle();
+    expect(sent.filter((m) => m.method === "textDocument/documentSymbol")).toHaveLength(1);
+    const items = () => [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    expect(items().map((i) => i.textContent)).toEqual(["Main #1, Z. 1", "Other, Z. 2"]);
+    await act(async () => items()[1]!.click());
+    await settle();
+    expect(view().state.selection.main.head).toBe("script Main #1:\n".length);
+  });
+
   it("offers_to_start_the_language_server_again_when_it_died", async () => {
     vi.mocked(lspStart).mockRejectedValueOnce({ code: "error", message: "rotom-lsp beendet sich wiederholt", asset: null });
     await render();
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("stopped");
-    expect(container.textContent).toContain("rotom-lsp beendet sich wiederholt");
+    expect(lspBadge()?.textContent).toBe("rotom-lsp gestoppt");
+    expect(lspBadge()?.getAttribute("title")).toBe("rotom-lsp beendet sich wiederholt");
     vi.mocked(lspStart).mockResolvedValue(undefined);
     click(button("Neu starten"));
     await settle();
     expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("running");
+  });
+
+  describe("tool status", () => {
+    beforeEach(() => toolStatus.set({ lsp: null }));
+
+    it("writes_the_language_server_state_and_its_restart_into_the_tool_status", async () => {
+      expect(toolStatus.get().lsp).toBeNull();
+      vi.mocked(lspStart).mockRejectedValueOnce({ code: "error", message: "rotom-lsp beendet sich wiederholt", asset: null });
+      await render();
+      await settle();
+      expect(toolStatus.get().lsp).toMatchObject({ state: "fehler", note: "rotom-lsp beendet sich wiederholt" });
+      // Technik's "Neu starten" restarts the panel's server.
+      vi.mocked(lspStart).mockResolvedValue(undefined);
+      await act(async () => toolStatus.get().lsp?.restart?.());
+      await settle();
+      expect(container.querySelector("[data-lsp]")?.getAttribute("data-lsp")).toBe("running");
+      expect(toolStatus.get().lsp?.state).toBe("bereit");
+    });
+
+    it("says_missing_for_a_missing_server_and_off_without_adoption_or_once_the_panel_is_gone", async () => {
+      await render();
+      await settle();
+      expect(toolStatus.get().lsp).toMatchObject({ state: "fehlt", note: "rotom-lsp fehlt — Completion und Diagnosen aus" });
+      vi.mocked(scriptsStatus).mockResolvedValue({ adopted: false, file_count: 3 });
+      await render(projectB);
+      await settle();
+      // Off for want of the adoption, and Technik says so.
+      expect(toolStatus.get().lsp).toMatchObject({ state: "aus", note: "Läuft, sobald die Scripts des Projekts übernommen sind." });
+      vi.mocked(scriptsStatus).mockResolvedValue(ADOPTED);
+      await render(projectA);
+      await settle();
+      expect(toolStatus.get().lsp?.state).toBe("fehlt");
+      act(() => root.render(<></>));
+      // Gone with the panel, scripts adopted: off without a reason that would not hold.
+      expect(toolStatus.get().lsp?.state).toBe("aus");
+      expect(toolStatus.get().lsp?.note).toBeUndefined();
+    });
   });
 });

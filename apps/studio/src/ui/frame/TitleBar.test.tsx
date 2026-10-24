@@ -14,7 +14,7 @@ vi.mock("../../platform/os", () => ({ isMacTauri: () => env.mac }));
 describe("TitleBar", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = () => ({ onOpen: vi.fn(), onSave: vi.fn(), onBuild: vi.fn(), onHelp: vi.fn(), onToggleTheme: vi.fn() });
+  const handlers = () => ({ onOpen: vi.fn(), onSave: vi.fn(), onBuild: vi.fn(), onHelp: vi.fn(), onToggleTheme: vi.fn(), onPalette: vi.fn() });
   const base = (over: Partial<TitleBarProps> = {}): TitleBarProps => ({
     projectName: "pt-3c1",
     game: "Platin, DE",
@@ -103,18 +103,26 @@ describe("TitleBar", () => {
     expect(button("Projekt öffnen")!.disabled).toBe(true);
   });
 
-  it("has_a_locked_palette_button_with_a_tooltip_that_does_nothing", async () => {
-    vi.useFakeTimers();
-    show(base());
+  it("opens_the_palette_from_its_search_button_and_shows_the_shortcut", () => {
+    const props = base();
+    show(props);
     const palette = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Suchen oder Befehl eingeben"))!;
-    expect(palette.getAttribute("aria-disabled")).toBe("true");
     expect(palette.textContent).toContain("⌘K");
-    await act(async () => {
-      palette.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-      palette.dispatchEvent(new MouseEvent("mouseenter"));
-      palette.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(500);
-    });
-    expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Kommt mit 3c.2");
+    expect(palette.disabled).toBe(false);
+    expect(palette.hasAttribute("aria-disabled")).toBe(false);
+    act(() => palette.click());
+    expect(props.onPalette).toHaveBeenCalledOnce();
+  });
+
+  it("locks_the_palette_button_when_asked_also_without_a_project", () => {
+    const props = base({ paletteDisabled: true });
+    show(props);
+    const palette = () => [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Suchen oder Befehl eingeben"))!;
+    expect(palette().disabled).toBe(true);
+    act(() => palette().click());
+    expect(props.onPalette).not.toHaveBeenCalled();
+    // Without a project the palette still opens: its commands open one.
+    show(base({ projectName: null, game: null }));
+    expect(palette().disabled).toBe(false);
   });
 });

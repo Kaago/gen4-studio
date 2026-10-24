@@ -1,0 +1,94 @@
+/*
+ * The parts the wizard steps share (NewAreaWizard, NewRoomWizard, HeaderChoice). A step's content is a row of columns: the frame draws
+ * the line between its direct children, so every column is one direct child of the step.
+ */
+
+/* One column: heading, then its controls top to bottom; it scrolls on its own when the hand is low. */
+.column {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  overflow-y: auto;
+}
+
+/* A column with a grid or a list takes twice the room of the others (two classes: wins over the frame's rule for every column). */
+.column.wide {
+  flex-grow: 2;
+}
+
+/* Notices and hints take the column's width; buttons and segments keep their own. */
+.column > [role="status"],
+.column > [role="alert"] {
+  align-self: stretch;
+}
+
+.heading {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.text {
+  margin: 0;
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+}
+
+.warn {
+  margin: 0;
+  color: var(--g4-status-warnung);
+}
+
+.chip {
+  display: flex;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
+}
+
+/* Same look as the visible label of the fields. */
+.label {
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+/* The sentences of the summary step. */
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+}
+
+.lines > p {
+  margin: 0;
+}
+
+/* A field fills the column up to a readable width. */
+.field {
+  width: 100%;
+  max-width: 240px;
+}

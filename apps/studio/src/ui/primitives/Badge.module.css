@@ -45,3 +45,28 @@
   background: var(--g4-live-flaeche);
   color: var(--g4-live-text);
 }
+
+.success {
+  background: var(--g4-status-erfolg-flaeche);
+  color: var(--g4-status-erfolg);
+}
+
+.warning {
+  background: var(--g4-status-warnung-flaeche);
+  color: var(--g4-status-warnung);
+}
+
+.neutral {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+}
+
+.code {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+  line-height: var(--g4-schrift-zeile-xs);
+  font-weight: 400;
+  border-radius: var(--g4-radius-feld);
+}

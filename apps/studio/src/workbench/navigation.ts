@@ -1,6 +1,6 @@
 import type { EventKind, HeaderSummary } from "../api";
 import type { InspectorModel } from "./Inspector";
-import type { PanelId } from "./layout";
+import type { DeckArea, PanelId } from "./layout";
 
 /**
  * Where a link leads. `header` on a matrix cell, building or event is a header known to show it
@@ -31,12 +31,14 @@ export interface NavState {
 }
 
 export interface NavResult {
+  /** The area that shows the target: a text archive is in Texte, everything else in Welt. */
+  area: DeckArea;
   selectedHeader: number | null;
   /** What to pin in the inspector; null when the target does not exist or leaves the pin alone (a text archive). */
   pinned: InspectorModel | null;
-  /** The panel that shows the target; null when nothing changes. */
+  /** The panel that shows the target, in a dock of `area`; null when nothing changes. */
   panel: PanelId | null;
-  /** Set for a text archive: what the text panel opens (`message` null: the first one). */
+  /** Set for a text archive: what the text area opens (`message` null: the first one). */
   text?: { index: number; message: number | null };
   /** Set for a script: what the script panel opens (`line` null: keep the cursor). */
   script?: { file: number; line: number | null };
@@ -48,17 +50,24 @@ export interface NavResult {
  * target is a header, a matrix cell with a header, or a building or event that the shown scene
  * does not hold and a known header shows. A building or event the scene holds is just pinned.
  * Without a known header it is pinned alone: the editors read the backend, not the scene.
+ * A text archive leads to the area Texte, every other target to Welt.
  */
 export function nextSelection(state: NavState, target: NavTarget): NavResult {
+  if (target.kind === "textArchive") {
+    // Neither the selection nor the pin changes: the texts are not about a header.
+    return { area: "texte", selectedHeader: state.selectedHeader, pinned: null, panel: "textEdit", text: { index: target.index, message: target.message ?? null } };
+  }
+  return { area: "welt", ...inWorld(state, target) };
+}
+
+/** Where a target of the world leads (see `nextSelection`). */
+function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" }>): Omit<NavResult, "area"> {
   const known = (id: number | null | undefined): id is number => typeof id === "number" && (state.headers === undefined || state.headers.some((h) => h.id === id));
-  const toHeader = (id: number): NavResult => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
+  const toHeader = (id: number): Omit<NavResult, "area"> => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
   // A header that the target needs selected first, unless it already is (null: keep the selection).
   const switchTo = (id: number | null | undefined): number | null => (known(id) && id !== state.selectedHeader ? id : null);
 
   switch (target.kind) {
-    case "textArchive":
-      // Neither the selection nor the pin changes: the text panel is not about a header.
-      return { selectedHeader: state.selectedHeader, pinned: null, panel: "text", text: { index: target.index, message: target.message ?? null } };
     case "script":
       return { selectedHeader: state.selectedHeader, pinned: null, panel: "script", script: { file: target.file, line: target.line ?? null } };
     case "header":

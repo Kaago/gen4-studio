@@ -1,3 +1,4 @@
+import { MATRIX_EMPTY } from "../api";
 import type { MatrixDto } from "../api";
 
 const pad = (n: number) => String(n).padStart(4, "0");
@@ -45,4 +46,30 @@ export function sameLayout(a: MatrixDto, b: MatrixDto): boolean {
     a.maps.length === b.maps.length &&
     a.maps.every((m, i) => m === b.maps[i] && (a.altitudes?.[i] ?? 0) === (b.altitudes?.[i] ?? 0))
   );
+}
+
+/** The raw values of a cell in one line, as the depth Tüfteln writes them into it: "0104 0411 0" (map, header, altitude; a missing section is left out). */
+export function rawCell(map: number, header: number | null, altitude: number | null): string {
+  return [pad(map), ...(header === null ? [] : [pad(header)]), ...(altitude === null ? [] : [String(altitude)])].join(" ");
+}
+
+/** A u16 as four hex digits in capitals. */
+const hex16 = (n: number) => n.toString(16).toUpperCase().padStart(4, "0");
+
+/** One row of a matrix as it lies in the file: u16 hex of the maps (an empty cell is 0xFFFF) and of the headers, the altitudes as u8. */
+export interface RawRow {
+  maps: string[];
+  headers: string[] | null;
+  altitudes: number[] | null;
+}
+
+/** Row `y` of `m`: the raw lines of the section "Rohdaten, Zeile y". A section the matrix does not have is null. */
+export function rawRow(m: MatrixDto, y: number): RawRow {
+  const from = y * m.width;
+  const to = from + m.width;
+  return {
+    maps: m.maps.slice(from, to).map((v) => hex16(v ?? MATRIX_EMPTY)),
+    headers: m.headers ? m.headers.slice(from, to).map(hex16) : null,
+    altitudes: m.altitudes ? m.altitudes.slice(from, to) : null,
+  };
 }

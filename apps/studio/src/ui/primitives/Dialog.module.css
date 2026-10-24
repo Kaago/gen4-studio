@@ -40,6 +40,33 @@
   transform: translate(-50%, -48%);
 }
 
+/* Palette: anchored 96px below the top edge, 640 wide; it grows downwards only. */
+.palette {
+  top: calc(var(--g4-raum-64) + var(--g4-raum-32));
+  width: min(640px, calc(100vw - 2 * var(--g4-raum-16)));
+  max-height: calc(100vh - 2 * var(--g4-raum-64));
+  padding: var(--g4-raum-12);
+  transform: translateX(-50%);
+}
+
+.palette[data-starting-style],
+.palette[data-ending-style] {
+  transform: translateX(-50%) translateY(calc(-1 * var(--g4-raum-8)));
+}
+
+/* Visually hidden, still the accessible name of the dialog. */
+.titleHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .title {
   margin: 0;
   padding-right: var(--g4-raum-32);

@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoom, errorText } from "../../api";
 import type { HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import { Button, Checkbox, ListRow, Notice, NumberField, Reference, TextField, useRovingList } from "../../ui/primitives";
 import { lockedText } from "../../world/events";
 import { thumbnails } from "../../world/thumbnailStore";
 import { useThumbnail } from "../../world/useThumbnail";
-import { DraftInput } from "../DraftInput";
 import { headerLabel } from "../headers";
-import { HeaderSearch } from "./HeaderSearch";
+import { HeaderPicker } from "../inspector/HeaderPicker";
 import { filterPlaces } from "../places";
 import type { Place } from "../places";
 import { TERMS, id4 } from "../terms";
@@ -15,12 +14,14 @@ import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
-import { useHeaderPatch } from "./useHeaderPatch";
+import { SAVE_FIRST_IN_WIZARD, useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
-import { WizardShell } from "./WizardShell";
-import type { WizardStep } from "./WizardShell";
+import { WizardFrame } from "./WizardFrame";
+import type { WizardStep } from "./WizardFrame";
 import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
+import parts from "./WizardStep.module.css";
+import styles from "./NewRoomWizard.module.css";
 
 interface Props {
   headers: HeaderSummary[];
@@ -41,11 +42,15 @@ interface Props {
   lastTile: () => { x: number; z: number } | null;
   /** The wizard is left; `written` says whether it changed the project (the app then reads it again). */
   onClose: (written: boolean) => void;
-  /** "Im Studio zeigen": the app reads the project again and shows the new room. */
+  /** "Zeigen": the app reads the project again and shows the new room. */
   onCreated: (report: RoomReport, spec: RoomSpec) => Promise<void>;
   /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
   onHeaderPatch: () => Promise<void>;
+  /** A repair of the patch went in (the app closes the toast that offered it). */
+  onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
+  /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
+  onPlay?: () => void;
 }
 
 type Outcome = { kind: "done"; report: RoomReport; spec: RoomSpec } | { kind: "partial"; message: string };
@@ -54,11 +59,6 @@ type Outcome = { kind: "done"; report: RoomReport; spec: RoomSpec } | { kind: "p
 const SHOWN = 60;
 /** The last tile of the largest matrix (255 maps of 32 tiles). */
 const MATRIX_LAST_TILE = 255 * 32 - 1;
-
-const row: CSSProperties = { display: "flex", alignItems: "center", gap: 8, margin: "6px 0" };
-const note: CSSProperties = { color: "#6b7280", margin: "6px 0" };
-const heading: CSSProperties = { fontWeight: 600, marginBottom: 4 };
-const warn: CSSProperties = { color: "#b45309", margin: "6px 0" };
 
 /** The form with `template` as the room to copy: its area data is offered, and a copy of an event file follows the template. */
 function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
@@ -75,14 +75,8 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
-/** A typed tile number as it is, also when it lies off the map (the step then says why it cannot be used); null: no whole number. */
-function parseTile(text: string): number | null {
-  const n = Number(text.trim());
-  return text.trim() !== "" && Number.isInteger(n) ? n : null;
-}
-
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onError }: Props) {
+export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
   const [form, setForm] = useState<RoomForm>(() => {
@@ -98,6 +92,9 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   const [query, setQuery] = useState("");
   // The door inside follows the template's own door until the user typed one.
   const [insideEdited, setInsideEdited] = useState(false);
+  const [pickingOutside, setPickingOutside] = useState(false);
+  const templateList = useRef<HTMLDivElement>(null);
+  useRovingList(templateList);
 
   const waiting = overviewNote(matricesLoaded, matricesFailed);
   const find = (id: number | null) => (id === null ? null : (headers.find((h) => h.id === id) ?? null));
@@ -156,7 +153,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
-  const patch = useHeaderPatch(onHeaderPatch);
+  const patch = useHeaderPatch(onHeaderPatch, { saveFirst: SAVE_FIRST_IN_WIZARD, repaired: onHeaderPatchRepaired });
   const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
     outsideMatrix: outsideCells ?? outsideMatrix,
     outsideWarps: outsideEvents?.warps,
@@ -194,22 +191,11 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     setForm((f) => ({ ...f, ...change }));
     if (inside) setInsideEdited(true);
   };
-  const tileField = (label: string, value: number | null, max: number, key: "x" | "z" | "insideX" | "insideZ") => (
-    <label style={row}>
-      {label}
-      <DraftInput
-        label={label}
-        type="number"
-        min={0}
-        max={max}
-        value={value === null ? "" : String(value)}
-        onCommit={(text) => {
-          const n = parseTile(text);
-          if (n !== null) setTile({ [key]: n }, key.startsWith("inside"));
-        }}
-        style={{ width: 80, textAlign: "right", fontFamily: "ui-monospace, monospace" }}
-      />
-    </label>
+  // A tile beyond `max` is refused by the field with the bound named; it never becomes the nearest tile.
+  const tileField = (label: string, value: number | null, max: number, key: "x" | "z" | "insideX" | "insideZ", disabled: boolean) => (
+    <div className={parts.field}>
+      <NumberField label={label} showLabel min={0} max={max} value={value} disabled={disabled} hint={`0 bis ${max}`} onCommit={(n) => setTile({ [key]: n }, key.startsWith("inside"))} />
+    </div>
   );
 
   async function create() {
@@ -237,7 +223,15 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     }
   }
 
+  /** "Hier spielen": shows what was made, then plays. */
+  async function showAndPlay(report: RoomReport, spec: RoomSpec) {
+    await show(report, spec);
+    onPlay?.();
+  }
+
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, form.template ?? 0), areaDataId: form.areaDataId, eventFile: form.eventFile };
+
+  const summaryLines = "spec" in built ? roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }) : null;
 
   const steps: WizardStep[] = [
     {
@@ -245,69 +239,68 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       title: "Vorlage",
       canNext: template !== null && templateMap !== null,
       content: (
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={heading}>{TERMS.room.label} zum Kopieren wählen</div>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ort oder Kürzel suchen"
-              aria-label="Vorlage suchen"
-              style={{ width: "100%", boxSizing: "border-box", padding: "2px 6px" }}
-            />
-            <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid #e5e7eb", marginTop: 4 }}>
-              {waiting !== null && <div style={{ padding: "2px 6px", color: "#6b7280" }}>{waiting}</div>}
-              {waiting === null && templates.map((place) => {
-                return (
-                  <div key={place.key}>
-                    <div style={{ padding: "2px 6px", background: "#f3f4f6", fontSize: 12, color: "#4b5563" }}>{place.name}</div>
-                    {place.headers.map(({ header }) => (
-                      <button
-                        key={header.id}
-                        type="button"
-                        onClick={() => chooseTemplate(header)}
-                        style={{ all: "unset", boxSizing: "border-box", display: "block", width: "100%", padding: "1px 6px", cursor: "pointer", fontWeight: header.id === form.template ? 700 : 400 }}
-                      >
-                        <span style={{ fontFamily: "ui-monospace, monospace" }}>{id4(header.id)}</span> {headerLabel(header)}
-                        {header.location_name ? <span style={{ color: "#6b7280" }}> ({header.internal_name})</span> : null}
-                      </button>
-                    ))}
-                  </div>
-                );
-              })}
-              {waiting === null && templateCount === 0 && <div style={{ padding: "2px 6px", color: "#6b7280" }}>Kein {TERMS.room.label} gefunden</div>}
-              {waiting === null && templateCount > SHOWN && <div style={{ padding: "2px 6px", color: "#6b7280" }}>{templateCount - SHOWN} weitere, Suche eingrenzen</div>}
+        <>
+          <section className={`${parts.column} ${parts.wide}`}>
+            <h3 className={parts.heading}>{TERMS.room.label} zum Kopieren wählen</h3>
+            <div className={styles.search}>
+              <TextField type="search" label="Vorlage suchen" placeholder="Ort oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
             </div>
-            <label style={row}>
-              Name
-              <DraftInput label={`Name des neuen ${TERMS.room.label}s`} value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} style={{ flex: 1 }} />
-            </label>
-            <label style={row}>
-              <input type="checkbox" checked={form.clearBuildings} onChange={(e) => setForm((f) => ({ ...f, clearBuildings: e.target.checked }))} />
-              ohne Gebäude
-            </label>
-          </div>
-          <div style={{ width: 200, flexShrink: 0 }}>
-            <div style={heading}>Gewählt</div>
+            {/* The notes stand beside the listbox, inside the same scroll box: a listbox holds only its groups of options. */}
+            <div className={styles.list}>
+              {waiting !== null && <p className={styles.empty}>{waiting}</p>}
+              <div ref={templateList} role="listbox" aria-label="Vorlagen" className={styles.options}>
+                {waiting === null &&
+                  templates.map((place) => (
+                    <div key={place.key} role="group" aria-label={place.name}>
+                      <div className={styles.place} aria-hidden="true">
+                        {place.name}
+                      </div>
+                      {place.headers.map(({ header }) => (
+                        <ListRow
+                          key={header.id}
+                          label={headerLabel(header)}
+                          tech={header.location_name ? `${id4(header.id)} ${header.internal_name}` : id4(header.id)}
+                          selected={header.id === form.template}
+                          onSelect={() => chooseTemplate(header)}
+                          dataAttrs={{ "data-header": header.id }}
+                        />
+                      ))}
+                    </div>
+                  ))}
+              </div>
+              {waiting === null && templateCount === 0 && <p className={styles.empty}>Kein {TERMS.room.label} gefunden</p>}
+              {waiting === null && templateCount > SHOWN && <p className={styles.empty}>{templateCount - SHOWN} weitere, Suche eingrenzen</p>}
+            </div>
+          </section>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Der neue {TERMS.room.label}</h3>
+            <div className={parts.field}>
+              <TextField label={`Name des neuen ${TERMS.room.label}s`} showLabel value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} />
+            </div>
+            <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
+          </section>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Gewählt</h3>
             {template === null ? (
-              <div style={note}>Noch keine Vorlage gewählt.</div>
+              <p className={parts.note}>Noch keine Vorlage gewählt.</p>
             ) : (
               <>
-                <div>
+                <p className={parts.text}>
                   {TERMS.header.label} {id4(template.id)} „{headerLabel(template)}“
-                </div>
+                </p>
                 {templateMatrix !== null && templateMap === null ? (
-                  <div style={{ color: "#b91c1c" }}>Das {TERMS.matrix.label} dieses {TERMS.room.label}s hat keine {TERMS.map.label} zum Kopieren.</div>
+                  <Notice kind="error">
+                    Das {TERMS.matrix.label} dieses {TERMS.room.label}s hat keine {TERMS.map.label} zum Kopieren.
+                  </Notice>
                 ) : typeof picture === "string" ? (
-                  <img src={picture} alt="Vorschau der Vorlage" style={{ width: 160, height: 160, marginTop: 6, border: "1px solid #d1d5db" }} />
+                  <img src={picture} alt="Vorschau der Vorlage" className={styles.picture} />
                 ) : (
-                  <div style={note}>{templateMap === null || picture === undefined ? "Lade Vorschau …" : "Keine Vorschau."}</div>
+                  <p className={parts.note}>{templateMap === null || picture === undefined ? "Lade Vorschau …" : "Keine Vorschau."}</p>
                 )}
               </>
             )}
-          </div>
-        </div>
+          </section>
+        </>
       ),
     },
     {
@@ -337,64 +330,84 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       title: "Eingang",
       canNext: "spec" in built,
       content: (
-        <div>
-          <label style={row}>
-            <input type="checkbox" aria-label="später verbinden" checked={!connect} disabled={blocked !== null} onChange={(e) => setForm((f) => ({ ...f, connect: !e.target.checked }))} />
-            später verbinden (keinen Eingang anlegen)
-          </label>
-          {blocked !== null && form.connect && <div style={{ color: "#b45309", margin: "6px 0" }}>Der Eingang lässt sich jetzt nicht anlegen: {blocked}</div>}
-          {/* The lock follows the chosen header outside: picking another one is always possible. */}
-          <fieldset disabled={!form.connect} style={{ border: "none", padding: 0, margin: 0 }}>
-            <div style={heading}>{TERMS.header.label} außen</div>
+        <>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>{TERMS.header.label} außen</h3>
+            <Checkbox label="später verbinden (keinen Eingang anlegen)" checked={!connect} disabled={blocked !== null} onChange={(later) => setForm((f) => ({ ...f, connect: !later }))} />
+            {blocked !== null && form.connect && <Notice kind="warning">Der Eingang lässt sich jetzt nicht anlegen: {blocked}</Notice>}
+            {/* The lock follows the chosen header outside: picking another one is always possible. */}
             {waiting !== null ? (
-              <div style={note}>{waiting}</div>
+              <p className={parts.note}>{waiting}</p>
             ) : (
-              <HeaderSearch headers={candidates} current={form.outsideHeader ?? -1} disabled={!form.connect} onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))} />
+              <>
+                {outsideHeader ? (
+                  <div className={parts.chip}>
+                    <Reference area="welt" label={headerLabel(outsideHeader)} tech={id4(outsideHeader.id)} onOpen={() => setPickingOutside(true)} disabled={!form.connect} dataAttrs={{ "data-header": outsideHeader.id }} />
+                  </div>
+                ) : (
+                  <p className={parts.note}>Kein {TERMS.header.label} außen gewählt.</p>
+                )}
+                <div className={parts.actions}>
+                  <Button kind="secondary" size="s" icon="search" disabled={!form.connect} onClick={() => setPickingOutside(true)}>
+                    {TERMS.header.label} außen wählen…
+                  </Button>
+                </div>
+                <HeaderPicker
+                  open={pickingOutside}
+                  onOpenChange={setPickingOutside}
+                  headers={candidates}
+                  onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))}
+                  title={`${TERMS.header.label} außen wählen`}
+                />
+              </>
             )}
-            <div style={note}>
-              {outsideHeader ? `Gewählt: ${id4(outsideHeader.id)} „${headerLabel(outsideHeader)}“` : `Kein ${TERMS.header.label} außen gewählt.`}
-            </div>
-          </fieldset>
-          <fieldset disabled={!connect} style={{ border: "none", padding: 0, margin: 0 }}>
-            <div style={heading}>Tür außen (Kachel im {TERMS.matrix.label} des {TERMS.header.label}s)</div>
-            {outsideMatrix && outsideSize && (
-              <div style={note}>
-                {TERMS.matrix.label} {id4(outsideMatrix.index)}: {outsideSize.x} × {outsideSize.z} Kacheln (x 0 bis {outsideSize.x - 1}, z 0 bis {outsideSize.z - 1}).
-              </div>
-            )}
-            {tileField("Außen: Kachel x", outsideX, outsideSize ? outsideSize.x - 1 : MATRIX_LAST_TILE, "x")}
-            {tileField("Außen: Kachel z", outsideZ, outsideSize ? outsideSize.z - 1 : MATRIX_LAST_TILE, "z")}
-            {sceneDefault && <div style={note}>Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).</div>}
+            {"error" in built && <Notice kind="error">{built.error}</Notice>}
+          </section>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Tür außen</h3>
+            <p className={parts.note}>
+              {outsideMatrix && outsideSize
+                ? `Kachel im ${TERMS.matrix.label} ${id4(outsideMatrix.index)}: ${outsideSize.x} × ${outsideSize.z} Kacheln (x 0 bis ${outsideSize.x - 1}, z 0 bis ${outsideSize.z - 1}).`
+                : `Kachel im ${TERMS.matrix.label} des ${TERMS.header.label}s außen.`}
+            </p>
+            {tileField("Außen: Kachel x", outsideX, outsideSize ? outsideSize.x - 1 : MATRIX_LAST_TILE, "x", !connect)}
+            {tileField("Außen: Kachel z", outsideZ, outsideSize ? outsideSize.z - 1 : MATRIX_LAST_TILE, "z", !connect)}
+            {sceneDefault && <p className={parts.note}>Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).</p>}
             {outsideHeader && outsideX === null && outsideZ === null && (
-              <div style={note}>
+              <p className={parts.note}>
                 Noch keine Kachel: die Maus war zuletzt nicht über diesem {TERMS.matrix.label}; x und z eintragen.
-              </div>
+              </p>
             )}
-            <div style={heading}>Tür innen, Rückweg (Kachel 0 bis {MAP_LAST_TILE} im neuen {TERMS.room.label})</div>
-            {tileField("Innen: Kachel x", form.insideX, MAP_LAST_TILE, "insideX")}
-            {tileField("Innen: Kachel z", form.insideZ, MAP_LAST_TILE, "insideZ")}
-            {!insideEdited && door && <div style={note}>aus der Vorlage übernommen (ihr erster Warp, Kachel x {door.x}, z {door.z}).</div>}
+            {outsideTile && <p className={outsideTile.fires ? parts.note : parts.warn}>Außen: {outsideTile.text}</p>}
+          </section>
+          <section className={parts.column}>
+            <h3 className={parts.heading}>Tür innen, Rückweg</h3>
+            <p className={parts.note}>
+              Kachel 0 bis {MAP_LAST_TILE} im neuen {TERMS.room.label}.
+            </p>
+            {tileField("Innen: Kachel x", form.insideX, MAP_LAST_TILE, "insideX", !connect)}
+            {tileField("Innen: Kachel z", form.insideZ, MAP_LAST_TILE, "insideZ", !connect)}
+            {!insideEdited && door && <p className={parts.note}>aus der Vorlage übernommen (ihr erster Warp, Kachel x {door.x}, z {door.z}).</p>}
             {!insideEdited && door && (door.x > MAP_LAST_TILE || door.z > MAP_LAST_TILE) && (
-              <div style={{ color: "#b45309", margin: "6px 0" }}>
+              <Notice kind="warning">
                 Dieser Warp liegt außerhalb der ersten {TERMS.map.label} der Vorlage und wurde auf Kachel x {form.insideX}, z {form.insideZ} begrenzt: prüfen.
-              </div>
+              </Notice>
             )}
-            {!insideEdited && !door && <div style={note}>Standardwert: die Vorlage hat keinen Warp.</div>}
+            {!insideEdited && !door && <p className={parts.note}>Standardwert: die Vorlage hat keinen Warp.</p>}
             {reused && (
-              <div style={note}>
+              <p className={parts.note}>
                 Die kopierte {TERMS.eventFile.label} hat hier schon {TERMS.warp.tech} {reused.index} (Ziel {TERMS.header.label} {id4(reused.dest_header_id)}): er wird zum Rückweg, es kommt kein zweiter dazu.
-              </div>
+              </p>
             )}
-            <div style={heading}>Tür-Kacheln</div>
-            {outsideTile && <div style={outsideTile.fires ? note : warn}>Außen: {outsideTile.text}</div>}
-            {insideTile && <div style={insideTile.fires ? note : warn}>Innen: {insideTile.text}</div>}
-            <label style={row}>
-              <input type="checkbox" checked={form.doorTiles} onChange={(e) => setForm((f) => ({ ...f, doorTiles: e.target.checked }))} />
-              Kacheln, auf denen ein {TERMS.warp.tech} nicht auslöst, zur Tür machen (Verhalten 0x69, Kollision 0x80)
-            </label>
-          </fieldset>
-          {"error" in built && <div style={{ color: "#b91c1c", marginTop: 8 }}>{built.error}</div>}
-        </div>
+            {insideTile && <p className={insideTile.fires ? parts.note : parts.warn}>Innen: {insideTile.text}</p>}
+            <Checkbox
+              label={`Kacheln, auf denen ein ${TERMS.warp.tech} nicht auslöst, zur Tür machen (Verhalten 0x69, Kollision 0x80)`}
+              checked={form.doorTiles}
+              disabled={!connect}
+              onChange={(doorTiles) => setForm((f) => ({ ...f, doorTiles }))}
+            />
+          </section>
+        </>
       ),
     },
     {
@@ -402,32 +415,39 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       title: "Zusammenfassung",
       canNext: "spec" in built,
       content: (
-        <div>
-          {"spec" in built ? (
-            roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }).map((line) => (
-              <p key={line} style={{ margin: "6px 0" }}>
-                {line}
-              </p>
-            ))
+        <section className={parts.column}>
+          {summaryLines ? (
+            <Notice kind="info">
+              <div className={parts.lines}>
+                {summaryLines.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            </Notice>
           ) : (
-            <p style={{ color: "#b91c1c" }}>{built.error}</p>
+            "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
-        </div>
+        </section>
       ),
     },
   ];
 
   let result = null;
+  let onShow: (() => void) | undefined;
+  let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec)} busy={busy} onShow={() => void show(report, spec)} />;
+    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec)} />;
+    onShow = () => void show(report, spec);
+    if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} />;
   }
 
   return (
-    <WizardShell
+    <WizardFrame
       title={`${TERMS.room.label} anlegen`}
+      icon="room"
       steps={steps}
       step={step}
       onStep={(i) => {
@@ -436,10 +456,14 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       }}
       submitLabel="Anlegen"
       onSubmit={() => void create()}
-      onClose={() => onClose(outcome !== null)}
+      onCancel={() => onClose(outcome !== null)}
+      onShow={onShow}
+      onPlay={play}
       busy={busy || patch.busy}
       result={result}
       error={refusal}
+      summary={"spec" in built ? roomSummary(built.spec, headers, undefined, links)[0] : undefined}
+      irreversible
     />
   );
 }

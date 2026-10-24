@@ -90,5 +90,43 @@
    "$type": "color",
    "$value": "#3152DE"
   }
+ },
+ "ds": {
+  "grund": {
+   "$type": "color",
+   "$value": "#182131"
+  },
+  "textbox": {
+   "flaeche": {
+    "$type": "color",
+    "$value": "#F7F7FF"
+   },
+   "rahmen": {
+    "$type": "color",
+    "$value": "#4A5263"
+   },
+   "text": {
+    "$type": "color",
+    "$value": "#394252"
+   }
+  },
+  "schild": {
+   "flaeche": {
+    "$type": "color",
+    "$value": "#E7D6B5"
+   },
+   "rahmen": {
+    "$type": "color",
+    "$value": "#6B5229"
+   },
+   "text": {
+    "$type": "color",
+    "$value": "#423921"
+   }
+  },
+  "pfeil": {
+   "$type": "color",
+   "$value": "#4A5263"
+  }
  }
 }

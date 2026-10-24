@@ -2,6 +2,7 @@ import { ContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
+import type { RowDataAttrs } from "./ListRow";
 import { MenuEntries } from "./Menu";
 import type { MenuEntry } from "./Menu";
 import menuStyles from "./Menu.module.css";
@@ -23,18 +24,20 @@ export type ReferenceProps = {
   label: string;
   /** Technical name or number, in mono after the label. */
   tech?: string;
-  /** Jumps to the target. */
+  /** Opens the target, or its picker where the target is a choice (a wizard's chosen header). */
   onOpen: () => void;
   /** Where else the target is used; a right click lists them. An empty list says "Nirgends verwendet". */
   usedIn?: { label: string; onOpen: () => void }[];
   /** The target cannot be opened right now (e.g. its tool is not ready); the chip stays visible but inert. */
   disabled?: boolean;
+  /** Pass-through `data-*` attributes of the chip (`data-header`, …) that tests and scripts address it by. */
+  dataAttrs?: RowDataAttrs;
 };
 
-/** A chip in the color of the target's area that jumps to it. */
-export function Reference({ area, label, tech, onOpen, usedIn, disabled }: ReferenceProps) {
+/** A chip in the color of the target's area that opens the target or its picker. */
+export function Reference({ area, label, tech, onOpen, usedIn, disabled, dataAttrs }: ReferenceProps) {
   const chip = (
-    <button type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled}>
+    <button {...dataAttrs} type="button" className={`${styles.chip} ${styles[area]}`} onClick={onOpen} disabled={disabled}>
       <Icon name={areaIcon[area]} />
       <span className={styles.label}>{label}</span>
       {tech && <span className={styles.tech}>{tech}</span>}

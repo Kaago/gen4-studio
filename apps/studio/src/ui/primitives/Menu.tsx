@@ -13,6 +13,8 @@ export type MenuProps = {
   /** The accessible name of the trigger; required when `trigger` is a symbol without text. */
   label?: string;
   items: readonly MenuEntry[];
+  /** Called with `true` when the menu opens and `false` when it closes (pick, Escape, click outside). */
+  onOpenChange?: (open: boolean) => void;
 };
 
 /** Renders the entries of a menu; the context menu of `Reference` shares it. */
@@ -29,9 +31,9 @@ export function MenuEntries({ items }: { items: readonly MenuEntry[] }) {
   );
 }
 
-export function Menu({ trigger, label, items }: MenuProps) {
+export function Menu({ trigger, label, items, onOpenChange }: MenuProps) {
   return (
-    <BaseMenu.Root>
+    <BaseMenu.Root onOpenChange={onOpenChange ? (open) => onOpenChange(open) : undefined}>
       <BaseMenu.Trigger className={styles.trigger} aria-label={label}>
         {trigger}
       </BaseMenu.Trigger>

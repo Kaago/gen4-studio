@@ -9,7 +9,7 @@ import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []) }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -96,12 +96,31 @@ describe("NewRoomWizard", () => {
     );
     await flush();
   }
-  const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
-  const rowButton = (id: string) => [...container.querySelectorAll("button")].find((b) => b.textContent?.startsWith(id));
+  const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+  /** A template room in the list of the first step, by its header number. */
+  const templateRow = (id: number) => container.querySelector<HTMLElement>(`[role="listbox"] [data-header="${id}"]`);
+  /** The rows of the open header picker (a dialog outside the container). */
+  const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
+  const option = (id: string) => options().find((o) => o.textContent?.includes(id));
+  async function openPicker(name: string) {
+    await click(button(name));
+    await flush();
+  }
+  /** Picks the header with this number: in step "Header" the room's own, in step "Eingang" the one outside. */
+  async function pickHeader(id: string, picker = "Header wählen…") {
+    await openPicker(picker);
+    await click(option(id));
+    await flush();
+  }
+  const pickOutside = (id: string) => pickHeader(id, "Header außen wählen…");
+  /** A checkbox by the start of its label. */
+  const checkbox = (label: string) => [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((c) => c.closest("label")?.textContent?.startsWith(label));
+  const checked = (el: Element | undefined) => el?.getAttribute("aria-checked") === "true";
+  const disabled = (el: Element | undefined) => el?.getAttribute("aria-disabled") === "true" || el?.hasAttribute("data-disabled") === true;
   const click = (el: Element | null | undefined) => act(async () => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   const next = () => click(button("Weiter"));
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
-  const current = () => container.querySelector('[aria-current="step"]')?.textContent;
+  const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
   async function type(input: HTMLInputElement, text: string) {
     await act(async () => input.focus());
     await act(async () => {
@@ -112,10 +131,10 @@ describe("NewRoomWizard", () => {
   }
   /** Template room 0002, new header 0003, then on to the step "Eingang". */
   async function toEntrance() {
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
   }
 
@@ -144,17 +163,17 @@ describe("NewRoomWizard", () => {
     });
     expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
     expect(container.textContent).toContain("Eingang: Warp 3 in Header 0000");
-    await click(button("Im Studio zeigen"));
+    await click(button("Zeigen"));
     expect(onCreated).toHaveBeenCalledWith(report, spec);
   });
 
   it("keeps_the_default_door_inside_and_leaves_the_door_outside_open_without_a_hovered_tile_or_template_warp", async () => {
     lastTile.mockReturnValue(null);
     await show();
-    await click(rowButton("0004"));
+    await click(templateRow(4));
     await flush();
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
     expect(field("Außen: Kachel x").value).toBe("");
     expect(field("Innen: Kachel x").value).toBe("16");
@@ -179,7 +198,7 @@ describe("NewRoomWizard", () => {
     await next();
     await next();
     // Header 0005 uses matrix 5, not the shown matrix 0: the tile stays open.
-    await click(rowButton("0005"));
+    await pickOutside("0005");
     expect(field("Außen: Kachel x").value).toBe("");
     expect(field("Außen: Kachel z").value).toBe("");
     expect(container.textContent).not.toContain("zuletzt in der Szene");
@@ -188,13 +207,14 @@ describe("NewRoomWizard", () => {
   });
 
   it("refuses_a_typed_door_outside_the_outside_matrix_instead_of_clamping_it", async () => {
-    // Gate 3a (F): x 999 became 959 without a word, in a cell without a map.
+    // Gate 3a (F): x 999 became 959 without a word, in a cell without a map. The field refuses it, names the bound and keeps the tile.
     await show({ outsideHeader: 0 });
     await toEntrance();
     await type(field("Außen: Kachel x"), "999");
-    expect(field("Außen: Kachel x").value).toBe("999");
-    expect(container.textContent).toContain("Kachel x 999, z 7 liegt außerhalb des Rasters (x 0 bis 63, z 0 bis 31).");
-    expect(button("Weiter")?.disabled).toBe(true);
+    expect(field("Außen: Kachel x").value).toBe("12");
+    expect(container.textContent).toContain("höchstens 63");
+    expect(container.textContent).toContain("0 bis 63");
+    expect(container.textContent).not.toContain("959");
     // The second cell has a map, but it belongs to header 0005: the village's warps are not loaded there.
     await type(field("Außen: Kachel x"), "40");
     expect(container.textContent).toContain("Kachel x 40, z 7 liegt in Zelle (1, 0) von Header 0005, nicht von 0000");
@@ -214,11 +234,11 @@ describe("NewRoomWizard", () => {
   it("makes_the_copied_door_warp_the_way_back_instead_of_adding_a_second_one", async () => {
     // Gate 3a (A) 12: with a copy of the template's event file, its exit warp stays on the inside door tile.
     await show();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     await next();
-    await click(rowButton("0003"));
-    await click([...container.querySelectorAll("input[type=radio]")].find((r) => r.parentElement?.textContent === "Kopie von 0008"));
+    await pickHeader("0003");
+    await click(button("Kopie von 0008"));
     await next();
     await flush();
     expect(container.textContent).toContain("Die kopierte Eventdatei hat hier schon Warp 0 (Ziel Header 0000): er wird zum Rückweg");
@@ -232,9 +252,9 @@ describe("NewRoomWizard", () => {
     await flush();
     expect(container.textContent).toContain("Außen: Verhalten 0x00, Kollision 0x00: ein Warp löst hier im Spiel nicht aus (keine Tür- oder Warp-Kachel).");
     expect(container.textContent).toContain("Innen: Verhalten 0x65 WARP_ENTRANCE_SOUTH, Kollision 0x00: ein Warp löst hier aus.");
-    const doors = [...container.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find((c) => c.parentElement?.textContent?.startsWith("Kacheln, auf denen"))!;
-    expect(doors.checked).toBe(true);
-    await click(doors);
+    expect(checked(checkbox("Kacheln, auf denen"))).toBe(true);
+    await click(checkbox("Kacheln, auf denen"));
+    expect(checked(checkbox("Kacheln, auf denen"))).toBe(false);
     await next();
     expect(container.textContent).toContain("Achtung: auf der Kachel außen löst ein Warp im Spiel nicht aus");
     await click(button("Anlegen"));
@@ -243,16 +263,16 @@ describe("NewRoomWizard", () => {
 
   it("can_go_on_after_clicking_the_chosen_template_again_or_taking_one_that_shares_its_matrix", async () => {
     await show();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     expect(button("Weiter")?.disabled).toBe(false);
-    await click(rowButton("0006"));
+    await click(templateRow(6));
     await flush();
     expect(button("Weiter")?.disabled).toBe(false);
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
     await next();
     await click(button("Anlegen"));
@@ -261,16 +281,16 @@ describe("NewRoomWizard", () => {
 
   it("says_where_the_inside_door_comes_from_and_when_it_was_limited_to_the_map", async () => {
     await show();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
     expect(container.textContent).toContain("aus der Vorlage übernommen");
     expect(container.textContent).not.toContain("begrenzt");
     await click(button("Zurück"));
     await click(button("Zurück"));
-    await click(rowButton("0006"));
+    await click(templateRow(6));
     await flush();
     await next();
     await next();
@@ -284,9 +304,9 @@ describe("NewRoomWizard", () => {
 
   it("keeps_an_inside_tile_the_user_typed_when_the_templates_door_arrives", async () => {
     await show();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
     await type(field("Innen: Kachel x"), "9");
     expect(field("Innen: Kachel x").value).toBe("9");
@@ -296,23 +316,52 @@ describe("NewRoomWizard", () => {
 
   it("lists_only_rooms_as_templates_and_narrows_them_by_the_search", async () => {
     await show();
-    expect(rowButton("0000")).toBeUndefined();
-    expect(["0002", "0003", "0004"].map((id) => rowButton(id) !== undefined)).toEqual([true, true, true]);
+    expect(templateRow(0)).toBeNull();
+    expect([2, 3, 4].map((id) => templateRow(id) !== null)).toEqual([true, true, true]);
+    // Each row names the room and its header; the place is the group above.
+    expect(templateRow(2)?.textContent).toBe("Spielerhaus0002 T01R0201");
     await type(field("Vorlage suchen"), "nachbar");
-    expect(rowButton("0002")).toBeUndefined();
-    expect(rowButton("0004")).toBeDefined();
+    expect(templateRow(2)).toBeNull();
+    expect(templateRow(4)).not.toBeNull();
+  });
+
+  it("clears_a_filled_template_search_with_the_first_escape_and_cancels_with_the_second", async () => {
+    await show();
+    const search = field("Vorlage suchen");
+    const escape = () => act(async () => void search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    await act(async () => search.focus());
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "nachbar");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(templateRow(2)).toBeNull();
+    await escape();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(search.value).toBe("");
+    expect(templateRow(2)).not.toBeNull();
+    await escape();
+    expect(onClose).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps_the_notes_of_the_template_list_outside_the_listbox", async () => {
+    await show();
+    await type(field("Vorlage suchen"), "gibtsnicht");
+    expect(container.textContent).toContain("Kein Raum gefunden");
+    expect(container.querySelector('[role="listbox"]')?.textContent).not.toContain("Kein Raum gefunden");
+    expect([...(container.querySelector('[role="listbox"]')?.children ?? [])].every((c) => c.getAttribute("role") === "group")).toBe(true);
   });
 
   it("gates_weiter_on_the_template_and_on_the_header", async () => {
     await show();
     expect(button("Weiter")?.disabled).toBe(true);
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
+    expect(templateRow(2)?.getAttribute("aria-selected")).toBe("true");
     expect(button("Weiter")?.disabled).toBe(false);
     await next();
     expect(current()).toBe("2. Header");
     expect(button("Weiter")?.disabled).toBe(true);
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     expect(button("Weiter")?.disabled).toBe(false);
   });
 
@@ -324,21 +373,23 @@ describe("NewRoomWizard", () => {
 
   it("does_not_offer_the_rooms_own_header_as_the_header_outside", async () => {
     await show({ outsideHeader: 0 });
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     await next();
     // Header 0000 is the prefilled outside header; making it the room's header drops it from the entrance.
-    await click(rowButton("0000"));
+    await pickHeader("0000");
     await next();
-    expect(rowButton("0000")).toBeUndefined();
     expect(button("Weiter")?.disabled).toBe(true);
     expect(container.textContent).toContain("Außen-Header wählen.");
+    await openPicker("Header außen wählen…");
+    expect(option("0000")).toBeUndefined();
+    expect(option("0005")).toBeDefined();
   });
 
   it("offers_the_prefilled_outside_header_even_when_it_is_a_room", async () => {
     await show({ outsideHeader: 4 });
     await toEntrance();
-    expect(rowButton("0004")).toBeDefined();
+    expect(container.querySelector('[data-header="4"]')?.textContent).toContain("Nachbarhaus");
     await type(field("Außen: Kachel x"), "3");
     await type(field("Außen: Kachel z"), "3");
     await next();
@@ -348,7 +399,10 @@ describe("NewRoomWizard", () => {
   it("makes_no_entrance_when_connecting_later", async () => {
     await show();
     await toEntrance();
-    await click(container.querySelector('input[aria-label="später verbinden"]'));
+    await click(checkbox("später verbinden"));
+    expect(checked(checkbox("später verbinden"))).toBe(true);
+    expect(field("Außen: Kachel x").disabled).toBe(true);
+    expect(button("Header außen wählen…")?.disabled).toBe(true);
     await next();
     expect(container.textContent).toContain("Legt keinen Eingang an");
     await click(button("Anlegen"));
@@ -361,9 +415,8 @@ describe("NewRoomWizard", () => {
     await toEntrance();
     expect(container.textContent).toContain("schreibgeschützt");
     expect(container.textContent).toContain("17 bytes read");
-    const later = container.querySelector<HTMLInputElement>('input[aria-label="später verbinden"]')!;
-    expect(later.checked).toBe(true);
-    expect(later.disabled).toBe(true);
+    expect(checked(checkbox("später verbinden"))).toBe(true);
+    expect(disabled(checkbox("später verbinden"))).toBe(true);
     await next();
     expect(container.textContent).toContain("Legt keinen Eingang an (Eventdatei 0005 (Außen) ist schreibgeschützt: 17 bytes read)");
     await click(button("Anlegen"));
@@ -376,13 +429,11 @@ describe("NewRoomWizard", () => {
     await toEntrance();
     expect(container.textContent).toContain("schreibgeschützt");
     // The picker stays usable: header 0005 has an editable event file.
-    expect(rowButton("0005")?.disabled).toBe(false);
-    await click(rowButton("0005"));
-    await flush();
+    expect(button("Header außen wählen…")?.disabled).toBe(false);
+    await pickOutside("0005");
     expect(container.textContent).not.toContain("schreibgeschützt");
-    const later = container.querySelector<HTMLInputElement>('input[aria-label="später verbinden"]')!;
-    expect(later.checked).toBe(false);
-    expect(later.disabled).toBe(false);
+    expect(checked(checkbox("später verbinden"))).toBe(false);
+    expect(disabled(checkbox("später verbinden"))).toBe(false);
     await type(field("Außen: Kachel x"), "4");
     await type(field("Außen: Kachel z"), "5");
     await next();
@@ -393,11 +444,11 @@ describe("NewRoomWizard", () => {
   it("makes_no_entrance_when_a_copy_of_a_locked_template_event_file_is_asked_for", async () => {
     lockedFiles[8] = "boom";
     await show();
-    await click(rowButton("0002"));
+    await click(templateRow(2));
     await flush();
     await next();
-    await click(rowButton("0003"));
-    await click([...container.querySelectorAll("input[type=radio]")].find((r) => r.parentElement?.textContent === "Kopie von 0008"));
+    await pickHeader("0003");
+    await click(button("Kopie von 0008"));
     await next();
     await flush();
     expect(container.textContent).toContain("schreibgeschützt");
@@ -418,31 +469,31 @@ describe("NewRoomWizard", () => {
     );
     await flush();
     expect(container.textContent).toContain("Lade Übersicht …");
-    expect(rowButton("0002")).toBeUndefined();
+    expect(templateRow(2)).toBeNull();
     expect(container.textContent).not.toContain("Kein Raum gefunden");
     // The template the request names is still the chosen one.
     await next();
-    await click(rowButton("0003"));
+    await pickHeader("0003");
     await next();
     expect(container.textContent).toContain("Lade Übersicht …");
-    // The only list items left are the four steps: no outside header is offered.
-    expect(container.querySelectorAll("li")).toHaveLength(4);
+    // No outside header is offered.
+    expect(button("Header außen wählen…")).toBeUndefined();
   });
 
   it("says_the_overview_is_not_available_when_reading_it_failed", async () => {
     await show({ outsideHeader: 0 }, { loaded: false, failed: true });
     expect(container.textContent).toContain("Übersicht nicht verfügbar");
     expect(container.textContent).not.toContain("Lade Übersicht");
-    expect(rowButton("0002")).toBeUndefined();
+    expect(templateRow(2)).toBeNull();
   });
 
   it("refuses_an_inside_tile_off_the_map_instead_of_clamping_it", async () => {
     await show();
     await toEntrance();
     await type(field("Innen: Kachel x"), "40");
-    expect(field("Innen: Kachel x").value).toBe("40");
-    expect(container.textContent).toContain("Kachel liegt außerhalb der Karte (0 bis 31).");
-    expect(button("Weiter")?.disabled).toBe(true);
+    expect(field("Innen: Kachel x").value).toBe("5");
+    expect(container.textContent).toContain("höchstens 31");
+    expect(button("Weiter")?.disabled).toBe(false);
   });
 
   it("stays_on_the_summary_and_shows_a_refusal_that_created_nothing_inside_the_dialog", async () => {
@@ -467,16 +518,18 @@ describe("NewRoomWizard", () => {
     expect(onError).not.toHaveBeenCalled();
     // In German, with the system's reason as it came.
     expect(container.textContent).toContain("Angelegt: Karte 0571, Raster 0131. Danach fehlgeschlagen: Header umstellen (boom).");
-    expect(button("Im Studio zeigen")).toBeUndefined();
+    expect(button("Zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
   });
 
   describe("a new header", () => {
-    const radio = (label: string) => [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find((r) => r.parentElement?.textContent?.startsWith(label));
+    /** An option of a `Segmented` by its text. */
+    const radio = (label: string) => button(label) as HTMLButtonElement | undefined;
+    const pressed = (label: string) => radio(label)?.getAttribute("aria-pressed") === "true";
     async function toHeaderStep() {
       await show();
-      await click(rowButton("0002"));
+      await click(templateRow(2));
       await flush();
       await next();
     }
@@ -498,14 +551,14 @@ describe("NewRoomWizard", () => {
     it("starts_with_a_new_event_file_and_says_that_keeping_it_shares_the_templates", async () => {
       await toHeaderStep();
       await click(radio("Neuer Header"));
-      expect(radio("neu, leer")?.checked).toBe(true);
-      await click(radio("behalten"));
+      expect(pressed("Neu, leer")).toBe(true);
+      await click(radio("Behalten"));
       await next();
       await flush();
       // The shared file is the template's: its door warp stands on the inside tile, and is not the wizard's to repoint.
       expect(container.textContent).toContain("Auf Kachel x 5, z 6 innen liegt schon Warp 0 der Eventdatei 0008, die der Raum behält");
       expect(button("Weiter")?.disabled).toBe(true);
-      await click(container.querySelector('input[aria-label="später verbinden"]'));
+      await click(checkbox("später verbinden"));
       await next();
       expect(container.textContent).toContain("Eventdatei: behalten (geteilt mit Header 0002)");
     });
@@ -520,7 +573,7 @@ describe("NewRoomWizard", () => {
 
   it("closes_with_escape_and_reports_that_nothing_was_written", async () => {
     await show();
-    await act(async () => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createRoom).not.toHaveBeenCalled();
   });

@@ -15,7 +15,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true, toolLocked: (() => false) as (tool: string) => boolean };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -27,7 +27,8 @@ describe("useShortcuts", () => {
   beforeEach(() => {
     env.tauri = false;
     handlers.toolsActive = true;
-    for (const fn of Object.values(handlers)) if (typeof fn === "function") fn.mockClear();
+    handlers.toolLocked = () => false;
+    for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -48,6 +49,29 @@ describe("useShortcuts", () => {
     expect(handlers.step).toHaveBeenCalledOnce();
     await press({ key: "s", metaKey: true });
     expect(handlers.onSave).toHaveBeenCalledOnce();
+  });
+
+  it("neither_deletes_nor_unpins_the_selection_of_the_hidden_world_on_another_area", async () => {
+    // Texte, Technik, Start: the building or event stays pinned in the hidden world, but Delete and Escape there are not its keys.
+    handlers.toolsActive = false;
+    await press({ key: "Delete" });
+    await press({ key: "Backspace" });
+    await press({ key: "Escape" });
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.onDeleteEvent).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+  });
+
+  it("leaves_a_delete_or_escape_that_something_else_already_handled", async () => {
+    // A document tab in "Offene Scripts" closes on Delete (and prevents the default): the pinned event must not be deleted as well.
+    for (const key of ["Delete", "Backspace", "Escape"]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      event.preventDefault();
+      await act(async () => void document.body.dispatchEvent(event));
+    }
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.onDeleteEvent).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
   });
 
   it("ignores_every_shortcut_while_a_modal_dialog_is_open_wherever_the_key_goes", async () => {
@@ -72,6 +96,33 @@ describe("useShortcuts", () => {
     expect(handlers.unpinSelection).toHaveBeenCalledOnce();
   });
 
+  it("ignores_delete_undo_save_play_and_the_tool_letters_while_a_wizard_is_open", async () => {
+    env.tauri = true;
+    // A wizard is a non-modal dialog in the hand: the scene stays usable, the workbench's keys do not.
+    const wizard = document.createElement("div");
+    wizard.setAttribute("role", "dialog");
+    wizard.setAttribute("data-wizard", "");
+    document.body.append(wizard);
+    for (const target of [document.body, wizard]) {
+      await press({ key: "Delete" }, target);
+      await press({ key: "Backspace" }, target);
+      await press({ key: "Escape" }, target);
+      await press({ key: "z", metaKey: true }, target);
+      await press({ key: "s", metaKey: true }, target);
+      await press({ key: "r", metaKey: true }, target);
+      await press({ key: "b" }, target);
+    }
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+    expect(handlers.step).not.toHaveBeenCalled();
+    expect(handlers.onSave).not.toHaveBeenCalled();
+    expect(handlers.onPlay).not.toHaveBeenCalled();
+    expect(handlers.onTool).not.toHaveBeenCalled();
+    wizard.remove();
+    await press({ key: "Delete" });
+    expect(handlers.onDeleteBuilding).toHaveBeenCalledOnce();
+  });
+
   it("plays_on_cmd_r_inside_the_app_and_leaves_the_reload_to_the_browser", async () => {
     env.tauri = true;
     await press({ key: "r", metaKey: true });
@@ -88,6 +139,72 @@ describe("useShortcuts", () => {
     await act(async () => void document.body.dispatchEvent(reload));
     expect(handlers.onPlay).not.toHaveBeenCalled();
     expect(reload.defaultPrevented).toBe(false);
+  });
+
+  it("opens_a_project_on_cmd_o_once_per_press_and_keeps_the_browser_from_its_own_open", async () => {
+    const event = new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(event));
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    await press({ key: "o", metaKey: true, repeat: true });
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+    // Not while the world's tools are away either: Cmd+O works on every area.
+    handlers.toolsActive = false;
+    await press({ key: "o", ctrlKey: true });
+    expect(handlers.onOpenProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("does_not_open_a_project_while_a_wizard_or_a_modal_dialog_is_open", async () => {
+    for (const attrs of [{ role: "dialog", "data-wizard": "" }, { role: "dialog", "aria-modal": "true" }]) {
+      const cover = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) cover.setAttribute(name, value);
+      document.body.append(cover);
+      await press({ key: "o", metaKey: true });
+      cover.remove();
+    }
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
+  });
+
+  it("opens_the_palette_on_cmd_k_once_per_press_from_any_area_and_even_while_typing", async () => {
+    const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(event));
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    await press({ key: "k", metaKey: true, repeat: true });
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    handlers.toolsActive = false;
+    await press({ key: "K", ctrlKey: true });
+    expect(handlers.onPalette).toHaveBeenCalledTimes(2);
+    const field = document.createElement("input");
+    container.append(field);
+    await press({ key: "k", metaKey: true }, field);
+    expect(handlers.onPalette).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves_ctrl_k_and_ctrl_o_that_an_editor_already_used", async () => {
+    // On a Mac, CodeMirror's Ctrl+K deletes to the line end and Ctrl+O splits the line: they use the key, the palette and the open dialog stay shut.
+    for (const key of ["k", "o"]) {
+      const used = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+      used.preventDefault();
+      await act(async () => void document.body.dispatchEvent(used));
+    }
+    expect(handlers.onPalette).not.toHaveBeenCalled();
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
+    await press({ key: "k", ctrlKey: true });
+    await press({ key: "o", ctrlKey: true });
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+    expect(handlers.onOpenProject).toHaveBeenCalledOnce();
+  });
+
+  it("does_not_open_the_palette_while_a_wizard_or_a_modal_dialog_is_open", async () => {
+    for (const attrs of [{ role: "dialog", "data-wizard": "" }, { role: "dialog", "aria-modal": "true" }]) {
+      const cover = document.createElement("div");
+      for (const [name, value] of Object.entries(attrs)) cover.setAttribute(name, value);
+      document.body.append(cover);
+      await press({ key: "k", metaKey: true });
+      cover.remove();
+    }
+    expect(handlers.onPalette).not.toHaveBeenCalled();
   });
 
   it("does_not_play_while_a_modal_dialog_is_open", async () => {
@@ -122,6 +239,17 @@ describe("useShortcuts", () => {
       await press({ key: "v" });
       expect(handlers.onTool).toHaveBeenLastCalledWith("select");
       expect(handlers.onTool).toHaveBeenCalledTimes(3);
+    });
+
+    it("does_nothing_with_the_letter_of_a_locked_tool", async () => {
+      // Without a place (or with the event file locked) the event tools are locked: their letters change nothing.
+      handlers.toolLocked = (tool) => tool === "figure" || tool === "door";
+      await press({ key: "f" });
+      await press({ key: "t" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      await press({ key: "b" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
+      expect(handlers.onTool).toHaveBeenCalledOnce();
     });
 
     it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {
@@ -231,7 +359,7 @@ describe("useShortcuts", () => {
     const event = new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true, cancelable: true });
     await act(async () => void field.dispatchEvent(event));
     expect(event.defaultPrevented).toBe(false);
-    for (const fn of Object.values(handlers)) if (typeof fn === "function") expect(fn).not.toHaveBeenCalled();
+    for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) expect(fn).not.toHaveBeenCalled();
     field.remove();
   });
 });

@@ -1,9 +1,14 @@
 import type { Diagnostic } from "@codemirror/lint";
 import { ask } from "../../platform/dialogs";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectInfo } from "../../api";
+import { toolStatus } from "../../app/toolStatus";
+import type { LspToolState } from "../../app/toolStatus";
 import { useStableCallback } from "../../app/useStable";
+import type { Depth } from "../../ui/frame/shellState";
+import { Badge, Button, EmptyState, Menu, PanelHead, Tabs } from "../../ui/primitives";
+import type { BadgeKind, MenuEntry, TabItem } from "../../ui/primitives";
+import { effectiveTheme, onThemeChange } from "../../ui/tokens/theme";
 import type { EditBus } from "../../bus/editBus";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
@@ -13,9 +18,11 @@ import { scriptUri } from "./documents";
 import type { ScriptDocument } from "./documents";
 import { documentSymbols } from "./lspExtras";
 import { ScriptEditor } from "./ScriptEditor";
+import { scriptDirtyStore } from "./scriptDirtyStore";
 import type { ScriptsApi } from "./useScripts";
 import { useLsp } from "./useLsp";
-import type { LspStatus } from "./useLsp";
+import type { LspState, LspStatus } from "./useLsp";
+import styles from "./ScriptPanel.module.css";
 
 /** What the script panel needs from App. */
 export interface ScriptPanelContext {
@@ -26,13 +33,10 @@ export interface ScriptPanelContext {
   problems: ProblemsStore;
   /** Where saved text archives announce themselves to the language server. A stable object. */
   bus: EditBus;
+  /** Tüfteln shows the path of the shown file under its title. */
+  depth: Depth;
   onError: (e: unknown) => void;
 }
-
-const bar: CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" };
-const note: CSSProperties = { margin: 0, padding: "8px 12px", color: "#6b7280" };
-const tab: CSSProperties = { all: "unset", cursor: "pointer", padding: "2px 8px", borderRadius: 4, border: "1px solid #d1d5db", whiteSpace: "nowrap" };
-const activeTab: CSSProperties = { ...tab, background: "var(--g4-auswahl-flaeche)", color: "var(--g4-text-primaer)", borderColor: "#2563eb", fontWeight: 700 };
 
 /** "Scriptdatei 0042" / "Level-Script 0042": how documents are named in questions and lists. */
 export const docName = (doc: Pick<ScriptDocument, "file" | "kind">) => `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(doc.file)}`;
@@ -54,72 +58,75 @@ function liveProblems(doc: ScriptDocument, diagnostics: Diagnostic[]) {
   });
 }
 
-/** The outline menu: the symbols of the shown document from the language server, loaded when the menu opens. */
+const note = (label: string): MenuEntry => ({ label, disabled: true, onSelect: () => {} });
+const LOADING = [note("Gliederung wird geladen …")];
+
+/** The outline menu: the symbols of the shown document from the language server, loaded each time the menu opens. */
 function Outline({ lsp, uri, onJump }: { lsp: LspStatus; uri: string; onJump: (line: number) => void }) {
-  const [menu, setMenu] = useState<{ items: { name: string; detail?: string; line: number }[] } | { error: string } | null>(null);
-  const [seenUri, setSeenUri] = useState(uri);
-  if (seenUri !== uri) {
-    setSeenUri(uri);
-    setMenu(null);
-  }
-  async function toggle() {
-    if (menu || !lsp.client) return setMenu(null);
-    setMenu({ items: [] });
-    try {
-      setMenu({ items: await documentSymbols(lsp.client, uri) });
-    } catch {
-      setMenu({ error: "Gliederung nicht verfügbar" });
-    }
-  }
-  return (
-    <span style={{ position: "relative" }}>
-      <button onClick={() => void toggle()} disabled={!lsp.client} title={lsp.client ? "Springt zu einem Script der Datei" : "Braucht rotom-lsp"}>
+  const [entries, setEntries] = useState<readonly MenuEntry[]>(LOADING);
+  // Only the answer to the latest opening counts.
+  const request = useRef(0);
+  const client = lsp.client;
+  if (!client) {
+    return (
+      <Button kind="quiet" size="s" disabled title="Braucht rotom-lsp">
         Gliederung
-      </button>
-      {menu && (
-        <ul role="menu" style={{ position: "absolute", zIndex: 10, margin: 0, padding: 4, listStyle: "none", background: "var(--g4-flaeche-blatt)", color: "var(--g4-text-primaer)", border: "1px solid #d1d5db", borderRadius: 4, minWidth: 180, maxHeight: 240, overflowY: "auto" }}>
-          {"error" in menu ? (
-            <li style={{ padding: "2px 8px", color: "#6b7280" }}>{menu.error}</li>
-          ) : (
-            menu.items.map((s) => (
-              <li key={`${s.line}:${s.name}`}>
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setMenu(null);
-                    onJump(s.line);
-                  }}
-                  style={{ all: "unset", cursor: "pointer", display: "block", padding: "2px 8px", width: "100%", boxSizing: "border-box" }}
-                >
-                  {s.name}
-                  {s.detail ? ` ${s.detail}` : ""} · Zeile {s.line}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      )}
-    </span>
-  );
+      </Button>
+    );
+  }
+  function onOpenChange(open: boolean) {
+    if (!open || !client) return;
+    const mine = ++request.current;
+    setEntries(LOADING);
+    documentSymbols(client, uri).then(
+      (symbols) => {
+        if (mine !== request.current) return;
+        setEntries(
+          symbols.length === 0
+            ? [note("Keine Scripts in der Datei")]
+            : symbols.map((s) => ({ label: `${s.name}${s.detail ? ` ${s.detail}` : ""}, Z. ${s.line}`, onSelect: () => onJump(s.line) })),
+        );
+      },
+      () => mine === request.current && setEntries([note("Gliederung nicht verfügbar")]),
+    );
+  }
+  return <Menu trigger="Gliederung" items={entries} onOpenChange={onOpenChange} />;
 }
 
-function lspText(lsp: LspStatus): string | null {
+const LSP_BADGE: Record<LspState, BadgeKind> = { starting: "neutral", running: "success", missing: "warning", stopped: "error" };
+/** The badge's short words; the whole note is its tooltip (a long note would wrap the panel head in a narrow hand). */
+const LSP_SHORT: Record<LspState, string> = { starting: "rotom-lsp startet", running: "rotom-lsp läuft", missing: "rotom-lsp fehlt", stopped: "rotom-lsp gestoppt" };
+/** The panel's states in the words of Technik's tool status. */
+const LSP_TOOL: Record<LspState, LspToolState> = { starting: "startet", running: "bereit", missing: "fehlt", stopped: "fehler" };
+
+function lspText(lsp: LspStatus): string {
   switch (lsp.state) {
     case "starting":
       return "Sprachdienst startet …";
     case "running":
       return "rotom-lsp läuft";
     default:
-      return lsp.note;
+      return lsp.note ?? "rotom-lsp läuft nicht";
   }
 }
 
-/** The Script panel (spec §8.2): the adoption box until rotom has taken the scripts over, then the documents with their editor. */
+/** Why Technik › Werkzeuge shows the server off while the project's scripts are not adopted. */
+const NOT_ADOPTED = "Läuft, sobald die Scripts des Projekts übernommen sind.";
+
+/** The Script panel (spec §7.3): the adoption box until rotom has taken the scripts over, then the documents as tabs with their editor. */
 export const ScriptPanel = memo(function ScriptPanel({ context }: { context: ScriptPanelContext }) {
-  const { project, scripts, problems, bus, onError } = context;
+  const { project, scripts, problems, bus, depth, onError } = context;
   const { status, documents, active, open, save, close, add, adopt, onChange } = scripts;
   const adopted = status?.adopted === true;
   const lsp = useLsp(project, adopted, bus);
+  // Technik › Werkzeuge shows the server's state and restarts it through the panel. Without an adopted project it does not run.
+  const serving = project !== null && adopted;
+  useEffect(() => {
+    toolStatus.set({ lsp: serving ? { state: LSP_TOOL[lsp.state], note: lsp.note ?? undefined, restart: lsp.restart } : { state: "aus", note: NOT_ADOPTED } });
+  }, [serving, lsp.state, lsp.note, lsp.restart]);
+  // The panel's server ends with the panel.
+  useEffect(() => () => toolStatus.set({ lsp: { state: "aus" } }), []);
+  const theme = useSyncExternalStore(onThemeChange, effectiveTheme);
   // The box stays after the adoption until its report was read.
   const [reading, setReading] = useState(false);
   const [seenProject, setSeenProject] = useState(project);
@@ -131,6 +138,10 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
   const doc = active === null ? undefined : documents.get(active);
   const shown = useRef<ScriptDocument | undefined>(undefined);
   shown.current = doc;
+
+  // The dock tab "Script" shows a dot while a document is unsaved; this panel renders again with every change of the dirty set.
+  useEffect(() => scriptDirtyStore.set(documents.dirty().length));
+  useEffect(() => () => scriptDirtyStore.set(0), []);
 
   const onDiagnostics = useCallback(
     (diagnostics: Diagnostic[]) => problems.replaceLive(shown.current ? liveProblems(shown.current, diagnostics) : []),
@@ -148,15 +159,16 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
     if (shown.current) save(shown.current.file).catch(onError);
   });
 
-  async function closeDocument(target: ScriptDocument) {
+  async function closeDocument(target: ScriptDocument | undefined) {
+    if (!target) return;
     if (isDirty(target) && !(await ask(`Änderungen an ${docName(target)} verwerfen?`, { kind: "warning" }))) return;
     close(target.file);
   }
 
-  if (!project || !status) return <p style={note}>{project ? "Scripts werden geprüft …" : "Kein Projekt geöffnet."}</p>;
+  if (!project || !status) return <p className={styles.note}>{project ? "Scripts werden geprüft …" : "Kein Projekt geöffnet."}</p>;
   if (!adopted || reading) {
     return (
-      <div style={{ height: "100%", overflowY: "auto" }}>
+      <div className={styles.scroll}>
         <AdoptBox
           fileCount={status.file_count}
           adopt={async (onProgress) => {
@@ -175,57 +187,75 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
     );
   }
 
-  const open_ = documents.list();
+  const openDocs = documents.list();
   const uri = doc ? scriptUri(project.root, doc.file, doc.kind) : "";
+  const tabs: TabItem[] = openDocs.map((d) => ({
+    id: String(d.file),
+    label: docName(d),
+    unsaved: isDirty(d),
+    closeLabel: `${docName(d)} schließen`,
+    dataAttrs: { "data-script": d.file },
+  }));
   const lspNote = lspText(lsp);
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minWidth: 0, fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
-      <div style={bar}>
-        {open_.length === 0 && <span style={{ color: "#6b7280" }}>Kein Script geöffnet</span>}
-        {open_.map((d) => (
-          <span key={d.file} style={{ display: "inline-flex", gap: 2 }}>
-            <button data-script={d.file} onClick={() => void open(d.file)} aria-current={d.file === active ? "true" : undefined} style={d.file === active ? activeTab : tab}>
-              {isDirty(d) ? "● " : ""}
-              {docName(d)}
-            </button>
-            <button aria-label={`${docName(d)} schließen`} onClick={() => void closeDocument(d)} style={{ ...tab, padding: "2px 5px" }}>
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <div style={bar}>
-        {doc ? (
+    <section className={styles.panel} aria-label="Script">
+      <PanelHead
+        title={doc ? docTitle(doc) : "Script"}
+        subtitle={doc && depth === "tuefteln" ? scriptPath(doc.file, doc.kind) : undefined}
+        actions={
           <>
-            <strong>{docTitle(doc)}</strong>
-            <Outline lsp={lsp} uri={uri} onJump={(line) => void open(doc.file, line)} />
-            <button onClick={() => onSave()}>Speichern</button>
-            <button onClick={() => void add(doc.file)} disabled={doc.kind !== "script"} title="Hängt ein leeres Script an die Datei an">
-              Script anfügen
-            </button>
+            {doc && (
+              <>
+                <Outline lsp={lsp} uri={uri} onJump={(line) => void open(doc.file, line)} />
+                <Button kind="secondary" size="s" icon="save" onClick={() => onSave()}>
+                  Speichern
+                </Button>
+                <Button kind="quiet" size="s" icon="plus" onClick={() => void add(doc.file)} disabled={doc.kind !== "script"} title="Hängt ein leeres Script an die Datei an">
+                  Script anfügen
+                </Button>
+              </>
+            )}
+            {lsp.state === "stopped" && (
+              <Button kind="quiet" size="s" onClick={lsp.restart}>
+                Neu starten
+              </Button>
+            )}
           </>
-        ) : (
-          <span style={{ color: "#6b7280" }}>Eine {TERMS.scriptFile.label} öffnet sich über den Header, ein Event oder ein Problem.</span>
-        )}
-        <span style={{ marginLeft: "auto", color: lsp.state === "running" ? "#6b7280" : "#b45309" }} data-lsp={lsp.state}>
-          {lspNote}
-        </span>
-        {lsp.state === "stopped" && <button onClick={lsp.restart}>Neu starten</button>}
-      </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {doc && (
-          <ScriptEditor
-            doc={doc}
-            language={doc.kind === "script" ? "rotom" : "json"}
-            lsp={lsp.client}
-            uri={uri}
-            onChange={onEditorChange}
-            onDiagnostics={onDiagnostics}
-            theme="light"
-          />
-        )}
-      </div>
-    </div>
+        }
+        status={
+          <span className={styles.lsp} data-lsp={lsp.state}>
+            <Badge kind={LSP_BADGE[lsp.state]} title={lspNote}>
+              {LSP_SHORT[lsp.state]}
+            </Badge>
+          </span>
+        }
+      />
+      {openDocs.length === 0 ? (
+        <EmptyState what="Kein Script geöffnet." why={`Eine ${TERMS.scriptFile.label} öffnet sich über den Header, ein Event oder ein Problem.`} />
+      ) : (
+        <div className={styles.tabs}>
+          <Tabs
+            items={tabs}
+            value={active === null ? "" : String(active)}
+            onChange={(id) => void open(Number(id))}
+            onClose={(id) => void closeDocument(documents.get(Number(id)))}
+            ariaLabel="Offene Scripts"
+          >
+            {doc && (
+              <ScriptEditor
+                doc={doc}
+                language={doc.kind === "script" ? "rotom" : "json"}
+                lsp={lsp.client}
+                uri={uri}
+                onChange={onEditorChange}
+                onDiagnostics={onDiagnostics}
+                theme={theme}
+              />
+            )}
+          </Tabs>
+        </div>
+      )}
+    </section>
   );
 });
 

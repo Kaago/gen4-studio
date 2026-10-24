@@ -171,4 +171,192 @@ describe("Picker", () => {
     render({ open: false });
     expect(document.querySelector("[role=dialog]")).toBeNull();
   });
+
+  describe("palette variant", () => {
+    const paletteItems: PickerItem[] = [
+      { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open", shortcut: "⌘O" },
+      { id: "cmd-save", label: "Speichern", group: "Befehle", icon: "save", shortcut: "⌘S", description: "Schreibt alle Änderungen" },
+      { id: "cmd-build", label: "Bauen", group: "Befehle", icon: "build" },
+      { id: 411, label: "Zweiblattdorf", tech: "T01R0101", group: "Orte", area: "welt" },
+      { id: 512, label: "Sandgemme", tech: "T01R0102", group: "Orte", area: "welt" },
+      { id: 513, label: "Jubelstadt", tech: "T01R0201", group: "Orte", area: "welt" },
+      { id: "text-412", label: "Zweiblattdorf", tech: "0412", group: "Textarchive", area: "texte" },
+    ];
+    const renderPalette = (props: Partial<Parameters<typeof Picker>[0]> = {}) => render({ variant: "palette", items: paletteItems, title: "Befehlspalette", ...props });
+    const labels = () => options().map((o) => o.textContent ?? "");
+    const tick = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    it("limit_per_group_shows_that_many_per_group_and_counts_all_hits_in_the_footer", () => {
+      renderPalette({ limitPerGroup: 2 });
+      expect(options()).toHaveLength(5);
+      expect(labels().filter((t) => t.includes("Bauen"))).toHaveLength(0);
+      expect(labels().filter((t) => t.includes("Jubelstadt"))).toHaveLength(0);
+      expect(document.querySelector("[role=dialog]")!.textContent).toContain("7 Treffer");
+    });
+
+    it("the_limit_applies_after_filtering", () => {
+      renderPalette({ limitPerGroup: 1 });
+      type("t01r");
+      // Three places match; one row is shown, the count is the hits before cutting.
+      expect(options()).toHaveLength(1);
+      expect(document.querySelector("[role=dialog]")!.textContent).toContain("3 Treffer");
+    });
+
+    it("empty_query_groups_show_only_those_groups_until_something_is_typed", () => {
+      renderPalette({ emptyQueryGroups: ["Befehle"] });
+      expect(labels().map((t) => t.includes("Zweiblattdorf"))).not.toContain(true);
+      expect(options()).toHaveLength(3);
+      type("sand");
+      expect(labels()).toEqual([expect.stringContaining("Sandgemme")]);
+    });
+
+    it("group_order_sorts_the_groups_and_keeps_the_rest_after_them", () => {
+      renderPalette({ groupOrder: ["Textarchive", "Orte"] });
+      const text = [...document.querySelectorAll("[role=group]")].map((g) => g.textContent ?? "");
+      expect(text).toHaveLength(3);
+      expect(text[0]).toContain("Textarchive");
+      expect(text[1]).toContain("Orte");
+      expect(text[2]).toContain("Befehle");
+    });
+
+    it("a_number_finds_the_item_by_its_tech_prefix", () => {
+      renderPalette();
+      type("0412");
+      expect(labels()).toEqual([expect.stringContaining("Zweiblattdorf")]);
+      expect(options()[0]!.textContent).toContain("0412");
+    });
+
+    it("a_query_also_matches_the_description", () => {
+      renderPalette();
+      type("änderungen");
+      expect(labels()).toEqual([expect.stringContaining("Speichern")]);
+    });
+
+    it("shows_the_shortcut_the_description_and_marks_the_match", () => {
+      renderPalette();
+      expect(options()[1]!.querySelector("kbd")!.textContent).toBe("⌘S");
+      expect(options()[1]!.textContent).toContain("Schreibt alle Änderungen");
+      type("speich");
+      const mark = options()[0]!.querySelector("mark");
+      expect(mark).not.toBeNull();
+      expect(mark!.textContent!.toLowerCase()).toBe("speich");
+    });
+
+    it("hides_the_close_button_and_names_the_dialog_for_screen_readers", () => {
+      renderPalette();
+      expect(document.querySelector("[aria-label=Schließen]")).toBeNull();
+      expect(document.querySelector("[role=dialog]")!.getAttribute("aria-labelledby")).not.toBeNull();
+      expect(document.querySelector("[role=dialog]")!.textContent).toContain("Befehlspalette");
+    });
+
+    it("shows_the_key_hint_in_the_footer", () => {
+      renderPalette();
+      expect(document.querySelector("[role=dialog]")!.textContent).toContain("↑↓ wählen, ↵ ausführen");
+    });
+
+    it("on_pick_comes_after_the_close_request_on_the_next_tick", async () => {
+      const order: string[] = [];
+      const { onPick, onOpenChange } = renderPalette();
+      onOpenChange.mockImplementation((open: boolean) => order.push(open ? "open" : "close"));
+      onPick.mockImplementation(() => order.push("pick"));
+      type("sand");
+      pressKey(input(), "Enter");
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onPick).not.toHaveBeenCalled();
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 512 });
+      // The owner may be asked to close more than once; what counts is that the pick comes last.
+      expect(order[0]).toBe("close");
+      expect(order[order.length - 1]).toBe("pick");
+      expect(order.filter((o) => o === "pick")).toHaveLength(1);
+    });
+
+    it("two_enters_in_a_row_pick_only_once_per_opening", async () => {
+      const { onPick } = renderPalette();
+      type("sand");
+      pressKey(input(), "Enter");
+      pressKey(input(), "Enter");
+      await tick();
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(1);
+    });
+
+    it("a_reopened_palette_picks_again", async () => {
+      const { onPick } = renderPalette();
+      type("sand");
+      pressKey(input(), "Enter");
+      await tick();
+      act(() => root.render(<Picker open={false} onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+      act(() => root.render(<Picker open onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+      type("sand");
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(2);
+    });
+
+    it("a_palette_reopened_while_it_still_closes_starts_with_an_empty_search_and_picks_again", async () => {
+      // Base UI keeps the popup (and the body in it) mounted until its exit animation has finished. An animation that never
+      // finishes stands for reopening the palette within that time.
+      const proto = Element.prototype;
+      const own = Object.getOwnPropertyDescriptor(proto, "getAnimations");
+      Object.defineProperty(proto, "getAnimations", { configurable: true, writable: true, value: () => [{ finished: new Promise(() => {}) }] });
+      try {
+        const { onPick } = renderPalette();
+        type("sand");
+        pressKey(input(), "Enter");
+        await tick();
+        expect(onPick).toHaveBeenCalledTimes(1);
+        const before = input();
+        act(() => root.render(<Picker open={false} onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+        // Still closing: the same search field is there.
+        expect(input()).toBe(before);
+        act(() => root.render(<Picker open onOpenChange={() => {}} title="Befehlspalette" variant="palette" items={paletteItems} onPick={onPick} />));
+        expect(input().value).toBe("");
+        expect(labels().filter((t) => t.includes("Sandgemme"))).toHaveLength(1);
+        type("sand");
+        pressKey(input(), "Enter");
+        await tick();
+        expect(onPick).toHaveBeenCalledTimes(2);
+      } finally {
+        if (own) Object.defineProperty(proto, "getAnimations", own);
+        else Reflect.deleteProperty(proto, "getAnimations");
+      }
+    });
+
+    it("a_disabled_item_is_listed_and_marked_but_never_picked", async () => {
+      const locked: PickerItem[] = [
+        { id: "cmd-area", label: "Gebiet anlegen…", group: "Befehle", icon: "plus", disabled: true, description: "Erst ein Projekt öffnen" },
+        { id: "cmd-open", label: "Projekt öffnen", group: "Befehle", icon: "open" },
+      ];
+      const { onPick } = renderPalette({ items: locked });
+      const lockedRow = () => options().find((o) => o.textContent?.includes("Gebiet anlegen…"))!;
+      expect(lockedRow().getAttribute("aria-disabled")).toBe("true");
+      expect(lockedRow().textContent).toContain("Erst ein Projekt öffnen");
+      type("gebiet");
+      pressKey(input(), "Enter");
+      // The filtered list renders its rows anew: click the row that is shown now.
+      const row = lockedRow();
+      expect(row.getAttribute("aria-disabled")).toBe("true");
+      act(() => row.click());
+      await tick();
+      expect(onPick).not.toHaveBeenCalled();
+      type("projekt");
+      pressKey(input(), "Enter");
+      await tick();
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(onPick.mock.calls[0]![0]).toMatchObject({ id: "cmd-open" });
+    });
+
+    it("the_default_dialog_variant_still_picks_synchronously", () => {
+      const { onPick } = render();
+      type("zwei");
+      pressKey(input(), "Enter");
+      expect(onPick).toHaveBeenCalledTimes(1);
+    });
+  });
 });

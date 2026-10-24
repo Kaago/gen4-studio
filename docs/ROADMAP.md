@@ -1,6 +1,6 @@
 # Gen4 Studio: Roadmap
 
-Stand: 2026-10-23. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
+Stand: 2026-10-24. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
 
 Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phase beginnt, bevor das Gate der vorherigen bestanden ist. Zeitangaben sind bewusst weggelassen; die Reihenfolge und die Gates sind die Zusage.
 
@@ -14,7 +14,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 3a | Welt-Explorer, Assistenten, Weltkarte: Orte statt Tabellen, neue Gebiete und Räume per Assistent, Kartenbilder (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Neue Route und neuer Raum mit Eingang per Assistent in unter fünf Minuten, in melonDS begehbar |
 | 3b.1 | Fundament: neue Header per Patch, Höhen, Objekt-Sprites, HGSS-Kachelnamen, apicula-Zeitlimit, Gate-Skript (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Neues Gebiet mit neuem Header per Assistent, in melonDS begehbar und in DSPRE offen; `scripts/gate.sh` grün |
 | 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
-| 3c | Doppeldeck: Design-System in der App (Tokens, Komponentenbibliothek, Rahmen aus Titelleiste, Atlas, Liste, Schau, Scharnier, Hand), Bereich Welt im neuen Raster; 3c.2 bringt Texte, Scripts, Technik, Assistenten (in Arbeit: 3c.1 implementiert, Gate offen) | Der Screen „Welt bauen“ ist in der App wiedererkennbar, die Abnahmen 3a, 3b.1 und 3b.2 laufen über die Test-Umgebung erneut grün; `scripts/gate.sh` grün |
+| 3c | Doppeldeck: Design-System in der App (Tokens, Komponentenbibliothek, Rahmen aus Titelleiste, Atlas, Liste, Schau, Scharnier, Hand), Bereich Welt im neuen Raster; 3c.2 bringt Texte, Scripts, Technik, Assistenten (Gate vom Agenten bestanden; Blick, rotom-lsp und gepackte App beim Nutzer offen) | Der Screen „Welt bauen“ ist in der App wiedererkennbar, die Abnahmen 3a, 3b.1 und 3b.2 laufen über die Test-Umgebung erneut grün; `scripts/gate.sh` grün |
 | 3b.3 | Daten-Editoren: Encounter, Trainer, Pokémon, Moves, Items | Neue Trainer und Encounter komplett im Studio |
 | 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
@@ -149,15 +149,15 @@ Gate (für Phase 3b insgesamt): Ein kleiner Hack (neue Route, zwei neue Trainer,
 
 ## Phase 3c: Doppeldeck
 
-Status: in Arbeit. 3c.1 ist implementiert und automatisch getestet, das Gate ist offen; der Plan für 3c.2 wird nach dem Merge von 3c.1 geschrieben. Eingeschoben zwischen 3b.2 und 3b.3, damit die Daten-Editoren von 3b.3 gleich auf der neuen Komponentenbibliothek aufsetzen.
+Status: Gate vom Agenten bestanden (2026-10-24, (A) bis (G) über die Test-Umgebung, sieben Befunde im Branch der Abnahme behoben); beim Nutzer offen sind der Blick auf die Screens und auf Dunkel/Kompakt, rotom-lsp und die gepackte App (H). 3c.1 und 3c.2 sind gebaut und automatisch getestet (`scripts/gate.sh` mit den Schritten `tokens` und `styles`, die Ausnahmeliste der Stil-Prüfung ist leer); die Ergebnisse stehen in [docs/phase-3c-gate.md](phase-3c-gate.md). Eingeschoben zwischen 3b.2 und 3b.3, damit die Daten-Editoren von 3b.3 gleich auf der neuen Komponentenbibliothek aufsetzen; 3b.3a beginnt nach dem Gate.
 
-Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md). Plan 3c.1: [docs/superpowers/plans/2026-10-23-phase-3c1-doppeldeck-fundament.md](superpowers/plans/2026-10-23-phase-3c1-doppeldeck-fundament.md). Gestaltungsquelle: [design-system/README.md](../design-system/README.md).
+Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md). Pläne: [3c.1](superpowers/plans/2026-10-23-phase-3c1-doppeldeck-fundament.md) und [3c.2](superpowers/plans/2026-10-23-phase-3c2-doppeldeck-umzug.md). Gestaltungsquelle: [design-system/README.md](../design-system/README.md).
 
 Lieferumfang:
 - 3c.1 „Fundament und Welt“: das Design-System im Repo (`design-system/`, Tokens als eingecheckte Dateien in `apps/studio/src/ui/tokens/`), Paket `ui/` mit Base-UI-Primitives und Galerie (`?gallery`), der Rahmen (Titelleiste, Atlas, Liste, Deck aus Schau und Hand mit Scharnier, Statusleiste, Toasts), der Bereich Welt im neuen Raster mit Werkzeugen mit Buchstabenkürzeln, Tiefe Bauen und Tüfteln im Inspector, Szenenfarben aus den Tokens, Verlauf im Scharnier (Befehl `history`), die Gate-Schritte „tokens“ und „styles“.
-- 3c.2 „Texte, Scripts, Technik, Assistenten“: Bereich Texte mit DS-Bildschirm-Vorschau, Script und Probleme im neuen Stil, Assistenten als Schrittleiste im Scharnier, Start, Technik, Einstellungen und Hilfe als Flächen, Befehlspalette ⌘K, Ausnahmeliste der Stil-Prüfung leer, Gate-Ablauf in `docs/phase-3c-gate.md`.
+- 3c.2 „Texte, Scripts, Technik, Assistenten“: Bereich Texte mit Archivliste, DS-Bildschirm-Vorschau und Nachrichtentabelle, Script und Probleme im neuen Stil (CodeMirror-Thema aus den Tokens), Assistenten als Schrittleiste im Scharnier, Start mit den zuletzt geöffneten Projekten, Technik (Prüfen und Bauen, Patches, Emulator, Werkzeuge) und Einstellungen (Thema mit „Wie System“, Dichte, Emulator) als Flächen, Befehlspalette ⌘K, Tüfteln auch im Raster, Layout-Schlüssel `v8`, Ausnahmeliste der Stil-Prüfung leer, Gate-Ablauf in [docs/phase-3c-gate.md](phase-3c-gate.md).
 
-Gate: Spec §1 (A) bis (H): der Screen „Welt bauen: Figur bearbeiten“ ist wiedererkennbar, Texte, Scripts und Assistent laufen im neuen Raster, dunkles Thema und Kompakt sind lesbar, Tastaturbedienung, die Abnahmen 3a, 3b.1 und 3b.2 über die Test-Umgebung und `scripts/gate.sh` grün; die gepackte App prüft der Nutzer von Hand.
+Gate: Spec §1 (A) bis (H): der Screen „Welt bauen: Figur bearbeiten“ ist wiedererkennbar, Texte, Scripts und Assistent laufen im neuen Raster, dunkles Thema und Kompakt sind lesbar, Tastaturbedienung, die Abnahmen 3a, 3b.1 und 3b.2 über die Test-Umgebung und `scripts/gate.sh` grün; die gepackte App prüft der Nutzer von Hand. Ablauf: [docs/phase-3c-gate.md](phase-3c-gate.md).
 
 Nicht in 3c: die Bereiche Geschichten, Pokémon und Gegenstände (gesperrt im Atlas), Tiefe Erzählen, Live-Vorschau der Assistenten in der Schau, Story-Graph, Spielmodus mit Live-Flags, Veröffentlichen, Plugins, Gelände malen mit Draufsicht und Muster im Overlay (siehe „Aus dem Design-System, später“).
 

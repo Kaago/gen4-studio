@@ -26,6 +26,7 @@ describe("nextSelection", () => {
 
   it("matrix cell without a header pins the cell and shows the matrix panel", () => {
     expect(nextSelection(state, { kind: "matrixCell", matrix: 0, x: 1, y: 2 })).toEqual({
+      area: "welt",
       selectedHeader: 3,
       pinned: { kind: "matrixCell", matrix: 0, x: 1, y: 2 },
       panel: "matrix",
@@ -35,11 +36,12 @@ describe("nextSelection", () => {
   });
 
   it("header selects and pins it", () => {
-    expect(nextSelection(state, { kind: "header", id: 4 })).toEqual({ selectedHeader: 4, pinned: { kind: "header", id: 4 }, panel: "headers" });
+    expect(nextSelection(state, { kind: "header", id: 4 })).toEqual({ area: "welt", selectedHeader: 4, pinned: { kind: "header", id: 4 }, panel: "headers" });
   });
 
   it("a script opens in the script panel at its line and leaves selection and pin alone", () => {
     expect(nextSelection(state, { kind: "script", file: 42, line: 7 })).toEqual({
+      area: "welt",
       selectedHeader: 3,
       pinned: null,
       panel: "script",
@@ -49,25 +51,40 @@ describe("nextSelection", () => {
   });
 
   it("an unknown header changes nothing", () => {
-    expect(nextSelection(state, { kind: "header", id: 999 })).toEqual({ selectedHeader: 3, pinned: null, panel: null });
+    expect(nextSelection(state, { kind: "header", id: 999 })).toEqual({ area: "welt", selectedHeader: 3, pinned: null, panel: null });
   });
 
-  it("a text archive leads to the text panel and leaves the selection and the pin alone", () => {
+  it("a text archive leads to the messages of the text area and leaves the selection and the pin alone", () => {
     expect(nextSelection(state, { kind: "textArchive", index: 433, message: 2 })).toEqual({
+      area: "texte",
       selectedHeader: 3,
       pinned: null,
-      panel: "text",
+      panel: "textEdit",
       text: { index: 433, message: 2 },
     });
-    expect(nextSelection(state, { kind: "textArchive", index: 5 })).toMatchObject({ panel: "text", text: { index: 5, message: null } });
+    expect(nextSelection(state, { kind: "textArchive", index: 23 })).toMatchObject({ area: "texte", panel: "textEdit", text: { index: 23, message: null } });
+  });
+
+  it("every other target is in the world", () => {
+    const targets = [
+      { kind: "header", id: 4 },
+      { kind: "header", id: 999 },
+      { kind: "matrixCell", matrix: 0, x: 1, y: 2 },
+      { kind: "area", id: 22 },
+      { kind: "building", map: 101, index: 2 },
+      { kind: "event", eventFile: 10, eventKind: "warp", index: 1 },
+      { kind: "script", file: 42 },
+    ] as const;
+    for (const target of targets) expect(nextSelection(state, target).area).toBe("welt");
   });
 
   it("area pins the area data and keeps the selected header", () => {
-    expect(nextSelection(state, { kind: "area", id: 22 })).toEqual({ selectedHeader: 3, pinned: { kind: "area", id: 22 }, panel: "inspector" });
+    expect(nextSelection(state, { kind: "area", id: 22 })).toEqual({ area: "welt", selectedHeader: 3, pinned: { kind: "area", id: 22 }, panel: "inspector" });
   });
 
   it("a building of a shown map is pinned without changing the header", () => {
     expect(nextSelection(state, { kind: "building", map: 101, index: 2, header: 415 })).toEqual({
+      area: "welt",
       selectedHeader: 3,
       pinned: { kind: "building", map: 101, index: 2 },
       panel: "world",
@@ -87,6 +104,7 @@ describe("nextSelection", () => {
 
   it("an event of the shown file is pinned without changing the header", () => {
     expect(nextSelection(state, { kind: "event", eventFile: 10, eventKind: "warp", index: 1, header: 415 })).toEqual({
+      area: "welt",
       selectedHeader: 3,
       pinned: { kind: "event", eventFile: 10, eventKind: "warp", index: 1 },
       panel: "world",

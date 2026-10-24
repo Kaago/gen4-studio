@@ -62,6 +62,21 @@ describe("filterItems", () => {
     expect(ids(filterItems(list, "411"))).toEqual([411, 1]);
   });
 
+  it("matches_the_description_after_label_and_tech_matches", () => {
+    const list: PickerItem[] = [
+      { id: 1, label: "Speichern", description: "Schreibt alle Änderungen", area: "technik" },
+      { id: 2, label: "Schreibtisch", area: "welt" },
+      { id: 3, label: "Anderes", tech: "S1", description: "nichts", area: "welt" },
+    ];
+    expect(ids(filterItems(list, "schreib"))).toEqual([2, 1]);
+    expect(ids(filterItems(list, "ÄNDERUNGEN"))).toEqual([1]);
+  });
+
+  it("an_item_without_an_area_is_filtered_like_any_other", () => {
+    const list: PickerItem[] = [{ id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S" }];
+    expect(ids(filterItems(list, "speich"))).toEqual(["cmd-save"]);
+  });
+
   it("returns_nothing_when_nothing_matches", () => {
     expect(filterItems(items, "qqq")).toEqual([]);
   });

@@ -75,10 +75,13 @@ describe("Hinge", () => {
     expect(button("Zweiblattdorf")!.closest("li")!.getAttribute("title")).toBe("Zweiblattdorf");
   });
 
-  it("lets_only_the_last_crumb_give_way_when_the_bar_is_narrow", () => {
+  it("lets_the_earlier_crumbs_give_way_first_when_the_bar_is_narrow", () => {
     const css = readCss("./Hinge.module.css", import.meta.url);
-    // The earlier crumbs keep their text; the last one takes the remaining space and ends in an ellipsis.
-    expect(ruleBody(css, ".crumb")).toMatch(/flex:\s*none|flex-shrink:\s*0/);
+    // In a narrow hinge the earlier crumbs shrink first (down to a few letters), so the last one, the selection, stays readable.
+    const shrinkOf = (selector: string) => Number(/flex:\s*\S+\s+(\d+)/.exec(ruleBody(css, selector))?.[1] ?? NaN);
+    expect(shrinkOf(".crumb")).toBeGreaterThan(shrinkOf(".last"));
+    expect(ruleBody(css, ".crumb")).toMatch(/min-width:\s*calc\(var\(--g4-raum-/);
+    expect(ruleBody(css, ".last")).toMatch(/min-width:\s*calc\(var\(--g4-raum-/);
     expect(ruleBody(css, ".last")).toMatch(/overflow:\s*hidden/);
     expect(ruleBody(css, ".last")).toMatch(/text-overflow:\s*ellipsis/);
     expect(ruleBody(css, ".crumbButton")).toMatch(/text-overflow:\s*ellipsis/);
@@ -184,12 +187,28 @@ describe("Hinge", () => {
     expect(button(/Hier spielen/)).toBeUndefined();
   });
 
-  it("replaces_its_content_by_the_wizard_when_one_is_given_but_keeps_the_grip", () => {
-    show(base({ wizard: <span>Schritt 1 von 3</span> }));
-    expect(bar().textContent).toContain("Schritt 1 von 3");
+  it("has_a_hidden_slot_for_the_wizard_bar_only_where_wizards_show", () => {
+    show(base());
+    expect(container.querySelector("[data-wizard-bar]")).toBeNull();
+    show(base({ wizard: false }));
+    const slot = container.querySelector<HTMLElement>("[data-wizard-bar]")!;
+    expect(slot.hidden).toBe(true);
+    expect(container.querySelector("nav")).not.toBeNull();
+  });
+
+  it("shows_the_wizard_slot_instead_of_its_content_and_keeps_the_grip_without_collapsing", () => {
+    const props = base({ wizard: true });
+    show(props);
+    const slot = container.querySelector<HTMLElement>("[data-wizard-bar]")!;
+    expect(slot.hidden).toBe(false);
     expect(container.querySelector("nav")).toBeNull();
     expect(button(/Hier spielen/)).toBeUndefined();
-    expect(container.querySelector("[data-hinge-grip]")).not.toBeNull();
+    const grip = container.querySelector<HTMLElement>("[data-hinge-grip]")!;
+    expect(grip).not.toBeNull();
+    // The hand stays open while the wizard works in it.
+    act(() => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    act(() => void grip.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(props.onToggleCollapse).not.toHaveBeenCalled();
   });
 
   describe("grip", () => {
