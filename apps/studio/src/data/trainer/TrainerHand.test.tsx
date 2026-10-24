@@ -189,6 +189,15 @@ describe("TrainerHand", () => {
       expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { Trainer: { field: "class", value: 7 } }, "Wanderer Jens: Klasse Wanderer → Göre");
     });
 
+    it("names_an_unknown_class_as_the_backend_does_and_offers_the_mark_only_for_its_warning", async () => {
+      wireApi(() => trainerDoc({ class: 130, texts: [{ kind: 0, archive: 617, message: 100, text: "Los!" }], problems: [{ ...WARNING, message: "trainer 12: something else" }] }));
+      await h.open();
+      await h.showTab("Trainer");
+      expect(h.hand().querySelector('[aria-label="Klasse"]')?.textContent).toContain("Klasse 130");
+      expect(h.hand().textContent).toContain("trainer 12: something else");
+      expect(button("⏎ anhängen")).toBeUndefined();
+    });
+
     it("writes_a_battle_text_and_shows_the_warning_of_the_text_before_the_battle", async () => {
       const problems = new ProblemsStore();
       wireApi(() => trainerDoc({ texts: [{ kind: 0, archive: 617, message: 100, text: "Los!" }], problems: [WARNING] }));

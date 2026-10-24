@@ -43,6 +43,16 @@ export interface DataAreaProps {
    * pending trainer binding). Without it the view's button is disabled.
    */
   onPlaceTrainer?: (id: number) => void;
+  /** The open script documents, for a command that writes a script file itself (`create_trainer` extends the battle script). */
+  scriptFiles?: ScriptFiles;
+}
+
+/** What a data editor needs of the script panel's documents around a backend write of a script file (`ScriptsApi`). */
+export interface ScriptFiles {
+  /** Saves the file's open document when it has unsaved text; rejects like a save. */
+  saveIfDirty(file: number): Promise<void>;
+  /** Shows what the backend wrote in an open document and tells the language server. */
+  reload(file: number): Promise<void>;
 }
 
 /** The state of a data area for its list, view, hand and status parts (`useDataArea`). */
@@ -88,6 +98,8 @@ export interface DataAreaModel {
   problems: ProblemsStore | null;
   /** Places a trainer in the world (`DataAreaProps.onPlaceTrainer`); null while nobody takes it. */
   placeTrainer: ((id: number) => void) | null;
+  /** The script documents (`DataAreaProps.scriptFiles`); null without (tests). */
+  scriptFiles: ScriptFiles | null;
 }
 
 /**
@@ -135,6 +147,7 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
   const problems = props.problems ?? null;
   const placeTrainer = props.onPlaceTrainer ?? null;
+  const scriptFiles = props.scriptFiles ?? null;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -247,8 +260,9 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       headers,
       problems,
       placeTrainer,
+      scriptFiles,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer, scriptFiles],
   );
   const searchModel = useMemo<DataSearchModel>(
     () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),

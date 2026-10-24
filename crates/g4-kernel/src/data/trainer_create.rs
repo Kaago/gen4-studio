@@ -177,6 +177,27 @@ pub fn create_trainer_with(
     }
     let slots = scripts::battle_slots(project, meta)?;
     let extend = u32::from(id) > slots.max();
+    // The extension compiles the scripts and reloads the text archives the compile touched
+    // (the text archives of the headers whose scripts it compiled) from disk: an unsaved
+    // edit there would be lost, so it is refused as `save_script` refuses it. The trainer name
+    // and battle text banks are no header's script archive: their unsaved edits (the name a
+    // create before this one wrote, a battle text) stay.
+    let trainer_banks = [
+        Some(names_archive),
+        bank_index(family, project.language, Bank::BattleTexts),
+    ];
+    if extend
+        && let Some(text) = store
+            .dirty()
+            .into_iter()
+            .find(|a| a.kind == AssetKind::TextArchive && !trainer_banks.contains(&Some(a.index)))
+    {
+        return Err(refused(format!(
+            "Textarchiv {:04} erst speichern: das Kampf-Script bekommt neue Plätze und wird neu \
+             kompiliert",
+            text.index
+        )));
+    }
     for index in placeholder.iter().copied().chain([id]) {
         for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
             let path = project.member_path(kind, index);
@@ -736,6 +757,44 @@ mod tests {
         );
         assert_eq!(f.count(), 3);
         assert_eq!(f.create(1, "Maximil").unwrap().id, 3);
+    }
+
+    #[test]
+    fn create_trainer_refuses_a_script_extension_while_a_text_archive_is_unsaved() {
+        const SPECIES_NAMES: u16 = 412;
+        let mut f = fixture(true);
+        // An unsaved text edit does not stop a trainer that needs no new script slots.
+        f.store
+            .edit_text_archive(SPECIES_NAMES, "Text", |doc| {
+                doc.messages[1].text = "Neu".into();
+            })
+            .unwrap();
+        assert_eq!(f.create(1, "Jens").unwrap().id, 3);
+        // The next one extends the battle script; its compile reloads the text archives it
+        // touches from disk, which would drop the unsaved edit: refused, nothing written.
+        let source = f.source();
+        let err = f.create(1, "Lars").unwrap_err();
+        assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Textarchiv 0412 erst speichern: das Kampf-Script bekommt neue Plätze und wird neu \
+             kompiliert"
+        );
+        assert_eq!(f.count(), 4);
+        assert_eq!(f.source(), source);
+        assert_eq!(f.texts(SPECIES_NAMES)[1], "Neu");
+        // Only the trainer banks unsaved (the name of Jens, a battle text): those are no
+        // header's script archive, the extension goes ahead.
+        let mut f = fixture(true);
+        f.create(1, "Jens").unwrap();
+        f.store
+            .edit_text_archive(BATTLE_TEXTS, "Text", |doc| {
+                doc.messages[0].text = "Los!".into();
+            })
+            .unwrap();
+        assert!(f.store.dirty().iter().any(|a| a.index == TRAINER_NAMES));
+        assert!(f.create(1, "Lars").unwrap().script_extended);
+        assert_eq!(f.texts(BATTLE_TEXTS)[0], "Los!");
     }
 
     #[test]

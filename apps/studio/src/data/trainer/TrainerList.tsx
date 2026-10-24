@@ -1,11 +1,11 @@
 import { Fragment, memo, useMemo, useRef, useState } from "react";
-import { createTrainer, errorText } from "../../api";
+import { createTrainer, errorText, isCmdError } from "../../api";
 import type { CreateTrainerReport, DataRowDto } from "../../api";
 import { Badge, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
 import { lockReason } from "../dataModel";
 import { useDataArea, useDataSearch } from "../useDataArea";
-import { GROUP_OPTIONS, PLACEHOLDER_TEXT, className, groupRows, nameCount, nameError, rowLevel, trainerNameArchive } from "./trainerModel";
+import { GROUP_OPTIONS, PLACEHOLDER_TEXT, TRAINER_SCRIPTS, classOptions, groupRows, nameCount, nameError, nextTrainer, partialTrainer, rowLevel, trainerNameArchive } from "./trainerModel";
 import type { GroupMode, RowGroup } from "./trainerModel";
 import styles from "./Trainer.module.css";
 
@@ -38,31 +38,51 @@ const TrainerRow = memo(function TrainerRow({ row, label, selected, unsaved, onS
  * The question before a trainer is made: its class (from the class bank) and its name (at most 7 characters). Making it is written at
  * once and cannot be undone (badge); a refusal of the backend (scripts not adopted, a full flag range) shows in the dialog.
  */
-function CreateDialog({ nextId, defaultClass, onClose, onCreated }: { nextId: number; defaultClass: number; onClose: () => void; onCreated: (report: CreateTrainerReport) => void }) {
-  const { names } = useDataArea("pokemon");
+function CreateDialog({
+  next,
+  battleFile,
+  defaultClass,
+  onClose,
+  onCreated,
+  onPartial,
+}: {
+  next: { id: number; placeholder: number | null };
+  /** The battle script `create_trainer` may extend: its open document is saved first (null: not known). */
+  battleFile: number | null;
+  defaultClass: number;
+  onClose: () => void;
+  onCreated: (report: CreateTrainerReport) => void;
+  /** The backend failed after it wrote something (code "partial"): its message. */
+  onPartial: (message: string) => void;
+}) {
+  const { names, scriptFiles } = useDataArea("pokemon");
   const [cls, setCls] = useState(defaultClass);
   const [name, setName] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const options = useMemo<SelectOption<number>[]>(() => names.classes.map((_, i) => ({ value: i, label: className(names.classes, i) })), [names.classes]);
+  const options = useMemo<SelectOption<number>[]>(() => classOptions(names.classes, defaultClass), [names.classes, defaultClass]);
   const tooLong = nameError(name);
   const create = async () => {
     if (tooLong !== null || busy) return;
     setBusy(true);
     try {
+      // The backend may write the battle script's source: unsaved text in the editor would overwrite it on the next save.
+      if (battleFile !== null) await scriptFiles?.saveIfDirty(battleFile);
       onCreated(await createTrainer(cls, name));
     } catch (e) {
-      setRefusal(errorText(e));
+      if (isCmdError(e) && e.code === "partial") onPartial(e.message);
+      else setRefusal(errorText(e));
     } finally {
       setBusy(false);
     }
   };
+  const placeholder = next.placeholder === null ? "" : `${next.placeholder} wird ${PLACEHOLDER_TEXT}. `;
   return (
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
-      title={`Trainer ${nextId} anlegen?`}
-      description="Er wird sofort ohne Pokémon angelegt; Team, Texte und Platz in der Welt folgen danach."
+      title={`Trainer ${next.id} anlegen?`}
+      description={`${placeholder}Er wird sofort ohne Pokémon angelegt; Team, Texte und Platz in der Welt folgen danach.`}
       actions={[
         { label: "Abbrechen", onClick: onClose },
         { label: "Anlegen", kind: "primary", onClick: () => void create() },
@@ -86,13 +106,13 @@ function CreateDialog({ nextId, defaultClass, onClose, onCreated }: { nextId: nu
  * trainer at the next number, which is then selected. The placeholder of the sight script slot is listed locked.
  */
 export function TrainerList() {
-  const { rows, selected, select, labelOf, project, bus, onEdited, dirty } = useDataArea("pokemon");
+  const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles } = useDataArea("pokemon");
   const { shown, query, setQuery } = useDataSearch("pokemon");
   const [mode, setMode] = useState<GroupMode>("place");
   // Groups the user opened or closed; the others are open when they hold the selection.
   const [toggled, setToggled] = useState<Readonly<Record<string, boolean>>>({});
   const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ kind: "success" | "warning"; text: string } | null>(null);
   const host = useRef<HTMLDivElement>(null);
   useRovingList(host);
 
@@ -102,18 +122,34 @@ export function TrainerList() {
   const isOpen = (g: RowGroup) => searching || (toggled[g.key] ?? g.rows.some((r) => r.index === selected));
   const toggle = (g: RowGroup) => setToggled((all) => ({ ...all, [g.key]: !isOpen(g) }));
 
-  const nextId = rows.length === 0 ? 0 : Math.max(...rows.map((r) => r.index)) + 1;
+  const family = project?.family ?? "Pt";
+  const next = nextTrainer(rows, family);
+  const battleFile = TRAINER_SCRIPTS[family]?.battleFile ?? null;
   const selectedRow = rows.find((r) => r.index === selected);
   const defaultClass = (selectedRow?.extra as { class?: number } | null)?.class ?? 0;
-  const onCreated = (report: CreateTrainerReport) => {
+  /** What a create that wrote something leaves to catch up on, whether it went through or failed late. */
+  const written = (id: number | null, extended: boolean, notice: { kind: "success" | "warning"; text: string }) => {
     setCreating(false);
-    const made = report.placeholder === null ? `Trainer ${report.id} angelegt.` : `Trainer ${report.id} angelegt; ${report.placeholder} bleibt ${PLACEHOLDER_TEXT}.`;
-    setCreated(report.script_extended ? `${made} Das Kampf-Script hat neue Plätze bekommen.` : made);
+    setCreated(notice);
     // The list, the name bank and the text tables changed behind the editors; the name and text offset are one undo step.
     bus.emit({ topic: "dataChanged", kind: "trainer", index: null });
     bus.emit({ topic: "textData", archive: trainerNameArchive(project) });
+    if (extended) {
+      // The battle script's source changed on disk, and its compile may have appended to text archives.
+      if (battleFile !== null) void scriptFiles?.reload(battleFile);
+      bus.emit({ topic: "textData", archive: null });
+    }
     onEdited();
-    select(report.id);
+    if (id !== null) select(id);
+  };
+  const onCreated = (report: CreateTrainerReport) => {
+    const made = report.placeholder === null ? `Trainer ${report.id} angelegt.` : `Trainer ${report.id} angelegt; ${report.placeholder} bleibt ${PLACEHOLDER_TEXT}.`;
+    written(report.id, report.script_extended, { kind: "success", text: report.script_extended ? `${made} Das Kampf-Script hat neue Plätze bekommen.` : made });
+  };
+  const onPartial = (message: string) => {
+    const partial = partialTrainer(message);
+    const id = partial.written.includes(next.id) ? next.id : (partial.written[partial.written.length - 1] ?? null);
+    written(id, partial.extended, { kind: "warning", text: partial.text });
   };
 
   return (
@@ -124,7 +160,7 @@ export function TrainerList() {
           <Segmented ariaLabel="Trainer gruppieren" size="s" options={GROUP_OPTIONS} value={mode} onChange={setMode} />
           <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />
         </div>
-        {created !== null && <Notice kind="success">{created}</Notice>}
+        {created !== null && <Notice kind={created.kind}>{created.text}</Notice>}
       </div>
       {groups.length === 0 && searching ? (
         <EmptyState what={`Nichts gefunden für „${query.trim()}“`} why="Suche nach Name, Klasse oder Nummer." />
@@ -153,7 +189,7 @@ export function TrainerList() {
           })}
         </div>
       )}
-      {creating && <CreateDialog nextId={nextId} defaultClass={defaultClass} onClose={() => setCreating(false)} onCreated={onCreated} />}
+      {creating && <CreateDialog next={next} battleFile={battleFile} defaultClass={defaultClass} onClose={() => setCreating(false)} onCreated={onCreated} onPartial={onPartial} />}
     </div>
   );
 }

@@ -184,6 +184,12 @@ export function className(classes: readonly string[], cls: number): string {
   return name;
 }
 
+/** The classes of the class bank as choices; a class beyond the bank (`current`) is offered as "Klasse 130", like the backend names it. */
+export function classOptions(classes: readonly string[], current: number): SelectOption<number>[] {
+  const options = classes.map((_, i) => ({ value: i, label: className(classes, i) }));
+  return current < classes.length ? options : [...options, { value: current, label: className(classes, current) }];
+}
+
 /** A trainer's own name: empty for the kernel's fallback ("trainer 0005"). */
 export const ownName = (name: string, index: number): string => (name.trim() === `trainer ${id4(index)}` ? "" : name.trim());
 
@@ -223,6 +229,51 @@ export function trainerNameArchive(project: ProjectInfo | null): number | null {
   return ({ Pt: 618, Hgss: 729, Dp: 559 } as Record<string, number>)[project.family] ?? null;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------- creating
+
+/**
+ * The shared battle script per family (`trainer_scripts.yaml`, mirrored): its script file, and the trainer ID of its "seen" slot
+ * (`seen_script − 2999`), which `create_trainer` fills with a locked placeholder. The kernel prefers the battle file of the game's
+ * script table where it has one; the vanilla games agree with these numbers.
+ */
+export const TRAINER_SCRIPTS: Readonly<Record<string, { battleFile: number; seenSlot: number }>> = {
+  Pt: { battleFile: 1114, seenSlot: 929 },
+  Hgss: { battleFile: 953, seenSlot: 740 },
+};
+
+/** The ID `create_trainer` gives the next trainer: after the last one, past the seen slot (then `placeholder` is written first). */
+export function nextTrainer(rows: readonly DataRowDto[], family: string): { id: number; placeholder: number | null } {
+  const next = rows.length === 0 ? 0 : Math.max(...rows.map((r) => r.index)) + 1;
+  const seen = TRAINER_SCRIPTS[family]?.seenSlot;
+  return next === seen ? { id: next + 1, placeholder: next } : { id: next, placeholder: null };
+}
+
+const PARTIAL_STEPS: Readonly<Record<string, string>> = {
+  "reloading a text archive its compile changed": "Textarchiv neu laden",
+  "writing the placeholder": "Platzhalter schreiben",
+  "writing the trainer": "Trainer schreiben",
+  "setting its name and text offset": "Name und Text-Offset setzen",
+};
+
+/**
+ * A late failure of `create_trainer` (code "partial": "creating trainer 930: battle script file 1114 has the slots up to trainer 930,
+ * trainer 929 was written; writing the trainer failed: …") in German, with the trainers written and whether the battle script got
+ * its slots. Another text stays as it is.
+ */
+export function partialTrainer(message: string): { text: string; written: number[]; extended: boolean } {
+  const m = /^creating trainer (\d+): (.*); (.*?) failed: (.*)$/s.exec(message);
+  if (!m) return { text: message, written: [], extended: false };
+  const [, id, done, step, reason] = m;
+  const written = [...done!.matchAll(/trainer (\d+) was written/g)].map((w) => Number(w[1]));
+  const script = /battle script file (\d+) has the slots up to trainer (\d+)/.exec(done!);
+  const parts: string[] = [];
+  if (script) parts.push(`Kampf-Script ${script[1]} hat die Plätze bis Trainer ${script[2]}`);
+  if (written.length === 1) parts.push(`Trainer ${written[0]} ist geschrieben`);
+  else if (written.length > 1) parts.push(`Trainer ${written.slice(0, -1).join(", ")} und ${written[written.length - 1]} sind geschrieben`);
+  const text = `Trainer ${id} nur zum Teil angelegt: ${parts.join(", ")}. Danach fehlgeschlagen: ${PARTIAL_STEPS[step!] ?? step} (${reason}).`;
+  return { text, written, extended: script !== null };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------- texts
 
 /** The battle texts a single trainer needs, by kind (`trainer_message_types.txt`): `label` for the field, `word` for the undo label. */
@@ -235,8 +286,10 @@ export const TEXT_KINDS: readonly { kind: number; label: string; word: string }[
 export const textKind = (kind: number): { kind: number; label: string; word: string } => TEXT_KINDS.find((k) => k.kind === kind) ?? { kind, label: `Kampftext Art ${kind}`, word: `Art ${kind}` };
 
 /** The kernel's English warnings in German with a verb; another one stays as it is. */
+export const isMarkProblem = (row: Pick<ProblemDto, "message">): boolean => /the text before the battle does not end with \\r/.test(row.message);
+
 export function problemText(row: Pick<ProblemDto, "message">): string {
-  if (/the text before the battle does not end with \\r/.test(row.message)) return "Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort";
+  if (isMarkProblem(row)) return "Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort";
   return row.message;
 }
 

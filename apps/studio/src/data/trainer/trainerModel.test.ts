@@ -20,7 +20,10 @@ import {
   nameCount,
   nameError,
   newMon,
+  nextTrainer,
+  partialTrainer,
   problemText,
+  TRAINER_SCRIPTS,
   strengthField,
   strengthOf,
   trainerNameArchive,
@@ -167,6 +170,31 @@ describe("trainerModel", () => {
     expect(problemText(row)).toBe("Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort");
     expect(problemText({ ...row, message: "something else" })).toBe("something else");
     expect(TEXT_KINDS.map((k) => k.label)).toEqual(["Vor dem Kampf", "Niederlage", "Danach"]);
+  });
+
+  it("knows_the_next_id_and_skips_the_seen_slot_of_the_battle_script", () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => trainerRow(i, "", 0, "x", 0, []));
+    expect(nextTrainer(rows(928), "Pt")).toEqual({ id: 928, placeholder: null });
+    expect(nextTrainer(rows(929), "Pt")).toEqual({ id: 930, placeholder: 929 });
+    expect(nextTrainer(rows(931), "Pt")).toEqual({ id: 931, placeholder: null });
+    expect(nextTrainer(rows(740), "Hgss")).toEqual({ id: 741, placeholder: 740 });
+    expect(TRAINER_SCRIPTS.Pt).toEqual({ battleFile: 1114, seenSlot: 929 });
+    expect(TRAINER_SCRIPTS.Hgss).toEqual({ battleFile: 953, seenSlot: 740 });
+  });
+
+  it("words_a_partial_creation_in_german_and_names_what_stays", () => {
+    const message = "creating trainer 930: battle script file 1114 has the slots up to trainer 930, trainer 929 was written, trainer 930 was written; setting its name and text offset failed: disk full";
+    expect(partialTrainer(message)).toEqual({
+      text: "Trainer 930 nur zum Teil angelegt: Kampf-Script 1114 hat die Plätze bis Trainer 930, Trainer 929 und 930 sind geschrieben. Danach fehlgeschlagen: Name und Text-Offset setzen (disk full).",
+      written: [929, 930],
+      extended: true,
+    });
+    expect(partialTrainer("creating trainer 930: battle script file 1114 has the slots up to trainer 930; writing the placeholder failed: x")).toEqual({
+      text: "Trainer 930 nur zum Teil angelegt: Kampf-Script 1114 hat die Plätze bis Trainer 930. Danach fehlgeschlagen: Platzhalter schreiben (x).",
+      written: [],
+      extended: true,
+    });
+    expect(partialTrainer("something else")).toEqual({ text: "something else", written: [], extended: false });
   });
 
   it("knows_the_trainer_name_bank_of_the_western_games", () => {

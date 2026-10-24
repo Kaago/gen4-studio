@@ -350,15 +350,19 @@ export function TextEditTab() {
  * renders again only when one of its inputs changes.
  */
 export function DataAreaHost({ store, target, onTrail, children }: { store: DataStore; target: DataNav | null; onTrail: (area: DataArea, crumbs: Crumb[]) => void; children?: ReactNode }) {
-  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems } = useWorkbench();
+  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
   const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
   const pokemonActive = shown === "pokemon";
   const itemsActive = shown === "gegenstaende";
+  // The script documents for `create_trainer`: stable callbacks, so the area does not render with every script revision.
+  const saveIfDirty = useStableCallback((file: number) => scripts.saveIfDirty(file));
+  const reload = useStableCallback((file: number) => scripts.reload(file));
+  const scriptFiles = useMemo(() => ({ saveIfDirty, reload }), [saveIfDirty, reload]);
   const pokemon = useMemo<DataAreaProps>(
-    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems }),
-    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems],
+    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles }),
+    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles],
   );
   const items = useMemo<DataAreaProps>(
     () => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail, dirty, onEdited, bus, headers, problems }),

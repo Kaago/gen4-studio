@@ -7,7 +7,7 @@ import { readShellState } from "../../ui/frame/shellState";
 import { openSelect, typeInto } from "../../ui/primitives/testUtils";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
-import { trainerHarness, wireApi } from "./trainerTesting";
+import { trainerHarness, trainerRow, wireApi } from "./trainerTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -128,6 +128,61 @@ describe("TrainerList", () => {
     expect(h.calls.onEdited).toHaveBeenCalled();
     // The placeholder written before it is named.
     expect(h.list().textContent).toContain("Trainer 930 angelegt; 929 bleibt Platzhalter für das Sicht-Script.");
+  });
+
+  const openCreate = async () => {
+    await h.click(h.list().querySelector<HTMLElement>('button[aria-label="Trainer anlegen…"]'));
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    typeInto(dialog.querySelector<HTMLInputElement>('input[aria-label="Name"]')!, "Lars");
+    return dialog;
+  };
+  const create = (dialog: HTMLElement) => h.click([...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Anlegen"));
+
+  it("asks_about_the_id_after_the_placeholder_when_the_next_one_is_the_sight_slot", async () => {
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "trainer" ? [trainerRow(0, "", 0, "Klasse 0", 0, []), trainerRow(928, "Jens", 6, "Wanderer", 5, [])] : []));
+    await h.open(928);
+    const dialog = await openCreate();
+    expect(dialog.textContent).toContain("Trainer 930 anlegen?");
+    expect(dialog.textContent).toContain("929 wird Platzhalter für das Sicht-Script.");
+  });
+
+  it("saves_the_open_battle_script_before_and_shows_its_extension_after_creating", async () => {
+    const scriptFiles = { saveIfDirty: vi.fn(async () => {}), reload: vi.fn(async () => {}) };
+    await h.open(12, "bauen", { scriptFiles });
+    const heard: EditEvent[] = [];
+    h.bus.subscribe(() => true, (e) => heard.push(e));
+    await create(await openCreate());
+    expect(scriptFiles.saveIfDirty).toHaveBeenCalledWith(1114);
+    expect(scriptFiles.saveIfDirty.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(createTrainer).mock.invocationCallOrder[0]!);
+    expect(scriptFiles.reload).toHaveBeenCalledWith(1114);
+    // The compile may have appended to text archives.
+    expect(heard).toContainEqual({ topic: "textData", archive: null });
+  });
+
+  it("does_not_create_when_the_battle_script_cannot_be_saved", async () => {
+    const scriptFiles = { saveIfDirty: vi.fn(async () => Promise.reject({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null })), reload: vi.fn(async () => {}) };
+    await h.open(12, "bauen", { scriptFiles });
+    const dialog = await openCreate();
+    await create(dialog);
+    expect(createTrainer).not.toHaveBeenCalled();
+    expect(dialog.textContent).toContain("Textarchiv 0199 erst speichern");
+  });
+
+  it("treats_a_partial_creation_like_one_that_went_through_and_says_what_stays", async () => {
+    const scriptFiles = { saveIfDirty: vi.fn(async () => {}), reload: vi.fn(async () => {}) };
+    const message = "creating trainer 930: battle script file 1114 has the slots up to trainer 930, trainer 929 was written, trainer 930 was written; setting its name and text offset failed: disk full";
+    vi.mocked(createTrainer).mockRejectedValue({ code: "partial", message, asset: null });
+    await h.open(12, "bauen", { scriptFiles });
+    const heard: EditEvent[] = [];
+    h.bus.subscribe(() => true, (e) => heard.push(e));
+    await create(await openCreate());
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    expect(h.list().textContent).toContain("Trainer 930 nur zum Teil angelegt");
+    expect(h.list().textContent).toContain("Danach fehlgeschlagen: Name und Text-Offset setzen (disk full).");
+    expect(readShellState().selected.trainer).toBe(930);
+    expect(heard).toContainEqual({ topic: "dataChanged", kind: "trainer", index: null });
+    expect(h.calls.onEdited).toHaveBeenCalled();
+    expect(scriptFiles.reload).toHaveBeenCalledWith(1114);
   });
 
   it("refuses_a_long_name_and_shows_the_backends_refusal_in_the_dialog", async () => {

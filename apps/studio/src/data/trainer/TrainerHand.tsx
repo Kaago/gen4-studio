@@ -25,12 +25,14 @@ import {
   aiText,
   battleText,
   bitLabel,
+  classOptions,
   className,
   defaultMoves,
   docTitle,
   formCount,
   genderOf,
   isDouble,
+  isMarkProblem,
   nameCount,
   nameError,
   newMon,
@@ -321,7 +323,7 @@ function Texts({ e }: { e: Editing }) {
         <Notice
           key={i}
           kind="warning"
-          actions={first && !off && !first.text.endsWith("\\r") ? [{ label: "⏎ anhängen", onClick: () => setText(0, `${first.text}\\r`) }] : undefined}
+          actions={isMarkProblem(p) && first && !off && !first.text.endsWith("\\r") ? [{ label: "⏎ anhängen", onClick: () => setText(0, `${first.text}\\r`) }] : undefined}
         >
           {problemText(p)}
         </Notice>
@@ -353,7 +355,7 @@ function TrainerTabBody({ e }: { e: Editing }) {
   const { doc, names } = e;
   const off = e.locked;
   const [nameProblem, setNameProblem] = useState<string | null>(null);
-  const classes = useMemo<SelectOption<number>[]>(() => names.classes.map((_, i) => ({ value: i, label: className(names.classes, i) })), [names.classes]);
+  const classes = useMemo<SelectOption<number>[]>(() => classOptions(names.classes, doc.class), [names.classes, doc.class]);
   const setField = (field: "class" | "ai" | "battle_type" | "item0" | "item1" | "item2" | "item3", value: (now: TrainerDoc) => number, words: (old: number, next: number) => string) =>
     e.write((now, title) => {
       const old = field === "class" ? now.class : field === "ai" ? now.ai : field === "battle_type" ? now.battle_type : now.items[Number(field.slice(4))]!;
