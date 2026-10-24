@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { RefDto } from "../../api";
 import {
+  BATTLE_FUNCTIONS,
   BATTLE_POCKETS,
+  FIELD_FUNCTIONS,
   FIELD_GROUPS,
   FIELD_POCKETS,
   ITEM_FIELDS,
   ONE_BIT_FIELDS,
   PARTY_FIELDS,
+  fieldFunctions,
   itemLabel,
   itemText,
   itemUses,
@@ -15,6 +18,7 @@ import {
   sellPrice,
   sharedNote,
   sharedWarning,
+  usableInBattle,
   usesText,
   withBit,
 } from "./itemModel";
@@ -97,10 +101,11 @@ describe("itemModel", () => {
     expect(itemText("natural_gift_type", 10)).toBe("Feuer");
     expect(itemText("field_use_func", 1)).toBe("Heilmittel");
     expect(itemText("battle_use_func", 2)).toBe("Heilmittel");
+    expect(itemText("battle_use_func", 0)).toBe("Keine eigene Funktion");
     expect(itemText("prevent_toss", 1)).toBe("an");
     expect(itemText("hp_amount", 20)).toBe("20");
     expect(itemLabel("Trank", "price", 300, 250)).toBe("Trank: Preis 300 → 250");
-    expect(itemLabel("Trank", "price", 300, 250, 21)).toBe("Trank: Preis 300 → 250, gilt für 22 Gegenstände");
+    expect(itemLabel("Trank", "price", 300, 250, { shared: 21 })).toBe("Trank: Preis 300 → 250, gilt für 22 Gegenstände");
     expect(itemLabel("Trank", "field_pocket", 1, 2)).toBe("Trank: Tasche Medizin → Bälle");
     expect(itemLabel("Trank", "prevent_toss", 0, 1)).toBe("Trank: Nicht wegwerfbar aus → an");
     expect(pocketBitLabel("Trank", BATTLE_POCKETS[2]!, false)).toBe("Trank: Kampftasche KP heilen an → aus");
@@ -126,6 +131,55 @@ describe("itemModel", () => {
     expect(uses.parties.map((r) => r.source.index)).toEqual([7]);
     expect(uses.wild.map((r) => r.source.index)).toEqual([25]);
     expect(uses.evolutions.map((r) => r.source.index)).toEqual([133]);
-    expect(usesText(uses)).toBe("1 Trainer-Item, 1 Team-Item, 1 wild getragen");
+    expect(usesText(uses)).toBe("1 Trainer-Item, 1 Team-Item, 1 wild getragen, 1 Entwicklung");
+  });
+
+  it("names_the_field_functions_per_family_as_the_vanilla_items_use_them", () => {
+    // Platinum DE: every value 0 to 24 is used, e.g. 2 Karte (member 420), 3 Forschersack (406), 13 the four mulches (95 to 98),
+    // 22 Azurflöte (433), 23 Kampfkamera (443), 24 Gracidea (444).
+    const pt = Object.fromEntries(FIELD_FUNCTIONS.Pt.map((o) => [o.value, o.label]));
+    expect(Object.keys(pt).map(Number)).toEqual(Array.from({ length: 25 }, (_, i) => i));
+    expect([pt[0], pt[1], pt[2], pt[3], pt[5], pt[9], pt[10], pt[11], pt[12], pt[13], pt[15], pt[19], pt[22], pt[23], pt[24]]).toEqual([
+      "Keine",
+      "Heilmittel",
+      "Karte",
+      "Forschersack",
+      "Tagebuch",
+      "Knurspbox",
+      "Adressbuch",
+      "Pokéradar",
+      "Entonkanne",
+      "Mulch",
+      "Kampffahnder",
+      "Schutz, Flöten, Koffer und Karten",
+      "Azurflöte",
+      "Kampfkamera",
+      "Gracidea",
+    ]);
+    // HeartGold DE: no item uses 3 or 13; 23 to 29 are its own (Aprikokobox 445, Pflanzset 447, Icognitoheft 446, Itemradar 448,
+    // GB-Player 479, Gracidea 443, Kampfkamera 442).
+    const hg = Object.fromEntries(FIELD_FUNCTIONS.Hgss.map((o) => [o.value, o.label]));
+    expect(hg[3]).toBeUndefined();
+    expect(hg[13]).toBeUndefined();
+    expect([hg[2], hg[5], hg[9], hg[11], hg[12], hg[15]]).toEqual(["Karte", "Tagebuch", "Knurspbox", "Pokéradar", "Entonkanne", "Kampffahnder"]);
+    expect([23, 24, 25, 26, 27, 28, 29].map((v) => hg[v])).toEqual(["Aprikokobox", "Pflanzset", "Icognitoheft", "Itemradar", "GB-Player", "Gracidea", "Kampfkamera"]);
+    expect(Object.values(pt).concat(Object.values(hg)).some((l) => l.startsWith("Ungenutzt"))).toBe(false);
+  });
+
+  it("names_a_field_function_the_family_does_not_know_by_its_number", () => {
+    expect(fieldFunctions("Hgss", 13).slice(-1)[0]).toEqual({ value: 13, label: "Funktion 13" });
+    expect(fieldFunctions("Pt", 25).slice(-1)[0]).toEqual({ value: 25, label: "Funktion 25" });
+    expect(fieldFunctions("Pt", 24)).toBe(FIELD_FUNCTIONS.Pt);
+    expect(itemText("field_use_func", 23, "Pt")).toBe("Kampfkamera");
+    expect(itemText("field_use_func", 23, "Hgss")).toBe("Aprikokobox");
+    expect(itemText("field_use_func", 13, "Hgss")).toBe("Funktion 13");
+    expect(itemLabel("Honig", "field_use_func", 14, 23, { family: "Hgss" })).toBe("Honig: Feldfunktion Honig → Aprikokobox");
+  });
+
+  it("calls_an_item_usable_in_battle_by_its_battle_pocket_not_its_battle_function", () => {
+    expect(BATTLE_FUNCTIONS[0]!.label).toBe("Keine eigene Funktion");
+    // X-Angriff (member 57): battle pocket 2 (Kampf-Items), battle function 0.
+    expect(usableInBattle({ battle_pocket: 2, battle_use_func: 0 })).toBe(true);
+    expect(usableInBattle({ battle_pocket: 0, battle_use_func: 0 })).toBe(false);
   });
 });

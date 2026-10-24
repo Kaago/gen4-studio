@@ -1,19 +1,12 @@
 import { useCallback, useMemo } from "react";
-import type { DataRowDto, ItemEntryDto, ItemRowExtra } from "../../api";
+import type { DataRowDto, ItemEntryDto } from "../../api";
 import { FilterChips, Notice } from "../../ui/primitives";
 import { DataList, RowIcon } from "../DataList";
 import { POCKET_NAMES, itemPocket, itemPrice } from "../dataModel";
 import { itemIcon, itemIconKey } from "../icons";
 import { useDataArea } from "../useDataArea";
+import { dataMemberOf, hasIcon } from "./itemModel";
 import styles from "./Items.module.css";
-
-const extraOf = (row: DataRowDto) => row.extra as ItemRowExtra | null;
-
-/** The data member of an item row: `extra.data_index` with the item table, the row itself without. */
-export const dataMemberOf = (row: DataRowDto): number => extraOf(row)?.data_index ?? row.index;
-
-/** Whether an item row has a bag icon to load: only with the item table (`entry`), and only where the icon archive has the icon. */
-export const hasIcon = (row: DataRowDto, entry: ItemEntryDto | undefined): entry is ItemEntryDto => entry !== undefined && extraOf(row)?.icon === true;
 
 /** The bag icon of an item row, loaded once per icon and palette (`item:<icon>:<palette>`) when the row comes near the view. */
 function ItemIcon({ row, label, entry }: { row: DataRowDto; label: string; entry: ItemEntryDto | undefined }) {

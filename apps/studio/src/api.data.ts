@@ -192,11 +192,8 @@ export type DataDocDto =
       kind: "item";
       fields: FieldValueDto[];
       description: DescriptionDto | null;
-      /**
-       * The text archive of the item names (message = item id); null without the item table. The backend always sends it; optional here
-       * until the items editor reads it.
-       */
-      name_archive?: number | null;
+      /** The text archive of the item names (message = item id); null without the item table. */
+      name_archive: number | null;
       /** The other item ids that use the same data member. */
       shared_with: number[];
       locked: string | null;

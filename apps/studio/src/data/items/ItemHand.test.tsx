@@ -44,29 +44,38 @@ describe("ItemHand", () => {
   };
   const patches = () => vi.mocked(dataEdit).mock.calls.map((c) => [c[2], c[3]]);
   /**
-   * A backend whose writes land only when `release` is called, one at a time: edits queue up behind the first, and every read in between
-   * answers the stored state, without the write still on its way (a stale read for the editor's newer values).
+   * A backend whose writes land only when `release` is called, one at a time (all, or the next `count`), or are refused by `refuse`:
+   * edits queue up behind the first, and every read in between answers the stored state, without the write still on its way.
    */
   const holdEdits = () => {
     const stored: Record<string, number> = {};
-    const waiting: (() => void)[] = [];
+    const waiting: { land: () => void; refuse: () => void }[] = [];
     vi.mocked(dataGet).mockImplementation(async () => potionDoc(stored));
     vi.mocked(dataEdit).mockImplementation(
       (_kind, _index, patch) =>
-        new Promise<AssetId[]>((resolve) =>
-          waiting.push(() => {
-            if ("Item" in patch) stored[patch.Item.field] = patch.Item.value;
-            resolve([{ kind: "Item", index: 17 }]);
+        new Promise<AssetId[]>((resolve, reject) =>
+          waiting.push({
+            land: () => {
+              if ("Item" in patch) stored[patch.Item.field] = patch.Item.value;
+              resolve([{ kind: "Item", index: 17 }]);
+            },
+            refuse: () => reject({ code: "error", message: "Schreiben abgelehnt", asset: null }),
           }),
         ),
     );
-    return async () => {
-      while (waiting.length > 0) {
-        await act(async () => waiting.shift()!());
+    const release = async (count = Infinity) => {
+      for (let n = 0; n < count && waiting.length > 0; n++) {
+        await act(async () => waiting.shift()!.land());
         await flush();
       }
     };
+    const refuse = async () => {
+      await act(async () => waiting.shift()!.refuse());
+      await flush();
+    };
+    return Object.assign(release, { refuse, pending: () => waiting.length });
   };
+  const on = (label: string) => h.toggle(label)?.getAttribute("aria-checked");
 
   it("has_the_columns_werte_effekte_funktionen_and_the_raw_data_only_while_tinkering", async () => {
     await h.open(17, "bauen");
@@ -133,6 +142,51 @@ describe("ItemHand", () => {
     ]);
     expect(h.toggle("Pokébälle")?.getAttribute("aria-checked")).toBe("true");
     expect(h.toggle("Kampf-Items")?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("builds_a_third_edit_on_the_first_two_when_the_first_re_read_lands_while_the_second_is_in_flight", async () => {
+    const release = holdEdits();
+    await h.open();
+    await h.click(h.toggle("Pokébälle"));
+    await h.click(h.toggle("Kampf-Items"));
+    // Edit 1 lands; its re-read (R1) answers while edit 2 waits for the backend.
+    await release(1);
+    expect(release.pending()).toBe(1);
+    expect([on("Pokébälle"), on("Kampf-Items")]).toEqual(["true", "true"]);
+    await h.click(h.toggle("AP heilen"));
+    expect([on("Pokébälle"), on("Kampf-Items"), on("AP heilen")]).toEqual(["true", "true", "true"]);
+    await release();
+    expect(patches().map(([patch]) => patch)).toEqual([
+      { Item: { field: "battle_pocket", value: 0x05 } },
+      { Item: { field: "battle_pocket", value: 0x07 } },
+      { Item: { field: "battle_pocket", value: 0x17 } },
+    ]);
+    expect([on("Pokébälle"), on("Kampf-Items"), on("AP heilen"), on("KP heilen")]).toEqual(["true", "true", "true", "true"]);
+  });
+
+  it("builds_a_queued_edit_on_the_backend_when_the_edit_before_it_is_refused", async () => {
+    const release = holdEdits();
+    await h.open();
+    await h.click(h.toggle("Pokébälle"));
+    await h.click(h.toggle("Kampf-Items"));
+    await release.refuse();
+    await release();
+    // Edit 2 reads battle pocket 4 (edit 1 never landed) and writes 4 | 2.
+    expect(patches().map(([patch]) => patch)).toEqual([{ Item: { field: "battle_pocket", value: 0x05 } }, { Item: { field: "battle_pocket", value: 0x06 } }]);
+    expect([on("Pokébälle"), on("Kampf-Items")]).toEqual(["false", "true"]);
+    expect(h.hand().textContent).not.toContain("Schreiben abgelehnt");
+  });
+
+  it("shows_a_waiting_edit_on_every_item_id_of_the_same_data_member", async () => {
+    // 113 and 114 both use data member 0.
+    const release = holdEdits();
+    await h.open(113);
+    await commit("Preis", "50");
+    await h.click(h.pane().querySelector<HTMLElement>('[data-item="114"]'));
+    expect(h.hand().querySelector('[aria-label="Andenken bearbeiten"]')).not.toBeNull();
+    expect(h.field("Preis")?.value).toBe("50");
+    await release();
+    expect(h.field("Preis")?.value).toBe("50");
   });
 
   it("names_the_old_value_of_a_second_quick_price_edit_after_the_first", async () => {

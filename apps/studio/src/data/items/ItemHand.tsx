@@ -1,29 +1,30 @@
 import { useEffect, useState } from "react";
 import type { FocusEvent, ReactNode } from "react";
 import { dataRaw, errorText, fieldLabels } from "../../api";
-import type { FieldValueDto, RawDto } from "../../api";
+import type { FieldValueDto, ProjectInfo, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
 import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Reference, SelectField, Switch } from "../../ui/primitives";
 import type { NumberFieldProps, SelectOption } from "../../ui/primitives";
+import { id4 } from "../../workbench/terms";
 import { useDataArea } from "../useDataArea";
 import {
   BATTLE_FUNCTIONS,
   BATTLE_POCKETS,
-  FIELD_FUNCTIONS,
+  FIELD_GROUPS,
   FIELD_POCKETS,
   GIFT_TYPES,
   ONE_BIT_FIELDS,
-  PARTY_FIELDS,
-  id4,
+  dataMemberOf,
+  fieldFunctions,
   itemLabel,
+  itemValues,
   lockText,
   pocketBitLabel,
   sellPrice,
   sharedWarning,
   withBit,
 } from "./itemModel";
-import type { ItemField, ItemValues, PocketBit } from "./itemModel";
-import { dataMemberOf } from "./ItemsList";
+import type { FieldGroup, ItemField, ItemValues, PocketBit } from "./itemModel";
 import { useItem } from "./useItem";
 import type { ItemDoc } from "./useItem";
 import styles from "./Items.module.css";
@@ -41,16 +42,19 @@ function Column({ title, note, children }: { title: string; note?: string; child
   );
 }
 
-/** What every field of the hand works with: the item's values and how to write one. */
+/** What every field of the hand works with: the item's values and widths, and how to write one. */
 interface Editing {
   v: ItemValues;
+  widths: ReadonlyMap<string, FieldValueDto>;
+  family: ProjectInfo["family"] | undefined;
   /** Number fields show the Dez | Hex switch (Tüfteln). */
   showBase: boolean;
   set(field: ItemField, value: number): void;
   setPocket(pocket: PocketBit, on: boolean): void;
 }
 
-function ItemNumber({ e, field, label = fieldLabels.item[field], ...limits }: { e: Editing; field: ItemField; label?: string } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
+function ItemNumber({ e, field, ...limits }: { e: Editing; field: ItemField } & Pick<NumberFieldProps, "bits" | "min" | "max" | "hint">) {
+  const label = fieldLabels.item[field];
   return (
     <InspectorRow label={label}>
       <div data-field={field}>
@@ -71,89 +75,70 @@ function ItemSelect({ e, field, options }: { e: Editing; field: ItemField; optio
   );
 }
 
-function ItemSwitch({ e, field }: { e: Editing; field: ItemField }) {
+/** The battle pockets as one switch per bit. */
+function BattlePockets({ e }: { e: Editing }) {
+  const battle = e.v.battle_pocket ?? 0;
   return (
-    <div data-field={field}>
-      <Switch label={fieldLabels.item[field]} checked={(e.v[field] ?? 0) !== 0} onChange={(on) => e.set(field, on ? 1 : 0)} />
+    <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabels.item.battle_pocket}>
+      <p className={styles.note}>{fieldLabels.item.battle_pocket}</p>
+      {BATTLE_POCKETS.map((p) => (
+        <Switch key={p.bit} label={p.label} checked={(battle & p.mask) !== 0} onChange={(on) => e.setPocket(p, on)} />
+      ))}
     </div>
   );
 }
 
-/** Werte: price, field pocket, the battle pockets as switches, the two switches of the bag. */
-function ValuesColumn({ e }: { e: Editing }) {
-  const battle = e.v.battle_pocket ?? 0;
-  return (
-    <Column title="Werte">
-      <ItemNumber e={e} field="price" bits={16} hint={`Verkauf ${sellPrice(e.v.price ?? 0)} ₽`} />
-      <ItemSelect e={e} field="field_pocket" options={FIELD_POCKETS} />
-      <div className={styles.flags} data-field="battle_pocket" role="group" aria-label={fieldLabels.item.battle_pocket}>
-        <p className={styles.note}>{fieldLabels.item.battle_pocket}</p>
-        {BATTLE_POCKETS.map((p) => (
-          <Switch key={p.bit} label={p.label} checked={(battle & p.mask) !== 0} onChange={(on) => e.setPocket(p, on)} />
-        ))}
-      </div>
-      <ItemSwitch e={e} field="prevent_toss" />
-      <ItemSwitch e={e} field="can_register" />
-    </Column>
-  );
+/** The range of a field from its width: a signed byte −128 to 127, the rest 0 to 2^bits − 1. */
+function limits(width: FieldValueDto): Pick<NumberFieldProps, "min" | "max"> {
+  if (width.signed) return { min: -(2 ** (width.bits - 1)), max: 2 ** (width.bits - 1) - 1 };
+  return { min: 0, max: 2 ** width.bits - 1 };
 }
 
-/** Effekte: holding, pluck, fling, natural gift. */
-function EffectsColumn({ e }: { e: Editing }) {
-  return (
-    <Column title="Effekte">
-      <ItemNumber e={e} field="hold_effect" bits={8} hint="Nummer des Effekts beim Tragen" />
-      <ItemNumber e={e} field="hold_param" bits={8} />
-      <ItemNumber e={e} field="pluck_effect" bits={8} />
-      <ItemNumber e={e} field="fling_effect" bits={8} />
-      <ItemNumber e={e} field="fling_power" bits={8} />
-      <ItemNumber e={e} field="natural_gift_power" bits={8} />
-      <ItemSelect e={e} field="natural_gift_type" options={GIFT_TYPES} />
-    </Column>
-  );
+/**
+ * The editor of one field: choices for pockets, functions and the natural gift type, switches for the pockets of the battle bag and the
+ * flags (checkboxes among the raw party parameters), numbers within the field's width for the rest.
+ */
+function FieldEditor({ e, field, raw }: { e: Editing; field: ItemField; raw: boolean }) {
+  const width = e.widths.get(field);
+  if (width === undefined) return null;
+  switch (field) {
+    case "price":
+      return <ItemNumber e={e} field={field} bits={16} hint={`Verkauf ${sellPrice(e.v.price ?? 0)} ₽`} />;
+    case "field_pocket":
+      return <ItemSelect e={e} field={field} options={FIELD_POCKETS} />;
+    case "battle_pocket":
+      return <BattlePockets e={e} />;
+    case "natural_gift_type":
+      return <ItemSelect e={e} field={field} options={GIFT_TYPES} />;
+    case "field_use_func":
+      return <ItemSelect e={e} field={field} options={fieldFunctions(e.family, e.v.field_use_func ?? 0)} />;
+    case "battle_use_func":
+      return <ItemSelect e={e} field={field} options={BATTLE_FUNCTIONS} />;
+    case "hold_effect":
+      return <ItemNumber e={e} field={field} {...limits(width)} hint="Nummer des Effekts beim Tragen" />;
+  }
+  if (ONE_BIT_FIELDS.includes(field)) {
+    const on = (e.v[field] ?? 0) !== 0;
+    const set = (next: boolean) => e.set(field, next ? 1 : 0);
+    return <div data-field={field}>{raw ? <Checkbox label={fieldLabels.item[field]} checked={on} onChange={set} /> : <Switch label={fieldLabels.item[field]} checked={on} onChange={set} />}</div>;
+  }
+  return <ItemNumber e={e} field={field} {...limits(width)} />;
 }
 
-/** Funktionen: the use outside and in battle, and whether the party parameters count. */
-function FunctionsColumn({ e }: { e: Editing }) {
+/** A group of the Rohdaten column: its title as a note, then its fields. */
+function RawGroup({ e, group }: { e: Editing; group: FieldGroup }) {
   return (
-    <Column title="Funktionen">
-      <ItemSelect e={e} field="field_use_func" options={FIELD_FUNCTIONS} />
-      <ItemSelect e={e} field="battle_use_func" options={BATTLE_FUNCTIONS} />
-      <ItemSwitch e={e} field="party_use" />
-    </Column>
-  );
-}
-
-/** The range of a field from its width: one bit is a checkbox, a signed byte −128 to 127, the rest 0 to 2^bits − 1. */
-function limits(field: FieldValueDto): Pick<NumberFieldProps, "min" | "max"> {
-  if (field.signed) return { min: -(2 ** (field.bits - 1)), max: 2 ** (field.bits - 1) - 1 };
-  return { min: 0, max: 2 ** field.bits - 1 };
-}
-
-/** The party parameters (Tüfteln): the effect bits as checkboxes, stages, EVs, amounts and friendship as numbers. */
-function PartyFields({ e, doc }: { e: Editing; doc: ItemDoc }) {
-  const widths = new Map(doc.fields.map((f) => [f.name, f]));
-  return (
-    <div className={styles.flags} role="group" aria-label="Wirkung im Team">
-      <p className={styles.note}>Wirkung im Team, gilt mit dem Schalter in Funktionen</p>
-      {PARTY_FIELDS.map((field) => {
-        const width = widths.get(field);
-        if (width === undefined) return null;
-        if (ONE_BIT_FIELDS.includes(field)) {
-          return (
-            <div key={field} data-field={field}>
-              <Checkbox label={fieldLabels.item[field]} checked={(e.v[field] ?? 0) !== 0} onChange={(on) => e.set(field, on ? 1 : 0)} />
-            </div>
-          );
-        }
-        return <ItemNumber key={field} e={e} field={field} {...limits(width)} />;
-      })}
+    <div className={styles.flags} role="group" aria-label={group.title}>
+      <p className={styles.note}>{group.title === "Wirkung im Team" ? "Wirkung im Team, gilt mit dem Schalter in Funktionen" : group.title}</p>
+      {group.fields.map((field) => (
+        <FieldEditor key={field} e={e} field={field} raw />
+      ))}
     </div>
   );
 }
 
 /** The bytes of the item as the store holds them, read again with every new document (an edit, undo, redo). */
-function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc; highlight: string | undefined }) {
+function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc | null; highlight: string | undefined }) {
   const [raw, setRaw] = useState<{ raw: RawDto | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
@@ -168,16 +153,6 @@ function RawBytes({ index, doc, highlight }: { index: number; doc: ItemDoc; high
   if (raw === null) return <p className={styles.note}>Lädt …</p>;
   if (raw.raw === null) return <p className={styles.note}>{`Nicht lesbar: ${raw.error ?? ""}`}</p>;
   return <HexBlock bytes={raw.raw.bytes} fields={raw.raw.fields} highlight={highlight} path={raw.raw.path} member={raw.raw.member} labelOf={(name) => (fieldLabels.item as Record<string, string>)[name] ?? name} />;
-}
-
-/** Rohdaten (Tüfteln): the bytes with the field focused last marked, then the party parameters. */
-function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: number; doc: ItemDoc; highlight: string | undefined }) {
-  return (
-    <Column title="Rohdaten" note="Tüfteln">
-      <RawBytes index={index} doc={doc} highlight={highlight} />
-      {e !== null && <PartyFields e={e} doc={doc} />}
-    </Column>
-  );
 }
 
 /** The warning of an item whose data other item ids share, with those items to open. */
@@ -202,36 +177,47 @@ function SharedWarning({ ids }: { ids: readonly number[] }) {
 }
 
 /**
- * The editor (Hand) of an item in columns: Werte, Effekte, Funktionen and, while tinkering, Rohdaten with the party parameters. Every field
- * commits on its own as one undo step; a battle pocket sets or clears its bit from the newest value of the pockets. Data that other item
- * ids share is named above the columns and in every label; a refusal of the backend shows there too; an item of the wrong length is named
- * there and shows no fields.
+ * The editor (Hand) of an item in the columns of `FIELD_GROUPS` (Werte, Effekte, Funktionen) and, while tinkering, Rohdaten: the bytes
+ * and the party parameters. Every field commits on its own as one undo step, built from the item as the backend holds it when the edit
+ * runs (`useItem`), so quick edits build on each other. Data that other item ids share is named above the columns and in every label; a
+ * refusal of the backend shows there too; an item of the wrong length is named there and shows no fields.
  */
 export function ItemHand() {
-  const { row, labelOf, selected } = useDataArea("gegenstaende");
+  const { row, labelOf, selected, project } = useDataArea("gegenstaende");
   const tinkering = useShell().state.depth === "tuefteln";
-  const { doc, values, error, editError, edit } = useItem(selected, row === null ? null : dataMemberOf(row));
+  const { doc, read, error, editError, update } = useItem(selected, row === null ? null : dataMemberOf(row));
   // The field focused last, for the raw data's mark (its key in the field map).
   const [lastField, setLastField] = useState<string | undefined>(undefined);
 
   if (row === null || selected === null) return null;
-  if (doc === null || values === null) {
+  if (doc === null) {
     return <div className={styles.handEmpty}>{error !== null ? <EmptyState what="Dieser Gegenstand ist nicht lesbar." why={error} /> : <p className={styles.note}>Lädt …</p>}</div>;
   }
   const name = labelOf(row);
   const index = selected;
-  const shared = doc.shared_with.length;
+  const family = project?.family;
+  // Patch and label come from the item as the backend holds it when the edit runs; a locked item writes nothing.
+  const write = (field: ItemField, next: (old: number) => number, label: (old: number, value: number, shared: number) => string) =>
+    void update(index, (now) => {
+      if (now.locked !== null) return null;
+      const old = itemValues(now.fields)[field];
+      if (old === undefined) return null;
+      const value = next(old);
+      return value === old ? null : { patch: { Item: { field, value } }, label: label(old, value, now.shared_with.length) };
+    });
   const editing: Editing | null =
     doc.locked !== null
       ? null
       : {
-          v: values,
+          v: itemValues(doc.fields),
+          widths: new Map(doc.fields.map((f) => [f.name, f])),
+          family,
           showBase: tinkering,
           set(field, value) {
-            void edit(index, { field, next: () => value, label: (old, v) => itemLabel(name, field, old, v, shared) });
+            write(field, () => value, (old, v, shared) => itemLabel(name, field, old, v, { family, shared }));
           },
           setPocket(pocket, on) {
-            void edit(index, { field: "battle_pocket", next: (old) => withBit(old, pocket.mask, on), label: () => pocketBitLabel(name, pocket, on, shared) });
+            write("battle_pocket", (old) => withBit(old, pocket.mask, on), (_old, _v, shared) => pocketBitLabel(name, pocket, on, { shared }));
           },
         };
 
@@ -242,18 +228,28 @@ export function ItemHand() {
 
   return (
     <div className={styles.hand} onFocus={onFocus} role="group" aria-label={`${name} bearbeiten`} data-item={index}>
-      {(editError !== null || doc.locked !== null || shared > 0) && (
+      {(editError !== null || doc.locked !== null || doc.shared_with.length > 0) && (
         <div className={styles.notices}>
           {doc.locked !== null && <Notice kind="warning">{`${lockText(doc.locked, index)}. Seine Felder sind gesperrt.`}</Notice>}
-          {doc.locked === null && shared > 0 && <SharedWarning ids={doc.shared_with} />}
+          {doc.locked === null && doc.shared_with.length > 0 && <SharedWarning ids={doc.shared_with} />}
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
       )}
       <div className={styles.columns}>
-        {editing !== null && <ValuesColumn e={editing} />}
-        {editing !== null && <EffectsColumn e={editing} />}
-        {editing !== null && <FunctionsColumn e={editing} />}
-        {tinkering && <RawColumn e={editing} index={index} doc={doc} highlight={lastField} />}
+        {editing !== null &&
+          FIELD_GROUPS.filter((g) => !g.tinkerOnly).map((g) => (
+            <Column key={g.title} title={g.title}>
+              {g.fields.map((field) => (
+                <FieldEditor key={field} e={editing} field={field} raw={false} />
+              ))}
+            </Column>
+          ))}
+        {tinkering && (
+          <Column title="Rohdaten" note="Tüfteln">
+            <RawBytes index={index} doc={read} highlight={lastField} />
+            {editing !== null && FIELD_GROUPS.filter((g) => g.tinkerOnly).map((g) => <RawGroup key={g.title} e={editing} group={g} />)}
+          </Column>
+        )}
       </div>
     </div>
   );

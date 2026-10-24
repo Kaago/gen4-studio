@@ -52,6 +52,15 @@ export function rowLabel(kind: ListKind, row: DataRowDto, itemTable: boolean): s
   return name;
 }
 
+/**
+ * The German sentence of a lock: the kernel says "move 0017: 18 bytes, expected 16", the editor "Attacke 0017: 18 Bytes statt 16" (with
+ * `word` "Attacke"). A reason in another shape follows the member as the kernel says it.
+ */
+export function lockSentence(word: string, index: number, locked: string): string {
+  const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
+  return lengths ? `${word} ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `${word} ${id4(index)}: ${locked}`;
+}
+
 /** The types of a species row in words ("Normal, Flug"; one type once); empty for a locked row. */
 export function speciesTypes(row: DataRowDto): string {
   const extra = row.extra as SpeciesRowExtra | null;

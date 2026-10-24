@@ -6,9 +6,9 @@ import { pages } from "../../workbench/text/textModel";
 import { pocketLabel } from "../dataModel";
 import { itemIcon, itemIconKey, useIcon } from "../icons";
 import { useDataArea } from "../useDataArea";
-import { id4, itemUses, itemValues, lockText, sellPrice, sharedNote, usesText } from "./itemModel";
+import { id4 } from "../../workbench/terms";
+import { dataMemberOf, hasIcon, itemUses, itemValues, lockText, sellPrice, sharedNote, usableInBattle, usesText } from "./itemModel";
 import type { ItemValues } from "./itemModel";
-import { dataMemberOf, hasIcon } from "./ItemsList";
 import { useItem } from "./useItem";
 import styles from "./Items.module.css";
 
@@ -131,14 +131,14 @@ function Description({ description }: { description: DescriptionDto | null }) {
   );
 }
 
-/** The figures and badges of the card: pocket, use in battle, price and selling price, fling power. */
+/** The figures and badges of the card: pocket, use in battle (any battle pocket), price and selling price, fling power. */
 function Facts({ v }: { v: ItemValues }) {
   const price = v.price ?? 0;
   return (
     <>
       <div className={styles.badges}>
         <Badge kind="neutral">{pocketLabel(v.field_pocket ?? 0)}</Badge>
-        {(v.battle_use_func ?? 0) !== 0 && <Badge kind="neutral">Im Kampf nutzbar</Badge>}
+        {usableInBattle(v) && <Badge kind="neutral">Im Kampf nutzbar</Badge>}
         {(v.prevent_toss ?? 0) !== 0 && <Badge kind="neutral">Nicht wegwerfbar</Badge>}
       </div>
       <div className={styles.figures}>
@@ -161,7 +161,7 @@ function Facts({ v }: { v: ItemValues }) {
  * where it is used.
  */
 export function ItemView() {
-  const { row, labelOf, selected, itemTable } = useDataArea("gegenstaende");
+  const { row, labelOf, selected, itemTable, goTo } = useDataArea("gegenstaende");
   const { doc, error } = useItem(selected, row === null ? null : dataMemberOf(row));
   const entry = selected === null ? undefined : itemTable?.[selected];
   const icon = row !== null && hasIcon(row, entry);
@@ -170,6 +170,8 @@ export function ItemView() {
   const name = labelOf(row);
   const locked = doc?.locked ?? null;
   const shared = doc?.shared_with.length ?? 0;
+  // The name in the item-name archive (message = item id); none without the item table.
+  const nameArchive = doc?.name_archive ?? null;
   return (
     <section className={styles.view} aria-label={`Übersicht ${name}`} data-item={selected}>
       <div className={styles.viewBody}>
@@ -178,7 +180,9 @@ export function ItemView() {
             <span className={styles.cardIcon}>
               <Sprite url={url} label={name} size={48} area="gegenstaende" />
             </span>
-            <h2 className={styles.name}>{name}</h2>
+            <h2 className={styles.name}>
+              {nameArchive === null ? name : <Reference area="texte" label={name} tech={`Archiv ${id4(nameArchive)}`} onOpen={() => goTo({ kind: "textArchive", index: nameArchive, message: selected })} />}
+            </h2>
             <span className={styles.tech}>{`Nr. ${row.tech}`}</span>
           </header>
           {error !== null && <Notice kind="error">{`Dieser Gegenstand ist nicht lesbar: ${error}`}</Notice>}

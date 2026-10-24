@@ -2,7 +2,7 @@ import { fieldLabels } from "../../api";
 import type { FieldValueDto, RefDto } from "../../api";
 import type { SelectOption } from "../../ui/primitives";
 import { typeName } from "../../ui/primitives/pokemonTypes";
-import { CATEGORY_NAMES } from "../dataModel";
+import { CATEGORY_NAMES, lockSentence } from "../dataModel";
 
 /** A field of a move as `DataPatch` `Move` names it. */
 export type MoveField = keyof typeof fieldLabels.move;
@@ -109,14 +109,8 @@ export const moveLabel = (name: string, field: MoveField, old: number, value: nu
 /** The undo label of one flag bit: "Flügelschlag: Macht Kontakt an → aus". */
 export const flagLabel = (name: string, flag: MoveFlag, on: boolean): string => `${name}: ${flag.label} ${on ? "aus → an" : "an → aus"}`;
 
-/**
- * The German sentence of a lock: the kernel says "move 0017: 18 bytes, expected 16", the editor "Attacke 0017: 18 Bytes statt 16". A
- * reason in another shape follows the move as the kernel says it.
- */
-export function lockText(locked: string, index: number): string {
-  const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
-  return lengths ? `Attacke ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `Attacke ${id4(index)}: ${locked}`;
-}
+/** The German sentence of a move's lock: "Attacke 0017: 18 Bytes statt 16" (`lockSentence`). */
+export const lockText = (locked: string, index: number): string => lockSentence("Attacke", index, locked);
 
 /** The references to a move by kind, each source member once: the learnsets that teach it, the trainers whose teams use it, the evolutions it triggers. */
 export interface MoveUses {

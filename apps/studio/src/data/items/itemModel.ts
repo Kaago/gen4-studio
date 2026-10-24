@@ -1,8 +1,8 @@
 import { fieldLabels } from "../../api";
-import type { FieldValueDto, RefDto } from "../../api";
+import type { DataRowDto, FieldValueDto, ItemEntryDto, ItemRowExtra, ProjectInfo, RefDto } from "../../api";
 import type { SelectOption } from "../../ui/primitives";
 import { pokemonTypes, typeName } from "../../ui/primitives/pokemonTypes";
-import { POCKET_NAMES } from "../dataModel";
+import { POCKET_NAMES, lockSentence } from "../dataModel";
 
 /** A field of an item as `DataPatch` `Item` names it. */
 export type ItemField = keyof typeof fieldLabels.item;
@@ -12,7 +12,11 @@ export type ItemValues = Partial<Record<ItemField, number>>;
 
 export const itemValues = (fields: readonly FieldValueDto[]): ItemValues => Object.fromEntries(fields.map((f) => [f.name, f.value])) as ItemValues;
 
-export const id4 = (n: number): string => String(n).padStart(4, "0");
+/** The data member of an item row: `extra.data_index` with the item table, the row itself without. */
+export const dataMemberOf = (row: DataRowDto): number => (row.extra as ItemRowExtra | null)?.data_index ?? row.index;
+
+/** Whether an item row has a bag icon to load: only with the item table (`entry`), and only where the icon archive has the icon. */
+export const hasIcon = (row: DataRowDto, entry: ItemEntryDto | undefined): entry is ItemEntryDto => entry !== undefined && (row.extra as ItemRowExtra | null)?.icon === true;
 
 /**
  * The fields of an item in the order of its 34 bytes (dspre-report §1.6, docs/formats/item.md): price, hold effect and parameter, pluck,
@@ -37,49 +41,61 @@ export const BATTLE_POCKETS: readonly PocketBit[] = ["Pokébälle", "Kampf-Items
 /** The battle pocket with `mask` set or cleared; every other bit stays. */
 export const withBit = (word: number, mask: number, on: boolean): number => (on ? word | mask : word & ~mask) & 0x1f;
 
-/** The use outside battle (byte 0x0A), DSPRE `FieldUseFunc`; values 23 to 29 are HeartGold and SoulSilver's. */
-export const FIELD_FUNCTIONS: readonly SelectOption<number>[] = [
-  "Allgemein",
-  "Heilmittel",
-  "Ungenutzt 2",
-  "Ungenutzt 3",
-  "Fahrrad",
-  "Ungenutzt 5",
-  "TM/VM",
-  "Brief",
-  "Beere",
-  "Ungenutzt 9",
-  "Freundebuch",
-  "Ungenutzt 11",
-  "Ungenutzt 12",
-  "Ungenutzt 13",
-  "Honig",
-  "Ungenutzt 15",
-  "Angel",
-  "Profiangel",
-  "Superangel",
-  "Allgemein 2",
-  "Entwicklungsstein",
-  "Fluchtseil",
-  "Ungenutzt 22",
-  "Aprikokobox",
-  "Beerentöpfe",
-  "Icognito-Bericht",
-  "Itemradar",
-  "GB-Player",
-  "Gracidea",
-  "Kampf-Recorder",
-].map((label, value) => ({ value, label }));
+/** Whether the item shows in the battle bag (any battle pocket): what "Im Kampf nutzbar" means. */
+export const usableInBattle = (values: ItemValues): boolean => (values.battle_pocket ?? 0) !== 0;
 
-/** The use in battle (byte 0x0B), DSPRE `BattleUseFunc`. */
-export const BATTLE_FUNCTIONS: readonly SelectOption<number>[] = ["Nicht im Kampf", "Ball", "Heilmittel", "Flucht"].map((label, value) => ({ value, label }));
+const options = (names: Readonly<Record<number, string>>): readonly SelectOption<number>[] =>
+  Object.entries(names).map(([value, label]) => ({ value: Number(value), label }));
+
+/** The field functions both families share (the use-function table of pokeplatinum and pokeheartgold), named after the items using them. */
+const SHARED_FUNCTIONS: Readonly<Record<number, string>> = {
+  0: "Keine",
+  1: "Heilmittel",
+  2: "Karte",
+  4: "Fahrrad",
+  5: "Tagebuch",
+  6: "TM/VM",
+  7: "Brief",
+  8: "Beere",
+  9: "Knurspbox",
+  10: "Adressbuch",
+  11: "Pokéradar",
+  12: "Entonkanne",
+  14: "Honig",
+  15: "Kampffahnder",
+  16: "Angel",
+  17: "Profiangel",
+  18: "Superangel",
+  19: "Schutz, Flöten, Koffer und Karten",
+  20: "Entwicklungsstein",
+  21: "Fluchtseil",
+  22: "Azurflöte",
+};
+
+/**
+ * The use outside battle (byte 0x0A) per family, each value checked against the vanilla items of Platinum DE and HeartGold DE (the
+ * names are the German item names that use it). Platinum has 0 to 24; HeartGold and SoulSilver drop 3 and 13 and go on to 29.
+ */
+export const FIELD_FUNCTIONS: Readonly<Record<"Pt" | "Hgss", readonly SelectOption<number>[]>> = {
+  Pt: options({ ...SHARED_FUNCTIONS, 3: "Forschersack", 13: "Mulch", 23: "Kampfkamera", 24: "Gracidea" }),
+  Hgss: options({ ...SHARED_FUNCTIONS, 23: "Aprikokobox", 24: "Pflanzset", 25: "Icognitoheft", 26: "Itemradar", 27: "GB-Player", 28: "Gracidea", 29: "Kampfkamera" }),
+};
+
+/** The field functions of the project's family (Diamond and Pearl, locked anyway, take Platinum's); a value they lack is "Funktion N". */
+export function fieldFunctions(family: ProjectInfo["family"] | undefined, value: number): readonly SelectOption<number>[] {
+  const known = family === "Hgss" ? FIELD_FUNCTIONS.Hgss : FIELD_FUNCTIONS.Pt;
+  return known.some((o) => o.value === value) ? known : [...known, { value, label: `Funktion ${value}` }];
+}
+
+/** The use in battle (byte 0x0B). 0 is no routine of its own: X items, flutes and berries have it and still show in the battle bag. */
+export const BATTLE_FUNCTIONS: readonly SelectOption<number>[] = ["Keine eigene Funktion", "Ball", "Heilmittel", "Flucht"].map((label, value) => ({ value, label }));
 
 /** No natural gift type (the value of the items that are no berries). */
 export const NO_GIFT_TYPE = 31;
 /** The natural gift types: the 18 types and 31 for none. */
 export const GIFT_TYPES: readonly SelectOption<number>[] = [...pokemonTypes.map((t) => ({ value: t.id, label: t.name })), { value: NO_GIFT_TYPE, label: "Keiner" }];
 
-/** A group of fields of the hand: its title, its fields, and whether it shows only while tinkering. */
+/** A group of fields of the hand: its title, its fields, and whether it shows only while tinkering (in the Rohdaten column). */
 export interface FieldGroup {
   title: string;
   fields: readonly ItemField[];
@@ -95,6 +111,7 @@ export const FUNCTION_FIELDS: readonly ItemField[] = ["field_use_func", "battle_
 /** The party parameters (0x0E to 0x1F): only while tinkering. */
 export const PARTY_FIELDS: readonly ItemField[] = ITEM_FIELDS.filter((f) => !VALUE_FIELDS.includes(f) && !EFFECT_FIELDS.includes(f) && !FUNCTION_FIELDS.includes(f));
 
+/** The groups the hand shows, in order: the columns of Bauen, then what the Rohdaten column adds while tinkering. */
 export const FIELD_GROUPS: readonly FieldGroup[] = [
   { title: "Werte", fields: VALUE_FIELDS, tinkerOnly: false },
   { title: "Effekte", fields: EFFECT_FIELDS, tinkerOnly: false },
@@ -135,7 +152,7 @@ export const ONE_BIT_FIELDS: readonly ItemField[] = [
   "friendship_high_flag",
 ];
 
-const optionName = (options: readonly SelectOption<number>[], value: number) => options.find((o) => o.value === value)?.label ?? `Wert ${value}`;
+const optionName = (list: readonly SelectOption<number>[], value: number) => list.find((o) => o.value === value)?.label ?? `Wert ${value}`;
 
 /** The battle pockets set in `word` in words ("KP heilen"; "keine"). */
 export function battlePocketText(word: number): string {
@@ -145,8 +162,14 @@ export function battlePocketText(word: number): string {
   return set.length === 0 ? "keine" : set.join(", ");
 }
 
+/** Where a label is made: the project's family (for the field functions) and how many other item ids share the data. */
+export interface LabelContext {
+  family?: ProjectInfo["family"];
+  shared?: number;
+}
+
 /** A value of an item in words for a label ("Medizin", "Keiner", "an"); numbers stay numbers. */
-export function itemText(field: ItemField, value: number): string {
+export function itemText(field: ItemField, value: number, family?: ProjectInfo["family"]): string {
   if (ONE_BIT_FIELDS.includes(field)) return value !== 0 ? "an" : "aus";
   switch (field) {
     case "field_pocket":
@@ -156,7 +179,7 @@ export function itemText(field: ItemField, value: number): string {
     case "natural_gift_type":
       return value === NO_GIFT_TYPE ? "Keiner" : typeName(value);
     case "field_use_func":
-      return optionName(FIELD_FUNCTIONS, value);
+      return optionName(fieldFunctions(family, value), value);
     case "battle_use_func":
       return optionName(BATTLE_FUNCTIONS, value);
     default:
@@ -165,15 +188,15 @@ export function itemText(field: ItemField, value: number): string {
 }
 
 /** ", gilt für 22 Gegenstände" when the data is shared with `shared` other item ids; empty otherwise. */
-const sharedSuffix = (shared: number): string => (shared > 0 ? `, gilt für ${shared + 1} Gegenstände` : "");
+const sharedSuffix = (shared = 0): string => (shared > 0 ? `, gilt für ${shared + 1} Gegenstände` : "");
 
 /** The undo label of a field: "Trank: Preis 300 → 250", with ", gilt für 22 Gegenstände" when the data is shared. */
-export const itemLabel = (name: string, field: ItemField, old: number, value: number, shared = 0): string =>
-  `${name}: ${fieldLabels.item[field]} ${itemText(field, old)} → ${itemText(field, value)}${sharedSuffix(shared)}`;
+export const itemLabel = (name: string, field: ItemField, old: number, value: number, at: LabelContext = {}): string =>
+  `${name}: ${fieldLabels.item[field]} ${itemText(field, old, at.family)} → ${itemText(field, value, at.family)}${sharedSuffix(at.shared)}`;
 
 /** The undo label of one battle pocket bit: "Trank: Kampftasche KP heilen an → aus". */
-export const pocketBitLabel = (name: string, pocket: PocketBit, on: boolean, shared = 0): string =>
-  `${name}: ${fieldLabels.item.battle_pocket} ${pocket.label} ${on ? "aus → an" : "an → aus"}${sharedSuffix(shared)}`;
+export const pocketBitLabel = (name: string, pocket: PocketBit, on: boolean, at: LabelContext = {}): string =>
+  `${name}: ${fieldLabels.item.battle_pocket} ${pocket.label} ${on ? "aus → an" : "an → aus"}${sharedSuffix(at.shared)}`;
 
 /** The warning of the hand when the data is shared: "Preis und Werte gelten auch für 21 andere Gegenstände". */
 export const sharedWarning = (others: number): string =>
@@ -185,14 +208,8 @@ export const sharedNote = (others: number): string => (others === 1 ? "Teilt Dat
 /** The selling price: half the price, rounded down. */
 export const sellPrice = (price: number): number => Math.floor(price / 2);
 
-/**
- * The German sentence of a lock: the kernel says "item 0017: 36 bytes, expected 34", the editor "Gegenstand 0017: 36 Bytes statt 34". A
- * reason in another shape follows the item as the kernel says it.
- */
-export function lockText(locked: string, index: number): string {
-  const lengths = /: (\d+) bytes, expected (\d+)$/.exec(locked);
-  return lengths ? `Gegenstand ${id4(index)}: ${lengths[1]} Bytes statt ${lengths[2]}` : `Gegenstand ${id4(index)}: ${locked}`;
-}
+/** The German sentence of an item's lock: "Gegenstand 0017: 36 Bytes statt 34" (`lockSentence`). */
+export const lockText = (locked: string, index: number): string => lockSentence("Gegenstand", index, locked);
 
 /** The references to an item by kind, each source member once. */
 export interface ItemUses {
@@ -226,6 +243,6 @@ export function itemUses(refs: readonly RefDto[]): ItemUses {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "2 Trainer-Items, 1 Team-Item, 3 wild getragen". */
+/** "2 Trainer-Items, 1 Team-Item, 3 wild getragen, 1 Entwicklung": every group of "Verwendet in". */
 export const usesText = (uses: ItemUses): string =>
-  `${plural(uses.trainers.length, "Trainer-Item", "Trainer-Items")}, ${plural(uses.parties.length, "Team-Item", "Team-Items")}, ${uses.wild.length} wild getragen`;
+  `${plural(uses.trainers.length, "Trainer-Item", "Trainer-Items")}, ${plural(uses.parties.length, "Team-Item", "Team-Items")}, ${uses.wild.length} wild getragen, ${plural(uses.evolutions.length, "Entwicklung", "Entwicklungen")}`;

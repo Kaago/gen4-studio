@@ -41,7 +41,7 @@ export const DESCRIPTION = "Ein Spray-Heilmittel, das die\\nKP eines Pokémon um
 
 type ItemDoc = Extract<DataDocDto, { kind: "item" }>;
 export function potionDoc(over: Partial<Record<ItemField, number>> = {}, doc: Partial<ItemDoc> = {}): DataDocDto {
-  return { kind: "item", fields: fieldsOf({ ...POTION, ...over }), description: { archive: 391, message: 17, text: DESCRIPTION }, shared_with: [], locked: null, raw_locked: null, ...doc };
+  return { kind: "item", fields: fieldsOf({ ...POTION, ...over }), description: { archive: 391, message: 17, text: DESCRIPTION }, name_archive: 392, shared_with: [], locked: null, raw_locked: null, ...doc };
 }
 
 /** 21 other item ids for a shared member (Platinum's 113 to 134 share member 0). */

@@ -30,7 +30,7 @@ describe("ItemsArea", () => {
     vi.mocked(itemTable).mockReset().mockResolvedValue(ITEM_TABLE);
     vi.mocked(getItemIcon).mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
     // The view of a chosen item reads it and its uses.
-    vi.mocked(dataGet).mockReset().mockResolvedValue({ kind: "item", fields: [], description: null, shared_with: [], locked: null, raw_locked: null });
+    vi.mocked(dataGet).mockReset().mockResolvedValue({ kind: "item", fields: [], description: null, name_archive: null, shared_with: [], locked: null, raw_locked: null });
     vi.mocked(refs).mockReset().mockResolvedValue([]);
     URL.createObjectURL = vi.fn(() => "blob:icon");
     URL.revokeObjectURL = vi.fn();
