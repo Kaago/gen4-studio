@@ -38,14 +38,16 @@ pub struct Arm9Layout {
 }
 
 /// Every entry of `arm9_tables.yaml`, keyed by game code.
-fn layouts() -> HashMap<String, Arm9Layout> {
+/// The parsed `arm9_tables.yaml`, read once per process.
+fn layouts() -> &'static HashMap<String, Arm9Layout> {
+    static LAYOUTS: OnceLock<HashMap<String, Arm9Layout>> = OnceLock::new();
     // The file is embedded and parsed by a test, so a parse error cannot reach a user.
-    serde_yaml::from_str(ARM9_TABLES_YAML).unwrap_or_default()
+    LAYOUTS.get_or_init(|| serde_yaml::from_str(ARM9_TABLES_YAML).unwrap_or_default())
 }
 
 /// The `arm9_tables.yaml` entry of `game_code`, if there is one.
 pub fn arm9_layout(game_code: &str) -> Option<Arm9Layout> {
-    layouts().remove(game_code)
+    layouts().get(game_code).cloned()
 }
 
 /// The tables of one project, read on first use. By design a table that is not available

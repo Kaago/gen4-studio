@@ -114,6 +114,54 @@ fn form_member_gets_its_form_name() {
     assert_eq!(names.species_name(&mut st, 504), "species 0504");
 }
 
+#[test]
+fn a_bank_the_game_lacks_is_empty() {
+    // Platinum Japanese has no battle texts in the metadata and no Western fallback.
+    let s = common::synthetic_project();
+    std::fs::write(
+        s.dir.path().join("header.yaml"),
+        "title: \"POKEMON PL\"\ngamecode: CPUJ\nmakercode: \"01\"\n",
+    )
+    .unwrap();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(st.project().language, Language::Japanese);
+    let mut names = NameTables::new();
+    assert!(names.names(&mut st, Bank::BattleTexts).unwrap().is_empty());
+    assert_eq!(names.description(&mut st, Bank::BattleTexts, 0), None);
+}
+
+#[test]
+fn an_undecodable_archive_is_an_error_of_names_and_a_fallback_elsewhere() {
+    let (_s, mut st) = store();
+    st.project()
+        .ensure_unpacked(AssetKind::TextArchive)
+        .unwrap();
+    let path = st.project().member_path(AssetKind::TextArchive, 619);
+    std::fs::write(&path, b"not an archive").unwrap();
+    let mut names = NameTables::new();
+    assert!(names.names(&mut st, Bank::TrainerClasses).is_err());
+    assert_eq!(names.class_name(&mut st, 1), "class 0001");
+    assert_eq!(names.description(&mut st, Bank::TrainerClasses, 1), None);
+}
+
+#[test]
+fn cached_lookups_are_cheap() {
+    let (_s, mut st) = store();
+    let mut names = NameTables::new();
+    names.species_name(&mut st, 1);
+    let start = std::time::Instant::now();
+    for i in 0..10_000u16 {
+        names.species_name(&mut st, i % 4);
+        names.move_name(&mut st, i % 3);
+    }
+    // Generous: a lookup that parsed the metadata again would take seconds in total.
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        start.elapsed()
+    );
+}
+
 fn write_member(st: &Store, index: u16, messages: &[&str]) {
     let path = st.project().member_path(AssetKind::TextArchive, index);
     std::fs::write(&path, common::text_archive_bytes(messages)).unwrap();
@@ -246,6 +294,9 @@ fn vanilla_name_counts_match_task0() {
     assert!(names.names(&mut st, Bank::Forms).unwrap().len() >= 12);
     // Spot checks that do not depend on the language: a species, a form member, an unknown one.
     assert_ne!(names.species_name(&mut st, 1), "species 0001");
+    // Egg and Bad Egg are messages of the bank, not unknown members.
+    assert_ne!(names.species_name(&mut st, 494), "species 0494");
+    assert_ne!(names.species_name(&mut st, 495), "species 0495");
     assert_eq!(names.species_name(&mut st, 503), "Hitze-Rotom");
     assert_eq!(names.species_name(&mut st, 520), "species 0520");
 }

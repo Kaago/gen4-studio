@@ -3,6 +3,7 @@
 //! their own (unverified) sets, which never fall back to the Western numbers.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 use g4_formats::game::{Family, Language};
 use serde::Deserialize;
@@ -57,18 +58,41 @@ fn language_key(language: Language) -> Option<&'static str> {
     }
 }
 
-/// The text banks of `family` and `language`; empty when the metadata has none for them.
-pub fn text_banks(family: Family, language: Language) -> TextBanks {
-    // The file is embedded and parsed by a test, so a parse error cannot reach a user.
-    let mut all: HashMap<String, FamilyBanks> =
-        serde_yaml::from_str(TEXT_BANKS_YAML).unwrap_or_default();
-    let Some(mut family) = all.remove(family_key(family)) else {
-        return TextBanks::default();
+/// The parsed `text_banks.yaml`, read once per process.
+fn all_banks() -> &'static HashMap<String, FamilyBanks> {
+    static ALL: OnceLock<HashMap<String, FamilyBanks>> = OnceLock::new();
+    ALL.get_or_init(|| {
+        #[cfg(test)]
+        PARSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // The file is embedded and parsed by a test, so a parse error cannot reach a user.
+        serde_yaml::from_str(TEXT_BANKS_YAML).unwrap_or_default()
+    })
+}
+
+/// How often the embedded file was parsed; stays at most 1.
+#[cfg(test)]
+static PARSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+static NO_BANKS: TextBanks = TextBanks {
+    unverified: false,
+    banks: BTreeMap::new(),
+};
+
+/// The text banks of `family` and `language`, without a copy; empty when the metadata has
+/// none for them. The file is parsed once, so this is cheap enough for a call per row.
+pub fn text_banks_ref(family: Family, language: Language) -> &'static TextBanks {
+    let Some(family) = all_banks().get(family_key(family)) else {
+        return &NO_BANKS;
     };
     match language_key(language) {
-        Some(key) => family.by_language.remove(key).unwrap_or_default(),
-        None => family.western,
+        Some(key) => family.by_language.get(key).unwrap_or(&NO_BANKS),
+        None => &family.western,
     }
+}
+
+/// The text banks of `family` and `language`; empty when the metadata has none for them.
+pub fn text_banks(family: Family, language: Language) -> TextBanks {
+    text_banks_ref(family, language).clone()
 }
 
 #[cfg(test)]
@@ -96,6 +120,15 @@ mod tests {
         Language::Italian,
         Language::Spanish,
     ];
+
+    #[test]
+    fn the_embedded_file_is_parsed_once() {
+        for _ in 0..1000 {
+            text_banks_ref(Family::Pt, Language::German).get("species");
+            text_banks(Family::Hgss, Language::Japanese);
+        }
+        assert_eq!(PARSES.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn text_banks_yaml_parses_into_known_banks_only() {

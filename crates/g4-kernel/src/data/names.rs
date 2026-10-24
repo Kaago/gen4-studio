@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use g4_formats::game::{Family, Language};
 use serde::Deserialize;
 
-use crate::data::text_banks::text_banks;
+use crate::data::text_banks::text_banks_ref;
 use crate::error::KernelError;
 use crate::store::Store;
 
@@ -52,7 +52,7 @@ impl Bank {
 /// metadata has no number for it (Diamond/Pearl battle texts, a Japanese bank that was not
 /// looked up: there is no Western fallback).
 pub fn bank_index(family: Family, language: Language, bank: Bank) -> Option<u16> {
-    text_banks(family, language).get(bank.key())
+    text_banks_ref(family, language).get(bank.key())
 }
 
 /// Wrapper chatot puts around a trainer name: the message is `{TRAINER_NAME:Kai}`.
@@ -164,6 +164,8 @@ impl NameTables {
     }
 
     /// Message `index` of `bank`; `None` when it does not exist or the bank cannot be read.
+    /// An archive that does not decode is swallowed here (the name functions then show their
+    /// fallback); [`NameTables::names`] reports that error.
     fn message(&mut self, store: &mut Store, bank: Bank, index: u16) -> Option<String> {
         self.names(store, bank)
             .ok()?
@@ -208,7 +210,7 @@ impl NameTables {
     }
 
     /// Message `index` of `bank` (a description bank, but any bank reads); `None` when it
-    /// does not exist.
+    /// does not exist or the archive does not decode (see [`NameTables::names`] for the error).
     pub fn description(&mut self, store: &mut Store, bank: Bank, index: u16) -> Option<String> {
         self.message(store, bank, index)
     }
