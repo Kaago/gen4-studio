@@ -1,10 +1,12 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
 import { dataStatus } from "../app/statusContext";
-import { DataList } from "./DataList";
-import { DataListPane, DataPanel, chosenHead } from "./DataParts";
+import { DataListPane, DataPanel } from "./DataParts";
 import type { DataPart } from "./DataParts";
 import type { DataSub } from "./dataModel";
+import { MoveHand } from "./moves/MoveHand";
+import { MovesList } from "./moves/MovesList";
+import { MoveView } from "./moves/MoveView";
 import { PokedexHand } from "./pokedex/PokedexHand";
 import { PokedexList } from "./pokedex/PokedexList";
 import { PokedexView } from "./pokedex/PokedexView";
@@ -23,19 +25,13 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
   return <Provider value={model}>{children}</Provider>;
 });
 
-function MovesList() {
-  return <DataList area="pokemon" label="Attacken" attr="data-move" />;
-}
-
-const Chosen = chosenHead("pokemon");
-
 /**
  * The parts of the Pokémon area by their switcher entry. The mount points of the editors: the Pokédex (Task 14) and the moves (Task 15)
  * replace their entries; Trainer and Begegnungen come with Phase 3b.3b (their entries are locked in the switcher).
  */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
-  moves: { List: MovesList, View: Chosen, Hand: Chosen },
+  moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };
 
 /** The list column of the Pokémon area: the switcher of its parts and the list of the part that shows. */
