@@ -1599,6 +1599,12 @@ impl Store {
         (self.change_generation, ids)
     }
 
+    /// The current change generation: the first value of [`Store::changes_since`], without
+    /// collecting the changed assets.
+    pub fn change_generation(&self) -> u64 {
+        self.change_generation
+    }
+
     /// Number of assets the store holds (loaded from disk or created).
     pub fn loaded_count(&self) -> usize {
         self.assets.len()

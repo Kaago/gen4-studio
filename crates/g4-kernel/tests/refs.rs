@@ -581,6 +581,7 @@ fn changes_since_reports_every_kind_of_change() {
     // Saving changes no value.
     st.save().unwrap();
     assert_eq!(st.changes_since(g6), (g6, vec![]));
+    assert_eq!(st.change_generation(), g6);
     // Everything since the start, in kind order.
     assert_eq!(
         st.changes_since(0).1,

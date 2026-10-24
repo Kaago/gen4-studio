@@ -69,9 +69,10 @@ pub struct Ref {
 /// (spec §2, "Event ↔ Trainer"; 5000–6999 are partner battles, not counted).
 pub const TRAINER_SCRIPTS: RangeInclusive<u16> = 3000..=4999;
 
-/// Evolution methods whose parameter is an item id: 6 (trade holding), 7 (use), 16, 17
-/// (hold by day, by night), 18, 19 (hold, male / female). Source: dspre-report §1.4
-/// (DSPRE `ROMFiles/EvolutionFile.cs`).
+/// Evolution methods whose parameter is an item id: 6 (trade holding it), 7 (use it),
+/// 16, 17 (use it, male / female: Dawn Stone), 18, 19 (level up holding it, by day / by
+/// night: Oval Stone, Razor Claw, Razor Fang). Source: dspre-report §1.4 (DSPRE
+/// `ROMFiles/EvolutionFile.cs`).
 pub const EVO_ITEM_METHODS: [u16; 6] = [6, 7, 16, 17, 18, 19];
 /// Evolution method whose parameter is a move (level up knowing it); dspre-report §1.4.
 pub const EVO_MOVE_METHOD: u16 = 20;
@@ -102,6 +103,26 @@ const MEMBER_SOURCES: [AssetKind; 7] = [
 
 fn is_source(kind: AssetKind) -> bool {
     kind == AssetKind::HeaderTable || MEMBER_SOURCES.contains(&kind)
+}
+
+/// The sources among `changed` plus those whose references depend on them: a trainer
+/// party is decoded with the format and count of its properties, so changed properties
+/// recompute the party of the same trainer. Sorted by [`key`], without repeats.
+fn with_dependents(changed: Vec<AssetId>) -> Vec<AssetId> {
+    let mut out: Vec<AssetId> = changed
+        .into_iter()
+        .filter(|id| is_source(id.kind))
+        .flat_map(|id| {
+            let party = (id.kind == AssetKind::TrainerProperties).then_some(AssetId {
+                kind: AssetKind::TrainerParty,
+                index: id.index,
+            });
+            std::iter::once(id).chain(party)
+        })
+        .collect();
+    out.sort_by_key(|&id| key(id));
+    out.dedup();
+    out
 }
 
 /// Key of a source: `AssetKind::ALL` order, then index.
@@ -161,10 +182,11 @@ impl RefIndex {
             return Ok(Vec::new());
         };
         let (generation, changed) = store.changes_since(built.generation);
-        let changed: Vec<AssetId> = changed
-            .into_iter()
-            .filter(|id| is_source(id.kind))
-            .collect();
+        let changed = with_dependents(changed);
+        built.generation = generation;
+        if changed.is_empty() {
+            return Ok(changed);
+        }
         let kinds: Vec<AssetKind> = changed.iter().map(|id| id.kind).collect();
         let disk = Disk::open(store.project(), &kinds)?;
         for (id, refs) in collect_refs(store, &disk, &changed)? {
@@ -174,14 +196,13 @@ impl RefIndex {
                 built.sources.insert(key(id), refs);
             }
         }
-        built.generation = generation;
         Ok(changed)
     }
 
     /// Builds the index again from scratch.
     pub fn rebuild_full(&mut self, store: &Store) -> Result<(), KernelError> {
         // The generation before reading: a change after it is refreshed later.
-        let (generation, _) = store.changes_since(u64::MAX);
+        let generation = store.change_generation();
         let disk = Disk::open(store.project(), &MEMBER_SOURCES)?;
         let mut ids = vec![HEADER_TABLE];
         for kind in MEMBER_SOURCES {
@@ -238,10 +259,13 @@ fn collect_refs(
             None => unloaded.push(id),
         }
     }
+    if unloaded.is_empty() {
+        return Ok(out);
+    }
     let readers = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
         .clamp(1, MAX_READERS)
-        .min(unloaded.len().max(1));
+        .min(unloaded.len());
     let unloaded = &unloaded;
     let read = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..readers)
@@ -365,8 +389,18 @@ fn value_refs(id: AssetId, value: &Loaded) -> Vec<Ref> {
         Loaded::Personal(p) => personal_refs(&mut out, p),
         Loaded::Learnset(l) => learnset_refs(&mut out, l),
         Loaded::Evolution(e) => evolution_refs(&mut out, e),
-        // A locked member of the wrong length, and kinds that are no source.
-        _ => {}
+        // A locked member of the wrong length.
+        Loaded::Raw(_) => {}
+        // Kinds that are no source. Trainers are read from the disk only; when 3b.3b adds
+        // a trainer asset to the store, it becomes a source here.
+        Loaded::Map(_)
+        | Loaded::Matrix(_)
+        | Loaded::AreaData(_)
+        | Loaded::TextArchive(_)
+        | Loaded::Move(_)
+        | Loaded::Item(_)
+        | Loaded::TrainerTextTable(_)
+        | Loaded::TrainerTextOffsets(_) => {}
     }
     out.refs
 }
@@ -565,4 +599,34 @@ fn party_refs(disk: &Disk, id: AssetId, family: Family) -> Result<Vec<Ref>, Kern
         }
     }
     Ok(out.refs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(kind: AssetKind, index: u16) -> AssetId {
+        AssetId { kind, index }
+    }
+
+    #[test]
+    fn changed_trainer_properties_recompute_their_party() {
+        let changed = vec![
+            id(AssetKind::Matrix, 0),
+            id(AssetKind::TrainerProperties, 4),
+            id(AssetKind::TrainerParty, 4),
+            id(AssetKind::Learnset, 2),
+            id(AssetKind::TrainerProperties, 7),
+        ];
+        assert_eq!(
+            with_dependents(changed),
+            [
+                id(AssetKind::Learnset, 2),
+                id(AssetKind::TrainerProperties, 4),
+                id(AssetKind::TrainerProperties, 7),
+                id(AssetKind::TrainerParty, 4),
+                id(AssetKind::TrainerParty, 7),
+            ]
+        );
+    }
 }
