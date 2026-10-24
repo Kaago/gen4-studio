@@ -2,6 +2,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { editTextArchive, getTextArchive, validateText } from "../../api";
+import { readCss, ruleBody } from "../../ui/cssSource";
 import { archive, flush, textHarness } from "./textTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -38,6 +39,13 @@ describe("TextHand", () => {
     // The column of the selected message: its title, the field and where the archive is used.
     expect(h.container.querySelector('[aria-label="Nachricht bearbeiten"] h2')?.textContent).toBe("Nachricht 000");
     expect(h.container.textContent).toContain("Verwendet in");
+  });
+
+  it("keeps the removal in reach when an archive is used by hundreds of headers", () => {
+    // Archive 0023 on Platin is used by 190 headers: the list scrolls on its own instead of pushing the action 5000 px down.
+    const css = readCss("./TextHand.module.css", import.meta.url);
+    expect(ruleBody(css, ".usedIn")).toMatch(/max-height:\s*calc\(var\(--g4-raum-/);
+    expect(ruleBody(css, ".usedIn")).toMatch(/overflow-y:\s*auto/);
   });
 
   it("starts the table of another archive at its top", async () => {

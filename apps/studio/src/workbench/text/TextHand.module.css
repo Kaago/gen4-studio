@@ -142,11 +142,15 @@
   overflow-y: auto;
 }
 
+/* An archive can be used by hundreds of headers (0023 by 190 on Platin): the list scrolls on its own, so the action below stays in reach. */
 .usedIn {
   display: flex;
+  max-height: calc(var(--g4-raum-16) * 10);
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--g4-raum-6);
+  overflow-y: auto;
 }
 
 .label {
