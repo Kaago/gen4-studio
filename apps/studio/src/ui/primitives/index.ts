@@ -69,6 +69,6 @@ export type { FilterChipOption, FilterChipsProps } from "./FilterChips";
 export { ToggleGrid } from "./ToggleGrid";
 export type { ToggleCell, ToggleGridProps } from "./ToggleGrid";
 export { HexBlock } from "./HexBlock";
-export type { HexBlockProps, HexFieldSpan } from "./HexBlock";
+export type { HexBlockProps, HexFieldKind, HexFieldSpan } from "./HexBlock";
 export { Sprite } from "./Sprite";
 export type { SpriteProps } from "./Sprite";

@@ -39,4 +39,16 @@ describe("Sprite", () => {
     expect(placeholder.getAttribute("data-sprite")).toBe("placeholder");
     expect(placeholder.getAttribute("data-area")).toBe("pokemon");
   });
+
+  it("a_decorative_sprite_is_hidden_from_assistive_technology", () => {
+    act(() => root.render(<Sprite url="blob:icon-17" label="Trank" size={24} area="gegenstaende" decorative />));
+    expect(container.querySelector("img")!.getAttribute("alt")).toBe("");
+    act(() => root.render(<Sprite url={null} label="Trank" size={24} area="gegenstaende" decorative />));
+    const placeholder = container.querySelector<HTMLElement>("[data-sprite=placeholder]")!;
+    expect(placeholder.getAttribute("role")).toBeNull();
+    expect(placeholder.getAttribute("aria-label")).toBeNull();
+    expect(placeholder.getAttribute("aria-hidden")).toBe("true");
+    // The letter still shows.
+    expect(placeholder.textContent).toBe("T");
+  });
 });

@@ -18,7 +18,10 @@ const rowsOf = (moves: [number, string][]): TableRow[] =>
   moves.map(([level, move], i) => ({
     key: `r${i}`,
     attrs: { "data-move": String(i) },
-    cells: { level: <input aria-label={`Level von ${move}`} defaultValue={level} />, move },
+    cells: {
+      level: <input aria-label={`Level von ${move}`} defaultValue={level} />,
+      move: <button type="button">{move}</button>,
+    },
   }));
 
 const learnset = rowsOf([
@@ -42,22 +45,27 @@ describe("Table", () => {
 
   const grid = () => container.querySelector<HTMLElement>("[role=grid]")!;
   const bodyRows = () => [...container.querySelectorAll<HTMLElement>("[role=row][data-roving]")];
+  const outside = (text: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text)!;
 
   function Host(props: Partial<TableProps>) {
     const [selected, setSelected] = useState<string | undefined>(props.selected);
     return (
-      <Table
-        columns={columns}
-        rows={learnset}
-        ariaLabel="Lernset"
-        selected={selected}
-        onSelect={(key) => {
-          setSelected(key);
-          props.onSelect?.(key);
-        }}
-        {...(props.onDeleteRow ? { onDeleteRow: props.onDeleteRow } : {})}
-        footer={props.footer}
-      />
+      <>
+        <button type="button">Davor</button>
+        <Table
+          columns={columns}
+          rows={learnset}
+          ariaLabel="Lernset"
+          selected={selected}
+          onSelect={(key) => {
+            setSelected(key);
+            props.onSelect?.(key);
+          }}
+          {...(props.onDeleteRow ? { onDeleteRow: props.onDeleteRow } : {})}
+          footer={props.footer}
+        />
+        <button type="button">Danach</button>
+      </>
     );
   }
 
@@ -124,6 +132,68 @@ describe("Table", () => {
     expect(onDeleteRow).not.toHaveBeenCalled();
     act(() => row.focus());
     pressKey(row, "Delete");
+    expect(onDeleteRow).toHaveBeenCalledExactlyOnceWith("r1");
+  });
+
+  it("tab_from_a_row_leaves_the_table_instead_of_walking_its_fields", () => {
+    act(() => root.render(<Host selected="r1" />));
+    const row = bodyRows()[1]!;
+    act(() => row.focus());
+    const tab = pressKey(row, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(outside("Danach"));
+    act(() => row.focus());
+    pressKey(row, "Tab", { shiftKey: true });
+    expect(document.activeElement).toBe(outside("Davor"));
+  });
+
+  it("after_enter_tab_cycles_through_the_fields_of_that_row_only", () => {
+    act(() => root.render(<Host selected="r1" />));
+    const row = bodyRows()[1]!;
+    act(() => row.focus());
+    pressKey(row, "Enter");
+    const [field, button] = [row.querySelector("input")!, row.querySelector("button")!];
+    expect(document.activeElement).toBe(field);
+    pressKey(field, "Tab");
+    expect(document.activeElement).toBe(button);
+    pressKey(button, "Tab");
+    expect(document.activeElement).toBe(field);
+    pressKey(field, "Tab", { shiftKey: true });
+    expect(document.activeElement).toBe(button);
+    pressKey(button, "Escape");
+    expect(document.activeElement).toBe(row);
+  });
+
+  it("tabbing_in_from_outside_lands_on_the_row_stop_not_on_a_field", () => {
+    act(() => root.render(<Host selected="r1" />));
+    const before = outside("Davor");
+    act(() => before.focus());
+    pressKey(before, "Tab");
+    // The browser moves the focus on to the next tabbable element in the page: the field of the first row.
+    act(() => bodyRows()[0]!.querySelector("input")!.focus());
+    expect(document.activeElement).toBe(bodyRows()[1]);
+  });
+
+  it("a_click_into_a_field_keeps_the_focus_there", () => {
+    act(() => root.render(<Host selected="r1" />));
+    const field = bodyRows()[0]!.querySelector("input")!;
+    act(() => {
+      field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      field.focus();
+    });
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("backspace_on_the_row_deletes_it_too_but_not_from_a_field", () => {
+    const onDeleteRow = vi.fn();
+    act(() => root.render(<Host selected="r1" onDeleteRow={onDeleteRow} />));
+    const row = bodyRows()[1]!;
+    const field = row.querySelector("input")!;
+    act(() => field.focus());
+    pressKey(field, "Backspace");
+    expect(onDeleteRow).not.toHaveBeenCalled();
+    act(() => row.focus());
+    pressKey(row, "Backspace");
     expect(onDeleteRow).toHaveBeenCalledExactlyOnceWith("r1");
   });
 

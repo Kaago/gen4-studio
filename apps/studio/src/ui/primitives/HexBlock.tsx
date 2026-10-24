@@ -1,7 +1,10 @@
 import styles from "./HexBlock.module.css";
 
-/** Where a field lies in a member's bytes. Structurally the `FieldSpanDto` of `data_raw`. */
-export type HexFieldSpan = { name: string; offset: number; len: number; kind: string };
+/** How a field's bytes read: unsigned or signed little-endian numbers, a bit range under `mask`, or plain bytes. */
+export type HexFieldKind = "u8" | "u16" | "u32" | "i8" | "bits" | "bytes";
+
+/** Where a field lies in a member's bytes. Structurally the `FieldSpanDto` of `data_raw` (`mask` only for `bits`). */
+export type HexFieldSpan = { name: string; offset: number; len: number; kind: HexFieldKind; mask?: number };
 
 export type HexBlockProps = {
   bytes: readonly number[];
@@ -18,19 +21,36 @@ export type HexBlockProps = {
 const PER_ROW = 16;
 const hex = (value: number, digits: number) => value.toString(16).toUpperCase().padStart(digits, "0");
 
-/** The value of a field of up to four bytes, little endian as the DS stores it; longer fields (bit sets) have none. */
-function valueOf(bytes: readonly number[], field: HexFieldSpan): number | undefined {
+/** The unsigned little-endian number in a field of one to four bytes (the DS stores little endian). */
+function rawOf(bytes: readonly number[], field: HexFieldSpan): number | undefined {
   if (field.len < 1 || field.len > 4) return undefined;
   let value = 0;
   for (let i = field.len - 1; i >= 0; i--) value = value * 256 + (bytes[field.offset + i] ?? 0);
   return value;
 }
 
+/** The lowest and highest set bit of a mask. */
+function bitRange(mask: number): [number, number] {
+  const m = mask >>> 0;
+  return [31 - Math.clz32(m & -m), 31 - Math.clz32(m)];
+}
+
+/** The footer line: where the field lies, its name, and its value as the field's kind reads it. */
 function footerOf(bytes: readonly number[], field: HexFieldSpan, label: string): string {
   const last = field.offset + field.len - 1;
   const where = field.len === 1 ? `Byte ${field.offset}` : `Byte ${field.offset} bis ${last}`;
-  const value = valueOf(bytes, field);
-  return value === undefined ? `${where}: ${label}` : `${where}: ${label}, 0x${hex(value, field.len * 2)} = ${value}`;
+  const raw = rawOf(bytes, field);
+  if (field.kind === "bits") {
+    if (field.mask === undefined || field.mask === 0 || raw === undefined) return `${where}: ${label}`;
+    const [low, high] = bitRange(field.mask);
+    const bits = low === high ? `Bit ${low}` : `Bits ${low} bis ${high}`;
+    return `${where}, ${bits}: ${label}, ${((raw & field.mask) >>> 0) >>> low}`;
+  }
+  if (field.kind === "bytes" || raw === undefined) return `${where}: ${label}`;
+  const shown = field.kind === "i8" && raw >= 0x80 ? raw - 0x100 : raw;
+  // A negative value with a typographic minus sign.
+  const value = shown < 0 ? `\u2212${-shown}` : `${shown}`;
+  return `${where}: ${label}, 0x${hex(raw, field.len * 2)} = ${value}`;
 }
 
 /** The raw bytes of a member, 16 to a row with their offsets; the highlighted field is marked and named below. */

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import styles from "./Table.module.css";
 import { useRovingList } from "./useRovingList";
@@ -28,17 +28,33 @@ export type TableProps = {
   selected?: string;
   /** Called when a row gets the focus or a click (the selection follows the focus). */
   onSelect?: (key: string) => void;
-  /** Delete on a focused row (not inside one of its fields) removes it. */
+  /** Delete or Backspace on a focused row (not inside one of its fields) removes it. */
   onDeleteRow?: (key: string) => void;
   /** A line below the table: a count ("12 von 20"), a warning. */
   footer?: ReactNode;
 };
 
-const FIELD = "input, select, textarea, button, [role=checkbox], [role=combobox], [tabindex]:not([data-roving])";
+const TABBABLE = "input:not([type=hidden]), select, textarea, button, a[href], [tabindex]";
+
+/** The elements Tab stops at under `root`, in document order (no positive tab indices in this app). */
+function tabbables(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+    (el) => el.tabIndex >= 0 && !el.matches(":disabled") && el.closest("[hidden], [inert]") === null,
+  );
+}
+
+/** Moves the focus to the first of `candidates` that takes it (one may be hidden by CSS). */
+function focusFirst(candidates: readonly HTMLElement[]): void {
+  for (const el of candidates) {
+    el.focus();
+    if (document.activeElement === el) return;
+  }
+}
 
 /**
- * A table whose rows are the stops: Tab lands on one row, the arrow keys move between rows, Enter goes into the first
- * field of the row and Escape from a field back to the row. No virtualisation: the data tables have at most a few dozen rows.
+ * A table whose rows are one tab stop: Tab reaches the current row and leaves the table from it, the arrow keys move
+ * between rows. Enter goes into the first field of the row, Tab then cycles through that row's fields, and Escape goes
+ * back to the row. No virtualisation: the data tables have at most a few dozen rows.
  */
 export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRow, footer }: TableProps) {
   const ref = useRef<HTMLTableElement>(null);
@@ -52,25 +68,81 @@ export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRo
     onSelect?.(row.key);
   };
 
+  // Tab into the table from outside: the browser stops at the first field of the first row; send the focus on to the
+  // row stop instead. A click into a field is no Tab and stays where it lands.
+  useEffect(() => {
+    const table = ref.current;
+    if (!table) return;
+    let tabbing = false;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      tabbing = event.key === "Tab";
+    };
+    const onPointer = () => {
+      tabbing = false;
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!tabbing) return;
+      const from = event.relatedTarget;
+      if (from instanceof Node && table.contains(from)) return;
+      const target = event.target as HTMLElement;
+      const row = target.closest<HTMLElement>("tr[data-roving]");
+      if (!row || row === target || !table.contains(row)) return;
+      table.querySelector<HTMLElement>('tr[data-roving][tabindex="0"]')?.focus();
+    };
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("mousedown", onPointer, true);
+    table.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("mousedown", onPointer, true);
+      table.removeEventListener("focusin", onFocusIn);
+    };
+  }, []);
+
+  /** Tab on a row leaves the table: to the next tabbable element after it (Shift: before it). */
+  const leaveTable = (backwards: boolean) => {
+    const table = ref.current;
+    if (!table) return;
+    const outside = tabbables(document).filter((el) => !table.contains(el));
+    const after = (el: HTMLElement) => (table.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    focusFirst(backwards ? outside.filter((el) => !after(el)).reverse() : outside.filter(after));
+  };
+
   const onRowKey = (row: TableRow) => (event: KeyboardEvent<HTMLTableRowElement>) => {
     const rowEl = event.currentTarget;
-    const target = event.target as Node;
-    if (event.target === rowEl) {
-      if (event.key === "Enter") {
-        const field = rowEl.querySelector<HTMLElement>(FIELD);
+    const target = event.target as HTMLElement;
+    const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
+    if (target === rowEl) {
+      if (event.key === "Tab" && plain) {
+        event.preventDefault();
+        leaveTable(event.shiftKey);
+      } else if (event.key === "Enter") {
+        const field = tabbables(rowEl)[0];
         if (!field) return;
         event.preventDefault();
         field.focus();
-      } else if (event.key === "Delete" && onDeleteRow && !row.disabled) {
+      } else if ((event.key === "Delete" || event.key === "Backspace") && plain && !event.shiftKey && onDeleteRow && !row.disabled) {
         event.preventDefault();
         onDeleteRow(row.key);
       }
       return;
     }
-    // Escape from a field inside the row (not from a popup of it, and not when the field used the key itself).
-    if (event.key === "Escape" && !event.defaultPrevented && rowEl.contains(target)) {
+    // Keys from a popup of a field (a portal) or ones the field used itself are not the table's.
+    if (event.defaultPrevented || !rowEl.contains(target)) return;
+    if (event.key === "Escape") {
       event.preventDefault();
       rowEl.focus();
+    } else if (event.key === "Tab" && plain) {
+      // Inside a row, Tab cycles through its fields.
+      const fields = tabbables(rowEl);
+      const at = fields.findIndex((el) => el === target || el.contains(target));
+      const step = event.shiftKey ? -1 : 1;
+      const next = fields[(at + step + fields.length) % fields.length];
+      if (!next) return;
+      event.preventDefault();
+      next.focus();
     }
   };
 
