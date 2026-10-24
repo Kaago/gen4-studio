@@ -1,0 +1,51 @@
+# Read-only tables in the decompressed arm9/arm9.bin, keyed by game code. Offsets are file
+# offsets. The kernel reads a table only for a code without `unverified: true`, and only when
+# it passes the plausibility check (TM01 = Focus Punch, HM05 = Defog or Whirlpool, every item
+# points at an existing itemData member; icon palettes 0 to 2).
+#
+# item_table:          8 bytes per item id {data member, icon, palette, GBA item}, item_count ids
+# machine_table:       100 x u16 move ids (TM01..TM92, HM01..HM08)
+# mon_icon_palettes:   one byte per menu icon (monIcons NCGR member - 7), mon_icon_palettes_len bytes
+# trainer_name_max:    characters of a trainer name in vanilla
+# trainer_flag_start:  event flag of trainer 0 ("defeated"); trainer_flag_capacity trainers fit
+#
+# Checked (docs/research/2026-10-23-3b3/task0-3b3a.md): CPUD, IPKD, IPKE. Platinum flags from
+# pokeplatinum vars_flags.txt; HGSS flags from pokeheartgold flags.h (TRAINER_FLAG_BASE 0x550,
+# next flag 0x82E).
+CPUD: { item_table: 0xF0D1C, item_count: 468, machine_table: 0xF0C54, mon_icon_palettes: 0xF07D8, mon_icon_palettes_len: 540, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 928 }
+IPKD: { item_table: 0x100148, item_count: 537, machine_table: 0x100080, mon_icon_palettes: 0xFFBC4, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 734 }
+IPKE: { item_table: 0x100194, item_count: 537, machine_table: 0x1000CC, mon_icon_palettes: 0xFFC10, mon_icon_palettes_len: 544, trainer_name_max: 7, trainer_flag_start: 0x550, trainer_flag_capacity: 734 }
+#
+# Unverified: DSPRE RomInfo (SetItemTableOffset, GetMachineMoveOffset), which keys them by
+# family and language only (Diamond = Pearl, HeartGold = SoulSilver). Item counts are the
+# item name counts of the family; Diamond/Pearl 465 is not checked against a ROM.
+# Diamond / Pearl
+ADAE: { unverified: true, item_table: 0xF85B4, item_count: 465, machine_table: 0xF84EC }
+APAE: { unverified: true, item_table: 0xF85B4, item_count: 465, machine_table: 0xF84EC }
+ADAS: { unverified: true, item_table: 0xF8604, item_count: 465, machine_table: 0xF853C }
+APAS: { unverified: true, item_table: 0xF8604, item_count: 465, machine_table: 0xF853C }
+ADAI: { unverified: true, item_table: 0xF856C, item_count: 465, machine_table: 0xF84A4 }
+APAI: { unverified: true, item_table: 0xF856C, item_count: 465, machine_table: 0xF84A4 }
+ADAF: { unverified: true, item_table: 0xF85F8, item_count: 465, machine_table: 0xF8530 }
+APAF: { unverified: true, item_table: 0xF85F8, item_count: 465, machine_table: 0xF8530 }
+ADAD: { unverified: true, item_table: 0xF85C8, item_count: 465, machine_table: 0xF8500 }
+APAD: { unverified: true, item_table: 0xF85C8, item_count: 465, machine_table: 0xF8500 }
+ADAJ: { unverified: true, item_table: 0xFA520, item_count: 465, machine_table: 0xFA458 }
+APAJ: { unverified: true, item_table: 0xFA520, item_count: 465, machine_table: 0xFA458 }
+# Platinum
+CPUE: { unverified: true, item_table: 0xF0CC4, item_count: 468, machine_table: 0xF0BFC }
+CPUS: { unverified: true, item_table: 0xF0D58, item_count: 468, machine_table: 0xF0C90 }
+CPUI: { unverified: true, item_table: 0xF0CE0, item_count: 468, machine_table: 0xF0C18 }
+CPUF: { unverified: true, item_table: 0xF0D4C, item_count: 468, machine_table: 0xF0C84 }
+CPUJ: { unverified: true, item_table: 0xF0354, item_count: 468, machine_table: 0xF028C }
+# HeartGold / SoulSilver
+IPGE: { unverified: true, item_table: 0x100194, item_count: 537, machine_table: 0x1000CC }
+IPKS: { unverified: true, item_table: 0x10017C, item_count: 537, machine_table: 0x1000B4 }
+IPGS: { unverified: true, item_table: 0x10017C, item_count: 537, machine_table: 0x1000B4 }
+IPKI: { unverified: true, item_table: 0x10010C, item_count: 537, machine_table: 0x100044 }
+IPGI: { unverified: true, item_table: 0x10010C, item_count: 537, machine_table: 0x100044 }
+IPKF: { unverified: true, item_table: 0x100178, item_count: 537, machine_table: 0x1000B0 }
+IPGF: { unverified: true, item_table: 0x100178, item_count: 537, machine_table: 0x1000B0 }
+IPGD: { unverified: true, item_table: 0x100148, item_count: 537, machine_table: 0x100080 }
+IPKJ: { unverified: true, item_table: 0xFF914, item_count: 537, machine_table: 0xFF84C }
+IPGJ: { unverified: true, item_table: 0xFF914, item_count: 537, machine_table: 0xFF84C }

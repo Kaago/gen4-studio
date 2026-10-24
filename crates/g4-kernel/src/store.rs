@@ -129,6 +129,17 @@ impl Loaded {
             | AssetKind::InteriorBuildingModel
             | AssetKind::DynamicHeaders
             | AssetKind::Script => Err(KernelError::NotEditable(kind)),
+            // The data kinds are archives for build and counting only; editing comes later.
+            AssetKind::Encounter
+            | AssetKind::Personal
+            | AssetKind::Learnset
+            | AssetKind::Evolution
+            | AssetKind::Move
+            | AssetKind::Item
+            | AssetKind::TrainerProperties
+            | AssetKind::TrainerParty
+            | AssetKind::TrainerTextTable
+            | AssetKind::TrainerTextOffsets => Err(KernelError::NotEditable(kind)),
         }
     }
 

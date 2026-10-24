@@ -1,0 +1,40 @@
+# Text archive (member of textArchives) holding each name or text bank, per game family, for
+# Western ROMs (English, French, German, Italian, Spanish). Japanese and Korean ROMs use other
+# numbers and are not listed.
+# Platinum and HGSS: checked by message count on CPUD, IPKD and IPKE
+# (docs/research/2026-10-23-3b3/task0-3b3a.md section 3).
+pt:
+  species: 412
+  moves: 647
+  move_descriptions: 646
+  items: 392
+  item_descriptions: 391
+  abilities: 610
+  types: 624
+  trainer_names: 618
+  trainer_classes: 619
+  battle_texts: 617
+  forms: 697
+hgss:
+  species: 237
+  moves: 750
+  move_descriptions: 749
+  items: 222
+  item_descriptions: 221
+  abilities: 720
+  types: 735
+  trainer_names: 729
+  trainer_classes: 730
+  battle_texts: 728
+  forms: 802
+# Diamond / Pearl: uxie TextBankIds, no project at hand to check them; no battle texts or
+# forms.
+dp:
+  unverified: true
+  species: 362
+  moves: 588
+  items: 344
+  abilities: 552
+  types: 565
+  trainer_names: 559
+  trainer_classes: 560

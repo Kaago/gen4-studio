@@ -78,6 +78,7 @@ macro_rules! accessors {
     };
 }
 
+pub mod arm9_tables;
 pub mod encounter;
 pub mod evolution;
 pub mod item;
