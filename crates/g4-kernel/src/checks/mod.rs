@@ -7,11 +7,25 @@
 
 use std::path::PathBuf;
 
+use g4_formats::area_data::AreaData;
+use g4_formats::data::encounter::Encounters;
+use g4_formats::data::trainer_doc::TrainerDoc;
+use g4_formats::game::Family;
+use g4_formats::map::MapFile;
+use g4_formats::matrix::Matrix;
 use serde::Serialize;
+use uxie::event_file::EventFile;
+use uxie::map_header::MapHeader;
 
+use crate::project::{AssetId, AssetKind};
+
+mod data;
+#[cfg(test)]
+mod fake;
 pub mod limits;
 pub mod runner;
 pub mod snapshot;
+mod world;
 
 pub use limits::Limits;
 pub use runner::{ChecksReport, IgnoreKey, IgnoreSet, Runner};
@@ -31,6 +45,7 @@ pub enum Subject {
     Matrix(u16),
     Map(u16),
     Project,
+    AreaData(u16),
 }
 
 impl Subject {
@@ -46,6 +61,7 @@ impl Subject {
             Subject::Matrix(n) => (6, n),
             Subject::Map(n) => (7, n),
             Subject::Project => (8, 0),
+            Subject::AreaData(n) => (9, n),
         }
     }
 }
@@ -130,6 +146,30 @@ impl Finding {
             fingerprint,
         }
     }
+
+    /// With the message arguments (each check documents their order).
+    pub fn with_args<S: ToString>(mut self, args: impl IntoIterator<Item = S>) -> Finding {
+        self.args = args.into_iter().map(|a| a.to_string()).collect();
+        self
+    }
+
+    /// With the field of the subject the finding points at.
+    pub fn with_field(mut self, field: impl Into<String>) -> Finding {
+        self.field = Some(field.into());
+        self
+    }
+
+    /// With further subjects the finding touches.
+    pub fn with_also(mut self, also: impl IntoIterator<Item = Subject>) -> Finding {
+        self.also = also.into_iter().collect();
+        self
+    }
+
+    /// With the fixes that apply.
+    pub fn with_fixes(mut self, fixes: impl IntoIterator<Item = FixId>) -> Finding {
+        self.fixes = fixes.into_iter().collect();
+        self
+    }
 }
 
 /// Why a check did not run (a missing input, say); reported next to the findings.
@@ -148,14 +188,151 @@ pub trait Check: Sync {
     fn run(&self, snap: &Snapshot, limits: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped>;
 }
 
+/// What the world and data checks read: the [`Snapshot`] of a run, plain values in the unit
+/// tests. Every accessor returns `None` for a value that does not exist or cannot be read
+/// (`asset.unreadable` names the latter).
+pub(crate) trait Source {
+    fn family(&self) -> Family;
+    /// Every map header; `None` when the table cannot be read.
+    fn headers(&self) -> Option<&[MapHeader]>;
+    /// Members of the archive of `kind` ([`Snapshot::member_count`]; text archives:
+    /// [`Snapshot::text_archive_count`]), 0 when it cannot be counted.
+    fn count(&self, kind: AssetKind) -> usize;
+    fn event(&self, index: u16) -> Option<&EventFile>;
+    fn matrix(&self, index: u16) -> Option<&Matrix>;
+    fn map(&self, index: u16) -> Option<&MapFile>;
+    fn area_data(&self, index: u16) -> Option<&AreaData>;
+    fn trainer(&self, index: u16) -> Option<&TrainerDoc>;
+    fn encounter(&self, index: u16) -> Option<&Encounters>;
+    /// Entries of the name bank `bank` of `metadata/text_banks.yaml` (`species`,
+    /// `trainer_classes`); `None` when the bank is unknown or cannot be read.
+    fn bank_len(&self, bank: &str) -> Option<usize>;
+    /// Number of item ids: the arm9 item table, else the item data members.
+    fn item_count(&self) -> usize;
+    /// Reads everything, then returns what could not be read and the locked assets.
+    fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>);
+}
+
+impl Source for Snapshot {
+    fn family(&self) -> Family {
+        Snapshot::family(self)
+    }
+    fn headers(&self) -> Option<&[MapHeader]> {
+        self.header_table()
+    }
+    fn count(&self, kind: AssetKind) -> usize {
+        match kind {
+            // A text archive the store created and has not saved counts too.
+            AssetKind::TextArchive => self.text_archive_count(),
+            _ => self.member_count(kind),
+        }
+    }
+    fn event(&self, index: u16) -> Option<&EventFile> {
+        Snapshot::event(self, index)
+    }
+    fn matrix(&self, index: u16) -> Option<&Matrix> {
+        Snapshot::matrix(self, index)
+    }
+    fn map(&self, index: u16) -> Option<&MapFile> {
+        Snapshot::map(self, index)
+    }
+    fn area_data(&self, index: u16) -> Option<&AreaData> {
+        Snapshot::area_data(self, index)
+    }
+    fn trainer(&self, index: u16) -> Option<&TrainerDoc> {
+        Snapshot::trainer(self, index)
+    }
+    fn encounter(&self, index: u16) -> Option<&Encounters> {
+        Snapshot::encounter(self, index)
+    }
+    fn bank_len(&self, bank: &str) -> Option<usize> {
+        let project = self.project();
+        let archive =
+            crate::data::text_banks::text_banks_ref(project.family, project.language).get(bank)?;
+        Some(self.text_archive(archive)?.doc.messages.len())
+    }
+    fn item_count(&self) -> usize {
+        self.project()
+            .item_table()
+            .map_or_else(|| self.member_count(AssetKind::Item), |t| t.entries.len())
+    }
+    fn unreadable_all(&self) -> (Vec<Unreadable>, Vec<(AssetId, String)>) {
+        self.load_all(&mut |_, _, _| {});
+        let locked = self
+            .locked_assets()
+            .map(|(id, why)| (id, why.to_owned()))
+            .collect();
+        (self.unreadable(), locked)
+    }
+}
+
+/// A world or data check: runs on a [`Source`], in the cheap group.
+pub(crate) trait SourceCheck: Sync {
+    const CODE: &'static str;
+    /// The highest severity the check reports (`trainer.no-party` also reports warnings).
+    const SEVERITY: Severity;
+    fn check(
+        &self,
+        src: &dyn Source,
+        limits: &Limits,
+        out: &mut Vec<Finding>,
+    ) -> Result<(), Skipped>;
+}
+
+impl<T: SourceCheck> Check for T {
+    fn code(&self) -> &'static str {
+        T::CODE
+    }
+    fn severity(&self) -> Severity {
+        T::SEVERITY
+    }
+    fn group(&self) -> Group {
+        Group::Cheap
+    }
+    fn run(&self, snap: &Snapshot, limits: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
+        self.check(snap, limits, out)
+    }
+}
+
 /// The checks that exist.
 pub struct Registry;
 
 impl Registry {
-    /// Every registered check, in catalogue order. The catalogue registers here (task 3 of
-    /// phase 3b.4a); none yet.
+    /// Every registered check, in catalogue order: the world checks, the data checks, and
+    /// last `asset.unreadable`, which reads everything first.
     pub fn all() -> &'static [&'static dyn Check] {
-        static ALL: [&dyn Check; 0] = [];
+        static ALL: [&dyn Check; 30] = [
+            &world::WarpDestHeader,
+            &world::WarpDestWarp,
+            &world::WarpOffMap,
+            &world::WarpNeverFires,
+            &world::EventTrainerMissing,
+            &world::EventOffMap,
+            &world::EventTrainerBlind,
+            &world::EventTriggerEmpty,
+            &world::EventSameSpot,
+            &world::HeaderRefRange,
+            &world::HeaderWildDangling,
+            &world::HeaderTextSplit,
+            &world::MatrixMapRange,
+            &world::MatrixHeaderRange,
+            &world::MatrixHeaderElsewhere,
+            &world::MapModelInvalid,
+            &world::MapBdhcSize,
+            &world::MapBuildingRange,
+            &world::AreaTilesetRange,
+            &data::TrainerNoParty,
+            &data::TrainerEmptySpecies,
+            &data::TrainerIdRange,
+            &data::TrainerNoMoves,
+            &data::TrainerDoubleOne,
+            &data::EncounterEmptySlot,
+            &data::EncounterLevelZero,
+            &data::EncounterLevelHigh,
+            &data::EncounterMinMax,
+            &data::EncounterRateByte,
+            &world::AssetUnreadable,
+        ];
         &ALL
     }
 }
@@ -232,7 +409,14 @@ mod tests {
     }
 
     #[test]
-    fn registry_is_empty_until_the_catalogue_registers() {
-        assert!(Registry::all().is_empty());
+    fn registry_lists_each_code_once_in_the_cheap_group() {
+        let all = Registry::all();
+        let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
+        assert_eq!(codes.len(), 30);
+        assert_eq!(codes.last(), Some(&"asset.unreadable"));
+        assert!(all.iter().all(|c| c.group() == Group::Cheap));
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(codes.len(), 30, "a code is registered twice");
     }
 }

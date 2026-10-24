@@ -458,7 +458,32 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String
             bytes.len() - model.len()
         ));
     }
-    let count = model_count(&model).map_err(|e| format!("model block cannot be read: {e}"))?;
+    check_model_bytes(&model)?;
+    let state = if !model.len().is_multiple_of(4) {
+        PartState::Warning(format!(
+            "model length {} is not a multiple of 4",
+            model.len()
+        ))
+    } else {
+        PartState::Ok
+    };
+    Ok((model, state, notes))
+}
+
+/// The rules a map model must meet in the game, shared by the import (on the model without
+/// its texture block) and the check `map.model-invalid` (on the stored model): a valid
+/// container header (`BMD0`, byte-order mark `FFFE`, version 2, size field equal to the
+/// length, header 16, 1 or 2 blocks inside the file), exactly one `MDL0` block holding
+/// exactly one model, and at most `model.max_bytes`. The error is the reason.
+pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), String> {
+    let header = NsbmdHeader::read(model).map_err(|e| format!("not a valid NSBMD model: {e}"))?;
+    let blocks = header.blocks.iter().filter(|b| &b.tag == b"MDL0").count();
+    if blocks != 1 {
+        return Err(format!(
+            "the container holds {blocks} model blocks (MDL0); the game needs exactly 1"
+        ));
+    }
+    let count = model_count(model).map_err(|e| format!("model block cannot be read: {e}"))?;
     if count != 1 {
         return Err(format!(
             "the model block holds {count} models; the game needs exactly 1"
@@ -471,19 +496,12 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String
             model.len()
         ));
     }
-    let state = if !model.len().is_multiple_of(4) {
-        PartState::Warning(format!(
-            "model length {} is not a multiple of 4",
-            model.len()
-        ))
-    } else {
-        PartState::Ok
-    };
-    Ok((model, state, notes))
+    Ok(())
 }
 
-/// Terrain checks: magic, counters match the length, payload within the game's buffer.
-fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
+/// Terrain checks: magic, counters match the length, payload (counted after the 16-byte
+/// header) within the game's buffer. Shared with the check `map.bdhc-size`.
+pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
     if bytes.get(0..4) != Some(b"BDHC".as_slice()) {
         return Err("terrain does not start with BDHC".into());
     }

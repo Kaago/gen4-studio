@@ -283,6 +283,42 @@ fn stale_generation_is_discarded() {
 }
 
 #[test]
+fn the_catalogue_reads_the_store_overlay_and_the_disk() {
+    let (_s, project, mut st) = synthetic();
+    // An unsaved warp to header 9 (the project has 2) and a locked item in the store.
+    add_warp(&mut st, 0, 9);
+    let _ = st.item(common::LONG_ITEM);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &Group::ALL,
+        |_, _, _| {},
+    );
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let found = |code: &str, subject: Subject, key: &str| {
+        report
+            .findings
+            .iter()
+            .any(|f| f.code == code && f.subject == subject && f.key == key)
+    };
+    assert!(found("warp.dest-header", Subject::EventFile(0), "warp:0"));
+    // asset.unreadable read everything first: a text archive no check opened, and the lock.
+    assert!(found(
+        "asset.unreadable",
+        Subject::TextArchive(0),
+        "unreadable"
+    ));
+    let locked = format!("locked:item:{}", common::LONG_ITEM);
+    assert!(found("asset.unreadable", Subject::Project, &locked));
+    // Every finding carries its sentence and arguments.
+    for f in &report.findings {
+        assert!(!f.message.is_empty() && !f.args.is_empty(), "{f:?}");
+    }
+}
+
+#[test]
 fn runner_runs_the_groups_asked_for_and_sorts_out_ignored_and_disabled() {
     let (_s, project, mut st) = synthetic();
     add_warp(&mut st, 0, 1);
