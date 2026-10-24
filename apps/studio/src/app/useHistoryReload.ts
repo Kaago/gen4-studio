@@ -4,6 +4,7 @@ import { historyPlan } from "../reload";
 import type { ReloadAction } from "../reload";
 import { pinAfterHistory } from "../workbench/pin";
 import type { EditBus } from "../bus/editBus";
+import { dataChangedOf } from "../data/dataBus";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";
@@ -33,6 +34,7 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
       bus.emit({ topic: "buildingData" });
       bus.emit({ topic: "eventData" });
       bus.emit({ topic: "textData", archive: null });
+      for (const kind of ["species", "learnset", "evolution", "move", "item", "encounter", "trainer"] as const) bus.emit({ topic: "dataChanged", kind, index: null });
       // The reload may have re-ordered the buildings or events: a pinned one is bound by index, so let go of it.
       setPinned((p) => pinAfterHistory(p, scene.selectedRef.current));
       await scene.syncHeaders();
@@ -84,9 +86,12 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         bus.emit({ topic: "headerTable" });
         await scene.syncHeaders();
         break;
-      case "dataPanel":
-        // The data areas (Task 13) re-read their members on their own bus; nothing in the world shows data members.
+      case "dataPanel": {
+        // The data areas read their lists and editors again; nothing in the world shows data members.
+        const event = dataChangedOf(a.asset);
+        if (event) bus.emit(event);
         break;
+      }
     }
   }
 

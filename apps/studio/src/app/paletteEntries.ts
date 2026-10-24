@@ -1,4 +1,5 @@
-import type { HeaderSummary, ScriptFileDto } from "../api";
+import type { DataRowDto, HeaderSummary, ScriptFileDto } from "../api";
+import { itemPrice, moveType, rowLabel, speciesTypes } from "../data/dataModel";
 import type { PickerItem } from "../ui/primitives";
 import type { IconName } from "../ui/primitives/icons";
 import type { PaletteGroup } from "../ui/frame/Palette";
@@ -25,6 +26,9 @@ export type PaletteCommand =
   | "settings"
   | "welt"
   | "texte"
+  | "pokemon"
+  | "moves"
+  | "gegenstaende"
   | "technik";
 
 /** What picking an entry does: follow a link (`goTo`) or run a command. */
@@ -48,12 +52,21 @@ export interface CommandState {
   deck: DeckArea;
 }
 
+export interface PaletteData {
+  species: readonly DataRowDto[];
+  moves: readonly DataRowDto[];
+  items: readonly DataRowDto[];
+  itemTable: boolean;
+}
+
 export interface PaletteSource {
   places: readonly Place[];
   headers: readonly HeaderSummary[];
   archives: readonly ArchiveRow[];
   /** The script files; null when the scripts are not adopted (or not read yet). */
   scripts: readonly ScriptFileDto[] | null;
+  /** The species, moves and items (a list not read yet is empty); `itemTable`: whether items are item ids with names. Null: none read. */
+  data: PaletteData | null;
   hasProject: boolean;
   commands: CommandState;
 }
@@ -61,7 +74,7 @@ export interface PaletteSource {
 const NO_PROJECT = "Erst ein Projekt öffnen";
 const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
-const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte" };
+const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
 const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" : "verwendet"} von ${TERMS.header.label} ${ids.map(id4).join(", ")}`;
@@ -87,6 +100,9 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "settings", label: "Einstellungen", icon: "settings" },
     { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },
     { command: "texte", label: "Bereich Texte", icon: "texts", area: "texte" },
+    { command: "pokemon", label: "Bereich Pokémon", icon: "pokemon", area: "pokemon" },
+    { command: "moves", label: "Attacken öffnen", icon: "pokemon", area: "pokemon", description: "Die Attacken im Bereich Pokémon" },
+    { command: "gegenstaende", label: "Bereich Gegenstände", icon: "items", area: "gegenstaende" },
     { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
   ];
   return specs.map(({ command, label, icon, area, shortcut, description, locked }) => ({
@@ -103,10 +119,28 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
   }));
 }
 
+/** The species, moves and items: their names as the lists show them, with types or the price as the second line. */
+function dataEntries({ species, moves, items, itemTable }: PaletteData): PaletteEntry[] {
+  const entries: PaletteEntry[] = [];
+  const add = (row: DataRowDto, entry: Omit<PaletteEntry, "tech" | "description"> & { description: string }) =>
+    entries.push({ ...entry, tech: row.tech, description: entry.description === "" ? undefined : entry.description });
+  for (const row of species) {
+    add(row, { id: `species-${row.index}`, label: rowLabel("species", row, itemTable), description: speciesTypes(row), area: "pokemon", group: "Pokémon", run: { kind: "goTo", target: { kind: "species", index: row.index } } });
+  }
+  for (const row of moves) {
+    add(row, { id: `move-${row.index}`, label: rowLabel("move", row, itemTable), description: moveType(row), area: "pokemon", group: "Attacken", run: { kind: "goTo", target: { kind: "move", index: row.index } } });
+  }
+  for (const row of items) {
+    add(row, { id: `item-${row.index}`, label: rowLabel("item", row, itemTable), description: itemPrice(row), area: "gegenstaende", group: "Gegenstände", run: { kind: "goTo", target: { kind: "item", id: row.index } } });
+  }
+  return entries;
+}
+
 /**
- * Every entry of the command palette, grouped in the order Befehle, Orte, Header, Textarchive, Scripts. Ids say what an
- * entry is (`cmd-save`, `place-Zweiblattdorf`, `header-412`, `archive-412`, `script-412`), `tech` is the four-digit
- * number of a member. Without a project only the commands, and the ones that need a project are locked.
+ * Every entry of the command palette, grouped in the order Befehle, Orte, Header, Textarchive, Pokémon, Attacken, Gegenstände, Scripts.
+ * Ids say what an entry is (`cmd-save`, `place-Zweiblattdorf`, `header-412`, `archive-412`, `species-397`, `move-17`, `item-17`,
+ * `script-412`), `tech` is the four-digit number of a member. Without a project only the commands, and the ones that need a project are
+ * locked.
  */
 export function paletteEntries(source: PaletteSource): PaletteEntry[] {
   const entries = commandEntries(source);
@@ -148,6 +182,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       run: { kind: "goTo", target: { kind: "textArchive", index: row.index } },
     });
   }
+  if (source.data !== null) entries.push(...dataEntries(source.data));
   for (const file of source.scripts ?? []) {
     // A binary file cannot be opened in the editor.
     if (file.kind === "binary") continue;

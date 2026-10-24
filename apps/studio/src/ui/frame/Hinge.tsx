@@ -121,7 +121,17 @@ export function Hinge({ crumbs, depth, onDepth, problems, onProblems, history, o
                 return (
                   <Fragment key={`${i}-${crumb.label}`}>
                     <li className={last ? styles.last : styles.crumb} title={crumb.tech === undefined ? crumb.label : `${crumb.label} ${crumb.tech}`} aria-current={last ? "location" : undefined}>
-                      {crumb.onClick ? (
+                      {crumb.menu ? (
+                        <Menu
+                          trigger={
+                            <>
+                              {inner}
+                              <Icon name="caretDown" />
+                            </>
+                          }
+                          items={crumb.menu}
+                        />
+                      ) : crumb.onClick ? (
                         <button type="button" className={styles.crumbButton} onClick={crumb.onClick}>
                           {inner}
                         </button>

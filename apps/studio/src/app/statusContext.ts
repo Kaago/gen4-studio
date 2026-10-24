@@ -13,3 +13,8 @@ export function statusContext(shown: InspectorModel, header: HeaderSummary | und
   if (shown.kind === "matrixCell") parts.push(`Zelle ${shown.x}, ${shown.y}`);
   return parts.join(", ");
 }
+
+/** The middle of the status line in a data area: the selected member and its four-digit number ("Staravia, 0397"); empty without one. */
+export function dataStatus(selection: { label: string; tech: string } | null): string {
+  return selection === null ? "" : `${selection.label}, ${selection.tech}`;
+}

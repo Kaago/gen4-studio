@@ -1,4 +1,4 @@
-import type { EventKind, HeaderSummary } from "../api";
+import type { EventKind, HeaderSummary, SpeciesTab } from "../api";
 import type { InspectorModel } from "./Inspector";
 import type { DeckArea, PanelId } from "./layout";
 
@@ -15,7 +15,21 @@ export type NavTarget =
   /** A text archive, with one of its messages (omitted: the first). */
   | { kind: "textArchive"; index: number; message?: number }
   /** A script file (or level script), at a 1-based line (omitted: where the cursor was). */
-  | { kind: "script"; file: number; line?: number };
+  | { kind: "script"; file: number; line?: number }
+  /** A species (personal member) in the Pokédex, with a tab of its editor (omitted: the view). */
+  | { kind: "species"; index: number; tab?: SpeciesTab }
+  /** A move in the moves of the Pokémon area. */
+  | { kind: "move"; index: number }
+  /** An item by item id (a data member without the item table). */
+  | { kind: "item"; id: number };
+
+/** The part of a data area a link opens, and the member it selects there. */
+export interface DataNav {
+  sub: "pokedex" | "moves" | "items";
+  index: number;
+  /** The tab of the Pokédex editor to show. */
+  tab?: SpeciesTab;
+}
 
 /** What `nextSelection` needs to know about the current selection and the scene. */
 export interface NavState {
@@ -31,7 +45,7 @@ export interface NavState {
 }
 
 export interface NavResult {
-  /** The area that shows the target: a text archive is in Texte, everything else in Welt. */
+  /** The area that shows the target: a text archive is in Texte, a species or move in Pokémon, an item in Gegenstände, everything else in Welt. */
   area: DeckArea;
   selectedHeader: number | null;
   /** What to pin in the inspector; null when the target does not exist or leaves the pin alone (a text archive). */
@@ -42,6 +56,8 @@ export interface NavResult {
   text?: { index: number; message: number | null };
   /** Set for a script: what the script panel opens (`line` null: keep the cursor). */
   script?: { file: number; line: number | null };
+  /** Set for a species, move or item: what its data area selects. */
+  data?: DataNav;
 }
 
 /**
@@ -50,18 +66,31 @@ export interface NavResult {
  * target is a header, a matrix cell with a header, or a building or event that the shown scene
  * does not hold and a known header shows. A building or event the scene holds is just pinned.
  * Without a known header it is pinned alone: the editors read the backend, not the scene.
- * A text archive leads to the area Texte, every other target to Welt.
+ * A text archive leads to the area Texte, a species or a move to Pokémon, an item to Gegenstände (none of them touches the selected
+ * header or the pin), every other target to Welt.
  */
 export function nextSelection(state: NavState, target: NavTarget): NavResult {
-  if (target.kind === "textArchive") {
-    // Neither the selection nor the pin changes: the texts are not about a header.
-    return { area: "texte", selectedHeader: state.selectedHeader, pinned: null, panel: "textEdit", text: { index: target.index, message: target.message ?? null } };
+  // Outside the world neither the selection nor the pin changes: the texts and the data are not about a header.
+  const keep = { selectedHeader: state.selectedHeader, pinned: null };
+  switch (target.kind) {
+    case "textArchive":
+      return { area: "texte", ...keep, panel: "textEdit", text: { index: target.index, message: target.message ?? null } };
+    case "species":
+      // A tab is one of the editor's: the hand shows it; otherwise the view shows the species.
+      return target.tab === undefined
+        ? { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "pokedex", index: target.index } }
+        : { area: "pokemon", ...keep, panel: "pokemonEdit", data: { sub: "pokedex", index: target.index, tab: target.tab } };
+    case "move":
+      return { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "moves", index: target.index } };
+    case "item":
+      return { area: "gegenstaende", ...keep, panel: "itemView", data: { sub: "items", index: target.id } };
+    default:
+      return { area: "welt", ...inWorld(state, target) };
   }
-  return { area: "welt", ...inWorld(state, target) };
 }
 
 /** Where a target of the world leads (see `nextSelection`). */
-function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" }>): Omit<NavResult, "area"> {
+function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "move" | "item" }>): Omit<NavResult, "area"> {
   const known = (id: number | null | undefined): id is number => typeof id === "number" && (state.headers === undefined || state.headers.some((h) => h.id === id));
   const toHeader = (id: number): Omit<NavResult, "area"> => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
   // A header that the target needs selected first, unless it already is (null: keep the selection).

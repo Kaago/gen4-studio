@@ -4,7 +4,8 @@ import { redo, undo } from "../api";
 import type { EventKind } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { inTauri } from "../platform/transport";
-import type { Tool } from "../ui/frame/shellState";
+import type { AreaId, PokemonSub, Tool } from "../ui/frame/shellState";
+import { isSubLocked } from "../data/dataModel";
 import { toolForKey } from "../workbench/tools";
 import { isTypingTarget, shortcutAction, wantsDelete } from "../world/buildings";
 
@@ -22,8 +23,13 @@ interface ShortcutHandlers {
   unpinSelection: () => void;
   /** Switches the tool of the scene (a letter, or "select" on Escape). */
   onTool: (tool: Tool) => void;
-  /** Whether the world (the deck with the scene) is shown: only then do the tool letters and Escape-to-"Auswählen" act. */
-  toolsActive: boolean;
+  /** Cmd+1 to 4 in the Pokémon area: shows that part (never a locked one). */
+  onSub: (sub: PokemonSub) => void;
+  /**
+   * The area that shows. Only in the world (the deck with the scene) do the tool letters, Escape-to-"Auswählen" and Delete or Escape on
+   * the pinned building or event act; only in Pokémon do Cmd+1 to 4.
+   */
+  area: AreaId;
   /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
   toolLocked: (tool: Tool) => boolean;
 }
@@ -40,9 +46,9 @@ function inField(target: HTMLElement | null): boolean {
 }
 
 /**
- * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), the tool letters (V B F T A S G) and Escape back to
- * "Auswählen", and Delete / Escape on a pinned building or
- * event, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
+ * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), in the world the tool letters (V B F T A S G),
+ * Escape back to "Auswählen" and Delete / Escape on a pinned building or event, in the Pokémon area Cmd+1 to 4 for its parts, none of them
+ * while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
   // Shortcuts always call the handlers of the latest render.
@@ -53,12 +59,14 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       // A wizard or dialog covers the workbench: Escape must not unpin, Delete must not delete and undo must not run behind it.
       if (modalOpen()) return;
       const selected = pinnedRef.current;
+      const { area } = latest.current;
+      const inWorld = area === "welt";
       // Only while the world is shown (on another area the selection stays pinned in the hidden world, the keys are not its), and not
       // when something else already handled the key (a document tab in "Offene Scripts" closes on Delete).
-      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat && latest.current.toolsActive && !e.defaultPrevented) {
+      if ((selected.kind === "building" || selected.kind === "event") && !e.repeat && inWorld && !e.defaultPrevented) {
         // Delete (Backspace on a Mac keyboard) removes the selected building or event after asking;
         // neither it nor Escape touches a form field that is being typed in.
-        if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey })) {
+        if (wantsDelete({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, area })) {
           e.preventDefault();
           if (selected.kind === "building") void latest.current.onDeleteBuilding(selected.map, selected.index);
           else void latest.current.onDeleteEvent(selected.eventFile, selected.eventKind, selected.index);
@@ -72,7 +80,7 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
       // The tools: a letter, or Escape back to "Auswählen" when nothing is selected (a selection consumed Escape above). Never typed into
       // a field, never with a modifier, and not in an open menu or list, where a letter searches and Escape closes. Only while the world
       // is shown: on another area a letter must not change the tool the world comes back with.
-      if (latest.current.toolsActive && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
+      if (inWorld && !inField(e.target as HTMLElement | null) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat) {
         const tool = toolForKey(e.key);
         if (tool !== null) {
           // The palette's button of a locked tool cannot be pressed; its letter cannot switch to it either.
@@ -84,8 +92,12 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
           return;
         }
       }
-      const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, inApp: inTauri() });
-      if (action === "undo" || action === "redo") {
+      const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, inApp: inTauri(), area });
+      if (action === "pokedex" || action === "trainer" || action === "encounters" || action === "moves") {
+        // The browser's own Cmd+digit (switching tabs) stays away; a locked part's key does nothing, like its menu entry.
+        e.preventDefault();
+        if (!e.repeat && !isSubLocked(action)) latest.current.onSub(action);
+      } else if (action === "undo" || action === "redo") {
         e.preventDefault();
         void latest.current.step(action === "redo" ? redo : undo);
       } else if (action === "save") {

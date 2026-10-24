@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { AREAS } from "../ui/frame/shellState";
-import { DECK_PANELS, deckPanels, dropOldLayouts, isSaneLayout, layoutKey, loadLayout, saveLayout } from "./layout";
+import { DECK_AREAS, DECK_PANELS, deckPanels, dropOldLayouts, isDeckArea, isSaneLayout, layoutKey, loadLayout, saveLayout } from "./layout";
 
 describe("deck layout persistence", () => {
   beforeEach(() => localStorage.clear());
@@ -95,6 +95,17 @@ describe("deck layout persistence", () => {
     // The problems are a tab of the messages' group.
     expect(DECK_PANELS.texte.hand[1]?.position).toEqual({ direction: "within", referencePanel: "textEdit" });
     expect([...DECK_PANELS.texte.schau, ...DECK_PANELS.texte.hand].map((p) => p.title)).toEqual(["Vorschau", "Nachrichten", "Probleme"]);
+  });
+
+  it("gives_the_pokemon_and_the_items_a_view_and_a_hand_each_without_the_problems", () => {
+    expect(DECK_PANELS.pokemon.schau.map((p) => p.id)).toEqual(["pokemonView"]);
+    expect(DECK_PANELS.pokemon.hand.map((p) => p.id)).toEqual(["pokemonEdit"]);
+    expect(DECK_PANELS.gegenstaende.schau.map((p) => p.id)).toEqual(["itemView"]);
+    expect(DECK_PANELS.gegenstaende.hand.map((p) => p.id)).toEqual(["itemEdit"]);
+    expect(DECK_AREAS).toEqual(["welt", "texte", "pokemon", "gegenstaende"]);
+    expect(isDeckArea("pokemon") && isDeckArea("gegenstaende") && !isDeckArea("geschichten")).toBe(true);
+    // Still v8: the new areas bring new keys, the stored layouts of the others stay readable.
+    expect(layoutKey("pokemon", "hand")).toBe("g4.layout.v8.pokemon.hand");
   });
 
   it("puts_the_tools_left_and_the_context_right_of_the_inspector_with_their_widths", () => {

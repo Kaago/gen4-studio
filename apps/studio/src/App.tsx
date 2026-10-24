@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
-import { DECK_COMPONENTS, ExplorerPane, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
+import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
+import { DataStore, useDataLists } from "./data/dataStore";
+import type { DataArea } from "./data/dataModel";
+import type { DataNav } from "./workbench/navigation";
+import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
 import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
@@ -71,12 +76,21 @@ import { inTauri } from "./platform/transport";
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten", "pokemon", "gegenstaende"];
+const LOCKED_AREAS: readonly AreaId[] = ["geschichten"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
-  geschichten: "Kommt mit Phase 3b.3",
-  pokemon: "Kommt mit Phase 3b.3",
-  gegenstaende: "Kommt mit Phase 3b.3",
+  geschichten: "Kommt mit Phase 3b.4",
 };
+
+/** The list column of each area with a deck. */
+const AREA_LISTS: Record<DeckArea, ReactNode> = {
+  welt: <ExplorerPane />,
+  texte: <TextArchivesPane />,
+  pokemon: <PokemonListPane />,
+  gegenstaende: <ItemsListPane />,
+};
+
+/** The breadcrumbs of the data areas before they reported their own. */
+const DATA_TRAILS: Record<DataArea, Crumb[]> = { pokemon: [{ label: "Pokémon" }], gegenstaende: [{ label: "Gegenstände" }] };
 
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
 const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
@@ -126,7 +140,12 @@ function AppBody() {
   // The dockview apis of the two docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it.
   const [docks] = useState<AreaDocks>(() => {
     const none = () => ({ current: null as DockviewApi | null });
-    return { welt: { schau: none(), hand: none() }, texte: { schau: none(), hand: none() } };
+    return {
+      welt: { schau: none(), hand: none() },
+      texte: { schau: none(), hand: none() },
+      pokemon: { schau: none(), hand: none() },
+      gegenstaende: { schau: none(), hand: none() },
+    };
   });
   // A collapsed hand opens before one of its panels is brought to the front; not while a wizard's step holds the hand.
   const revealHand = useStableCallback((target: DeckArea) => {
@@ -144,6 +163,15 @@ function AppBody() {
   const onOpenText = useCallback((index: number, message?: number) => setTextTarget({ index, message: message ?? null }), []);
   // The archive and message the texts show (their hinge's breadcrumb follows them).
   const [textShown, setTextShown] = useState<TextShown>({ archive: null, message: null });
+
+  // The data lists of the project (both data areas and the palette read them), read again when a member or a name may have changed.
+  const [dataStore] = useState(() => new DataStore());
+  useBusEvent(bus, ["dataChanged", "textData"], (event) => dataStore.onEvent(event));
+  // The part and member a link asked a data area for: a new object per request, kept here like the texts' (the area may not be built yet).
+  const [dataTarget, setDataTarget] = useState<DataNav | null>(null);
+  // The breadcrumbs the data areas report.
+  const [dataTrails, setDataTrails] = useState<Record<DataArea, Crumb[]>>(DATA_TRAILS);
+  const onDataTrail = useCallback((target: DataArea, crumbs: Crumb[]) => setDataTrails((all) => ({ ...all, [target]: crumbs })), []);
 
   // The problems of the project and the open scripts. The scripts hook needs the opened project, the session needs the scripts
   // (a build saves them first), hence the ref the session reads them through.
@@ -185,6 +213,10 @@ function AppBody() {
   const openScriptLink = useStableCallback((file: number, line?: number) => {
     if (!wizardOpen.current) scripts.api.open(file, line);
   });
+  // Likewise a link to a species, move or item: the data area would select it unasked later.
+  const openDataLink = useStableCallback((target: DataNav) => {
+    if (!wizardOpen.current) setDataTarget({ ...target });
+  });
   const scene = useSceneSync({
     bus,
     setMessage: session.setMessage,
@@ -196,6 +228,7 @@ function AppBody() {
     revealHand,
     onOpenText: openTextLink,
     onOpenScript: openScriptLink,
+    onOpenData: openDataLink,
   });
   const world = useWorldActions({
     bus,
@@ -310,7 +343,8 @@ function AppBody() {
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
     onTool,
-    toolsActive: area === "welt",
+    onSub: shell.setPokemonSub,
+    area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
   });
 
@@ -341,6 +375,8 @@ function AppBody() {
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
     setArea("welt");
   }, [session.info, remember, setArea]);
+  // The data lists and icons of the old project go; the new one's are read when they are needed.
+  useEffect(() => dataStore.setProject(session.info), [session.info, dataStore]);
   // Recent projects that could not be opened this time (their folder is gone, or it is not a project any more).
   const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
   /**
@@ -474,6 +510,11 @@ function AppBody() {
     const users = usersByArchive(scene.headers);
     return archiveRows(session.counts.TextArchive, users, archivePlaces(scene.headers, users));
   }, [scene.headers, session.counts.TextArchive]);
+  // The species, moves and items the palette lists: read when it opens (the first time, or after they changed).
+  useEffect(() => {
+    if (paletteOpen && session.info !== null) dataStore.needAll(session.info);
+  }, [paletteOpen, session.info, dataStore]);
+  const paletteData = useDataLists(dataStore, paletteOpen ? session.info : null);
   const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
   const paletteItems = useMemo(
     () =>
@@ -482,10 +523,11 @@ function AppBody() {
         headers: scene.headers,
         archives,
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
+        data: paletteData,
         hasProject: session.info !== null,
         commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, session.info, session.busy, area, paletteDeck],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck],
   );
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
@@ -531,8 +573,14 @@ function AppBody() {
         break;
       case "welt":
       case "texte":
+      case "pokemon":
+      case "gegenstaende":
       case "technik":
         showArea(run.command);
+        break;
+      case "moves":
+        shell.setPokemonSub("moves");
+        showArea("pokemon");
         break;
     }
   });
@@ -584,6 +632,8 @@ function AppBody() {
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
     );
+  // The breadcrumb of each area's hinge.
+  const trails: Record<DeckArea, Crumb[]> = { welt: crumbs, texte: textTrail, pokemon: dataTrails.pokemon, gegenstaende: dataTrails.gegenstaende };
   // The world's deck keeps the slots of the wizard's bar and step; they show while a wizard is open.
   const showsWizard = wizards.request !== null;
   /** The deck of an area: its two docks and its hinge, which works on that area's hand and shows `trail`. */
@@ -619,55 +669,67 @@ function AppBody() {
   return (
     <>
       <Workbench data={data} live={live}>
-        {/* Around the whole frame: the texts' list, deck and status parts share the text area's state. */}
+        {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
         <TextAreaHost onShown={setTextShown}>
-          <Shell
-            title={
-              <TitleBar
-                projectName={info ? projectName(info.root) : null}
-                game={info ? gameLabel(info) : null}
-                dirtyCount={session.dirtyCount + scripts.dirtyCount}
-                // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
-                busy={session.busy || showsWizard}
-                onOpen={openProject}
-                onSave={() => void session.onSave()}
-                onBuild={() => void session.onBuild()}
-                onHelp={onHelp}
-                onPalette={openPalette}
-                paletteDisabled={showsWizard}
-                theme={shell.theme}
-                onToggleTheme={shell.toggleTheme}
-              />
-            }
-            atlas={
-              <Atlas
-                area={area}
-                onArea={setArea}
-                onHelp={onHelp}
-                locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
-                lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
-                density={shell.density}
-              />
-            }
-            area={area}
-            areas={Object.fromEntries(
-              DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: a === "welt" ? <ExplorerPane /> : <TextArchivesPane />, deck: deckOf(a, a === "welt" ? crumbs : textTrail) }]),
-            )}
-            pane={pane}
-            status={
-              <StatusLine
-                left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
-                middle={
-                  showsWizard ? <WizardStep /> : area === "texte" ? <TextStatus /> : area === "einstellungen" ? "Änderungen gelten sofort und für alle Projekte" : area === "welt" ? context : null
-                }
-                right={<ProblemCount store={problems} />}
-                bridge={bridge}
-                density={shell.density}
-                onToggleDensity={shell.toggleDensity}
-                build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-              />
-            }
-          />
+          <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail}>
+            <Shell
+              title={
+                <TitleBar
+                  projectName={info ? projectName(info.root) : null}
+                  game={info ? gameLabel(info) : null}
+                  dirtyCount={session.dirtyCount + scripts.dirtyCount}
+                  // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
+                  busy={session.busy || showsWizard}
+                  onOpen={openProject}
+                  onSave={() => void session.onSave()}
+                  onBuild={() => void session.onBuild()}
+                  onHelp={onHelp}
+                  onPalette={openPalette}
+                  paletteDisabled={showsWizard}
+                  theme={shell.theme}
+                  onToggleTheme={shell.toggleTheme}
+                />
+              }
+              atlas={
+                <Atlas
+                  area={area}
+                  onArea={setArea}
+                  onHelp={onHelp}
+                  locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
+                  lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
+                  density={shell.density}
+                />
+              }
+              area={area}
+              areas={Object.fromEntries(DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: AREA_LISTS[a], deck: deckOf(a, trails[a]) }]))}
+              pane={pane}
+              status={
+                <StatusLine
+                  left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
+                  middle={
+                    showsWizard ? (
+                      <WizardStep />
+                    ) : area === "texte" ? (
+                      <TextStatus />
+                    ) : area === "pokemon" ? (
+                      <PokemonStatus />
+                    ) : area === "gegenstaende" ? (
+                      <ItemsStatus />
+                    ) : area === "einstellungen" ? (
+                      "Änderungen gelten sofort und für alle Projekte"
+                    ) : area === "welt" ? (
+                      context
+                    ) : null
+                  }
+                  right={<ProblemCount store={problems} />}
+                  bridge={bridge}
+                  density={shell.density}
+                  onToggleDensity={shell.toggleDensity}
+                  build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+                />
+              }
+            />
+          </DataAreaHost>
         </TextAreaHost>
       </Workbench>
       <WizardHost

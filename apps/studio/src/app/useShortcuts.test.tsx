@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
+import type { AreaId } from "../ui/frame/shellState";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -15,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), toolsActive: true, toolLocked: (() => false) as (tool: string) => boolean };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -26,7 +27,7 @@ describe("useShortcuts", () => {
 
   beforeEach(() => {
     env.tauri = false;
-    handlers.toolsActive = true;
+    handlers.area = "welt";
     handlers.toolLocked = () => false;
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
@@ -53,13 +54,54 @@ describe("useShortcuts", () => {
 
   it("neither_deletes_nor_unpins_the_selection_of_the_hidden_world_on_another_area", async () => {
     // Texte, Technik, Start: the building or event stays pinned in the hidden world, but Delete and Escape there are not its keys.
-    handlers.toolsActive = false;
+    handlers.area = "texte";
     await press({ key: "Delete" });
     await press({ key: "Backspace" });
     await press({ key: "Escape" });
     expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
     expect(handlers.onDeleteEvent).not.toHaveBeenCalled();
     expect(handlers.unpinSelection).not.toHaveBeenCalled();
+  });
+
+  it("neither_deletes_nor_unpins_the_building_of_the_world_in_the_pokemon_area", async () => {
+    // The data areas have their own selection: Delete there must not ask about the building pinned in the hidden world.
+    for (const area of ["pokemon", "gegenstaende"] as const) {
+      handlers.area = area;
+      await press({ key: "Delete" });
+      await press({ key: "Backspace" });
+      await press({ key: "Escape" });
+    }
+    expect(handlers.onDeleteBuilding).not.toHaveBeenCalled();
+    expect(handlers.unpinSelection).not.toHaveBeenCalled();
+  });
+
+  it("switches_the_part_of_the_pokemon_area_on_cmd_1_to_4_and_a_locked_part_does_nothing", async () => {
+    handlers.area = "pokemon";
+    const event = new KeyboardEvent("keydown", { key: "4", metaKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(event));
+    expect(handlers.onSub).toHaveBeenCalledWith("moves");
+    expect(event.defaultPrevented).toBe(true);
+    await press({ key: "1", ctrlKey: true });
+    expect(handlers.onSub).toHaveBeenLastCalledWith("pokedex");
+    handlers.onSub.mockClear();
+    // Trainer and Begegnungen come with 3b.3b: their keys do nothing.
+    await press({ key: "2", metaKey: true });
+    await press({ key: "3", metaKey: true });
+    expect(handlers.onSub).not.toHaveBeenCalled();
+  });
+
+  it("does_not_switch_parts_outside_the_pokemon_area_or_while_a_wizard_is_open", async () => {
+    handlers.area = "welt";
+    await press({ key: "4", metaKey: true });
+    handlers.area = "gegenstaende";
+    await press({ key: "4", metaKey: true });
+    handlers.area = "pokemon";
+    const wizard = document.createElement("div");
+    wizard.setAttribute("data-wizard", "");
+    document.body.append(wizard);
+    await press({ key: "4", metaKey: true });
+    wizard.remove();
+    expect(handlers.onSub).not.toHaveBeenCalled();
   });
 
   it("leaves_a_delete_or_escape_that_something_else_already_handled", async () => {
@@ -149,7 +191,7 @@ describe("useShortcuts", () => {
     await press({ key: "o", metaKey: true, repeat: true });
     expect(handlers.onOpenProject).toHaveBeenCalledOnce();
     // Not while the world's tools are away either: Cmd+O works on every area.
-    handlers.toolsActive = false;
+    handlers.area = "texte";
     await press({ key: "o", ctrlKey: true });
     expect(handlers.onOpenProject).toHaveBeenCalledTimes(2);
   });
@@ -172,7 +214,7 @@ describe("useShortcuts", () => {
     expect(event.defaultPrevented).toBe(true);
     await press({ key: "k", metaKey: true, repeat: true });
     expect(handlers.onPalette).toHaveBeenCalledOnce();
-    handlers.toolsActive = false;
+    handlers.area = "texte";
     await press({ key: "K", ctrlKey: true });
     expect(handlers.onPalette).toHaveBeenCalledTimes(2);
     const field = document.createElement("input");
@@ -254,13 +296,13 @@ describe("useShortcuts", () => {
 
     it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {
       mountWith(none);
-      handlers.toolsActive = false;
+      handlers.area = "texte";
       await press({ key: "b" });
       await press({ key: "f" });
       await press({ key: "g" });
       await press({ key: "Escape" });
       expect(handlers.onTool).not.toHaveBeenCalled();
-      handlers.toolsActive = true;
+      handlers.area = "welt";
       await press({ key: "b" });
       expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
       await press({ key: "Escape" });
@@ -268,7 +310,7 @@ describe("useShortcuts", () => {
     });
 
     it("keeps_the_save_and_undo_shortcuts_while_the_world_is_not_shown", async () => {
-      handlers.toolsActive = false;
+      handlers.area = "texte";
       await press({ key: "s", metaKey: true });
       await press({ key: "z", metaKey: true });
       expect(handlers.onSave).toHaveBeenCalledOnce();

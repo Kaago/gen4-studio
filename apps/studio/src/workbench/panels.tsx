@@ -3,6 +3,11 @@ import type { ReactNode } from "react";
 import type { ProjectInfo } from "../api";
 import { useStableCallback } from "../app/useStable";
 import { useBusRevision } from "../bus/useBusEvent";
+import { ItemHand, ItemView, ItemsArea, ItemsList, ItemsStatus } from "../data/ItemsArea";
+import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "../data/PokemonArea";
+import type { DataArea } from "../data/dataModel";
+import type { DataStore } from "../data/dataStore";
+import type { DataAreaProps } from "../data/useDataArea";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
@@ -11,7 +16,9 @@ import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
 import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
+import type { Crumb } from "./breadcrumb";
 import type { DeckArea, DeckId } from "./layout";
+import type { DataNav } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
@@ -337,8 +344,48 @@ export function TextEditTab() {
 }
 
 /**
+ * The models of the two data areas around the frame (App puts them around the shell, inside the text area's): their lists, views, hands
+ * and status parts read them. Each area reads its lists from the store the first time it shows; the contexts are memoised, so an area
+ * renders again only when one of its inputs changes.
+ */
+export function DataAreaHost({ store, target, onTrail, children }: { store: DataStore; target: DataNav | null; onTrail: (area: DataArea, crumbs: Crumb[]) => void; children?: ReactNode }) {
+  const { info, goTo } = useWorkbench();
+  const shown = useShell().state.area;
+  const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
+  const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
+  const pokemonActive = shown === "pokemon";
+  const itemsActive = shown === "gegenstaende";
+  const pokemon = useMemo<DataAreaProps>(() => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail }), [info, store, pokemonActive, target, goTo, pokemonTrail]);
+  const items = useMemo<DataAreaProps>(() => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail }), [info, store, itemsActive, target, goTo, itemsTrail]);
+  return (
+    <PokemonArea context={pokemon}>
+      <ItemsArea context={items}>{children}</ItemsArea>
+    </PokemonArea>
+  );
+}
+
+export { ItemsStatus, PokemonStatus };
+
+/** The list of the Pokémon area; whether it is folded is the shell's state of the area. */
+export function PokemonListPane() {
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.pokemon;
+  const onToggle = useStableCallback(() => setListOpen("pokemon", !listOpen));
+  return <PokemonList open={listOpen} onToggle={onToggle} />;
+}
+
+/** The list of the Gegenstände area. */
+export function ItemsListPane() {
+  const { state, setListOpen } = useShell();
+  const listOpen = state.listOpen.gegenstaende;
+  const onToggle = useStableCallback(() => setListOpen("gegenstaende", !listOpen));
+  return <ItemsList open={listOpen} onToggle={onToggle} />;
+}
+
+/**
  * The panels of the view dock and of the hand dock of each area, by id. Module-level constants: dockview would remount every panel if they
- * changed. The problems are in both hands: each area's dock is its own dockview, and every instance reads the one problems store.
+ * changed. The problems are in the hands of Welt and Texte: each area's dock is its own dockview, and every instance reads the one problems
+ * store.
  */
 export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
   welt: {
@@ -348,5 +395,13 @@ export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> =
   texte: {
     schau: { textView: TextViewTab },
     hand: { textEdit: TextEditTab, problems: ProblemsTab },
+  },
+  pokemon: {
+    schau: { pokemonView: PokemonView },
+    hand: { pokemonEdit: PokemonHand },
+  },
+  gegenstaende: {
+    schau: { itemView: ItemView },
+    hand: { itemEdit: ItemHand },
   },
 };

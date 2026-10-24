@@ -1,11 +1,25 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
-// of each area's hand, the depth and the recently opened projects. Plain module (no React); `ShellContext` holds the live copy.
+// of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows and the selection of each data
+// part. Plain module (no React); `ShellContext` holds the live copy. A state written before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
 export type Depth = "bauen" | "tuefteln";
 export type Tool = "select" | "paint" | "figure" | "door" | "trigger" | "sign" | "building";
 
 export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+
+/** The parts of the Pokémon area, in the order of their keys ⌘1 to ⌘4. */
+export type PokemonSub = "pokedex" | "trainer" | "encounters" | "moves";
+export const POKEMON_SUBS: readonly PokemonSub[] = ["pokedex", "trainer", "encounters", "moves"];
+
+/** The selected member of each data part that has a list to choose from (a species, a move, an item). */
+export interface DataSelection {
+  pokedex?: number;
+  moves?: number;
+  items?: number;
+}
+export type DataSelectKey = keyof DataSelection;
+const SELECT_KEYS: readonly DataSelectKey[] = ["pokedex", "moves", "items"];
 
 /** The hand (the lower dock) is never lower or higher than this, whatever the stored value says. */
 export const HAND_MIN = 200;
@@ -30,6 +44,10 @@ export interface ShellState {
   handCollapsed: Record<AreaId, boolean>;
   depth: Depth;
   recent: RecentProject[];
+  /** The part each area with parts shows. */
+  sub: { pokemon: PokemonSub };
+  /** The selection of each data part; a part without one has none. */
+  selected: DataSelection;
 }
 
 /** A hand height inside 200..560; anything that is not a number gets the default. */
@@ -52,6 +70,19 @@ function isRecent(v: unknown): v is RecentProject {
   return typeof r.path === "string" && typeof r.name === "string" && typeof r.game === "string" && isNumber(r.openedAt);
 }
 
+const isIndex = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/** The selections that are member indices; anything else is dropped. */
+function readSelection(stored: unknown): DataSelection {
+  const record = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  const selection: DataSelection = {};
+  for (const key of SELECT_KEYS) {
+    const value = record[key];
+    if (isIndex(value)) selection[key] = value;
+  }
+  return selection;
+}
+
 function stored(): unknown {
   try {
     const raw = localStorage.getItem(KEY);
@@ -72,6 +103,8 @@ export function readShellState(): ShellState {
     handCollapsed: perArea(s.handCollapsed, false, isBoolean),
     depth: s.depth === "tuefteln" ? "tuefteln" : "bauen",
     recent: Array.isArray(s.recent) ? s.recent.filter(isRecent).slice(0, MAX_RECENT) : [],
+    sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
+    selected: readSelection(s.selected),
   };
 }
 

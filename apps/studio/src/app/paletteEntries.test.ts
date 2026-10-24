@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HeaderSummary, ScriptFileDto } from "../api";
+import type { DataRowDto, HeaderSummary, ScriptFileDto } from "../api";
 import { buildPlaces } from "../workbench/places";
 import { archivePlaces, archiveRows, usersByArchive } from "../workbench/text/textModel";
 import { filterItems } from "../ui/primitives/pickerFilter";
@@ -28,11 +28,19 @@ const scripts: ScriptFileDto[] = [
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
 const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const };
+const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
+const data = {
+  species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
+  moves: [dataRow(17, "Flügelschlag", { type: 2, category: 0, power: 60, accuracy: 100, pp: 35 })],
+  items: [dataRow(17, "Trank", { price: 300, field_pocket: 1, icon: true, data_index: 17 })],
+  itemTable: true,
+};
 const source = (over: Partial<PaletteSource> = {}): PaletteSource => ({
   places: buildPlaces(headers, []),
   headers,
   archives,
   scripts,
+  data,
   hasProject: true,
   commands,
   ...over,
@@ -41,7 +49,7 @@ const byId = (id: string, over: Partial<PaletteSource> = {}) => paletteEntries(s
 
 describe("paletteEntries", () => {
   it("lists_only_the_commands_without_a_project_and_locks_the_wizards_and_the_project_commands", () => {
-    const entries = paletteEntries(source({ hasProject: false, places: [], headers: [], archives: [], scripts: null }));
+    const entries = paletteEntries(source({ hasProject: false, places: [], headers: [], archives: [], scripts: null, data: null }));
     expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["Befehle"]));
     expect(entries.map((e) => e.label)).toEqual([
       "Projekt öffnen",
@@ -58,6 +66,9 @@ describe("paletteEntries", () => {
       "Einstellungen",
       "Bereich Welt",
       "Bereich Texte",
+      "Bereich Pokémon",
+      "Attacken öffnen",
+      "Bereich Gegenstände",
       "Bereich Technik",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
@@ -92,9 +103,36 @@ describe("paletteEntries", () => {
     expect(entries.some((e) => e.group === "Scripts")).toBe(false);
   });
 
+  it("lists_species_moves_and_items_with_their_four_digit_number_and_what_they_are", () => {
+    expect(byId("species-397")).toMatchObject({ label: "Staravia", tech: "0397", description: "Normal, Flug", group: "Pokémon", area: "pokemon", run: { kind: "goTo", target: { kind: "species", index: 397 } } });
+    // A species without a name in the text archive is named in German.
+    expect(byId("species-520")).toMatchObject({ label: "Art 0520", tech: "0520", description: undefined });
+    expect(byId("move-17")).toMatchObject({ label: "Flügelschlag", tech: "0017", description: "Flug", group: "Attacken", area: "pokemon", run: { kind: "goTo", target: { kind: "move", index: 17 } } });
+    expect(byId("item-17")).toMatchObject({ label: "Trank", tech: "0017", description: "300 ₽", group: "Gegenstände", area: "gegenstaende", run: { kind: "goTo", target: { kind: "item", id: 17 } } });
+    // Without the item table an item is a data member without a name.
+    expect(byId("item-17", { data: { ...data, items: [dataRow(17, "", { price: 300, field_pocket: 1, icon: false, data_index: 17 })], itemTable: false } })).toMatchObject({ label: "Daten 0017" });
+  });
+
+  it("finds_the_species_0397_by_its_number", () => {
+    const hits = filterItems(paletteEntries(source({ scripts: null })), "0397");
+    expect(hits.filter((e) => e.group === "Pokémon").map((e) => e.id)).toEqual(["species-397"]);
+    expect(filterItems(paletteEntries(source()), "stara").map((e) => e.id)).toEqual(["species-396", "species-397"]);
+  });
+
+  it("lists_no_data_while_it_is_not_read", () => {
+    const entries = paletteEntries(source({ data: null }));
+    expect(entries.some((e) => e.group === "Pokémon" || e.group === "Attacken" || e.group === "Gegenstände")).toBe(false);
+  });
+
+  it("opens_the_pokemon_area_the_moves_and_the_items_by_command", () => {
+    expect(byId("cmd-pokemon")).toMatchObject({ label: "Bereich Pokémon", area: "pokemon", run: { kind: "command", command: "pokemon" } });
+    expect(byId("cmd-moves")).toMatchObject({ label: "Attacken öffnen", area: "pokemon", run: { kind: "command", command: "moves" } });
+    expect(byId("cmd-gegenstaende")).toMatchObject({ label: "Bereich Gegenstände", area: "gegenstaende", run: { kind: "command", command: "gegenstaende" } });
+  });
+
   it("puts_the_groups_in_the_order_commands_places_headers_archives_scripts", () => {
     const groups = [...new Set(paletteEntries(source()).map((e) => e.group))];
-    expect(groups).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Scripts"]);
+    expect(groups).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Attacken", "Gegenstände", "Scripts"]);
     expect(PALETTE_GROUPS).toEqual(groups);
   });
 

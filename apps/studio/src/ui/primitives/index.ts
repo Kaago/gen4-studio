@@ -41,7 +41,7 @@ export { Menu } from "./Menu";
 export type { MenuEntry, MenuItemSpec, MenuProps } from "./Menu";
 export { Notice } from "./Notice";
 export type { NoticeKind, NoticeProps } from "./Notice";
-export { PanelHead } from "./PanelHead";
+export { PanelHead, switcherMenu } from "./PanelHead";
 export type { PanelHeadProps, PanelHeadSwitcher, PanelHeadSwitcherItem } from "./PanelHead";
 export { Picker } from "./Picker";
 export type { PickerItem, PickerProps } from "./Picker";

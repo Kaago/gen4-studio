@@ -33,6 +33,11 @@ export type PanelHeadProps = {
   switcher?: PanelHeadSwitcher;
 };
 
+/** The menu entries of a switcher: the head's menu, and the breadcrumb's second crumb, which opens the same menu. */
+export function switcherMenu(switcher: PanelHeadSwitcher): MenuItemSpec[] {
+  return switcher.items.map((item) => switcherEntry(item, switcher));
+}
+
 function switcherEntry(item: PanelHeadSwitcherItem, switcher: PanelHeadSwitcher): MenuItemSpec {
   const detail =
     item.count !== undefined || item.shortcut !== undefined ? (
@@ -66,7 +71,7 @@ export function PanelHead({ title, subtitle, actions, status, switcher }: PanelH
                 <Icon name="caretDown" />
               </>
             }
-            items={switcher.items.map((item) => switcherEntry(item, switcher))}
+            items={switcherMenu(switcher)}
           />
         ) : (
           title

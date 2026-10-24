@@ -8,7 +8,7 @@ import { fetchCurrent } from "../reload";
 import { tilesetKey } from "../workbench/inspector/areaFields";
 import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
-import type { NavTarget } from "../workbench/navigation";
+import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
 import { deckPanels } from "../workbench/layout";
 import type { DeckArea, PanelId } from "../workbench/layout";
@@ -46,6 +46,8 @@ interface SceneSyncParams {
   onOpenText: (index: number, message?: number) => void;
   /** Tells the script panel which file to open, and at which 1-based line (a link to a script). */
   onOpenScript: (file: number, line?: number) => void;
+  /** Tells a data area which part to show and which member to select (a link to a species, move or item). */
+  onOpenData: (target: DataNav) => void;
 }
 
 /**
@@ -53,7 +55,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, revealHand, onOpenText, onOpenScript }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, revealHand, onOpenText, onOpenScript, onOpenData }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -299,6 +301,10 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
       } else if (next.script) {
         // Likewise a script: the panel opens the document, the selection stays.
         onOpenScript(next.script.file, next.script.line ?? undefined);
+        focusPanel(next.area, next.panel);
+      } else if (next.data) {
+        // And a species, move or item: its data area selects it.
+        onOpenData(next.data);
         focusPanel(next.area, next.panel);
       } else if (target.kind === "header") {
         setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });

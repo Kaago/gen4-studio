@@ -1,4 +1,6 @@
 import type { EventKind, EventsDto, HeaderSummary, WarpDto } from "../api";
+import { switcherMenu } from "../ui/primitives";
+import type { MenuItemSpec, PanelHeadSwitcher } from "../ui/primitives";
 import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
@@ -11,6 +13,8 @@ export interface Crumb {
   label: string;
   tech?: string;
   onClick?: () => void;
+  /** Makes the crumb a menu button with these entries (the parts of an area) instead of a link. */
+  menu?: MenuItemSpec[];
 }
 
 export interface CrumbInput {
@@ -88,5 +92,35 @@ export function textCrumbs({ archive, place, message, goTo }: TextCrumbInput): C
   if (message !== null && message !== undefined) {
     crumbs.push({ label: `Nachricht ${String(message).padStart(3, "0")}`, onClick: link({ kind: "textArchive", index: archive, message }) });
   }
+  return crumbs;
+}
+
+/** The selected member of a data area: its name, and where a click on it leads. */
+export interface DataCrumbSelection {
+  label: string;
+  target: NavTarget;
+}
+
+export type DataCrumbInput =
+  /** Pokémon: the part with its switcher as the second crumb. */
+  | { area: "pokemon"; switcher: PanelHeadSwitcher; selection: DataCrumbSelection | null; goTo?: (target: NavTarget) => void }
+  /** Gegenstände: the pocket of the selected item as the second crumb (a click on it filters the list by it). */
+  | { area: "gegenstaende"; pocket: { label: string; onClick: () => void } | null; selection: DataCrumbSelection | null; goTo?: (target: NavTarget) => void };
+
+/**
+ * The breadcrumb of a data area: Pokémon › Pokédex › Staravia, where the part opens the area's switcher as a menu; Gegenstände › Tasche
+ * Medizin › Trank, where the pocket filters the list. Without a selection: the area and its part (Pokémon), the area alone (Gegenstände).
+ */
+export function dataCrumbs(input: DataCrumbInput): Crumb[] {
+  const { selection, goTo } = input;
+  const crumbs: Crumb[] = [{ label: input.area === "pokemon" ? "Pokémon" : "Gegenstände" }];
+  if (input.area === "pokemon") {
+    const { switcher } = input;
+    const current = switcher.items.find((item) => item.id === switcher.value);
+    crumbs.push({ label: current?.label ?? switcher.value, menu: switcherMenu(switcher) });
+  } else if (input.pocket !== null) {
+    crumbs.push({ label: input.pocket.label, onClick: input.pocket.onClick });
+  }
+  if (selection !== null) crumbs.push({ label: selection.label, onClick: goTo ? () => goTo(selection.target) : undefined });
   return crumbs;
 }

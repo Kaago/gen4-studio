@@ -95,6 +95,17 @@ describe("Hinge", () => {
     expect(button("Kein Link")).toBeUndefined();
   });
 
+  it("makes_a_crumb_with_a_menu_a_menu_button_whose_items_switch", () => {
+    const onSelect = vi.fn();
+    show(base({ crumbs: [{ label: "Pokémon" }, { label: "Pokédex", menu: [{ label: "Pokédex", checked: true, onSelect: vi.fn() }, { label: "Attacken", checked: false, onSelect }] }, { label: "Staravia" }] }));
+    const trigger = button("Pokédex")!;
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    const items = [...openMenu(trigger), ...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")];
+    const attacks = items.find((i) => i.textContent?.includes("Attacken"))!;
+    act(() => attacks.click());
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
   it("says_what_the_problem_light_counts_and_Alles_stimmig_at_zero", () => {
     show(base({ problems: { errors: 2, warnings: 1 } }));
     expect(button(/2 Fehler, 1 Warnung/)).toBeDefined();
