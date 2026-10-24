@@ -4,7 +4,7 @@ Quelle: Spike [docs/research/2026-10-23-3b3/trainer-script-extension-3b3b.md](..
 §1 und §2 (pret `pokeplatinum` `be36a9db`, `pokeheartgold` `6988158`; gemessen auf Platin DE und HeartGold DE mit
 `g4emu`), dazu [trainer-mechanics-3b3b.md](../research/2026-10-23-3b3/trainer-mechanics-3b3b.md) §1 und §4.
 Das allgemeine Format einer Scriptdatei (Sprungtabelle, Terminator `0xFD13`) steht in [script_file.md](script_file.md).
-Implementierung: `crates/g4-kernel/src/scripts.rs` (`battle_script_file`, `battle_slots_with`,
+Implementierung: `crates/g4-kernel/src/scripts.rs` (`battle_script_file`, `battle_slots`,
 `extend_battle_slots_with`), `crates/g4-kernel/src/data/trainer_create.rs` (`create_trainer`), Metadaten
 `crates/g4-kernel/metadata/trainer_scripts.yaml`. Alle Werte Little Endian.
 
@@ -83,7 +83,7 @@ script script_929 #929:           // HGSS: script_740 #740
    Script)“); der Binärweg des Spikes (Einträge vor `FD 13` einfügen) ist nicht gebaut. Abgelehnt wird auch über der
    Flag-Grenze (Trainer-ID ≥ 1040, Flags `0x550 + ID` bis `0x95F`), bei einem Namen über 7 Zeichen und bei einer
    Namensbank, die nicht zur Trainerzahl passt.
-2. **Kopf lesen** (`battle_slots_with`): das Script mit Slot 1 ist das Kampf-Script; der Slot direkt hinter dessen erstem
+2. **Kopf lesen** (`battle_slots(project, meta)`): das Script mit Slot 1 ist das Kampf-Script; der Slot direkt hinter dessen erstem
    zusammenhängendem Bereich muss ein anderes Script sein und genau `seen_script − 2999` (Platin 929, HGSS 740). Weicht er
    ab, hat ein Hack die Datei umgebaut, und der Befehl lehnt ab. `max` ist der höchste Kampf-Slot.
 3. **ID wählen:** die nächste freie ID. Ist sie der „gesehen“-Slot, bekommt diese ID einen gesperrten **Platzhalter**
@@ -122,7 +122,10 @@ Verlaufsschritt; die Blickrichtung bestimmt, wohin der Trainer sieht.
 
 Die Szenarien `pt-trainer-begegnung.yaml` und `hg-trainer-begegnung.yaml` ([phase-3b3-gate.md](../phase-3b3-gate.md),
 Teil B) legen in beiden Spielen Trainer hinter dem Platzhalter an (Platin 930, HGSS 741), sprechen sie an und gewinnen den
-Kampf; der erste Trainer (928 bzw. 738) kämpft über die Sichtlinie.
+Kampf; der erste Trainer (928 bzw. 738) kämpft über die Sichtlinie. Dass der zweite Kampf durch Ansprechen beginnt, zeigt
+die Anordnung im Szenario, nicht `expect-battle` (das liest nur Art und Level und unterscheidet Sicht und Ansprechen
+nicht): Mia sieht vom Weg weg (Platin nach Süden, HGSS nach Norden), der Spieler kommt auf ihrer Seite an, stellt sich
+neben sie, dreht sich zu ihr (`press RICHTUNG:8`) und drückt A.
 
 ## Offen
 

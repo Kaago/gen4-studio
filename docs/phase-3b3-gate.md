@@ -237,7 +237,7 @@ uv run g4emu scenario ../agent/scenarios/pt-trainer-begegnung.yaml \
 - [x] 2. `create_trainer` Klasse 9 (Wanderer) „Jens“ → 928, „Mia“ → 930 mit Platzhalter 929 und erweiterter Kampf-Scriptdatei 1114; je ein Pokémon (Pikachu Lv 12, Evoli Lv 14), Kampftexte vor dem Kampf (mit `\r`), Niederlage, danach. Objekte mit Script 3927 bzw. 3929, `trainer_type` 1, Sichtweite 3; Jens sieht nach Norden quer zum Weg, Mia nach Süden.
 - [x] 3. Geber: Objekt auf dem neuen Ort, Script 2 der neuen Datei gibt einmalig Knakrack (445) Lv 100 über ein Flag (`FLAG_UNUSED_0x0094`), Textliteral „Hier, nimm das.“; Ankunfts-Warp mit Tür-Kachel, Treppe 394/0 auf 593. `save`, `build_rom`.
 - [x] 4. Prüfschritt `g4k check-data`: `encounter:140:grass0=150`, `encounter:183:grass_rate=100`, `encounter:183:grass0=150`, `encounter:183:grass11_level=5` → „4 expectation(s) met“.
-- [x] 5. Spielen: Geber ansprechen; Jens kämpft per **Sichtlinie** (`expect-battle 25 12`), Mia wird **angesprochen** (`press a`) und kämpft über ihren eigenen Eintrag der erweiterten Kampf-Scriptdatei (`expect-battle 133 14`); beide `win-battle` enden auf 593 (nicht zu Hause); `walk-until-battle up 40 back-and-forth`, `expect-battle 150 5`. Bilder `trainer1`, `trainer2`, `wild`.
+- [x] 5. Spielen: Geber ansprechen; Jens kämpft per **Sichtlinie** (`expect-battle 25 12`), Mia wird **angesprochen** (`press a`) und kämpft über ihren eigenen Eintrag der erweiterten Kampf-Scriptdatei (`expect-battle 133 14`). `expect-battle` liest nur Art und Level und unterscheidet Sicht und Ansprechen nicht; dass Mias Kampf durch Ansprechen beginnt, zeigt die Anordnung: sie sieht nach Süden, vom Weg weg, der Spieler stellt sich neben sie (53, 21), dreht sich zu ihr (`press right:8`) und drückt A; beide `win-battle` enden auf 593 (nicht zu Hause); `walk-until-battle up 40 back-and-forth`, `expect-battle 150 5`. Bilder `trainer1`, `trainer2`, `wild`.
 
 ### (B3) Szenario `hg-trainer-begegnung.yaml`
 
@@ -247,9 +247,9 @@ Wie (B2) mit `hg-trainer-begegnung.yaml`, Kopie `hg-3b3b`, `--set NEUER_HEADER=5
 - [x] 2. `create_trainer` dreimal: „Jens“ → 738, „Lea“ → 739, „Mia“ → 741 mit Platzhalter 740 und erweiterter Kampf-Scriptdatei 0953. 739 („Lea“) bekommt weder Team noch Objekt; er ist nur da, damit der dritte Trainer hinter dem Platzhalter liegt und das Gate auch in HeartGold die Erweiterung beweist.
 - [x] 3. Geber mit `GiveMon` 445 Lv 100 einmalig über `FLAG_UNK_0A1`, Ankunft (24, 16) als Tür, Treppe 61/0 auf 540. `save`, `build_rom`.
 - [x] 4. `g4k check-data`: Datei 1 `grass0`, `grass0_morning`, `grass0_night` = 150; Datei 142 `grass_rate` 100, `grass0`, `grass11_morning`, `grass11_night` = 150, `grass11_level` 5 → „8 expectation(s) met“.
-- [x] 5. Spielen: Jens (738) per Sichtlinie (`expect-battle 25 12`), Mia (741) angesprochen (`expect-battle 133 14`), beide Siege enden auf 540, wild `expect-battle 150 5`. Bilder `trainer1`, `trainer2`, `wild`.
+- [x] 5. Spielen: Jens (738) per Sichtlinie (`expect-battle 25 12`), Mia (741) angesprochen (`expect-battle 133 14`; sie sieht nach Norden, vom Weg in Zeile 16 weg, der Spieler stellt sich neben sie (15, 16), `press left:8`, A; auch hier belegt die Anordnung das Ansprechen, nicht `expect-battle`), beide Siege enden auf 540, wild `expect-battle 150 5`. Bilder `trainer1`, `trainer2`, `wild`.
 
-Abweichung von der Spezifikation: Die Spezifikation nennt Wanderer „Jens“ und Göre „Mia“, die Szenarien legen beide als Wanderer an (eine Klasse mit sichtbarer Figur, Grafik 20 bzw. 333). Statt `walk-until-battle right 6` laufen die Szenarien gezielt in die Sichtlinie (`walk-to`, `walk`) bzw. sprechen Mia an, damit ein Kampf über den eigenen Eintrag der erweiterten Kampf-Scriptdatei läuft (ein Sichtlinien-Kampf nutzt immer den „gesehen“-Eintrag und beweist die Erweiterung nicht). Die Prüfung der Route-201-Datei im Build liest die Begegnungen mit dem Codec des Projekts, nicht mit uxie (dessen Begegnungs-Leser ist unbrauchbar, siehe [dev-setup.md](dev-setup.md)).
+Abweichungen von der Spezifikation (§13): Die Spezifikation nennt Wanderer „Jens“ und Göre „Mia“, die Szenarien legen beide als Wanderer an (eine Klasse mit sichtbarer Figur, Grafik 20 bzw. 333). Der Geber steht auf dem **neuen Ort**, nicht im Zimmer: Figuren der Karte, auf der der Spielstand gemacht wurde, kommen nach `continue` aus dem Spielstand, eine neue Figur im Zimmer wäre nicht da. Für das Gras nutzen die Szenarien `walk-until-battle up 40 back-and-forth` statt `up 2`. HeartGold legt drei Trainer an statt zwei: 739 („Lea“, ohne Team und ohne Figur) nur, damit der zweite gekämpfte Trainer (741) hinter dem Platzhalter 740 liegt und die Erweiterung auch dort bewiesen ist. Statt `walk-until-battle right 6` laufen die Szenarien gezielt in die Sichtlinie (`walk-to`, `walk`) bzw. sprechen Mia an, damit ein Kampf über den eigenen Eintrag der erweiterten Kampf-Scriptdatei läuft (ein Sichtlinien-Kampf nutzt immer den „gesehen“-Eintrag und beweist die Erweiterung nicht). Die Prüfung der Route-201-Datei im Build liest die Begegnungen mit dem Codec des Projekts, nicht mit uxie (dessen Begegnungs-Leser ist unbrauchbar, siehe [dev-setup.md](dev-setup.md)).
 
 ### (B4) Trainer-Editor
 
@@ -319,7 +319,7 @@ Auf `pt-3b3b-gate`, Rezept „Platzieren“:
 
 ### Ergebnis Teil B
 
-Stand 2026-10-24, nach der letzten Fix-Welle (HEAD `99ca5e2`), aus dem Worktree mit absolutem `G4_ROMS_DIR`.
+Stand 2026-10-24, nach der letzten Fix-Welle (HEAD `99ca5e2`), aus dem Worktree mit absolutem `G4_ROMS_DIR`. Bildnummern (`frame`) und Siegpositionen der Szenarien stammen aus der Konsolenausgabe der Läufe, gesichert als `target/agent/gate-2026-10-24/final/<szenario>/console.log`.
 
 | Punkt | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
 |---|---|---|---|---|---|

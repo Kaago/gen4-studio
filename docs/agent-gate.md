@@ -365,7 +365,7 @@ Kopien `pt-3b3b` und `hg-3b3b` für die Szenarien (Endung `-2` …, wenn der Nam
 
 | Punkt | Wer | Wie |
 |---|---|---|
-| (B1) gated Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (rund 35 Minuten); die Tabelle am Ende übernehmen |
+| (B1) gated Tests, `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR` (rund 30 Minuten, gemessen 1798 s); die Tabelle am Ende übernehmen |
 | (B2), (B3) Szenarien | Agent | `uv run g4emu scenario ../agent/scenarios/pt-trainer-begegnung.yaml` bzw. `hg-trainer-begegnung.yaml` (siehe „Szenario“ oben); Rückgabe 0, `check.log`, die JSON-Zeilen von `expect-battle` (Art, Level) je Kampf und die Bilder `trainer1`, `trainer2`, `wild` |
 | (B4) Trainer | Agent | Browser, Rezept „Trainer“; Gegenprobe mit `call.sh data_get`, `history`, `dirty` |
 | (B5) Begegnungen | Agent | Browser, Rezept „Begegnungen“, Schritte 1 bis 5 und 7 |
