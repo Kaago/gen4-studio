@@ -1,4 +1,5 @@
 import { memo, useSyncExternalStore } from "react";
+import { problemText } from "../../data/trainer/trainerModel";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, EmptyState, Icon, PanelHead, Reference } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
@@ -20,10 +21,12 @@ export interface ProblemsPanelContext {
 const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer" };
 const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung" };
 
-/** Where clicking a problem leads, or null when its file is neither a script file nor a text archive. */
+/** Where clicking a problem leads: a script file at its line, a text archive, a trainer; null for any other file. */
 export function problemTarget(row: ProblemRow): NavTarget | null {
   const file = scriptFileOf(row.file);
   if (file !== null) return { kind: "script", file, line: row.line };
+  const trainer = trainerOf(row.file);
+  if (trainer !== null) return { kind: "trainer", index: trainer };
   const archive = textArchiveOf(row.file);
   return archive === null ? null : { kind: "textArchive", index: archive };
 }
@@ -79,7 +82,7 @@ export function ProblemsTable({ rows, depth, goTo }: { rows: readonly ProblemRow
                 {row.line}:{row.col}
               </td>
               <td role="cell" className={styles.message}>
-                {row.message}
+                {row.source === "trainer" ? problemText(row) : row.message}
               </td>
               <td role="cell">
                 <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>

@@ -4,6 +4,7 @@ import type { DataKind, DataRowDto, ItemEntryDto, NameArchivesDto, NameTablesDto
 import type { EditEvent } from "../bus/editBus";
 import type { ListKind } from "./dataModel";
 import { resetIcons } from "./icons";
+import { trainerNameArchive } from "./trainer/trainerModel";
 
 /** What the data areas and the palette read: the lists of the open project, as far as they were asked for. */
 export interface DataSnapshot {
@@ -27,20 +28,22 @@ type Part = ListKind | "names" | "itemTable";
 const EMPTY: DataSnapshot = { project: null, names: null, rows: {}, itemTable: undefined, locked: null, errors: {} };
 
 /** The list a changed member of `kind` shows in; null for kinds no list of the store shows (learnsets, evolutions, …). */
-const PART_OF: Partial<Record<DataKind, ListKind>> = { species: "species", move: "move", item: "item" };
+const PART_OF: Partial<Record<DataKind, ListKind>> = { species: "species", move: "move", item: "item", trainer: "trainer", encounter: "encounter" };
 
-/** The lists whose rows carry the names of a name table (the other tables are in `names` only). */
-const ROWS_NAMED_BY: Partial<Record<keyof NameArchivesDto, ListKind>> = { species: "species", moves: "move", items: "item" };
+/** The lists whose rows carry the names of a name table (the other tables are in `names` only); trainer rows carry their class name. */
+const ROWS_NAMED_BY: Partial<Record<keyof NameArchivesDto, ListKind>> = { species: "species", moves: "move", items: "item", classes: "trainer" };
 
 /**
- * The parts a change to text `archive` may have changed: the names when one of the name tables is read from it, and the rows that carry
- * those names. Any archive (null), or archives not known yet (the names not read), may have changed them all.
+ * The parts a change to text `archive` may have changed: the names when one of the name tables is read from it, the rows that carry
+ * those names, and the trainer rows when it is the trainer name bank (`trainerBank`; null: not known, any archive may be it). Any archive
+ * (null), or archives not known yet (the names not read), may have changed them all.
  */
-function namedBy(archives: NameArchivesDto | undefined, archive: number | null): Part[] {
-  if (archive === null || archives === undefined) return ["names", "species", "move", "item"];
+function namedBy(archives: NameArchivesDto | undefined, archive: number | null, trainerBank: number | null): Part[] {
+  if (archive === null || archives === undefined) return ["names", "species", "move", "item", "trainer"];
   const tables = (Object.keys(archives) as (keyof NameArchivesDto)[]).filter((table) => archives[table] === archive);
-  if (tables.length === 0) return [];
-  return ["names", ...tables.flatMap((table) => ROWS_NAMED_BY[table] ?? [])];
+  const parts: Part[] = tables.length === 0 ? [] : ["names", ...tables.flatMap((table) => ROWS_NAMED_BY[table] ?? [])];
+  if ((trainerBank === null || trainerBank === archive) && !parts.includes("trainer")) parts.push("trainer");
+  return parts;
 }
 
 /**
@@ -87,18 +90,23 @@ export class DataStore {
     }
   }
 
-  /** Every list, for the palette. */
+  /** Every list the palette searches. */
   needAll(project: ProjectInfo): void {
-    for (const kind of ["species", "move", "item"] as const) this.need(project, kind);
+    for (const kind of ["species", "move", "item", "trainer"] as const) this.need(project, kind);
   }
 
-  /** Reads again what an event says may have changed, when it was asked for. */
+  /**
+   * Reads again what an event says may have changed, when it was asked for: a data member's list, the names and rows of a text archive,
+   * and the trainer rows when events or headers changed (their places are the headers whose object events start the battle).
+   */
   onEvent(event: EditEvent): void {
     if (event.topic === "dataChanged") {
       const part = PART_OF[event.kind];
       if (part !== undefined) this.changed(part);
     } else if (event.topic === "textData") {
-      for (const part of namedBy(this.snapshot.names?.archives, event.archive)) this.changed(part);
+      for (const part of namedBy(this.snapshot.names?.archives, event.archive, trainerNameArchive(this.snapshot.project))) this.changed(part);
+    } else if (event.topic === "eventData" || event.topic === "headerTable") {
+      this.changed("trainer");
     }
   }
 
@@ -158,6 +166,7 @@ export function useDataSnapshot(store: DataStore): DataSnapshot {
 /** The lists the palette searches: the rows read so far (a list not read yet is empty), and whether items have names and ids. */
 export interface DataLists {
   species: readonly DataRowDto[];
+  trainers: readonly DataRowDto[];
   moves: readonly DataRowDto[];
   items: readonly DataRowDto[];
   itemTable: boolean;
@@ -176,6 +185,6 @@ export function useDataLists(store: DataStore, project: ProjectInfo | null): Dat
     const { rows, itemTable } = snapshot;
     // Items wait for the item table: without it they would be listed as data members ("Daten 0017") for a moment.
     const items = itemTable === undefined ? NONE : (rows.item ?? NONE);
-    return { species: rows.species ?? NONE, moves: rows.move ?? NONE, items, itemTable: itemTable !== null && itemTable !== undefined };
+    return { species: rows.species ?? NONE, trainers: rows.trainer ?? NONE, moves: rows.move ?? NONE, items, itemTable: itemTable !== null && itemTable !== undefined };
   }, [snapshot, project]);
 }

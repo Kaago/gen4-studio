@@ -26,6 +26,7 @@ function Uses({ index }: { index: number }) {
   if (uses === null) return <p className={styles.note}>{`Verwendungen nicht lesbar: ${found.error ?? ""}`}</p>;
   const open = (nav: NavTargetDto) => {
     if (nav.kind === "species") goTo(nav.tab ? { kind: "species", index: nav.index, tab: nav.tab } : { kind: "species", index: nav.index });
+    else if (nav.kind === "trainer") goTo({ kind: "trainer", index: nav.index });
   };
   const learnsets = all ? uses.learnsets : uses.learnsets.slice(0, FIRST_CHIPS);
   const more = uses.learnsets.length - learnsets.length;
@@ -48,11 +49,10 @@ function Uses({ index }: { index: number }) {
             <Reference key={`e${r.source.index}`} area="pokemon" label={r.label} onOpen={() => open(r.nav)} dataAttrs={{ "data-evolution": r.source.index }} />
           ))}
           {uses.trainers.map((r) => (
-            <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
+            <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} onOpen={() => open(r.nav)} dataAttrs={{ "data-trainer": r.source.index }} />
           ))}
         </div>
       )}
-      {uses.trainers.length > 0 && <p className={styles.note}>Trainer öffnen kommt mit Phase 3b.3b.</p>}
       <p className={styles.note}>Lernsets und Trainer-Teams, ohne Scripts gezählt.</p>
     </section>
   );

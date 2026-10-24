@@ -31,6 +31,10 @@ const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as con
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
+  trainers: [
+    dataRow(12, "Jens", { class: 6, class_name: "Wanderer", level_max: 12, party_count: 1, places: [{ header: 5, name: "Route 201" }] }),
+    dataRow(40, "Kai", { class: 6, class_name: "Wanderer", level_max: 20, party_count: 1, places: [] }),
+  ],
   moves: [dataRow(17, "Flügelschlag", { type: 2, category: 0, power: 60, accuracy: 100, pp: 35 })],
   items: [dataRow(17, "Trank", { price: 300, field_pocket: 1, icon: true, data_index: 17 })],
   itemTable: true,
@@ -67,6 +71,7 @@ describe("paletteEntries", () => {
       "Bereich Welt",
       "Bereich Texte",
       "Bereich Pokémon",
+      "Trainer öffnen",
       "Attacken öffnen",
       "Bereich Gegenstände",
       "Bereich Technik",
@@ -107,6 +112,8 @@ describe("paletteEntries", () => {
     expect(byId("species-397")).toMatchObject({ label: "Staravia", tech: "0397", description: "Normal, Flug", group: "Pokémon", area: "pokemon", run: { kind: "goTo", target: { kind: "species", index: 397 } } });
     // A species without a name in the text archive is named in German.
     expect(byId("species-520")).toMatchObject({ label: "Art 0520", tech: "0520", description: undefined });
+    expect(byId("trainer-12")).toMatchObject({ label: "Wanderer Jens", tech: "0012", description: "Route 201", group: "Trainer", area: "pokemon", run: { kind: "goTo", target: { kind: "trainer", index: 12 } } });
+    expect(byId("trainer-40")).toMatchObject({ label: "Wanderer Kai", description: "Ohne Ort" });
     expect(byId("move-17")).toMatchObject({ label: "Flügelschlag", tech: "0017", description: "Flug", group: "Attacken", area: "pokemon", run: { kind: "goTo", target: { kind: "move", index: 17 } } });
     expect(byId("item-17")).toMatchObject({ label: "Trank", tech: "0017", description: "300 ₽", group: "Gegenstände", area: "gegenstaende", run: { kind: "goTo", target: { kind: "item", id: 17 } } });
     // Without the item table an item is a data member without a name.
@@ -121,18 +128,19 @@ describe("paletteEntries", () => {
 
   it("lists_no_data_while_it_is_not_read", () => {
     const entries = paletteEntries(source({ data: null }));
-    expect(entries.some((e) => e.group === "Pokémon" || e.group === "Attacken" || e.group === "Gegenstände")).toBe(false);
+    expect(entries.some((e) => e.group === "Pokémon" || e.group === "Trainer" || e.group === "Attacken" || e.group === "Gegenstände")).toBe(false);
   });
 
   it("opens_the_pokemon_area_the_moves_and_the_items_by_command", () => {
     expect(byId("cmd-pokemon")).toMatchObject({ label: "Bereich Pokémon", area: "pokemon", run: { kind: "command", command: "pokemon" } });
+    expect(byId("cmd-trainer")).toMatchObject({ label: "Trainer öffnen", area: "pokemon", run: { kind: "command", command: "trainer" } });
     expect(byId("cmd-moves")).toMatchObject({ label: "Attacken öffnen", area: "pokemon", run: { kind: "command", command: "moves" } });
     expect(byId("cmd-gegenstaende")).toMatchObject({ label: "Bereich Gegenstände", area: "gegenstaende", run: { kind: "command", command: "gegenstaende" } });
   });
 
   it("puts_the_groups_in_the_order_commands_places_headers_archives_scripts", () => {
     const groups = [...new Set(paletteEntries(source()).map((e) => e.group))];
-    expect(groups).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Attacken", "Gegenstände", "Scripts"]);
+    expect(groups).toEqual(["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Trainer", "Attacken", "Gegenstände", "Scripts"]);
     expect(PALETTE_GROUPS).toEqual(groups);
   });
 

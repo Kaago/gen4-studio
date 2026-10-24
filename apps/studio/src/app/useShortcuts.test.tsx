@@ -84,8 +84,10 @@ describe("useShortcuts", () => {
     await press({ key: "1", ctrlKey: true });
     expect(handlers.onSub).toHaveBeenLastCalledWith("pokedex");
     handlers.onSub.mockClear();
-    // Trainer and Begegnungen come with 3b.3b: their keys do nothing.
     await press({ key: "2", metaKey: true });
+    expect(handlers.onSub).toHaveBeenLastCalledWith("trainer");
+    handlers.onSub.mockClear();
+    // Begegnungen is still locked: its key does nothing.
     await press({ key: "3", metaKey: true });
     expect(handlers.onSub).not.toHaveBeenCalled();
   });

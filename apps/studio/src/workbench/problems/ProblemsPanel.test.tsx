@@ -90,6 +90,15 @@ describe("ProblemsPanel", () => {
     expect(goTo).toHaveBeenCalledWith({ kind: "textArchive", index: 199 });
   });
 
+  it("a_trainer_problem_says_its_warning_in_german_and_opens_the_trainer", () => {
+    const message = "trainer 12: the text before the battle does not end with \\r, so its box closes at once";
+    act(() => store.replaceData("trainers/0012", [problem("trainers/0012", 1, message, "warning", "trainer")]));
+    const row = bodyRows()[0]!;
+    expect(cells(row).map((c) => c.textContent)).toEqual(["", "Trainer 0012", "1:3", "Der Text vor dem Kampf sollte auf ⏎ enden, sonst schließt sein Kasten sofort", "Trainer"]);
+    act(() => fileButton(row).click());
+    expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 12 });
+  });
+
   it("a_problem_of_an_unknown_file_is_shown_with_a_disabled_reference", () => {
     act(() => store.replaceForFile("rotom.toml", [problem("rotom.toml", 1, "kaputt")]));
     const button = fileButton(bodyRows()[0]!);

@@ -166,7 +166,8 @@ function AppBody() {
 
   // The data lists of the project (both data areas and the palette read them), read again when a member or a name may have changed.
   const [dataStore] = useState(() => new DataStore());
-  useBusEvent(bus, ["dataChanged", "textData"], (event) => dataStore.onEvent(event));
+  // Events and headers name the places of the trainers (their object events start the battle).
+  useBusEvent(bus, ["dataChanged", "textData", "eventData", "headerTable"], (event) => dataStore.onEvent(event));
   // The part and member a link asked a data area for: a new object per request, kept here like the texts' (the area may not be built yet).
   const [dataTarget, setDataTarget] = useState<DataNav | null>(null);
   // The breadcrumbs the data areas report.
@@ -578,8 +579,9 @@ function AppBody() {
       case "technik":
         showArea(run.command);
         break;
+      case "trainer":
       case "moves":
-        shell.setPokemonSub("moves");
+        shell.setPokemonSub(run.command);
         showArea("pokemon");
         break;
     }

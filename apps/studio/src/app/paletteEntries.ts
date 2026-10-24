@@ -1,4 +1,4 @@
-import type { DataRowDto, HeaderSummary, ScriptFileDto } from "../api";
+import type { DataRowDto, HeaderSummary, ScriptFileDto, TrainerRowExtra } from "../api";
 import { itemPrice, moveType, rowLabel, speciesTypes } from "../data/dataModel";
 import type { PickerItem } from "../ui/primitives";
 import type { IconName } from "../ui/primitives/icons";
@@ -27,6 +27,7 @@ export type PaletteCommand =
   | "welt"
   | "texte"
   | "pokemon"
+  | "trainer"
   | "moves"
   | "gegenstaende"
   | "technik";
@@ -54,6 +55,8 @@ export interface CommandState {
 
 export interface PaletteData {
   species: readonly DataRowDto[];
+  /** The trainers (not read yet or not given: none). */
+  trainers?: readonly DataRowDto[];
   moves: readonly DataRowDto[];
   items: readonly DataRowDto[];
   itemTable: boolean;
@@ -101,6 +104,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },
     { command: "texte", label: "Bereich Texte", icon: "texts", area: "texte" },
     { command: "pokemon", label: "Bereich Pokémon", icon: "pokemon", area: "pokemon" },
+    { command: "trainer", label: "Trainer öffnen", icon: "pokemon", area: "pokemon", description: "Die Trainer im Bereich Pokémon" },
     { command: "moves", label: "Attacken öffnen", icon: "pokemon", area: "pokemon", description: "Die Attacken im Bereich Pokémon" },
     { command: "gegenstaende", label: "Bereich Gegenstände", icon: "items", area: "gegenstaende" },
     { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
@@ -119,13 +123,23 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
   }));
 }
 
-/** The species, moves and items: their names as the lists show them, with types or the price as the second line. */
-function dataEntries({ species, moves, items, itemTable }: PaletteData): PaletteEntry[] {
+/** Where a trainer stands ("Route 201, Zweiblattdorf"), else "Ohne Ort"; empty for a locked row. */
+function trainerPlaces(row: DataRowDto): string {
+  const extra = row.extra as TrainerRowExtra | null;
+  if (!extra || !Array.isArray(extra.places)) return "";
+  return extra.places.length === 0 ? "Ohne Ort" : [...new Set(extra.places.map((p) => p.name))].join(", ");
+}
+
+/** The species, trainers, moves and items: their names as the lists show them, with types, places or the price as the second line. */
+function dataEntries({ species, trainers = [], moves, items, itemTable }: PaletteData): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
   const add = (row: DataRowDto, entry: Omit<PaletteEntry, "tech" | "description"> & { description: string }) =>
     entries.push({ ...entry, tech: row.tech, description: entry.description === "" ? undefined : entry.description });
   for (const row of species) {
     add(row, { id: `species-${row.index}`, label: rowLabel("species", row, itemTable), description: speciesTypes(row), area: "pokemon", group: "Pokémon", run: { kind: "goTo", target: { kind: "species", index: row.index } } });
+  }
+  for (const row of trainers) {
+    add(row, { id: `trainer-${row.index}`, label: rowLabel("trainer", row, itemTable), description: trainerPlaces(row), area: "pokemon", group: "Trainer", run: { kind: "goTo", target: { kind: "trainer", index: row.index } } });
   }
   for (const row of moves) {
     add(row, { id: `move-${row.index}`, label: rowLabel("move", row, itemTable), description: moveType(row), area: "pokemon", group: "Attacken", run: { kind: "goTo", target: { kind: "move", index: row.index } } });

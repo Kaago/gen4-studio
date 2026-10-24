@@ -76,6 +76,7 @@ describe("nextSelection", () => {
     // A tab of the Pokédex hand opens the hand.
     expect(nextSelection(state, { kind: "species", index: 397, tab: "learnset" })).toMatchObject({ area: "pokemon", panel: "pokemonEdit", data: { sub: "pokedex", index: 397, tab: "learnset" } });
     expect(nextSelection(state, { kind: "move", index: 17 })).toMatchObject({ area: "pokemon", pinned: null, panel: "pokemonView", data: { sub: "moves", index: 17 } });
+    expect(nextSelection(state, { kind: "trainer", index: 12 })).toEqual({ area: "pokemon", selectedHeader: 3, pinned: null, panel: "pokemonView", data: { sub: "trainer", index: 12 } });
     expect(nextSelection(state, { kind: "item", id: 17 })).toEqual({
       area: "gegenstaende",
       selectedHeader: 3,

@@ -3,7 +3,7 @@ import { Picker } from "../primitives";
 import type { PickerItem } from "../primitives";
 
 /** The groups of the palette in the order it lists them; the entries name theirs with these words. */
-export const PALETTE_GROUPS = ["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Attacken", "Gegenstände", "Scripts"] as const;
+export const PALETTE_GROUPS = ["Befehle", "Orte", "Header", "Textarchive", "Pokémon", "Trainer", "Attacken", "Gegenstände", "Scripts"] as const;
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number];
 
 /** With an empty search the palette lists the commands only. Module constants: the picker memoises on them. */

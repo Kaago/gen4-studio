@@ -11,6 +11,9 @@ import { PokedexHand } from "./pokedex/PokedexHand";
 import { PokedexList } from "./pokedex/PokedexList";
 import { PokedexView } from "./pokedex/PokedexView";
 import { speciesCount } from "./pokedex/pokedexModel";
+import { TrainerHand } from "./trainer/TrainerHand";
+import { TrainerList } from "./trainer/TrainerList";
+import { TrainerView } from "./trainer/TrainerView";
 import { dataAreaProvider, dataSearchProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
@@ -31,11 +34,19 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
 });
 
 /**
- * The parts of the Pokémon area by their switcher entry. The mount points of the editors: the Pokédex (Task 14) and the moves (Task 15)
- * replace their entries; Trainer and Begegnungen come with Phase 3b.3b (their entries are locked in the switcher).
+ * The mount point of the Begegnungen (Task 7 of 3b.3b): their list, view and hand go here, and `encounters` leaves `SUB_LOCKED` in
+ * `dataModel.ts`. The list kind (`encounter`), the selection (`selected.encounters`) and the store's reads are in place already.
+ */
+const ENCOUNTER_PART: DataPart | null = null;
+
+/**
+ * The parts of the Pokémon area by their switcher entry: the Pokédex, the trainers, the encounters (`ENCOUNTER_PART`, locked until it
+ * comes) and the moves.
  */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
+  trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand },
+  ...(ENCOUNTER_PART === null ? {} : { encounters: ENCOUNTER_PART }),
   moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };
 

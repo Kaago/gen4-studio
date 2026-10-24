@@ -183,3 +183,11 @@
   gap: var(--g4-raum-12);
   padding-top: var(--g4-raum-8);
 }
+
+/* A trainer's six team cards, three to a row. */
+.cardGrid {
+  display: grid;
+  max-width: 600px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--g4-raum-8);
+}

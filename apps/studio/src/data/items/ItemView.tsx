@@ -48,16 +48,18 @@ function Uses({ id }: { id: number }) {
   const openSpecies = (nav: NavTargetDto) => {
     if (nav.kind === "species") goTo(nav.tab ? { kind: "species", index: nav.index, tab: nav.tab } : { kind: "species", index: nav.index });
   };
+  const openTrainer = (nav: NavTargetDto) => {
+    if (nav.kind === "trainer") goTo({ kind: "trainer", index: nav.index });
+  };
   return (
     <>
       <h3 className={styles.sectionTitle}>
         Verwendet in <span className={styles.count}>{usesText(uses)}</span>
       </h3>
-      <UseGroup title="Trainer-Items" refs={uses.trainers} open={null} />
-      <UseGroup title="Team-Items" refs={uses.parties} open={null} />
+      <UseGroup title="Trainer-Items" refs={uses.trainers} open={openTrainer} />
+      <UseGroup title="Team-Items" refs={uses.parties} open={openTrainer} />
       <UseGroup title="Wild getragen" refs={uses.wild} open={openSpecies} />
       <UseGroup title="Entwicklungen" refs={uses.evolutions} open={openSpecies} />
-      {uses.trainers.length + uses.parties.length > 0 && <p className={styles.note}>Trainer öffnen kommt mit Phase 3b.3b.</p>}
       <p className={styles.note}>Trainer, Teams und Pokémon-Daten, ohne Scripts und Läden gezählt.</p>
     </>
   );

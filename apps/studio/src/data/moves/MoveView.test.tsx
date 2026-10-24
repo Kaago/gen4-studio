@@ -101,8 +101,9 @@ describe("MoveView", () => {
     await act(async () => learnsets[1]!.click());
     expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "species", index: 397, tab: "learnset" });
     const trainer = uses.querySelector<HTMLButtonElement>("[data-trainer]")!;
-    expect(trainer.disabled).toBe(true);
     expect(trainer.textContent).toContain("Wanderer Kai");
+    await act(async () => trainer.click());
+    expect(h.calls.goTo).toHaveBeenLastCalledWith({ kind: "trainer", index: 44 });
   });
 
   it("shows_all_learnsets_of_one_move_and_starts_short_again_for_the_next", async () => {

@@ -12,14 +12,16 @@ export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemo
 export type PokemonSub = "pokedex" | "trainer" | "encounters" | "moves";
 export const POKEMON_SUBS: readonly PokemonSub[] = ["pokedex", "trainer", "encounters", "moves"];
 
-/** The selected member of each data part that has a list to choose from (a species, a move, an item). */
+/** The selected member of each data part that has a list to choose from (a species, a trainer, an encounter file, a move, an item). */
 export interface DataSelection {
   pokedex?: number;
+  trainer?: number;
+  encounters?: number;
   moves?: number;
   items?: number;
 }
 export type DataSelectKey = keyof DataSelection;
-const SELECT_KEYS: readonly DataSelectKey[] = ["pokedex", "moves", "items"];
+const SELECT_KEYS: readonly DataSelectKey[] = ["pokedex", "trainer", "encounters", "moves", "items"];
 
 /** The hand (the lower dock) is never lower or higher than this, whatever the stored value says. */
 export const HAND_MIN = 200;

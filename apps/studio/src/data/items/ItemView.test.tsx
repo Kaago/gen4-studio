@@ -64,12 +64,12 @@ describe("ItemView", () => {
     expect(refs).toHaveBeenCalledWith({ kind: "item", id: 17 });
     expect(uses().textContent).toContain("1 Trainer-Item, 1 Team-Item, 1 wild getragen, 0 Entwicklungen");
     const chips = [...uses().querySelectorAll<HTMLButtonElement>("button")];
-    const trainer = chips.find((b) => b.textContent?.includes("Wanderer Kai"))!;
-    expect(trainer.disabled).toBe(true);
-    expect(chips.find((b) => b.textContent?.includes("Barry"))?.disabled).toBe(true);
+    await act(async () => chips.find((b) => b.textContent?.includes("Wanderer Kai"))!.click());
+    expect(h.calls.goTo).toHaveBeenLastCalledWith({ kind: "trainer", index: 5 });
+    await act(async () => chips.find((b) => b.textContent?.includes("Barry"))!.click());
+    expect(h.calls.goTo).toHaveBeenLastCalledWith({ kind: "trainer", index: 7 });
     await act(async () => chips.find((b) => b.textContent?.includes("Pikachu"))!.click());
     expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "species", index: 25, tab: "abilities" });
-    expect(uses().textContent).toContain("Trainer öffnen kommt mit Phase 3b.3b.");
   });
 
   it("leads_from_the_name_to_its_text", async () => {

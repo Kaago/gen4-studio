@@ -38,6 +38,11 @@ export interface DataAreaProps {
   headers: readonly HeaderSummary[];
   /** The Problems list: a document with rows of its own (an encounter file, a trainer) replaces them with every read. */
   problems?: ProblemsStore;
+  /**
+   * „In der Welt platzieren“ of a trainer that stands nowhere yet (the seam Task 8 of 3b.3b wires: the world with the figure tool and a
+   * pending trainer binding). Without it the view's button is disabled.
+   */
+  onPlaceTrainer?: (id: number) => void;
 }
 
 /** The state of a data area for its list, view, hand and status parts (`useDataArea`). */
@@ -81,6 +86,8 @@ export interface DataAreaModel {
   headers: readonly HeaderSummary[];
   /** The Problems list (null: none, in tests): `useDataDoc` hands it the rows a document carries (`DocSpec.problems`). */
   problems: ProblemsStore | null;
+  /** Places a trainer in the world (`DataAreaProps.onPlaceTrainer`); null while nobody takes it. */
+  placeTrainer: ((id: number) => void) | null;
 }
 
 /**
@@ -127,6 +134,7 @@ const NO_SEARCH: Search = { query: "", filter: NO_FILTER };
 export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModels {
   const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
   const problems = props.problems ?? null;
+  const placeTrainer = props.onPlaceTrainer ?? null;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -238,8 +246,9 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       bus,
       headers,
       problems,
+      placeTrainer,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer],
   );
   const searchModel = useMemo<DataSearchModel>(
     () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),
@@ -253,6 +262,8 @@ function targetOf(sub: DataSub, index: number): NavTarget | null {
   switch (sub) {
     case "pokedex":
       return { kind: "species", index };
+    case "trainer":
+      return { kind: "trainer", index };
     case "moves":
       return { kind: "move", index };
     case "items":
