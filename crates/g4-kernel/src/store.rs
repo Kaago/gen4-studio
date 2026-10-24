@@ -65,7 +65,7 @@ fn uxie_family(family: Family) -> uxie::GameFamily {
 
 /// A loaded asset value.
 #[derive(Clone)]
-enum Loaded {
+pub(crate) enum Loaded {
     Map(MapFile),
     Matrix(Matrix),
     AreaData(AreaData),
@@ -192,11 +192,155 @@ struct Asset {
     locked: Option<String>,
 }
 
-struct Changeset {
-    asset: AssetId,
+/// One asset's share of a changeset: its bytes before and after the step.
+pub struct Part {
+    pub asset: AssetId,
     before: Vec<u8>,
     after: Vec<u8>,
+}
+
+/// One undoable step: every asset it changed, each at most once, in the order they were
+/// edited. Never empty.
+struct Changeset {
+    parts: Vec<Part>,
     label: String,
+}
+
+/// An edit staged by a [`Tx`]: the edited copy of the asset and its bytes before and after.
+struct Staged {
+    asset: AssetId,
+    edited: Loaded,
+    before: Vec<u8>,
+    after: Vec<u8>,
+}
+
+/// The edits of one [`Store::transaction`]. Each edit works on a copy of its asset; the
+/// store takes the copies over only when the whole transaction succeeded.
+pub struct Tx<'s> {
+    store: &'s mut Store,
+    staged: Vec<Staged>,
+}
+
+impl Tx<'_> {
+    /// Stages `edit` of asset `id`. Refuses an asset this transaction already edited and a
+    /// locked one; an error from `edit` or from serialization is returned as it is (the
+    /// transaction then fails as a whole).
+    pub(crate) fn edit(
+        &mut self,
+        id: AssetId,
+        edit: impl FnOnce(&mut Loaded) -> Result<(), KernelError>,
+    ) -> Result<(), KernelError> {
+        if self.staged.iter().any(|s| s.asset == id) {
+            return Err(KernelError::InvalidProject(format!(
+                "{id} is edited twice in one transaction"
+            )));
+        }
+        let family = self.store.project.family;
+        let asset = self.store.load(id)?;
+        if let Some(reason) = &asset.locked {
+            return Err(KernelError::ReadOnly {
+                asset: id,
+                reason: reason.clone(),
+            });
+        }
+        let before = asset.current.to_bytes(family)?;
+        let mut edited = asset.current.clone();
+        edit(&mut edited)?;
+        let after = edited.to_bytes(family)?;
+        self.staged.push(Staged {
+            asset: id,
+            edited,
+            before,
+            after,
+        });
+        Ok(())
+    }
+
+    /// Edits matrix `index`. An error from `edit` or from `Matrix::validate` fails the
+    /// transaction as [`KernelError::Format`].
+    pub fn edit_matrix(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut Matrix) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Matrix,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Matrix(m) => {
+                edit(m)?;
+                m.validate()?;
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
+
+    /// Edits event file `index`. An error from `edit` fails the transaction as
+    /// [`KernelError::Format`]; a value the game family cannot store (a warp height other
+    /// than 0 outside HGSS) is rejected by serialization as [`KernelError::Uxie`].
+    pub fn edit_event(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut EventFile) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Event,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Event(e) => Ok(edit(e)?),
+            _ => Err(mismatch(id)),
+        })
+    }
+
+    /// Edits map header `id`, see [`Store::edit_header`].
+    pub fn edit_header(
+        &mut self,
+        id: u16,
+        edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let family = uxie_family(self.store.project.family);
+        let game_code = self.store.project.game_code.clone();
+        self.edit(HEADER_TABLE, |loaded| match loaded {
+            Loaded::HeaderTable(headers) => {
+                let count = headers.len();
+                let header = headers
+                    .get_mut(usize::from(id))
+                    .ok_or(FormatError::OutOfRange {
+                        what: "header",
+                        value: usize::from(id),
+                        max: count.saturating_sub(1),
+                    })?;
+                edit(header)?;
+                if header_round_trips(header, family) {
+                    Ok(())
+                } else {
+                    Err(KernelError::Uxie(format!(
+                        "header {id} does not fit the {game_code} header layout"
+                    )))
+                }
+            }
+            _ => Err(mismatch(HEADER_TABLE)),
+        })
+    }
+
+    /// Edits text archive `index`.
+    pub fn edit_text_archive(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TextArchiveDoc),
+    ) -> Result<(), KernelError> {
+        let id = text_id(index);
+        self.edit(id, |loaded| match loaded {
+            Loaded::TextArchive(doc) => {
+                edit(doc);
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
 }
 
 pub struct Store {
@@ -435,45 +579,70 @@ impl Store {
         }
     }
 
-    /// Applies `edit` to a copy of the asset and serializes the result. On an error from
-    /// `edit` or from serialization the asset stays as it was and nothing is recorded. An edit that leaves
-    /// the serialized bytes unchanged records no changeset; the returned id is then
-    /// not on the undo stack.
+    /// Runs `f` as one undoable step labelled `label`: every asset it edits through the
+    /// [`Tx`] becomes one part of a single changeset. When `f` fails, every asset stays as
+    /// it was and nothing is recorded. Edits that leave the serialized bytes unchanged are
+    /// no part; without any part no changeset is recorded and the id is `None`. A recorded
+    /// step clears the redo stack.
+    pub fn transaction<T>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
+    ) -> Result<(T, Option<ChangeId>), KernelError> {
+        let (value, change, recorded) = self.run_transaction(label, f)?;
+        Ok((value, recorded.then_some(change)))
+    }
+
+    /// [`Store::transaction`], with the id that was drawn for it whether it was recorded or
+    /// not (the edit functions of the store hand it out either way).
+    fn run_transaction<T>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
+    ) -> Result<(T, ChangeId, bool), KernelError> {
+        let mut tx = Tx {
+            store: self,
+            staged: Vec::new(),
+        };
+        let value = f(&mut tx)?;
+        let staged = tx.staged;
+        let change = ChangeId(self.next_change);
+        self.next_change += 1;
+        let mut parts = Vec::new();
+        for edit in staged.into_iter().filter(|e| e.after != e.before) {
+            // `Tx::edit` loaded the asset; a miss would only skip the update.
+            if let Some(asset) = self.assets.get_mut(&edit.asset) {
+                asset.current = edit.edited;
+            }
+            parts.push(Part {
+                asset: edit.asset,
+                before: edit.before,
+                after: edit.after,
+            });
+        }
+        if parts.is_empty() {
+            return Ok((value, change, false));
+        }
+        self.undo.push(Changeset {
+            parts,
+            label: label.to_owned(),
+        });
+        self.redo.clear();
+        Ok((value, change, true))
+    }
+
+    /// Applies `edit` to a copy of the asset as a transaction of one part. On an error from
+    /// `edit` or from serialization the asset stays as it was and nothing is recorded. An
+    /// edit that leaves the serialized bytes unchanged records no changeset; the returned
+    /// id is then not on the undo stack.
     fn apply_edit(
         &mut self,
         id: AssetId,
         label: &str,
         edit: impl FnOnce(&mut Loaded) -> Result<(), KernelError>,
     ) -> Result<ChangeId, KernelError> {
-        let family = self.project.family;
-        let asset = self.load(id)?;
-        if let Some(reason) = &asset.locked {
-            return Err(KernelError::ReadOnly {
-                asset: id,
-                reason: reason.clone(),
-            });
-        }
-        let before = asset.current.to_bytes(family)?;
-        let mut edited = asset.current.clone();
-        edit(&mut edited)?;
-        let after = edited.to_bytes(family)?;
-        let change = ChangeId(self.next_change);
-        self.next_change += 1;
-        if after == before {
-            return Ok(change);
-        }
-        // `load` above guarantees the entry exists; a miss would only skip the update.
-        if let Some(asset) = self.assets.get_mut(&id) {
-            asset.current = edited;
-        }
-        self.undo.push(Changeset {
-            asset: id,
-            before,
-            after,
-            label: label.to_owned(),
-        });
-        self.redo.clear();
-        Ok(change)
+        self.run_transaction(label, |tx| tx.edit(id, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits map `index`. An error from `edit` or from `MapFile::validate` rolls the edit
@@ -506,18 +675,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut Matrix) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let id = AssetId {
-            kind: AssetKind::Matrix,
-            index,
-        };
-        self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::Matrix(m) => {
-                edit(m)?;
-                m.validate()?;
-                Ok(())
-            }
-            _ => Err(mismatch(id)),
-        })
+        self.run_transaction(label, |tx| tx.edit_matrix(index, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits area data `index`. An error from `edit` rolls the edit back.
@@ -546,14 +705,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut EventFile) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let id = AssetId {
-            kind: AssetKind::Event,
-            index,
-        };
-        self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::Event(e) => Ok(edit(e)?),
-            _ => Err(mismatch(id)),
-        })
+        self.run_transaction(label, |tx| tx.edit_event(index, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Edits map header `id`. The table cannot grow: a header id past its end is
@@ -567,29 +720,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        let family = uxie_family(self.project.family);
-        let game_code = self.project.game_code.clone();
-        self.apply_edit(HEADER_TABLE, label, |loaded| match loaded {
-            Loaded::HeaderTable(headers) => {
-                let count = headers.len();
-                let header = headers
-                    .get_mut(usize::from(id))
-                    .ok_or(FormatError::OutOfRange {
-                        what: "header",
-                        value: usize::from(id),
-                        max: count.saturating_sub(1),
-                    })?;
-                edit(header)?;
-                if header_round_trips(header, family) {
-                    Ok(())
-                } else {
-                    Err(KernelError::Uxie(format!(
-                        "header {id} does not fit the {game_code} header layout"
-                    )))
-                }
-            }
-            _ => Err(mismatch(HEADER_TABLE)),
-        })
+        self.run_transaction(label, |tx| tx.edit_header(id, edit))
+            .map(|((), change, _)| change)
     }
 
     /// Whether `header` would be stored as it is in this game's header layout: the check
@@ -771,8 +903,7 @@ impl Store {
         let headers = self.header_table()?.to_vec();
         dynamic_headers::apply(&self.project, &headers)?;
         self.assets.remove(&HEADER_TABLE);
-        self.undo.retain(|c| c.asset != HEADER_TABLE);
-        self.redo.retain(|c| c.asset != HEADER_TABLE);
+        self.forget_history(HEADER_TABLE);
         self.load(HEADER_TABLE)?;
         Ok(())
     }
@@ -870,10 +1001,11 @@ impl Store {
         }
         // The table's changesets hold whole-table snapshots; the new header is unchanged in
         // every one of them, so it is appended to each, and undo and redo keep working.
-        for change in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-            if change.asset == HEADER_TABLE {
-                change.before.extend_from_slice(&chunk);
-                change.after.extend_from_slice(&chunk);
+        let parts = self.undo.iter_mut().chain(self.redo.iter_mut());
+        for part in parts.flat_map(|c| c.parts.iter_mut()) {
+            if part.asset == HEADER_TABLE {
+                part.before.extend_from_slice(&chunk);
+                part.after.extend_from_slice(&chunk);
             }
         }
         Ok(id)
@@ -897,16 +1029,8 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut TextArchiveDoc),
     ) -> Result<Option<ChangeId>, KernelError> {
-        let id = text_id(index);
-        let recorded = self.undo.len();
-        let change = self.apply_edit(id, label, |loaded| match loaded {
-            Loaded::TextArchive(doc) => {
-                edit(doc);
-                Ok(())
-            }
-            _ => Err(mismatch(id)),
-        })?;
-        Ok((self.undo.len() > recorded).then_some(change))
+        self.transaction(label, |tx| tx.edit_text_archive(index, edit))
+            .map(|((), change)| change)
     }
 
     /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
@@ -1040,7 +1164,8 @@ impl Store {
     }
 
     /// Drops the store's own changes to `id` and loads the member from disk again. The
-    /// asset's changesets leave both the undo and the redo stack; those of other assets stay.
+    /// asset's parts leave the changesets of both the undo and the redo stack (a changeset
+    /// left without parts goes with them); the parts of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
         // Dropped first: an undecodable text archive is an error below, and the index must
@@ -1058,8 +1183,7 @@ impl Store {
                 locked,
             },
         );
-        self.undo.retain(|c| c.asset != id);
-        self.redo.retain(|c| c.asset != id);
+        self.forget_history(id);
         self.drop_text_index(id);
         Ok(())
     }
@@ -1067,7 +1191,8 @@ impl Store {
     /// Takes the asset's current bytes on disk as the base this store compares against,
     /// keeping its own changes. The next `save` then overwrites the file with them. The
     /// asset's undo and redo entries are dropped (their snapshots were taken against the old
-    /// base; undoing would write it over the external edit); those of other assets stay. Does
+    /// base; undoing would write it over the external edit); those of other assets stay, see
+    /// [`Store::reload_from_disk`]. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
@@ -1093,50 +1218,108 @@ impl Store {
         if let Some(asset) = self.assets.get_mut(&id) {
             asset.saved_bytes = base;
         }
-        self.undo.retain(|c| c.asset != id);
-        self.redo.retain(|c| c.asset != id);
+        self.forget_history(id);
         self.drop_text_index(id);
         Ok(())
     }
 
-    /// Restores `bytes` as the current value of `asset`. Returns false if that fails.
-    fn restore(&mut self, asset: AssetId, bytes: &[u8]) -> bool {
-        let Ok(value) = Loaded::from_bytes(asset.kind, bytes, self.project.family, self.lang())
-        else {
-            return false;
-        };
-        match self.assets.get_mut(&asset) {
-            Some(a) => {
-                a.current = value;
-                true
+    /// Removes the parts of `id` from every changeset of the undo and redo stacks and drops
+    /// the changesets left empty.
+    fn forget_history(&mut self, id: AssetId) {
+        for stack in [&mut self.undo, &mut self.redo] {
+            stack.retain_mut(|change| {
+                change.parts.retain(|p| p.asset != id);
+                !change.parts.is_empty()
+            });
+        }
+    }
+
+    /// Sets every asset of `change` to the side of its part that `side` picks and returns the
+    /// assets in the order they were edited. All parts are decoded first, then applied in
+    /// reverse order; the first part that does not decode (or whose asset is not loaded) is
+    /// an error naming its asset, and then no asset changes.
+    fn restore_parts(
+        &mut self,
+        change: &Changeset,
+        side: fn(&Part) -> &[u8],
+    ) -> Result<Vec<AssetId>, KernelError> {
+        let family = self.project.family;
+        let values = change
+            .parts
+            .iter()
+            .map(|part| {
+                let id = part.asset;
+                if !self.assets.contains_key(&id) {
+                    return Err(KernelError::InvalidProject(format!(
+                        "{id} cannot be restored: it is not loaded"
+                    )));
+                }
+                Loaded::from_bytes(id.kind, side(part), family, self.lang())
+                    .map(|value| (id, value))
+                    .map_err(|e| {
+                        KernelError::InvalidProject(format!("{id} cannot be restored: {e}"))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (id, value) in values.into_iter().rev() {
+            // Checked above: every asset is loaded.
+            if let Some(asset) = self.assets.get_mut(&id) {
+                asset.current = value;
             }
-            None => false,
+        }
+        Ok(change.parts.iter().map(|p| p.asset).collect())
+    }
+
+    /// Reverts the most recent changeset and returns every asset it restored, in the order
+    /// they were edited, so the caller can reload exactly what changed; empty if there is
+    /// nothing to undo. A part that cannot be restored is an error naming its asset; then no
+    /// asset changes and the changeset stays on the undo stack (see `restore_parts`).
+    pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        let Some(change) = self.undo.pop() else {
+            return Ok(Vec::new());
+        };
+        match self.restore_parts(&change, |p| &p.before) {
+            Ok(assets) => {
+                self.redo.push(change);
+                Ok(assets)
+            }
+            Err(e) => {
+                self.undo.push(change);
+                Err(e)
+            }
         }
     }
 
-    /// Reverts the most recent changeset and returns the asset it restored, so the caller
-    /// can reload exactly what changed. `None` if there is nothing to undo.
-    pub fn undo(&mut self) -> Option<AssetId> {
-        let change = self.undo.pop()?;
-        if !self.restore(change.asset, &change.before) {
-            self.undo.push(change);
-            return None;
+    /// Re-applies the most recently undone changeset and returns every asset it restored, in
+    /// the order they were edited; empty if there is nothing to redo. On an error nothing
+    /// changes, as with [`Store::undo`].
+    pub fn redo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        let Some(change) = self.redo.pop() else {
+            return Ok(Vec::new());
+        };
+        match self.restore_parts(&change, |p| &p.after) {
+            Ok(assets) => {
+                self.undo.push(change);
+                Ok(assets)
+            }
+            Err(e) => {
+                self.redo.push(change);
+                Err(e)
+            }
         }
-        let asset = change.asset;
-        self.redo.push(change);
-        Some(asset)
     }
 
-    /// Re-applies the most recently undone changeset and returns the asset it restored.
-    pub fn redo(&mut self) -> Option<AssetId> {
-        let change = self.redo.pop()?;
-        if !self.restore(change.asset, &change.after) {
-            self.redo.push(change);
-            return None;
-        }
-        let asset = change.asset;
-        self.undo.push(change);
-        Some(asset)
+    /// Damages part `part` of the changeset `undo()` reverts next, so that neither of its
+    /// sides decodes. For tests of a failing undo; does nothing without such a part.
+    #[cfg(feature = "test-support")]
+    pub fn corrupt_undo_part(&mut self, part: usize) {
+        corrupt(self.undo.last_mut(), part);
+    }
+
+    /// Like [`Store::corrupt_undo_part`], for the changeset `redo()` applies next.
+    #[cfg(feature = "test-support")]
+    pub fn corrupt_redo_part(&mut self, part: usize) {
+        corrupt(self.redo.last_mut(), part);
     }
 
     /// The labels of the undo and redo stacks, as the caller gave them to the edits. Undo is
@@ -1277,6 +1460,15 @@ impl Store {
         files.sort_unstable();
         files.dedup();
         Ok(files)
+    }
+}
+
+/// Replaces both sides of part `part` of `change` with one byte no asset kind decodes.
+#[cfg(feature = "test-support")]
+fn corrupt(change: Option<&mut Changeset>, part: usize) {
+    if let Some(part) = change.and_then(|c| c.parts.get_mut(part)) {
+        part.before = vec![0xFF];
+        part.after = vec![0xFF];
     }
 }
 
@@ -1585,13 +1777,13 @@ mod tests {
                 d.messages[1].text = "Zweiblattdorf".into()
             })
             .unwrap();
-            assert_eq!(st.undo(), Some(ARCHIVE));
+            assert_eq!(st.undo().unwrap(), [ARCHIVE]);
             assert_eq!(
                 st.text_archive(433).unwrap().messages[1].text,
                 "Twinleaf Town"
             );
             assert!(!st.is_dirty(ARCHIVE));
-            assert_eq!(st.redo(), Some(ARCHIVE));
+            assert_eq!(st.redo().unwrap(), [ARCHIVE]);
             assert_eq!(
                 st.text_archive(433).unwrap().messages[1].text,
                 "Zweiblattdorf"
@@ -1607,17 +1799,17 @@ mod tests {
             }
             let owned = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
             assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
-            st.undo();
+            st.undo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
-            st.undo();
+            st.undo().unwrap();
             // Two redo entries: the one `redo()` applies next (B) comes first.
             assert_eq!(st.history(), (owned(&["A"]), owned(&["B", "C"])));
-            st.redo();
+            st.redo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
-            st.redo();
+            st.redo().unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "C"]), vec![]));
             // A new edit clears the redo stack.
-            st.undo();
+            st.undo().unwrap();
             st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
                 .unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "D"]), vec![]));
@@ -1636,7 +1828,7 @@ mod tests {
             let (_s, mut st) = store();
             let change = st.edit_text_archive(433, "noop", |_| {}).unwrap();
             assert_eq!(change, None);
-            assert_eq!(st.undo(), None);
+            assert!(st.undo().unwrap().is_empty());
         }
 
         #[test]

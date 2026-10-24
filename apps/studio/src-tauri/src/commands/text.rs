@@ -251,7 +251,7 @@ mod tests {
         assert!(dirty_impl(&state).unwrap().is_empty());
 
         // Undo brings the old text back.
-        assert_eq!(undo_impl(&state).unwrap(), Some(archive_id()));
+        assert_eq!(undo_impl(&state).unwrap(), [archive_id()]);
         assert_eq!(
             get_text_archive_impl(&state, ARCHIVE).unwrap().messages[1].text,
             "Twinleaf Town"

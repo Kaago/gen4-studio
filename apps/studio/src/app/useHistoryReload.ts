@@ -1,6 +1,6 @@
 import { getMatrix, undo } from "../api";
 import type { AssetId } from "../api";
-import { reloadPlan } from "../reload";
+import { historyPlan } from "../reload";
 import type { ReloadAction } from "../reload";
 import { pinAfterHistory } from "../workbench/pin";
 import type { EditBus } from "../bus/editBus";
@@ -16,8 +16,8 @@ interface HistoryReloadParams {
 }
 
 /**
- * Undo and redo, and everything that has to be reloaded after the backend restored an asset (see
- * `reloadPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
+ * Undo and redo, and everything that has to be reloaded after the backend restored assets (see
+ * `historyPlan`) or the user resolved a stale file: the scene, the editors and the pinned selection.
  */
 export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadParams) {
   const { setPinned } = pins;
@@ -87,10 +87,10 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
     }
   }
 
-  /** Reloads what the restored asset affects (see `reloadPlan`), nothing else. */
-  async function reloadAfterHistory(asset: AssetId) {
+  /** Reloads what the restored assets affect (see `historyPlan`), nothing else. */
+  async function reloadAfterHistory(assets: AssetId[]) {
     const shown = scene.matrixRef.current;
-    const plan = reloadPlan(asset, {
+    const plan = historyPlan(assets, {
       matrix: shown?.index ?? null,
       maps: shown?.maps ?? [],
       area: scene.targetArea(),
@@ -113,10 +113,10 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
     if (!session.info || session.busy) return false;
     let done = true;
     try {
-      const asset = await action();
-      if (asset) {
+      const assets = await action();
+      if (assets.length > 0) {
         scene.noteHistoryMoved();
-        await reloadAfterHistory(asset);
+        await reloadAfterHistory(assets);
       }
     } catch (e) {
       done = false;

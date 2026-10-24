@@ -1493,6 +1493,7 @@ dependencies = [
  "g4-formats",
  "libc",
  "predicates",
+ "proptest",
  "rotom",
  "serde",
  "serde_json",

@@ -146,10 +146,10 @@ mod tests {
         assert_eq!((after.area_data_id, after.event_file_id), (5, 1));
         assert_eq!(
             undo_impl(&state).unwrap(),
-            Some(g4_kernel::project::AssetId {
+            [g4_kernel::project::AssetId {
                 kind: g4_kernel::project::AssetKind::HeaderTable,
                 index: 0
-            })
+            }]
         );
         let undone = list_headers_impl(&state).unwrap().headers[1].clone();
         assert_eq!(
@@ -157,7 +157,7 @@ mod tests {
             (before.area_data_id, before.event_file_id)
         );
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(redo_impl(&state).unwrap().is_some());
+        assert!(!redo_impl(&state).unwrap().is_empty());
         assert_eq!(
             list_headers_impl(&state).unwrap().headers[1].area_data_id,
             5
@@ -192,10 +192,10 @@ mod tests {
         // An index outside the bank gives an empty name again.
         set_location(0, 200);
         assert_eq!(names(&state), ["", "Twinleaf Town"]);
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(names(&state), ["Sandgem Town", "Twinleaf Town"]);
-        assert!(undo_impl(&state).unwrap().is_some());
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(names(&state), ["Twinleaf Town", ""]);
     }
 
@@ -205,7 +205,7 @@ mod tests {
         let h = get_header_impl(&state, 0).unwrap();
         set_header_impl(&state, 0, h, "edit header").unwrap();
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(undo_impl(&state).unwrap().is_none());
+        assert!(undo_impl(&state).unwrap().is_empty());
     }
 
     #[test]

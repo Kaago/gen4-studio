@@ -81,16 +81,18 @@ pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>,
         .collect())
 }
 
-/// Reverts the latest change and names the asset it restored (`None`: nothing to undo), so
-/// the UI reloads exactly what that asset affects.
-pub fn undo_impl(state: &AppState) -> Result<Option<AssetId>, CmdError> {
+/// Reverts the latest change and names every asset it restored (empty: nothing to undo), so
+/// the UI reloads exactly what those assets affect. A change that cannot be restored is an
+/// error naming the asset, and nothing changes.
+pub fn undo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.undo())
+    Ok(session(&mut guard)?.store.undo()?)
 }
 
-pub fn redo_impl(state: &AppState) -> Result<Option<AssetId>, CmdError> {
+/// Re-applies the latest undone change, see [`undo_impl`].
+pub fn redo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.redo())
+    Ok(session(&mut guard)?.store.redo()?)
 }
 
 /// The labels of the undo and redo stacks: undo oldest first, redo in the order `redo` applies
@@ -302,12 +304,12 @@ pub fn member_counts(state: State<AppState>) -> Result<HashMap<AssetKind, usize>
 }
 
 #[tauri::command]
-pub fn undo(state: State<AppState>) -> Result<Option<AssetId>, CmdError> {
+pub fn undo(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
     undo_impl(&state)
 }
 
 #[tauri::command]
-pub fn redo(state: State<AppState>) -> Result<Option<AssetId>, CmdError> {
+pub fn redo(state: State<AppState>) -> Result<Vec<AssetId>, CmdError> {
     redo_impl(&state)
 }
 
@@ -628,7 +630,7 @@ mod tests {
             archive_texts(&state),
             ["Meine Änderung", "Twinleaf Town", "Sandgem Town"]
         );
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
     }
 
     #[test]
@@ -676,7 +678,7 @@ mod tests {
             ["B bearbeitet", "B ungespeichert"]
         );
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);
-        assert!(undo_impl(&state).unwrap().is_some());
+        assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(archive_texts(&state)[1], "Twinleaf Town");
     }
 

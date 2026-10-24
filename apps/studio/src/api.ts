@@ -456,10 +456,10 @@ export interface BuildReport {
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
   invoke<void>("set_permission", { index, x, y, kind, collision });
-/** Resolves to the asset that was restored, or null when there was nothing to undo. */
-export const undo = () => invoke<AssetId | null>("undo");
-/** Resolves to the asset that was restored, or null when there was nothing to redo. */
-export const redo = () => invoke<AssetId | null>("redo");
+/** Resolves to every asset the step restored (one step can change several), or [] when there was nothing to undo. */
+export const undo = () => invoke<AssetId[]>("undo");
+/** Resolves to every asset the step restored, or [] when there was nothing to redo. */
+export const redo = () => invoke<AssetId[]>("redo");
 /** The undo labels (oldest first) and redo labels (the one `redo` applies next first); a label may be empty. */
 export interface HistoryDto {
   undo: string[];

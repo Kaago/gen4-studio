@@ -53,12 +53,12 @@ fn undo_reports_the_asset_it_restored() {
         Ok(())
     })
     .unwrap();
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert_eq!(st.undo(), Some(map_id(1)));
-    assert_eq!(st.undo(), None);
-    assert_eq!(st.redo(), Some(map_id(1)));
-    assert_eq!(st.redo(), Some(matrix_id(0)));
-    assert_eq!(st.redo(), None);
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert_eq!(st.undo().unwrap(), [map_id(1)]);
+    assert!(st.undo().unwrap().is_empty());
+    assert_eq!(st.redo().unwrap(), [map_id(1)]);
+    assert_eq!(st.redo().unwrap(), [matrix_id(0)]);
+    assert!(st.redo().unwrap().is_empty());
 }
 
 #[test]
@@ -76,19 +76,25 @@ fn accept_disk_as_base_drops_only_the_history_of_that_asset() {
     .unwrap();
     st.edit_map(0, "map third", |m| m.set_cell(0, 2, cell(2)))
         .unwrap();
-    assert_eq!(st.undo(), Some(map_id(0))); // one map changeset on the redo stack
+    assert_eq!(st.undo().unwrap(), [map_id(0)]); // one map changeset on the redo stack
     let path = s.dir.path().join("unpacked/maps/0000");
     let mut theirs = std::fs::read(&path).unwrap();
     theirs[16 + 2 * (6 * 32 + 5) + 1] = 0x80;
     std::fs::write(&path, &theirs).unwrap();
     st.accept_disk_as_base(map_id(0)).unwrap();
-    assert!(st.redo().is_none(), "the map's redo entry is gone");
+    assert!(
+        st.redo().unwrap().is_empty(),
+        "the map's redo entry is gone"
+    );
     assert_eq!(
-        st.undo(),
-        Some(matrix_id(0)),
+        st.undo().unwrap(),
+        [matrix_id(0)],
         "other assets keep their history"
     );
-    assert!(st.undo().is_none(), "the map's undo entries are gone");
+    assert!(
+        st.undo().unwrap().is_empty(),
+        "the map's undo entries are gone"
+    );
     // The store keeps my version of the map and saving overwrites the external edit.
     assert!(st.is_dirty(map_id(0)));
 }
@@ -114,9 +120,9 @@ fn edit_marks_dirty_and_undo_clears_it() {
     .unwrap();
     assert!(st.is_dirty(id));
     assert_eq!(st.dirty(), vec![id]);
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
-    assert!(st.redo().is_some());
+    assert!(!st.redo().unwrap().is_empty());
     assert_eq!(st.map(1).unwrap().cell(4, 4).unwrap().collision, 0x80);
 }
 
@@ -293,7 +299,7 @@ fn invalid_edit_is_rolled_back() {
     assert!(matches!(err, KernelError::Format(_)));
     assert!(!st.is_dirty(id));
     assert_eq!(*st.map(1).unwrap(), before);
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -307,7 +313,7 @@ fn invalid_matrix_edit_is_rolled_back() {
     assert!(matches!(err, Err(KernelError::Format(_))));
     assert_eq!(*st.matrix(0).unwrap(), before);
     assert!(st.dirty().is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -318,7 +324,7 @@ fn edit_that_changes_nothing_records_no_changeset() {
     st.edit_map(1, "same cell", |m| m.set_cell(2, 2, same))
         .unwrap();
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -333,9 +339,9 @@ fn new_edit_after_undo_clears_redo() {
         collision: 0,
     };
     st.edit_map(1, "a", |m| m.set_cell(0, 0, a)).unwrap();
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     st.edit_map(1, "b", |m| m.set_cell(0, 0, b)).unwrap();
-    assert!(st.redo().is_none());
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(st.map(1).unwrap().cell(0, 0).unwrap(), b);
 }
 
@@ -361,12 +367,12 @@ fn undo_and_redo_walk_the_history_in_order() {
         })
         .unwrap();
     assert_ne!(c1, c2);
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert_eq!(st.undo(), Some(map_id(0)));
-    assert_eq!(st.undo(), None);
-    assert_eq!(st.redo(), Some(map_id(0)));
-    assert_eq!(st.redo(), Some(matrix_id(0)));
-    assert_eq!(st.redo(), None);
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert_eq!(st.undo().unwrap(), [map_id(0)]);
+    assert!(st.undo().unwrap().is_empty());
+    assert_eq!(st.redo().unwrap(), [map_id(0)]);
+    assert_eq!(st.redo().unwrap(), [matrix_id(0)]);
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(
         st.dirty(),
         vec![
@@ -395,7 +401,7 @@ fn undo_after_save_makes_the_asset_dirty_again() {
     .unwrap();
     st.save().unwrap();
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(st.is_dirty(map_id(1)));
     let report = st.save().unwrap();
     assert_eq!(report.written, vec![map_id(1)]);
@@ -534,7 +540,7 @@ fn failing_edit_closure_is_rolled_back() {
         KernelError::Format(FormatError::OutOfRange { .. })
     ));
     assert!(!st.is_dirty(map_id(1)));
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -580,7 +586,7 @@ fn failing_event_closure_is_rolled_back() {
         .unwrap_err();
     assert!(matches!(err, KernelError::Format(_)));
     assert!(st.event(0).unwrap().warp_events.is_empty());
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -621,8 +627,8 @@ fn event_edit_round_trips_and_validates_warp_height() {
     assert_eq!(st.event(0).unwrap().warp_events[0].height, 0);
     assert!(!st.is_dirty(event_id(0)));
     // The rejected edit left no changeset: the only undo step is the first edit.
-    assert!(st.undo().is_some());
-    assert!(st.undo().is_none());
+    assert!(!st.undo().unwrap().is_empty());
+    assert!(st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -640,10 +646,10 @@ fn event_edit_undo_redo_and_dirty_follow_the_bytes() {
     })
     .unwrap();
     assert!(st.is_dirty(event_id(1)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(event_id(1)));
     assert!(st.event(1).unwrap().warp_events.is_empty());
-    assert!(st.redo().is_some());
+    assert!(!st.redo().unwrap().is_empty());
     assert_eq!(st.event(1).unwrap().warp_events.len(), 1);
 }
 
@@ -664,7 +670,10 @@ fn assert_event_locked(s: &common::Synthetic, st: &mut Store, bytes: &[u8], reas
         "{err}"
     );
     assert!(st.locked(event_id(0)).is_some_and(|r| r.contains(reason)));
-    assert!(st.undo().is_none(), "a refused edit leaves no changeset");
+    assert!(
+        st.undo().unwrap().is_empty(),
+        "a refused edit leaves no changeset"
+    );
     assert!(!st.is_dirty(event_id(0)));
     assert!(st.dirty().is_empty());
     assert!(st.save().unwrap().written.is_empty());
@@ -755,7 +764,7 @@ fn map_tileset_index_follows_unsaved_edits_and_tolerates_a_missing_area() {
     })
     .unwrap();
     assert_eq!(st.map_tileset_index(0).unwrap(), Some(9));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
     assert_eq!(st.map_tileset_index(0).unwrap(), Some(0));
 }
 
@@ -835,8 +844,8 @@ fn stale_recovery_reload_and_accept() {
     assert!(!st.is_dirty(id));
     assert_eq!(st.map(0).unwrap().cell(5, 6).unwrap().collision, 0x80); // theirs
     assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap(), original); // mine gone
-    assert!(st.undo().is_none());
-    assert!(st.redo().is_none());
+    assert!(st.undo().unwrap().is_empty());
+    assert!(st.redo().unwrap().is_empty());
     assert_eq!(std::fs::read(&path).unwrap(), theirs);
 
     // Second round: keep mine.
@@ -864,7 +873,7 @@ fn stale_recovery_reload_and_accept() {
     assert!(st.dirty().is_empty());
     // The base changed under my edits, so undoing them would write the old base over the
     // external edit: the asset's history is gone.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
 }
 
@@ -898,11 +907,11 @@ fn reload_discards_only_the_changesets_of_that_asset() {
         )
     })
     .unwrap();
-    assert!(st.undo().is_some()); // leaves one undone map changeset on the redo stack
+    assert!(!st.undo().unwrap().is_empty()); // leaves one undone map changeset on the redo stack
     st.reload_from_disk(map_id(0)).unwrap();
-    assert!(st.redo().is_none());
-    assert_eq!(st.undo(), Some(matrix_id(0)));
-    assert!(st.undo().is_none());
+    assert!(st.redo().unwrap().is_empty());
+    assert_eq!(st.undo().unwrap(), [matrix_id(0)]);
+    assert!(st.undo().unwrap().is_empty());
     assert!(st.dirty().is_empty());
 }
 
@@ -923,7 +932,7 @@ fn reload_of_a_deleted_member_fails_without_touching_the_store() {
     std::fs::remove_file(s.dir.path().join("unpacked/maps/0000")).unwrap();
     assert!(st.reload_from_disk(map_id(0)).is_err());
     assert!(st.is_dirty(map_id(0)));
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -955,7 +964,7 @@ fn accept_disk_as_base_of_a_deleted_member_recreates_it_on_save() {
     assert!(st.dirty().is_empty());
     assert_eq!(&recreated, st.map(0).unwrap());
     // The base changed, so the edit made against the old one is no longer undoable.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(!st.is_dirty(id));
 }
 
@@ -997,7 +1006,7 @@ fn reload_of_garbage_on_disk_keeps_my_changes() {
     assert!(st.reload_from_disk(map_id(0)).is_err());
     assert!(st.is_dirty(map_id(0)));
     assert_eq!(st.map(0).unwrap().cell(1, 1).unwrap().kind, 1);
-    assert!(st.undo().is_some());
+    assert!(!st.undo().unwrap().is_empty());
 }
 
 #[test]
@@ -1132,7 +1141,7 @@ fn create_and_duplicate_unpack_the_archive_first_and_never_overwrite() {
     assert!(st.duplicate_map(0).is_err());
     assert_eq!(std::fs::read(&stray).unwrap(), b"keep");
     // New members are not undoable and leave nothing dirty.
-    assert!(st.undo().is_none());
+    assert!(st.undo().unwrap().is_empty());
     assert!(st.dirty().is_empty());
 }
 
@@ -1479,7 +1488,7 @@ fn apply_dynamic_headers_reloads_the_table() {
     assert!(st.dynamic_headers_applied().unwrap());
     assert_eq!(st.header_table().unwrap(), before.as_slice());
     assert!(st.dirty().is_empty());
-    assert_eq!(st.undo(), None);
+    assert!(st.undo().unwrap().is_empty());
     // The patch cannot be applied twice.
     assert!(st.apply_dynamic_headers().is_err());
 }
@@ -1630,7 +1639,7 @@ fn undo_after_create_header_keeps_the_new_header() {
     let old = matrix_of(&mut st, 0);
     set_matrix(&mut st, 0, 5);
     assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), old);
     assert!(st.dirty().is_empty());
@@ -1643,7 +1652,7 @@ fn undo_after_create_header_keeps_the_new_header() {
         &8u16.to_le_bytes()
     );
     // Redo of the edit that was undone keeps all three headers as well.
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
 }
 
@@ -1653,9 +1662,9 @@ fn redo_after_create_header_keeps_the_new_header() {
     st.apply_dynamic_headers().unwrap();
     let old = matrix_of(&mut st, 0);
     set_matrix(&mut st, 0, 5);
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.create_header(1, "NEW").unwrap(), 2);
-    assert_eq!(st.redo(), Some(header_table_id()));
+    assert_eq!(st.redo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), 5);
     assert_eq!(st.dirty(), vec![header_table_id()]);
@@ -1667,7 +1676,7 @@ fn redo_after_create_header_keeps_the_new_header() {
     );
     assert_eq!(std::fs::read(dir.join("0002")).unwrap().len(), 24);
     // And back: undo restores the old value, still with three headers.
-    assert_eq!(st.undo(), Some(header_table_id()));
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
     assert_eq!(st.header_table().unwrap().len(), 3);
     assert_eq!(matrix_of(&mut st, 0), old);
 }

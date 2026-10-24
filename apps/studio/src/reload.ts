@@ -75,6 +75,22 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
   }
 }
 
+/**
+ * What to reload after one undo or redo step restored `assets` (a step can change several): the
+ * `reloadPlan` of every asset, each action once, in the order they first appear.
+ */
+export function historyPlan(assets: readonly AssetId[], scene: SceneState | null): ReloadAction[] {
+  const seen = new Set<string>();
+  return assets
+    .flatMap((asset) => reloadPlan(asset, scene))
+    .filter((action) => {
+      const key = JSON.stringify(action);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 /** What a header's scene is rebuilt from: the matrix and, read when a matrix loads, the event file. The area data only textures the models, which reload on their own. */
 export function sceneKey(h: HeaderSummary): string {
   return `${h.matrix_id}:${h.event_file_id}`;

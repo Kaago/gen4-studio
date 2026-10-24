@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssetKind, HeaderSummary } from "./api";
-import { MAX_QUEUED, afterFailedSceneLoad, drainWhenReady, enqueue, fetchCurrent, headerSync, pendingSince, reloadPlan, sceneKey, tilesetReload } from "./reload";
+import { MAX_QUEUED, afterFailedSceneLoad, drainWhenReady, enqueue, fetchCurrent, headerSync, historyPlan, pendingSince, reloadPlan, sceneKey, tilesetReload } from "./reload";
 import type { SceneState } from "./reload";
 
 const scene: SceneState = { matrix: 3, maps: [10, null, 11, 10], area: 5, eventFile: 7 };
@@ -50,6 +50,31 @@ describe("reloadPlan", () => {
     for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script"] as const) {
       expect(plan(kind, 0)).toEqual([]);
     }
+  });
+});
+
+describe("historyPlan", () => {
+  it("reloads what every restored asset affects, each action once", () => {
+    const assets = [
+      { kind: "Matrix", index: 3 },
+      { kind: "Map", index: 10 },
+      { kind: "Map", index: 11 },
+      { kind: "TextArchive", index: 433 },
+    ] as const;
+    expect(historyPlan(assets, scene)).toEqual([
+      { kind: "unpin" },
+      { kind: "matrixPanel" },
+      { kind: "matrix" },
+      { kind: "buildings" },
+      { kind: "map", map: 10 },
+      { kind: "map", map: 11 },
+      { kind: "textPanel", archive: 433 },
+    ]);
+  });
+
+  it("is one asset's plan for a step of one asset and empty for none", () => {
+    expect(historyPlan([{ kind: "Event", index: 7 }], scene)).toEqual(plan("Event", 7));
+    expect(historyPlan([], scene)).toEqual([]);
   });
 });
 

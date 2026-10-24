@@ -143,6 +143,8 @@ describe("App wiring", () => {
     vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Main #1:\n\tEnd\n" });
     vi.mocked(dirty).mockResolvedValue([]);
     vi.mocked(history).mockResolvedValue({ undo: [], redo: [] });
+    vi.mocked(undo).mockResolvedValue([]);
+    vi.mocked(redo).mockResolvedValue([]);
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
@@ -698,7 +700,7 @@ describe("App wiring", () => {
       vi.mocked(history).mockResolvedValue({ undo: ["a", "b", "c", "d", "e"], redo: [] });
       await act(async () => data().onEdited());
       await tick(150);
-      vi.mocked(undo).mockResolvedValueOnce(null).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
+      vi.mocked(undo).mockResolvedValueOnce([]).mockRejectedValueOnce({ code: "error", message: "kaputt", asset: null });
       const items = await historyItems();
       await act(async () => items[3]!.click());
       // The second step failed and was reported; the third and fourth never ran.
@@ -1462,7 +1464,7 @@ describe("App wiring", () => {
     it("notes the history move before the first reload action runs", async () => {
       await select(listed[0]);
       const log = record();
-      vi.mocked(undo).mockResolvedValue({ kind: "Matrix", index: 0 });
+      vi.mocked(undo).mockResolvedValue([{ kind: "Matrix", index: 0 }]);
       expect(data().history.current).toBe(0);
       await pressUndo();
       // The plan for a restored shown matrix: unpin, the matrix panel and editor, the scene's matrix.
@@ -1473,10 +1475,23 @@ describe("App wiring", () => {
     it("does not touch the history or reload anything when nothing was undone", async () => {
       await select(listed[0]);
       const log = record();
-      vi.mocked(undo).mockResolvedValue(null);
+      vi.mocked(undo).mockResolvedValue([]);
       await pressUndo();
       expect(log).toEqual([]);
       expect(data().history.current).toBe(0);
+    });
+
+    it("reloads what every asset of a step of several restored", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(undo).mockResolvedValue([
+        { kind: "Matrix", index: 0 },
+        { kind: "TextArchive", index: 433 },
+      ]);
+      await pressUndo();
+      // One history move for the step; the shown matrix and the text panel both reload.
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1"]);
+      expect(data().history.current).toBe(1);
     });
   });
 

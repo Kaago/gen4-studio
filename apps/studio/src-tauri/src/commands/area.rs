@@ -206,9 +206,9 @@ mod tests {
         assert_eq!(get_area_data_impl(&state, 1).unwrap(), a);
         assert!(dirty_impl(&state).unwrap().contains(&area_id(1)));
         // One undoable change; undo and redo move the value.
-        assert_eq!(undo_impl(&state).unwrap(), Some(area_id(1)));
+        assert_eq!(undo_impl(&state).unwrap(), [area_id(1)]);
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(redo_impl(&state).unwrap().is_some());
+        assert!(!redo_impl(&state).unwrap().is_empty());
         assert_eq!(get_area_data_impl(&state, 1).unwrap(), a);
         let report = save_impl(&state).unwrap();
         assert_eq!(report.written, vec![area_id(1)]);
@@ -248,7 +248,7 @@ mod tests {
         assert!(err.message.contains("family"), "{}", err.message);
         assert_eq!(get_area_data_impl(&state, 0).unwrap(), before);
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(undo_impl(&state).unwrap().is_none());
+        assert!(undo_impl(&state).unwrap().is_empty());
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         let a = get_area_data_impl(&state, 0).unwrap();
         set_area_data_impl(&state, 0, a, "x").unwrap();
         assert!(dirty_impl(&state).unwrap().is_empty());
-        assert!(undo_impl(&state).unwrap().is_none());
+        assert!(undo_impl(&state).unwrap().is_empty());
     }
 
     #[test]
