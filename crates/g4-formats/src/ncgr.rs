@@ -103,6 +103,14 @@ impl Ncgr {
         } else {
             (usize::from(tiles_x), usize::from(tiles_y))
         };
+        if count > 0 && (across == 0 || down == 0) {
+            // A header that names no columns or rows cannot place the tiles it carries.
+            return Err(FormatError::OutOfRange {
+                what: "NCGR tiles across or down",
+                value: 0,
+                max: count,
+            });
+        }
         if across * down > count {
             return Err(FormatError::Truncated {
                 needed: across * down * tile_bytes,
@@ -118,11 +126,14 @@ impl Ncgr {
     }
 }
 
-/// The image as RGBA, `width * height * 4` bytes. Palette index 0 is transparent (all
+/// The image as RGBA, `width * height * 4` bytes (empty for an image without width). Palette index 0 is transparent (all
 /// zero). An 8 bpp image has 256 indices, a palette 16: indices of 16 and above are
 /// transparent too.
 pub fn render_rgba(ncgr: &Ncgr, palette: &[u16; 16]) -> Vec<u8> {
     let tiles_across = ncgr.width / TILE;
+    if tiles_across == 0 {
+        return Vec::new();
+    }
     let tile_bytes = TILE * TILE * usize::from(ncgr.bpp) / 8;
     let mut rgba = vec![0u8; ncgr.width * ncgr.height * 4];
     for (n, tile) in ncgr.tiles.chunks_exact(tile_bytes).enumerate() {

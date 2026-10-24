@@ -68,21 +68,33 @@ pub fn png(rgba: &[u8], width: usize, height: usize) -> Result<Vec<u8>, KernelEr
     Ok(out)
 }
 
-/// Member `index` of the icon archive `kind`, or `None` when the archive has no such member.
-/// Reads the unpacked folder if there is one, else the packed NARC; never unpacks.
-fn member(project: &Project, kind: AssetKind, index: u16) -> Result<Option<Vec<u8>>, KernelError> {
+/// The bytes of two members of one archive.
+type MemberPair = (Vec<u8>, Vec<u8>);
+
+/// Members `first` and `second` of the icon archive `kind`, or `None` when the archive lacks
+/// either. Reads the unpacked folder if there is one, else the packed NARC (parsed once for
+/// both members); never unpacks.
+fn member_pair(
+    project: &Project,
+    kind: AssetKind,
+    first: u16,
+    second: u16,
+) -> Result<Option<MemberPair>, KernelError> {
     let dir = project.unpacked_dir(kind);
     if dir.is_dir() {
-        let path = dir.join(format!("{index:04}"));
-        return match std::fs::read(&path) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(io_at(&path)(e)),
+        let read = |index: u16| {
+            let path = dir.join(format!("{index:04}"));
+            match std::fs::read(&path) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(io_at(&path)(e)),
+            }
         };
+        return Ok(read(first)?.zip(read(second)?));
     }
-    let mut narc = project.read_packed(kind)?;
-    let at = usize::from(index);
-    Ok((at < narc.members.len()).then(|| narc.members.swap_remove(at)))
+    let narc = project.read_packed(kind)?;
+    let get = |index: u16| narc.members.get(usize::from(index)).cloned();
+    Ok(get(first).zip(get(second)))
 }
 
 /// The bag icon of item `item_id` as a 32 x 32 PNG (index 0 of the palette transparent).
@@ -95,15 +107,14 @@ pub fn item_icon(project: &Project, item_id: u16) -> Result<Option<Vec<u8>>, Ker
     else {
         return Ok(None);
     };
-    let (Some(graphic), Some(colours)) = (
-        member(project, AssetKind::ItemIcons, entry.icon)?,
-        member(project, AssetKind::ItemIcons, entry.palette)?,
-    ) else {
+    let Some((graphic, colours)) =
+        member_pair(project, AssetKind::ItemIcons, entry.icon, entry.palette)?
+    else {
         return Ok(None);
     };
     let ncgr = Ncgr::read(&graphic)?;
     let nclr = Nclr::read(&colours)?;
-    // An item's palette member holds one palette, the first.
+    // An item's palette member holds 16 palettes; the item uses the first.
     let Some(palette) = nclr.palettes.first() else {
         return Ok(None);
     };
@@ -125,10 +136,7 @@ pub fn mon_icon(project: &Project, species: u16) -> Result<Option<Vec<u8>>, Kern
     let Some(&palette_number) = palettes.values.get(table_index) else {
         return Ok(None);
     };
-    let (Some(graphic), Some(colours)) = (
-        member(project, AssetKind::MonIcons, graphic)?,
-        member(project, AssetKind::MonIcons, 0)?,
-    ) else {
+    let Some((graphic, colours)) = member_pair(project, AssetKind::MonIcons, graphic, 0)? else {
         return Ok(None);
     };
     let ncgr = Ncgr::read(&graphic)?;

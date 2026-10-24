@@ -164,3 +164,29 @@ fn ncgr_rejects_wrong_magic_and_lengths_only() {
         Err(FormatError::Unsupported { .. })
     ));
 }
+
+#[test]
+fn ncgr_with_a_zero_side_but_tiles_is_rejected_and_renders_nothing() {
+    // Columns or rows named as 0 while the data holds tiles: an error, not a division by zero.
+    for (x, y) in [(0, 1), (1, 0), (0, 0)] {
+        assert!(
+            matches!(
+                Ncgr::read(&ncgr_bytes(x, y, 3, &[0u8; 32])),
+                Err(FormatError::OutOfRange { .. })
+            ),
+            "{x} x {y}"
+        );
+    }
+    // No tiles at all is a valid, empty image.
+    let empty = Ncgr::read(&ncgr_bytes(0, 0, 3, &[])).unwrap();
+    assert_eq!((empty.width, empty.height), (0, 0));
+    assert!(render_rgba(&empty, &palette()).is_empty());
+    // A hand-built image without width renders nothing instead of dividing by zero.
+    let hacked = Ncgr {
+        width: 0,
+        height: 8,
+        bpp: 4,
+        tiles: vec![0x11; 32],
+    };
+    assert!(render_rgba(&hacked, &palette()).is_empty());
+}
