@@ -1,0 +1,45 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  font: var(--g4-font-text-s);
+  color: var(--g4-text-primaer);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: var(--g4-raum-2);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.text {
+  min-width: 0;
+  flex: 1;
+}
+
+.trailing {
+  flex: none;
+}
+
+.ok .icon {
+  color: var(--g4-status-erfolg);
+}
+.warning .icon {
+  color: var(--g4-status-warnung);
+}
+.error .icon {
+  color: var(--g4-status-fehler);
+}
+.info .icon {
+  color: var(--g4-status-info);
+}

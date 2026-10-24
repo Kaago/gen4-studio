@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ListPane } from "../../frame/ListPane";
-import { FilterChips, HexBlock, NumberField, PokemonCard, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
+import { CheckList, FilterChips, HexBlock, NumberField, PokemonCard, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
 import type { HexFieldSpan, TableRow, ToggleCell } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -137,6 +137,19 @@ export function DataPage() {
 
   return (
     <div className={styles.stack}>
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Prüfliste</h2>
+        <p className={styles.note}>Jede Zeile sagt ihren Zustand mit Symbol und Wort, nie nur mit Farbe; rechts ein optionaler Zusatz.</p>
+        <CheckList
+          ariaLabel="Prüfliste"
+          rows={[
+            { id: "model", state: "ok", text: "Modell, 41 236 Bytes", trailing: <span className={styles.note}>passt</span> },
+            { id: "names", state: "info", text: "3 Texturnamen fehlen im Gebiets-Paket" },
+            { id: "bdhc", state: "warning", text: "BDHC bleibt unverändert, Laufhöhen prüfen" },
+            { id: "per", state: "error", text: "Kollision: die Datei hat 2050 statt 2048 Bytes" },
+          ]}
+        />
+      </section>
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Typen</h2>
         <p className={styles.note}>Farbe und Name jedes Typs; eine Nummer, die die 4. Generation nicht kennt, heißt „Typ 19“.</p>

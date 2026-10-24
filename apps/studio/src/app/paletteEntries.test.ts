@@ -27,7 +27,7 @@ const scripts: ScriptFileDto[] = [
   { file: 9, kind: "levelScript", size: 12, headers: [] },
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
-const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const };
+const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, cellChosen: false };
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
@@ -63,6 +63,7 @@ describe("paletteEntries", () => {
       "Hier spielen",
       "Gebiet anlegen…",
       "Raum anlegen…",
+      "Teile in die Karte importieren…",
       "Liste ein/aus",
       "Layout zurücksetzen",
       "Thema wechseln",
@@ -78,7 +79,7 @@ describe("paletteEntries", () => {
       "Bereich Technik",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Teile in die Karte importieren…"]);
     expect(entries.find((e) => e.label === "Gebiet anlegen…")?.description).toBe("Erst ein Projekt öffnen");
     for (const e of entries) expect(e.id).toMatch(/^cmd-/);
   });
@@ -183,5 +184,10 @@ describe("paletteEntries", () => {
     expect(byId("cmd-list", { commands: { ...commands, hasList: false } })).toMatchObject({ disabled: true, description: "Dieser Bereich hat keine Liste" });
     expect(byId("cmd-layout")?.description).toContain("Welt");
     expect(byId("cmd-layout", { commands: { ...commands, deck: "texte" } })?.description).toContain("Texte");
+  });
+
+  it("offers_the_import_of_parts_only_for_a_chosen_cell_with_a_map", () => {
+    expect(byId("cmd-importParts")).toMatchObject({ label: "Teile in die Karte importieren…", disabled: true, description: "Erst eine Rasterzelle mit Karte wählen" });
+    expect(byId("cmd-importParts", { commands: { ...commands, cellChosen: true } })).toMatchObject({ disabled: false, description: "In die Karte der gewählten Rasterzelle", run: { kind: "command", command: "importParts" } });
   });
 });

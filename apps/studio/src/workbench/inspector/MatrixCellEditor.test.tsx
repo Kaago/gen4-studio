@@ -9,7 +9,7 @@ import { typeInto } from "../../ui/primitives/testUtils";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,8 +23,9 @@ describe("MatrixCellEditor", () => {
   const onEdited = vi.fn();
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
+  const onMapImported = vi.fn();
   let dirty: AssetId[] = [];
-  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError });
+  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError, onMapImported });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -171,5 +172,22 @@ describe("MatrixCellEditor", () => {
     await show(0, 0, "tuefteln");
     const table = container.querySelector("table[aria-label='Rohdaten, Zeile 0']")!;
     expect([...table.querySelectorAll("tbody th")].map((h) => h.textContent)).toEqual(["Karte"]);
+  });
+
+  it("opens_the_import_and_export_dialogs_of_the_cell_map_from_the_field_Karte", async () => {
+    await show();
+    await act(async () => void button("Teile importieren…").click());
+    expect(document.querySelector("[role=dialog]")?.textContent).toContain("Teile in Karte 0011 importieren");
+    expect(document.querySelector("[data-import-dialog='11']")).not.toBeNull();
+    await act(async () => void [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Abbrechen")!.click());
+    await flush();
+    await act(async () => void button("Teile exportieren…").click());
+    expect(document.querySelector("[data-export-dialog='11']")).not.toBeNull();
+  });
+
+  it("offers_no_import_for_a_cell_without_a_map", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
+    await show();
+    expect(button("Teile importieren…")).toBeUndefined();
   });
 });

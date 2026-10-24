@@ -113,6 +113,17 @@ export class ThumbnailCache {
     };
   }
 
+  /** Forgets every picture (and failure) of `map`, whatever its tileset, after its model changed; subscribers are told so mounted users ask again. Work in flight keeps running. */
+  invalidate(map: number): void {
+    const prefix = `${map}:`;
+    const keys = [...this.done.keys(), ...this.failures.keys()].filter((key) => key.startsWith(prefix));
+    for (const key of keys) {
+      this.done.delete(key);
+      this.failures.delete(key);
+    }
+    for (const key of keys) this.notify(key);
+  }
+
   clear(): void {
     const keys = [...this.done.keys(), ...this.failures.keys(), ...this.open];
     this.generation++;
