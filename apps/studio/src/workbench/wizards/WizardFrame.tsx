@@ -101,7 +101,7 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
       if (e.key === "Enter") {
         if (!inside(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.isComposing) return;
         if (e.defaultPrevented) {
-          // A field committed its typed text and left the focus: it keeps it, so the next Enter moves on from there.
+          // A field committed its typed text: it keeps the focus (or gets it back), so the next Enter moves on from there.
           if (e.target instanceof HTMLElement && e.target.matches("[data-draft]") && e.target.isConnected && resting()) e.target.focus();
           return;
         }

@@ -64,6 +64,16 @@ describe("TextField", () => {
     expect(field().value).toBe("Route 202");
   });
 
+  it("keeps_the_focus_after_committing_with_enter", () => {
+    // A keyboard user goes on with Tab from the field (Inspector): Enter must not drop the focus to the page.
+    act(() => root.render(<Owner />));
+    act(() => field().focus());
+    typeInto(field(), "Route 202");
+    pressKey(field(), "Enter");
+    expect(commits.mock.calls).toEqual([["Route 202"]]);
+    expect(document.activeElement).toBe(field());
+  });
+
   it("uses_enter_only_while_it_holds_typed_text", () => {
     // A wizard around the field moves on with an Enter the field left alone, never with the one that commits.
     act(() => root.render(<Owner />));

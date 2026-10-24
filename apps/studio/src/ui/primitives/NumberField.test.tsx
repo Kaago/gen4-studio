@@ -42,7 +42,7 @@ describe("NumberField", () => {
   }
   const input = () => container.querySelector<HTMLInputElement>("input[aria-label='Modell']")!;
   const text = () => container.textContent ?? "";
-  /** Enter blurs the field, as in a browser; the jsdom test has to put the focus there first. */
+  /** Enter commits and keeps the focus; the jsdom test has to put the focus there first. */
   const typeAndEnter = (t: string) => {
     act(() => input().focus());
     typeInto(input(), t);
@@ -65,6 +65,14 @@ describe("NumberField", () => {
     typeInto(input(), "200");
     expect(pressKey(input(), "Enter").defaultPrevented).toBe(true);
     expect(commits.mock.calls).toEqual([[200]]);
+  });
+
+  it("keeps_the_focus_after_committing_with_enter", () => {
+    // A keyboard user goes on with Tab from the field (Inspector): Enter must not drop the focus to the page.
+    act(() => root.render(<Owner />));
+    typeAndEnter("200");
+    expect(commits.mock.calls).toEqual([[200]]);
+    expect(document.activeElement).toBe(input());
   });
 
   it("commits_on_enter_and_blur_and_reverts_on_escape", () => {

@@ -151,8 +151,9 @@ export function NumberField({ label, value, onCommit, onClear, min = 0, max, bas
               e.preventBaseUIHandler();
               if (e.key === "Enter") {
                 // Committing typed text uses the key (a wizard around the field must not move on as well); an untouched field leaves it.
+                // The focus stays in the field, so a keyboard user goes on from here with Tab.
                 if (draft.edited) e.preventDefault();
-                e.currentTarget.blur();
+                draft.flush();
               } else if (e.key === "Escape") {
                 if (draft.edited) {
                   // Taking back the typed text uses the key: a dialog around the field must not close as well.
