@@ -380,7 +380,20 @@ export type AssetKind =
   | "BuildingModel"
   | "InteriorBuildingModel"
   | "HeaderTable"
-  | "Script";
+  | "DynamicHeaders"
+  | "Script"
+  | "Encounter"
+  | "Personal"
+  | "Learnset"
+  | "Evolution"
+  | "Move"
+  | "Item"
+  | "TrainerProperties"
+  | "TrainerParty"
+  | "TrainerTextTable"
+  | "TrainerTextOffsets"
+  | "ItemIcons"
+  | "MonIcons";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -775,3 +788,5 @@ export interface ScriptHitDto {
 export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files");
 /** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
 export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });
+
+export * from "./api.data";

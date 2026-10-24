@@ -2049,7 +2049,9 @@ fn check_loads_byte_identical(case: DataCase) {
     let (_s, mut st) = data_store();
     let id = case.id(case.index);
     assert_eq!(st.current_bytes(id).unwrap(), None, "nothing loaded yet");
+    assert_eq!(st.saved_bytes(id), None, "nothing loaded yet");
     let bytes = (case.read)(&mut st, case.index).unwrap();
+    assert_eq!(st.saved_bytes(id), Some(bytes.as_slice()));
     let path = st.project().member_path(case.kind, case.index);
     assert_eq!(bytes, std::fs::read(path).unwrap());
     assert_eq!(st.current_bytes(id).unwrap(), Some(bytes));
@@ -2065,6 +2067,11 @@ fn check_edit_records_undo_and_dirty(case: DataCase) {
     assert!((case.edit)(&mut st, case.index).unwrap().is_some());
     let after = (case.read)(&mut st, case.index).unwrap();
     assert_ne!(after, before);
+    assert_eq!(
+        st.saved_bytes(id),
+        Some(before.as_slice()),
+        "the baseline stays"
+    );
     assert_eq!(st.dirty(), vec![id]);
     assert_eq!(st.history(), (vec!["edit".to_owned()], vec![]));
     assert_eq!(st.undo().unwrap(), vec![id]);
@@ -2084,6 +2091,7 @@ fn check_save_writes_member_atomically(case: DataCase) {
     let report = st.save().unwrap();
     assert_eq!(report.written, vec![id]);
     assert_eq!(std::fs::read(&path).unwrap(), edited);
+    assert_eq!(st.saved_bytes(id), Some(edited.as_slice()));
     assert!(dot_entries(path.parent().unwrap()).is_empty());
     assert!(!st.is_dirty(id));
     // A file changed on disk after the save is not overwritten by the next one (undo makes

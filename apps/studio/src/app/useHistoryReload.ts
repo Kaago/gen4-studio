@@ -84,6 +84,9 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         bus.emit({ topic: "headerTable" });
         await scene.syncHeaders();
         break;
+      case "dataPanel":
+        // The data areas (Task 13) re-read their members on their own bus; nothing in the world shows data members.
+        break;
     }
   }
 

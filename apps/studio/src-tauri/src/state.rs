@@ -1,6 +1,8 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use g4_kernel::data::names::NameTables;
+use g4_kernel::data::refs::RefIndex;
 use g4_kernel::project::Project;
 use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
@@ -15,6 +17,39 @@ pub struct Session {
     pub sprites: SpriteCache,
     /// The `rotom-lsp` of this project, started by `lsp_start` and stopped with the session.
     pub lsp: Option<LspProcess>,
+    /// Names of species, moves, items, ... read from the store's text archives, cached per bank.
+    pub names: NameTables,
+    /// Who references a species, move, item, trainer or encounter file; built on first use.
+    pub refs: RefIndex,
+}
+
+impl Session {
+    /// A session of `project` with a fresh store and empty caches.
+    pub fn new(project: Arc<Project>) -> Session {
+        let store = Store::new(Arc::clone(&project));
+        Session {
+            project,
+            store,
+            sprites: SpriteCache::new(),
+            lsp: None,
+            names: NameTables::new(),
+            refs: RefIndex::new(),
+        }
+    }
+
+    /// Brings the reference index up to date after a command changed the store. Cheap when
+    /// the index was never built or nothing it reads changed. A failed refresh leaves the index
+    /// as it was; its next use tries again (and reports the error there).
+    pub fn after_write(&mut self) {
+        let _ = self.refs.refresh(&self.store);
+    }
+
+    /// Forgets the reference index after the files on disk may have changed behind the store
+    /// (a member reloaded from disk): the next use builds it again from the disk, which also
+    /// sees members the store never loaded.
+    pub fn disk_changed(&mut self) {
+        self.refs = RefIndex::new();
+    }
 }
 
 /// Tauri-managed state.

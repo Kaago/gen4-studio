@@ -46,8 +46,16 @@ describe("reloadPlan", () => {
     expect(plan("TextArchive", 433, null)).toEqual([{ kind: "textPanel", archive: 433 }]);
   });
 
+  it("hands a restored data asset to the data panels", () => {
+    const kinds = ["Encounter", "Personal", "Learnset", "Evolution", "Move", "Item", "TrainerProperties", "TrainerParty", "TrainerTextTable", "TrainerTextOffsets"] as const;
+    for (const kind of kinds) {
+      expect(plan(kind, 17)).toEqual([{ kind: "dataPanel", asset: { kind, index: 17 } }]);
+      expect(plan(kind, 17, null)).toEqual([{ kind: "dataPanel", asset: { kind, index: 17 } }]);
+    }
+  });
+
   it("has nothing to reload for assets the editors cannot change", () => {
-    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script"] as const) {
+    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script", "ItemIcons", "MonIcons", "DynamicHeaders"] as const) {
       expect(plan(kind, 0)).toEqual([]);
     }
   });

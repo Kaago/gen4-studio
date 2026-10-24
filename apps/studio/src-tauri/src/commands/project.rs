@@ -7,8 +7,6 @@ use std::sync::Arc;
 use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
-use g4_kernel::sprites::SpriteCache;
-use g4_kernel::store::Store;
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -37,14 +35,7 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
         language: format!("{:?}", project.language),
         header_count,
     };
-    let project = Arc::new(project);
-    let store = Store::new(Arc::clone(&project));
-    let old = lock(state)?.replace(Session {
-        project,
-        store,
-        sprites: SpriteCache::new(),
-        lsp: None,
-    });
+    let old = lock(state)?.replace(Session::new(Arc::new(project)));
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -86,13 +77,19 @@ pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>,
 /// error naming the asset, and nothing changes.
 pub fn undo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.undo()?)
+    let session = session(&mut guard)?;
+    let restored = session.store.undo()?;
+    session.after_write();
+    Ok(restored)
 }
 
 /// Re-applies the latest undone change, see [`undo_impl`].
 pub fn redo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
-    Ok(session(&mut guard)?.store.redo()?)
+    let session = session(&mut guard)?;
+    let restored = session.store.redo()?;
+    session.after_write();
+    Ok(restored)
 }
 
 /// The labels of the undo and redo stacks: undo oldest first, redo in the order `redo` applies
@@ -181,6 +178,7 @@ pub fn reload_asset_impl(state: &AppState, kind: AssetKind, index: u16) -> Resul
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     session.store.reload_from_disk(AssetId { kind, index })?;
+    session.disk_changed();
     Ok(())
 }
 

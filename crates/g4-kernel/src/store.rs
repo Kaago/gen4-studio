@@ -1462,6 +1462,13 @@ impl Store {
             .transpose()
     }
 
+    /// The bytes of the loaded asset `id` as last saved, or read from the disk when it was
+    /// never saved (the baseline [`Store::is_dirty`] compares against). `None` when `id` is
+    /// not loaded, or when its file was deleted and the user kept their version.
+    pub fn saved_bytes(&self, id: AssetId) -> Option<&[u8]> {
+        self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref())
+    }
+
     /// Appends a text archive with key 0 and one message, "Neuer Text", as the last member of
     /// the archive, writes its member and its JSON at once and loads it. Returns its index.
     /// Not undoable.

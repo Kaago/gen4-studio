@@ -11,7 +11,20 @@ const KIND_LABELS: Record<AssetKind, string> = {
   BuildingModel: "Gebäudemodell",
   InteriorBuildingModel: "Innen-Gebäudemodell",
   HeaderTable: "Header-Tabelle",
+  DynamicHeaders: "Dynamische Header",
   Script: "Scriptdatei",
+  Encounter: "Begegnungen",
+  Personal: "Pokémon-Daten",
+  Learnset: "Lernset",
+  Evolution: "Entwicklung",
+  Move: "Attacke",
+  Item: "Gegenstand",
+  TrainerProperties: "Trainer-Eigenschaften",
+  TrainerParty: "Trainer-Team",
+  TrainerTextTable: "Trainertexte",
+  TrainerTextOffsets: "Trainertext-Offsets",
+  ItemIcons: "Gegenstand-Symbole",
+  MonIcons: "Pokémon-Symbole",
 };
 
 /** German display name of an asset kind. */
