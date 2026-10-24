@@ -80,6 +80,9 @@ macro_rules! accessors {
 
 pub mod evolution;
 pub mod item;
+pub mod learnset;
 pub mod moves;
 pub mod personal;
 pub mod record;
+pub mod trainer;
+pub mod trainer_text;
