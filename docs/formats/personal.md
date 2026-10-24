@@ -53,8 +53,8 @@ Bitstelle `n % 8` (niedrigstes Bit zuerst). `n = 0` ist TM01, `n = 91` TM92,
 `n = 92` HM01, `n = 99` HM08; höher gesetzte Bits gibt es in Vanilla nicht,
 `tm(n)` und `set_tm(n, ..)` akzeptieren nur `n` unter 100, die Bytes darüber
 bleiben unverändert. Die Reihenfolge ist an Staravia belegt: Bit 16 (TM17
-Protect), Bit 39 (TM40 Aerial Ace) und Bit 96 (HM05 Fly) sind gesetzt, Bit 0
-(TM01 Focus Punch) nicht.
+Protect), Bit 39 (TM40 Aerial Ace), Bit 93 (HM02 Fly) und Bit 96 (HM05 Defog,
+deutsch Auflockern) sind gesetzt, Bit 0 (TM01 Focus Punch) nicht.
 
 ## Grenzen des Codecs
 

@@ -205,7 +205,7 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
 - `g4-formats/src/data/`: Round-Trip über zufällige Bytes je Codec (Personal, Entwicklung, Attacke, Gegenstand, Begegnung,
   Trainer-Texttabelle), Lernsets aus beliebigen terminierten Bytes hin und zurück (eine geänderte Länge ergibt immer ein
   terminiertes Vielfaches von 4), `read(write(d)) == d` für die Party in jedem Format, Setter-Isolation im Record-Kern
-  (`setter_changes_only_its_own_bytes`, `set_bits_changes_only_the_masked_bits`: ein Setter ändert nur seine Bytes bzw. Bits).
+  (`setter_changes_only_its_own_bytes`, `set_bits_changes_only_the_masked_bits`: ein Setter ändert nur seine Bytes oder Bits).
 - `g4-kernel/tests/transaction.rs`: `undo_redo_are_inverse_over_mixed_kinds` (64 zufällige Folgen aus Edits, Undo und Redo über
   gemischte Arten).
 - `g4-kernel/tests/refs.rs`: `incremental_equals_full_rebuild` (48 Folgen: der inkrementelle Referenzindex gleicht dem voll

@@ -19,7 +19,7 @@ Alle Werte Little Endian. Ein Member ist genau 16 Bytes.
 | 0x07 | u8 | `effect_chance` | Effektchance in Prozent |
 | 0x08 | u16 | `target` | Ziel (Bitfeld, 0 oder `1 << 0` bis `1 << 10`) |
 | 0x0A | i8 | `priority` | Priorität, mit Vorzeichen |
-| 0x0B | u8 | `flags` | Bits: Kontakt, Schutz, Magiemantel, Brüller, Spiegeltrick, King-Stein, HP-Leiste behalten, Schatten verbergen; Rohbyte |
+| 0x0B | u8 | `flags` | Bits: Kontakt, Schutz, Magiemantel, Übernahme, Spiegeltrick, King-Stein, HP-Leiste behalten, Schatten verbergen; Rohbyte |
 | 0x0C | u8 | `contest` | Wettbewerbs-Effekt |
 | 0x0D | u8 | `contest_type` | 0 bis 4: Coolness, Schönheit, Anmut, Klugheit, Stärke |
 | 0x0E | 2 Bytes | `pad_0e` | Padding, in Vanilla immer 0 |

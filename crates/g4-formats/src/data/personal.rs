@@ -231,10 +231,11 @@ mod tests {
     #[test]
     fn tm_bits_are_lsb_first_with_tm01_at_bit_zero() {
         let p = Personal::read(&STARAVIA).unwrap();
-        // Staravia learns TM17 Protect, TM40 Aerial Ace and HM05 Fly.
+        // Staravia learns TM17 Protect, TM40 Aerial Ace, HM02 Fly and HM05 Defog.
         assert!(p.tm(16), "TM17 Protect");
         assert!(p.tm(39), "TM40 Aerial Ace");
-        assert!(p.tm(96), "HM05 Fly");
+        assert!(p.tm(93), "HM02 Fly");
+        assert!(p.tm(96), "HM05 Defog");
         assert!(!p.tm(0), "TM01 Focus Punch");
         assert!(!p.tm(99), "HM08");
         let bits: [u8; 16] = STARAVIA[0x1C..].try_into().unwrap();
