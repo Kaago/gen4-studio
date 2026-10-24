@@ -1066,6 +1066,28 @@ describe("App wiring", () => {
     expect(live().message?.text).toContain("repariert");
   });
 
+  it("repairing_the_patch_in_technik_says_so_and_closes_the_broken_patch_toast", async () => {
+    vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: true, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(repairHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+    await click("Projekt öffnen");
+    const broken = () => listToasts().filter((t) => t.kind === "error" && t.text.includes("fehlerhaft"));
+    expect(broken()).toHaveLength(1);
+    await act(async () => atlasEntry("Technik")!.click());
+    const patches = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Patches"))!;
+    await act(async () => patches.click());
+    await act(async () => {});
+    expect(container.querySelector("[data-patch]")?.textContent).toBe("Fehlerhaft");
+    const repairButton = [...container.querySelectorAll<HTMLButtonElement>("[data-technik] button")].find((b) => b.textContent === "Patch reparieren")!;
+    await act(async () => repairButton.click());
+    await act(async () => {});
+    expect(repairHeaderPatch).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-patch]")?.textContent).toBe("Angewendet");
+    // The toast that offered the repair is gone with the fault, and the session says what changed.
+    expect(broken()).toEqual([]);
+    expect(live().message?.kind).toBe("info");
+    expect(live().message?.text).toContain("repariert");
+  });
+
   it("opens_the_project_when_the_patch_state_cannot_be_read", async () => {
     vi.mocked(headerPatchStatus).mockRejectedValue(new Error("arm9.bin fehlt"));
     await click("Projekt öffnen");

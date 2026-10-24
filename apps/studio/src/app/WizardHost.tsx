@@ -24,6 +24,7 @@ interface Props {
   lastTile: () => { x: number; z: number } | null;
   /** The Dynamic Headers patch was applied from a wizard: the header table and the header list are read again. */
   onHeaderPatch: () => Promise<void>;
+  onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
   /** "Hier spielen" on a wizard's result (after it showed what it made): save, build, run. */
   onPlay: () => void;
@@ -39,7 +40,7 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * The open wizard. Its frame puts the step bar into the world's hinge and the step into the world's hand (portals into the deck's
  * slots); the host lives beside the workbench, not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onError, onPlay }: Props) {
+export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -59,6 +60,7 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
           onClose={close}
           onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0] })}
           onHeaderPatch={onHeaderPatch}
+          onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
           onPlay={onPlay}
         />
@@ -79,6 +81,7 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
           onClose={close}
           onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec).lines[0] })}
           onHeaderPatch={onHeaderPatch}
+          onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
           onPlay={onPlay}
         />

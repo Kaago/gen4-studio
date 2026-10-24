@@ -46,6 +46,8 @@ interface Props {
   onCreated: (report: RoomReport, spec: RoomSpec) => Promise<void>;
   /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
   onHeaderPatch: () => Promise<void>;
+  /** A repair of the patch went in (the app closes the toast that offered it). */
+  onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
   onPlay?: () => void;
@@ -74,7 +76,7 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onError, onPlay }: Props) {
+export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
   const [form, setForm] = useState<RoomForm>(() => {
@@ -151,7 +153,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
-  const patch = useHeaderPatch(onHeaderPatch, SAVE_FIRST_IN_WIZARD);
+  const patch = useHeaderPatch(onHeaderPatch, { saveFirst: SAVE_FIRST_IN_WIZARD, repaired: onHeaderPatchRepaired });
   const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
     outsideMatrix: outsideCells ?? outsideMatrix,
     outsideWarps: outsideEvents?.warps,

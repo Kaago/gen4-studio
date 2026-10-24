@@ -35,6 +35,8 @@ interface Props {
   onCreated: (report: AreaReport, spec: AreaSpec) => Promise<void>;
   /** The Dynamic Headers patch was applied: the app reads the header table and list again. */
   onHeaderPatch: () => Promise<void>;
+  /** A repair of the patch went in (the app closes the toast that offered it). */
+  onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
   onPlay?: () => void;
@@ -58,7 +60,7 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onError, onPlay }: Props) {
+export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -78,7 +80,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   const source = matrix ? sourceHeader(matrix, headers, form.selected, preferred) : null;
   // A new header is a copy of the header the area data is taken from, else of header 0.
   const template = source?.id ?? 0;
-  const patch = useHeaderPatch(onHeaderPatch, SAVE_FIRST_IN_WIZARD);
+  const patch = useHeaderPatch(onHeaderPatch, { saveFirst: SAVE_FIRST_IN_WIZARD, repaired: onHeaderPatchRepaired });
   const built = areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length);
   const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
   const previewTileset = previewArea(form, headers, source);

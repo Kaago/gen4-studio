@@ -49,6 +49,8 @@ export type TechnikAreaProps = {
   tools: ToolStatusStore;
   /** After the patch went in: the header table is read again. */
   onHeaderPatch: () => Promise<void>;
+  /** A repair of the patch went in (the app closes the toast that offered it and says what changed). */
+  onHeaderPatchRepaired?: () => void;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -98,7 +100,7 @@ export function TechnikArea(props: TechnikAreaProps) {
 }
 
 function WithPatch(props: TechnikAreaProps) {
-  const patch = useHeaderPatch(props.onHeaderPatch);
+  const patch = useHeaderPatch(props.onHeaderPatch, { repaired: props.onHeaderPatchRepaired });
   return <TechnikView {...props} patch={patch} />;
 }
 

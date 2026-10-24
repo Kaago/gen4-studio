@@ -570,6 +570,7 @@ function AppBody() {
         onPickEmulator={() => void session.onPickEmulator()}
         tools={toolStatus}
         onHeaderPatch={onHeaderPatch}
+        onHeaderPatchRepaired={session.patchRepaired}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -681,6 +682,7 @@ function AppBody() {
         shownMatrix={scene.matrix?.index ?? null}
         lastTile={world.lastMatrixTile}
         onHeaderPatch={onHeaderPatch}
+        onHeaderPatchRepaired={session.patchRepaired}
         onError={session.fail}
         onPlay={() => void onPlay()}
       />

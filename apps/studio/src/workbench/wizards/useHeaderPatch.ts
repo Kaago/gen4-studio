@@ -14,9 +14,10 @@ export const SAVE_FIRST_IN_WIZARD = "Assistent abbrechen, speichern (⌘S) und n
  * a refusal (unsaved header edits) or a failure of either becomes `error`, the user fixes it and tries again. `repair`
  * fixes a patch whose routine calls a wrong function (`patch.repairable`); the header table stays as it is.
  * The patch takes the header table from disk, so unsaved header edits are caught before the call: `error` then
- * says so in German and ends with `saveFirst`, the way out where the hook is used (a wizard locks ⌘S).
+ * says so in German and ends with `saveFirst`, the way out where the hook is used (a wizard locks ⌘S). `repaired` runs after a repair
+ * went in (the app closes the toast that offered it and says what changed).
  */
-export function useHeaderPatch(applied: () => Promise<void>, saveFirst: string = SAVE_FIRST) {
+export function useHeaderPatch(applied: () => Promise<void>, { saveFirst = SAVE_FIRST, repaired }: { saveFirst?: string; repaired?: () => void } = {}) {
   const [patch, setPatch] = useState<HeaderPatchDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,12 +58,13 @@ export function useHeaderPatch(applied: () => Promise<void>, saveFirst: string =
     setError(null);
     try {
       setPatch(await repairHeaderPatch());
+      repaired?.();
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [repaired]);
 
   return { patch, error, busy, apply, repair };
 }
