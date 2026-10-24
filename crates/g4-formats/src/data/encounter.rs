@@ -469,11 +469,11 @@ impl WaterSlot {
 /// follow the Poké Radar lists in a Platinum record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DualSlot {
-    Ruby,
-    Sapphire,
-    Emerald,
-    FireRed,
-    LeafGreen,
+    Ruby = 0,
+    Sapphire = 1,
+    Emerald = 2,
+    FireRed = 3,
+    LeafGreen = 4,
 }
 
 impl DualSlot {
@@ -702,6 +702,9 @@ pub struct SlotView {
     pub species: u16,
     pub min: u8,
     pub max: u8,
+    /// HeartGold grass only: the (morning, night) species next to `species`
+    /// (the day species); `None` for Platinum and for every water and rock slot.
+    pub alt_species: Option<[u16; 2]>,
 }
 
 /// One method of an encounter file as the editor sees it, the same for both
@@ -725,6 +728,7 @@ fn water_view(method: Method, rate: u32, slots: impl Iterator<Item = WaterSlot>)
                 species: s.species(),
                 min: s.min(),
                 max: s.max(),
+                alt_species: None,
             })
             .collect(),
     }
@@ -759,9 +763,9 @@ impl Encounters {
     }
 
     /// The methods of the file in editor order: Platinum Grass, Surf and the
-    /// three rods; HeartGold adds Rock Smash after Surf. The HeartGold grass
-    /// view shows the day list (morning and night differ only in species,
-    /// read them from the record).
+    /// three rods; HeartGold adds Rock Smash after Surf. A HeartGold grass slot
+    /// carries the day species in `species` and (morning, night) in
+    /// `alt_species`.
     pub fn methods(&self) -> Vec<MethodView> {
         match self {
             Encounters::Pt(e) => {
@@ -776,6 +780,7 @@ impl Encounters {
                                 species: s.species,
                                 min: s.level,
                                 max: s.level,
+                                alt_species: None,
                             }
                         })
                         .collect(),
@@ -810,6 +815,7 @@ impl Encounters {
                             species: e.grass_day(index),
                             min: e.grass_level(index),
                             max: e.grass_level(index),
+                            alt_species: Some([e.grass_morning(index), e.grass_night(index)]),
                         })
                         .collect(),
                 };
@@ -1061,6 +1067,24 @@ mod tests {
     }
 
     #[test]
+    fn dual_slot_order_matches_the_file_order() {
+        for (k, g) in DualSlot::ALL.into_iter().enumerate() {
+            assert_eq!(g as usize, k);
+        }
+    }
+
+    #[test]
+    fn pt_views_carry_no_alternative_species() {
+        let views = Encounters::Pt(pt_with_one_of_everything()).methods();
+        assert!(
+            views
+                .iter()
+                .flat_map(|v| &v.slots)
+                .all(|s| s.alt_species.is_none())
+        );
+    }
+
+    #[test]
     fn pad_f8_is_the_44_byte_block() {
         let mut rec = PtEncounters::read(&[0x5A; 424]).unwrap();
         assert_eq!(rec.pad_f8().len(), 44);
@@ -1231,7 +1255,8 @@ mod tests {
                 index: 3,
                 species: 103,
                 min: 5,
-                max: 5
+                max: 5,
+                alt_species: None
             }
         );
         // Water: min and max come out in the right order whatever the bytes say.
@@ -1241,7 +1266,8 @@ mod tests {
                 index: 2,
                 species: 202,
                 min: 2,
-                max: 7
+                max: 7,
+                alt_species: None
             }
         );
         assert_eq!(
@@ -1250,7 +1276,8 @@ mod tests {
                 index: 4,
                 species: 234,
                 min: 34,
-                max: 39
+                max: 39,
+                alt_species: None
             }
         );
 
@@ -1296,9 +1323,17 @@ mod tests {
                 index: 1,
                 species: 11,
                 min: 9,
-                max: 9
+                max: 9,
+                alt_species: Some([10, 12])
             },
-            "the grass view shows the day list; morning and night stay on the record"
+            "species is the day list, alt_species is (morning, night)"
+        );
+        assert!(
+            views[1..]
+                .iter()
+                .flat_map(|v| &v.slots)
+                .all(|s| s.alt_species.is_none()),
+            "water and rock slots carry no alternative species"
         );
         assert_eq!(views[2].method, Method::RockSmash);
         assert_eq!(views[2].rate, 20);
@@ -1308,7 +1343,8 @@ mod tests {
                 index: 1,
                 species: 77,
                 min: 3,
-                max: 5
+                max: 5,
+                alt_species: None
             }
         );
     }

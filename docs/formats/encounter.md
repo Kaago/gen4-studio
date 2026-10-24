@@ -42,7 +42,7 @@ oberen Bytes stehen. Hacks im Stil von hg-engine legen in das obere Wort die
 Form; sie bleibt so erhalten.
 
 Wasser-Slot (8 Bytes): `u8 max`, `u8 min`, `u16 pad`, `u32 species`. **max vor
-min** (in Platin DE ist Byte 0 in 1078 Slots größer als Byte 1 und in keinem kleiner).
+min** (in Platin DE sind 1080 Wasser-Slots belegt: in 1078 ist Byte 0 größer als Byte 1, in 2 sind beide gleich, in keinem ist Byte 0 kleiner).
 Das Padding und das obere Art-Wort bleiben beim Setzen erhalten.
 
 Rate je Methode: ein `u32` vor den Slots (DSPRE castet auf `u8` und schreibt
@@ -87,8 +87,9 @@ pret `nightFish` und ist der Nachtangel-Slot, kein Schwarm.
 | Platin (und DP) | Grass 12, Surf 5, OldRod 5, GoodRod 5, SuperRod 5 |
 | HeartGold | Grass 12, Surf 5, RockSmash 2, OldRod 5, GoodRod 5, SuperRod 5 |
 
-Gras hat ein Level je Slot, also `min == max`. Die HeartGold-Gras-Ansicht zeigt
-die Tages-Liste; morgens und nachts stehen nur am Record. Ersatzlisten (Schwarm,
+Gras hat ein Level je Slot, also `min == max`. Ein HeartGold-Gras-Slot trägt
+die Tages-Art in `species` und (morgens, nachts) in `alt_species`
+(`Option<[u16; 2]>`); für Platin sowie alle Wasser- und Fels-Slots ist es `None`. Ersatzlisten (Schwarm,
 Radar, Radio, Dual-Slot, Nachtangeln) gehören nicht zur Ansicht. Die Slot-Anteile
 (20, 20, 10, ...) stehen im Code des Spiels, nicht in der Datei.
 
