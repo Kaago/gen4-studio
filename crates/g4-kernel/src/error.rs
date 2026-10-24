@@ -61,6 +61,9 @@ pub enum KernelError {
     /// script); the text says what was written and what failed.
     #[error("{0}")]
     Partial(String),
+    /// A map part import or export was refused before anything was written.
+    #[error("import refused: {0}")]
+    Import(String),
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.

@@ -11,6 +11,7 @@ use super::roots::Roots;
 use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
+use g4_kernel::map_import::{Part, Source};
 use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::store::MapHeader;
@@ -119,7 +120,23 @@ pub const COMMANDS: &[&str] = &[
     "set_trainer_texts",
     "create_encounter_file",
     "split_encounter_file",
+    "inspect_map_import",
+    "import_map_parts",
+    "export_map_part",
 ];
+
+/// Import files must lie under the bridge's import roots; a map of the project needs nothing.
+fn confine_source(roots: &Roots, source: Source) -> Result<Source, CmdError> {
+    Ok(match source {
+        Source::Files(paths) => Source::Files(
+            paths
+                .iter()
+                .map(|p| roots.read_path(&p.to_string_lossy()))
+                .collect::<Result<_, _>>()?,
+        ),
+        map => map,
+    })
+}
 
 fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchError> {
     // A command without parameters may be called with `null` or with `{}`.
@@ -472,6 +489,30 @@ pub fn dispatch(
             { header: u16 },
             |a| split_encounter_file_impl(state, a.header)
         ),
+        "inspect_map_import" => run!(
+            json, "inspect_map_import", args,
+            { map: u16, source: Source },
+            |a| {
+                let source = confine_source(roots, a.source)?;
+                inspect_map_import_impl(state, a.map, &source)
+            }
+        ),
+        "import_map_parts" => run!(
+            json, "import_map_parts", args,
+            { map: u16, source: Source, parts: Vec<Part>, keep_buildings: Option<bool> },
+            |a| {
+                let source = confine_source(roots, a.source)?;
+                import_map_parts_impl(state, a.map, &source, &a.parts, a.keep_buildings.unwrap_or(false))
+            }
+        ),
+        "export_map_part" => run!(
+            json, "export_map_part", args,
+            { map: u16, part: Part, path: String },
+            |a| {
+                let path = roots.write_path(&a.path)?;
+                export_map_part_impl(state, a.map, a.part, &path)
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -537,6 +578,16 @@ mod tests {
             .dir
             .path()
             .join("out.nds")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let per_in = fixture.dir.path().join("in.per");
+        std::fs::write(&per_in, [0u8; 2048]).unwrap();
+        let per_in = per_in.to_str().unwrap().to_owned();
+        let per_out = fixture
+            .dir
+            .path()
+            .join("out.per")
             .to_str()
             .unwrap()
             .to_owned();
@@ -694,6 +745,18 @@ mod tests {
             ),
             ("create_encounter_file", json!({ "copyOf": 0 })),
             ("split_encounter_file", json!({ "header": 0 })),
+            (
+                "inspect_map_import",
+                json!({ "map": 0, "source": { "files": [per_in] } }),
+            ),
+            (
+                "import_map_parts",
+                json!({ "map": 0, "source": { "map": 2 }, "parts": ["permissions"], "keepBuildings": false }),
+            ),
+            (
+                "export_map_part",
+                json!({ "map": 0, "part": "permissions", "path": per_out }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -843,6 +906,62 @@ mod tests {
                 other => panic!("{name}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn bridge_refuses_paths_outside_the_import_root() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let outside = elsewhere.path().join("a.per");
+        std::fs::write(&outside, [0u8; 2048]).unwrap();
+        let outside = outside.to_str().unwrap();
+        for (name, args) in [
+            (
+                "inspect_map_import",
+                json!({ "map": 0, "source": { "files": [outside] } }),
+            ),
+            (
+                "import_map_parts",
+                json!({ "map": 0, "source": { "files": [outside] }, "parts": ["permissions"] }),
+            ),
+            (
+                "export_map_part",
+                json!({ "map": 0, "part": "permissions", "path": outside }),
+            ),
+        ] {
+            match dispatch(&state, &roots, name, args) {
+                Err(DispatchError::Cmd(e)) => assert!(
+                    e.message.starts_with("Pfad liegt außerhalb"),
+                    "{name}: {}",
+                    e.message
+                ),
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+        // Inside the root: inspected, imported (a no-op here) and exported.
+        let inside = fixture.dir.path().join("b.per");
+        std::fs::write(&inside, [0x80u8; 2048]).unwrap();
+        let inside = inside.to_str().unwrap();
+        let report = json_of(call(
+            &state,
+            &roots,
+            "inspect_map_import",
+            json!({ "map": 0, "source": { "files": [inside] } }),
+        ));
+        assert_eq!(report[0]["part"], "permissions");
+        assert_eq!(report[0]["state"], json!({ "kind": "ok" }));
+        let changed = json_of(call(
+            &state,
+            &roots,
+            "import_map_parts",
+            json!({ "map": 0, "source": { "files": [inside] }, "parts": ["permissions"] }),
+        ));
+        assert_eq!(changed, json!([{ "kind": "Map", "index": 0 }]));
+        assert_eq!(
+            json_of(call(&state, &roots, "history", json!({})))["undo"],
+            json!(["map 0000: permissions imported"])
+        );
     }
 
     #[test]
