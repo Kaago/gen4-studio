@@ -3,6 +3,7 @@ import type { HeaderSummary } from "../api";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
+import type { DataStore } from "../data/dataStore";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import type { TextTarget } from "../workbench/text/textModel";
@@ -47,6 +48,8 @@ interface WorkbenchModelParams {
   /** The project's scripts (the object keeps its identity until `revision` or another field changes) and the problems store. */
   scripts: ScriptsApi;
   problems: ProblemsStore;
+  /** The data lists of the project (a stable object). */
+  dataStore: DataStore;
   /** The scene's switches and the tool, owned by App. */
   view: {
     showPermissions: boolean;
@@ -68,7 +71,7 @@ interface WorkbenchModelParams {
  * rendered again by a hover or a message. `live` is the volatile part (the inspector's hover,
  * the cell it selects, the message), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, text, scripts, problems, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, text, scripts, problems, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -133,6 +136,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     textTarget: text.target,
     scripts,
     problems,
+    dataStore,
   });
 
   const { inspector } = pins;

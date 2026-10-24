@@ -1,0 +1,12 @@
+# The shared battle script of the trainers, per game family (trainer-script-extension-3b3b.md §1).
+#
+# battle_file:  script file of the script range 3000-4999 (and 5000-6999): one jump table entry
+#               per trainer, entry k (rotom slot k+1) is script 3000 + k, the battle of trainer
+#               k+1. The kernel takes the file from the game's script table where it has one
+#               and falls back to this number.
+# seen_script:  the script number the arm9 starts when a trainer sees the player (pret
+#               pokeplatinum trainer_encounter.c SCRIPT_ID(SINGLE_BATTLES, MAX_TRAINERS),
+#               pokeheartgold std_trainer_approach). Its slot, seen_script - 2999, holds the
+#               "seen" code; the trainer with that ID is never given out (a locked placeholder).
+pt: { battle_file: 1114, seen_script: 3928 }
+hgss: { battle_file: 953, seen_script: 3739 }

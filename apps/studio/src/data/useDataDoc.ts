@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { dataEdit, dataGet, errorText } from "../api";
-import type { DataDocDto, DataKind, DataPatch, ProjectInfo } from "../api";
-import { dataChangedOf } from "./dataBus";
+import type { DataDocDto, DataKind, DataPatch, ProblemDto, ProjectInfo } from "../api";
+import { editEventsOf } from "./dataBus";
 import type { DataArea } from "./dataModel";
 import { useDataArea } from "./useDataArea";
 
@@ -33,6 +33,17 @@ export interface DocSpec<D> {
    * null) and, while the document names none, every `textData` reads it again. Without it the document holds no text.
    */
   texts?(doc: D): readonly (number | null)[];
+  /**
+   * The Problems rows the document carries (an encounter file's rule warnings, a trainer's battle text warning) and the file they belong to
+   * (`encounterProblemFile`, `trainerProblemFile`). Every read of member `index` (the first one and the one after each edit) replaces that
+   * file's rows in the Problems list, so they never pile up. Without it the document has none.
+   */
+  problems?(doc: D, index: number): { file: string; rows: readonly ProblemDto[] };
+  /**
+   * World topics that also change the document (a trainer's „Steht in der Welt“ names the object events that start its battle): each of
+   * them reads it again. Without it only `dataChanged` and `textData` do.
+   */
+  rereadOn?: readonly ("eventData" | "headerTable")[];
 }
 
 export interface DataDoc<D> {
@@ -97,7 +108,9 @@ interface Waiting<D> {
  * Writes and waiting edits are laid over the shown document by data member and only within their project.
  */
 export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: number | null = index): DataDoc<D> {
-  const { project, bus, onEdited } = useDataArea(spec.area);
+  const { project, bus, onEdited, problems } = useDataArea(spec.area);
+  const problemsRef = useRef(problems);
+  problemsRef.current = problems;
   const [loaded, setLoaded] = useState<Loaded<D> | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [version, redraw] = useReducer((n: number) => n + 1, 0);
@@ -125,6 +138,8 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
       const answer = await dataGet(kind, i);
       if (latestRead.current !== mine) return;
       const doc = accept(answer);
+      const own = doc === null ? undefined : specRef.current.problems?.(doc, i);
+      if (own) problemsRef.current?.replaceData(own.file, own.rows);
       // Every later read starts after `since`: the writes before it are in every answer from now on.
       writes.current = writes.current.filter((w) => w.seq > since);
       setLoaded({ index: i, doc, error: doc === null ? wrongKind : null, since });
@@ -148,6 +163,14 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
       if (event.topic === "dataChanged" && specRef.current.parts.includes(event.kind) && (event.index === null || event.index === member)) void read(index);
     });
   }, [bus, index, member, read]);
+
+  // The world changed what the document shows about it (a figure placed, moved or undone for a trainer).
+  useEffect(() => {
+    const topics = specRef.current.rereadOn;
+    if (index === null || !topics || topics.length === 0) return;
+    const offs = topics.map((topic) => bus.subscribe(topic, () => void read(index)));
+    return () => offs.forEach((off) => off());
+  }, [bus, index, read]);
 
   // A text edited behind the editor (the texts, undo, a save that compiled scripts): its description or name may have changed.
   const shownTexts = useRef<readonly (number | null)[] | null>(null);
@@ -186,10 +209,8 @@ export function useDataDoc<D>(spec: DocSpec<D>, index: number | null, member: nu
         writes.current = [...writes.current, { seq: ++written.current, member: targetMember, project: owner, patch: made.patch }];
         setEditError(null);
         if (changed.length > 0) {
-          for (const asset of changed) {
-            const event = dataChangedOf(asset);
-            if (event) latest.current.bus.emit(event);
-          }
+          // Data members announce `dataChanged`, text archives (a trainer's name, its battle texts) `textData`.
+          for (const asset of changed) for (const event of editEventsOf(asset)) latest.current.bus.emit(event);
           latest.current.onEdited();
         }
         return true;

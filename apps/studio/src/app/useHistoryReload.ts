@@ -84,6 +84,8 @@ export function useHistoryReload({ bus, session, scene, pins }: HistoryReloadPar
         break;
       case "headers":
         bus.emit({ topic: "headerTable" });
+        // An encounter file's users are the headers that name it: its open document reads them anew.
+        bus.emit({ topic: "dataChanged", kind: "encounter", index: null });
         await scene.syncHeaders();
         break;
       case "dataPanel": {

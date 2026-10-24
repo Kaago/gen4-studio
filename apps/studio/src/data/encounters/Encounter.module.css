@@ -1,0 +1,286 @@
+/* The Begegnungen: their list (files by the places that use them), their view (Schau) and their editor (Hand). */
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.mono {
+  font: var(--g4-font-code-s);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--g4-text-deaktiviert);
+}
+
+/* The list: search and "+" above the files, the group "Ohne Ort" below them. */
+.column {
+  display: flex;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8);
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-8);
+}
+
+.host {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--g4-raum-4) var(--g4-raum-8);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-12) var(--g4-raum-8) var(--g4-raum-4);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.rowEnd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.dot {
+  display: inline-flex;
+  width: var(--g4-raum-16);
+  height: var(--g4-raum-16);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.dot::before {
+  content: "";
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+}
+
+/* The view. */
+.view {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.viewBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-16);
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+.name {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.section {
+  display: flex;
+  max-width: 880px;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sectionTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+  margin: 0;
+  font: var(--g4-font-text-m-betont);
+}
+
+/* „Wer hier wartet“: picture, name with types, the shares per time of day. */
+.waitingList,
+.users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.waiting {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-flaeche-blatt);
+}
+
+.waitingName {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.badges {
+  display: inline-flex;
+  gap: var(--g4-raum-4);
+}
+
+.shares {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--g4-raum-12);
+}
+
+.share,
+.shareNone {
+  font: var(--g4-font-code-s);
+  white-space: nowrap;
+}
+
+.shareNone {
+  color: var(--g4-text-deaktiviert);
+}
+
+.user {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* The editor. */
+.hand {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.handEmpty {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.notices {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+}
+
+.hand > .notices {
+  padding: var(--g4-raum-8) var(--g4-raum-12) 0;
+}
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
+}
+
+.rateRow {
+  max-width: 420px;
+}
+
+.lists {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+}
+
+/* Min and max share the cell: each field takes half of it (an inline box would size the inputs by their default width and spill over
+   „Anteil“ and „Ersetzt durch“). */
+.levels {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  min-width: 0;
+}
+
+.levels > :not(.levelDash) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.levelDash {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+}
+
+.replaced {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.pickText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An empty slot is valid: its row is muted. */
+.slots tr[data-empty] td,
+.lists tr[data-empty] td {
+  color: var(--g4-text-deaktiviert);
+}

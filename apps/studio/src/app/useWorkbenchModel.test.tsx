@@ -9,6 +9,7 @@ import type { Message } from "../app/message";
 import { createEditBus } from "../bus/editBus";
 import type { InspectorModel } from "../workbench/Inspector";
 import { ExplorerPane, InspectorPanel, MatrixTab, ProblemsTab, ScriptTab, TextAreaHost, TextArchivesPane } from "../workbench/panels";
+import { DataStore } from "../data/dataStore";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
@@ -87,6 +88,7 @@ const text = { target: null };
 /** The scripts as App's hook hands them over: the same object until its revision changes. */
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();
+const dataStore = new DataStore();
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
@@ -118,6 +120,7 @@ function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen
     text,
     scripts: scriptsApi,
     problems,
+    dataStore,
     view: { ...view, showEvents, depth },
   });
   onModel(model);

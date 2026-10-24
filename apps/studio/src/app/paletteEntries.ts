@@ -1,5 +1,6 @@
-import type { DataRowDto, HeaderSummary, ScriptFileDto } from "../api";
+import type { DataRowDto, HeaderSummary, ScriptFileDto, TrainerRowExtra } from "../api";
 import { itemPrice, moveType, rowLabel, speciesTypes } from "../data/dataModel";
+import { encounterRowLabel, rowUsers, usedByText } from "../data/encounters/encounterModel";
 import type { PickerItem } from "../ui/primitives";
 import type { IconName } from "../ui/primitives/icons";
 import type { PaletteGroup } from "../ui/frame/Palette";
@@ -27,6 +28,7 @@ export type PaletteCommand =
   | "welt"
   | "texte"
   | "pokemon"
+  | "trainer"
   | "moves"
   | "gegenstaende"
   | "technik";
@@ -54,6 +56,10 @@ export interface CommandState {
 
 export interface PaletteData {
   species: readonly DataRowDto[];
+  /** The trainers (not read yet or not given: none). */
+  trainers?: readonly DataRowDto[];
+  /** The encounter files (not read yet or not given: none). */
+  encounters?: readonly DataRowDto[];
   moves: readonly DataRowDto[];
   items: readonly DataRowDto[];
   itemTable: boolean;
@@ -101,6 +107,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },
     { command: "texte", label: "Bereich Texte", icon: "texts", area: "texte" },
     { command: "pokemon", label: "Bereich Pokémon", icon: "pokemon", area: "pokemon" },
+    { command: "trainer", label: "Trainer öffnen", icon: "pokemon", area: "pokemon", description: "Die Trainer im Bereich Pokémon" },
     { command: "moves", label: "Attacken öffnen", icon: "pokemon", area: "pokemon", description: "Die Attacken im Bereich Pokémon" },
     { command: "gegenstaende", label: "Bereich Gegenstände", icon: "items", area: "gegenstaende" },
     { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
@@ -119,13 +126,36 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
   }));
 }
 
-/** The species, moves and items: their names as the lists show them, with types or the price as the second line. */
-function dataEntries({ species, moves, items, itemTable }: PaletteData): PaletteEntry[] {
+/** Where a trainer stands ("Route 201, Zweiblattdorf"), else "Ohne Ort"; empty for a locked row. */
+function trainerPlaces(row: DataRowDto): string {
+  const extra = row.extra as TrainerRowExtra | null;
+  if (!extra || !Array.isArray(extra.places)) return "";
+  return extra.places.length === 0 ? "Ohne Ort" : [...new Set(extra.places.map((p) => p.name))].join(", ");
+}
+
+/** „Begegnungsdatei, verwendet von 2 Orten“, „Begegnungsdatei, ohne Ort“; empty for a locked row. */
+function encounterUses(row: DataRowDto): string {
+  if (row.extra === null) return "";
+  const n = rowUsers(row).length;
+  return `Begegnungsdatei, ${n === 0 ? "ohne Ort" : usedByText(n)}`;
+}
+
+/**
+ * The species, trainers, encounter files, moves and items: their names as the lists show them (an encounter file by the places of
+ * `headers`), with types, places, users or the price as the second line.
+ */
+function dataEntries({ species, trainers = [], encounters = [], moves, items, itemTable }: PaletteData, headers: readonly HeaderSummary[]): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
   const add = (row: DataRowDto, entry: Omit<PaletteEntry, "tech" | "description"> & { description: string }) =>
     entries.push({ ...entry, tech: row.tech, description: entry.description === "" ? undefined : entry.description });
   for (const row of species) {
     add(row, { id: `species-${row.index}`, label: rowLabel("species", row, itemTable), description: speciesTypes(row), area: "pokemon", group: "Pokémon", run: { kind: "goTo", target: { kind: "species", index: row.index } } });
+  }
+  for (const row of trainers) {
+    add(row, { id: `trainer-${row.index}`, label: rowLabel("trainer", row, itemTable), description: trainerPlaces(row), area: "pokemon", group: "Trainer", run: { kind: "goTo", target: { kind: "trainer", index: row.index } } });
+  }
+  for (const row of encounters) {
+    add(row, { id: `encounter-${row.index}`, label: encounterRowLabel(row, headers), description: encounterUses(row), area: "pokemon", group: "Begegnungen", run: { kind: "goTo", target: { kind: "encounter", index: row.index } } });
   }
   for (const row of moves) {
     add(row, { id: `move-${row.index}`, label: rowLabel("move", row, itemTable), description: moveType(row), area: "pokemon", group: "Attacken", run: { kind: "goTo", target: { kind: "move", index: row.index } } });
@@ -182,7 +212,7 @@ export function paletteEntries(source: PaletteSource): PaletteEntry[] {
       run: { kind: "goTo", target: { kind: "textArchive", index: row.index } },
     });
   }
-  if (source.data !== null) entries.push(...dataEntries(source.data));
+  if (source.data !== null) entries.push(...dataEntries(source.data, source.headers));
   for (const file of source.scripts ?? []) {
     // A binary file cannot be opened in the editor.
     if (file.kind === "binary") continue;

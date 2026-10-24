@@ -2,10 +2,12 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import type { EventPlacement } from "../app/useWorldActions";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import type { MapBuildings, TileClick } from "../world/scene/types";
 import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
+import type { DataStore } from "../data/dataStore";
 import type { EventLock, EventRef } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
@@ -105,8 +107,11 @@ export interface WorkbenchData {
   onEventsLocked: (lock: EventLock | null) => void;
   /** The event editor wrote a field: refresh the scene and the dirty count. */
   onEventChanged: (eventFile: number) => void | Promise<void>;
-  /** Adds an event on the tile `at` (a click), else on the last hovered tile of the selected header's event file and selects it. */
-  onAddEvent: (kind: EventKind, at?: { x: number; z: number }) => void | Promise<void>;
+  /**
+   * Adds an event on the tile `at` (a click), else on the last hovered tile of the selected header's event file and selects it; `placement`
+   * sets fields of the new event in the same undo step.
+   */
+  onAddEvent: (kind: EventKind, at?: { x: number; z: number }, placement?: EventPlacement) => void | Promise<void>;
   /** Asks first, then deletes the event. */
   onDeleteEvent: (eventFile: number, kind: EventKind, index: number) => void | Promise<void>;
   /** The archive and message a link to the text panel asked for; a new object with every request, so the same one can be asked for again. Null: none yet. */
@@ -115,6 +120,8 @@ export interface WorkbenchData {
   scripts: ScriptsApi;
   /** The problems of the project; a stable object that notifies its own subscribers. */
   problems: ProblemsStore;
+  /** The data lists of the project (a stable object): the world names trainer figures from its trainer rows. */
+  dataStore: DataStore;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

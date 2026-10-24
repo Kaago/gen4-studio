@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
-import type { EventsDto, HeaderSummary, MapHeader, MapHeaderPt } from "../../api";
+import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
+import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
@@ -16,6 +16,7 @@ vi.mock("../../api", async (importOriginal) => ({
   getEvents: vi.fn(),
   newScriptFile: vi.fn(),
   readScript: vi.fn(),
+  dataList: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -268,6 +269,87 @@ describe("HeaderEditor scripts", () => {
       await click(options()[0]);
       await flush();
       expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Matrix");
+    });
+  });
+
+  describe("encounter file", () => {
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+    const files = [
+      { index: 8, name: "", tech: "0008", locked: null, extra: { users: [411, 412] } },
+      { index: 9, name: "", tech: "0009", locked: null, extra: { users: [] } },
+    ];
+    const headers: HeaderSummary[] = [summary, { ...summary, id: 412, internal_name: "R201", location_name: "Route 201" }];
+    beforeEach(() => vi.mocked(dataList).mockReset().mockResolvedValue(files));
+
+    it("shows_the_file_as_a_reference_into_the_pokemon_area", async () => {
+      const goTo = vi.fn();
+      await show(context({ goTo, headers }));
+      // Nothing is read before the picker opens.
+      expect(dataList).not.toHaveBeenCalled();
+      await click(button("Begegnungen0008"));
+      expect(goTo).toHaveBeenLastCalledWith({ kind: "encounter", index: 8 });
+    });
+
+    it("picks_another_file_by_its_places_as_one_undoable_header_edit", async () => {
+      await show(context({ headers }));
+      await click(button("Begegnungen ändern…"));
+      await flush();
+      expect(dataList).toHaveBeenCalledWith("encounter");
+      expect(options().map((o) => o.textContent)).toEqual(["Keine", expect.stringContaining("Zweiblattdorf, Route 201"), expect.stringContaining("Begegnungen 0009")]);
+      expect(options()[1]?.textContent).toContain("0008");
+      await click(options()[2]);
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ wild_pokemon: 9 }), "Begegnungen");
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes_0xFFFF_for_keine_in_platinum_and_0xFF_in_heartgold", async () => {
+      await show(context({ headers }));
+      await click(button("Begegnungen ändern…"));
+      await flush();
+      await click(options()[0]);
+      await flush();
+      expect(setHeader).toHaveBeenLastCalledWith(411, pt({ wild_pokemon: 0xffff }), "Begegnungen");
+      const fields: MapHeaderHGSS = {
+        wild_pokemon: 8,
+        area_data_id: 1,
+        unknown0: 0,
+        worldmap_x: 0,
+        worldmap_y: 0,
+        matrix_id: 2,
+        script_file_id: 40,
+        level_script_id: 41,
+        text_archive_id: 5,
+        music_day_id: 6,
+        music_night_id: 7,
+        event_file_id: 9,
+        location_name: 10,
+        area_icon: 11,
+        unknown1: 0,
+        kanto_flag: false,
+        weather_id: 12,
+        location_type: 0,
+        camera_angle_id: 13,
+        follow_mode: 0,
+        battle_background: 15,
+        flags: 1,
+      };
+      const hg: MapHeader = { HGSS: fields };
+      vi.mocked(getHeader).mockResolvedValue(hg);
+      await act(async () => root.render(null));
+      await show(context({ headers }));
+      await click(button("Begegnungen ändern…"));
+      await flush();
+      await click(options()[0]);
+      await flush();
+      expect(setHeader).toHaveBeenLastCalledWith(411, { HGSS: { ...fields, wild_pokemon: 0xff } }, "Begegnungen");
+    });
+
+    it("says_keine_for_a_header_without_a_file", async () => {
+      vi.mocked(getHeader).mockResolvedValue(pt({ wild_pokemon: 0xffff }));
+      await show(context({ headers }));
+      expect(button("Begegnungen0008")).toBeUndefined();
+      expect(container.textContent).toContain("Keine");
     });
   });
 

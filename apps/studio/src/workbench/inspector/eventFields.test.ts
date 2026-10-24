@@ -12,7 +12,7 @@ describe("eventFieldSpecs", () => {
 
   it("offers the fields each kind has, the destination header aside", () => {
     expect(keys("warp")).toEqual(["x", "z", "dest_warp_id"]);
-    expect(keys("object")).toEqual(["x", "z", "local_id", "graphics_id", "movement_type", "dir", "script"]);
+    expect(keys("object")).toEqual(["x", "z", "local_id", "graphics_id", "movement_type", "dir", "script", "trainer_type", "sight"]);
     expect(keys("coord")).toEqual(["x", "z", "width", "length", "script"]);
     expect(keys("bg")).toEqual(["x", "z", "event_type", "script"]);
   });
@@ -21,6 +21,25 @@ describe("eventFieldSpecs", () => {
     expect(keys("warp", "Hgss")).toEqual(["x", "z", "dest_warp_id", "height"]);
     expect(keys("warp", "Dp")).not.toContain("height");
     expect(keys("warp", null)).not.toContain("height");
+  });
+
+  it("event_fields_offer_sight_only_for_objects", () => {
+    const spec = (key: string) => eventFieldSpecs("object", "Pt").find((s) => s.key === key);
+    // The sightline is a choice; a stored value without a name is still shown by the select.
+    expect(spec("trainer_type")).toMatchObject({ label: "Sichtlinie", min: 0, max: 65535 });
+    expect(spec("trainer_type")?.options).toEqual([
+      { value: 0, label: "Aus" },
+      { value: 1, label: "Trainer sieht dich" },
+    ]);
+    // The range in tiles is a number up to 15.
+    expect(spec("sight")).toMatchObject({ label: "Sichtweite", min: 0, max: 15 });
+    expect(spec("sight")?.options).toBeUndefined();
+    for (const kind of ["warp", "coord", "bg"] as const) {
+      for (const family of ["Pt", "Hgss"]) {
+        expect(keys(kind, family)).not.toContain("trainer_type");
+        expect(keys(kind, family)).not.toContain("sight");
+      }
+    }
   });
 
   it("labels the facing and limits it to the i16 the object stores", () => {
@@ -61,8 +80,9 @@ describe("event fields", () => {
     // The index is no field; a field the kind lacks never shows up.
     expect(eventPatch(warp(), warp({ index: 4 }))).toEqual({});
     expect(eventPatch(coord(), coord({ width: 5 }))).toEqual({ width: 5 });
-    const object: EventData = { index: 0, local_id: 1, graphics_id: 2, movement_type: 0, script: 0, dir: 1, x: 3, z: 4, y: 0 };
+    const object: EventData = { index: 0, local_id: 1, graphics_id: 2, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
     expect(eventPatch(object, { ...object, dir: 3 })).toEqual({ dir: 3 });
+    expect(eventPatch(object, { ...object, trainer_type: 1, sight: 4 })).toEqual({ trainer_type: 1, sight: 4 });
   });
 });
 

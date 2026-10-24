@@ -116,6 +116,10 @@ pub const COMMANDS: &[&str] = &[
     "refs",
     "get_item_icon",
     "get_mon_icon",
+    "create_trainer",
+    "set_trainer_texts",
+    "create_encounter_file",
+    "split_encounter_file",
     "inspect_map_import",
     "import_map_parts",
     "export_map_part",
@@ -370,8 +374,8 @@ pub fn dispatch(
         "lsp_stop" => run!(json, "lsp_stop", args, {}, |_a| Ok::<(), CmdError>(())),
         "add_event" => run!(
             json, "add_event", args,
-            { event_file: u16, kind: EventKind, x: i32, z: i32 },
-            |a| add_event_impl(state, a.event_file, a.kind, a.x, a.z)
+            { event_file: u16, kind: EventKind, x: i32, z: i32, patch: Option<EventPatch>, label: Option<String> },
+            |a| add_event_impl(state, a.event_file, a.kind, a.x, a.z, a.patch, a.label.as_deref())
         ),
         "delete_event" => run!(
             json, "delete_event", args,
@@ -465,6 +469,26 @@ pub fn dispatch(
         "get_mon_icon" => run!(bytes, "get_mon_icon", args, { species: u16 }, |a| {
             get_mon_icon_impl(state, a.species)
         }),
+        "create_trainer" => run!(
+            json, "create_trainer", args,
+            { class: u8, name: String },
+            |a| create_trainer_impl(state, a.class, &a.name)
+        ),
+        "set_trainer_texts" => run!(
+            json, "set_trainer_texts", args,
+            { trainer: u16, texts: Vec<g4_kernel::data::trainer_create::TrainerText> },
+            |a| set_trainer_texts_impl(state, a.trainer, a.texts)
+        ),
+        "create_encounter_file" => run!(
+            json, "create_encounter_file", args,
+            { copy_of: Option<u16> },
+            |a| create_encounter_file_impl(state, a.copy_of)
+        ),
+        "split_encounter_file" => run!(
+            json, "split_encounter_file", args,
+            { header: u16 },
+            |a| split_encounter_file_impl(state, a.header)
+        ),
         "inspect_map_import" => run!(
             json, "inspect_map_import", args,
             { map: u16, source: Source },
@@ -668,7 +692,7 @@ mod tests {
             ("lsp_stop", json!({})),
             (
                 "add_event",
-                json!({ "eventFile": 1, "kind": "warp", "x": 1, "z": 1 }),
+                json!({ "eventFile": 1, "kind": "object", "x": 1, "z": 1, "patch": { "script": 3929, "trainer_type": 1, "sight": 3 }, "label": "Trainer Jens platziert" }),
             ),
             (
                 "delete_event",
@@ -714,6 +738,13 @@ mod tests {
             ),
             ("get_item_icon", json!({ "item": 1 })),
             ("get_mon_icon", json!({ "species": 1 })),
+            ("create_trainer", json!({ "class": 1, "name": "Jens" })),
+            (
+                "set_trainer_texts",
+                json!({ "trainer": 1, "texts": [{ "kind": 0, "text": "Los!\\r" }] }),
+            ),
+            ("create_encounter_file", json!({ "copyOf": 0 })),
+            ("split_encounter_file", json!({ "header": 0 })),
             (
                 "inspect_map_import",
                 json!({ "map": 0, "source": { "files": [per_in] } }),
@@ -1032,6 +1063,32 @@ mod tests {
                 other => panic!("{name}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn add_event_takes_an_optional_patch_and_label_in_the_same_undo_step() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        // The old keys alone still work.
+        call(
+            &state,
+            &roots,
+            "add_event",
+            json!({ "eventFile": 0, "kind": "object", "x": 1, "z": 1 }),
+        );
+        call(
+            &state,
+            &roots,
+            "add_event",
+            json!({ "eventFile": 0, "kind": "object", "x": 2, "z": 1,
+                    "patch": { "script": 3929, "trainer_type": 1, "sight": 3 }, "label": "Trainer Jens platziert" }),
+        );
+        let o = &get_events_impl(&state, 0).unwrap().objects[1];
+        assert_eq!((o.x, o.script, o.trainer_type, o.sight), (2, 3929, 1, 3));
+        assert_eq!(
+            history_impl(&state).unwrap().undo,
+            ["add event", "Trainer Jens platziert"]
+        );
     }
 
     #[test]

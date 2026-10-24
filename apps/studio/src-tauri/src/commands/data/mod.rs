@@ -9,6 +9,7 @@
 //! Diamond and Pearl are locked: every `data_*` command answers `read_only` with
 //! [`DP_LOCKED`].
 
+mod create;
 mod display;
 mod dto;
 mod edit;
@@ -16,6 +17,9 @@ mod encounter;
 mod fields;
 mod labels;
 mod refs;
+mod trainer;
+
+pub use create::*;
 
 pub use dto::*;
 use fields::FieldSpanDto;
@@ -45,8 +49,6 @@ use crate::state::{AppState, Session};
 
 /// Why the data editors are locked for Diamond and Pearl.
 pub const DP_LOCKED: &str = "Diamant/Perl: ohne Testprojekt nicht freigegeben";
-/// The answer of `data_get` and `data_edit` for trainers.
-pub const TRAINER_LATER: &str = "kommt mit 3b.3b";
 
 fn asset(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
@@ -265,36 +267,38 @@ fn encounter_rows(session: &mut Session) -> Result<Vec<DataRowDto>, CmdError> {
     Ok(rows)
 }
 
-/// Trainers are no store asset before 3b.3b: their properties are read from the unpacked
-/// members (unpacked first, as the store would).
-fn trainer_rows(session: &mut Session) -> Result<Vec<DataRowDto>, CmdError> {
-    let Session {
-        project,
-        store,
-        names,
-        ..
-    } = session;
-    let kind = AssetKind::TrainerProperties;
-    let members = project.ensure_unpacked(kind)?.min(usize::from(u16::MAX)) as u16;
-    let mut rows = Vec::with_capacity(usize::from(members));
-    for index in 0..members {
-        let path = project.member_path(kind, index);
-        let bytes =
-            std::fs::read(&path).map_err(|e| CmdError::from(format!("{}: {e}", path.display())))?;
-        let read = TrainerProps::read(&bytes)
-            .map(|p| json!({ "class": p.class(), "party_count": p.party_count() }))
-            .map_err(|_| {
-                format!(
-                    "{}: {} bytes, expected {}",
-                    asset(kind, index),
-                    bytes.len(),
-                    TrainerProps::LEN
-                )
-            });
-        let name = names.trainer_name(store, index);
-        rows.push(row(index, name, read));
-    }
-    Ok(rows)
+/// The name of every header by id (see [`place`]); empty when the names cannot be read.
+fn place_names(session: &mut Session) -> Vec<String> {
+    let Ok(table) = session.store.header_table().map(<[MapHeader]>::to_vec) else {
+        return Vec::new();
+    };
+    session
+        .project
+        .header_listing_for(&table)
+        .map(|listing| {
+            listing
+                .headers
+                .into_iter()
+                .map(|h| {
+                    if h.location_name.trim().is_empty() {
+                        h.internal_name
+                    } else {
+                        h.location_name
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Header `header` with its name from `names` ([`place_names`]), else "Header NNNN".
+fn place(names: &[String], header: u16) -> PlaceDto {
+    let name = names
+        .get(usize::from(header))
+        .filter(|n| !n.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| format!("Header {header:04}"));
+    PlaceDto { header, name }
 }
 
 impl DataFilter {
@@ -362,7 +366,7 @@ pub fn data_list_impl(
         DataKind::Move => move_rows(session)?,
         DataKind::Item => item_rows(session)?,
         DataKind::Encounter => encounter_rows(session)?,
-        DataKind::Trainer => trainer_rows(session)?,
+        DataKind::Trainer => trainer::trainer_rows(session)?,
     };
     let filter = filter.unwrap_or_default();
     Ok(rows
@@ -502,20 +506,38 @@ fn item_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
 }
 
 fn encounter_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError> {
-    let read = or_locked(
-        session
-            .store
-            .encounter(index)
-            .map(|e| (encounter::methods(e), encounter::extras(e))),
-    )?;
+    let family = session.project.family;
+    let read = or_locked(session.store.encounter(index).map(|e| {
+        (
+            encounter::methods(e, family),
+            encounter::replacements(e, family),
+            encounter::extras(e),
+            encounter::warnings(e, family),
+            encounter::effective(e, family),
+        )
+    }))?;
     let lock = first_lock(
         &session.store,
         &[(asset(AssetKind::Encounter, index), read.as_ref().err())],
     )?;
-    let (methods, extras) = read.unwrap_or_default();
+    let (methods, replacements, extras, warnings, effective) = read.unwrap_or_default();
+    let problems = encounter::problems(index, &warnings);
+    let headers = encounter_users(&mut session.store)
+        .remove(&index)
+        .unwrap_or_default();
+    let names = if headers.is_empty() {
+        Vec::new()
+    } else {
+        place_names(session)
+    };
     Ok(DataDocDto::Encounter {
         methods,
+        replacements,
         extras,
+        warnings,
+        problems,
+        users: headers.into_iter().map(|h| place(&names, h)).collect(),
+        effective,
         locked: lock.reason,
         raw_locked: lock.raw,
     })
@@ -532,7 +554,7 @@ pub fn data_get_impl(state: &AppState, kind: DataKind, index: u16) -> Result<Dat
         DataKind::Move => move_doc(session, index),
         DataKind::Item => item_doc(session, index),
         DataKind::Encounter => encounter_doc(session, index),
-        DataKind::Trainer => Err(TRAINER_LATER.into()),
+        DataKind::Trainer => trainer::trainer_doc(session, index),
     }
 }
 
@@ -548,10 +570,11 @@ pub fn data_edit_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     unlocked_family(&session.project)?;
-    if kind == DataKind::Trainer {
-        return Err(TRAINER_LATER.into());
-    }
-    let changed = edit::apply(session, kind, index, patch, label)?;
+    let changed = if kind == DataKind::Trainer {
+        trainer::apply(session, index, patch, label)?
+    } else {
+        edit::apply(session, kind, index, patch, label)?
+    };
     session.after_write();
     Ok(changed)
 }
@@ -589,6 +612,34 @@ fn learnset_spans(bytes: &[u8]) -> Vec<FieldSpanDto> {
     } else {
         Vec::new()
     }
+}
+
+/// The spans of a trainer as the store holds it: the length of the properties (u32), the
+/// properties' fields and the party file.
+fn trainer_spans(bytes: &[u8]) -> Vec<FieldSpanDto> {
+    let mut out = vec![FieldSpanDto {
+        name: "props_len".to_owned(),
+        offset: 0,
+        len: 4,
+        kind: "u32",
+        mask: None,
+    }];
+    out.extend(TrainerProps::FIELDS.iter().map(|f| {
+        let mut span = FieldSpanDto::from(f);
+        span.offset += 4;
+        span
+    }));
+    let party = 4 + TrainerProps::LEN;
+    if bytes.len() > party {
+        out.push(FieldSpanDto {
+            name: "party".to_owned(),
+            offset: party,
+            len: bytes.len() - party,
+            kind: "bytes",
+            mask: None,
+        });
+    }
+    out
 }
 
 fn spans(fields: &[FieldSpan]) -> Vec<FieldSpanDto> {
@@ -635,7 +686,10 @@ pub fn data_raw_impl(state: &AppState, kind: DataKind, index: u16) -> Result<Raw
             };
             (asset(AssetKind::Encounter, index), fields)
         }
-        DataKind::Trainer => return Err(TRAINER_LATER.into()),
+        DataKind::Trainer => {
+            loaded(store.trainer(index))?;
+            (asset(AssetKind::Trainer, index), &[])
+        }
     };
     let bytes = store
         .current_bytes(id)?
@@ -644,13 +698,20 @@ pub fn data_raw_impl(state: &AppState, kind: DataKind, index: u16) -> Result<Raw
         Vec::new()
     } else if id.kind == AssetKind::Learnset {
         learnset_spans(&bytes)
+    } else if id.kind == AssetKind::Trainer {
+        trainer_spans(&bytes)
     } else {
         spans(fields)
+    };
+    // A trainer's bytes start with its properties member.
+    let archive = match id.kind {
+        AssetKind::Trainer => AssetKind::TrainerProperties,
+        kind => kind,
     };
     let path = store
         .project()
         .archives
-        .packed(id.kind)
+        .packed(archive)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .unwrap_or_default();
     Ok(RawDto {

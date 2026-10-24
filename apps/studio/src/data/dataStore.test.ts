@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, itemTable, nameTables } from "../api";
 import { DataStore } from "./dataStore";
-import { dataChangedOf } from "./dataBus";
+import { dataChangedOf, editEventsOf } from "./dataBus";
 import { ITEMS, ITEM_TABLE, MOVES, NAMES, SPECIES, projectDp, projectPt } from "./dataTesting";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -97,8 +97,54 @@ describe("DataStore", () => {
     expect(await readsAfter(392)).toEqual(["item", "names"]);
     // The abilities: only the names.
     expect(await readsAfter(610)).toEqual(["names"]);
+    // The trainer names (Platinum 618) are no name table, the trainer rows carry them; the class names (619) are both.
+    expect(await readsAfter(618)).toEqual(["trainer"]);
+    expect(await readsAfter(619)).toEqual(["names", "trainer"]);
     // Any archive (a reload after a stale file): everything asked for.
-    expect(await readsAfter(null)).toEqual(["item", "move", "names", "species"]);
+    expect(await readsAfter(null)).toEqual(["item", "move", "names", "species", "trainer"]);
+  });
+
+  it("reads_the_encounter_files_again_when_the_headers_changed_their_users", async () => {
+    const store = new DataStore();
+    store.need(projectPt, "encounter");
+    await settle();
+    const reads = () => vi.mocked(dataList).mock.calls.filter((c) => c[0] === "encounter").length;
+    expect(reads()).toBe(1);
+    store.onEvent({ topic: "headerTable" });
+    await settle();
+    store.onEvent({ topic: "dataChanged", kind: "encounter", index: null });
+    await settle();
+    expect(reads()).toBe(3);
+    // Their labels are the headers' places, no name table.
+    store.onEvent({ topic: "textData", archive: 100 });
+    await settle();
+    expect(reads()).toBe(3);
+  });
+
+  it("reads_the_trainer_rows_again_when_events_or_headers_changed_and_any_text_in_a_game_of_unknown_banks", async () => {
+    const store = new DataStore();
+    store.need(projectPt, "trainer");
+    await settle();
+    const trainerReads = () => vi.mocked(dataList).mock.calls.filter((c) => c[0] === "trainer").length;
+    expect(trainerReads()).toBe(1);
+    store.onEvent({ topic: "eventData" });
+    await settle();
+    store.onEvent({ topic: "headerTable" });
+    await settle();
+    store.onEvent({ topic: "dataChanged", kind: "trainer", index: null });
+    await settle();
+    expect(trainerReads()).toBe(4);
+    store.onEvent({ topic: "textData", archive: 100 });
+    await settle();
+    expect(trainerReads()).toBe(4);
+    // A Japanese Platinum: the trainer name bank is not known, any text archive may be it.
+    const ja = new DataStore();
+    ja.need({ ...projectPt, language: "ja" }, "trainer");
+    await settle();
+    vi.mocked(dataList).mockClear();
+    ja.onEvent({ topic: "textData", archive: 100 });
+    await settle();
+    expect(vi.mocked(dataList).mock.calls.map((c) => c[0])).toEqual(["trainer"]);
   });
 
   it("reads_a_list_again_that_changed_while_it_was_being_read", async () => {
@@ -150,6 +196,15 @@ describe("dataChangedOf", () => {
     expect(dataChangedOf({ kind: "Item", index: 17 })).toEqual({ topic: "dataChanged", kind: "item", index: 17 });
     expect(dataChangedOf({ kind: "Learnset", index: 3 })).toEqual({ topic: "dataChanged", kind: "learnset", index: 3 });
     expect(dataChangedOf({ kind: "TrainerParty", index: 3 })).toEqual({ topic: "dataChanged", kind: "trainer", index: 3 });
+    expect(dataChangedOf({ kind: "Trainer", index: 3 })).toEqual({ topic: "dataChanged", kind: "trainer", index: 3 });
+    // The text table and offsets hold every trainer's texts: any trainer may have changed.
+    expect(dataChangedOf({ kind: "TrainerTextTable", index: 0 })).toEqual({ topic: "dataChanged", kind: "trainer", index: null });
     expect(dataChangedOf({ kind: "Map", index: 3 })).toBeNull();
+  });
+
+  it("announces a text archive a data edit changed as textData, a data member as dataChanged", () => {
+    expect(editEventsOf({ kind: "TextArchive", index: 618 })).toEqual([{ topic: "textData", archive: 618 }]);
+    expect(editEventsOf({ kind: "Trainer", index: 5 })).toEqual([{ topic: "dataChanged", kind: "trainer", index: 5 }]);
+    expect(editEventsOf({ kind: "Map", index: 3 })).toEqual([]);
   });
 });

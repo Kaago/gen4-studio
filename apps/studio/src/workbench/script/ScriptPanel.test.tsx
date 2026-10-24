@@ -383,6 +383,45 @@ describe("ScriptPanel", () => {
     expect(events).toContainEqual({ topic: "textData", archive: null });
   });
 
+  it("saves_a_dirty_document_before_an_outside_write_and_shows_what_the_write_left_on_disk", async () => {
+    await render();
+    await settle();
+    await open(1114);
+    typeAt(0, "// ");
+    await act(async () => api.saveIfDirty(1114));
+    expect(saveScript).toHaveBeenCalledWith(1114, `// ${SCRIPT}`);
+    expect(api.documents.dirty()).toEqual([]);
+    // A clean document and one that is not open are not saved.
+    vi.mocked(saveScript).mockClear();
+    await act(async () => api.saveIfDirty(1114));
+    await act(async () => api.saveIfDirty(7));
+    expect(saveScript).not.toHaveBeenCalled();
+    // The backend extended the source (a new trainer's battle slot): the editor shows it, clean, and the language server hears of it.
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: `// ${SCRIPT}script X #2:\n` });
+    events.length = 0;
+    await act(async () => api.reload(1114));
+    expect(view().state.doc.toString()).toBe(`// ${SCRIPT}script X #2:\n`);
+    expect(api.documents.dirty()).toEqual([]);
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
+    // A file that is not open is only announced.
+    vi.mocked(readScript).mockClear();
+    await act(async () => api.reload(953));
+    expect(readScript).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/0953.rotom", type: 2 }] });
+  });
+
+  it("keeps_text_typed_during_an_outside_write_and_says_that_saving_it_overwrites_the_write", async () => {
+    await render();
+    await settle();
+    await open(1114);
+    typeAt(0, "// ");
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: `${SCRIPT}script X #2:\n` });
+    await act(async () => api.reload(1114));
+    expect(view().state.doc.toString()).toBe(`// ${SCRIPT}`);
+    expect(api.documents.dirty()).toEqual([1114]);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 1114 wurde außerhalb des Editors geändert") }));
+  });
+
   it("resolves_add_to_the_new_scripts_number_and_to_null_when_it_failed", async () => {
     vi.mocked(addScript).mockResolvedValueOnce(5).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
     await render();

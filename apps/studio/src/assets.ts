@@ -25,6 +25,7 @@ const KIND_LABELS: Record<AssetKind, string> = {
   TrainerTextOffsets: "Trainertext-Offsets",
   ItemIcons: "Gegenstand-Symbole",
   MonIcons: "Pokémon-Symbole",
+  Trainer: "Trainer",
 };
 
 /** German display name of an asset kind. */

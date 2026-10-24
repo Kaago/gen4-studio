@@ -5,7 +5,7 @@ import type { DataRowDto, ItemEntryDto, MoveRowExtra, SpeciesRowExtra } from "..
 import { Button, Picker, TypeBadge } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { RowIcon } from "../DataList";
-import { CATEGORY_NAMES } from "../dataModel";
+import { CATEGORY_NAMES, rowLabel } from "../dataModel";
 import { useDataSnapshot } from "../dataStore";
 import { itemIcon, itemIconKey, monIcon, monIconKey } from "../icons";
 import { useDataArea } from "../useDataArea";
@@ -56,19 +56,26 @@ const NONE: readonly PickerItem[] = [];
  * icon (with the item table), abilities by name. The moves and items lists are read from the store the first time they are offered.
  */
 export function useChoices(choice: Choice, open: boolean, only?: (index: number) => boolean): readonly PickerItem[] {
-  const { project, store, rows, labelOf, names, itemTable } = useDataArea("pokemon");
+  const { project, store, kind, rows, labelOf, names, itemTable } = useDataArea("pokemon");
   const snapshot = useDataSnapshot(store);
+  // The Pokédex offers its own rows; another part (a trainer's team) reads the species from the store.
+  const ownSpecies = kind === "species";
   useEffect(() => {
     if (!open || project === null) return;
     if (choice === "move") store.need(project, "move");
     else if (choice === "item") store.need(project, "item");
-  }, [open, project, choice, store]);
+    else if (choice === "species" && !ownSpecies) store.need(project, "species");
+  }, [open, project, choice, store, ownSpecies]);
   const moves = snapshot.project === project ? snapshot.rows.move : undefined;
+  const species = ownSpecies ? rows : snapshot.project === project ? snapshot.rows.species : undefined;
   return useMemo(() => {
     if (!open) return NONE;
     switch (choice) {
-      case "species":
-        return (only ? rows.filter((r) => only(r.index)) : rows).map((r) => speciesItem(r, labelOf(r)));
+      case "species": {
+        const all = species ?? [];
+        const name = (r: DataRowDto) => (ownSpecies ? labelOf(r) : rowLabel("species", r, true));
+        return (only ? all.filter((r) => only(r.index)) : all).map((r) => speciesItem(r, name(r)));
+      }
       case "move":
         // Move 0 is no move: a learnset or an evolution cannot name it.
         return moves
@@ -79,7 +86,7 @@ export function useChoices(choice: Choice, open: boolean, only?: (index: number)
       case "ability":
         return names.abilities.map((_, id) => ({ id, label: abilityName(names.abilities, id), tech: id4(id) }));
     }
-  }, [open, choice, rows, labelOf, only, moves, names, itemTable]);
+  }, [open, choice, species, ownSpecies, labelOf, only, moves, names, itemTable]);
 }
 
 /** The types of a species row as badges. */

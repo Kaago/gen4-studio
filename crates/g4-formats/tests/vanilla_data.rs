@@ -15,6 +15,7 @@ use g4_formats::data::moves::Move;
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
 use g4_formats::data::trainer::{Party, TrainerProps};
+use g4_formats::data::trainer_doc::{Checked, TrainerDoc};
 use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::game::Family;
 
@@ -166,6 +167,30 @@ fn vanilla_trainer_parties_round_trip_with_their_properties() {
             "trainerParty/{i:04} not byte-identical"
         );
     }
+}
+
+/// Every trainer of the game (928 Platinum, 738 HeartGold pairs) decodes as one
+/// document, and encoding it gives both files back byte for byte, so no vanilla trainer is
+/// locked in the store.
+#[test]
+fn vanilla_trainers_decode_and_encode_identically() {
+    let Some(root) = vanilla() else { return };
+    let f = family(&root);
+    let props = members(&root, "trainerProperties", f);
+    let parties = members(&root, "trainerParty", f);
+    assert_eq!(props.len(), parties.len());
+    for (i, (p, q)) in props.iter().zip(&parties).enumerate() {
+        let doc = match TrainerDoc::check(p, q, f) {
+            Checked::Exact(doc) => doc,
+            other => panic!("trainer {i:04}: {other:?}"),
+        };
+        assert_eq!(doc.encode(f), (p.clone(), q.clone()), "trainer {i:04}");
+        assert_eq!(usize::from(p[3]), doc.party.len(), "trainer {i:04}");
+    }
+    eprintln!(
+        "{} trainer pairs decode and encode identically",
+        props.len()
+    );
 }
 
 /// Personal data against `uxie::PersonalData`, every field uxie has.

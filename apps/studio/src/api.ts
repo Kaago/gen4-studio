@@ -179,6 +179,10 @@ export interface ObjectDto {
   script: number;
   /** Facing: 0 up, 1 down, 2 left, 3 right. */
   dir: number;
+  /** 1: a trainer who sees the player within `sight` tiles; 0: none. */
+  trainer_type: number;
+  /** The sight range in tiles (object `data[0]`). */
+  sight: number;
   x: number;
   z: number;
   y: number;
@@ -327,6 +331,10 @@ export interface EventPatch {
   height?: number;
   width?: number;
   length?: number;
+  /** Objects only: 1 = the trainer sees the player, 0 = only talking starts the battle. */
+  trainer_type?: number;
+  /** Objects only: the sight range in tiles (object `data[0]`). */
+  sight?: number;
 }
 /** A decoded overworld sprite: RGBA8, row-major, row 0 is the top. */
 export interface SpriteDto {
@@ -343,8 +351,12 @@ export const getObjectSprite = shareInflight((graphicsId: number, facing: number
 /** Changes fields of event `index` of class `kind` in an event file (one undoable change). */
 export const updateEvent = (eventFile: number, kind: EventKind, index: number, patch: EventPatch) =>
   invoke<void>("update_event", { eventFile, kind, index, patch });
-/** Appends an event of class `kind` on absolute matrix tile (x, z) and resolves to its index within the class (one undoable change). */
-export const addEvent = (eventFile: number, kind: EventKind, x: number, z: number) => invoke<number>("add_event", { eventFile, kind, x, z });
+/**
+ * Appends an event of class `kind` on absolute matrix tile (x, z) and resolves to its index within the class (one undoable change). `patch`
+ * is applied to the new event in the same change, named `label` (placing a trainer: script, sightline and sight in one undo step).
+ */
+export const addEvent = (eventFile: number, kind: EventKind, x: number, z: number, patch?: EventPatch, label?: string) =>
+  invoke<number>("add_event", { eventFile, kind, x, z, ...(patch === undefined ? {} : { patch }), ...(label === undefined ? {} : { label }) });
 /** Removes an event; the ones of its class after it move up by one (one undoable change). */
 export const deleteEvent = (eventFile: number, kind: EventKind, index: number) => invoke<void>("delete_event", { eventFile, kind, index });
 /** Changes fields of building `index` of map `map` (one undoable change). */
@@ -393,7 +405,9 @@ export type AssetKind =
   | "TrainerTextTable"
   | "TrainerTextOffsets"
   | "ItemIcons"
-  | "MonIcons";
+  | "MonIcons"
+  /** A trainer: its properties and party members as one asset (the store edits them together). */
+  | "Trainer";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;
@@ -441,7 +455,8 @@ export interface ProblemDto {
   line: number;
   col: number;
   message: string;
-  source: "compile" | "text";
+  /** "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`. */
+  source: "compile" | "text" | "encounter" | "trainer";
 }
 
 export interface SaveReport {

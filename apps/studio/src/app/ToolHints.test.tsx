@@ -26,6 +26,14 @@ describe("ToolHints", () => {
     expect([...container.querySelectorAll("kbd")].map((k) => k.textContent)).toEqual(["Klick", "Ziehen"]);
   });
 
+  it("says_which_trainer_a_click_with_the_figure_tool_sets", () => {
+    act(() => root.render(<ToolHints tool="figure" placing="Wanderer Jens" />));
+    expect(container.textContent).toBe("Figur·Klick setzt Wanderer Jens·Esc hebt die Bindung auf");
+    // Only the figure tool places a trainer.
+    act(() => root.render(<ToolHints tool="door" placing="Wanderer Jens" />));
+    expect(container.textContent).toContain("Klick legt eine Tür an");
+  });
+
   it("follows_the_tool", () => {
     act(() => root.render(<ToolHints tool="paint" />));
     expect(container.textContent).toContain("Gelände malen");

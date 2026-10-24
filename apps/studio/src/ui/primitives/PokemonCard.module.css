@@ -1,0 +1,72 @@
+/* A place of a trainer's team: a card on the sheet surface, the chosen one with the Kobalt edge, a free one dashed. */
+.card {
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8) var(--g4-raum-12);
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--g4-dauer-kurz);
+}
+
+.card:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.card:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: var(--g4-strich-standard);
+}
+
+.selected,
+.selected:hover {
+  border-color: var(--g4-auswahl-kante);
+  box-shadow: inset 0 0 0 var(--g4-strich-standard) var(--g4-auswahl-kante);
+}
+
+.empty {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--g4-text-sekundaer);
+}
+
+.disabled,
+.disabled:hover {
+  border-color: var(--g4-linie-leise);
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.name {
+  overflow: hidden;
+  font: var(--g4-font-text-s-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.level,
+.item {
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyText {
+  font: var(--g4-font-text-s);
+}

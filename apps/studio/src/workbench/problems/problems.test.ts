@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { encounterProblemFile, trainerProblemFile } from "../../api";
 import type { ProblemDto } from "../../api";
-import { ProblemsStore, countsText, scriptFileOf, scriptPath, textArchiveOf } from "./problems";
+import { ProblemsStore, countsText, encounterFileOf, scriptFileOf, scriptPath, textArchiveOf, trainerOf } from "./problems";
 
 const problem = (file: string, line: number, message: string, severity: ProblemDto["severity"] = "error", source: ProblemDto["source"] = "compile"): ProblemDto => ({
   severity,
@@ -125,8 +126,26 @@ describe("ProblemsStore", () => {
     expect(store.counts()).toEqual({ errors: 0, warnings: 3 });
   });
 
+  it("replace_data_replaces_one_members_rows_and_never_piles_them_up", () => {
+    const store = new ProblemsStore();
+    const E = encounterProblemFile(12);
+    const T = trainerProblemFile(928);
+    store.replaceData(E, [problem(E, 1, "grass slot 0", "warning", "encounter"), problem(E, 3, "grass slot 2", "warning", "encounter")]);
+    store.replaceData(T, [problem(T, 1, "trainer 928", "warning", "trainer")]);
+    // Every read of the member replaces its rows (data_get, then after data_edit).
+    store.replaceData(E, [problem(E, 3, "grass slot 2", "warning", "encounter")]);
+    expect(store.list().map((p) => `${p.source}:${p.file}:${p.line}`)).toEqual(["encounter:encounters/0012:3", "trainer:trainers/0928:1"]);
+    expect(store.counts()).toEqual({ errors: 0, warnings: 2 });
+    store.replaceData(E, []);
+    expect(store.list().map((p) => p.message)).toEqual(["trainer 928"]);
+    expect(encounterFileOf(E)).toBe(12);
+    expect(trainerOf(T)).toBe(928);
+    expect(trainerOf(E)).toBeNull();
+  });
+
   it("clear_forgets_every_source", () => {
     const store = new ProblemsStore();
+    store.replaceData("trainers/0001", [problem("trainers/0001", 1, "t", "warning", "trainer")]);
     store.replaceForFile(A, [problem(A, 1, "c")]);
     store.replaceLive([{ severity: "error", file: A, line: 1, col: 1, message: "l" }]);
     store.clear();

@@ -1240,7 +1240,7 @@ mod tests {
     /// Adds `n` warps to event file `file`.
     fn add_warps(state: &AppState, file: u16, n: usize) {
         for i in 0..n {
-            add_event_impl(state, file, EventKind::Warp, i as i32, 0).unwrap();
+            add_event_impl(state, file, EventKind::Warp, i as i32, 0, None, None).unwrap();
         }
     }
 
@@ -1306,7 +1306,7 @@ mod tests {
         let (_f, state) = open_synthetic();
         set_event_file(&state, 1, 1);
         add_warps(&state, 1, 1);
-        add_event_impl(&state, 1, EventKind::Warp, 16, 30).unwrap();
+        add_event_impl(&state, 1, EventKind::Warp, 16, 30, None, None).unwrap();
         let template = warps(&state, 1);
         let report = create_room_impl(&state, room_spec(EventFileChoice::Copy(1))).unwrap();
         assert_eq!(
@@ -1328,7 +1328,7 @@ mod tests {
     fn create_room_refuses_a_kept_file_with_a_warp_on_the_inside_tile() {
         let (_f, state) = open_synthetic();
         set_event_file(&state, 1, 1);
-        add_event_impl(&state, 1, EventKind::Warp, 16, 30).unwrap();
+        add_event_impl(&state, 1, EventKind::Warp, 16, 30, None, None).unwrap();
         let before = counts(&state);
         let err = create_room_impl(&state, room_spec(EventFileChoice::Keep)).unwrap_err();
         assert!(
@@ -1342,7 +1342,7 @@ mod tests {
     #[test]
     fn create_room_refuses_an_outside_tile_that_already_has_a_warp() {
         let (_f, state) = open_synthetic();
-        add_event_impl(&state, 0, EventKind::Warp, 5, 6).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 5, 6, None, None).unwrap();
         let before = counts(&state);
         let err = create_room_impl(&state, room_spec(EventFileChoice::New)).unwrap_err();
         assert!(

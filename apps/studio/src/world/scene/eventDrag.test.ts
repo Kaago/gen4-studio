@@ -162,7 +162,7 @@ describe("createEventDrag", () => {
   });
 
   describe("an object shown as a sprite", () => {
-    const object = { index: 3, local_id: 3, graphics_id: 1, movement_type: 0, script: 0, dir: 1, x: 12, z: 13, y: 0 };
+    const object = { index: 3, local_id: 3, graphics_id: 1, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x: 12, z: 13, y: 0 };
     const objectEvents: EventsDto = { event_file_id: 1, locked: null, bg: [], objects: [object], warps: [], coords: [] };
 
     /** A drag over the real sprite marker of the object: the mocked marker functions run the real ones. */

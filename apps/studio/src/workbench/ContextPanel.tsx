@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef } from "react";
-import type { EventsDto, HeaderSummary } from "../api";
+import type { DataRowDto, EventsDto, HeaderSummary } from "../api";
 import { EmptyState, ListRow, Notice, PanelHead, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import { lockedText } from "../world/events";
@@ -8,6 +8,7 @@ import type { BuildingRef } from "../world/buildingLayer";
 import type { MapBuildings } from "../world/scene/types";
 import { contextCounts, groupEvents } from "./context";
 import { id4 } from "./terms";
+import { scriptTrainerLabel } from "./trainerScript";
 import styles from "./ContextPanel.module.css";
 
 export interface ContextPanelProps {
@@ -27,16 +28,21 @@ export interface ContextPanelProps {
   onOpenHeader: (header: number) => void;
   /** The events of the place are being read (`events` is null until they come): an empty list says "Lade …", not "nichts". */
   loading?: boolean;
+  /** The trainer list: a figure whose script starts a battle is named by the trainer's class and name (by number while it is not read). */
+  trainers?: readonly DataRowDto[] | null;
 }
 
 const KIND_ICON: Record<EventKind, IconName> = { object: "figure", warp: "door", coord: "trigger", bg: "sign" };
 
 /** "An diesem Ort": what the shown place holds, as a list: its events by class and the buildings of its maps; a click selects like a click in the scene. */
-export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader, loading = false }: ContextPanelProps) {
+export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader, loading = false, trainers = null }: ContextPanelProps) {
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   const uid = useId();
-  const groups = useMemo(() => (events ? groupEvents(events, (id) => headers.find((h) => h.id === id)?.internal_name) : []), [events, headers]);
+  const groups = useMemo(
+    () => (events ? groupEvents(events, (id) => headers.find((h) => h.id === id)?.internal_name, (script) => scriptTrainerLabel(trainers, script)) : []),
+    [events, headers, trainers],
+  );
   const buildingTotal = buildings.reduce((sum, m) => sum + m.models.length, 0);
   if (!hasPlace) {
     return (

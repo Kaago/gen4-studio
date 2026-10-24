@@ -76,12 +76,13 @@ describe("PokedexView", () => {
     expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "header", id: 5 });
   });
 
-  it("shows_the_trainers_locked_with_the_reason", async () => {
+  it("opens_a_trainer_whose_team_holds_the_species", async () => {
     await h.open();
     const trainer = h.view().querySelector<HTMLButtonElement>("[data-trainer]")!;
     expect(trainer.textContent).toContain("Wanderer Kai");
-    expect(trainer.disabled).toBe(true);
-    expect(h.view().textContent).toContain("Trainer öffnen kommt mit Phase 3b.3b");
+    expect(trainer.disabled).toBe(false);
+    await act(async () => trainer.click());
+    expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "trainer", index: 44 });
   });
 
   it("lists_the_other_uses_counted_without_scripts", async () => {

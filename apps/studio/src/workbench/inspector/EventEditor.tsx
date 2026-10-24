@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import type { AssetId, BgDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
@@ -18,6 +18,8 @@ import { InspectorHead } from "./InspectorHead";
 import { referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
+import { TrainerField } from "./TrainerField";
+import { trainerOfScript, trainerPatch } from "../trainerScript";
 
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
@@ -44,6 +46,10 @@ export interface EventEditorContext {
   onOpenScript: (file: number, line?: number) => void;
   /** Appends an empty script to the script file and resolves to its number (null: it failed and was reported). */
   onAddScript: (file: number) => Promise<number | null>;
+  /** The trainer rows of the project (null while not read): the object field „Trainer“ names and offers them. */
+  trainers?: readonly DataRowDto[] | null;
+  /** Asks for the trainer rows (the field shows a trainer, or its picker opens). */
+  needTrainers?: () => void;
   onError: (e: unknown) => void;
 }
 
@@ -56,7 +62,7 @@ const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", 
  * its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
-  const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, onError } = context;
+  const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   // How many events of this class the file has, for "Figur 3 von 5".
@@ -89,6 +95,13 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   }, [file, kind, index, revision]);
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
+  // A picked trainer: its script (a partner stays a partner), and the sightline of a figure that had none, in one undoable change.
+  const pickTrainer = (id: number) => {
+    if (event === null) return;
+    const object = event as ObjectDto;
+    const patch = trainerPatch(id, object, trainerOfScript(object.script)?.partner ?? false);
+    void session.current?.commitAll(patch as Record<string, number>, "Trainer");
+  };
 
   // The header whose script file the event's scripts live in (headers may share an event file).
   const owner = headerOfEventFile(headers, file, selected);
@@ -134,34 +147,42 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
         <div key={refused}>
           {eventFieldSpecs(kind, family).map((spec) => {
             const value = EVENT_FIELDS.value(event, spec.key);
+            // An object's script may start a trainer battle: the field „Trainer“ follows the script.
+            const trainerField =
+              kind === "object" && spec.key === "script" && family !== "Dp" ? (
+                <TrainerField script={value} family={family} trainers={trainers} needTrainers={needTrainers} goTo={goTo} onPick={pickTrainer} disabled={readOnly} />
+              ) : null;
             return (
-              <InspectorRow key={spec.key} label={spec.label}>
-                {spec.options ? (
-                  <SelectField label={spec.label} value={value} options={spec.options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
-                ) : (
-                  <div className={styles.inline}>
-                    <div className={styles.grow}>
-                      <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depth === "tuefteln"} />
+              <Fragment key={spec.key}>
+                <InspectorRow label={spec.label}>
+                  {spec.options ? (
+                    <SelectField label={spec.label} value={value} options={spec.options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
+                  ) : (
+                    <div className={styles.inline}>
+                      <div className={styles.grow}>
+                        <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depth === "tuefteln"} />
+                      </div>
+                      {spec.key === "script" && (
+                        <>
+                          <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
+                            Öffnen
+                          </Button>
+                          <Button
+                            kind="quiet"
+                            size="s"
+                            disabled={!scriptsAdopted || readOnly}
+                            onClick={() => void newScript()}
+                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}
+                          >
+                            Neues Script
+                          </Button>
+                        </>
+                      )}
                     </div>
-                    {spec.key === "script" && (
-                      <>
-                        <Button kind="quiet" size="s" disabled={!scriptsAdopted} onClick={openScript} title={`Öffnet das ${TERMS.script.label} in der Scriptdatei`}>
-                          Öffnen
-                        </Button>
-                        <Button
-                          kind="quiet"
-                          size="s"
-                          disabled={!scriptsAdopted || readOnly}
-                          onClick={() => void newScript()}
-                          title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}
-                        >
-                          Neues Script
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </InspectorRow>
+                  )}
+                </InspectorRow>
+                {trainerField}
+              </Fragment>
             );
           })}
           {!scriptsAdopted && eventFieldSpecs(kind, family).some((s) => s.key === "script") && (

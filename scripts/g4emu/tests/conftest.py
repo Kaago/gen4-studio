@@ -41,6 +41,14 @@ class FakeEmu:
         self._turn_only = False  # the current press only turns the character
         self._busy = 0  # frames left of the step in flight
         self._frozen_until = 0  # a warp is running: no movement
+        self._pokes: dict[int, list[tuple[int, bytes]]] = {}  # frame -> RAM writes
+
+    def poke(self, frame: int, address: int, data: bytes) -> None:
+        """From emulated frame `frame` on (`0` = now) RAM at `address` holds `data`."""
+        if frame <= self.frame:
+            self._ram[address - RAM_BASE : address - RAM_BASE + len(data)] = data
+        else:
+            self._pokes.setdefault(frame, []).append((address, data))
 
     def attach(self, game: Game, loc: Location, facing: str = "down") -> None:
         """Publish `loc` in RAM from now on and let direction buttons move the character.
@@ -72,6 +80,8 @@ class FakeEmu:
             self._tick(buttons)
 
     def _tick(self, buttons: frozenset[str]) -> None:
+        for address, data in self._pokes.pop(self.frame, []):
+            self._ram[address - RAM_BASE : address - RAM_BASE + len(data)] = data
         if self._game is None:
             return
         if self.frame in self._script:
@@ -143,6 +153,29 @@ def cpud() -> Game:
     from g4emu.games import load_games
 
     return load_games()["CPUD"]
+
+
+def battle_mon(species: int, level: int, boosts: bytes = b"\x06" * 8) -> bytes:
+    """A BattleMon record (0xC0 bytes): species at +0, stat boosts at +0x18, level at +0x34."""
+    rec = bytearray(0xC0)
+    struct.pack_into("<H", rec, 0, species)
+    rec[0x18 : 0x18 + len(boosts)] = boosts
+    rec[0x34] = level
+    return bytes(rec)
+
+
+@pytest.fixture
+def ipkd() -> Game:
+    from g4emu.games import load_games
+
+    return load_games()["IPKD"]
+
+
+@pytest.fixture
+def ipke() -> Game:
+    from g4emu.games import load_games
+
+    return load_games()["IPKE"]
 
 
 @pytest.fixture

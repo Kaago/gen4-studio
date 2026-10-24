@@ -34,6 +34,8 @@ import { AREAS } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
+import { placedLabel, trainerLabel, trainerPatch } from "./workbench/trainerScript";
+import { lockedText } from "./world/events";
 import { archivePlaces, archiveRows, usersByArchive } from "./workbench/text/textModel";
 import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
@@ -166,7 +168,8 @@ function AppBody() {
 
   // The data lists of the project (both data areas and the palette read them), read again when a member or a name may have changed.
   const [dataStore] = useState(() => new DataStore());
-  useBusEvent(bus, ["dataChanged", "textData"], (event) => dataStore.onEvent(event));
+  // Events and headers name the places of the trainers (their object events start the battle).
+  useBusEvent(bus, ["dataChanged", "textData", "eventData", "headerTable"], (event) => dataStore.onEvent(event));
   // The part and member a link asked a data area for: a new object per request, kept here like the texts' (the area may not be built yet).
   const [dataTarget, setDataTarget] = useState<DataNav | null>(null);
   // The breadcrumbs the data areas report.
@@ -318,13 +321,33 @@ function AppBody() {
     shell.setTool(next);
     if (next === "paint") setShowPermissions(true);
   });
-  // A click with an adding tool: the tool makes its thing on that tile and the tool goes back to "Auswählen".
+  // The trainer rows while a trainer waits to be placed: the status line and the undo step name it by class and name.
+  const pendingTrainer = shell.pendingTrainer;
+  const placingRows = useDataLists(dataStore, pendingTrainer !== null ? session.info : null)?.trainers ?? null;
+  // A click with an adding tool: the tool makes its thing on that tile and the tool goes back to "Auswählen". A figure placed for a trainer
+  // („In der Welt platzieren“) gets its script, sightline and sight in the same undo step; the binding ends with the click.
   const onTileClick = useStableCallback((tile: TileClick) => {
     const used = shell.tool;
     shell.setTool("select");
     const kind = EVENT_TOOL_KIND[used];
-    if (kind !== undefined) void world.onAddEvent(kind, { x: tile.absX, z: tile.absZ });
+    const at = { x: tile.absX, z: tile.absZ };
+    if (kind === "object" && pendingTrainer !== null) {
+      void world.onAddEvent(kind, at, { patch: trainerPatch(pendingTrainer, { trainer_type: 0, sight: 0 }), label: placedLabel(placingRows, pendingTrainer) });
+    } else if (kind !== undefined) void world.onAddEvent(kind, at);
     else if (used === "building") void world.onAddBuilding(null, { map: tile.mapId, x: tile.x, y: tile.y });
+  });
+  // „In der Welt platzieren“ (Pokémon › Trainer): the world with the figure tool, whose next click places that trainer. The trainer rows are
+  // read for its name (the area has them already). Without a place, or with a locked event file, the figure tool could only fail: it says so.
+  const onPlaceTrainer = useStableCallback((id: number) => {
+    if (wizardOpen.current || session.info === null) return;
+    showArea("welt");
+    if (eventsBlockedRef.current) {
+      session.setMessage({ kind: "error", text: world.eventLock ? lockedText(world.eventLock.reason) : "Erst einen Ort wählen, dann den Trainer platzieren." });
+      return;
+    }
+    dataStore.need(session.info, "trainer");
+    shell.setTool("figure");
+    shell.setPendingTrainer(id);
   });
   // The command palette (⌘K or the title bar's search button); not while a wizard is open, which locks everything but the world.
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -346,6 +369,7 @@ function AppBody() {
     onSub: shell.setPokemonSub,
     area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
+    placing: shell.pendingTrainer !== null,
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */
@@ -438,6 +462,7 @@ function AppBody() {
     text: { target: textTarget },
     scripts: scripts.api,
     problems,
+    dataStore,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
   });
 
@@ -578,8 +603,9 @@ function AppBody() {
       case "technik":
         showArea(run.command);
         break;
+      case "trainer":
       case "moves":
-        shell.setPokemonSub("moves");
+        shell.setPokemonSub(run.command);
         showArea("pokemon");
         break;
     }
@@ -671,7 +697,7 @@ function AppBody() {
       <Workbench data={data} live={live}>
         {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
         <TextAreaHost onShown={setTextShown}>
-          <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail}>
+          <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
             <Shell
               title={
                 <TitleBar
@@ -705,7 +731,7 @@ function AppBody() {
               pane={pane}
               status={
                 <StatusLine
-                  left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} /> : area === "texte" ? <TextHints /> : null}
+                  left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
                   middle={
                     showsWizard ? (
                       <WizardStep />

@@ -180,7 +180,7 @@ describe("setMarkers", () => {
 });
 
 describe("setMarkers sprites", () => {
-  const object = (index: number, graphics_id: number, dir = 1) => ({ index, local_id: index, graphics_id, movement_type: 0, script: 0, dir, x: 4 + index, z: 5, y: 0 });
+  const object = (index: number, graphics_id: number, dir = 1) => ({ index, local_id: index, graphics_id, movement_type: 0, script: 0, dir, trainer_type: 0, sight: 0, x: 4 + index, z: 5, y: 0 });
   const events = (...objects: ReturnType<typeof object>[]): EventsDto => ({ event_file_id: 1, locked: null, bg: [], objects, warps: [], coords: [] });
   const sprite = (w = 16, h = 32): SpriteDto => ({ width: w, height: h, rgba: new Array<number>(w * h * 4).fill(255) });
   const sprites = (h: SceneHost) => [...(h.markers?.entries.keys() ?? [])].filter((o): o is THREE.Sprite => o instanceof THREE.Sprite);

@@ -22,6 +22,22 @@ class Location:
 
 
 @dataclass(frozen=True)
+class BattleSpec:
+    """How a running battle shows in RAM (games.yaml `battle`, `battle_pointer`).
+
+    A BattleMon record carries `signature` at `signature_at` (the eight stat boosts, all neutral
+    at battle start), the species (u16) at `species_at` and the level (u8) at `level_at`.
+    `pointer` is a u32 that is 0 outside a battle; `None` where it is not calibrated.
+    """
+
+    signature: bytes
+    signature_at: int
+    species_at: int
+    level_at: int
+    pointer: int | None = None
+
+
+@dataclass(frozen=True)
 class Game:
     code: str
     name: str
@@ -30,6 +46,8 @@ class Game:
     save: str
     start_header: int
     continue_frames: int  # `continue` presses A at least this long (the intro shows a valid pointer)
+    battle: BattleSpec | None = None
+    home_header: int | None = None  # where a lost battle without a party ends (`win-battle`)
 
 
 def _continue_frames(code: str, entry: dict) -> int:
@@ -40,6 +58,23 @@ def _continue_frames(code: str, entry: dict) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"games.yaml: {code}: continue_frames muss eine ganze Zahl >= 0 sein")
     return value
+
+
+def _battle(code: str, entry: dict) -> BattleSpec | None:
+    from g4emu.battle import parse_signature
+
+    raw = entry.get("battle")
+    if raw is None:
+        return None
+    try:
+        signature, signature_at = parse_signature(str(raw["signature"]))
+        species_at, level_at = int(raw["species_at"]), int(raw["level_at"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"games.yaml: {code}: battle ungültig ({e})") from None
+    pointer = entry.get("battle_pointer")
+    return BattleSpec(
+        signature, signature_at, species_at, level_at, None if pointer is None else int(pointer)
+    )
 
 
 def load_games(path: Path | None = None) -> dict[str, Game]:
@@ -56,6 +91,8 @@ def load_games(path: Path | None = None) -> dict[str, Game]:
             save=entry["save"],
             start_header=int(entry["start_header"]),
             continue_frames=_continue_frames(code, entry),
+            battle=_battle(code, entry),
+            home_header=None if entry.get("home_header") is None else int(entry["home_header"]),
         )
     return games
 

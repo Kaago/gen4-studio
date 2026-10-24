@@ -29,6 +29,7 @@ describe("asset labels", () => {
       TrainerTextOffsets: "Trainertext-Offsets",
       ItemIcons: "Gegenstand-Symbole",
       MonIcons: "Pokémon-Symbole",
+      Trainer: "Trainer",
     };
     for (const [kind, label] of Object.entries(expected)) expect(kindLabel(kind as AssetKind)).toBe(label);
   });

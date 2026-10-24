@@ -2266,3 +2266,340 @@ fn moves_and_tm_bits_are_copied_in_one_transaction() {
     assert!(st.dirty().is_empty());
     assert!(!st.personal(2).unwrap().tm(0));
 }
+
+// ---- Trainers: one asset over the pair of a properties and a party member ----
+
+use g4_formats::data::trainer::PartyFormat;
+
+fn trainer_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Trainer,
+        index,
+    }
+}
+
+/// The store's canonical bytes of a trainer: `u32 len(props) | props | party`.
+fn pair(props: &[u8], party: &[u8]) -> Vec<u8> {
+    let mut out = (props.len() as u32).to_le_bytes().to_vec();
+    out.extend_from_slice(props);
+    out.extend_from_slice(party);
+    out
+}
+
+fn trainer_files(st: &Store, index: u16) -> (std::path::PathBuf, std::path::PathBuf) {
+    (
+        st.project()
+            .member_path(AssetKind::TrainerProperties, index),
+        st.project().member_path(AssetKind::TrainerParty, index),
+    )
+}
+
+#[test]
+fn trainer_loads_byte_identical_from_the_pair() {
+    let (_s, mut st) = data_store();
+    let id = trainer_id(2);
+    assert_eq!(st.current_bytes(id).unwrap(), None, "nothing loaded yet");
+    let doc = st.trainer(2).unwrap().clone();
+    assert_eq!(doc.class, 0);
+    assert_eq!(
+        doc.format,
+        PartyFormat {
+            moves: true,
+            items: true
+        }
+    );
+    assert_eq!((doc.items, doc.ai, doc.battle_type), ([28, 0, 0, 0], 7, 0));
+    let levels: Vec<u16> = doc.party.iter().map(|m| m.level).collect();
+    assert_eq!(levels, [10, 12, 15]);
+    assert_eq!(doc.party[2].moves, Some([20, 21, 22, 0]));
+    assert_eq!(doc.party[0].item, Some(25));
+    let (props, party) = trainer_files(&st, 2);
+    let expected = pair(
+        &std::fs::read(props).unwrap(),
+        &std::fs::read(party).unwrap(),
+    );
+    assert_eq!(expected.len(), 4 + 20 + 56);
+    assert_eq!(st.current_bytes(id).unwrap(), Some(expected.clone()));
+    assert_eq!(st.saved_bytes(id), Some(expected.as_slice()));
+    assert_eq!(st.locked(id), None);
+    assert!(!st.is_dirty(id));
+    // A plain trainer of the fixture loads too.
+    assert_eq!(st.trainer(0).unwrap().party.len(), 1);
+    assert_eq!(
+        st.member_count(AssetKind::Trainer).unwrap(),
+        common::PT_TRAINER_MEMBERS
+    );
+}
+
+#[test]
+fn trainer_count_is_the_smaller_of_both_archives() {
+    let (_s, mut st) = data_store();
+    st.project()
+        .ensure_unpacked(AssetKind::TrainerProperties)
+        .unwrap();
+    st.project()
+        .ensure_unpacked(AssetKind::TrainerParty)
+        .unwrap();
+    let (props, _) = trainer_files(&st, 3);
+    std::fs::write(props, [0u8; 20]).unwrap();
+    assert_eq!(
+        st.member_count(AssetKind::TrainerProperties).unwrap(),
+        common::PT_TRAINER_MEMBERS + 1
+    );
+    assert_eq!(
+        st.member_count(AssetKind::Trainer).unwrap(),
+        common::PT_TRAINER_MEMBERS
+    );
+    // A properties member without its party is missing, named by its party file.
+    let err = st.trainer(3).unwrap_err().to_string();
+    assert!(err.contains("trainerParty/0003"), "{err}");
+}
+
+#[test]
+fn edit_trainer_records_one_undo_step_for_both_files() {
+    let (_s, mut st) = data_store();
+    let id = trainer_id(2);
+    st.trainer(2).unwrap();
+    let before = st.current_bytes(id).unwrap().unwrap();
+    let change = st
+        .edit_trainer(2, "Trainer 2: Team", |t| {
+            t.class = 1;
+            t.format.items = false;
+            t.party.pop();
+        })
+        .unwrap();
+    assert!(change.is_some());
+    assert_eq!(st.history(), (vec!["Trainer 2: Team".to_owned()], vec![]));
+    assert_eq!(st.dirty(), vec![id]);
+    let after = st.current_bytes(id).unwrap().unwrap();
+    // Properties: flags 1 (moves only), class 1, party size 2; party: two 16-byte entries.
+    assert_eq!(&after[..4], &20u32.to_le_bytes());
+    assert_eq!((after[4], after[5], after[7]), (1, 1, 2));
+    assert_eq!(after.len(), 4 + 20 + 32);
+    assert_eq!(st.undo().unwrap(), vec![id]);
+    assert_eq!(st.current_bytes(id).unwrap(), Some(before));
+    assert!(st.dirty().is_empty());
+    assert_eq!(st.redo().unwrap(), vec![id]);
+    assert_eq!(st.current_bytes(id).unwrap(), Some(after));
+    // An edit that leaves the bytes as they are records nothing.
+    assert_eq!(st.edit_trainer(2, "noop", |_| {}).unwrap(), None);
+    // More than six Pokémon is refused and changes nothing.
+    let err = st
+        .edit_trainer(2, "seven", |t| t.party = vec![t.party[0]; 7])
+        .unwrap_err();
+    assert!(
+        matches!(err, KernelError::Format(FormatError::OutOfRange { .. })),
+        "{err}"
+    );
+    assert_eq!(st.trainer(2).unwrap().party.len(), 2);
+    assert_eq!(st.history().0.len(), 1);
+}
+
+#[test]
+fn trainer_edits_join_a_transaction_with_other_assets() {
+    let (_s, mut st) = data_store();
+    let ((), change) = st
+        .transaction("Trainer 2 umbenannt", |tx| {
+            let level = tx.trainer(2)?.party[0].level;
+            tx.edit_trainer(2, |t| t.party[0].level = level + 1)?;
+            // Inside the transaction the getter sees the edit.
+            assert_eq!(tx.trainer(2)?.party[0].level, 11);
+            tx.edit_trainer_text_offsets(0, |o| o.offsets[0] = 4)?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(change.is_some());
+    let offsets = AssetId {
+        kind: AssetKind::TrainerTextOffsets,
+        index: 0,
+    };
+    assert_eq!(st.dirty(), vec![offsets, trainer_id(2)]);
+    assert_eq!(st.undo().unwrap(), vec![trainer_id(2), offsets]);
+    assert_eq!(st.trainer(2).unwrap().party[0].level, 10);
+    assert!(st.dirty().is_empty());
+}
+
+#[test]
+fn save_writes_both_members_atomically_and_stale_checks_both() {
+    let (_s, mut st) = data_store();
+    let id = trainer_id(2);
+    st.edit_trainer(2, "edit", |t| {
+        t.ai = 1;
+        t.party[1].level = 50;
+    })
+    .unwrap();
+    let edited = st.current_bytes(id).unwrap().unwrap();
+    let report = st.save().unwrap();
+    assert_eq!(report.written, vec![id]);
+    let (props, party) = trainer_files(&st, 2);
+    let (p, q) = (
+        std::fs::read(&props).unwrap(),
+        std::fs::read(&party).unwrap(),
+    );
+    assert_eq!(pair(&p, &q), edited);
+    assert_eq!(p[12], 1, "AI in the properties");
+    assert_eq!(q[18 + 2], 50, "level of the second Pokémon in the party");
+    assert_eq!(st.saved_bytes(id), Some(edited.as_slice()));
+    assert!(dot_entries(props.parent().unwrap()).is_empty());
+    assert!(dot_entries(party.parent().unwrap()).is_empty());
+    assert!(!st.is_dirty(id));
+    assert!(st.save().unwrap().written.is_empty());
+
+    // Undo makes the trainer dirty again; a change to either file blocks the save.
+    st.undo().unwrap();
+    for path in [&party, &props] {
+        let original = std::fs::read(path).unwrap();
+        let mut changed = original.clone();
+        changed[2] ^= 0xFF;
+        std::fs::write(path, &changed).unwrap();
+        assert!(matches!(st.save().unwrap_err(), KernelError::Stale(s) if s == id));
+        assert_eq!(std::fs::read(&props).unwrap().len(), 20);
+        std::fs::write(path, &original).unwrap();
+    }
+    assert_eq!(std::fs::read(&props).unwrap(), p, "nothing written");
+    // A deleted party member is a change on disk as well.
+    std::fs::remove_file(&party).unwrap();
+    assert!(matches!(st.save().unwrap_err(), KernelError::Stale(s) if s == id));
+    std::fs::write(&party, &q).unwrap();
+    assert_eq!(st.save().unwrap().written, vec![id]);
+    let original = pair(&common::TRAINER_2_PROPS, &common::TRAINER_2_PARTY);
+    assert_eq!(
+        pair(
+            &std::fs::read(&props).unwrap(),
+            &std::fs::read(&party).unwrap()
+        ),
+        original
+    );
+
+    // accept_disk_as_base takes both files as the base.
+    st.redo().unwrap();
+    std::fs::write(&props, [0u8; 20]).unwrap();
+    std::fs::write(&party, [0u8; 8]).unwrap();
+    st.accept_disk_as_base(id).unwrap();
+    assert_eq!(st.saved_bytes(id), Some(pair(&[0; 20], &[0; 8]).as_slice()));
+    assert!(st.is_dirty(id));
+    assert_eq!(st.save().unwrap().written, vec![id]);
+    assert_eq!(
+        pair(
+            &std::fs::read(&props).unwrap(),
+            &std::fs::read(&party).unwrap()
+        ),
+        edited
+    );
+}
+
+#[test]
+fn mismatched_pair_is_locked_with_reason() {
+    let (_s, mut st) = data_store();
+    st.project()
+        .ensure_unpacked(AssetKind::TrainerProperties)
+        .unwrap();
+    st.project()
+        .ensure_unpacked(AssetKind::TrainerParty)
+        .unwrap();
+    let (props, party) = trainer_files(&st, 1);
+    let id = trainer_id(1);
+
+    // Moves on, one Pokémon: 16 bytes expected, the party file has 20.
+    let mut p = std::fs::read(&props).unwrap();
+    p[0] = 1;
+    std::fs::write(&props, &p).unwrap();
+    let mut long = vec![0, 0, 5, 0, 1, 0, 1, 0];
+    long.resize(20, 0);
+    std::fs::write(&party, &long).unwrap();
+    let reason = "trainer 0001: party 20 bytes, expected 16";
+    // Shown, but read-only.
+    assert_eq!(st.trainer(1).unwrap().party[0].moves, Some([1, 0, 0, 0]));
+    assert_eq!(st.locked(id), Some(reason));
+    let err = st.edit_trainer(1, "edit", |t| t.class = 9).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::ReadOnly { asset, reason: r } if *asset == id && r == reason),
+        "{err}"
+    );
+    let err = st
+        .transaction("tx", |tx| tx.edit_trainer(1, |t| t.class = 9))
+        .unwrap_err();
+    assert!(matches!(err, KernelError::ReadOnly { .. }), "{err}");
+    assert!(!st.is_dirty(id));
+    assert!(st.save().unwrap().written.is_empty());
+    assert_eq!(std::fs::read(&party).unwrap(), long);
+
+    // Properties of the wrong length: not decodable, the raw pair is kept.
+    std::fs::write(&props, &p[..19]).unwrap();
+    st.reload_from_disk(id).unwrap();
+    let reason = "trainer 0001: properties 19 bytes, expected 20";
+    assert_eq!(st.locked(id), Some(reason));
+    let err = st.trainer(1).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::ReadOnly { reason: r, .. } if r == reason),
+        "{err}"
+    );
+    assert_eq!(st.current_bytes(id).unwrap(), Some(pair(&p[..19], &long)));
+
+    // A canonical pair on disk unlocks it again.
+    std::fs::write(&props, &p).unwrap();
+    std::fs::write(&party, &long[..16]).unwrap();
+    st.reload_from_disk(id).unwrap();
+    assert_eq!(st.locked(id), None);
+    assert!(
+        st.edit_trainer(1, "edit", |t| t.class = 9)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn a_trainer_the_store_locks_stays_locked_with_its_reason() {
+    let (_s, mut st) = data_store();
+    let id = trainer_id(1);
+    // Locking before the first load applies on load, and survives a reload.
+    st.lock(id, "placeholder for the sight script slot")
+        .unwrap();
+    assert_eq!(st.trainer(1).unwrap().party.len(), 1);
+    assert_eq!(st.locked(id), Some("placeholder for the sight script slot"));
+    let err = st.edit_trainer(1, "edit", |t| t.class = 9).unwrap_err();
+    assert!(
+        matches!(err, KernelError::ReadOnly { asset, .. } if asset == id),
+        "{err}"
+    );
+    st.reload_from_disk(id).unwrap();
+    assert_eq!(st.locked(id), Some("placeholder for the sight script slot"));
+    // Locking a loaded trainer drops its unsaved edit and its history.
+    st.edit_trainer(2, "edit", |t| t.class = 9).unwrap();
+    st.lock(trainer_id(2), "placeholder").unwrap();
+    assert_eq!(st.locked(trainer_id(2)), Some("placeholder"));
+    assert!(st.dirty().is_empty());
+    assert!(st.undo().unwrap().is_empty());
+    assert_eq!(st.trainer(2).unwrap().class, 0);
+}
+
+/// Every trainer of a vanilla project loads through the store as one asset, unlocked and
+/// byte-identical to its two files. Reads only.
+#[test]
+fn vanilla_trainers_load_unlocked_through_the_store() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let mut st = Store::new(project.clone());
+    let count = st.member_count(AssetKind::Trainer).unwrap();
+    let expected = match project.family {
+        Family::Pt => 928,
+        _ => 738,
+    };
+    assert_eq!(count, expected);
+    for index in 0..count as u16 {
+        let id = trainer_id(index);
+        st.trainer(index).unwrap_or_else(|e| panic!("{id}: {e}"));
+        assert_eq!(st.locked(id), None, "{id}");
+        let props = std::fs::read(project.member_path(AssetKind::TrainerProperties, index));
+        let party = std::fs::read(project.member_path(AssetKind::TrainerParty, index));
+        assert_eq!(
+            st.current_bytes(id).unwrap(),
+            Some(pair(&props.unwrap(), &party.unwrap())),
+            "{id}"
+        );
+    }
+    assert!(st.dirty().is_empty());
+    eprintln!("{count} trainers load through the store");
+}

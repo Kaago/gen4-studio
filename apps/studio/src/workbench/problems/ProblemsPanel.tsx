@@ -1,10 +1,12 @@
 import { memo, useSyncExternalStore } from "react";
+import { warningText } from "../../data/encounters/encounterModel";
+import { problemText } from "../../data/trainer/trainerModel";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, EmptyState, Icon, PanelHead, Reference } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
 import { TERMS, id4 } from "../terms";
 import type { NavTarget } from "../navigation";
-import { countsText, scriptFileOf, textArchiveOf } from "./problems";
+import { countsText, encounterFileOf, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
 import type { ProblemRow, ProblemSource, ProblemsStore } from "./problems";
 import styles from "./ProblemsPanel.module.css";
 
@@ -17,28 +19,37 @@ export interface ProblemsPanelContext {
   goTo: (target: NavTarget) => void;
 }
 
-const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live" };
+const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer" };
 const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung" };
 
-/** Where clicking a problem leads, or null when its file is neither a script file nor a text archive. */
+/** Where clicking a problem leads: a script file at its line, a text archive, a trainer, an encounter file; null for any other file. */
 export function problemTarget(row: ProblemRow): NavTarget | null {
   const file = scriptFileOf(row.file);
   if (file !== null) return { kind: "script", file, line: row.line };
+  const trainer = trainerOf(row.file);
+  if (trainer !== null) return { kind: "trainer", index: trainer };
+  const encounter = encounterFileOf(row.file);
+  if (encounter !== null) return { kind: "encounter", index: encounter };
   const archive = textArchiveOf(row.file);
   return archive === null ? null : { kind: "textArchive", index: archive };
 }
 
-/** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199"; any other path as it is. */
+/** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199", "Begegnungen 0012", "Trainer 0012"; any other path as it is. */
 export function fileLabel(path: string): string {
   const script = scriptFileOf(path);
   if (script !== null) return `${path.endsWith(".rotom") ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(script)}`;
+  const encounter = encounterFileOf(path);
+  if (encounter !== null) return `Begegnungen ${id4(encounter)}`;
+  const trainer = trainerOf(path);
+  if (trainer !== null) return `Trainer ${id4(trainer)}`;
   const archive = textArchiveOf(path);
   return archive !== null ? `${TERMS.textArchive.label} ${id4(archive)}` : path;
 }
 
-/** The area a file belongs to: scripts are Welt, text archives Texte, anything else (a project file) Technik. */
+/** The area a file belongs to: scripts are Welt, text archives Texte, encounter files and trainers Pokémon, anything else (a project file) Technik. */
 function fileArea(path: string): Area {
   if (scriptFileOf(path) !== null) return "welt";
+  if (encounterFileOf(path) !== null || trainerOf(path) !== null) return "pokemon";
   return textArchiveOf(path) !== null ? "texte" : "technik";
 }
 
@@ -74,7 +85,7 @@ export function ProblemsTable({ rows, depth, goTo }: { rows: readonly ProblemRow
                 {row.line}:{row.col}
               </td>
               <td role="cell" className={styles.message}>
-                {row.message}
+                {row.source === "trainer" ? problemText(row) : row.source === "encounter" ? warningText(row.message) : row.message}
               </td>
               <td role="cell">
                 <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>

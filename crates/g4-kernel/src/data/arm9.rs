@@ -140,7 +140,7 @@ mod tests {
                 mon_icon_palettes_len: Some(540),
                 trainer_name_max: Some(7),
                 trainer_flag_start: Some(0x550),
-                trainer_flag_capacity: Some(928),
+                trainer_flag_capacity: Some(1040),
             }
         );
         assert_eq!(
@@ -154,7 +154,7 @@ mod tests {
                 mon_icon_palettes_len: Some(544),
                 trainer_name_max: Some(7),
                 trainer_flag_start: Some(0x550),
-                trainer_flag_capacity: Some(734),
+                trainer_flag_capacity: Some(1040),
             }
         );
         assert_eq!(

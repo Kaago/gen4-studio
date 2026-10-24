@@ -14,9 +14,13 @@ import styles from "./Pokedex.module.css";
 /** The kinds whose change can add or drop a reference to a species. */
 const REFERRING: readonly DataKind[] = ["encounter", "trainer", "evolution"];
 
-/** Where a reference leads in the app; null for a target without an editor yet (encounters and trainers come with 3b.3b). */
+/** Where a reference leads in the app (an encounter file a header uses leads to that place; one nobody uses to the Begegnungen). */
 function navTarget(nav: NavTargetDto): NavTarget | null {
   switch (nav.kind) {
+    case "trainer":
+      return { kind: "trainer", index: nav.index };
+    case "encounter":
+      return { kind: "encounter", index: nav.index };
     case "header":
       return { kind: "header", id: nav.id };
     case "event":
@@ -87,11 +91,10 @@ function Uses({ index }: { index: number }) {
               />
             ))}
             {trainers.map((r) => (
-              <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} disabled onOpen={() => {}} dataAttrs={{ "data-trainer": r.source.index }} />
+              <Reference key={`t${r.source.index}`} area="pokemon" label={r.source_name} tech={id4(r.source.index)} onOpen={() => open(r.nav)} dataAttrs={{ "data-trainer": r.source.index }} />
             ))}
           </div>
         )}
-        {trainers.length > 0 && <p className={styles.note}>Trainer öffnen kommt mit Phase 3b.3b.</p>}
       </section>
       <section className={styles.section} aria-label="Verwendet in">
         <h3 className={styles.sectionTitle}>Verwendet in</h3>

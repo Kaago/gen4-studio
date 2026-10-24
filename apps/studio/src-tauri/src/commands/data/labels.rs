@@ -135,6 +135,8 @@ pub const ENCOUNTER: &[(&str, &str)] = &[
     ("dual_firered", "Dual-Slot Feuerrot"),
     ("dual_leafgreen", "Dual-Slot Blattgrün"),
     ("radio", "Radio"),
+    ("radio_hoenn", "Radio Hoenn"),
+    ("radio_sinnoh", "Radio Sinnoh"),
     ("land_swarm", "Schwarm im Gras"),
     ("surf_swarm", "Schwarm beim Surfen"),
     ("night_fish", "Angeln nachts"),
@@ -146,6 +148,23 @@ pub const ENCOUNTER: &[(&str, &str)] = &[
     ("max", "Höchstlevel"),
     ("species_morning", "Pokémon morgens"),
     ("species_night", "Pokémon nachts"),
+    ("form_rate_0", "Formrate 1"),
+    ("form_rate_1", "Formrate 2"),
+    ("form_rate_2", "Formrate 3"),
+    ("form_rate_3", "Formrate 4"),
+    ("form_rate_4", "Formrate 5"),
+    ("unown_table", "Icognito-Tabelle"),
+];
+
+/// Trainer properties (`DataPatch::Trainer`).
+pub const TRAINER: &[(&str, &str)] = &[
+    ("class", "Klasse"),
+    ("ai", "KI"),
+    ("battle_type", "Kampfart"),
+    ("item0", "Gegenstand 1"),
+    ("item1", "Gegenstand 2"),
+    ("item2", "Gegenstand 3"),
+    ("item3", "Gegenstand 4"),
 ];
 
 /// Every table by the key `fieldLabels` uses for it.
@@ -155,6 +174,7 @@ pub const ALL: &[(&str, &[(&str, &str)])] = &[
     ("move", MOVE),
     ("item", ITEM),
     ("encounter", ENCOUNTER),
+    ("trainer", TRAINER),
 ];
 
 /// The German name of `field` in `table`.
@@ -236,7 +256,7 @@ mod tests {
         for (name, _) in ITEM {
             assert!(numeric_span(Item::FIELDS, name).is_some(), "{name}");
         }
-        for table in [SPECIES, MOVE, ITEM, ENCOUNTER] {
+        for table in [SPECIES, MOVE, ITEM, ENCOUNTER, TRAINER] {
             let mut keys = names(table);
             keys.sort_unstable();
             keys.dedup();

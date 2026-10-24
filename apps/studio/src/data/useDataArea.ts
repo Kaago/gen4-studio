@@ -9,6 +9,7 @@ import type { PanelHeadSwitcher } from "../ui/primitives";
 import { dataCrumbs } from "../workbench/breadcrumb";
 import type { Crumb } from "../workbench/breadcrumb";
 import type { DataNav, NavTarget } from "../workbench/navigation";
+import type { ProblemsStore } from "../workbench/problems/problems";
 import { NO_FILTER, SELECT_KEY, SUB_KIND, SUB_LABEL, SUB_LOCKED, SUB_SHORTCUT, areaOfSub, filterRows, isSubLocked, itemPocket, pocketLabel, rowLabel } from "./dataModel";
 import type { DataArea, DataSub, ListFilter, ListKind } from "./dataModel";
 import { useDataSnapshot } from "./dataStore";
@@ -35,6 +36,23 @@ export interface DataAreaProps {
   bus: EditBus;
   /** The header table: an encounter file is named by the place of a header that uses it. */
   headers: readonly HeaderSummary[];
+  /** The Problems list: a document with rows of its own (an encounter file, a trainer) replaces them with every read. */
+  problems?: ProblemsStore;
+  /**
+   * „In der Welt platzieren“ of a trainer that stands nowhere yet (the seam Task 8 of 3b.3b wires: the world with the figure tool and a
+   * pending trainer binding). Without it the view's button is disabled.
+   */
+  onPlaceTrainer?: (id: number) => void;
+  /** The open script documents, for a command that writes a script file itself (`create_trainer` extends the battle script). */
+  scriptFiles?: ScriptFiles;
+}
+
+/** What a data editor needs of the script panel's documents around a backend write of a script file (`ScriptsApi`). */
+export interface ScriptFiles {
+  /** Saves the file's open document when it has unsaved text; rejects like a save. */
+  saveIfDirty(file: number): Promise<void>;
+  /** Shows what the backend wrote in an open document and tells the language server. */
+  reload(file: number): Promise<void>;
 }
 
 /** The state of a data area for its list, view, hand and status parts (`useDataArea`). */
@@ -76,6 +94,12 @@ export interface DataAreaModel {
   onEdited(): void;
   bus: EditBus;
   headers: readonly HeaderSummary[];
+  /** The Problems list (null: none, in tests): `useDataDoc` hands it the rows a document carries (`DocSpec.problems`). */
+  problems: ProblemsStore | null;
+  /** Places a trainer in the world (`DataAreaProps.onPlaceTrainer`); null while nobody takes it. */
+  placeTrainer: ((id: number) => void) | null;
+  /** The script documents (`DataAreaProps.scriptFiles`); null without (tests). */
+  scriptFiles: ScriptFiles | null;
 }
 
 /**
@@ -110,6 +134,7 @@ const NO_NAMES: NameTablesDto = {
   archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
 };
 const NO_ROWS: readonly DataRowDto[] = [];
+const NO_HEADERS: readonly HeaderSummary[] = [];
 const NO_DATA: DataSnapshot = { project: null, names: null, rows: {}, itemTable: undefined, locked: null, errors: {} };
 
 type Search = { query: string; filter: ListFilter };
@@ -121,6 +146,9 @@ const NO_SEARCH: Search = { query: "", filter: NO_FILTER };
  */
 export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataAreaModels {
   const { project, store, active, target, goTo, onTrail, dirty, onEdited, bus, headers } = props;
+  const problems = props.problems ?? null;
+  const placeTrainer = props.onPlaceTrainer ?? null;
+  const scriptFiles = props.scriptFiles ?? null;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -147,9 +175,14 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
 
   const hasTable = data.itemTable !== null && data.itemTable !== undefined;
   const rows = (kind === null ? undefined : data.rows[kind]) ?? NO_ROWS;
-  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable))), [kind, rows, hasTable]);
+  // An encounter file is named by the places of its headers: only that list reads them (a new header table relabels nothing else).
+  const placeHeaders = kind === "encounter" ? headers : NO_HEADERS;
+  const labels = useMemo(() => (kind === null ? [] : rows.map((row) => rowLabel(kind, row, hasTable, placeHeaders))), [kind, rows, hasTable, placeHeaders]);
   const labelByIndex = useMemo(() => new Map(rows.map((row, i) => [row.index, labels[i] ?? ""])), [rows, labels]);
-  const labelOf = useCallback((row: DataRowDto) => labelByIndex.get(row.index) ?? (kind === null ? row.name : rowLabel(kind, row, hasTable)), [labelByIndex, kind, hasTable]);
+  const labelOf = useCallback(
+    (row: DataRowDto) => labelByIndex.get(row.index) ?? (kind === null ? row.name : rowLabel(kind, row, hasTable, placeHeaders)),
+    [labelByIndex, kind, hasTable, placeHeaders],
+  );
   const shown = useMemo(() => (kind === null ? NO_ROWS : filterRows(kind, rows, labels, search.query, search.filter)), [kind, rows, labels, search]);
   const row = useMemo(() => (selected === null ? null : (rows.find((r) => r.index === selected) ?? null)), [rows, selected]);
 
@@ -231,8 +264,11 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       onEdited,
       bus,
       headers,
+      problems,
+      placeTrainer,
+      scriptFiles,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer, scriptFiles],
   );
   const searchModel = useMemo<DataSearchModel>(
     () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),
@@ -241,11 +277,15 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   return { model, search: searchModel };
 }
 
-/** Where a member of a part leads (the breadcrumb's last crumb); null for a part without members yet. */
+/** Where a member of a part leads (the breadcrumb's last crumb). */
 function targetOf(sub: DataSub, index: number): NavTarget | null {
   switch (sub) {
     case "pokedex":
       return { kind: "species", index };
+    case "trainer":
+      return { kind: "trainer", index };
+    case "encounters":
+      return { kind: "encounter", index };
     case "moves":
       return { kind: "move", index };
     case "items":

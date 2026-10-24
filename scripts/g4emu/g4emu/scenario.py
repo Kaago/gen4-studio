@@ -18,59 +18,178 @@ import yaml
 from g4emu import paths
 from g4emu.games import load_games
 
-_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# `${NAME}`, `${NAME.field.0}` (fields and list indices of a bound result), `${NAME+2999}` (an int offset)
+_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z0-9_]+)*)([+-]\d+)?\}")
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _HEADER_STEPS = ("continue", "where", "expect-map")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
+BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": value} = hdr.Pt with field replaced
 
 
 @dataclass
 class Scenario:
     game: str
+    # [befehl, {argumente}] or [befehl, {argumente}, name]: `name` binds the command's result for the
+    # `${name…}` placeholders of later edits, of `check` and of `play` (resolved while the scenario runs)
     edits: list[list]
     build: str | None
-    play: list[str]  # flat step tokens, ready for `g4emu run`
+    play: list[str]  # flat step tokens, ready for `g4emu run` once the bound names are resolved
     name: str = ""
     # `g4k` commands run in the project after the build, before play; exit != 0 fails the scenario
     check: list[list[str]] = field(default_factory=list)
 
 
-def substitute(value: Any, env: dict[str, str]) -> Any:
+def _offset(value: Any, offset: str | None, shown: str) -> Any:
+    if not offset:
+        return value
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{shown}: {value!r} ist keine Zahl, {offset} geht nicht")
+    return value + int(offset)
+
+
+def substitute(value: Any, env: dict[str, str], deferred: frozenset[str] | set[str] = frozenset()) -> Any:
     """Replace `${NAME}` in strings (recursively through lists and dicts).
 
     A string that is exactly one placeholder becomes an int when the value is int-like,
-    otherwise text; a placeholder inside longer text is always text. A missing name raises KeyError.
+    otherwise text; a placeholder inside longer text is always text. `${NAME+N}` / `${NAME-N}`
+    add to an int-like value. Names in `deferred` (results bound by edits) stay as they are,
+    for `resolve`. A missing name raises KeyError.
     """
     if isinstance(value, dict):
-        return {k: substitute(v, env) for k, v in value.items()}
+        return {k: substitute(v, env, deferred) for k, v in value.items()}
     if isinstance(value, list):
-        return [substitute(v, env) for v in value]
+        return [substitute(v, env, deferred) for v in value]
     if not isinstance(value, str):
         return value
 
-    def lookup(match: re.Match) -> str:
-        name = match.group(1)
-        if name not in env:
-            raise KeyError(name)
-        return env[name]
+    def lookup(match: re.Match) -> Any:
+        name, path, offset = match.groups()
+        if name in deferred:
+            return match.group(0)
+        if name not in env or path:
+            raise KeyError(f"{name}{path}")
+        text = env[name]
+        if not offset:
+            return text
+        if not _INT.fullmatch(text):
+            raise ValueError(f"{name}: {text!r} ist keine Zahl, {offset} geht nicht")
+        return int(text) + int(offset)
 
     whole = _PLACEHOLDER.fullmatch(value)
     if whole:
-        text = lookup(whole)
-        return int(text) if _INT.fullmatch(text) else text
-    return _PLACEHOLDER.sub(lookup, value)
+        found = lookup(whole)
+        if isinstance(found, str) and _INT.fullmatch(found) and whole.group(1) not in deferred:
+            return int(found)
+        return found
+    return _PLACEHOLDER.sub(lambda m: str(lookup(m)), value)
+
+
+def _field(results: dict[str, Any], name: str, path: str) -> Any:
+    """The value at `path` (".a.0.b": object keys and list indices) of the result bound to `name`."""
+    shown = f"{name}{path}"
+    if name not in results:
+        raise KeyError(shown)
+    value = results[name]
+    for part in path.split(".")[1:]:
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            raise KeyError(shown)
+    return value
+
+
+def resolve(value: Any, results: dict[str, Any]) -> Any:
+    """Replace `${name…}` with what the edits bound (recursively through lists and dicts).
+
+    A string that is exactly one placeholder becomes the JSON value as it is (number, text,
+    object, list, null); inside longer text only numbers and text may stand. A dict with the
+    key `$base` is the object the placeholder there names, with the dict's other keys replaced.
+    Raises KeyError (unknown name or field) and ValueError.
+    """
+    if isinstance(value, dict):
+        rest = {k: resolve(v, results) for k, v in value.items() if k != BASE_KEY}
+        if BASE_KEY not in value:
+            return rest
+        base = resolve(value[BASE_KEY], results)
+        if not isinstance(base, dict):
+            raise ValueError(f"{BASE_KEY} muss ein Objekt nennen, nicht {base!r}")
+        return {**base, **rest}
+    if isinstance(value, list):
+        return [resolve(v, results) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    def lookup(match: re.Match) -> Any:
+        name, path, offset = match.groups()
+        return _offset(_field(results, name, path), offset, f"{name}{path}")
+
+    whole = _PLACEHOLDER.fullmatch(value)
+    if whole:
+        return lookup(whole)
+
+    def inline(match: re.Match) -> str:
+        found = lookup(match)
+        if isinstance(found, bool) or not isinstance(found, (int, str)):
+            raise ValueError(f"{match.group(1)}{match.group(2)}: {found!r} kann nicht in Text stehen")
+        return str(found)
+
+    return _PLACEHOLDER.sub(inline, value)
+
+
+def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[str | None]:
+    """The name each edit binds (None: none), checked: a valid name, once, not a --set name."""
+    if not isinstance(edits, list):
+        raise ValueError(f"{path}: edits muss eine Liste sein: {edits!r}")
+    names: list[str | None] = []
+    for edit in edits:
+        if not (
+            isinstance(edit, list) and len(edit) in (2, 3) and isinstance(edit[0], str) and isinstance(edit[1], dict)
+        ):
+            raise ValueError(f"{path}: jede Änderung muss [befehl, {{argumente}}] oder [befehl, {{argumente}}, name] sein: {edit!r}")
+        if len(edit) == 2:
+            names.append(None)
+            continue
+        name = edit[2]
+        if not (isinstance(name, str) and _NAME.fullmatch(name)):
+            raise ValueError(f"{path}: Name {name!r} der Änderung {edit[0]} ist kein gültiger Name")
+        if name in names or name in env:
+            raise ValueError(f"{path}: Name {name} ist schon vergeben")
+        names.append(name)
+    return names
 
 
 def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
-    """Read the YAML file and substitute every placeholder. Raises KeyError / ValueError."""
+    """Read the YAML file and substitute every placeholder. Raises KeyError / ValueError.
+
+    Placeholders of names an edit binds stay in the scenario; an edit may only use names bound by
+    edits before it, `check` and `play` all of them.
+    """
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or "game" not in raw:
         raise ValueError(f"{path}: 'game' fehlt")
-    data = substitute(raw, env)
-    edits = data.get("edits") or []
-    for edit in edits:
-        if not (isinstance(edit, list) and len(edit) == 2 and isinstance(edit[0], str) and isinstance(edit[1], dict)):
-            raise ValueError(f"{path}: jede Änderung muss [befehl, {{argumente}}] sein: {edit!r}")
+    raw_edits = raw.get("edits") or []
+    names = _bindings(path, raw_edits, env)
+    bound = frozenset(n for n in names if n)
+    edits: list[list] = []
+    for i, edit in enumerate(raw_edits):
+        earlier = frozenset(n for n in names[:i] if n)
+        try:
+            edits.append([edit[0], substitute(edit[1], env, earlier), *edit[2:]])
+        except KeyError as e:
+            used = str(e.args[0]).split(".")[0]
+            if used in bound:
+                raise ValueError(
+                    f"{path}: {edit[0]} nutzt ${{{used}}}, das erst eine spätere Änderung bindet"
+                ) from None
+            raise
+    data = substitute({k: v for k, v in raw.items() if k != "edits"}, env, bound)
     build = data.get("build")
+    # The ROM path is fixed before any edit runs: a name an edit binds cannot stand in it.
+    late = [m.group(1) for m in _PLACEHOLDER.finditer(str(build or "")) if m.group(1) in bound]
+    if late:
+        raise ValueError(f"{path}: build nutzt ${{{late[0]}}}, das eine Änderung bindet; build muss vorher feststehen")
     play: list[str] = []
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
@@ -156,10 +275,10 @@ def _fail(scenario: Scenario, message: str) -> int:
     return 1
 
 
-def _run_checks(scenario: Scenario, project: Path, out: Path, repo: Path) -> str | None:
+def _run_checks(checks: list[list[str]], project: Path, out: Path, repo: Path) -> str | None:
     """Runs the `check` commands in the project folder (so `out.nds` is the built ROM), output to
     out/check.log and stderr. Stops at the first exit != 0; returns its message, None if all pass."""
-    if not scenario.check:
+    if not checks:
         return None
     try:
         g4k = g4k_command(repo)
@@ -167,7 +286,7 @@ def _run_checks(scenario: Scenario, project: Path, out: Path, repo: Path) -> str
         return str(e)
     log = out / "check.log"
     log.write_text("", encoding="utf-8")
-    for command in scenario.check:
+    for command in checks:
         shown = " ".join(command)
         try:
             result = subprocess.run(
@@ -210,36 +329,80 @@ def run_scenario(
     except ValueError as e:
         return _fail(scenario, str(e))
 
-    batch: list[list] = [["open_project", {"path": str(project)}], *scenario.edits, ["save", {}]]
-    if rom is not None:
-        batch.append(["build_rom", {"out": str(rom)}])
     out.mkdir(parents=True, exist_ok=True)
-    batch_file = out / "edits.json"
-    batch_file.write_text(json.dumps(batch, ensure_ascii=False, indent=1), encoding="utf-8")
-
+    # Results and batch files of an earlier run in the same folder would pass for this run's.
+    for stale in [out / "results.json", *out.glob("edits*.json")]:
+        stale.unlink(missing_ok=True)
     try:
         command = bridge_command(repo)
     except RuntimeError as e:
         return _fail(scenario, str(e))
-    try:
-        result = subprocess.run(
-            [*command, "batch", str(batch_file), "--allow-root", str(project.parent)],
-            stdout=subprocess.PIPE, text=True,
-        )
-    except OSError as e:
-        return _fail(scenario, f"studio-bridge nicht startbar: {e}")
-    (out / "bridge.jsonl").write_text(result.stdout, encoding="utf-8")
-    sys.stderr.write(result.stdout)
-    if result.returncode != 0:
-        return _fail(scenario, f"studio-bridge batch fehlgeschlagen (Exit {result.returncode}); Ausgabe: {out / 'bridge.jsonl'}")
+    (out / "bridge.jsonl").write_text("", encoding="utf-8")
+    opened = ["open_project", {"path": str(project)}]
+    results: dict[str, Any] = {}
+    sessions = 0
 
-    failure = _run_checks(scenario, project, out, repo)
+    def session(batch: list[list]) -> tuple[str | None, list[dict]]:
+        """One studio-bridge batch (its own session); the error message or None, and its lines."""
+        nonlocal sessions
+        sessions += 1
+        batch_file = out / ("edits.json" if sessions == 1 else f"edits-{sessions}.json")
+        batch_file.write_text(json.dumps(batch, ensure_ascii=False, indent=1), encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [*command, "batch", str(batch_file), "--allow-root", str(project.parent)],
+                stdout=subprocess.PIPE, text=True,
+            )
+        except OSError as e:
+            return f"studio-bridge nicht startbar: {e}", []
+        with (out / "bridge.jsonl").open("a", encoding="utf-8") as f:
+            f.write(result.stdout)
+        sys.stderr.write(result.stdout)
+        if result.returncode != 0:
+            return f"studio-bridge batch fehlgeschlagen (Exit {result.returncode}); Ausgabe: {out / 'bridge.jsonl'}", []
+        lines = []
+        for text in result.stdout.splitlines():
+            try:
+                lines.append(json.loads(text))
+            except ValueError:
+                pass
+        return None, lines
+
+    # An edit with a name ends a session: its result is needed before the next edit can be
+    # written, and every batch is a fresh bridge state, so the session saves and the next opens again.
+    batch: list[list] = [opened]
+    try:
+        for edit in scenario.edits:
+            batch.append([edit[0], resolve(edit[1], results)])
+            if len(edit) < 3:
+                continue
+            at = len(batch) - 1
+            failure, lines = session([*batch, ["save", {}]])
+            if failure is not None:
+                return _fail(scenario, failure)
+            if len(lines) <= at or not lines[at].get("ok"):
+                return _fail(scenario, f"keine Antwort von {edit[0]} für {edit[2]}; Ausgabe: {out / 'bridge.jsonl'}")
+            results[edit[2]] = lines[at].get("result")
+            (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+            batch = [opened]
+        checks = [[str(resolve(arg, results)) for arg in check] for check in scenario.check]
+        play = [str(resolve(token, results)) for token in scenario.play]
+    except (KeyError, ValueError) as e:
+        return _fail(scenario, f"Platzhalter aus einer Antwort nicht auflösbar: {e}")
+    batch.append(["save", {}])
+    if rom is not None:
+        batch.append(["build_rom", {"out": str(rom)}])
+    failure, _ = session(batch)
     if failure is not None:
         return _fail(scenario, failure)
 
-    if not scenario.play:
+    failure = _run_checks(checks, project, out, repo)
+    if failure is not None:
+        return _fail(scenario, failure)
+
+    if not play:
         _summary(scenario, True, [])
         return 0
-    code, lines = _play(rom, saves / game.save, out, scenario.play, core)
+    code, lines = _play(rom, saves / game.save, out, play, core)
     _summary(scenario, code == 0, lines)
     return code

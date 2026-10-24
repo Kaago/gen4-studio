@@ -43,7 +43,8 @@ impl EventKind {
 /// The fields of an event the editor changes; `None` leaves a field as it is. A field the kind
 /// does not have is ignored. `x` and `z` are cut to the kind's field type (`u16` for warps and
 /// objects, `i16` for coordinate triggers, `i32` for background events); a value outside it
-/// refuses the whole call.
+/// refuses the whole call. Objects only: `trainer_type` (1 = the trainer sees the player, 0 = only
+/// talking starts the battle) and `sight`, the range in tiles stored in object `data[0]`.
 #[derive(Debug, Default, Deserialize)]
 pub struct EventPatch {
     pub x: Option<i32>,
@@ -59,6 +60,8 @@ pub struct EventPatch {
     pub height: Option<u32>,
     pub width: Option<u16>,
     pub length: Option<u16>,
+    pub trainer_type: Option<u16>,
+    pub sight: Option<u16>,
 }
 
 /// `v` as the field type `T`, or `OutOfRange` (`max` is the largest value `T` holds).
@@ -101,6 +104,8 @@ impl EventPatch {
             && s.height.is_none()
             && s.width.is_none()
             && s.length.is_none()
+            && s.trainer_type.is_none()
+            && s.sight.is_none()
     }
 
     /// Applies the patch to event `index` of `kind`, or fails without changing anything.
@@ -159,6 +164,12 @@ impl EventPatch {
                 }
                 if let Some(v) = self.local_id {
                     next.local_id = v;
+                }
+                if let Some(v) = self.trainer_type {
+                    next.trainer_type = v;
+                }
+                if let Some(v) = self.sight {
+                    next.data[0] = v;
                 }
                 *slot = next;
             }
@@ -261,20 +272,26 @@ pub fn update_event_impl(
 
 /// Appends an event of class `kind` at tile (`x`, `z`) (absolute matrix tiles) and returns its
 /// index within its class. Every other field starts at 0; a coordinate trigger is 1 x 1 and an
-/// object gets the next free `local_id`. One undoable change.
+/// object gets the next free `local_id`. One undoable change, named `label` (default "add event").
+/// `patch`, when given, is applied to the new event inside that same change: placing a trainer
+/// (script, `trainer_type`, sight) is one undo step. A patch the new event cannot take refuses
+/// the whole call; nothing is added.
 pub fn add_event_impl(
     state: &AppState,
     event_file: u16,
     kind: EventKind,
     x: i32,
     z: i32,
+    patch: Option<EventPatch>,
+    label: Option<&str>,
 ) -> Result<u16, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let count = kind.count(session.store.event(event_file)?);
     let index = u16::try_from(count)
         .map_err(|_| CmdError::from(format!("event file {event_file:04} has too many events")))?;
-    session.store.edit_event(event_file, "add event", |file| {
+    let label = label.unwrap_or("add event");
+    session.store.edit_event(event_file, label, |file| {
         match kind {
             EventKind::Bg => file.bg_events.push(BgEvent {
                 script: 0,
@@ -326,7 +343,10 @@ pub fn add_event_impl(
                 file.coord_events.push(coord);
             }
         }
-        Ok(())
+        match &patch {
+            Some(patch) => patch.apply(kind, file, count),
+            None => Ok(()),
+        }
     })?;
     Ok(index)
 }
@@ -390,8 +410,10 @@ pub fn add_event(
     kind: EventKind,
     x: i32,
     z: i32,
+    patch: Option<EventPatch>,
+    label: Option<String>,
 ) -> Result<u16, CmdError> {
-    add_event_impl(&state, event_file, kind, x, z)
+    add_event_impl(&state, event_file, kind, x, z, patch, label.as_deref())
 }
 
 #[tauri::command]
@@ -425,7 +447,7 @@ mod tests {
     #[test]
     fn event_commands_add_update_delete() {
         let (_s, state) = open_synthetic();
-        let i = add_event_impl(&state, 0, EventKind::Warp, 8, 4).unwrap();
+        let i = add_event_impl(&state, 0, EventKind::Warp, 8, 4, None, None).unwrap();
         update_event_impl(
             &state,
             0,
@@ -468,11 +490,17 @@ mod tests {
     #[test]
     fn new_events_start_with_the_documented_values() {
         let (_s, state) = open_synthetic();
-        assert_eq!(add_event_impl(&state, 0, EventKind::Warp, 8, 4).unwrap(), 0);
-        assert_eq!(add_event_impl(&state, 0, EventKind::Warp, 9, 4).unwrap(), 1);
-        add_event_impl(&state, 0, EventKind::Coord, -3, 5).unwrap();
-        add_event_impl(&state, 0, EventKind::Bg, 70_000, -2).unwrap();
-        add_event_impl(&state, 0, EventKind::Object, 12, 13).unwrap();
+        assert_eq!(
+            add_event_impl(&state, 0, EventKind::Warp, 8, 4, None, None).unwrap(),
+            0
+        );
+        assert_eq!(
+            add_event_impl(&state, 0, EventKind::Warp, 9, 4, None, None).unwrap(),
+            1
+        );
+        add_event_impl(&state, 0, EventKind::Coord, -3, 5, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Bg, 70_000, -2, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Object, 12, 13, None, None).unwrap();
         let ev = get_events_impl(&state, 0).unwrap();
         let w = &ev.warps[1];
         assert_eq!(
@@ -509,10 +537,118 @@ mod tests {
     }
 
     #[test]
+    fn event_patch_sets_trainer_type_and_sight() {
+        let (_s, state) = open_synthetic();
+        add_event_impl(&state, 0, EventKind::Object, 12, 13, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 1, None, None).unwrap();
+        let o = &get_events_impl(&state, 0).unwrap().objects[0];
+        assert_eq!((o.trainer_type, o.sight), (0, 0));
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            0,
+            patch(|p| {
+                p.trainer_type = Some(1);
+                p.sight = Some(5);
+            }),
+        )
+        .unwrap();
+        let o = &get_events_impl(&state, 0).unwrap().objects[0];
+        assert_eq!((o.trainer_type, o.sight, o.x, o.script), (1, 5, 12, 0));
+        // The sight is object data[0]; data[1] and data[2] stay.
+        {
+            let mut guard = lock(&state).unwrap();
+            let file = session(&mut guard).unwrap().store.event(0).unwrap();
+            assert_eq!(file.object_events[0].data, [5, 0, 0]);
+            assert_eq!(file.object_events[0].trainer_type, 1);
+        }
+        // A sight change alone is an edit, not a move, and is undoable.
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            0,
+            patch(|p| p.sight = Some(2)),
+        )
+        .unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().objects[0].sight, 2);
+        undo_impl(&state).unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().objects[0].sight, 5);
+        // Other kinds ignore both fields.
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Warp,
+            0,
+            patch(|p| {
+                p.trainer_type = Some(1);
+                p.sight = Some(3);
+            }),
+        )
+        .unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().warps[0].x, 1);
+    }
+
+    #[test]
+    fn add_event_with_a_patch_and_label_is_one_undo_step() {
+        let (_s, state) = open_synthetic();
+        let trainer = patch(|p| {
+            p.script = Some(3929);
+            p.trainer_type = Some(1);
+            p.sight = Some(3);
+        });
+        let i = add_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            12,
+            13,
+            Some(trainer),
+            Some("Trainer Jens platziert"),
+        )
+        .unwrap();
+        assert_eq!(i, 0);
+        let o = &get_events_impl(&state, 0).unwrap().objects[0];
+        assert_eq!(
+            (o.x, o.z, o.script, o.trainer_type, o.sight, o.local_id),
+            (12, 13, 3929, 1, 3, 0)
+        );
+        assert_eq!(
+            history_impl(&state).unwrap().undo,
+            vec!["Trainer Jens platziert".to_owned()]
+        );
+        // One undo takes the whole figure away, fields and all.
+        undo_impl(&state).unwrap();
+        assert!(get_events_impl(&state, 0).unwrap().objects.is_empty());
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        // Without a patch and label it is the plain "add event".
+        add_event_impl(&state, 0, EventKind::Object, 1, 1, None, None).unwrap();
+        assert_eq!(
+            history_impl(&state).unwrap().undo,
+            vec!["add event".to_owned()]
+        );
+        // A patch the new event cannot take refuses the whole add.
+        let err = add_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            1,
+            1,
+            Some(patch(|p| p.x = Some(70_000))),
+            Some("x"),
+        )
+        .unwrap_err();
+        assert!(err.message.contains("out of range"), "{}", err.message);
+        assert_eq!(get_events_impl(&state, 0).unwrap().objects.len(), 1);
+        assert_eq!(history_impl(&state).unwrap().undo.len(), 1);
+    }
+
+    #[test]
     fn new_objects_take_the_next_free_local_id() {
         let (_s, state) = open_synthetic();
         for _ in 0..3 {
-            add_event_impl(&state, 0, EventKind::Object, 1, 1).unwrap();
+            add_event_impl(&state, 0, EventKind::Object, 1, 1, None, None).unwrap();
         }
         let ids = |state: &AppState| -> Vec<u16> {
             get_events_impl(state, 0)
@@ -525,7 +661,7 @@ mod tests {
         assert_eq!(ids(&state), [0, 1, 2]);
         // A gap is filled before the ids run on.
         delete_event_impl(&state, 0, EventKind::Object, 1).unwrap();
-        add_event_impl(&state, 0, EventKind::Object, 1, 1).unwrap();
+        add_event_impl(&state, 0, EventKind::Object, 1, 1, None, None).unwrap();
         assert_eq!(ids(&state), [0, 2, 1]);
         update_event_impl(
             &state,
@@ -535,16 +671,16 @@ mod tests {
             patch(|p| p.local_id = Some(3)),
         )
         .unwrap();
-        add_event_impl(&state, 0, EventKind::Object, 1, 1).unwrap();
+        add_event_impl(&state, 0, EventKind::Object, 1, 1, None, None).unwrap();
         assert_eq!(ids(&state), [3, 2, 1, 0]);
     }
 
     #[test]
     fn update_changes_only_the_fields_the_kind_has() {
         let (_s, state) = open_synthetic();
-        add_event_impl(&state, 0, EventKind::Object, 12, 13).unwrap();
-        add_event_impl(&state, 0, EventKind::Coord, 3, 5).unwrap();
-        add_event_impl(&state, 0, EventKind::Bg, 20, 21).unwrap();
+        add_event_impl(&state, 0, EventKind::Object, 12, 13, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Coord, 3, 5, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Bg, 20, 21, None, None).unwrap();
         let everything = || {
             patch(|p| {
                 p.x = Some(30);
@@ -591,10 +727,10 @@ mod tests {
     #[test]
     fn coordinates_outside_the_field_type_are_refused_without_changes() {
         let (_s, state) = open_synthetic();
-        add_event_impl(&state, 0, EventKind::Warp, 1, 1).unwrap();
-        add_event_impl(&state, 0, EventKind::Object, 1, 1).unwrap();
-        add_event_impl(&state, 0, EventKind::Coord, 1, 1).unwrap();
-        add_event_impl(&state, 0, EventKind::Bg, 1, 1).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 1, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Object, 1, 1, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Coord, 1, 1, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Bg, 1, 1, None, None).unwrap();
         // Saved, so that a refused change shows up as a dirty file.
         save_impl(&state).unwrap();
         for (kind, bad) in [
@@ -615,7 +751,7 @@ mod tests {
                     let err = update_event_impl(&state, 0, kind, 0, p).unwrap_err();
                     assert!(err.message.contains("out of range"), "{}", err.message);
                 }
-                assert!(add_event_impl(&state, 0, kind, v, 0).is_err());
+                assert!(add_event_impl(&state, 0, kind, v, 0, None, None).is_err());
             }
         }
         // Background coordinates are i32: a negative one is fine there.
@@ -637,7 +773,7 @@ mod tests {
     fn a_warp_height_the_game_family_cannot_store_is_refused() {
         // The synthetic project is Platinum, which has no warp height.
         let (_s, state) = open_synthetic();
-        add_event_impl(&state, 0, EventKind::Warp, 1, 1).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 1, None, None).unwrap();
         save_impl(&state).unwrap();
         let err = update_event_impl(&state, 0, EventKind::Warp, 0, patch(|p| p.height = Some(3)))
             .unwrap_err();
@@ -657,12 +793,12 @@ mod tests {
         );
         assert!(delete_event_impl(&state, 0, EventKind::Object, 3).is_err());
         assert!(update_event_impl(&state, 99, EventKind::Bg, 0, EventPatch::default()).is_err());
-        assert!(add_event_impl(&state, 99, EventKind::Bg, 0, 0).is_err());
+        assert!(add_event_impl(&state, 99, EventKind::Bg, 0, 0, None, None).is_err());
         assert!(delete_event_impl(&state, 99, EventKind::Bg, 0).is_err());
         assert!(dirty_impl(&state).unwrap().is_empty());
         let none = AppState::default();
         assert_eq!(
-            add_event_impl(&none, 0, EventKind::Warp, 0, 0)
+            add_event_impl(&none, 0, EventKind::Warp, 0, 0, None, None)
                 .unwrap_err()
                 .message,
             "no project open"
@@ -673,7 +809,7 @@ mod tests {
     fn event_edits_are_undoable_and_delete_shifts_indexes() {
         let (_s, state) = open_synthetic();
         for x in [1, 2, 3] {
-            add_event_impl(&state, 0, EventKind::Warp, x, 0).unwrap();
+            add_event_impl(&state, 0, EventKind::Warp, x, 0, None, None).unwrap();
         }
         delete_event_impl(&state, 0, EventKind::Warp, 0).unwrap();
         let xs = |state: &AppState| -> Vec<u16> {
@@ -720,7 +856,7 @@ mod tests {
             "{:?}",
             ev.locked
         );
-        let err = add_event_impl(&state, 0, EventKind::Warp, 1, 1).unwrap_err();
+        let err = add_event_impl(&state, 0, EventKind::Warp, 1, 1, None, None).unwrap_err();
         assert_eq!(err.code, "read_only");
         assert!(err.message.contains("is read-only"), "{}", err.message);
         assert!(dirty_impl(&state).unwrap().is_empty());
@@ -768,7 +904,7 @@ mod tests {
         assert_eq!(empty.locked, None);
 
         // The copy holds the store state of the source, unsaved edits included.
-        add_event_impl(&state, 0, EventKind::Warp, 1, 2).unwrap();
+        add_event_impl(&state, 0, EventKind::Warp, 1, 2, None, None).unwrap();
         assert_eq!(duplicate_event_file_impl(&state, 0).unwrap(), 3);
         assert_eq!(get_events_impl(&state, 3).unwrap().warps.len(), 1);
         assert_eq!(member_counts_impl(&state).unwrap()[&AssetKind::Event], 4);

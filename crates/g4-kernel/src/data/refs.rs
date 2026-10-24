@@ -6,7 +6,9 @@
 //!   HGSS u8, 0xFF none)
 //! - encounter files: every slot and replacement list → species
 //! - trainer properties → trainer class and items; trainer parties → species, items, moves
-//! - object events: a script in [`TRAINER_SCRIPTS`] → trainer
+//!   (a trainer the store holds as a document, `AssetKind::Trainer`, is read from that
+//!   document with its unsaved edits; a change of it recomputes both of its sources)
+//! - object events: a script in [`TRAINER_SCRIPTS`] or [`PARTNER_SCRIPTS`] → trainer
 //! - personal data: `item1`, `item2` → items
 //! - learnsets → moves
 //! - evolutions: the target → species; the parameter → item, move or species by method
@@ -29,7 +31,7 @@ use g4_formats::data::evolution::{EVO_ENTRIES, Evolution};
 use g4_formats::data::learnset::Learnset;
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
-use g4_formats::data::trainer::{Party, TrainerProps};
+use g4_formats::data::trainer::{Party, PartyMon, TrainerProps};
 use g4_formats::game::Family;
 use g4_formats::narc::Narc;
 use uxie::event_file::EventFile;
@@ -66,8 +68,13 @@ pub struct Ref {
 }
 
 /// Overworld scripts that start a trainer battle: script `3000 + n - 1` is trainer `n`
-/// (spec §2, "Event ↔ Trainer"; 5000–6999 are partner battles, not counted).
+/// (spec §2, "Event ↔ Trainer").
 pub const TRAINER_SCRIPTS: RangeInclusive<u16> = 3000..=4999;
+
+/// Overworld scripts of a double battle partner: script `5000 + n - 1` is trainer `n` as a
+/// partner (trainer-mechanics-3b3b.md §8.4, ruling R9); counted as a reference to trainer `n`
+/// like [`TRAINER_SCRIPTS`].
+pub const PARTNER_SCRIPTS: RangeInclusive<u16> = 5000..=6999;
 
 /// Evolution methods whose parameter is an item id: 6 (trade holding it), 7 (use it),
 /// 16, 17 (use it, male / female: Dawn Stone), 18, 19 (level up holding it, by day / by
@@ -111,6 +118,22 @@ fn is_source(kind: AssetKind) -> bool {
 fn with_dependents(changed: Vec<AssetId>) -> Vec<AssetId> {
     let mut out: Vec<AssetId> = changed
         .into_iter()
+        .flat_map(|id| {
+            // The store's trainer asset is the pair of its two member sources.
+            if id.kind == AssetKind::Trainer {
+                return vec![
+                    AssetId {
+                        kind: AssetKind::TrainerProperties,
+                        index: id.index,
+                    },
+                    AssetId {
+                        kind: AssetKind::TrainerParty,
+                        index: id.index,
+                    },
+                ];
+            }
+            vec![id]
+        })
         .filter(|id| is_source(id.kind))
         .flat_map(|id| {
             let party = (id.kind == AssetKind::TrainerProperties).then_some(AssetId {
@@ -163,6 +186,24 @@ impl RefIndex {
             .collect())
     }
 
+    /// Every reference whose target passes `keep`, in the order of [`RefIndex::refs`]: one
+    /// pass over the index for many targets (the trainer list asks for the object events of
+    /// every trainer at once).
+    pub fn refs_where(
+        &mut self,
+        store: &Store,
+        keep: impl Fn(Target) -> bool,
+    ) -> Result<Vec<Ref>, KernelError> {
+        Ok(self
+            .current(store)?
+            .sources
+            .values()
+            .flatten()
+            .filter(|r| keep(r.target))
+            .copied()
+            .collect())
+    }
+
     /// Number of references to `target` (see [`RefIndex::refs`]).
     pub fn count(&mut self, store: &Store, target: Target) -> Result<usize, KernelError> {
         Ok(self
@@ -185,11 +226,12 @@ impl RefIndex {
         let (generation, changed) = store.changes_since(built.generation);
         let changed = with_dependents(changed);
         if !changed.is_empty() {
-            // Only sources the store does not hold are read from the disk (in practice the
-            // store holds every asset it reports as changed, so nothing is opened).
+            // Only sources the store does not hold are read from the disk: a trainer's two
+            // member sources come from its loaded `Trainer` asset (`loaded_trainer_refs`), every
+            // other changed source is held as itself, so in practice nothing is opened.
             let kinds: Vec<AssetKind> = changed
                 .iter()
-                .filter(|&&id| store.peek(id).is_none())
+                .filter(|&&id| store.peek(id).is_none() && loaded_trainer_refs(store, id).is_none())
                 .map(|id| id.kind)
                 .collect();
             let disk = Disk::open(store.project(), &kinds)?;
@@ -260,8 +302,11 @@ fn collect_refs(
     let mut out = Vec::with_capacity(ids.len());
     let mut unloaded = Vec::new();
     for &id in ids {
+        if let Some(refs) = loaded_trainer_refs(store, id) {
+            out.push((id, refs));
+            continue;
+        }
         match store.peek(id) {
-            // Trainer kinds are never in the store.
             Some(value) => out.push((id, value_refs(id, value))),
             None => unloaded.push(id),
         }
@@ -398,9 +443,10 @@ fn value_refs(id: AssetId, value: &Loaded) -> Vec<Ref> {
         Loaded::Evolution(e) => evolution_refs(&mut out, e),
         // A locked member of the wrong length.
         Loaded::Raw(_) => {}
-        // Kinds that are no source. Trainers are read from the disk only; when 3b.3b adds
-        // a trainer asset to the store, it becomes a source here.
-        Loaded::Map(_)
+        // Kinds that are no source. A loaded trainer is read through its two member
+        // sources (`loaded_trainer_refs`).
+        Loaded::Trainer(_)
+        | Loaded::Map(_)
         | Loaded::Matrix(_)
         | Loaded::AreaData(_)
         | Loaded::TextArchive(_)
@@ -450,16 +496,20 @@ impl Refs {
     }
 }
 
+/// The encounter file of `header` (its `wild_pokemon`), `None` when it has none.
+pub(crate) fn encounter_file(header: &MapHeader) -> Option<u16> {
+    match header {
+        MapHeader::DP(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
+        MapHeader::Pt(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
+        MapHeader::HGSS(h) => {
+            (h.wild_pokemon != NO_ENCOUNTERS_HGSS).then_some(u16::from(h.wild_pokemon))
+        }
+    }
+}
+
 fn header_refs(out: &mut Refs, headers: &[MapHeader]) {
     for (id, header) in headers.iter().enumerate() {
-        let file = match header {
-            MapHeader::DP(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
-            MapHeader::Pt(h) => (h.wild_pokemon != NO_ENCOUNTERS).then_some(h.wild_pokemon),
-            MapHeader::HGSS(h) => {
-                (h.wild_pokemon != NO_ENCOUNTERS_HGSS).then_some(u16::from(h.wild_pokemon))
-            }
-        };
-        if let Some(file) = file {
+        if let Some(file) = encounter_file(header) {
             out.push("wild_pokemon", Some(id), Target::Encounter(file));
         }
     }
@@ -534,8 +584,12 @@ fn encounter_refs(out: &mut Refs, encounters: &Encounters) {
 
 fn event_refs(out: &mut Refs, events: &EventFile) {
     for (slot, object) in events.object_events.iter().enumerate() {
-        if TRAINER_SCRIPTS.contains(&object.script) {
-            let trainer = object.script - TRAINER_SCRIPTS.start() + 1;
+        let start = [&TRAINER_SCRIPTS, &PARTNER_SCRIPTS]
+            .into_iter()
+            .find(|range| range.contains(&object.script))
+            .map(|range| *range.start());
+        if let Some(start) = start {
+            let trainer = object.script - start + 1;
             out.push("script", Some(slot), Target::Trainer(trainer));
         }
     }
@@ -568,6 +622,34 @@ fn evolution_refs(out: &mut Refs, evolution: &Evolution) {
     }
 }
 
+/// The references of a trainer member source from the store's trainer asset when that is
+/// loaded as a document (its unsaved edits included): the properties source gets the class
+/// and the trainer items, the party source the species, items and moves of its Pokémon.
+/// `None` for other kinds and for a trainer the store does not hold as a document (not
+/// loaded, or kept raw because it does not decode): those are read from the disk.
+fn loaded_trainer_refs(store: &Store, id: AssetId) -> Option<Vec<Ref>> {
+    if !matches!(
+        id.kind,
+        AssetKind::TrainerProperties | AssetKind::TrainerParty
+    ) {
+        return None;
+    }
+    let trainer = AssetId {
+        kind: AssetKind::Trainer,
+        index: id.index,
+    };
+    let Some(Loaded::Trainer(doc)) = store.peek(trainer) else {
+        return None;
+    };
+    let mut out = Refs::new(id);
+    if id.kind == AssetKind::TrainerProperties {
+        push_props(&mut out, doc.class, doc.items);
+    } else {
+        push_mons(&mut out, &doc.party);
+    }
+    Some(out.refs)
+}
+
 /// Trainer properties `index` from the disk; `None` when missing or of the wrong length.
 fn trainer_props(disk: &Disk, index: u16) -> Result<Option<TrainerProps>, KernelError> {
     Ok(disk
@@ -577,11 +659,15 @@ fn trainer_props(disk: &Disk, index: u16) -> Result<Option<TrainerProps>, Kernel
 
 fn props_refs(id: AssetId, props: &TrainerProps) -> Vec<Ref> {
     let mut out = Refs::new(id);
-    out.push("class", None, Target::TrainerClass(props.class()));
-    for (slot, item) in props.items().into_iter().enumerate() {
+    push_props(&mut out, props.class(), props.items());
+    out.refs
+}
+
+fn push_props(out: &mut Refs, class: u8, items: [u16; 4]) {
+    out.push("class", None, Target::TrainerClass(class));
+    for (slot, item) in items.into_iter().enumerate() {
         out.push_nonzero("item", Some(slot), item, Target::Item);
     }
-    out.refs
 }
 
 /// The references of trainer party `id`, read with the format and count of its
@@ -598,14 +684,18 @@ fn party_refs(disk: &Disk, id: AssetId, family: Family) -> Result<Vec<Ref>, Kern
         return Ok(Vec::new());
     };
     let mut out = Refs::new(id);
-    for (slot, mon) in party.mons.iter().enumerate() {
+    push_mons(&mut out, &party.mons);
+    Ok(out.refs)
+}
+
+fn push_mons(out: &mut Refs, mons: &[PartyMon]) {
+    for (slot, mon) in mons.iter().enumerate() {
         out.push_nonzero("species", Some(slot), mon.species(), Target::Species);
         out.push_nonzero("item", Some(slot), mon.item.unwrap_or(0), Target::Item);
         for m in mon.moves.unwrap_or_default() {
             out.push_nonzero("move", Some(slot), m, Target::Move);
         }
     }
-    Ok(out.refs)
 }
 
 #[cfg(test)]
@@ -624,6 +714,8 @@ mod tests {
             id(AssetKind::TrainerParty, 4),
             id(AssetKind::Learnset, 2),
             id(AssetKind::TrainerProperties, 7),
+            // The store's trainer asset stands for both of its member sources.
+            id(AssetKind::Trainer, 9),
         ];
         assert_eq!(
             with_dependents(changed),
@@ -631,8 +723,10 @@ mod tests {
                 id(AssetKind::Learnset, 2),
                 id(AssetKind::TrainerProperties, 4),
                 id(AssetKind::TrainerProperties, 7),
+                id(AssetKind::TrainerProperties, 9),
                 id(AssetKind::TrainerParty, 4),
                 id(AssetKind::TrainerParty, 7),
+                id(AssetKind::TrainerParty, 9),
             ]
         );
     }

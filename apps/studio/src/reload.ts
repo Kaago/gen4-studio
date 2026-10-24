@@ -82,6 +82,7 @@ export function reloadPlan(asset: AssetId, scene: SceneState | null): ReloadActi
     case "TrainerParty":
     case "TrainerTextTable":
     case "TrainerTextOffsets":
+    case "Trainer":
       return [{ kind: "dataPanel", asset }];
     default:
       return [];

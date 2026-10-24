@@ -14,6 +14,7 @@ use g4_formats::data::learnset::Learnset;
 use g4_formats::data::moves::Move;
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
+use g4_formats::data::trainer_doc::{Checked, TrainerDoc};
 use g4_formats::data::trainer_text::{TrainerTextOffsets, TrainerTextTable};
 use g4_formats::error::FormatError;
 use g4_formats::game::Family;
@@ -91,6 +92,9 @@ pub(crate) enum Loaded {
     Item(Item),
     TrainerTextTable(TrainerTextTable),
     TrainerTextOffsets(TrainerTextOffsets),
+    /// A trainer: its properties and party members decoded together; its bytes are the
+    /// pair (see [`Location::MemberPair`]).
+    Trainer(TrainerDoc),
     /// A data member of a length its codec rejects, kept as read. Such an asset is always
     /// locked (see [`decode`]).
     Raw(Vec<u8>),
@@ -107,6 +111,7 @@ impl Loaded {
                 | AssetKind::Event
                 | AssetKind::HeaderTable
                 | AssetKind::TextArchive
+                | AssetKind::Trainer
         ) || Loaded::is_data(kind)
     }
 
@@ -181,10 +186,14 @@ impl Loaded {
             AssetKind::TrainerTextOffsets => {
                 Ok(Loaded::TrainerTextOffsets(TrainerTextOffsets::read(bytes)?))
             }
-            // Archives for build and counting only: a trainer is edited as a pair of both
-            // members (3b.3b).
+            // Archives for build and counting only: a trainer is edited as the pair of both
+            // members, `AssetKind::Trainer`.
             AssetKind::TrainerProperties | AssetKind::TrainerParty => {
                 Err(KernelError::NotEditable(kind))
+            }
+            AssetKind::Trainer => {
+                let (props, party) = split_pair(bytes)?;
+                Ok(Loaded::Trainer(TrainerDoc::decode(props, party, family)?))
             }
         }
     }
@@ -212,6 +221,10 @@ impl Loaded {
             Loaded::Item(i) => Ok(i.write()),
             Loaded::TrainerTextTable(t) => Ok(t.write()),
             Loaded::TrainerTextOffsets(o) => Ok(o.write()),
+            Loaded::Trainer(t) => {
+                let (props, party) = t.encode(family);
+                Ok(join_pair(&props, &party))
+            }
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
     }
@@ -228,6 +241,9 @@ fn decode(
     family: Family,
     lang: &str,
 ) -> Result<(Loaded, Option<String>), KernelError> {
+    if id.kind == AssetKind::Trainer {
+        return decode_trainer(id, bytes, family);
+    }
     match Loaded::from_bytes(id.kind, bytes, family, lang) {
         Ok(value) => {
             let locked = unwritable_reason(&value, bytes, family);
@@ -243,6 +259,56 @@ fn decode(
         }
         Err(e) => Err(e),
     }
+}
+
+/// [`decode`] for a trainer: locked when encoding would not give both files back byte for
+/// byte, with a reason that names the trainer and the file ("trainer 0012: party 20 bytes,
+/// expected 16"). A pair that does not decode at all is kept raw.
+fn decode_trainer(
+    id: AssetId,
+    bytes: &[u8],
+    family: Family,
+) -> Result<(Loaded, Option<String>), KernelError> {
+    let (props, party) = split_pair(bytes)?;
+    Ok(match TrainerDoc::check(props, party, family) {
+        Checked::Exact(doc) => (Loaded::Trainer(doc), None),
+        Checked::Differs(doc, why) => (Loaded::Trainer(doc), Some(format!("{id}: {why}"))),
+        Checked::Unreadable(why) => (Loaded::Raw(bytes.to_vec()), Some(format!("{id}: {why}"))),
+    })
+}
+
+/// Whether the bytes of a trainer ([`join_pair`]) are what `create_trainer` writes for the
+/// placeholder of the sight script slot: properties all zero, a party of 8 zero bytes. A
+/// hack's real trainer at that ID is not, and stays editable. (Its name "-" lives in the name
+/// bank and is not checked.)
+fn placeholder_shaped(bytes: &[u8]) -> bool {
+    split_pair(bytes).is_ok_and(|(props, party)| props.iter().all(|&b| b == 0) && party == [0; 8])
+}
+
+/// The bytes of a trainer: `u32 len(props) | props | party`, see [`Location::MemberPair`].
+fn join_pair(props: &[u8], party: &[u8]) -> Vec<u8> {
+    // A properties member is a file of the unpacked archive, far below 4 GiB.
+    let mut out = (props.len() as u32).to_le_bytes().to_vec();
+    out.reserve(props.len() + party.len());
+    out.extend_from_slice(props);
+    out.extend_from_slice(party);
+    out
+}
+
+/// The properties and the party of the bytes of a trainer ([`join_pair`]).
+fn split_pair(bytes: &[u8]) -> Result<(&[u8], &[u8]), KernelError> {
+    let malformed = || {
+        KernelError::InvalidProject(format!(
+            "{} bytes are no trainer pair (u32 length of the properties, properties, party)",
+            bytes.len()
+        ))
+    };
+    let (len, rest) = bytes.split_first_chunk::<4>().ok_or_else(malformed)?;
+    let len = usize::try_from(u32::from_le_bytes(*len)).map_err(|_| malformed())?;
+    if len > rest.len() {
+        return Err(malformed());
+    }
+    Ok(rest.split_at(len))
 }
 
 /// A data record type the store edits, and the [`Loaded`] variant that holds it.
@@ -290,6 +356,7 @@ record! {
     Item => Item;
     TrainerTextTable => TrainerTextTable;
     TrainerTextOffsets => TrainerTextOffsets;
+    TrainerDoc => Trainer;
 }
 
 /// The record of type `T` in `asset`; a locked raw member is [`KernelError::ReadOnly`] with
@@ -343,10 +410,13 @@ pub struct Part {
 }
 
 /// One undoable step: every asset it changed, each at most once, in the order they were
-/// edited. Never empty.
+/// edited. Never empty, except a barrier whose parts were forgotten.
 struct Changeset {
     parts: Vec<Part>,
     label: String,
+    /// Set for a step undo must not cross (see [`Store::barrier_transaction`]): the reason
+    /// undo is refused with.
+    barrier: Option<String>,
 }
 
 /// An edit staged by a [`Tx`]: the edited copy of the asset and its bytes before and after.
@@ -599,6 +669,31 @@ impl Tx<'_> {
     ) -> Result<(), KernelError> {
         self.edit_record(index, edit)
     }
+
+    /// Trainer `index` as this transaction sees it (its staged edit included).
+    pub fn trainer(&mut self, index: u16) -> Result<&TrainerDoc, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits trainer `index`: its properties and its party are one part. A party of more
+    /// than six Pokémon fails the transaction as [`KernelError::Format`].
+    pub fn edit_trainer(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut TrainerDoc),
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Trainer,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Trainer(doc) => {
+                edit(doc);
+                Ok(doc.validate()?)
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
 }
 
 pub struct Store {
@@ -622,7 +717,18 @@ pub struct Store {
     /// Per asset, the `change_generation` of its latest change; an asset never changed is
     /// not in the map.
     changed_at: HashMap<AssetId, u64>,
+    /// Assets locked by [`Store::lock`], with the reason; applied whenever they are loaded.
+    locks: HashMap<AssetId, String>,
+    /// The trainer ID of the sight script slot (`trainer_scripts.yaml`, see
+    /// [`crate::scripts::TrainerScriptMeta::seen_id`]): a placeholder-shaped trainer with
+    /// this ID is the placeholder `create_trainer` writes, locked with [`PLACEHOLDER_REASON`]
+    /// whenever it is loaded. Derived, never stored, so a reopened project shows it locked as
+    /// well.
+    placeholder_trainer: Option<u16>,
 }
+
+/// Why the placeholder trainer of the sight script slot is read-only.
+pub const PLACEHOLDER_REASON: &str = "placeholder for the sight script slot";
 
 /// A message text and its lowercase form, for case-insensitive search.
 struct IndexedText {
@@ -677,7 +783,6 @@ fn mismatch(id: AssetId) -> KernelError {
 impl Store {
     pub fn new(project: Arc<Project>) -> Store {
         Store {
-            project,
             assets: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -687,6 +792,10 @@ impl Store {
             text_generations: HashMap::new(),
             change_generation: 0,
             changed_at: HashMap::new(),
+            locks: HashMap::new(),
+            placeholder_trainer: crate::scripts::trainer_script_meta(project.family)
+                .map(|meta| meta.seen_id()),
+            project,
         }
     }
 
@@ -747,13 +856,37 @@ impl Store {
             (Location::TextSource { member, .. }, None) => {
                 Err(io_at(&member)(std::io::ErrorKind::NotFound.into()))
             }
+            (Location::MemberPair { props, party }, None) => {
+                let missing = if props.is_file() { party } else { props };
+                Err(io_at(&missing)(std::io::ErrorKind::NotFound.into()))
+            }
         }
+    }
+
+    /// [`decode`], with the lock [`Store::lock`] set for `id` when the bytes themselves
+    /// do not lock it.
+    fn decode_locked(
+        &self,
+        id: AssetId,
+        bytes: &[u8],
+    ) -> Result<(Loaded, Option<String>), KernelError> {
+        let (current, locked) = decode(id, bytes, self.project.family, self.lang())?;
+        let placeholder = (id.kind == AssetKind::Trainer
+            && Some(id.index) == self.placeholder_trainer
+            && placeholder_shaped(bytes))
+        .then(|| PLACEHOLDER_REASON.to_owned());
+        Ok((
+            current,
+            locked
+                .or_else(|| self.locks.get(&id).cloned())
+                .or(placeholder),
+        ))
     }
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
             let bytes = self.read_member(id)?;
-            let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
+            let (current, locked) = self.decode_locked(id, &bytes)?;
             self.assets.insert(
                 id,
                 Asset {
@@ -857,15 +990,32 @@ impl Store {
         label: &str,
         f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
     ) -> Result<(T, Option<ChangeId>), KernelError> {
-        let (value, change, recorded) = self.run_transaction(label, f)?;
+        let (value, change, recorded) = self.run_transaction(label, None, f)?;
         Ok((value, recorded.then_some(change)))
     }
 
-    /// [`Store::transaction`], with the id that was drawn for it whether it was recorded or
-    /// not (the edit functions of the store hand it out either way).
+    /// [`Store::transaction`] for a step that goes with a change outside the history (member
+    /// files a create wrote to disk): undo refuses to cross it with
+    /// [`KernelError::Refused`]`(reason)` and changes nothing, so its edits and every step
+    /// before it stay. Redo is unaffected (a barrier is never undone, so never redone). It is
+    /// recorded also without a part, and a reload that drops its parts keeps it.
+    pub fn barrier_transaction<T>(
+        &mut self,
+        label: &str,
+        reason: &str,
+        f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
+    ) -> Result<(T, Option<ChangeId>), KernelError> {
+        let (value, change, recorded) = self.run_transaction(label, Some(reason), f)?;
+        Ok((value, recorded.then_some(change)))
+    }
+
+    /// [`Store::transaction`] (a barrier when `barrier` is set, see
+    /// [`Store::barrier_transaction`]), with the id that was drawn for it whether it was
+    /// recorded or not (the edit functions of the store hand it out either way).
     fn run_transaction<T>(
         &mut self,
         label: &str,
+        barrier: Option<&str>,
         f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
     ) -> Result<(T, ChangeId, bool), KernelError> {
         let mut tx = Tx {
@@ -889,12 +1039,13 @@ impl Store {
                 after: edit.after,
             });
         }
-        if parts.is_empty() {
+        if parts.is_empty() && barrier.is_none() {
             return Ok((value, change, false));
         }
         self.undo.push(Changeset {
             parts,
             label: label.to_owned(),
+            barrier: barrier.map(str::to_owned),
         });
         self.redo.clear();
         Ok((value, change, true))
@@ -910,7 +1061,7 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut Loaded) -> Result<(), KernelError>,
     ) -> Result<ChangeId, KernelError> {
-        self.run_transaction(label, |tx| tx.edit(id, edit))
+        self.run_transaction(label, None, |tx| tx.edit(id, edit))
             .map(|((), change, _)| change)
     }
 
@@ -944,7 +1095,7 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut Matrix) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        self.run_transaction(label, |tx| tx.edit_matrix(index, edit))
+        self.run_transaction(label, None, |tx| tx.edit_matrix(index, edit))
             .map(|((), change, _)| change)
     }
 
@@ -974,7 +1125,7 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut EventFile) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        self.run_transaction(label, |tx| tx.edit_event(index, edit))
+        self.run_transaction(label, None, |tx| tx.edit_event(index, edit))
             .map(|((), change, _)| change)
     }
 
@@ -989,7 +1140,7 @@ impl Store {
         label: &str,
         edit: impl FnOnce(&mut MapHeader) -> Result<(), FormatError>,
     ) -> Result<ChangeId, KernelError> {
-        self.run_transaction(label, |tx| tx.edit_header(id, edit))
+        self.run_transaction(label, None, |tx| tx.edit_header(id, edit))
             .map(|((), change, _)| change)
     }
 
@@ -1037,6 +1188,54 @@ impl Store {
             )));
         }
         Ok((index, path))
+    }
+
+    /// Writes a new trainer (its properties and its party member, see
+    /// [`Location::MemberPair`]) at the end of both archives and returns its index. Both
+    /// archives must end at the same index; when the party cannot be written, the new
+    /// properties file is removed again. Not undoable.
+    pub(crate) fn append_trainer(
+        &mut self,
+        props: &[u8],
+        party: &[u8],
+    ) -> Result<u16, KernelError> {
+        let (index, _) = self.next_member(AssetKind::TrainerProperties)?;
+        let (party_index, _) = self.next_member(AssetKind::TrainerParty)?;
+        if index != party_index {
+            return Err(KernelError::InvalidProject(format!(
+                "{index} trainer properties but {party_index} trainer parties"
+            )));
+        }
+        self.append_member(AssetKind::TrainerProperties, props)?;
+        if let Err(e) = self.append_member(AssetKind::TrainerParty, party) {
+            // Best effort: the file was written a moment ago by this call.
+            let _ = std::fs::remove_file(
+                self.project
+                    .member_path(AssetKind::TrainerProperties, index),
+            );
+            return Err(e);
+        }
+        self.note_change(AssetId {
+            kind: AssetKind::Trainer,
+            index,
+        });
+        Ok(index)
+    }
+
+    /// Writes `bytes` as a new encounter file at the end of the archive and returns its
+    /// index. Refuses bytes of another length than the game's encounter file. Not undoable.
+    pub(crate) fn append_encounter(&mut self, bytes: &[u8]) -> Result<u16, KernelError> {
+        Encounters::read(bytes, self.project.family)?;
+        self.append_member(AssetKind::Encounter, bytes)
+    }
+
+    /// The bytes of encounter file `index` as the editor shows them: unsaved edits included,
+    /// a locked file as it is on disk.
+    pub(crate) fn encounter_bytes(&mut self, index: u16) -> Result<Vec<u8>, KernelError> {
+        self.member_bytes(AssetId {
+            kind: AssetKind::Encounter,
+            index,
+        })
     }
 
     /// Appends a new 1 x 1 matrix named `name` (one empty cell, no header or altitude section)
@@ -1451,6 +1650,92 @@ impl Store {
         self.edit_record(index, label, edit)
     }
 
+    /// Returns trainer `index` (its properties and party members), loading it on first
+    /// use. A pair that encoding would not give back byte for byte is returned but locked
+    /// ([`Store::locked`] says why); a pair that does not decode is
+    /// [`KernelError::ReadOnly`] with the reason.
+    pub fn trainer(&mut self, index: u16) -> Result<&TrainerDoc, KernelError> {
+        self.record(index)
+    }
+
+    /// Edits trainer `index` as one undoable step for both of its files. The flags byte and
+    /// the party size follow `format` and the party. A party of more than six Pokémon is
+    /// refused as [`KernelError::Format`]. The id is `None` when `edit` changed nothing.
+    pub fn edit_trainer(
+        &mut self,
+        index: u16,
+        label: &str,
+        edit: impl FnOnce(&mut TrainerDoc),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.transaction(label, |tx| tx.edit_trainer(index, edit))
+            .map(|((), change)| change)
+    }
+
+    /// Locks asset `id` with `reason` for the life of this store, whatever its bytes: it is
+    /// shown but read-only (edits are refused with the reason, it is never dirty and `save`
+    /// never writes it), also after a reload. A loaded asset is read from disk again, so
+    /// its unsaved edits and its undo and redo entries are dropped. For values the editor
+    /// must never change, such as the placeholder trainer of the sight script slot. A lock
+    /// the bytes cause themselves keeps its own reason.
+    pub fn lock(&mut self, id: AssetId, reason: &str) -> Result<(), KernelError> {
+        self.locks.insert(id, reason.to_owned());
+        let reloaded = if self.assets.contains_key(&id) {
+            self.reload_from_disk(id)
+        } else {
+            Ok(())
+        };
+        // Also when the reload failed: the old value stays, but locked.
+        if let Some(asset) = self.assets.get_mut(&id) {
+            asset.locked.get_or_insert_with(|| reason.to_owned());
+        }
+        self.forget_history(id);
+        reloaded
+    }
+
+    /// The trainer ID of the sight script slot, whose trainer (if it exists) is the locked
+    /// placeholder; `None` where it is not known (Diamond/Pearl).
+    pub fn placeholder_trainer(&self) -> Option<u16> {
+        self.placeholder_trainer
+    }
+
+    /// Whether trainer `index` is the locked placeholder of the sight script slot: it has the
+    /// slot's ID and the placeholder's shape (see [`placeholder_shaped`]). Loads the trainer;
+    /// one that does not load is none.
+    pub fn is_placeholder(&mut self, index: u16) -> bool {
+        let id = AssetId {
+            kind: AssetKind::Trainer,
+            index,
+        };
+        self.placeholder_trainer == Some(index)
+            && self.load(id).is_ok()
+            && self.locked(id) == Some(PLACEHOLDER_REASON)
+    }
+
+    /// Sets the placeholder trainer ID (see [`Store::placeholder_trainer`]); a loaded trainer
+    /// with that ID is locked at once (see [`Store::lock`]) when its bytes on disk are
+    /// placeholder-shaped; a real trainer there stays editable.
+    pub(crate) fn set_placeholder_trainer(&mut self, id: Option<u16>) -> Result<(), KernelError> {
+        self.placeholder_trainer = id;
+        match id {
+            Some(index) => {
+                let id = AssetId {
+                    kind: AssetKind::Trainer,
+                    index,
+                };
+                let shaped = self
+                    .assets
+                    .get(&id)
+                    .and_then(|a| a.saved_bytes.as_deref())
+                    .is_some_and(placeholder_shaped);
+                if shaped && self.locked(id).is_none() {
+                    self.lock(id, PLACEHOLDER_REASON)?;
+                }
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
     /// The bytes of the loaded asset `id` as the store holds them, unsaved edits included
     /// (a text archive: its canonical JSON; a locked member: the bytes it was read with).
     /// `None` when `id` is not loaded; nothing is loaded here. An error when the value
@@ -1663,7 +1948,7 @@ impl Store {
         // not keep what it read before the file changed.
         self.drop_text_index(id);
         let bytes = self.read_member(id)?;
-        let (current, locked) = decode(id, &bytes, self.project.family, self.lang())?;
+        let (current, locked) = self.decode_locked(id, &bytes)?;
         self.assets.insert(
             id,
             Asset {
@@ -1694,7 +1979,10 @@ impl Store {
         }
         let base = match self.read_disk_as(id, read_base)? {
             (_, Some(bytes)) => Some(bytes),
-            (Location::Member(_) | Location::TextSource { .. }, None) => None,
+            (
+                Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. },
+                None,
+            ) => None,
             (Location::Slice { path, .. }, None) => {
                 return Err(KernelError::InvalidProject(format!(
                     "{} is missing or too short for the header table",
@@ -1715,12 +2003,12 @@ impl Store {
     }
 
     /// Removes the parts of `id` from every changeset of the undo and redo stacks and drops
-    /// the changesets left empty.
+    /// the changesets left empty, except a barrier: what it stands for stays on disk.
     fn forget_history(&mut self, id: AssetId) {
         for stack in [&mut self.undo, &mut self.redo] {
             stack.retain_mut(|change| {
                 change.parts.retain(|p| p.asset != id);
-                !change.parts.is_empty()
+                !change.parts.is_empty() || change.barrier.is_some()
             });
         }
     }
@@ -1769,8 +2057,13 @@ impl Store {
     /// Reverts the most recent changeset and returns every asset it restored, in the order
     /// they were edited, so the caller can reload exactly what changed; empty if there is
     /// nothing to undo. A part that cannot be restored is an error naming its asset; then no
-    /// asset changes and the changeset stays on the undo stack (see `restore_parts`).
+    /// asset changes and the changeset stays on the undo stack (see `restore_parts`). A
+    /// barrier (see [`Store::barrier_transaction`]) is [`KernelError::Refused`] with its
+    /// reason, and nothing changes.
     pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        if let Some(reason) = self.undo.last().and_then(|c| c.barrier.as_ref()) {
+            return Err(KernelError::Refused(reason.clone()));
+        }
         let Some(change) = self.undo.pop() else {
             return Ok(Vec::new());
         };
@@ -1889,6 +2182,9 @@ impl Store {
         for (id, location, bytes) in pending {
             match &location {
                 Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
+                Location::MemberPair { props, party } => {
+                    write_pair(&self.project.root, props, party, &bytes)?;
+                }
                 Location::Slice { .. } => {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
                     write_slice(&self.project.root, id, &location, base, &bytes)?;
@@ -1979,16 +2275,60 @@ fn read_location(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, Ker
         Location::TextSource { json, member } => {
             return Ok(read_text_doc(json, member, lang)?.map(|doc| doc.to_json()));
         }
+        // Both files or nothing: a pair with a missing file is absent.
+        Location::MemberPair { props, party } => {
+            return Ok(match (read_file(props)?, read_file(party)?) {
+                (Some(props), Some(party)) => Some(join_pair(&props, &party)),
+                _ => None,
+            });
+        }
     };
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(io_at(path)(e)),
+    let Some(bytes) = read_file(path)? else {
+        return Ok(None);
     };
     Ok(match slice {
         None => Some(bytes),
         Some((offset, len)) => slice_range(offset, len, bytes.len()).map(|r| bytes[r].to_vec()),
     })
+}
+
+/// The bytes of the file at `path`; `None` when it does not exist.
+fn read_file(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    }
+}
+
+/// Writes the bytes of a trainer ([`join_pair`]) to its two member files, each atomically:
+/// first the properties, then the party. When the party cannot be written, the properties
+/// file gets back the bytes it had before (read right before the write; without a file
+/// there, the new one is removed), so the two files never stay half saved. The store's base
+/// is not used for that: after [`Store::accept_disk_as_base`] adopted a deleted pair it is
+/// "absent" while the user may have put a properties file back meanwhile.
+fn write_pair(
+    project_root: &Path,
+    props_path: &Path,
+    party_path: &Path,
+    bytes: &[u8],
+) -> Result<(), KernelError> {
+    let (props, party) = split_pair(bytes)?;
+    let old_props = read_file(props_path)?;
+    write_atomic(project_root, props_path, props)?;
+    if let Err(e) = write_atomic(project_root, party_path, party) {
+        // Best effort: the error of the party write is the one to report.
+        match old_props {
+            Some(old) => {
+                let _ = write_atomic(project_root, props_path, &old);
+            }
+            None => {
+                let _ = std::fs::remove_file(props_path);
+            }
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Like [`read_location`], but a text archive whose winning file does not decode reads as
@@ -2169,6 +2509,35 @@ mod tests {
             before
         );
     }
+    /// A failed party write leaves the properties file as it was before the save: the bytes
+    /// on disk, not the store's base (which is "absent" after `accept_disk_as_base` adopted
+    /// a deleted pair).
+    #[cfg(feature = "test-support")]
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn write_pair_puts_the_old_properties_back_when_the_party_write_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let props = root.join("props");
+        let party = root.join("party");
+        // A non-empty folder where the party file goes: the rename onto it fails.
+        std::fs::create_dir(&party).unwrap();
+        std::fs::write(party.join("x"), b"x").unwrap();
+        let bytes = join_pair(&[1; 20], &[2; 8]);
+        std::fs::write(&props, [9; 20]).unwrap();
+        assert!(write_pair(root, &props, &party, &bytes).is_err());
+        assert_eq!(std::fs::read(&props).unwrap(), [9; 20]);
+        // No properties file before the save: none after.
+        std::fs::remove_file(&props).unwrap();
+        assert!(write_pair(root, &props, &party, &bytes).is_err());
+        assert!(!props.exists());
+        // A writable party: both files are written.
+        std::fs::remove_dir_all(&party).unwrap();
+        write_pair(root, &props, &party, &bytes).unwrap();
+        assert_eq!(std::fs::read(&props).unwrap(), [1; 20]);
+        assert_eq!(std::fs::read(&party).unwrap(), [2; 8]);
+    }
+
     #[cfg(feature = "test-support")]
     #[allow(clippy::unwrap_used)]
     mod text {
@@ -2311,6 +2680,44 @@ mod tests {
             st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
                 .unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "D"]), vec![]));
+        }
+
+        #[test]
+        fn undo_refuses_to_cross_a_barrier_and_keeps_the_steps_behind_it() {
+            const REASON: &str = "Zwei lässt sich nicht rückgängig machen";
+            let (_s, mut st) = store();
+            let text = |st: &mut Store| st.text_archive(433).unwrap().messages[1].text.clone();
+            let owned = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+            st.edit_text_archive(433, "A", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            let ((), change) = st
+                .barrier_transaction("B", REASON, |tx| {
+                    tx.edit_text_archive(433, |d| d.messages[1].text = "Zwei".into())
+                })
+                .unwrap();
+            assert!(change.is_some());
+            st.edit_text_archive(433, "C", |d| d.messages[1].text = "Drei".into())
+                .unwrap();
+            // A step after the barrier is undone as usual.
+            assert_eq!(st.undo().unwrap(), [ARCHIVE]);
+            assert_eq!(text(&mut st), "Zwei");
+            // The barrier is not crossed: nothing changes, the history stays.
+            for _ in 0..2 {
+                let err = st.undo().unwrap_err();
+                assert!(
+                    matches!(&err, KernelError::Refused(r) if r == REASON),
+                    "{err}"
+                );
+                assert_eq!(text(&mut st), "Zwei");
+                assert_eq!(st.history(), (owned(&["A", "B"]), owned(&["C"])));
+            }
+            // Redo still applies what was undone after it.
+            assert_eq!(st.redo().unwrap(), [ARCHIVE]);
+            assert_eq!(text(&mut st), "Drei");
+            // Dropping the archive's history (a reload) keeps the barrier itself.
+            st.reload_from_disk(ARCHIVE).unwrap();
+            assert_eq!(st.history(), (owned(&["B"]), vec![]));
+            assert!(matches!(st.undo(), Err(KernelError::Refused(_))));
         }
 
         #[test]

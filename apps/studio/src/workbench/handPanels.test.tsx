@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents } from "../api";
 import type { EventsDto, HeaderSummary } from "../api";
 import { createEditBus } from "../bus/editBus";
+import { DataStore } from "../data/dataStore";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { ContextTab, ToolsTab } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
@@ -23,7 +24,7 @@ const events: EventsDto = {
   event_file_id: 103,
   locked: null,
   bg: [],
-  objects: [{ index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, x: 10, z: 20, y: 0 }],
+  objects: [{ index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, trainer_type: 0, sight: 0, x: 10, z: 20, y: 0 }],
   warps: [{ index: 0, x: 8, z: 9, dest_header_id: 4, dest_warp_id: 0, height: 0 }],
   coords: [],
 };
@@ -63,6 +64,7 @@ describe("the hand's panels on the workbench context", () => {
       onSelectEvent,
       onSelectBuilding,
       goTo,
+      dataStore: new DataStore(),
       ...over,
     } as unknown as WorkbenchData;
     await act(async () =>

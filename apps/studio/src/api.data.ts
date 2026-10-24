@@ -1,4 +1,4 @@
-import type { AssetId } from "./api";
+import type { AssetId, ProblemDto } from "./api";
 import { invoke } from "./platform/transport";
 import type { HexFieldSpan } from "./ui/primitives/HexBlock";
 
@@ -18,7 +18,7 @@ import type { HexFieldSpan } from "./ui/primitives/HexBlock";
  * message "Diamant/Perl: ohne Testprojekt nicht freigegeben".
  */
 
-/** `species`, `learnset` and `evolution` share one document; `trainer` is only listed (its editor comes with 3b.3b). */
+/** `species`, `learnset` and `evolution` share one document. */
 export type DataKind = "species" | "learnset" | "evolution" | "move" | "item" | "encounter" | "trainer";
 
 /** Narrows `dataList`: `query` matches the name (any case) or the number; `types` keeps species and moves of one of the types; `pocket` items of that pocket; `category` moves of that category. */
@@ -59,9 +59,21 @@ export interface EncounterRowExtra {
   users: number[];
 }
 
+/** A header (place) and its name: the in-game location name, else the internal name, else "Header 0012". */
+export interface PlaceDto {
+  header: number;
+  name: string;
+}
+
 export interface TrainerRowExtra {
   class: number;
+  /** The class name from the class bank, else "Klasse 130". */
+  class_name: string;
+  /** Highest level in the party (0 without Pokémon). */
+  level_max: number;
   party_count: number;
+  /** The headers whose object events start this trainer's battle; empty: "Ohne Ort". */
+  places: PlaceDto[];
 }
 
 /** One row of a data list. `tech` is the four-digit index; `locked` the reason a member cannot be edited (then `extra` is null). */
@@ -135,7 +147,26 @@ export interface DescriptionDto {
   text: string;
 }
 
-/** One encounter slot: `min === max` for grass; HeartGold grass adds the morning and night species (`species` is the day one). */
+/** A replacement entry that can take a slot's place: entry `entry` of list `list`, `when` in the kernel's English words. `in_file` is false for Trophy Garden and Great Marsh (not stored in the file). */
+export interface ReplacedByDto {
+  list: string;
+  entry: number;
+  when: string;
+  in_file: boolean;
+}
+
+/** A slot a replacement entry takes the place of. */
+export interface SlotTargetDto {
+  method: EncounterMethod;
+  slot: number;
+}
+
+/**
+ * One encounter slot, or one entry of a replacement list. `min === max` for grass; HeartGold grass adds the morning and night species
+ * (`species` is the day one). `share` is the percent the game picks the slot with (a list entry: the shares of the slots it replaces in its
+ * first method); `replaced_by` the replacement entries that can take a method slot's place, `replaces` the slots a list entry replaces. A list
+ * entry shows the level of the first slot it replaces.
+ */
 export interface SlotDto {
   index: number;
   species: number;
@@ -143,6 +174,9 @@ export interface SlotDto {
   max: number;
   species_morning: number | null;
   species_night: number | null;
+  share: number;
+  replaced_by: ReplacedByDto[];
+  replaces: SlotTargetDto[];
 }
 
 export type EncounterMethod = "grass" | "surf" | "rock_smash" | "old_rod" | "good_rod" | "super_rod";
@@ -154,10 +188,77 @@ export interface MethodDto {
   slots: SlotDto[];
 }
 
-/** A replacement list (Platinum swarm, day, night, radar, dual_*; HeartGold radio, land_swarm, surf_swarm, night_fish, fish_swarm). */
-export interface ExtraListDto {
+/**
+ * A replacement list stored in the file, by the kernel's key (Platinum swarm, day, night, radar, dual_*; HeartGold radio_hoenn, radio_sinnoh,
+ * land_swarm, surf_swarm, night_fish, fish_swarm), with its German `label` and when the game uses it (English). Its entries are slots: the
+ * `Encounter` patch takes `list` as `method` and the entry as `slot`.
+ */
+export interface ReplacementListDto {
   list: string;
-  species: number[];
+  label: string;
+  when: string;
+  slots: SlotDto[];
+}
+
+/** Platinum values that are no slot (Shellos/Gastrodon form rates, Unown table); null in HeartGold. `EncounterExtra` takes `form_rate_0` to `form_rate_4` and `unown_table`. */
+export interface EncounterExtrasDto {
+  form_rates: [number, number, number, number, number] | null;
+  unown_table: number | null;
+}
+
+/** A rule the file breaks (shown, never enforced): method key, 0-based slot (null: the method), the kernel's English text with 0-based numbers. */
+export interface RuleWarningDto {
+  method: EncounterMethod;
+  slot: number | null;
+  text: string;
+}
+
+export interface SpeciesShareDto {
+  species: number;
+  share: number;
+}
+
+/** Who waits in the grass at one time of day (kernel keys `morning`, `day`, `night`), largest share first. */
+export interface TimeSharesDto {
+  when: "morning" | "day" | "night";
+  species: SpeciesShareDto[];
+}
+
+/** Whether the party entries carry own moves and a held item. */
+export interface PartyFormatDto {
+  moves: boolean;
+  items: boolean;
+}
+
+/**
+ * One Pokémon of a trainer party. `item` is set exactly when the format has items, `moves` when it has moves; `ball_capsule` in Platinum and
+ * HeartGold. `gender` (bits 0–3 of `byte1`) and `ability` (bits 4–7) only in HeartGold: there a patch with both set writes `byte1` from them.
+ */
+export interface PartyMonDto {
+  iv_or_difficulty: number;
+  byte1: number;
+  level: number;
+  species: number;
+  form: number;
+  item: number | null;
+  moves: [number, number, number, number] | null;
+  ball_capsule: number | null;
+  gender: number | null;
+  ability: number | null;
+}
+
+/** One battle text: kind (0 before the battle, 1 lost, 2 after …), where it lives (battle text archive, message), the text in chatot form. */
+export interface TrainerTextDto {
+  kind: number;
+  archive: number;
+  message: number;
+  text: string;
+}
+
+/** A battle text to write (an empty text of a kind the trainer lacks adds nothing). */
+export interface TrainerTextInDto {
+  kind: number;
+  text: string;
 }
 
 /**
@@ -199,7 +300,45 @@ export type DataDocDto =
       locked: string | null;
       raw_locked: number[] | null;
     }
-  | { kind: "encounter"; methods: MethodDto[]; extras: ExtraListDto[]; locked: string | null; raw_locked: number[] | null };
+  | {
+      kind: "encounter";
+      methods: MethodDto[];
+      replacements: ReplacementListDto[];
+      extras: EncounterExtrasDto;
+      warnings: RuleWarningDto[];
+      /** The warnings as Problems rows (source "encounter", file "encounters/0012"): they replace the file's previous rows. */
+      problems: ProblemDto[];
+      /** The headers that use the file. */
+      users: PlaceDto[];
+      effective: TimeSharesDto[];
+      locked: string | null;
+      raw_locked: number[] | null;
+    }
+  | {
+      kind: "trainer";
+      class: number;
+      /** Without the `{TRAINER_NAME:…}` wrapper; empty when the bank has none. */
+      name: string;
+      format: PartyFormatDto;
+      ai: number;
+      battle_type: number;
+      items: [number, number, number, number];
+      party: PartyMonDto[];
+      texts: TrainerTextDto[];
+      /** Why the battle texts cannot be read or written (table and archive differ); null when they can. */
+      texts_locked: string | null;
+      /** The object events that start the battle (as `refs` gives them). */
+      events: RefDto[];
+      /** The trainer name bank (message = trainer) and the battle text bank. */
+      name_archive: number | null;
+      text_archive: number | null;
+      /** Problems rows (source "trainer", file "trainers/0012"): the text before the battle should end with `\r`. They replace the trainer's previous rows. */
+      problems: ProblemDto[];
+      /** The locked placeholder of the sight script slot (never edited). */
+      placeholder: boolean;
+      locked: string | null;
+      raw_locked: number[] | null;
+    };
 
 /** One change, externally tagged like the backend's enum. Without a label the backend writes "<Name>: <Feld> <alt> → <neu>". */
 export type DataPatch =
@@ -212,8 +351,26 @@ export type DataPatch =
   | { Item: { field: string; value: number } }
   /** TM/HM bits and learnset of species `from`, one undo step. */
   | { CopyMoves: { from: number } }
-  /** `method` is an `EncounterMethod` or a replacement list; `rate` takes no slot. Fields: rate, species, level, min, max, species_morning, species_night. */
-  | { Encounter: { method: string; slot?: number | null; field: string; value: number } };
+  /**
+   * `method` is an `EncounterMethod` or a replacement list; `rate` takes no slot. Fields: rate, species, level, min, max, species_morning,
+   * species_night. A water `min` above `max` raises `max` along, a `max` below `min` lowers `min` (one step).
+   */
+  | { Encounter: { method: string; slot?: number | null; field: string; value: number } }
+  /** Platinum only: `form_rate_0` to `form_rate_4`, `unown_table`. */
+  | { EncounterExtra: { field: string; value: number } }
+  /** A trainer property: `class`, `ai`, `battle_type`, `item0` to `item3`. */
+  | { Trainer: { field: TrainerField; value: number } }
+  /** At most 7 characters, else refused with "Höchstens 7 Zeichen; längere Namen brauchen einen arm9-Patch". */
+  | { TrainerName: { name: string } }
+  /** Own moves / held items for the whole party (null: unchanged). Moves on fill each Pokémon with the moves the game gives it; off drops them. One step. */
+  | { TrainerFormat: { moves: boolean | null; items: boolean | null } }
+  /** The whole party (at most 6), written in the trainer's format. */
+  | { TrainerParty: { party: PartyMonDto[] } }
+  /** Battle texts as `setTrainerTexts` writes them, one step with the patch label. */
+  | { TrainerTexts: { texts: TrainerTextInDto[] } };
+
+/** The trainer properties `Trainer` patches take. */
+export type TrainerField = keyof (typeof fieldLabels)["trainer"];
 
 /** A field span, the same shape the `HexBlock` primitive draws. */
 export type FieldSpanDto = HexFieldSpan;
@@ -271,7 +428,7 @@ export type TargetDto =
 /** The tabs of the Pokédex hand a reference can open. */
 export type SpeciesTab = "values" | "abilities" | "learnset" | "evolution" | "machines" | "raw";
 
-/** Where a reference leads: shapes of the frontend's `NavTarget`. `encounter` and `trainer` have no editor before 3b.3b (shown disabled). */
+/** Where a reference leads: shapes of the frontend's `NavTarget`. */
 export type NavTargetDto =
   | { kind: "header"; id: number }
   | { kind: "event"; eventFile: number; eventKind: "object"; index: number }
@@ -417,6 +574,8 @@ export const fieldLabels = {
     dual_firered: "Dual-Slot Feuerrot",
     dual_leafgreen: "Dual-Slot Blattgrün",
     radio: "Radio",
+    radio_hoenn: "Radio Hoenn",
+    radio_sinnoh: "Radio Sinnoh",
     land_swarm: "Schwarm im Gras",
     surf_swarm: "Schwarm beim Surfen",
     night_fish: "Angeln nachts",
@@ -428,12 +587,27 @@ export const fieldLabels = {
     max: "Höchstlevel",
     species_morning: "Pokémon morgens",
     species_night: "Pokémon nachts",
+    form_rate_0: "Formrate 1",
+    form_rate_1: "Formrate 2",
+    form_rate_2: "Formrate 3",
+    form_rate_3: "Formrate 4",
+    form_rate_4: "Formrate 5",
+    unown_table: "Icognito-Tabelle",
   },
-} as const satisfies Record<"species" | "move" | "item" | "encounter", Record<string, string>>;
+  trainer: {
+    class: "Klasse",
+    ai: "KI",
+    battle_type: "Kampfart",
+    item0: "Gegenstand 1",
+    item1: "Gegenstand 2",
+    item2: "Gegenstand 3",
+    item3: "Gegenstand 4",
+  },
+} as const satisfies Record<"species" | "move" | "item" | "encounter" | "trainer", Record<string, string>>;
 
 /** The rows of a data list, optionally narrowed. */
 export const dataList = (kind: DataKind, filter: DataFilter | null = null) => invoke<DataRowDto[]>("data_list", { kind, filter });
-/** The document of one member (trainers reject with "kommt mit 3b.3b"). */
+/** The document of one member. */
 export const dataGet = (kind: DataKind, index: number) => invoke<DataDocDto>("data_get", { kind, index });
 /** One patch as one undo step; resolves to the assets it changed (empty: nothing changed). */
 export const dataEdit = (kind: DataKind, index: number, patch: DataPatch, label: string | null = null) =>
@@ -447,6 +621,43 @@ export const itemTable = () => invoke<ItemEntryDto[] | null>("item_table");
 export const machineTable = () => invoke<number[] | null>("machine_table");
 /** Every reference to `target` (without scripts until 3b.4). */
 export const refs = (target: TargetDto) => invoke<RefDto[]>("refs", { target });
+
+/** What `createTrainer` did: the new trainer, the placeholder it wrote at the sight slot before it (null: none), whether the battle script got new slots. */
+export interface CreateTrainerReport {
+  id: number;
+  placeholder: number | null;
+  script_extended: boolean;
+}
+
+/** What `setTrainerTexts` did: the assets it changed (empty: nothing) and the trainer's Problems rows (source "trainer"). */
+export interface TrainerTextsDto {
+  changed: AssetId[];
+  problems: ProblemDto[];
+}
+
+/** What `splitEncounterFile` did: the new encounter file (not undoable) and the assets of the undoable step (the header table). */
+export interface SplitDto {
+  index: number;
+  changed: AssetId[];
+}
+
+/**
+ * Creates a trainer of class `cls` named `name` at the next ID; written at once, not undoable: its history entry (name and text offset) is
+ * an undo barrier, `undo` there rejects with "Trainer <id> anlegen lässt sich nicht rückgängig machen".
+ * Rejects with the kernel's words: "Erst Scripts übernehmen (Bereich Welt, Panel Script)", a name over 7 characters, the flag capacity; code
+ * "partial" when the battle script was extended before a later step failed, or a failed extension could not put the old script back.
+ */
+export const createTrainer = (cls: number, name: string) => invoke<CreateTrainerReport>("create_trainer", { class: cls, name });
+/** Sets battle texts of `trainer` as one undo step (`TrainerTexts` patch through `dataEdit` does the same with a label). */
+export const setTrainerTexts = (trainer: number, texts: TrainerTextInDto[]) => invoke<TrainerTextsDto>("set_trainer_texts", { trainer, texts });
+/** Appends an encounter file, a copy of `copyOf` or empty; resolves to its index. Written at once, not undoable. HeartGold refuses from 255 on. */
+export const createEncounterFile = (copyOf: number | null = null) => invoke<number>("create_encounter_file", { copyOf });
+/** Gives `header` an encounter file of its own: a copy (not undoable) and the header pointed at it (one undo step). */
+export const splitEncounterFile = (header: number) => invoke<SplitDto>("split_encounter_file", { header });
+
+/** Problems rows of the data editors: the source for the Problems list and the file they belong to. */
+export const encounterProblemFile = (index: number) => `encounters/${String(index).padStart(4, "0")}`;
+export const trainerProblemFile = (index: number) => `trainers/${String(index).padStart(4, "0")}`;
 
 /** PNG bytes, or null for an empty body (no icon; a transport may also hand an empty body over as null). */
 const icon = (bytes: ArrayBuffer | null | undefined): ArrayBuffer | null => (bytes?.byteLength ? bytes : null);

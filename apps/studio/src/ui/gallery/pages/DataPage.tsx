@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ListPane } from "../../frame/ListPane";
-import { FilterChips, HexBlock, NumberField, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
+import { FilterChips, HexBlock, NumberField, PokemonCard, Segmented, Sprite, StatBar, Table, ToggleGrid, TypeBadge, pokemonTypes } from "../../primitives";
 import type { HexFieldSpan, TableRow, ToggleCell } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -97,6 +97,39 @@ function Machines() {
   );
 }
 
+// Wanderer Jens's team: Staralili with a Trank, Bidiza; places 3 to 6 free.
+const team = [
+  { species: 396, name: "Staralili", level: 12, item: "Trank" },
+  { species: 399, name: "Bidiza", level: 10 },
+];
+
+function TeamCards() {
+  const [chosen, setChosen] = useState(0);
+  return (
+    <div className={styles.cardGrid}>
+      {Array.from({ length: 6 }, (_, slot) => {
+        const mon = team[slot];
+        return mon ? (
+          <PokemonCard
+            key={slot}
+            state={slot === chosen ? "selected" : "idle"}
+            species={mon.species}
+            name={mon.name}
+            level={mon.level}
+            item={mon.item}
+            iconUrl={null}
+            slot={slot + 1}
+            ariaLabel={`Platz ${slot + 1}: ${mon.name}, Level ${mon.level}`}
+            onClick={() => setChosen(slot)}
+          />
+        ) : (
+          <PokemonCard key={slot} state="empty" slot={slot + 1} ariaLabel={`Platz ${slot + 1} leer`} onClick={() => {}} disabled={slot === 5} />
+        );
+      })}
+    </div>
+  );
+}
+
 export function DataPage() {
   const [types, setTypes] = useState<Set<string>>(new Set(["2"]));
   const [part, setPart] = useState("pokedex");
@@ -185,6 +218,12 @@ export function DataPage() {
       </section>
 
       <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Team-Karten</h2>
+        <p className={styles.note}>Ein Platz im Team eines Trainers: gewählt mit Kobalt-Kante, frei gestrichelt, gesperrt blass. Klick, Enter oder Leertaste wählt.</p>
+        <TeamCards />
+      </section>
+
+      <section className={styles.block}>
         <h2 className={styles.blockTitle}>Listenkopf mit Unterbereichen</h2>
         <div className={styles.startFrame}>
           <ListPane
@@ -196,8 +235,8 @@ export function DataPage() {
               onChange: setPart,
               items: [
                 { id: "pokedex", label: "Pokédex", count: 508, shortcut: "⌘1" },
-                { id: "trainer", label: "Trainer", disabled: true, hint: "kommt mit Phase 3b.3b", shortcut: "⌘2" },
-                { id: "encounters", label: "Begegnungen", count: 183, shortcut: "⌘3" },
+                { id: "trainer", label: "Trainer", count: 928, shortcut: "⌘2" },
+                { id: "encounters", label: "Begegnungen", disabled: true, hint: "kommt mit Phase 3b.3b", shortcut: "⌘3" },
                 { id: "moves", label: "Attacken", count: 471, shortcut: "⌘4" },
               ],
             }}

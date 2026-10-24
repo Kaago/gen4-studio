@@ -8,6 +8,7 @@ import type { NavTarget } from "../navigation";
 import { TERMS, id4 } from "../terms";
 import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
+import { EncounterFileField } from "./EncounterFileField";
 import { ExitsSection } from "./ExitsSection";
 import { Field } from "./Field";
 import { useSectionFolds } from "./foldState";
@@ -116,6 +117,11 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
+    const family = headerFamily(header);
+    // „Begegnungen“ names an encounter file of the Pokémon area (Diamond and Pearl have no data editors: there it stays a number).
+    if (spec.key === "wild_pokemon" && family !== "DP") {
+      return <EncounterFileField key={spec.key} spec={spec} value={value} family={family} headers={headers} goTo={goTo} onCommit={commit} />;
+    }
     return (
       <Field
         key={spec.key}

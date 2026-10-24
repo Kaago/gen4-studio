@@ -1,0 +1,227 @@
+/* The trainers: their list (a tree by place or class), their view (Schau) and their editor (Hand). */
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The list: search, grouping and "+" above the tree. */
+.column {
+  display: flex;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8);
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-8);
+}
+
+.host {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--g4-raum-4) var(--g4-raum-8);
+}
+
+/* The end of a trainer row: the highest level, the unsaved dot, "Gesperrt". */
+.rowEnd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.level {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-flex;
+  width: var(--g4-raum-16);
+  height: var(--g4-raum-16);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.dot::before {
+  content: "";
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  border-radius: var(--g4-radius-plakette);
+  background: var(--g4-akzent-grund);
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+/* The view. */
+.view {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.viewBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-16);
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+.name {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.section {
+  display: flex;
+  max-width: 720px;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+  margin: 0;
+  font: var(--g4-font-text-m-betont);
+}
+
+.chips,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+/* Up to six cards, three to a row where there is room. */
+.team {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: var(--g4-raum-8);
+}
+
+/* The editor. */
+.hand {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.handEmpty {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.notices {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8) var(--g4-raum-12) 0;
+}
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
+}
+
+/* Columns side by side, divided by a line, wrapping in a narrow hand. */
+.columns {
+  display: grid;
+  /* 380: the AI's four presets beside a 116 px label. */
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: var(--g4-raum-12) var(--g4-raum-16);
+}
+
+.columnBox {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  padding-left: var(--g4-raum-12);
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.columnTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-6);
+  margin: 0 0 var(--g4-raum-4);
+  font: var(--g4-font-text-s-betont);
+}
+
+.columnNote {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.flags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4) 0;
+}
+
+.pickText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The 32 AI bits in four columns. */
+.bits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--g4-raum-2) var(--g4-raum-12);
+}

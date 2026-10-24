@@ -16,9 +16,12 @@ export interface ShellApi {
   setPokemonSub: (sub: PokemonSub) => void;
   /** The selection of a data part; null: none. */
   setSelected: (key: DataSelectKey, index: number | null) => void;
-  /** The tool of the scene; not remembered between runs. */
+  /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
+  /** The trainer the next figure is placed as („In der Welt platzieren“); null: a plain figure. Transient like the tool, never stored; leaving the world drops it. */
+  pendingTrainer: number | null;
+  setPendingTrainer: (id: number | null) => void;
   /** Puts a project first in the recent list (and drops an earlier entry of the same path). */
   remember: (project: RecentProject) => void;
   forget: (path: string) => void;
@@ -47,7 +50,13 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     const read = readShellState();
     return initialArea === undefined ? read : { ...read, area: initialArea };
   });
-  const [tool, setTool] = useState<Tool>("select");
+  const [tool, setToolState] = useState<Tool>("select");
+  const [pendingTrainer, setPendingTrainer] = useState<number | null>(null);
+  // Escape, another tool, or the figure's click going back to "Auswählen" all end the binding of a trainer to the figure tool.
+  const setTool = useCallback((next: Tool) => {
+    setToolState(next);
+    if (next !== "figure") setPendingTrainer(null);
+  }, []);
   const [theme, setShownTheme] = useState(effectiveTheme);
   const [themeSetting, setThemeSetting] = useState(readTheme);
   const [density, setDensityState] = useState(readDensity);
@@ -56,7 +65,11 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   // An OS switch while the theme is "System" also arrives here.
   useEffect(() => onThemeChange(setShownTheme), []);
 
-  const setArea = useCallback((area: AreaId) => setState((s) => (s.area === area ? s : { ...s, area })), []);
+  // Leaving the world ends a trainer binding: it belongs to the world's figure tool.
+  const setArea = useCallback((area: AreaId) => {
+    setState((s) => (s.area === area ? s : { ...s, area }));
+    if (area !== "welt") setPendingTrainer(null);
+  }, []);
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
   const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
   const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);
@@ -100,6 +113,8 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setSelected,
       tool,
       setTool,
+      pendingTrainer,
+      setPendingTrainer,
       remember,
       forget,
       theme,
@@ -110,7 +125,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, tool, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

@@ -1,12 +1,23 @@
-//! Encounter files for the data commands: the methods and replacement lists as DTOs, and one
+//! Encounter files for the data commands: the methods, replacement lists, extras, warnings
+//! and grass shares as DTOs (the rules from `g4_kernel::data::encounter_rules`), and one
 //! field change with every index and value checked first (the codec's accessors panic on an
 //! index outside their list).
+
+use std::path::PathBuf;
 
 use g4_formats::data::encounter::{
     DualSlot, Encounters, HgssEncounters, Method, PtEncounters, WaterSlot,
 };
+use g4_formats::game::Family;
+use g4_kernel::data::encounter_rules::{self, Replacement};
+use g4_kernel::text::{Problem, Severity};
 
-use super::dto::{ExtraListDto, MethodDto, SlotDto};
+use super::dto::{
+    EncounterExtrasDto, MethodDto, ReplacedByDto, ReplacementListDto, RuleWarningDto, SlotDto,
+    SlotTargetDto, SpeciesShareDto, TimeSharesDto,
+};
+use super::labels;
+use crate::commands::ProblemDto;
 
 /// The key of a method in DTOs, patches and `fieldLabels`.
 pub fn method_key(method: Method) -> &'static str {
@@ -20,25 +31,179 @@ pub fn method_key(method: Method) -> &'static str {
     }
 }
 
-/// The methods of the file in editor order.
-pub fn methods(e: &Encounters) -> Vec<MethodDto> {
+/// The methods of the file in editor order, each slot with its share and the replacement
+/// entries that can take its place.
+pub fn methods(e: &Encounters, family: Family) -> Vec<MethodDto> {
+    let reps = encounter_rules::replacements(family);
     e.methods()
         .into_iter()
-        .map(|m| MethodDto {
-            method: method_key(m.method),
-            rate: m.rate,
-            slots: m
-                .slots
+        .map(|m| {
+            let shares = encounter_rules::shares(m.method, family);
+            MethodDto {
+                method: method_key(m.method),
+                rate: m.rate,
+                slots: m
+                    .slots
+                    .iter()
+                    .map(|s| SlotDto {
+                        // At most 12 slots.
+                        index: s.index as u16,
+                        species: s.species,
+                        min: s.min,
+                        max: s.max,
+                        species_morning: s.alt_species.map(|[morning, _]| morning),
+                        species_night: s.alt_species.map(|[_, night]| night),
+                        share: shares.get(s.index).copied().unwrap_or(0),
+                        replaced_by: reps
+                            .iter()
+                            .filter(|r| r.method == m.method && r.slots.contains(&s.index))
+                            .map(|r| ReplacedByDto {
+                                list: r.list,
+                                // Lists hold at most four entries.
+                                entry: r.entry as u16,
+                                when: r.when,
+                                in_file: r.in_file,
+                            })
+                            .collect(),
+                        replaces: Vec::new(),
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// The German label of a replacement list key.
+pub fn list_label(list: &str) -> &'static str {
+    labels::label(labels::ENCOUNTER, list).unwrap_or("Ersatzliste")
+}
+
+/// The replacement lists the file stores, in the kernel's order, each entry as a slot with
+/// the slots it replaces (Trophy Garden and Great Marsh are not in the file and not listed;
+/// they show in `replaced_by` of the slots).
+pub fn replacements(e: &Encounters, family: Family) -> Vec<ReplacementListDto> {
+    let methods = e.methods();
+    let mut out: Vec<ReplacementListDto> = Vec::new();
+    let mut entries: Vec<(&'static str, usize, Vec<Replacement>)> = Vec::new();
+    for r in encounter_rules::replacements(family)
+        .into_iter()
+        .filter(|r| r.in_file)
+    {
+        match entries
+            .iter_mut()
+            .find(|(list, entry, _)| *list == r.list && *entry == r.entry)
+        {
+            Some((_, _, targets)) => targets.push(r),
+            None => entries.push((r.list, r.entry, vec![r])),
+        }
+    }
+    for (list, entry, targets) in entries {
+        let Some(species) = encounter_rules::list_species(e, list, entry) else {
+            continue;
+        };
+        let first = targets[0];
+        let shares = encounter_rules::shares(first.method, family);
+        let share = first
+            .slots
+            .iter()
+            .map(|&s| shares.get(s).copied().unwrap_or(0))
+            .sum();
+        let level = methods
+            .iter()
+            .find(|m| m.method == first.method)
+            .and_then(|m| first.slots.first().and_then(|&s| m.slots.get(s)))
+            .map_or((0, 0), |s| (s.min, s.max));
+        let slot = SlotDto {
+            // Lists hold at most four entries.
+            index: entry as u16,
+            species,
+            min: level.0,
+            max: level.1,
+            species_morning: None,
+            species_night: None,
+            share,
+            replaced_by: Vec::new(),
+            replaces: targets
                 .iter()
-                .map(|s| SlotDto {
-                    // At most 12 slots.
-                    index: s.index as u16,
-                    species: s.species,
-                    min: s.min,
-                    max: s.max,
-                    species_morning: s.alt_species.map(|[morning, _]| morning),
-                    species_night: s.alt_species.map(|[_, night]| night),
+                .flat_map(|r| {
+                    r.slots.iter().map(|&slot| SlotTargetDto {
+                        method: method_key(r.method),
+                        // At most 12 slots.
+                        slot: slot as u16,
+                    })
                 })
+                .collect(),
+        };
+        match out.iter_mut().find(|l| l.list == list) {
+            Some(l) => l.slots.push(slot),
+            None => out.push(ReplacementListDto {
+                list,
+                label: list_label(list),
+                when: first.when,
+                slots: vec![slot],
+            }),
+        }
+    }
+    out
+}
+
+/// The Platinum form rates and Unown table; nothing in HeartGold.
+pub fn extras(e: &Encounters) -> EncounterExtrasDto {
+    match e {
+        Encounters::Pt(p) => EncounterExtrasDto {
+            form_rates: Some(p.form_rates()),
+            unown_table: Some(p.unown_table()),
+        },
+        Encounters::Hgss(_) => EncounterExtrasDto::default(),
+    }
+}
+
+/// The rules the file breaks.
+pub fn warnings(e: &Encounters, family: Family) -> Vec<RuleWarningDto> {
+    encounter_rules::warnings(e, family)
+        .into_iter()
+        .map(|w| RuleWarningDto {
+            method: method_key(w.method),
+            // At most 12 slots.
+            slot: w.slot.map(|s| s as u16),
+            text: w.text,
+        })
+        .collect()
+}
+
+/// The file of encounter file `index` in the Problems list.
+pub fn problem_file(index: u16) -> String {
+    format!("encounters/{index:04}")
+}
+
+/// The warnings as Problems rows of source `encounter` (line = slot + 1, 1 for the method).
+pub fn problems(index: u16, warnings: &[RuleWarningDto]) -> Vec<ProblemDto> {
+    let file = problem_file(index);
+    warnings
+        .iter()
+        .map(|w| {
+            let problem = Problem {
+                severity: Severity::Warning,
+                file: PathBuf::from(&file),
+                line: w.slot.map_or(1, |s| u32::from(s) + 1),
+                col: 1,
+                message: w.text.clone(),
+            };
+            ProblemDto::from_kernel(&problem, std::path::Path::new(""), "encounter")
+        })
+        .collect()
+}
+
+/// Who waits in the grass per time of day.
+pub fn effective(e: &Encounters, family: Family) -> Vec<TimeSharesDto> {
+    encounter_rules::effective_shares(e, family)
+        .into_iter()
+        .map(|t| TimeSharesDto {
+            when: t.when,
+            species: t
+                .species
+                .into_iter()
+                .map(|(species, share)| SpeciesShareDto { species, share })
                 .collect(),
         })
         .collect()
@@ -51,35 +216,6 @@ const DUAL_LISTS: [(&str, DualSlot); 5] = [
     ("dual_firered", DualSlot::FireRed),
     ("dual_leafgreen", DualSlot::LeafGreen),
 ];
-
-/// The replacement lists of the file. Platinum's form rates and Unown table are only in the
-/// raw data.
-pub fn extras(e: &Encounters) -> Vec<ExtraListDto> {
-    let list = |list: &'static str, species: Vec<u16>| ExtraListDto { list, species };
-    match e {
-        Encounters::Pt(p) => {
-            let mut out = vec![
-                list("swarm", (0..2).map(|i| p.swarm(i)).collect()),
-                list("day", (0..2).map(|i| p.day(i)).collect()),
-                list("night", (0..2).map(|i| p.night(i)).collect()),
-                list("radar", (0..4).map(|i| p.radar(i)).collect()),
-            ];
-            out.extend(
-                DUAL_LISTS
-                    .iter()
-                    .map(|&(key, game)| list(key, (0..2).map(|i| p.dual(game, i)).collect())),
-            );
-            out
-        }
-        Encounters::Hgss(h) => vec![
-            list("radio", (0..4).map(|i| h.radio(i)).collect()),
-            list("land_swarm", vec![h.land_swarm()]),
-            list("surf_swarm", vec![h.surf_swarm()]),
-            list("night_fish", vec![h.night_fish()]),
-            list("fish_swarm", vec![h.fish_swarm()]),
-        ],
-    }
-}
 
 /// One encounter change as `DataPatch::Encounter` names it.
 pub struct EncounterEdit<'a> {
@@ -111,17 +247,27 @@ impl EncounterEdit<'_> {
         format!("{} has no field {}", self.method, self.field)
     }
 
-    /// A field of a water slot (min, max, species).
+    /// A field of a water slot (min, max, species). A `min` above the slot's `max` raises
+    /// `max` to it, a `max` below its `min` lowers `min`: the levels are pulled along on
+    /// input (the bytes may hold `min > max`, which is only warned about).
     fn water(&self, slot: &mut WaterSlot) -> Result<i64, String> {
         let old = match self.field {
             "min" => {
                 let old = slot.min();
-                slot.set_min(narrow(self.value, self.field)?);
+                let min = narrow(self.value, self.field)?;
+                slot.set_min(min);
+                if min > slot.max() {
+                    slot.set_max(min);
+                }
                 i64::from(old)
             }
             "max" => {
                 let old = slot.max();
-                slot.set_max(narrow(self.value, self.field)?);
+                let max = narrow(self.value, self.field)?;
+                slot.set_max(max);
+                if max < slot.min() {
+                    slot.set_min(max);
+                }
                 i64::from(old)
             }
             "species" => {
@@ -337,6 +483,13 @@ impl EncounterEdit<'_> {
                 Ok(old)
             }
             "radio" => self.species_entry(h, 4, HgssEncounters::radio, HgssEncounters::set_radio),
+            // The kernel's names of the two radio lists: entries 0, 1 and 2, 3 of `radio`.
+            "radio_hoenn" => {
+                self.species_entry(h, 2, HgssEncounters::radio, HgssEncounters::set_radio)
+            }
+            "radio_sinnoh" => {
+                self.species_entry(h, 2, |h, i| h.radio(2 + i), |h, i, v| h.set_radio(2 + i, v))
+            }
             "land_swarm" => {
                 self.species_entry(h, 1, |h, _| h.land_swarm(), |h, _, v| h.set_land_swarm(v))
             }
@@ -352,6 +505,30 @@ impl EncounterEdit<'_> {
             other => Err(format!("HeartGold encounter files have no method {other}")),
         }
     }
+}
+
+/// Changes a Platinum value that is no slot (`form_rate_0` to `form_rate_4`,
+/// `unown_table`) and returns the old value; HeartGold has none.
+pub fn apply_extra(e: &mut Encounters, field: &str, value: i64) -> Result<i64, String> {
+    let Encounters::Pt(p) = e else {
+        return Err(format!("HeartGold encounter files have no field {field}"));
+    };
+    let value: u32 = narrow(value, field)?;
+    if field == "unown_table" {
+        let old = p.unown_table();
+        p.set_unown_table(value);
+        return Ok(i64::from(old));
+    }
+    let n = field
+        .strip_prefix("form_rate_")
+        .and_then(|n| n.parse::<usize>().ok())
+        .filter(|&n| n < 5)
+        .ok_or_else(|| format!("Platinum encounter files have no field {field}"))?;
+    let mut rates = p.form_rates();
+    let old = rates[n];
+    rates[n] = value;
+    p.set_form_rates(rates);
+    Ok(i64::from(old))
 }
 
 #[cfg(test)]
@@ -423,15 +600,17 @@ mod tests {
             edit("dual_emerald", Some(1), "species", 9).apply(&mut pt),
             Ok(0)
         );
-        let m = methods(&pt);
+        let m = methods(&pt, Family::Pt);
         assert_eq!((m[0].slots[2].species, m[0].slots[2].min), (396, 7));
         assert_eq!(
             (m[4].method, m[4].rate, m[4].slots[4].max),
             ("super_rod", 30, 50)
         );
-        let x = extras(&pt);
+        let x = replacements(&pt, Family::Pt);
+        let species =
+            |list: &ReplacementListDto| list.slots.iter().map(|s| s.species).collect::<Vec<_>>();
         assert_eq!(
-            x.iter().find(|l| l.list == "dual_emerald").unwrap().species,
+            species(x.iter().find(|l| l.list == "dual_emerald").unwrap()),
             [0, 9]
         );
 
@@ -445,9 +624,81 @@ mod tests {
             edit("rock_smash", Some(1), "species", 74).apply(&mut hg),
             Ok(0)
         );
-        let m = methods(&hg);
+        assert_eq!(
+            edit("radio_sinnoh", Some(1), "species", 7).apply(&mut hg),
+            Ok(0)
+        );
+        let m = methods(&hg, Family::Hgss);
         assert_eq!(m[0].slots[0].species_night, Some(5));
         assert_eq!((m[2].method, m[2].slots[1].species), ("rock_smash", 74));
-        assert_eq!(extras(&hg)[1].species, [6]);
+        let x = replacements(&hg, Family::Hgss);
+        let land = x.iter().find(|l| l.list == "land_swarm").unwrap();
+        assert_eq!(species(land), [6]);
+        let sinnoh = x.iter().find(|l| l.list == "radio_sinnoh").unwrap();
+        assert_eq!(species(sinnoh), [0, 7]);
+        assert_eq!(sinnoh.label, "Radio Sinnoh");
+        let SlotDto { replaces, .. } = &sinnoh.slots[1];
+        let targets: Vec<_> = replaces.iter().map(|t| (t.method, t.slot)).collect();
+        assert_eq!(targets, [("grass", 4), ("grass", 5)]);
+    }
+
+    #[test]
+    fn slots_carry_shares_and_their_replacements() {
+        let pt = Encounters::read(&[0; 424], Family::Pt).unwrap();
+        let m = methods(&pt, Family::Pt);
+        let shares: Vec<u8> = m[0].slots.iter().map(|s| s.share).collect();
+        assert_eq!(shares, [20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1]);
+        let by: Vec<_> = m[0].slots[2]
+            .replaced_by
+            .iter()
+            .map(|r| (r.list, r.entry))
+            .collect();
+        assert_eq!(by, [("day", 0), ("night", 0)]);
+        // Trophy Garden is not in the file: it replaces slot 6 but is no list of the file.
+        assert!(
+            m[0].slots[6]
+                .replaced_by
+                .iter()
+                .any(|r| r.list == "trophy_garden" && !r.in_file)
+        );
+        let lists = replacements(&pt, Family::Pt);
+        assert!(lists.iter().all(|l| l.list != "trophy_garden"));
+        let radar = lists.iter().find(|l| l.list == "radar").unwrap();
+        assert_eq!(
+            (radar.label, radar.slots.len(), radar.slots[2].share),
+            ("Poké-Radar", 4, 1)
+        );
+        assert_eq!(extras(&pt).form_rates, Some([0; 5]));
+    }
+
+    #[test]
+    fn water_levels_are_pulled_along_on_input() {
+        let mut pt = Encounters::read(&[0; 424], Family::Pt).unwrap();
+        let slot = |e: &Encounters| {
+            let m = methods(e, Family::Pt);
+            (m[1].slots[0].min, m[1].slots[0].max)
+        };
+        edit("surf", Some(0), "max", 10).apply(&mut pt).unwrap();
+        assert_eq!(slot(&pt), (0, 10));
+        // A min above max takes max along.
+        assert_eq!(edit("surf", Some(0), "min", 20).apply(&mut pt), Ok(0));
+        assert_eq!(slot(&pt), (20, 20));
+        // A max below min takes min along.
+        assert_eq!(edit("surf", Some(0), "max", 5).apply(&mut pt), Ok(20));
+        assert_eq!(slot(&pt), (5, 5));
+    }
+
+    #[test]
+    fn extras_are_platinum_only() {
+        let mut pt = Encounters::read(&[0; 424], Family::Pt).unwrap();
+        assert_eq!(apply_extra(&mut pt, "form_rate_4", 3), Ok(0));
+        assert_eq!(apply_extra(&mut pt, "unown_table", 2), Ok(0));
+        assert_eq!(extras(&pt).form_rates, Some([0, 0, 0, 0, 3]));
+        assert_eq!(extras(&pt).unown_table, Some(2));
+        assert!(apply_extra(&mut pt, "form_rate_5", 1).is_err());
+        assert!(apply_extra(&mut pt, "unown_table", -1).is_err());
+        let mut hg = Encounters::read(&[0; 196], Family::Hgss).unwrap();
+        assert!(apply_extra(&mut hg, "unown_table", 1).is_err());
+        assert_eq!(extras(&hg), EncounterExtrasDto::default());
     }
 }

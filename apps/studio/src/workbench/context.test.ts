@@ -7,8 +7,8 @@ const events = (over: Partial<EventsDto> = {}): EventsDto => ({
   locked: null,
   bg: [{ index: 0, script: 12, event_type: 0, x: 4, z: 5, y: 0 }],
   objects: [
-    { index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, x: 10, z: 20, y: 0 },
-    { index: 1, local_id: 2, graphics_id: 4, movement_type: 0, script: 3, dir: 0, x: 11, z: 21, y: 0 },
+    { index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, trainer_type: 0, sight: 0, x: 10, z: 20, y: 0 },
+    { index: 1, local_id: 2, graphics_id: 4, movement_type: 0, script: 3, dir: 0, trainer_type: 0, sight: 0, x: 11, z: 21, y: 0 },
   ],
   warps: [{ index: 0, x: 8, z: 9, dest_header_id: 414, dest_warp_id: 0, height: 0 }],
   coords: [],
@@ -35,6 +35,14 @@ describe("groupEvents", () => {
   it("names_the_header_a_door_leads_to_when_asked", () => {
     const doors = groupEvents(events(), (h) => (h === 414 ? "T01R0201" : undefined)).find((g) => g.kind === "warp");
     expect(doors?.rows[0]?.title).toBe("Warp 0 → Header 0414 (T01R0201)");
+  });
+
+  it("titles_a_trainer_figure_by_class_and_name_when_asked", () => {
+    const trainer = { ...events().objects[0]!, script: 3355 };
+    const figures = groupEvents(events({ objects: [trainer, events().objects[1]!] }), undefined, (script) => (script === 3355 ? "Teenager Sebastian" : null))[0]!;
+    expect(figures.rows[0]).toEqual({ index: 0, title: "Objekt 0 · Teenager Sebastian", tech: "x 10, z 20" });
+    // A figure that starts no battle keeps its title.
+    expect(figures.rows[1]?.title).toBe("Objekt 1 · ID 2");
   });
 
   it("is_empty_for_a_file_without_events", () => {

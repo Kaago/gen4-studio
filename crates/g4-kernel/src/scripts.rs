@@ -947,6 +947,445 @@ pub fn add_script_reported(project: &Project, file: u16) -> Result<(u16, Vec<u16
 }
 
 // ---------------------------------------------------------------------------------------
+// Trainer battle script
+// ---------------------------------------------------------------------------------------
+
+/// The first trainer battle script number: script `3000 + k` is jump table entry `k` of the
+/// battle script file, rotom slot `k + 1`, the battle of trainer `k + 1`.
+const FIRST_TRAINER_SCRIPT: u16 = 3000;
+
+/// Where the trainers' battle script lives and which script the game starts for a trainer
+/// that sees the player (one entry of `metadata/trainer_scripts.yaml`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrainerScriptMeta {
+    pub battle_file: u16,
+    /// The script number fixed in the arm9 for the sight of a trainer (Pt 3928, HGSS 3739).
+    pub seen_script: u16,
+}
+
+impl TrainerScriptMeta {
+    /// The trainer ID, and rotom slot, of the "seen" script: `seen_script − 2999` (Pt 929,
+    /// HGSS 740). A trainer with this ID would run the sight code when talked to and freeze
+    /// the game, so it is never given out.
+    pub fn seen_id(&self) -> u16 {
+        self.seen_script
+            .saturating_sub(FIRST_TRAINER_SCRIPT)
+            .saturating_add(1)
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrainerScriptsYaml {
+    pt: TrainerScriptMeta,
+    hgss: TrainerScriptMeta,
+}
+
+/// The `trainer_scripts.yaml` entry of `family`; `None` for Diamond/Pearl, which has no
+/// checked entry.
+pub fn trainer_script_meta(family: Family) -> Option<TrainerScriptMeta> {
+    // The file is embedded and parsed by a test, so a parse error cannot reach a user.
+    let all: TrainerScriptsYaml =
+        serde_yaml::from_str(include_str!("../metadata/trainer_scripts.yaml")).ok()?;
+    match family {
+        Family::Dp => None,
+        Family::Pt => Some(all.pt),
+        Family::Hgss => Some(all.hgss),
+    }
+}
+
+/// The script file of the trainer battles (script 3000): from the game's script table
+/// (uxie's), else from `trainer_scripts.yaml` (Pt 1114, HGSS 953). Diamond/Pearl has
+/// neither and is refused.
+pub fn battle_script_file(project: &Project) -> Result<u16, KernelError> {
+    let from_table = common_scripts(project)?
+        .and_then(|t| t.lookup(FIRST_TRAINER_SCRIPT).map(|e| e.script_file_id));
+    from_table
+        .or_else(|| trainer_script_meta(project.family).map(|m| m.battle_file))
+        .ok_or_else(|| {
+            KernelError::Refused(
+                "Diamant/Perl: das Kampf-Script der Trainer ist ohne Testprojekt nicht bekannt"
+                    .to_owned(),
+            )
+        })
+}
+
+/// [`trainer_script_meta`] of the project's family with the battle file of
+/// [`battle_script_file`].
+pub fn project_trainer_script_meta(project: &Project) -> Result<TrainerScriptMeta, KernelError> {
+    let battle_file = battle_script_file(project)?;
+    let meta = trainer_script_meta(project.family).ok_or_else(|| {
+        KernelError::Refused(
+            "Diamant/Perl: das Sicht-Script der Trainer ist ohne Testprojekt nicht bekannt"
+                .to_owned(),
+        )
+    })?;
+    Ok(TrainerScriptMeta {
+        battle_file,
+        ..meta
+    })
+}
+
+/// The slots of the battle script file as `create_trainer` needs them
+/// (trainer-script-extension-3b3b.md §2.2, step 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BattleSlots {
+    /// Every slot of the battle script (the script that declares slot 1), ascending.
+    pub battle: Vec<u32>,
+    /// The slot right after the first run of battle slots from 1: the "seen" script.
+    pub seen: u32,
+}
+
+impl BattleSlots {
+    /// The highest battle slot: trainers up to this ID have a battle entry.
+    pub fn max(&self) -> u32 {
+        self.battle.last().copied().unwrap_or(0)
+    }
+}
+
+/// The refusal when the battle script file has no rotom source.
+fn no_battle_source(file: u16) -> KernelError {
+    KernelError::Refused(format!(
+        "Kampf-Scriptdatei {file:04} hat keine rotom-Quelle. Erst Scripts übernehmen \
+         (Bereich Welt, Panel Script), dann lässt sich ein Trainer anlegen."
+    ))
+}
+
+/// Reads the slots of the battle script `meta.battle_file` from its rotom source and checks
+/// the "seen" slot against `meta.seen_script`. Refused: no rotom source, no slot 1, the slot
+/// after the battle slots is no script, or it is not the slot the arm9 starts (a hack has
+/// rebuilt the file).
+pub fn battle_slots(
+    project: &Project,
+    meta: &TrainerScriptMeta,
+) -> Result<BattleSlots, KernelError> {
+    let ScriptSource::Rotom(text) = read_source(project, meta.battle_file)? else {
+        return Err(no_battle_source(meta.battle_file));
+    };
+    analyze_battle_slots(&text, meta)
+}
+
+fn analyze_battle_slots(text: &str, meta: &TrainerScriptMeta) -> Result<BattleSlots, KernelError> {
+    let file = meta.battle_file;
+    let slots = declared_slots(text)?;
+    let Some((_, battle_span)) = slots.iter().find(|(id, _)| *id == 1) else {
+        return Err(KernelError::Refused(format!(
+            "Kampf-Scriptdatei {file:04} hat keinen Platz 1: das Studio erkennt das Kampf-Script \
+             nicht. Stelle die Datei wieder her (DSPRE oder Sicherung), dann lässt sich ein \
+             Trainer anlegen."
+        )));
+    };
+    let mut battle: Vec<u32> = slots
+        .iter()
+        .filter(|(_, span)| span == battle_span)
+        .map(|(id, _)| *id)
+        .collect();
+    battle.sort_unstable();
+    battle.dedup();
+    let mut seen = 1;
+    while battle.binary_search(&seen).is_ok() {
+        seen += 1;
+    }
+    if !slots.iter().any(|(id, _)| *id == seen) {
+        return Err(KernelError::Refused(format!(
+            "Kampf-Scriptdatei {file:04}: hinter den Kampfplätzen steht bei Platz {seen} kein \
+             Script, dort erwartet das Spiel das Sicht-Script. Stelle die Datei wieder her (DSPRE \
+             oder Sicherung), dann lässt sich ein Trainer anlegen."
+        )));
+    }
+    let expected = u32::from(meta.seen_id());
+    if seen != expected {
+        return Err(KernelError::Refused(format!(
+            "Kampf-Scriptdatei {file:04}: das Sicht-Script ist Platz {seen}, das Spiel startet \
+             Platz {expected} (Script {}). Ein anderes Werkzeug hat die Datei umgebaut; stelle \
+             die alte Reihenfolge wieder her, dann lässt sich ein Trainer anlegen.",
+            meta.seen_script
+        )));
+    }
+    Ok(BattleSlots { battle, seen })
+}
+
+/// `#[1-928, 930-932]`, or `#5` for a single slot; `ids` ascending without repeats.
+fn slot_list(ids: &[u32]) -> String {
+    if let [only] = ids {
+        return format!("#{only}");
+    }
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for &id in ids {
+        match runs.last_mut() {
+            Some((_, end)) if *end + 1 == id => *end = id,
+            _ => runs.push((id, id)),
+        }
+    }
+    let parts: Vec<String> = runs
+        .iter()
+        .map(|&(a, b)| {
+            if a == b {
+                a.to_string()
+            } else {
+                format!("{a}-{b}")
+            }
+        })
+        .collect();
+    format!("#[{}]", parts.join(", "))
+}
+
+/// The slots of a header's slot list (`#5` or `#[1-3, 7]`) at the start of `s`, with the
+/// byte length of the list; `None` when `s` does not start with one.
+fn parse_slot_list(s: &str) -> Option<(Vec<u32>, usize)> {
+    let rest = s.strip_prefix('#')?;
+    if let Some(inner) = rest.strip_prefix('[') {
+        let close = inner.find(']')?;
+        let mut ids = Vec::new();
+        for part in inner[..close].split(',') {
+            let part = part.trim();
+            match part.split_once('-') {
+                Some((a, b)) => {
+                    let (a, b) = (a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?);
+                    ids.extend(a..=b);
+                }
+                None => ids.push(part.parse().ok()?),
+            }
+        }
+        Some((ids, 2 + close + 1))
+    } else {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let id = rest[..digits].parse().ok()?;
+        Some((vec![id], 1 + digits))
+    }
+}
+
+/// `text` with the slots `add` added to the header line of the statement at `span` that
+/// declares slot 1; `None` when no such header line is found.
+fn add_battle_slots(text: &str, span: &std::ops::Range<usize>, add: &[u32]) -> Option<String> {
+    let start = span.start.min(text.len());
+    let mut offset = start;
+    for line in text[start..span.end.min(text.len())].split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let header = trimmed.starts_with("script") || trimmed.starts_with("pub script");
+        if !header && !trimmed.trim().is_empty() {
+            // The body begins: stacked headers come first.
+            break;
+        }
+        if let Some(hash) = line.find('#')
+            && let Some((mut ids, len)) = parse_slot_list(&line[hash..])
+            && ids.contains(&1)
+        {
+            ids.extend_from_slice(add);
+            ids.sort_unstable();
+            ids.dedup();
+            let at = offset + hash;
+            return Some(format!(
+                "{}{}{}",
+                &text[..at],
+                slot_list(&ids),
+                &text[at + len..]
+            ));
+        }
+        offset += line.len();
+    }
+    None
+}
+
+/// Targets of the jump table of a script member (`i32` entries relative to their end, ended
+/// by `u16 0xFD13`) and the offset where the code starts; `None` when the table is not
+/// terminated inside the member.
+fn jump_table(bytes: &[u8]) -> Option<(Vec<i64>, usize)> {
+    let mut targets = Vec::new();
+    let mut at = 0;
+    loop {
+        let marker = bytes.get(at..at + 2)?;
+        if marker == [0x13, 0xFD] {
+            return Some((targets, at + 2));
+        }
+        let rel = i32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?);
+        targets.push(at as i64 + 4 + i64::from(rel));
+        at += 4;
+    }
+}
+
+/// Why the compiled battle member `new` is not the extension of `old` by `added` (slots):
+/// the code after the jump table must be the same bytes, every added entry must point at
+/// the battle code (entry 0), and the seen entry somewhere else. `None` when it is.
+fn extension_mismatch(old: &[u8], new: &[u8], seen: u32, added: &[u32]) -> Option<String> {
+    let (Some((_, old_code)), Some((targets, new_code))) = (jump_table(old), jump_table(new))
+    else {
+        return Some("der Sprungtabelle fehlt das Endzeichen".to_owned());
+    };
+    if old[old_code..] != new[new_code..] {
+        return Some("der Code hinter der Sprungtabelle hat sich geändert".to_owned());
+    }
+    let target = |slot: u32| targets.get(slot as usize - 1).copied();
+    let battle = target(1);
+    for &slot in added {
+        if target(slot).is_none() || target(slot) != battle {
+            return Some(format!("Platz {slot} zeigt nicht auf den Kampf-Code"));
+        }
+    }
+    if target(seen).is_none() || target(seen) == battle {
+        return Some(format!("Platz {seen} zeigt nicht mehr auf den Sicht-Code"));
+    }
+    None
+}
+
+/// Problems of `report` (errors and warnings) in the rotom source of `file`.
+fn all_problems_in(project: &Project, report: &CompileReport, file: u16) -> Vec<Problem> {
+    let path = relative(
+        &project.root,
+        &source_path(project, file, SourceKind::Script),
+    );
+    report
+        .problems
+        .iter()
+        .filter(|p| p.file == path)
+        .cloned()
+        .collect()
+}
+
+/// Where [`extend_battle_slots_with`] stands when its test hook runs: the extended source
+/// is written, or it is compiled.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExtensionStage {
+    Written,
+    Compiled,
+}
+
+#[cfg(test)]
+type ExtensionHook = Box<dyn Fn(ExtensionStage, &Project)>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hook into [`extend_battle_slots_with`] on this thread, to disturb the files
+    /// between its steps.
+    pub(crate) static EXTENSION_HOOK: std::cell::RefCell<Option<ExtensionHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn extension_hook(stage: ExtensionStage, project: &Project) {
+    EXTENSION_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook(stage, project);
+        }
+    });
+}
+
+/// Adds every slot up to `up_to_id` to the battle script's slot list, except the seen slot
+/// (`#[1-928]` → `#[1-928, 930]`), so trainers up to that ID battle when talked to. Writes
+/// the source and compiles; the new jump table entries point at the battle code and the
+/// code stays byte for byte. Nothing to do when the battle slots reach `up_to_id` already.
+/// Any failure once the extended source is written (writing it, the compile, an error or
+/// any warning of the compile in this file, the member unreadable or not the expected
+/// extension) puts the old source and the old member back (compiling the old source again)
+/// and returns the failure as it is; when they cannot both be put back, it is
+/// [`KernelError::Partial`] naming what stays. Returns the text archives the compile changed
+/// ([`CompileReport::touched_archives`]).
+pub fn extend_battle_slots_with(
+    project: &Project,
+    meta: &TrainerScriptMeta,
+    up_to_id: u16,
+) -> Result<Vec<u16>, KernelError> {
+    let file = meta.battle_file;
+    let ScriptSource::Rotom(text) = read_source(project, file)? else {
+        return Err(no_battle_source(file));
+    };
+    let slots = analyze_battle_slots(&text, meta)?;
+    let up_to = u32::from(up_to_id);
+    if up_to <= slots.max() {
+        return Ok(Vec::new());
+    }
+    if up_to == slots.seen {
+        return Err(KernelError::Refused(format!(
+            "Trainer {up_to_id} ist der Platz des Sicht-Scripts und kämpft nie, wenn man ihn \
+             anspricht; das Studio legt dort nur den gesperrten Platzhalter an."
+        )));
+    }
+    let declared = declared_slots(&text)?;
+    let added: Vec<u32> = (slots.max() + 1..=up_to)
+        .filter(|&slot| slot != slots.seen)
+        .collect();
+    if let Some(taken) = added
+        .iter()
+        .find(|&&slot| declared.iter().any(|(id, _)| *id == slot))
+    {
+        return Err(KernelError::Refused(format!(
+            "Kampf-Scriptdatei {file:04}: Platz {taken} gehört einem anderen Script. Gib ihm eine \
+             andere Nummer, dann bekommt das Kampf-Script neue Plätze."
+        )));
+    }
+    let span = declared
+        .iter()
+        .find(|(id, _)| *id == 1)
+        .map(|(_, span)| span.clone())
+        .unwrap_or_default();
+    let extended = add_battle_slots(&text, &span, &added).ok_or_else(|| {
+        KernelError::Refused(format!(
+            "Kampf-Scriptdatei {file:04}: die Kopfzeile von Platz 1 fehlt, das Studio kann keine \
+             Plätze anfügen. Stelle die Datei wieder her (DSPRE oder Sicherung)."
+        ))
+    })?;
+    let member = member_file(project, file);
+    let old_member = std::fs::read(&member).map_err(io_at(&member))?;
+    // Every failure from here on goes through `restore`.
+    let restore = |error: KernelError| -> KernelError {
+        // The old source, compiled again, and the old member bytes; then a check of both.
+        let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));
+        let _ = compile(project);
+        if std::fs::read(&member).ok().as_deref() != Some(old_member.as_slice()) {
+            let _ = write_atomic(&project.root, &member, &old_member);
+        }
+        let source_back =
+            matches!(read_source(project, file), Ok(ScriptSource::Rotom(now)) if now == text);
+        let member_back = std::fs::read(&member).ok().as_deref() == Some(old_member.as_slice());
+        let stays: Vec<&str> = [
+            (!source_back).then_some("its extended source"),
+            (!member_back).then_some("its compiled member"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if stays.is_empty() {
+            return error;
+        }
+        KernelError::Partial(format!(
+            "{error}; putting the old source of battle script file {file:04} back failed, {} \
+             stays",
+            stays.join(" and ")
+        ))
+    };
+    if let Err(e) = write_source(project, file, &ScriptSource::Rotom(extended)) {
+        return Err(restore(e));
+    }
+    #[cfg(test)]
+    extension_hook(ExtensionStage::Written, project);
+    let report = compile(project).map_err(restore)?;
+    #[cfg(test)]
+    extension_hook(ExtensionStage::Compiled, project);
+    let problems = all_problems_in(project, &report, file);
+    if !problems.is_empty() {
+        return Err(restore(KernelError::Compile(problems)));
+    }
+    let new_member = match std::fs::read(&member) {
+        Ok(bytes) => bytes,
+        Err(e) => return Err(restore(io_at(&member)(e))),
+    };
+    if let Some(why) = extension_mismatch(&old_member, &new_member, slots.seen, &added) {
+        return Err(restore(KernelError::InvalidProject(format!(
+            "Kampf-Scriptdatei {file:04} kam beim Kompilieren anders heraus als erwartet: {why}"
+        ))));
+    }
+    Ok(report.touched_archives)
+}
+
+/// [`extend_battle_slots_with`] for the project's battle script (`trainer_scripts.yaml`).
+pub fn extend_battle_slots(project: &Project, up_to_id: u16) -> Result<(), KernelError> {
+    let meta = project_trainer_script_meta(project)?;
+    extend_battle_slots_with(project, &meta, up_to_id).map(|_| ())
+}
+
+// ---------------------------------------------------------------------------------------
 // Resolution and search
 // ---------------------------------------------------------------------------------------
 
@@ -1988,5 +2427,120 @@ AlreadyGiven:
             assert!(err.to_string().contains("DSPRE-Layout"), "{err}");
             assert!(err.to_string().contains("expanded/scripts"), "{err}");
         }
+    }
+
+    #[test]
+    fn trainer_scripts_yaml_names_the_battle_file_and_the_sight_script() {
+        let pt = trainer_script_meta(Family::Pt).unwrap();
+        assert_eq!(
+            (pt.battle_file, pt.seen_script, pt.seen_id()),
+            (1114, 3928, 929)
+        );
+        let hgss = trainer_script_meta(Family::Hgss).unwrap();
+        assert_eq!(
+            (hgss.battle_file, hgss.seen_script, hgss.seen_id()),
+            (953, 3739, 740)
+        );
+        assert_eq!(trainer_script_meta(Family::Dp), None);
+        // The fixture is Platinum US: uxie's table names 1114 for script 3000.
+        let (_s, p) = open();
+        assert_eq!(battle_script_file(&p).unwrap(), 1114);
+    }
+
+    #[test]
+    fn slot_lists_parse_and_format_runs() {
+        assert_eq!(slot_list(&[5]), "#5");
+        assert_eq!(slot_list(&[1, 2, 3]), "#[1-3]");
+        assert_eq!(slot_list(&[1, 2, 3, 5]), "#[1-3, 5]");
+        assert_eq!(slot_list(&[1, 2, 3, 5, 6, 7, 9]), "#[1-3, 5-7, 9]");
+        assert_eq!(parse_slot_list("#929:"), Some((vec![929], 4)));
+        assert_eq!(
+            parse_slot_list("#[1-3, 5]:"),
+            Some((vec![1, 2, 3, 5], "#[1-3, 5]".len()))
+        );
+        assert_eq!(
+            parse_slot_list("#[13, 15-16]"),
+            Some((vec![13, 15, 16], 12))
+        );
+        assert_eq!(parse_slot_list("x"), None);
+    }
+
+    const BATTLE: &str = "script script_1 #[1-3]:\n    LockAll\n    ReleaseAll\n    End\n\
+                          script script_4 #4:\n    LockAll\n    End\n";
+
+    fn meta(seen_script: u16) -> TrainerScriptMeta {
+        TrainerScriptMeta {
+            battle_file: 3,
+            seen_script,
+        }
+    }
+
+    #[test]
+    fn battle_slots_find_the_sight_slot_and_check_it() {
+        let slots = analyze_battle_slots(BATTLE, &meta(3003)).unwrap();
+        assert_eq!(
+            slots,
+            BattleSlots {
+                battle: vec![1, 2, 3],
+                seen: 4
+            }
+        );
+        assert_eq!(slots.max(), 3);
+        // An extended file: the battle slots go on behind the sight slot.
+        let extended = BATTLE.replace("#[1-3]", "#[1-3, 5-6]");
+        let slots = analyze_battle_slots(&extended, &meta(3003)).unwrap();
+        assert_eq!((slots.max(), slots.seen), (6, 4));
+        // The game starts another slot for the sight: refused.
+        let err = analyze_battle_slots(BATTLE, &meta(3004)).unwrap_err();
+        assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Kampf-Scriptdatei 0003: das Sicht-Script ist Platz 4, das Spiel startet Platz 5 \
+             (Script 3004). Ein anderes Werkzeug hat die Datei umgebaut; stelle die alte \
+             Reihenfolge wieder her, dann lässt sich ein Trainer anlegen."
+        );
+        // No script behind the battle slots.
+        let err = analyze_battle_slots(&BATTLE.replace("#4", "#7"), &meta(3003)).unwrap_err();
+        assert!(matches!(err, KernelError::Refused(_)), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "Kampf-Scriptdatei 0003: hinter den Kampfplätzen steht bei Platz 4 kein Script, \
+             dort erwartet das Spiel das Sicht-Script. Stelle die Datei wieder her (DSPRE oder \
+             Sicherung), dann lässt sich ein Trainer anlegen."
+        );
+    }
+
+    #[test]
+    fn battle_slots_are_added_to_the_header_line_of_slot_1() {
+        let span = declared_slots(BATTLE)
+            .unwrap()
+            .into_iter()
+            .find(|(id, _)| *id == 1)
+            .unwrap()
+            .1;
+        let out = add_battle_slots(BATTLE, &span, &[5, 6]).unwrap();
+        assert_eq!(out, BATTLE.replace("#[1-3]", "#[1-3, 5-6]"));
+        let stacked = "script a #2:\nscript b #[1, 3]:\n    End\nscript c #4:\n    End\n";
+        let span = declared_slots(stacked)
+            .unwrap()
+            .into_iter()
+            .find(|(id, _)| *id == 1)
+            .unwrap()
+            .1;
+        assert_eq!(
+            add_battle_slots(stacked, &span, &[5]).unwrap(),
+            stacked.replace("#[1, 3]", "#[1, 3, 5]")
+        );
+    }
+
+    #[test]
+    fn jump_table_reads_targets_up_to_the_end_marker() {
+        // Two entries pointing at the code right after the marker (offset 10).
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&6i32.to_le_bytes()); // 0 + 4 + 6 = 10
+        bytes.extend_from_slice(&2i32.to_le_bytes()); // 4 + 4 + 2 = 10
+        bytes.extend_from_slice(&[0x13, 0xFD, 0x02, 0x00]);
+        assert_eq!(jump_table(&bytes), Some((vec![10, 10], 10)));
+        assert_eq!(jump_table(&[1, 0, 0, 0]), None);
     }
 }

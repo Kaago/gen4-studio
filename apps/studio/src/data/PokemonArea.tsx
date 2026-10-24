@@ -4,6 +4,9 @@ import { dataStatus } from "../app/statusContext";
 import { DataListPane, DataPanel } from "./DataParts";
 import type { DataPart } from "./DataParts";
 import type { DataSub } from "./dataModel";
+import { EncounterHand } from "./encounters/EncounterHand";
+import { EncounterList } from "./encounters/EncounterList";
+import { EncounterView } from "./encounters/EncounterView";
 import { MoveHand } from "./moves/MoveHand";
 import { MovesList } from "./moves/MovesList";
 import { MoveView } from "./moves/MoveView";
@@ -11,6 +14,9 @@ import { PokedexHand } from "./pokedex/PokedexHand";
 import { PokedexList } from "./pokedex/PokedexList";
 import { PokedexView } from "./pokedex/PokedexView";
 import { speciesCount } from "./pokedex/pokedexModel";
+import { TrainerHand } from "./trainer/TrainerHand";
+import { TrainerList } from "./trainer/TrainerList";
+import { TrainerView } from "./trainer/TrainerView";
 import { dataAreaProvider, dataSearchProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
@@ -30,12 +36,11 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
   );
 });
 
-/**
- * The parts of the Pokémon area by their switcher entry. The mount points of the editors: the Pokédex (Task 14) and the moves (Task 15)
- * replace their entries; Trainer and Begegnungen come with Phase 3b.3b (their entries are locked in the switcher).
- */
+/** The parts of the Pokémon area by their switcher entry: the Pokédex, the trainers, the encounter files and the moves. */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
+  trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand },
+  encounters: { List: EncounterList, View: EncounterView, Hand: EncounterHand },
   moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };
 

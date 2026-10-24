@@ -2,7 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 import type { DataRowDto } from "../api";
 import { ListPane } from "../ui/frame/ListPane";
 import { EmptyState, PanelHead } from "../ui/primitives";
-import { AREA_LABEL, SUB_LABEL, SUB_LOCKED } from "./dataModel";
+import { AREA_LABEL, SUB_LABEL } from "./dataModel";
 import type { DataArea, DataSub, ListKind } from "./dataModel";
 import { useDataArea } from "./useDataArea";
 import styles from "./DataArea.module.css";
@@ -21,12 +21,22 @@ export const NOTHING_CHOSEN: Record<DataSub, { what: string; why: string; first?
   pokedex: { what: "Kein Pokémon gewählt.", why: "Wähle links eine Art; hier erscheinen Werte und Fundorte.", first: "Erste Art zeigen" },
   moves: { what: "Keine Attacke gewählt.", why: "Wähle links eine Attacke; hier erscheinen ihre Werte und wer sie lernt.", first: "Erste Attacke zeigen" },
   items: { what: "Kein Gegenstand gewählt.", why: "Wähle links einen Gegenstand; hier erscheinen Preis, Tasche und Beschreibung.", first: "Ersten Gegenstand zeigen" },
-  trainer: { what: "Kein Trainer gewählt.", why: `Trainer ${SUB_LOCKED.trainer ?? ""}.` },
-  encounters: { what: "Keine Begegnung gewählt.", why: `Begegnungen ${SUB_LOCKED.encounters ?? ""}.` },
+  trainer: { what: "Kein Trainer gewählt.", why: "Wähle links einen Trainer; hier erscheinen sein Team und wo er in der Welt steht.", first: "Ersten Trainer zeigen" },
+  encounters: {
+    what: "Keine Begegnungsdatei gewählt.",
+    why: "Wähle links eine Datei; hier erscheint, wer an ihren Orten wartet.",
+    first: "Erste Datei zeigen",
+  },
 };
 
 /** What the area's lists hold, for the pane's "508 Arten" and the empty project. */
-const NOUN: Record<ListKind, [string, string]> = { species: ["Art", "Arten"], move: ["Attacke", "Attacken"], item: ["Gegenstand", "Gegenstände"] };
+const NOUN: Record<ListKind, [string, string]> = {
+  species: ["Art", "Arten"],
+  move: ["Attacke", "Attacken"],
+  item: ["Gegenstand", "Gegenstände"],
+  trainer: ["Trainer", "Trainer"],
+  encounter: ["Begegnungsdatei", "Begegnungsdateien"],
+};
 const count = (kind: ListKind, n: number) => `${n} ${NOUN[kind][n === 1 ? 0 : 1]}`;
 
 const NO_PROJECT: Record<DataArea, string> = {

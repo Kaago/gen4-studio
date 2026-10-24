@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, resolveScript, updateEvent } from "../../api";
-import type { EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
@@ -15,8 +15,8 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const header = (id: number, event: number, script: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0, script_file_id: script, level_script_id: 0 });
-const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, x: 3, z: 4, y: 0 };
-const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
+const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
+const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
 
 describe("EventEditor scripts", () => {
   let container: HTMLElement;
@@ -234,6 +234,95 @@ describe("EventEditor scripts", () => {
       await show(context(), "warp", 0);
       expect(container.textContent).toContain("Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür.");
       expect(button("unbekannt (9999)")).toBeUndefined();
+    });
+  });
+
+  describe("the trainer field of an object", () => {
+    const trainerRow = (index: number, name: string, cls: string | null): DataRowDto => ({
+      index,
+      name,
+      tech: String(index).padStart(4, "0"),
+      locked: cls === null ? "placeholder for the sight script slot" : null,
+      extra: cls === null ? null : { class: 2, class_name: cls, level_max: 5, party_count: 1, places: [] },
+    });
+    const trainers = [trainerRow(0, "", "Klasse 0"), trainerRow(356, "Sebastian", "Teenager"), trainerRow(928, "Jens", "Wanderer"), trainerRow(929, "", null), trainerRow(930, "Mia", "Göre")];
+    const withObject = (over: Partial<ObjectDto>) => vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), objects: [{ ...npc, index: 0, ...over }] }));
+    const trainerChip = () => container.querySelector<HTMLButtonElement>("button[data-trainer]");
+    const trainerRowText = () => [...container.querySelectorAll("[data-field='trainer']")].map((e) => e.textContent).join("");
+
+    it("shows_trainer_356_for_script_3355_as_a_reference_into_the_pokemon_area", async () => {
+      const goTo = vi.fn();
+      const needTrainers = vi.fn();
+      withObject({ script: 3355, trainer_type: 1, sight: 5 });
+      await show(context({ goTo, trainers, needTrainers }), "object", 0);
+      expect(needTrainers).toHaveBeenCalled();
+      expect(trainerChip()?.textContent).toContain("Teenager Sebastian");
+      expect(trainerChip()?.getAttribute("data-trainer")).toBe("356");
+      await click(trainerChip()!);
+      expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 356 });
+    });
+
+    it("says_kein_Trainer_for_a_script_outside_3000_to_4999", async () => {
+      withObject({ script: 4 });
+      await show(context({ trainers }), "object", 0);
+      expect(trainerChip()).toBeNull();
+      expect(trainerRowText()).toContain("kein Trainer");
+    });
+
+    it("names_a_partner_from_5000_on", async () => {
+      withObject({ script: 5355 });
+      await show(context({ trainers }), "object", 0);
+      expect(trainerChip()?.textContent).toContain("Teenager Sebastian (Partner)");
+    });
+
+    it("picking_a_trainer_sets_the_script_and_turns_the_sightline_on_in_one_write_when_type_and_sight_are_0", async () => {
+      withObject({ script: 4, trainer_type: 0, sight: 0 });
+      await show(context({ trainers }), "object", 0);
+      await click(container.querySelector("button[aria-label='Trainer ändern…']") ?? undefined);
+      // Neither the dummy 0 nor the seen slot 929 is offered.
+      expect(options().map((o) => o.textContent)).toEqual(["Teenager Sebastian0356", "Wanderer Jens0928", "Göre Mia0930"]);
+      typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "Mia");
+      await click(options()[0]);
+      await flush();
+      expect(updateEvent).toHaveBeenCalledTimes(1);
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { script: 3929, trainer_type: 1, sight: 3 });
+      expect(onChanged).toHaveBeenCalledWith(8);
+      expect(trainerChip()?.textContent).toContain("Göre Mia");
+    });
+
+    it("picking_a_trainer_keeps_a_sightline_that_is_already_set", async () => {
+      withObject({ script: 3355, trainer_type: 1, sight: 5 });
+      await show(context({ trainers }), "object", 0);
+      await click(container.querySelector("button[aria-label='Trainer ändern…']") ?? undefined);
+      await click(options().find((o) => o.textContent?.startsWith("Wanderer Jens")));
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { script: 3927 });
+    });
+
+    it("picking_another_trainer_for_a_partner_keeps_the_partner_range", async () => {
+      withObject({ script: 5355, trainer_type: 1, sight: 2 });
+      await show(context({ trainers }), "object", 0);
+      await click(container.querySelector("button[aria-label='Trainer ändern…']") ?? undefined);
+      await click(options().find((o) => o.textContent?.startsWith("Göre Mia")));
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { script: 5929 });
+      expect(trainerChip()?.textContent).toContain("Göre Mia (Partner)");
+    });
+
+    it("shows_the_sightline_fields_of_task_2", async () => {
+      withObject({ script: 3355, trainer_type: 1, sight: 5 });
+      await show(context({ trainers }), "object", 0);
+      expect(select("Sichtlinie").textContent).toContain("Trainer sieht dich");
+      expect(field("Sichtweite").value).toBe("5");
+    });
+
+    it("has_no_trainer_field_on_other_classes_nor_in_Diamond_and_Pearl", async () => {
+      withObject({ script: 3355 });
+      await show(context({ trainers, family: "Dp" }), "object", 0);
+      expect(trainerRowText()).toBe("");
+      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), coords: [{ index: 0, script: 3355, x: 1, z: 1, width: 1, length: 1 }] }));
+      await show(context({ trainers }), "coord", 0);
+      expect(trainerRowText()).toBe("");
     });
   });
 

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { addEvent, applyHeaderPatch, buildRom, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
@@ -21,7 +21,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -37,9 +37,10 @@ vi.mock("./workbench/panels", () => ({
   ItemsListPane: () => null,
   TextAreaHost: ({ children }: { children: unknown }) => children,
   // Records what App hands the data areas: the member a link asked for, and where they report their breadcrumbs.
-  DataAreaHost: ({ children, target, onTrail }: { children: unknown; target: unknown; onTrail: unknown }) => {
+  DataAreaHost: ({ children, target, onTrail, onPlaceTrainer }: { children: unknown; target: unknown; onTrail: unknown; onPlaceTrainer: unknown }) => {
     shown.dataTarget = target;
     shown.onTrail = onTrail;
+    shown.onPlaceTrainer = onPlaceTrainer;
     return children;
   },
   TextHints: () => null,
@@ -104,6 +105,7 @@ vi.mock("./api", async (importOriginal) => ({
   history: vi.fn(),
   getEvents: vi.fn(),
   runRom: vi.fn(),
+  addEvent: vi.fn(),
   dataList: vi.fn(),
   nameTables: vi.fn(),
   itemTable: vi.fn(),
@@ -583,6 +585,76 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Geschichten")!.click());
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
       for (const name of ["Pokémon", "Gegenstände", "Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+    });
+
+    describe("placing a trainer in the world", () => {
+      const jens = { index: 928, name: "Jens", tech: "0928", locked: null, extra: { class: 6, class_name: "Wanderer", level_max: 5, party_count: 1, places: [] } };
+      const place = (id: number) => act(async () => (shown.onPlaceTrainer as (id: number) => void)(id));
+      const figureClick = (x: number, z: number) => act(async () => data().onTileClick({ mapId: 0, x, y: z, absX: x, absZ: z }));
+      beforeEach(async () => {
+        vi.mocked(dataList).mockImplementation(async (kind) => (kind === "trainer" ? [jens] : []));
+        vi.mocked(addEvent).mockResolvedValue(0);
+        vi.mocked(getEvents).mockResolvedValue({ event_file_id: 0, locked: null, bg: [], warps: [], coords: [], objects: [] });
+        await select(listed[0]);
+        await act(async () => atlasEntry("Pokémon")!.click());
+      });
+
+      it("switches_to_the_world_and_the_figure_tool_and_says_what_a_click_sets", async () => {
+        await place(928);
+        expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+        expect(data().tool).toBe("figure");
+        expect(statusLine()).toContain("Klick setzt Wanderer Jens");
+        // Not remembered between runs.
+        expect(readShellState()).not.toHaveProperty("pendingTrainer");
+        expect(Object.keys(localStorage).map((k) => localStorage.getItem(k)).join()).not.toContain("pending");
+      });
+
+      it("makes_the_next_figure_click_add_the_trainer_with_its_three_fields_in_one_add_event", async () => {
+        await place(928);
+        await figureClick(3, 4);
+        expect(addEvent).toHaveBeenCalledTimes(1);
+        expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4, { script: 3927, trainer_type: 1, sight: 3 }, "Trainer Jens platziert");
+        // The binding is used up: the tool is back to "Auswählen" and the next figure is a plain one.
+        expect(data().tool).toBe("select");
+        expect(statusLine()).not.toContain("Klick setzt");
+        await act(async () => data().onTool("figure"));
+        await figureClick(5, 6);
+        expect(addEvent).toHaveBeenLastCalledWith(0, "object", 5, 6);
+      });
+
+      it("drops_the_binding_on_Escape", async () => {
+        await place(928);
+        await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+        expect(data().tool).toBe("select");
+        expect(statusLine()).not.toContain("Klick setzt");
+        await act(async () => data().onTool("figure"));
+        await figureClick(3, 4);
+        expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4);
+      });
+
+      it("drops_the_binding_when_the_world_is_left", async () => {
+        await place(928);
+        await act(async () => atlasEntry("Texte")!.click());
+        await act(async () => atlasEntry("Welt")!.click());
+        expect(statusLine()).not.toContain("Klick setzt");
+        await figureClick(3, 4);
+        expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4);
+      });
+
+      it("drops_the_binding_when_another_tool_is_chosen", async () => {
+        await place(928);
+        await act(async () => data().onTool("door"));
+        await act(async () => data().onTool("figure"));
+        expect(statusLine()).not.toContain("Klick setzt");
+      });
+    });
+
+    it("says_to_choose_a_place_first_when_a_trainer_is_placed_without_one", async () => {
+      await act(async () => atlasEntry("Pokémon")!.click());
+      await act(async () => (shown.onPlaceTrainer as (id: number) => void)(928));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(data().tool).toBe("select");
+      expect(listToasts().map((t) => t.text).join()).toContain("Erst einen Ort wählen, dann den Trainer platzieren.");
     });
 
     it("opens_pokemon_and_items_with_their_own_list_deck_breadcrumb_and_status", async () => {
@@ -1456,9 +1528,10 @@ describe("App wiring", () => {
       expect(readShellState().sub.pokemon).toBe("moves");
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", metaKey: true, bubbles: true, cancelable: true })));
       expect(readShellState().sub.pokemon).toBe("pokedex");
-      // Trainer comes with 3b.3b.
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true, bubbles: true, cancelable: true })));
-      expect(readShellState().sub.pokemon).toBe("pokedex");
+      expect(readShellState().sub.pokemon).toBe("trainer");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", metaKey: true, bubbles: true, cancelable: true })));
+      expect(readShellState().sub.pokemon).toBe("encounters");
     });
 
     it("resets_the_layout_of_the_world_deck", async () => {
@@ -1534,6 +1607,17 @@ describe("App wiring", () => {
       // The plan for a restored shown matrix: unpin, the matrix panel and editor, the scene's matrix.
       expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
       expect(data().history.current).toBe(1);
+    });
+
+    it("says_why_an_undo_stops_at_a_creation_and_reloads_nothing", async () => {
+      await select(listed[0]);
+      const log = record();
+      // The kernel refuses to undo across the step that created a trainer (an undo barrier).
+      vi.mocked(undo).mockRejectedValueOnce({ code: "error", message: "Trainer 928 anlegen lässt sich nicht rückgängig machen", asset: null, problems: [] });
+      await pressUndo();
+      expect(log).toEqual([]);
+      expect(data().history.current).toBe(0);
+      expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("Trainer 928 anlegen lässt sich nicht rückgängig machen") });
     });
 
     it("does not touch the history or reload anything when nothing was undone", async () => {
