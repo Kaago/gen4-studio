@@ -60,10 +60,9 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
  * A parts import (or its undo or redo) gave one map another terrain model: fetch it for the shown
  * area data and swap the instances of that map, the other models stay. Queued like the maps above
  * (a map is fetched once per batch); a result is dropped when the scene shows another matrix or
- * area data by then, or when a newer request for the same map was made.
+ * area data by then, or when a newer request for the same map was made (`mapModelGen`).
  */
 export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueue<number> | null) {
-  const modelRequests = useRef(new Map<number, number>());
   const modelsSeen = useRef(0);
   useEffect(() => {
     const { items, last } = pendingSince(mapModelRefresh, modelsSeen.current);
@@ -74,9 +73,10 @@ export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueu
     const matrixAtStart = h.matrix;
     const area = refs.area.current;
     for (const map of new Set(items)) {
-      const seq = (modelRequests.current.get(map) ?? 0) + 1;
-      modelRequests.current.set(map, seq);
-      const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || modelRequests.current.get(map) !== seq;
+      // The generation lives on the host: a full model load in flight drops its result for this map too.
+      const gen = (h.mapModelGen.get(map) ?? 0) + 1;
+      h.mapModelGen.set(map, gen);
+      const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || h.mapModelGen.get(map) !== gen;
       (async () => {
         if (!h.loaded.has(map)) return;
         const model = await getMapModelGlb(map, area).then(parseGlb);
@@ -92,7 +92,8 @@ export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueu
         const note = issue && textureNote([issue]);
         if (note && !stale()) refs.callbacks.current.onStatus({ kind: "info", text: note });
       })().catch((e) => {
-        if (!h.disposed) refs.callbacks.current.onError(errorText(e));
+        // A superseded request's failure is moot: the newer one reports for itself.
+        if (!stale()) refs.callbacks.current.onError(errorText(e));
       });
     }
   }, [mapModelRefresh]);

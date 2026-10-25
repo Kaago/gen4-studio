@@ -8,7 +8,7 @@ import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
 import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
-import { addModel, buildContent, removeModels, setMarkers } from "./content";
+import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
 import type { SceneHost } from "./SceneHost";
 import { loadNames } from "./tileNames";
@@ -98,23 +98,27 @@ async function showMaps(
  * Loads the terrain models of the loaded maps, then the building models the layer lacks, a few at
  * a time, each hung into the scene as it arrives; reports progress and, at the end, what failed.
  * A task that has not started when the load is superseded never starts; a started one finishes,
- * but its scene is disposed instead of added.
+ * but its scene is disposed instead of added. So is a map's model when a one-map reload of that
+ * map (`useMapModelRefresh`) was asked for after the task started.
  */
-async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, stale: () => boolean, report: (message: Message | null) => void) {
+export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, stale: () => boolean, report: (message: Message | null) => void) {
   const modelIds = [...h.loaded.keys()];
   const textureIssues: TextureIssue[] = [];
   const mapTasks = modelIds.map((id) => async () => {
     if (stale()) return;
+    const gen = h.mapModelGen.get(id) ?? 0;
     const model = await getMapModelGlb(id, area).then(parseGlb);
     // The backend falls back to an untextured model when the tileset is unusable; ask why.
     // A failing status call only costs the note.
     await mapModelTextureStatus(id, area)
       .then((issue) => issue && textureIssues.push(issue))
       .catch(() => undefined);
-    if (stale()) {
+    if (stale() || (h.mapModelGen.get(id) ?? 0) !== gen) {
       disposeTree(model);
       return;
     }
+    // A one-map reload may have shown this map already: its instances give way, one set stays.
+    removeMapModel(h, id);
     addModel(h, matrix, id, model);
     h.queueRender();
   });

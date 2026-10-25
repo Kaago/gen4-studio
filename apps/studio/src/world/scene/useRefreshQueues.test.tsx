@@ -13,6 +13,7 @@ import { parseGlb } from "../sceneUtil";
 import type { SceneHost } from "./SceneHost";
 import type { SceneRefs } from "./types";
 import { useMapModelRefresh } from "./useRefreshQueues";
+import { loadModels } from "./useSceneLoader";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -54,6 +55,10 @@ function fakeScene() {
     models: [],
     queueRender: vi.fn(),
     disposed: false,
+    mapModelGen: new Map(),
+    // What `loadModels` reads besides the above: no buildings, nothing failed before.
+    buildings: null,
+    loadProblems: { names: null, maps: [] },
   } as unknown as SceneHost;
   const onError = vi.fn();
   const onStatus = vi.fn();
@@ -122,10 +127,11 @@ describe("useMapModelRefresh", () => {
   });
 
   it("ignoriert eine Karte, die die Szene nicht zeigt", async () => {
-    const { refs } = fakeScene();
+    const { refs, onError } = fakeScene();
     act(() => root.render(<Probe refs={refs} queue={enqueue(null, 9)} />));
     await flush();
     expect(getMapModelGlb).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("nur das jüngste Ergebnis landet in der Szene", async () => {
@@ -168,6 +174,38 @@ describe("useMapModelRefresh", () => {
     expect(h.queueRender).not.toHaveBeenCalled();
   });
 
+  it("verwirft nach Wechsel der Area-Data", async () => {
+    const { h, refs } = fakeScene();
+    const old = instance(h, 5);
+    const pending = deferred<ArrayBuffer>();
+    vi.mocked(getMapModelGlb).mockReturnValue(pending.promise);
+    const model = mesh();
+    const disposed = vi.spyOn(model.geometry, "dispose");
+    act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+    refs.area.current = 4;
+    pending.resolve(glbOf(model));
+    await flush();
+    expect(h.content.children).toEqual([old]);
+    expect(h.models).toEqual([old]);
+    expect(disposed).toHaveBeenCalled();
+  });
+
+  it("ein überholter Abruf, der fehlschlägt, meldet keinen Fehler", async () => {
+    const { h, refs, onError } = fakeScene();
+    let rejectFirst!: (e: unknown) => void;
+    const failing = new Promise<ArrayBuffer>((_, reject) => (rejectFirst = reject));
+    const fresh = mesh();
+    vi.mocked(getMapModelGlb).mockReturnValueOnce(failing).mockResolvedValueOnce(glbOf(fresh));
+    const q1 = enqueue(null, 5);
+    act(() => root.render(<Probe refs={refs} queue={q1} />));
+    act(() => root.render(<Probe refs={refs} queue={enqueue(q1, 5)} />));
+    await flush();
+    rejectFirst(new Error("apicula kaputt"));
+    await flush();
+    expect(onError).not.toHaveBeenCalled();
+    expect(clonesOf(h, fresh)).toHaveLength(2);
+  });
+
   it("meldet einen Texturhinweis als Status und einen Fehler über onError", async () => {
     const { h, refs, onError, onStatus } = fakeScene();
     const issue: TextureIssue = { tileset: 12, reason: "unsupported" };
@@ -188,5 +226,61 @@ describe("useMapModelRefresh", () => {
     expect(onError).toHaveBeenCalledExactlyOnceWith(errorText(failure));
     expect(h.content.children).toEqual(shown);
     expect(onStatus).toHaveBeenCalledTimes(1);
+  });
+
+  describe("mit einer vollen Modellladung im Flug", () => {
+    /** Every `getMapModelGlb` call with its map, answered from outside. */
+    let calls: { map: number; glb: ReturnType<typeof deferred<ArrayBuffer>> }[];
+    beforeEach(() => {
+      calls = [];
+      vi.mocked(getMapModelGlb).mockImplementation((map) => {
+        const glb = deferred<ArrayBuffer>();
+        calls.push({ map, glb });
+        return glb.promise;
+      });
+    });
+    /** The pending fetches for `map`, oldest first. */
+    const callsFor = (map: number) => calls.filter((c) => c.map === map).map((c) => c.glb);
+
+    it("ein Ergebnis der vollen Ladung nach einem Einzelreload der Karte wird verworfen", async () => {
+      const { h, refs } = fakeScene();
+      const loading = loadModels(h, matrix, 3, () => false, vi.fn());
+      const [fullFetch] = callsFor(5);
+      // The import lands while the full load still fetches map 5 (the old model).
+      act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      const [, reloadFetch] = callsFor(5);
+      const fresh = mesh();
+      const outdated = mesh();
+      const outdatedDisposed = vi.spyOn(outdated.geometry, "dispose");
+      reloadFetch.resolve(glbOf(fresh));
+      await flush();
+      fullFetch.resolve(glbOf(outdated));
+      callsFor(2)[0].resolve(glbOf(mesh()));
+      await act(() => loading);
+      expect(clonesOf(h, fresh)).toHaveLength(2);
+      expect(clonesOf(h, outdated)).toHaveLength(0);
+      expect(outdatedDisposed).toHaveBeenCalled();
+      expect(h.models.map((m) => m.userData.mapId).sort()).toEqual([2, 5, 5]);
+      expect(h.content.children).toHaveLength(3);
+    });
+
+    it("zwei frische Ergebnisse für eine Karte lassen einen Satz Instanzen", async () => {
+      const { h, refs } = fakeScene();
+      // The reload is asked for first; the full load starts after it, so its fetch is current too.
+      act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      const loading = loadModels(h, matrix, 3, () => false, vi.fn());
+      const [reloadFetch, fullFetch] = callsFor(5);
+      const first = mesh();
+      const second = mesh();
+      reloadFetch.resolve(glbOf(first));
+      await flush();
+      fullFetch.resolve(glbOf(second));
+      callsFor(2)[0].resolve(glbOf(mesh()));
+      await act(() => loading);
+      expect(clonesOf(h, second)).toHaveLength(2);
+      expect(clonesOf(h, first)).toHaveLength(0);
+      expect(h.models.map((m) => m.userData.mapId).sort()).toEqual([2, 5, 5]);
+      expect(h.content.children).toHaveLength(3);
+    });
   });
 });
