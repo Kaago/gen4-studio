@@ -25,7 +25,7 @@ use serde_json::{Map, Value, json};
 
 use crate::commands::dispatch::{DispatchError, Reply, dispatch};
 use crate::commands::policy::UserPolicy;
-use crate::commands::{ProjectInfo, dirty_impl, history_impl, open_project_impl, project_info_of};
+use crate::commands::{ProjectInfo, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
 use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
@@ -264,6 +264,8 @@ struct BatchPlan<'t> {
     calls: Vec<(&'t str, Prepared)>,
     label: String,
     confirm: Vec<String>,
+    /// How many calls change the project.
+    changes: usize,
 }
 
 /// Where the toolbox's project lives.
@@ -404,6 +406,10 @@ impl Toolbox {
                 self.own_call(client).call(def, args)
             }
             Host::Shared { source, wait } => {
+                // Refused before anything is asked.
+                if opens_project(def, &args) {
+                    return Err(ToolError::refused("unavailable", USER_OPENS));
+                }
                 let state = source.state();
                 let open = OpenProject::of(state)?;
                 open.call(state, client, *wait)?.call(def, args)
@@ -520,6 +526,7 @@ impl OpenProject {
             shared: Some(Shared {
                 hub,
                 project: &self.project,
+                key,
                 wait,
                 read_only,
             }),
@@ -532,6 +539,7 @@ impl OpenProject {
 struct Shared<'a> {
     hub: &'a AgentHub,
     project: &'a Arc<Project>,
+    key: ProjectKey,
     wait: Duration,
     read_only: Option<&'static str>,
 }
@@ -561,7 +569,7 @@ impl<'a> Call<'a> {
         if let (Some(why), Prepared::Command { command, .. }) = (&admitted.confirm, &prepared) {
             self.confirm(command, why)?;
         }
-        let _turn = self.begin()?;
+        let _turn = self.begin(admitted.changes)?;
         if admitted.changes {
             self.changing(def.name, None, || self.run(prepared))
         } else {
@@ -570,14 +578,39 @@ impl<'a> Call<'a> {
     }
 
     /// In the app: takes the agents' turn, once the questions are answered, and checks the
-    /// project is still the one the call was admitted for.
-    fn begin(&self) -> Result<Option<MutexGuard<'a, ()>>, ToolError> {
+    /// project is still the one the call was admitted for. A call that `changes` the
+    /// project is admitted again (see [`Call::still_writable`]): it may have waited for the
+    /// turn while the user changed their mind.
+    fn begin(&self, changes: bool) -> Result<Option<MutexGuard<'a, ()>>, ToolError> {
         let Some(shared) = &self.shared else {
             return Ok(None);
         };
         let turn = shared.hub.agent_turn();
         self.with_session(|_| ())?;
+        if changes {
+            self.still_writable(shared)?;
+        }
         Ok(Some(turn))
+    }
+
+    /// Whether the user still lets the client write, without asking: not disconnected
+    /// ("Trennen"), the saved grant still `write`, the switch "Nur lesen" off.
+    fn still_writable(&self, shared: &Shared<'_>) -> Result<(), ToolError> {
+        let hub = shared.hub;
+        if hub.is_disconnected(self.client) {
+            return Err(ToolError::refused("not_permitted", NOT_PERMITTED));
+        }
+        match hub.settings().grant_for(&shared.key) {
+            Some(GrantLevel::Write) => {}
+            Some(GrantLevel::Read) => return Err(ToolError::refused("read_only", READ_GRANT)),
+            Some(GrantLevel::None) | None => {
+                return Err(ToolError::refused("not_permitted", NOT_PERMITTED));
+            }
+        }
+        if hub.read_only() {
+            return Err(ToolError::refused("read_only", READ_SWITCH));
+        }
+        Ok(())
     }
 
     /// Runs the write `f` with the client as the origin of every step it records. In the app
@@ -743,9 +776,12 @@ impl<'a> Call<'a> {
             irreversible,
             expert,
         } = self.access;
+        // Both from the session the call was admitted for (in the app a switched project is
+        // refused).
+        let (dirty, history) = self.with_session(|s| (s.store.dirty(), history_of(&s.store)))?;
         if let Some(fields) = info.as_object_mut() {
-            fields.insert("dirty".to_owned(), json!(dirty_impl(self.state)?));
-            fields.insert("history".to_owned(), json!(history_impl(self.state)?));
+            fields.insert("dirty".to_owned(), json!(dirty));
+            fields.insert("history".to_owned(), json!(history));
             fields.insert("toolset".to_owned(), json!(TOOLSET));
             fields.insert(
                 "access".to_owned(),
@@ -791,7 +827,7 @@ impl<'a> Call<'a> {
         if !plan.confirm.is_empty() {
             self.confirm(def.name, &plan.confirm.join(", "))?;
         }
-        let _turn = self.begin()?;
+        let _turn = self.begin(plan.changes > 0)?;
         let label = plan.label.clone();
         self.changing(def.name, Some(label), || self.run_batch(plan, run))
     }
@@ -833,6 +869,7 @@ impl<'a> Call<'a> {
             calls: ready,
             label: label.unwrap_or_else(|| default_label(changes)),
             confirm,
+            changes,
         })
     }
 
@@ -990,7 +1027,7 @@ impl<'a> Call<'a> {
 
     /// Reads `resource` and answers its MIME type and text.
     fn read(&self, resource: ResourceUri) -> Result<(String, String), ToolError> {
-        let _turn = self.begin()?;
+        let _turn = self.begin(false)?;
         let read = |command: &str, args: Value| {
             self.run(Prepared::Command {
                 command: command.to_owned(),
@@ -1036,6 +1073,26 @@ impl Drop for RollbackGuard<'_, '_> {
             let _ = s.store.rollback_to(mark);
             s.after_write();
         });
+    }
+}
+
+/// Whether the call is `open_project` through `g4_call`, itself or as a call of a batch.
+fn opens_project(def: &ToolDef, args: &Value) -> bool {
+    let names_it =
+        |args: &Value| args.get("command").and_then(Value::as_str) == Some("open_project");
+    match def.route {
+        Route::Call => names_it(args),
+        Route::Batch => args
+            .get("calls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| {
+                calls.iter().any(|call| {
+                    call.get("tool").and_then(Value::as_str) == Some("g4_call")
+                        && call.get("arguments").is_some_and(names_it)
+                })
+            }),
+        Route::Command { command, .. } => command == "open_project",
+        Route::ProjectInfo | Route::Commands => false,
     }
 }
 
@@ -1123,7 +1180,7 @@ mod tests {
     use crate::commands::{
         get_events_impl, get_header_impl, get_text_archive_impl, read_script_impl,
     };
-    use crate::commands::{header_patch_status_impl, undo_impl};
+    use crate::commands::{header_patch_status_impl, history_impl, undo_impl};
     use crate::mcp::TOOLSET;
     use crate::mcp::hub::{AgentEvent, QuestionDto};
     use g4_kernel::test_support::{Synthetic, synthetic_project};
@@ -2240,21 +2297,55 @@ mod tests {
         assert_eq!(history_impl(&state).unwrap().undo.len(), 1);
         assert_eq!(changes(&state).len(), 2);
 
-        // The project changes while a batch runs: no assets of either project are reported,
-        // and the batch stops instead of touching the new project's history.
+        // The user opens a project while a batch runs: the opening waits for the batch,
+        // which ends on the project it was admitted for.
+        let third = synthetic_project();
+        let third_path = third.dir.path().to_str().unwrap().to_owned();
         let open = OpenProject::of(&state).unwrap();
         let call = open.call(&state, AGENT, WAIT).unwrap();
-        let third = synthetic_project();
+        let mut opening = None;
         let calls = json!({ "calls": [
             { "tool": "data_edit", "arguments": power(68) },
             { "tool": "data_edit", "arguments": power(69) },
+        ] });
+        call.batch_with(batch_tool(), calls, &mut |call, index, prepared| {
+            if index == 0 {
+                let state = Arc::clone(&state);
+                let path = third_path.clone();
+                opening = Some(std::thread::spawn(move || {
+                    open_project_impl(&state, &path).unwrap();
+                }));
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            call.with_session(|_| ()).unwrap();
+            call.run(prepared)
+        })
+        .unwrap();
+        opening.unwrap().join().unwrap();
+        assert_eq!(
+            toolbox.project(),
+            Some(third.dir.path().canonicalize().unwrap())
+        );
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        assert_eq!(changes(&state).len(), 3);
+
+        // The session replaced behind the turn's back: the batch stops instead of touching
+        // the new project's history, and no assets of either project are reported.
+        let fourth = synthetic_project();
+        grant(&state, &third, GrantLevel::Write);
+        let open = OpenProject::of(&state).unwrap();
+        let call = open.call(&state, AGENT, WAIT).unwrap();
+        let calls = json!({ "calls": [
+            { "tool": "data_edit", "arguments": power(70) },
+            { "tool": "data_edit", "arguments": power(71) },
         ] });
         let (code, message, _) =
             failed(
                 call.batch_with(batch_tool(), calls, &mut |call, index, prepared| {
                     let result = call.run(prepared);
                     if index == 0 {
-                        open_project_impl(call.state, third.dir.path().to_str().unwrap()).unwrap();
+                        let project = Project::open(fourth.dir.path()).unwrap();
+                        *call.state.lock_session() = Some(Session::new(Arc::new(project)));
                     }
                     result
                 }),
@@ -2264,8 +2355,110 @@ mod tests {
             message,
             "In Gen4 Studio ist inzwischen ein anderes Projekt offen"
         );
-        assert_eq!(changes(&state).len(), 2);
+        assert_eq!(changes(&state).len(), 3);
         assert!(history_impl(&state).unwrap().undo.is_empty());
+    }
+
+    #[test]
+    fn queued_write_rechecks_read_only() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        let toolbox = Arc::new(toolbox);
+        // Another agent's call holds the turn; a write and a batch are admitted and queue.
+        let turn = state.agents.agent_turn();
+        let queued: Vec<_> = [
+            ("data_edit", power(65)),
+            (
+                "g4_batch",
+                json!({ "calls": [{ "tool": "data_edit", "arguments": power(66) }] }),
+            ),
+        ]
+        .into_iter()
+        .map(|(tool, args)| {
+            let toolbox = Arc::clone(&toolbox);
+            std::thread::spawn(move || toolbox.call(tool, args, AGENT))
+        })
+        .collect();
+        std::thread::sleep(Duration::from_millis(100));
+        // Meanwhile the user switches "Nur lesen" on.
+        state.agents.set_read_only(true);
+        drop(turn);
+        for call in queued {
+            let (code, message, _) = failed(call.join().unwrap());
+            assert_eq!(code, "read_only");
+            assert_eq!(
+                message,
+                "Nur lesen: in Gen4 Studio ist „Nur lesen“ eingeschaltet"
+            );
+        }
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        assert!(changes(&state).is_empty());
+
+        // The grant lowered to `read` while queued.
+        state.agents.set_read_only(false);
+        let turn = state.agents.agent_turn();
+        let queued = {
+            let toolbox = Arc::clone(&toolbox);
+            std::thread::spawn(move || toolbox.call("data_edit", power(67), AGENT))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        grant(&state, &fixture, GrantLevel::Read);
+        drop(turn);
+        let (code, _, _) = failed(queued.join().unwrap());
+        assert_eq!(code, "read_only");
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+    }
+
+    #[test]
+    fn queued_write_rechecks_disconnect() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        state.agents.connect(AGENT);
+        let toolbox = Arc::new(toolbox);
+        let turn = state.agents.agent_turn();
+        let queued = {
+            let toolbox = Arc::clone(&toolbox);
+            std::thread::spawn(move || toolbox.call("data_edit", power(65), AGENT))
+        };
+        // A read queued with it still runs (it changes nothing).
+        let reading = {
+            let toolbox = Arc::clone(&toolbox);
+            std::thread::spawn(move || toolbox.call("get_header", json!({ "id": 0 }), AGENT))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        // "Trennen".
+        state.agents.disconnect_all();
+        drop(turn);
+        let (code, message, _) = failed(queued.join().unwrap());
+        assert_eq!(code, "not_permitted");
+        assert_eq!(
+            message,
+            "Gen4 Studio hat diesem Agenten den Zugriff auf dieses Projekt nicht freigegeben"
+        );
+        reading.join().unwrap().unwrap();
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        assert!(changes(&state).is_empty());
+    }
+
+    #[test]
+    fn shared_open_project_is_refused_before_asking() {
+        let (fixture, state, toolbox) = shared_app();
+        state.agents.set_expert(true).unwrap();
+        let path = fixture.dir.path().to_str().unwrap();
+        let open = json!({ "command": "open_project", "args": { "path": path } });
+        let (code, message, _) = failed(toolbox.call("g4_call", open.clone(), AGENT));
+        assert_eq!(code, "unavailable");
+        assert_eq!(message, "Nur in der App: Projekte öffnet der Nutzer");
+        let batch = json!({ "calls": [{ "tool": "g4_call", "arguments": open }] });
+        let (code, _, _) = failed(toolbox.call("g4_batch", batch, AGENT));
+        assert_eq!(code, "unavailable");
+        // No grant was there, and nobody was asked.
+        assert_eq!(state.agents.status().question, None);
+        assert_eq!(
+            state.agents.poll(0).events.len(),
+            1,
+            "only the expert switch"
+        );
     }
 
     #[test]

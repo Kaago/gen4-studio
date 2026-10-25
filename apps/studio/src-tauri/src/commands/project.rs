@@ -7,7 +7,7 @@ use std::sync::Arc;
 use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
-use g4_kernel::store::{HistoryEntry, Origin};
+use g4_kernel::store::{HistoryEntry, Origin, Store};
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -48,7 +48,13 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     let mut session = Session::new(Arc::new(project));
     session.checks.ignore = ignore;
     session.checks.ignore_broken = ignore_broken;
+    // Under the agents' turn: an agent call admitted for the old project never runs on the
+    // new one (it checks the project after taking the turn). Agent calls take the turn
+    // before the session lock and never while waiting for the user, so this waits at most
+    // for one agent call to finish.
+    let turn = state.agents.agent_turn();
     let old = lock(state)?.replace(session);
+    drop(turn);
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -118,17 +124,22 @@ pub struct HistoryDto {
 
 pub fn history_impl(state: &AppState) -> Result<HistoryDto, CmdError> {
     let mut guard = lock(state)?;
-    let (undo, redo) = session(&mut guard)?.store.history_entries();
+    Ok(history_of(&session(&mut guard)?.store))
+}
+
+/// The undo and redo history of `store`, with who made each step.
+pub fn history_of(store: &Store) -> HistoryDto {
+    let (undo, redo) = store.history_entries();
     let agent = |e: &HistoryEntry| match &e.origin {
         Origin::User => None,
         Origin::Agent { client } => Some(client.clone()),
     };
-    Ok(HistoryDto {
+    HistoryDto {
         undo_agents: undo.iter().map(agent).collect(),
         redo_agents: redo.iter().map(agent).collect(),
         undo: undo.into_iter().map(|e| e.label).collect(),
         redo: redo.into_iter().map(|e| e.label).collect(),
-    })
+    }
 }
 
 pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {

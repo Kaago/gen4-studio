@@ -437,6 +437,12 @@ impl AgentHub {
         self.lock().read_only
     }
 
+    /// Whether the user disconnected `client` ("Trennen") and it was not let in again since;
+    /// never waits.
+    pub fn is_disconnected(&self, client: &str) -> bool {
+        self.lock().disconnected.contains(client)
+    }
+
     /// The agents' turn on the user's session (see the field); a poisoned lock is taken over,
     /// it guards nothing but the order.
     pub fn agent_turn(&self) -> MutexGuard<'_, ()> {
