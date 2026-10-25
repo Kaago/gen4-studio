@@ -220,23 +220,13 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
   );
 }
 
-/**
- * What the checks say beside their findings: that the script and text findings are those of the last full run (only the cheap checks ran
- * since the last change), and the checks that did not run, as hint lines.
- */
+/** The checks that did not run, or left part of their work undone, as hint lines beside the findings. */
 export function ChecksNotes({ checks }: { checks: ChecksApi }) {
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
-  if (!view.outdated && view.skipped.length === 0) return null;
+  if (view.skipped.length === 0) return null;
   return (
     <div className={styles.notes}>
-      {view.outdated && (
-        <p role="note" className={styles.note}>
-          Scripts und Texte zeigen den Stand der letzten vollen Prüfung. Prüfe erneut, um sie aufzufrischen.
-        </p>
-      )}
-      {view.skipped.length > 0 && (
-        <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s), dataAttrs: { "data-check": s.code } }))} />
-      )}
+      <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s), dataAttrs: { "data-check": s.code } }))} />
     </div>
   );
 }

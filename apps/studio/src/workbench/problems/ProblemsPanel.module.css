@@ -73,12 +73,6 @@
   border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
 }
 
-.note {
-  margin: 0;
-  color: var(--g4-text-sekundaer);
-  font: var(--g4-font-text-s);
-}
-
 .foot {
   flex: none;
   border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);

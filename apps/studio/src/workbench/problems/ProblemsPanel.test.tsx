@@ -249,15 +249,14 @@ describe("ProblemsPanel with findings of the checks", () => {
     expect(button("Erneut prüfen")?.disabled).toBe(true);
   });
 
-  it("says_what_was_not_checked_and_when_scripts_and_texts_are_older_than_the_last_change", () => {
+  it("says_what_was_not_checked", () => {
     act(() => checks.feed.update({ reported: true, skipped: [{ code: "script.message-missing", why: "scripts not adopted" }] }));
     const hints = container.querySelector<HTMLElement>("[role=list][aria-label='Nicht geprüft']")!;
     expect([...hints.querySelectorAll("li")].map((l) => [l.dataset.state, l.textContent])).toEqual([
       ["info", "Nachricht fehlt: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie."],
     ]);
+    // Every run checks everything: nothing shown is older than the last report.
     expect(container.textContent).not.toContain("Stand der letzten vollen Prüfung");
-    act(() => checks.feed.update({ outdated: true }));
-    expect(container.textContent).toContain("Scripts und Texte zeigen den Stand der letzten vollen Prüfung. Prüfe erneut, um sie aufzufrischen.");
   });
 });
 

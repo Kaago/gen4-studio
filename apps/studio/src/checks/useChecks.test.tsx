@@ -9,7 +9,7 @@ import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { finding, report } from "./checksTesting";
-import { CHECKS_DEBOUNCE_MS, CHECKS_POLL_MS, mergeReport, useChecks } from "./useChecks";
+import { CHECKS_DEBOUNCE_MS, CHECKS_POLL_MS, replacesShown, useChecks } from "./useChecks";
 import type { ChecksApi } from "./useChecks";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -103,7 +103,7 @@ describe("useChecks", () => {
     expect(checksStatus).toHaveBeenCalledTimes(polls);
   });
 
-  it("checks_the_cheap_group_300_ms_after_an_edit_once_for_a_burst", async () => {
+  it("checks_everything_300_ms_after_an_edit_once_for_a_burst_with_the_spinner", async () => {
     vi.mocked(runChecks).mockResolvedValue(report());
     await render(project("/p"));
     vi.mocked(runChecks).mockClear();
@@ -116,31 +116,47 @@ describe("useChecks", () => {
     act(() => bus.emit({ topic: "edited" }));
     await wait(CHECKS_DEBOUNCE_MS - 1);
     expect(runChecks).not.toHaveBeenCalled();
+    // A full run: the text and script checks are cached per file in the kernel, a warm run reads only what changed.
+    const run = deferred<ChecksReportDto>();
+    vi.mocked(runChecks).mockReturnValueOnce(run.promise);
     await wait(1);
     expect(runChecks).toHaveBeenCalledTimes(1);
-    expect(runChecks).toHaveBeenCalledWith("cheap");
+    expect(runChecks).toHaveBeenCalledWith("all");
+    expect(api.feed.get().running).toBe(true);
+    await act(async () => run.resolve(report({ generation: 2 })));
+    expect(api.feed.get().running).toBe(false);
     // Other topics are not edits.
     act(() => bus.emit({ topic: "headerReveal" }));
     await wait(CHECKS_DEBOUNCE_MS);
     expect(runChecks).toHaveBeenCalledTimes(1);
   });
 
-  it("a_cheap_report_replaces_the_cheap_findings_and_keeps_the_script_and_text_ones_as_outdated", async () => {
+  it("every_report_replaces_the_findings_as_a_whole", async () => {
     const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
     vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp"), wide], generation: 4 }));
     await render(project("/p"));
-    expect(api.feed.get().outdated).toBe(false);
-    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("event.trigger-empty", "warning", { key: "trigger:0" })], groups: CHEAP, generation: 5 }));
+    expect(codes()).toEqual(["warp.dest-warp", "text.too-wide"]);
+    // The text was wrapped and the warp fixed: the next run's report is all there is, nothing of the one before stays.
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("event.trigger-empty", "warning", { key: "trigger:0" })], generation: 5 }));
     act(() => bus.emit({ topic: "edited" }));
     await wait(CHECKS_DEBOUNCE_MS);
-    expect(codes()).toEqual(["event.trigger-empty", "text.too-wide"]);
-    expect(api.feed.get().outdated).toBe(true);
-    // „Erneut prüfen“ brings them up to date.
-    vi.mocked(runChecks).mockResolvedValue(report({ findings: [], generation: 5 }));
-    await act(async () => api.recheck());
+    expect(codes()).toEqual(["event.trigger-empty"]);
+  });
+
+  it("a_report_of_some_groups_only_is_no_result_and_asks_for_a_full_run", async () => {
+    const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [finding("warp.dest-warp"), wide], generation: 4 }));
+    await render(project("/p"));
+    // A cheap report (someone else ran the cheap group, say) as the answer of switching a check on: it says nothing about the texts.
+    const full = deferred<ChecksReportDto>();
+    vi.mocked(runChecks).mockReturnValueOnce(full.promise);
+    vi.mocked(setCheckEnabled).mockResolvedValue(report({ findings: [], groups: CHEAP, generation: 5 }));
+    await act(async () => api.setEnabled("warp.never-fires", true));
+    expect(codes()).toEqual(["warp.dest-warp", "text.too-wide"]);
     expect(runChecks).toHaveBeenLastCalledWith("all");
-    expect(codes()).toEqual([]);
-    expect(api.feed.get().outdated).toBe(false);
+    await act(async () => full.resolve(report({ findings: [wide], generation: 5 })));
+    expect(codes()).toEqual(["text.too-wide"]);
+    expect(replacesShown(null, report({ groups: CHEAP }))).toBe(false);
   });
 
   it("takes_an_answer_without_groups_as_no_result_and_never_an_older_generation", async () => {
@@ -154,7 +170,10 @@ describe("useChecks", () => {
     vi.mocked(runChecks).mockResolvedValue(report({ findings: [], generation: 6 }));
     await act(async () => api.recheck());
     expect(codes()).toEqual(["warp.dest-warp"]);
-    expect(mergeReport(null, report({ groups: [] }))).toBeNull();
+    expect(replacesShown(null, report({ groups: [] }))).toBe(false);
+    expect(replacesShown(7, report({ generation: 6 }))).toBe(false);
+    expect(replacesShown(7, report({ generation: 7 }))).toBe(true);
+    expect(replacesShown(null, report())).toBe(true);
   });
 
   it("drops_the_answer_of_a_project_that_was_replaced_meanwhile", async () => {
@@ -171,7 +190,7 @@ describe("useChecks", () => {
     const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
     vi.mocked(runChecks).mockResolvedValue(report({ findings: [wide], generation: 2 }));
     await render(project("/p"));
-    // The last report of the backend is a cheap one: the text warning is not in its answer.
+    // The last report of the backend is a cheap one: its answer says nothing about the text warning and shows nothing; all is checked again.
     vi.mocked(ignoreFinding).mockResolvedValue(report({ groups: CHEAP, generation: 3 }));
     vi.mocked(runChecks).mockResolvedValue(report({ ignored: [wide], generation: 3 }));
     await act(async () => api.ignore(wide));

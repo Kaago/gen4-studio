@@ -82,18 +82,20 @@ export function Inspector({
   findings?: readonly CheckProblemDto[];
   checks?: ChecksApi | null;
 }) {
-  /** An editor with the section „Prüfungen“ below it, when the checks found something at its record. */
-  const withChecks = (editor: ReactNode) =>
-    findings.length === 0 ? (
-      editor
-    ) : (
-      <div className={styles.withChecks}>
-        <div className={styles.editorPart}>{editor}</div>
+  /**
+   * An editor with the section „Prüfungen“ below it while the checks found something at its record. The frame is always the same, so the
+   * editor is never mounted anew when findings come or go (it would lose its loaded record, the focus and an open picker).
+   */
+  const withChecks = (editor: ReactNode) => (
+    <div className={styles.withChecks}>
+      <div className={styles.editorPart}>{editor}</div>
+      {findings.length > 0 && (
         <div className={styles.checksPart}>
           <ChecksSection findings={findings} checks={checks} depth={depth} />
         </div>
-      </div>
-    );
+      )}
+    </div>
+  );
   switch (model.kind) {
     case "header":
       return withChecks(<HeaderEditor key={model.id} id={model.id} context={headerEditor} depth={depth} />);
