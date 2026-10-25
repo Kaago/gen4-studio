@@ -325,6 +325,27 @@ describe("Deck", () => {
     expect(layoutOf(api())).toEqual(WERKBANK);
   });
 
+  it("themes_a_floating_group_and_the_tab_menu_like_the_docked_groups", async () => {
+    await mount();
+    await choose("Inspector", "Schweben lassen");
+    // dockview puts floating groups and its menus beside its grid, into its shell: the theme sits on the shell, so it reaches them too, and
+    // nothing of dockview's own dark theme is left.
+    const floating = dock().querySelector<HTMLElement>(".dv-floating-overlay-host > .dv-resize-container")!;
+    expect(floating).not.toBeNull();
+    expect(floating.closest(".dockview-theme-g4")).not.toBeNull();
+    expect(dock().querySelector(".dv-grid-view")!.closest(".dockview-theme-g4")).not.toBeNull();
+    const item = (await menu("Inspector"))[0]!;
+    expect(item.closest(".dv-context-menu")!.closest(".dockview-theme-g4")).not.toBeNull();
+    expect(dock().querySelector('[class*="dockview-theme-"]:not(.dockview-theme-g4)')).toBeNull();
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    // Without dockview's theme the G4 theme brings the variables dockview needs (a floating group's layer above the grid), and a floating
+    // group is a sheet (`flaeche/blatt`) with the floating edge and shadow.
+    const theme = readFileSync("src/ui/tokens/dockview-theme.css", "utf8");
+    expect(theme).toMatch(/\.dockview-theme-g4 \{[^}]*--dv-overlay-z-index: 999;/);
+    expect(theme).toMatch(/\.dockview-theme-g4 \{[^}]*--dv-floating-titlebar-height: /);
+    expect(theme).toMatch(/\.dockview-theme-g4 \.dv-resize-container \{[^}]*--dv-group-view-background-color: var\(--g4-flaeche-blatt\)/);
+  });
+
   it("resets_to_the_arrangement_without_rebuilding_the_panels_and_remembers_it", async () => {
     await mount();
     const world = api().getPanel("world");

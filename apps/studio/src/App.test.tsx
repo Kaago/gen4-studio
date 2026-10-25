@@ -24,7 +24,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  */
 /** What a mocked dock holds: the maximized group (0 the view's, 1 the other), each group's height, the heights set, who listens to a maximization. */
 type MockDock = { maximized: number | null; heights: number[]; sizes: number[]; listeners: (() => void)[] };
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[], docks: {} as Record<string, MockDock>, apis: {} as Record<string, { maximizeGroup: (panel: { id: string }) => void }>, docking: [] as string[] }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[], docks: {} as Record<string, MockDock>, apis: {} as Record<string, { maximizeGroup: (panel: { id: string }) => void }>, docking: [] as string[], floating: new Set<string>() }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -90,7 +90,9 @@ vi.mock("./ui/frame/Deck", async () => {
           },
         },
         api: {
-          location: { type: "grid" },
+          get location() {
+            return { type: shown.floating.has(id) ? "floating" : "grid" };
+          },
           isMaximized: () => state.maximized === g,
           exitMaximized: exit,
           // Whether the panel is in front is set by a test (`shown.worldVisible`), and a change is announced to what subscribed.
@@ -153,8 +155,16 @@ vi.mock("./ui/frame/Deck", async () => {
 // Floating and docking are dockview's; the test notes what the palette asked for.
 vi.mock("./ui/frame/dockRules", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ui/frame/dockRules")>()),
-  floatPanel: (_api: unknown, id: string) => shown.docking.push(`float ${id}`) > 0,
-  dockPanel: (_api: unknown, area: string, id: string) => shown.docking.push(`dock ${area}/${id}`) > 0,
+  floatPanel: (_api: unknown, id: string) => {
+    shown.docking.push(`float ${id}`);
+    shown.floating.add(id);
+    return true;
+  },
+  dockPanel: (_api: unknown, area: string, id: string) => {
+    shown.docking.push(`dock ${area}/${id}`);
+    shown.floating.delete(id);
+    return true;
+  },
 }));
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
@@ -234,6 +244,7 @@ describe("App wiring", () => {
     shown.docks = {};
     shown.apis = {};
     shown.docking = [];
+    shown.floating = new Set();
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -1737,12 +1748,32 @@ describe("App wiring", () => {
       await run("schau maximieren");
       expect(shown.docks.welt!.maximized).toBeNull();
       expect(hingeOf("welt").getAttribute("aria-pressed")).toBe("false");
+      // Of the inspector's two the one that fits its state when the palette opens.
+      const inspectorOptions = async () => {
+        await pressCmdK();
+        typeInSearch(paletteInput()!, "inspector");
+        // The arrangements name the inspector too; only its own two commands count here.
+        const shownOptions = options()
+          .filter((o) => /^Inspector /.test(o.textContent ?? ""))
+          .map((o) => [o.textContent?.replace(/^Inspector (schweben lassen|andocken).*$/, "$1"), o.getAttribute("aria-disabled")]);
+        pressKey(paletteInput()!, "Escape");
+        await settle();
+        return shownOptions;
+      };
+      expect(await inspectorOptions()).toEqual([
+        ["schweben lassen", null],
+        ["andocken", "true"],
+      ]);
       await pressCmdK();
       await run("inspector schweben");
+      expect(await inspectorOptions()).toEqual([
+        ["schweben lassen", "true"],
+        ["andocken", null],
+      ]);
       await pressCmdK();
       await run("inspector andocken");
       expect(shown.docking).toEqual(["float inspector", "dock welt/inspector"]);
-      // In the texts the view of their dock is maximized; the world's arrangements and its inspector are locked there.
+      // In the texts the view of their dock is maximized and Doppeldeck rebuilds it; the Werkbank and the inspector are the world's.
       await act(async () => atlasEntry("Texte")!.click());
       await settle();
       await pressCmdK();
@@ -1758,6 +1789,13 @@ describe("App wiring", () => {
       expect(hingeOf("texte").getAttribute("aria-pressed")).toBe("true");
       expect(shown.docks.welt!.maximized).toBeNull();
       expect(shown.resets).toHaveLength(3);
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "anordnung: werkbank");
+      expect(options().map((o) => o.getAttribute("aria-disabled"))).toEqual(["true"]);
+      typeInSearch(paletteInput()!, "anordnung: doppeldeck");
+      pressKey(paletteInput()!, "Enter");
+      await settle();
+      expect([shown.resets[3]![0], shown.resets[3]![2]]).toEqual(["texte", "doppeldeck"]);
     });
 
     it("goes_to_a_header_by_its_number_and_to_an_area_by_name", async () => {

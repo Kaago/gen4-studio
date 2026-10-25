@@ -27,7 +27,7 @@ const scripts: ScriptFileDto[] = [
   { file: 9, kind: "levelScript", size: 12, headers: [] },
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
-const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, cellChosen: false };
+const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, inspectorFloats: false, cellChosen: false };
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
@@ -84,7 +84,7 @@ describe("paletteEntries", () => {
       "Bereich Technik",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Teile in die Karte importieren…"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Teile in die Karte importieren…", "Inspector andocken"]);
     expect(entries.find((e) => e.label === "Gebiet anlegen…")?.description).toBe("Erst ein Projekt öffnen");
     for (const e of entries) expect(e.id).toMatch(/^cmd-/);
   });
@@ -194,22 +194,29 @@ describe("paletteEntries", () => {
   it("lists_the_six_arrangement_commands", () => {
     const ids = ["cmd-arrangeWerkbank", "cmd-arrangeDoppeldeck", "cmd-layout", "cmd-maximize", "cmd-floatInspector", "cmd-dockInspector"];
     const labels = ["Anordnung: Werkbank", "Anordnung: Doppeldeck", "Layout zurücksetzen", "Schau maximieren", "Inspector schweben lassen", "Inspector andocken"];
-    // In the world all six run, also without a project (they arrange the frame, not the project).
+    // In the world they run, also without a project (they arrange the frame, not the project); of the inspector's two only the one that
+    // fits its state: docked it can float, floating it can dock.
     const inWorld = paletteEntries(source({ hasProject: false })).filter((e) => ids.includes(e.id));
     expect(inWorld.map((e) => e.label)).toEqual(labels);
     expect(inWorld.map((e) => e.run)).toEqual(ids.map((id) => ({ kind: "command", command: id.slice("cmd-".length) })));
-    for (const e of inWorld) expect(e.disabled).toBe(false);
+    expect(inWorld.filter((e) => e.disabled).map((e) => [e.id, e.description])).toEqual([["cmd-dockInspector", "Der Inspector ist angedockt"]]);
+    const floats = { commands: { ...commands, inspectorFloats: true } };
+    expect(byId("cmd-floatInspector", floats)).toMatchObject({ disabled: true, description: "Der Inspector schwebt schon" });
+    expect(byId("cmd-dockInspector", floats)?.disabled).toBe(false);
     expect(byId("cmd-layout")?.description).toBe("Welt in der gewählten Anordnung neu aufbauen");
-    // Elsewhere only the world has the two arrangements and the inspector: those four say so; the view of the shown dock is maximized.
+    // Elsewhere only the world has the Werkbank and the inspector: those three say so; Doppeldeck rebuilds the shown dock, whose view is
+    // maximized.
     const inTexts = { commands: { ...commands, deck: "texte" as const } };
-    for (const id of ["cmd-arrangeWerkbank", "cmd-arrangeDoppeldeck", "cmd-floatInspector", "cmd-dockInspector"]) {
+    for (const id of ["cmd-arrangeWerkbank", "cmd-floatInspector", "cmd-dockInspector"]) {
       expect(byId(id, inTexts)).toMatchObject({ disabled: true, description: "Nur in der Welt" });
     }
+    expect(byId("cmd-arrangeDoppeldeck", inTexts)?.disabled).toBe(false);
     expect(byId("cmd-layout", inTexts)).toMatchObject({ disabled: false, description: "Texte in der gewählten Anordnung neu aufbauen" });
     expect(byId("cmd-maximize", inTexts)?.disabled).toBe(false);
-    // An area without a dock (Start, Technik, Einstellungen) has no view to maximize; the reset puts the world's back.
+    // An area without a dock (Start, Technik, Einstellungen) has no view to maximize or arrange; the reset puts the world's back.
     const noDock = { commands: { ...commands, docked: false } };
     expect(byId("cmd-maximize", noDock)).toMatchObject({ disabled: true, description: "Dieser Bereich hat keine Schau" });
+    expect(byId("cmd-arrangeDoppeldeck", noDock)).toMatchObject({ disabled: true, description: "Dieser Bereich hat keine Schau" });
     expect(byId("cmd-floatInspector", noDock)).toMatchObject({ disabled: true, description: "Nur in der Welt" });
     expect(byId("cmd-layout", noDock)?.disabled).toBe(false);
   });

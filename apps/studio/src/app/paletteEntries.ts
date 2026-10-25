@@ -58,8 +58,10 @@ export interface CommandState {
   inApp: boolean;
   /** The deck "Layout zurücksetzen" puts back: the shown one, or the world's on an area without a deck. */
   deck: DeckArea;
-  /** Whether the shown area has a dock (`deck` is then the shown one): only there is a view to maximize. */
+  /** Whether the shown area has a dock (`deck` is then the shown one): only there is a view to maximize or arrange. */
   docked: boolean;
+  /** Whether the world's inspector floats (read when the palette opens): it can then be docked, otherwise floated. */
+  inspectorFloats: boolean;
   /** Whether a matrix cell is pinned in the inspector (the import of parts works on its map). */
   cellChosen: boolean;
 }
@@ -93,6 +95,8 @@ const NO_LIST = "Dieser Bereich hat keine Liste";
 const NO_CELL = "Erst eine Rasterzelle mit Karte wählen";
 const WORLD_ONLY = "Nur in der Welt";
 const NO_VIEW = "Dieser Bereich hat keine Schau";
+const FLOATS = "Der Inspector schwebt schon";
+const DOCKED = "Der Inspector ist angedockt";
 const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
@@ -101,11 +105,12 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck, docked, cellChosen } = commands;
+  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
-  // Only the world's dock has two arrangements and an inspector.
+  // Only the world's dock has the Werkbank and an inspector; every dock has the Doppeldeck.
   const world = docked && deck === "welt" ? null : WORLD_ONLY;
+  const view = docked ? null : NO_VIEW;
   const specs: CommandSpec[] = [
     { command: "open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", locked: busy ? BUSY : null },
     { command: "save", label: "Speichern", icon: "save", shortcut: "⌘S", locked: project },
@@ -123,11 +128,11 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     },
     { command: "list", label: "Liste ein/aus", icon: "list", locked: hasList ? null : NO_LIST },
     { command: "arrangeWerkbank", label: "Anordnung: Werkbank", icon: "werkbank", description: "Die Schau mit dem Inspector daneben", locked: world },
-    { command: "arrangeDoppeldeck", label: "Anordnung: Doppeldeck", icon: "doppeldeck", description: "Die Schau über Inspector, Script und Probleme", locked: world },
+    { command: "arrangeDoppeldeck", label: "Anordnung: Doppeldeck", icon: "doppeldeck", description: deck === "welt" ? "Die Schau über Inspector, Script und Probleme" : "Die Schau über dem Bearbeiten", locked: view },
     { command: "layout", label: "Layout zurücksetzen", icon: "layers", description: `${DECK_NAME[deck]} in der gewählten Anordnung neu aufbauen` },
-    { command: "maximize", label: "Schau maximieren", icon: "maximize", description: "Oder wiederherstellen, auch mit Esc", locked: docked ? null : NO_VIEW },
-    { command: "floatInspector", label: "Inspector schweben lassen", icon: "float", description: "Am rechten Rand der Schau", locked: world },
-    { command: "dockInspector", label: "Inspector andocken", icon: "dock", description: "Dahin, wo die Anordnung ihn hat", locked: world },
+    { command: "maximize", label: "Schau maximieren", icon: "maximize", description: "Oder wiederherstellen, auch mit Esc", locked: view },
+    { command: "floatInspector", label: "Inspector schweben lassen", icon: "float", description: "Am rechten Rand der Schau", locked: world ?? (inspectorFloats ? FLOATS : null) },
+    { command: "dockInspector", label: "Inspector andocken", icon: "dock", description: "Dahin, wo die Anordnung ihn hat", locked: world ?? (inspectorFloats ? null : DOCKED) },
     { command: "theme", label: "Thema wechseln", icon: "sun" },
     { command: "density", label: "Dichte wechseln", icon: "density" },
     { command: "terms", label: "Begriffe", icon: "help" },

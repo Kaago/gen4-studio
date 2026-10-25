@@ -1,7 +1,7 @@
 import { memo, useMemo, useSyncExternalStore } from "react";
 import type { FunctionComponent, KeyboardEvent, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
-import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
+import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, DockviewTheme, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { AREA_PANELS, DEFAULT_ARRANGEMENT, arrangementSteps, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
 import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
@@ -9,6 +9,13 @@ import { messages } from "./dockMessages";
 import { tabMenuItems } from "./dockMenu";
 import { applyArrangement, dockPanel, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace } from "./dockRules";
 import styles from "./Deck.module.css";
+
+/**
+ * The dock's theme (`ui/tokens/dockview-theme.css`). Given as dockview's theme, not as the class of its grid: dockview puts the class on its
+ * shell, which also holds the floating groups and the tab menus (beside the grid); otherwise they would keep dockview's own dark theme.
+ * No tab group lines, as with dockview's default.
+ */
+const DOCK_THEME: DockviewTheme = { name: "g4", className: "dockview-theme-g4", tabGroupIndicator: "none" };
 
 /** The panels of a dock by id. A module-level constant of the caller: dockview would remount every panel if this object changed. */
 export type DockComponents = Record<string, FunctionComponent<IDockviewPanelProps>>;
@@ -160,7 +167,7 @@ const DeckDock = memo(function DeckDock({ area, components, apiRef }: { area: De
     <DockviewReact
       components={panels}
       onReady={onReady}
-      className="dockview-theme-g4"
+      theme={DOCK_THEME}
       defaultTabComponent={PanelTab}
       floatingGroupBounds="boundedWithinViewport"
       floatingGroupDragHandle="titlebar"

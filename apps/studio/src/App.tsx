@@ -587,6 +587,8 @@ function AppBody() {
   }, [paletteOpen, session.info, dataStore]);
   const paletteData = useDataLists(dataStore, paletteOpen ? session.info : null);
   const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
+  // Whether the world's inspector floats, read when the palette opens: it offers to dock it then, otherwise to float it.
+  const inspectorFloats = paletteOpen && docks.welt.current?.getPanel("inspector")?.api.location.type === "floating";
   // The palette's "Teile in die Karte importieren…" works on the pinned matrix cell; its map is read when the command runs
   // (reading it on every matrix change would render App for each edit).
   const cellChosen = pins.pinned.kind === "matrixCell";
@@ -600,9 +602,9 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), cellChosen },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen],
   );
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
@@ -632,8 +634,10 @@ function AppBody() {
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
       case "arrangeWerkbank":
+        resetLayout("welt", docks.welt, "werkbank");
+        break;
       case "arrangeDoppeldeck":
-        resetLayout("welt", docks.welt, run.command === "arrangeWerkbank" ? "werkbank" : "doppeldeck");
+        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck");
         break;
       case "layout":
         resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck));
