@@ -137,7 +137,7 @@ vi.mock("./platform/transport", () => ({ invoke: vi.fn(), inTauri: () => env.tau
 const data = () => shown.data as WorkbenchData;
 const live = () => shown.live as WorkbenchLive;
 
-const header = (id: number, matrix: number, area = 0): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: `Ort ${id}`, matrix_id: matrix, area_data_id: area, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, matrix: number, area = 0): HeaderSummary => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: `Ort ${id}`, matrix_id: matrix, area_data_id: area, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const matrixOf = (index: number): MatrixDto => ({ index, name: `m${index}`, width: 1, height: 1, maps: [index] });
 const areaData = { family: "Hgss", map_tileset: 1, buildings_tileset: 2, area_type: 0 } as unknown as AreaDataDto;
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });

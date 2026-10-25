@@ -5,7 +5,7 @@ import type { NavState } from "./navigation";
 
 const header = (id: number, matrix_id: number, event_file_id: number): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name: "",
   matrix_id,
   area_data_id: 0,

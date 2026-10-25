@@ -44,7 +44,7 @@ const pt = (over: Partial<MapHeaderPt> = {}): MapHeader => ({
     ...over,
   },
 });
-const summary: HeaderSummary = { id: 411, internal_name: "T01", location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
+const summary: HeaderSummary = { id: 411, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
 const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [], warps: [], coords: [] };
 
 describe("HeaderEditor scripts", () => {

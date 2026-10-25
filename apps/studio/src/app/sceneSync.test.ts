@@ -6,7 +6,7 @@ import type { SyncAction, SyncOutcome, SyncState } from "./sceneSync";
 
 const header = (id: number, matrix: number, area: number, events = id): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name: "",
   matrix_id: matrix,
   area_data_id: area,

@@ -18,6 +18,7 @@ mod sprites;
 mod text;
 mod wizards;
 mod world;
+mod world_meta;
 
 pub use area::*;
 pub use buildings::*;
@@ -37,6 +38,7 @@ pub use sprites::*;
 pub use text::*;
 pub use wizards::*;
 pub use world::*;
+pub use world_meta::*;
 
 use std::sync::MutexGuard;
 

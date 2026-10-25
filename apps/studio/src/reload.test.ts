@@ -92,7 +92,7 @@ describe("historyPlan", () => {
 
 const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({
   id: 1,
-  internal_name: "X",
+  internal_name: "X", location_index: 0, kanto: false,
   location_name: "",
   matrix_id: 3,
   area_data_id: 5,

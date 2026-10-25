@@ -9,7 +9,7 @@ import type { PaletteSource } from "./paletteEntries";
 
 const header = (id: number, location_name: string, internal_name: string, text_archive_id: number): HeaderSummary => ({
   id,
-  internal_name,
+  internal_name, location_index: 0, kanto: false,
   location_name,
   matrix_id: id,
   area_data_id: 0,

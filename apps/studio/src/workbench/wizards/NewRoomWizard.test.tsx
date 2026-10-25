@@ -19,7 +19,7 @@ vi.mock("../../world/thumbnailStore", () => ({
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-const header = (id: number, internal: string, location: string, matrix: number, area: number, event: number): HeaderSummary => ({ id, internal_name: internal, location_name: location, matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, internal: string, location: string, matrix: number, area: number, event: number): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: location, matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 // 0: the village (outside), 2: the template room, 3: the header the new room is given to, 4: another room,
 // 5: a second outside header, 6: a room that shares the matrix of header 2 (its first door lies beyond the first map).
 const headers = [

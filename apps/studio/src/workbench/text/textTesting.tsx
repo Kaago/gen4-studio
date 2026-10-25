@@ -16,7 +16,7 @@ import { TextView } from "./TextView";
 
 export const header = (id: number, text_archive_id: number, location_name = ""): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name,
   matrix_id: 0,
   area_data_id: 0,

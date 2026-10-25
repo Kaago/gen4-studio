@@ -132,6 +132,8 @@ pub const COMMANDS: &[&str] = &[
     "set_check_enabled",
     "plan_fix",
     "apply_fix",
+    "world_meta_get",
+    "world_meta_set",
 ];
 
 /// Import files must lie under the bridge's import roots; a map of the project needs nothing.
@@ -558,6 +560,14 @@ pub fn dispatch(
             { finding: FindingArg, fix: FixId },
             |a| apply_fix_impl(state, &a.finding, a.fix)
         ),
+        "world_meta_get" => run!(json, "world_meta_get", args, {}, |_a| world_meta_get_impl(
+            state
+        )),
+        "world_meta_set" => run!(
+            json, "world_meta_set", args,
+            { meta: g4_kernel::world_meta::WorldMeta },
+            |a| world_meta_set_impl(state, a.meta)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -828,6 +838,11 @@ mod tests {
                 "apply_fix",
                 json!({ "finding": { "code": "text.too-wide", "subject": { "kind": "textArchive", "index": 433 },
                         "key": "message:1:line:1", "fingerprint": "00000000000000ff" }, "fix": "wrap" }),
+            ),
+            ("world_meta_get", json!({})),
+            (
+                "world_meta_set",
+                json!({ "meta": { "roomNames": { "1": "Haus" } } }),
             ),
         ];
 

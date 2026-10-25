@@ -13,7 +13,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-const header: HeaderSummary = { id: 411, internal_name: "T01", location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 5, text_archive_id: 0, script_file_id: 40, level_script_id: 1 };
+const header: HeaderSummary = { id: 411, internal_name: "T01", location_index: 0, kanto: false, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: 5, text_archive_id: 0, script_file_id: 40, level_script_id: 1 };
 const projectA: ProjectInfo = { root: "/a", game_code: "CPUE", family: "Pt", language: "en", header_count: 1 };
 const projectB: ProjectInfo = { root: "/b", game_code: "CPUE", family: "Pt", language: "en", header_count: 1 };
 const ok: SaveScriptDto = { problems: [], touched_archives: [] };

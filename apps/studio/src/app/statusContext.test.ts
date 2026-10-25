@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HeaderSummary } from "../api";
 import { dataStatus, statusContext } from "./statusContext";
 
-const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({ id: 3, internal_name: "T01", location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 3, text_archive_id: 0, script_file_id: 0, level_script_id: 0, ...over });
+const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({ id: 3, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 3, text_archive_id: 0, script_file_id: 0, level_script_id: 0, ...over });
 
 describe("statusContext", () => {
   it("is_empty_without_a_selected_header", () => {

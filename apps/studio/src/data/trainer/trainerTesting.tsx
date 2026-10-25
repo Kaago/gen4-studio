@@ -146,7 +146,7 @@ export function trainerHarness() {
   const open = async (selected: number | null = 12, depth: Depth = "bauen", over: Parameters<typeof h.base>[0] = {}) => {
     const state = readShellState();
     writeShellState({ ...state, depth, sub: { pokemon: "trainer" }, selected: selected === null ? {} : { trainer: selected } });
-    h.show(h.base({ headers: [{ id: 5, internal_name: "R201", location_name: "Route 201", matrix_id: 0, area_data_id: 0, event_file_id: 8, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }], ...over }));
+    h.show(h.base({ headers: [{ id: 5, internal_name: "R201", location_index: 0, kanto: false, location_name: "Route 201", matrix_id: 0, area_data_id: 0, event_file_id: 8, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }], ...over }));
     await flush();
     await flush();
     await flush();

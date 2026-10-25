@@ -38,6 +38,8 @@ import {
   setHeader,
   updateBuilding,
   validateText,
+  worldMetaGet,
+  worldMetaSet,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
@@ -322,5 +324,14 @@ describe("script commands", () => {
       ["add_script", { file: 3 }],
       ["resolve_script", { header: 415, n: 2 }],
     ]);
+  });
+
+  it("worldMetaGet_and_worldMetaSet_call_the_world_commands_with_the_meta", async () => {
+    invoke.mockReset();
+    const meta = { version: 1 as const, worldMaps: [], notWorldMaps: [], roomNames: { "12": "Haus" }, roomOwner: {} };
+    invoke.mockResolvedValueOnce({ meta, broken: null });
+    await expect(worldMetaGet()).resolves.toEqual({ meta, broken: null });
+    await worldMetaSet(meta);
+    expect(invoke.mock.calls).toEqual([["world_meta_get"], ["world_meta_set", { meta }]]);
   });
 });

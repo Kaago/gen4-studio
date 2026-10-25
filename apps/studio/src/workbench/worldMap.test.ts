@@ -15,7 +15,7 @@ const summary = (index: number, width: number, height: number, has_headers: bool
 
 const header = (id: number, location_name: string, matrix_id: number, event_file_id = 10 + id): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name,
   matrix_id,
   area_data_id: 0,

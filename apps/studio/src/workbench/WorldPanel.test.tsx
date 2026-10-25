@@ -23,7 +23,7 @@ vi.mock("../world/MatrixScene", () => ({
 
 const header = (id: number): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name: "Ort",
   matrix_id: 0,
   area_data_id: 0,

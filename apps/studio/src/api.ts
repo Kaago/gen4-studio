@@ -15,6 +15,10 @@ export interface HeaderSummary {
   internal_name: string;
   /** In-game location name; empty when the header has none. */
   location_name: string;
+  /** Index of that name in the location name bank (0: no place); two places can share a name, the index tells them apart. */
+  location_index: number;
+  /** HeartGold/SoulSilver: the header lies in Kanto (`kanto_flag`); always false in Diamond/Pearl and Platinum. */
+  kanto: boolean;
   /** The kind of place the game treats the header as (Platinum `location_specifier`, HGSS `location_type`): 6 is the Underground. */
   map_type?: number;
   matrix_id: number;
@@ -815,6 +819,25 @@ export interface ScriptHitDto {
 export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files");
 /** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
 export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });
+
+/**
+ * What the world tree knows that the ROM does not, kept in the project file `g4-world.json`: names that replace the
+ * proposed names of world maps and rooms, matrices that are no world map, and rooms assigned to an area by hand
+ * (`roomOwner`: room header id to area header id, as text). Keys of the two records are header ids as text.
+ */
+export interface WorldMeta {
+  version: 1;
+  /** `filter` is "johto" or "kanto" for the two world maps one HeartGold/SoulSilver matrix gives. */
+  worldMaps: { matrix: number; filter?: "johto" | "kanto"; name: string }[];
+  notWorldMaps: number[];
+  roomNames: Record<string, string>;
+  roomOwner: Record<string, string>;
+}
+
+/** The world file as read: `broken` says why it could not be (then `meta` is empty and the file is left alone). */
+export const worldMetaGet = () => invoke<{ meta: WorldMeta; broken: string | null }>("world_meta_get");
+/** Writes the world file at once. Rejects while the file is broken ("g4-world.json ist beschädigt: … Repariere oder lösche die Datei."). */
+export const worldMetaSet = (meta: WorldMeta) => invoke<void>("world_meta_set", { meta });
 
 export * from "./api.checks";
 export * from "./api.data";

@@ -19,7 +19,7 @@ vi.mock("../../world/thumbnailStore", () => ({
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-const header = (id: number, internal: string, location = ""): HeaderSummary => ({ id, internal_name: internal, location_name: location, matrix_id: 0, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, internal: string, location = ""): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: location, matrix_id: 0, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const headers = [header(0, "ZERO"), header(342, "T20", "R201")];
 const existing: HeaderChoiceValue = { header: null, newHeader: null, areaDataId: null, eventFile: "New" };
 const creating: HeaderChoiceValue = { ...existing, newHeader: { template: 342, internalName: "ROUTE_230" } };

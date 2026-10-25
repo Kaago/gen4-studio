@@ -16,3 +16,4 @@ pub mod store;
 pub mod test_support;
 pub mod text;
 pub mod tiles;
+pub mod world_meta;

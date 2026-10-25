@@ -16,7 +16,7 @@ vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof i
 
 const header = (id: number, location_name: string, matrix_id: number, internal_name = `H${id}`): HeaderSummary => ({
   id,
-  internal_name,
+  internal_name, location_index: 0, kanto: false,
   location_name,
   matrix_id,
   area_data_id: 0,

@@ -3,7 +3,7 @@ import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomRep
 import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 
-const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const headers = [header(0, "ZERO"), header(1, "NOTHING"), header(2, "TWO", 5, 7, 9)];
 
 const form = (change: Partial<AreaForm> = {}): AreaForm => ({ ...emptyAreaForm, sourceMatrix: 0, ...change });
@@ -504,7 +504,7 @@ describe("isLateFailure", () => {
 });
 
 describe("previewArea", () => {
-  const h = (id: number, area_data_id: number) => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+  const h = (id: number, area_data_id: number) => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: "", matrix_id: 0, area_data_id, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
   const headers = [h(1, 4), h(2, 9)];
   it("prefers_the_forms_area_then_the_chosen_header_then_the_source", () => {
     expect(previewArea({ areaDataId: 7, header: 1 }, headers, h(2, 9))).toBe(7);
