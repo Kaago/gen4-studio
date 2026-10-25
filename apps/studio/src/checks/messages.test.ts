@@ -85,5 +85,9 @@ describe("check messages", () => {
     expect(skippedText({ code: "text.too-wide", why: "the header table cannot be read (it names the dialog archives)" })).toBe(
       "Zeile zu breit: nicht geprüft (the header table cannot be read (it names the dialog archives)).",
     );
+    // The ignore file could not be read (ruling R15): the project opened with nothing ignored, and the file is not written.
+    expect(skippedText({ code: "g4-checks.json", why: "key must be a string at line 1 column 3" })).toBe(
+      "g4-checks.json ist nicht lesbar (key must be a string at line 1 column 3): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.",
+    );
   });
 });

@@ -371,11 +371,16 @@ export function progressText(progress: ChecksProgressDto | null | undefined): st
   return `Prüft … ${PROGRESS_WORDS[progress.label] ?? progress.label} ${progress.done}/${progress.total}`;
 }
 
+/** The project's ignore file; a report names it as `skipped` code when it could not be read. */
+const IGNORE_FILE = "g4-checks.json";
+
 const COMMON_SCRIPTS = /^(\d+) script files that no header uses \(common scripts\) are not checked/;
 const ONE_FILE = /^(level )?script file (\d+) is not checked: (.+)$/;
 
 /** A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“). */
 export function skippedText({ code, why }: { code: string; why: string }): string {
+  // Not a check: the ignore file could not be read when the project opened (ruling R15).
+  if (code === IGNORE_FILE) return `${IGNORE_FILE} ist nicht lesbar (${why}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.`;
   const title = checkTitle(code);
   if (why === "scripts not adopted") return `${title}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.`;
   const common = COMMON_SCRIPTS.exec(why);
