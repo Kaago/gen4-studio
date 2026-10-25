@@ -508,6 +508,15 @@ def test_resolve_inline_placeholders_become_text():
         resolve("x ${t1.maps}", RESULTS)  # a list cannot stand inside text
 
 
+def test_resolve_takes_the_length_of_a_list():
+    assert resolve("${t1.maps.length}", RESULTS) == 2
+    assert resolve("${t1.maps.length+1}", RESULTS) == 3
+    assert resolve("undo.${t1.maps.length}", RESULTS) == "undo.2"
+    assert resolve("${h.length}", {"h": {"length": 7}}) == 7  # a key named length wins
+    with pytest.raises(KeyError, match="t1.id.length"):
+        resolve("${t1.id.length}", RESULTS)  # a number has no length
+
+
 def test_resolve_reports_missing_fields_and_bad_offsets():
     with pytest.raises(KeyError, match="t1.nope"):
         resolve("${t1.nope}", RESULTS)
@@ -1541,16 +1550,18 @@ def test_load_scenario_rejects_malformed_mcp_flags(tmp_path, mcp, message):
 
 
 @pytest.mark.parametrize(
-    "build", ["out.nds", "/abs/build/out.nds", "build", "build/", "build/../out.nds", "../build/out.nds", "builds/out.nds"]
+    "build",
+    ["out.nds", "/abs/build/out.nds", "build", "build/", "build/../out.nds", "../build/out.nds", "builds/out.nds",
+     "build/rom/out.nds"],  # the server refuses a subfolder of build/ that does not exist
 )
-def test_mcp_scenario_build_must_be_under_build(tmp_path, build):
-    with pytest.raises(ValueError, match=r"build muss bei mcp ein relativer Pfad unter build/ sein"):
+def test_mcp_scenario_build_must_be_directly_in_build(tmp_path, build):
+    with pytest.raises(ValueError, match=r"build muss bei mcp eine Datei direkt in build/ sein"):
         load_scenario(write_yaml(tmp_path, f"game: CPUD\nmcp: []\nbuild: {build}\n"), {})
 
 
 def test_mcp_scenario_build_under_build_is_kept_normalised(tmp_path):
-    sc = load_scenario(write_yaml(tmp_path, "game: CPUD\nmcp: []\nbuild: ./build/rom/out.nds\n"), {})
-    assert sc.build == "build/rom/out.nds"
+    sc = load_scenario(write_yaml(tmp_path, "game: CPUD\nmcp: []\nbuild: ./build/out.nds\n"), {})
+    assert sc.build == "build/out.nds"
     # the bridge keeps its rule: any path in the project
     assert load_scenario(write_yaml(tmp_path, "game: CPUD\nbuild: out.nds\n"), {}).build == "out.nds"
 
@@ -1723,3 +1734,85 @@ def test_mcp_scenario_reads_a_file_hash_when_its_call_runs(tmp_path, roms, monke
     calls = mcp_calls(out)
     assert [c["tool"] for c in calls] == ["echo", "echo", "save", "build_rom"]  # no save in between
     assert calls[1]["arguments"] == {"sha": sha1_hex(b"model")}
+
+
+# --- placeholders in an expectation's path: resolved before the lookup ---
+
+
+def test_load_scenario_keeps_bound_names_in_an_expect_path_and_fills_set_names(tmp_path):
+    text = """\
+game: CPUD
+mcp: []
+edits:
+  - [history, {}, h0]
+  - [history, {}, {expect: [{path: undo.length, equals: "${h0.undo.length+1}"},
+                            {path: "undo.${h0.undo.length}", equals: "${LABEL}"},
+                            {path: "redo.${N}", equals: x}]}]
+"""
+    sc = load_scenario(write_yaml(tmp_path, text), {"LABEL": "Agent: Begegnungen", "N": "0"})
+    assert sc.edits[1][2] == {"expect": [
+        {"path": "undo.length", "equals": "${h0.undo.length+1}"},
+        {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"},
+        {"path": "redo.0", "equals": "x"},
+    ]}
+
+
+@pytest.mark.parametrize(
+    "path, message",
+    [("undo.${later.n}", "später"), ("undo[${h0.x}", "Klammer"), ("undo..${h0.n}", "Pfad")],
+)
+def test_load_scenario_checks_an_expect_path_with_placeholders(tmp_path, path, message):
+    text = f"""\
+game: CPUD
+mcp: []
+edits:
+  - [history, {{}}, h0]
+  - [history, {{}}, {{expect: {{path: "{path}", equals: 1}}}}]
+  - [history, {{}}, later]
+"""
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def test_mcp_scenario_resolves_placeholders_in_an_expect_path(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    expect = {"expect": [
+        {"path": "undo.length", "equals": "${h0.undo.length+1}"},
+        {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"},
+    ]}
+    sc = mcp_scenario(edits=[
+        ["give", {"give": {"undo": ["a"]}}, "h0"],
+        ["give", {"give": {"undo": ["a", "Agent: Begegnungen"]}}, expect],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 0
+    err = capsys.readouterr().err
+    assert "Erwartung erfüllt: give undo.length = 2" in err
+    assert 'Erwartung erfüllt: give undo.1 = "Agent: Begegnungen"' in err
+    # missed: the message shows the resolved path
+    out2 = tmp_path / "out2"
+    sc = mcp_scenario(edits=[
+        ["give", {"give": {"undo": ["a"]}}, "h0"],
+        ["give", {"give": {"undo": ["a", "Agent: 3 Änderungen"]}}, expect],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out2, tmp_path, tmp_path / "saves") == 2
+    err = capsys.readouterr().err
+    assert 'Erwartung verfehlt: give undo.1: Soll "Agent: Begegnungen", Ist "Agent: 3 Änderungen"' in err
+    # a path that names nothing yet is a placeholder that cannot be resolved
+    out3 = tmp_path / "out3"
+    sc = mcp_scenario(edits=[["give", {"give": {"undo": []}}, "h0"],
+                             ["give", {"give": {}}, {"expect": [{"path": "undo.${h0.nope}", "equals": 1}]}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out3, tmp_path, tmp_path / "saves") == 1
+    assert "Platzhalter nicht auflösbar in Änderung 2 (give): h0.nope" in capsys.readouterr().err
+
+
+def test_bridge_scenario_resolves_placeholders_in_an_expect_path(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[
+        ["give", {"give": {"n": 1}}, "g"],
+        ["give", {"give": {"list": ["a", "b"]}}, {"expect": [{"path": "list.${g.n}", "equals": "b"}]}],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    assert 'Erwartung erfüllt: give list.1 = "b"' in capsys.readouterr().err
+

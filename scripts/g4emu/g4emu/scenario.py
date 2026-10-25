@@ -46,6 +46,7 @@ class Scenario:
     # `${name…}` placeholders of later edits, of `check` and of `play` (resolved while the scenario runs).
     # [befehl, {argumente}, {expect: [{path, equals}, …], as?: name}]: the result must have `equals` at
     # each `path` (see `expect_lookup`), else the scenario ends with exit 2; `as` binds it as well.
+    # `path` may hold placeholders like `equals` (`undo.${h0.undo.length}`), resolved before the lookup.
     # [befehl, {argumente}, {expect: [{error: text}]}]: the bridge must refuse the command with an error
     # message that contains `text` (any case), else exit 2; the scenario goes on.
     edits: list[list]
@@ -107,7 +108,8 @@ def substitute(value: Any, env: dict[str, str], deferred: frozenset[str] | set[s
 
 
 def _field(results: dict[str, Any], name: str, path: str) -> Any:
-    """The value at `path` (".a.0.b": object keys and list indices) of the result bound to `name`."""
+    """The value at `path` (".a.0.b": object keys, list indices and `length`, the size of a list) of the
+    result bound to `name`."""
     shown = f"{name}{path}"
     if name not in results:
         raise KeyError(shown)
@@ -117,6 +119,8 @@ def _field(results: dict[str, Any], name: str, path: str) -> Any:
             value = value[part]
         elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
             value = value[int(part)]
+        elif isinstance(value, list) and part == "length":
+            value = len(value)
         else:
             raise KeyError(shown)
     return value
@@ -321,7 +325,9 @@ def _checked_third(where: str, third: Any) -> tuple[str | None, list[dict] | Non
         if not (isinstance(item, dict) and set(item) == {"path", "equals"}):
             raise ValueError(f"{where}: jede Erwartung muss {{path, equals}} oder {{error}} sein: {item!r}")
         try:
-            parse_expect_path(item["path"])
+            # placeholders in the path are resolved later; their place must be one part of the grammar
+            skeleton = _PLACEHOLDER.sub("0", item["path"]) if isinstance(item["path"], str) else item["path"]
+            parse_expect_path(skeleton)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
     return third.get("as"), items
@@ -334,7 +340,7 @@ def _expectation(item: dict, env: dict[str, str], earlier: frozenset[str]) -> di
         if not error.strip():
             raise ValueError(f"error muss ein nichtleerer Text sein (Teilstring der Fehlermeldung): {item['error']!r}")
         return {"error": error}
-    return {"path": item["path"], "equals": substitute(item["equals"], env, earlier)}
+    return {"path": str(substitute(item["path"], env, earlier)), "equals": substitute(item["equals"], env, earlier)}
 
 
 def _load_prepare(path: Path, prepare: Any, env: dict[str, str], bound: frozenset[str]) -> list[list]:
@@ -426,11 +432,12 @@ def _load_mcp(path: Path, mcp: Any) -> list[str] | None:
 
 
 def _mcp_build(path: Path, build: str) -> str:
-    """`build` of an MCP scenario, normalised: a relative path under build/ (the rule of `build_rom`)."""
+    """`build` of an MCP scenario, normalised: a file directly in build/ (the rule of `build_rom`: the
+    server makes build/ but refuses a subfolder that does not exist)."""
     rom = PurePosixPath(build)
-    if rom.is_absolute() or ".." in rom.parts or len(rom.parts) < 2 or rom.parts[0] != "build":
+    if rom.is_absolute() or ".." in rom.parts or len(rom.parts) != 2 or rom.parts[0] != "build":
         raise ValueError(
-            f"{path}: build muss bei mcp ein relativer Pfad unter build/ sein (z. B. build/out.nds), "
+            f"{path}: build muss bei mcp eine Datei direkt in build/ sein (build/<name>, z. B. build/out.nds), "
             f"nicht {build!r}"
         )
     return str(rom)
@@ -575,11 +582,12 @@ def _fail(scenario: Scenario, message: str) -> int:
 
 def _missed(command: str, answer: Any, expects: list[dict], results: dict[str, Any], base: Path) -> list[str]:
     """Checks the expectations against a command's answer; prints each met one to stderr and returns the
-    missed ones as `<command> <path>: Soll <equals>, Ist <found>` (Ist `fehlt (<path up to the gap>)`).
-    Raises KeyError / ValueError when `equals` names a result that is not bound or a file that is not there."""
+    missed ones as `<command> <path>: Soll <equals>, Ist <found>` (Ist `fehlt (<path up to the gap>)`); the
+    placeholders of `path` are resolved first and the message shows the resolved path. Raises KeyError /
+    ValueError when `path` or `equals` names a result that is not bound or a file that is not there."""
     missed = []
     for expect in expects:
-        path, want = expect["path"], resolve(expect["equals"], results, base)
+        path, want = str(resolve(expect["path"], results, base)), resolve(expect["equals"], results, base)
         try:
             found = expect_lookup(answer, path)
         except PathMissing as e:
@@ -590,6 +598,25 @@ def _missed(command: str, answer: Any, expects: list[dict], results: dict[str, A
         else:
             missed.append(f"{command} {path}: Soll {_shown(want)}, Ist {_shown(found)}")
     return missed
+
+
+def _bind_and_expect(
+    scenario: Scenario, out: Path, command: str, name: str | None, *, answer: Any, expects: list[dict],
+    results: dict[str, Any], base: Path,
+) -> int | None:
+    """Binds `answer` to `name` (when there is one; results.json in `out` follows), then checks the
+    expectations. Returns 2 when one is missed (each printed, the scenario reported), else None. Raises
+    KeyError / ValueError like `_missed`."""
+    if name is not None:
+        results[name] = answer
+        (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+    missed = _missed(command, answer, expects, results, base)
+    if not missed:
+        return None
+    for line in missed:
+        print(f"Erwartung verfehlt: {line}", file=sys.stderr)
+    _summary(scenario, False, [])
+    return 2
 
 
 def _run_checks(checks: list[list[str]], project: Path, out: Path, repo: Path) -> str | None:
@@ -825,16 +852,10 @@ def _edit_with_bridge(
                 return _fail(
                     scenario, f"keine Antwort von {edit[0]} für {name or 'expect'}; Ausgabe: {out / 'bridge.jsonl'}"
                 )
-            answer = lines[at].get("result")
-            if name is not None:
-                results[name] = answer
-                (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
-            missed = _missed(edit[0], answer, expects, results, project)
-            if missed:
-                for line in missed:
-                    print(f"Erwartung verfehlt: {line}", file=sys.stderr)
-                _summary(scenario, False, [])
-                return 2
+            code = _bind_and_expect(scenario, out, edit[0], name, answer=lines[at].get("result"),
+                                    expects=expects, results=results, base=project)
+            if code is not None:
+                return code
             batch = [opened]
     except (KeyError, ValueError) as e:
         return _fail(scenario, _unresolved(step, e))
@@ -860,6 +881,9 @@ def _edit_with_mcp(
     is a line {tool, arguments, ok, result | error} in out/mcp.jsonl, the server's stderr goes to
     out/mcp-stderr.log. A tool error is a refusal: expected with {expect: {error}}, else exit 1; a
     JSON-RPC error (an unknown tool, say) or a server that ends is never a refusal, exit 1.
+    A `${sha1-of:…}` reads the file when its call runs, so it sees only what is on disk by then: the
+    server writes nothing before the final `save` unless the scenario calls `save` (or a tool that
+    writes a file) itself.
     Returns the exit code when the scenario ends here (reported), None when it goes on to check and play."""
     log = out / "mcp.jsonl"
     log.write_text("", encoding="utf-8")
@@ -889,17 +913,10 @@ def _edit_with_mcp(
                         continue
                     if not ok:
                         return _fail(scenario, f"{step} abgelehnt: {_error_text(error)}; Ausgabe: {log}")
-                    if name is not None:
-                        results[name] = answer
-                        (out / "results.json").write_text(
-                            json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8"
-                        )
-                    missed = _missed(edit[0], answer, expects, results, project)
-                    if missed:
-                        for line in missed:
-                            print(f"Erwartung verfehlt: {line}", file=sys.stderr)
-                        _summary(scenario, False, [])
-                        return 2
+                    code = _bind_and_expect(scenario, out, edit[0], name, answer=answer,
+                                            expects=expects, results=results, base=project)
+                    if code is not None:
+                        return code
             except (KeyError, ValueError) as e:
                 return _fail(scenario, _unresolved(step, e))
             failure = _later_names_missing(scenario, results)
