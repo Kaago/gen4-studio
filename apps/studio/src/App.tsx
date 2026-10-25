@@ -14,7 +14,7 @@ import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
 import { crumbsFor, textCrumbs } from "./workbench/breadcrumb";
 import type { Crumb } from "./workbench/breadcrumb";
-import { DECK_AREAS, deckPanels, dropOldLayouts, isDeckArea } from "./workbench/layout";
+import { AREA_PANELS, DECK_AREAS, dropOldLayouts, isDeckArea } from "./workbench/layout";
 import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
@@ -145,15 +145,14 @@ function AppBody() {
   });
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  // The dockview apis of the two docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it.
+  // The dockview api of each area's one dock: a link focuses the panel that shows its target. The links still ask a view and a hand for
+  // it; both are the one dock's ref.
   const [docks] = useState<AreaDocks>(() => {
-    const none = () => ({ current: null as DockviewApi | null });
-    return {
-      welt: { schau: none(), hand: none() },
-      texte: { schau: none(), hand: none() },
-      pokemon: { schau: none(), hand: none() },
-      gegenstaende: { schau: none(), hand: none() },
+    const one = () => {
+      const dock = { current: null as DockviewApi | null };
+      return { schau: dock, hand: dock };
     };
+    return { welt: one(), texte: one(), pokemon: one(), gegenstaende: one() };
   });
   // A collapsed hand opens before one of its panels is brought to the front; not while a wizard's step holds the hand.
   const revealHand = useStableCallback((target: DeckArea) => {
@@ -192,7 +191,7 @@ function AppBody() {
     // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
     if (wizardOpen.current) return;
     const shown = shell.state.area;
-    const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
+    const target: DeckArea = isDeckArea(shown) && AREA_PANELS[shown].some((p) => p.id === "problems") ? shown : "welt";
     setArea(target);
     try {
       const panel = docks[target].hand.current?.getPanel("problems");
@@ -634,7 +633,7 @@ function AppBody() {
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck]);
+        resetLayout(paletteDeck, docks[paletteDeck].schau);
         break;
       case "theme":
         shell.toggleTheme();
@@ -718,15 +717,13 @@ function AppBody() {
   const trails: Record<DeckArea, Crumb[]> = { welt: crumbs, texte: textTrail, pokemon: dataTrails.pokemon, gegenstaende: dataTrails.gegenstaende };
   // The world's deck keeps the slots of the wizard's bar and step; they show while a wizard is open.
   const showsWizard = wizards.request !== null;
-  /** The deck of an area: its two docks and its hinge, which works on that area's hand and shows `trail`. */
+  /** The deck of an area: its dock and its hinge, which shows `trail`. */
   const deckOf = (target: DeckArea, trail: Crumb[]) => (
     <Deck
       area={target}
       wizard={target === "welt" ? showsWizard : undefined}
-      schauComponents={DECK_COMPONENTS[target].schau}
-      handComponents={DECK_COMPONENTS[target].hand}
-      schauRef={docks[target].schau}
-      handRef={docks[target].hand}
+      components={DECK_COMPONENTS[target]}
+      dockRef={docks[target].schau}
       hinge={
         <HingeHost
           problems={problems}

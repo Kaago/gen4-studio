@@ -42,17 +42,15 @@ describe("FramePage", () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
-  it("shows_the_hinge_above_the_view_with_the_splitter_and_the_floating_toolbar", () => {
-    // One splitter between the view and the hand, and the toolbar upright and flat.
-    expect(container.querySelectorAll('[role="separator"][data-splitter]')).toHaveLength(1);
+  it("shows_the_hinge_above_the_dock_and_the_floating_toolbar", () => {
+    // The deck has no splitter of its own (dockview's sash sizes the groups); the toolbar upright and flat.
+    expect(container.querySelector('[data-frame="scharnier-oben"] [data-splitter]')).toBeNull();
     const bars = [...container.querySelectorAll('[aria-label="Werkzeugleiste"]')];
     expect(bars.map((b) => b.getAttribute("aria-orientation"))).toEqual(expect.arrayContaining(["vertical", "horizontal"]));
-    // The hinge heads the first frame of the section, before the view and the splitter.
+    // The hinge heads the first frame of the section, before the dock with the view above the edit group.
     const frame = container.querySelector('[data-frame="scharnier-oben"]')!;
-    const order = [...frame.querySelectorAll('[aria-label="Scharnier"], [data-dock="schau"], [data-splitter], [data-dock="hand"]')].map(
-      (el) => el.getAttribute("data-dock") ?? (el.hasAttribute("data-splitter") ? "teiler" : "scharnier"),
-    );
-    expect(order).toEqual(["scharnier", "schau", "teiler", "hand"]);
+    const order = [...frame.querySelectorAll('[aria-label="Scharnier"], [data-dock], [data-dock-group]')].map((el) => el.getAttribute("data-dock-group") ?? el.getAttribute("data-dock") ?? "scharnier");
+    expect(order).toEqual(["scharnier", "welt", "schau", "hand"]);
   });
 
   it("shows_the_splitter_horizontally_and_vertically_and_sizes_the_first_part", () => {

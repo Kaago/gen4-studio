@@ -17,7 +17,7 @@ export type PanelId =
   | "itemView"
   | "itemEdit";
 
-/** The areas that have a deck (a list and two docks); the others show a pane. */
+/** The areas that have a deck (a list and a dock); the others show a pane. */
 export type DeckArea = "welt" | "texte" | "pokemon" | "gegenstaende";
 export const DECK_AREAS: readonly DeckArea[] = ["welt", "texte", "pokemon", "gegenstaende"];
 export const isDeckArea = (area: AreaId): area is DeckArea => (DECK_AREAS as readonly AreaId[]).includes(area);
@@ -129,82 +129,31 @@ export function arrangementSteps(area: DeckArea, arrangement: Arrangement): Arra
 /** True for a view panel (3D, Raster, Weltkarte, the previews): it stays in the view group and does not float. */
 export const isSchauPanel = (id: string): boolean => DECK_AREAS.some((area) => AREA_PANELS[area].some((p) => p.id === id && p.schau === true));
 
-/**
- * @deprecated The two-dock model; the deck of 3e.3 until `Deck.tsx` is rebuilt on `AREA_PANELS` (3e.4 task 2), which deletes this with
- * `DeckId`, `DeckPanelSpec`, `deckPanels` and `deckLayoutKey`.
- */
-export type DeckId = "schau" | "hand";
-
-/** @deprecated See `DeckId`. */
-export interface DeckPanelSpec extends PanelSpec {
-  position: { direction: "left" | "right" | "below" | "within"; referencePanel?: string };
-  /** The width a panel that gets a group of its own starts with (px). */
-  width?: number;
-}
-
-/**
- * @deprecated See `DeckId`: use `AREA_PANELS`.
- * The panels of each dock of each area with a deck. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit
- * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v10`): a layout stored by
- * an older panel set is not read, not migrated. The problems are a panel of the hands of Welt and Texte (the data areas have nothing to compile);
- * each area's dock is its own dockview, so the ids do not clash. The data areas have one panel per dock: the view of the selected member and
- * its editor, whatever part of the area shows.
- */
-export const DECK_PANELS: Record<DeckArea, Record<DeckId, DeckPanelSpec[]>> = {
-  welt: {
-    schau: [
-      { id: "world", title: "3D", position: { direction: "within" } },
-      { id: "matrix", title: "Raster", position: { direction: "within", referencePanel: "world" } },
-      { id: "worldmap", title: "Weltkarte", position: { direction: "within", referencePanel: "world" } },
-    ],
-    hand: [
-      { id: "inspector", title: "Inspector", position: { direction: "within" } },
-      { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
-      { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
-    ],
-  },
-  texte: {
-    schau: [{ id: "textView", title: "Vorschau", position: { direction: "within" } }],
-    hand: [
-      { id: "textEdit", title: "Nachrichten", position: { direction: "within" } },
-      { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "textEdit" } },
-    ],
-  },
-  pokemon: {
-    schau: [{ id: "pokemonView", title: "Übersicht", position: { direction: "within" } }],
-    hand: [{ id: "pokemonEdit", title: "Bearbeiten", position: { direction: "within" } }],
-  },
-  gegenstaende: {
-    schau: [{ id: "itemView", title: "Übersicht", position: { direction: "within" } }],
-    hand: [{ id: "itemEdit", title: "Bearbeiten", position: { direction: "within" } }],
-  },
-};
-
-/** @deprecated See `DeckId`. The panels of a dock of `area`; an area without a deck has none. */
-export function deckPanels(area: AreaId, deck: DeckId): DeckPanelSpec[] {
-  return isDeckArea(area) ? DECK_PANELS[area][deck] : [];
-}
-
 /** The version of the stored layouts; v11: one dock per area (v10 had two, the view and the hand). */
 export const LAYOUT_VERSION = 11;
 
 /** The localStorage key of an area's dock layout: one per area, so one broken layout resets only its own dock. */
 export const layoutKey = (area: AreaId) => `g4.layout.v${LAYOUT_VERSION}.${area}`;
 
-/** @deprecated See `DeckId`. The key of one of the two docks of a deck (v11 numbering, so `dropOldLayouts` still drops v10). */
-export const deckLayoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v${LAYOUT_VERSION}.${area}.${deck}`;
+/** The localStorage key of the arrangement last built in an area's dock (what „Zurück ins Dock“ and „Anordnung zurücksetzen“ follow). */
+export const arrangementKey = (area: AreaId) => `${layoutKey(area)}.arrangement`;
 
 /** A stored layout key of any version, capturing the version. */
 const LAYOUT_KEY = /^g4\.layout\.v(\d+)\./;
+/** The keys an interim build of v11 stored for the two docks of a deck (`.schau`, `.hand`); one dock per area has no such key. */
+const TWO_DOCK_KEY = /^g4\.layout\.v11\.[a-z]+\.(schau|hand)$/;
 
-/** Removes the layouts stored under a version before `LAYOUT_VERSION` (called once at the start); other keys stay. A storage that cannot be read is left alone. */
+/**
+ * Removes the layouts stored under a version before `LAYOUT_VERSION` and the two-dock keys of the interim v11 (called once at the start); other
+ * keys stay. A storage that cannot be read is left alone.
+ */
 export function dropOldLayouts(storage: Storage): void {
   try {
     const old: string[] = [];
     for (let i = 0; i < storage.length; i++) {
       const key = storage.key(i);
       const version = key === null ? null : LAYOUT_KEY.exec(key);
-      if (key !== null && version !== null && Number(version[1]) < LAYOUT_VERSION) old.push(key);
+      if (key !== null && version !== null && (Number(version[1]) < LAYOUT_VERSION || TWO_DOCK_KEY.test(key))) old.push(key);
     }
     for (const key of old) storage.removeItem(key);
   } catch {
@@ -226,6 +175,25 @@ export function dropLayout(key: string): void {
     localStorage.removeItem(key);
   } catch {
     /* the old layout stays */
+  }
+}
+
+/** The arrangement last built in the dock of `area`; the area's default when none is stored (or what is stored is no arrangement). */
+export function loadArrangement(area: DeckArea): Arrangement {
+  try {
+    const stored = localStorage.getItem(arrangementKey(area));
+    return stored === "werkbank" || stored === "doppeldeck" ? stored : DEFAULT_ARRANGEMENT[area];
+  } catch {
+    return DEFAULT_ARRANGEMENT[area];
+  }
+}
+
+/** Remembers the arrangement built in the dock of `area`. */
+export function saveArrangement(area: DeckArea, arrangement: Arrangement): void {
+  try {
+    localStorage.setItem(arrangementKey(area), arrangement);
+  } catch {
+    /* the default is built next time */
   }
 }
 

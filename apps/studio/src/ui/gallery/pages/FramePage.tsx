@@ -8,10 +8,9 @@ import type { SceneRef } from "../../../workbench/sceneModel";
 import { TOOLS } from "../../../workbench/tools";
 import { WizardBar } from "../../../workbench/wizards/WizardBar";
 import { FloatingToolbar } from "../../frame/FloatingToolbar";
-import { HandSplitter } from "../../frame/HandSplitter";
 import { Hinge } from "../../frame/Hinge";
 import { Palette } from "../../frame/Palette";
-import { ShellProvider, useShell } from "../../frame/ShellContext";
+import { ShellProvider } from "../../frame/ShellContext";
 import type { Tool, ToolbarAnchor } from "../../frame/shellState";
 import { StartPane } from "../../frame/StartPane";
 import { Button, Kbd, Splitter, Tabs } from "../../primitives";
@@ -94,10 +93,8 @@ function LightHinge({ problems, checking = null, unchecked = false }: { problems
   );
 }
 
-/** The hinge on top of a view and a hand with the splitter between them, as the deck of an area builds them; the splitter sizes the hand here too. */
+/** The hinge on top of an area's dock, here with a view group and an edit group below it (dockview's sash sizes them in the app). */
 function HingeOnTop() {
-  const { state } = useShell();
-  const hand = state.handHeight.welt;
   return (
     <div className={styles.deckFrame} data-frame="scharnier-oben">
       <Hinge
@@ -113,12 +110,13 @@ function HingeOnTop() {
         playing={false}
         canPlay
       />
-      <div className={styles.deckView} data-dock="schau">
-        <span className={styles.note}>Schau</span>
-      </div>
-      <HandSplitter area="welt" controls="gallery-deck-hand" />
-      <div className={styles.deckHand} id="gallery-deck-hand" data-dock="hand" hidden={state.handCollapsed.welt} style={{ height: hand } /* dyn */}>
-        <span className={styles.note}>Hand</span>
+      <div className={styles.deckDock} data-dock="welt">
+        <div className={styles.deckView} data-dock-group="schau" data-dock-group-kind="schau">
+          <span className={styles.note}>Schau</span>
+        </div>
+        <div className={styles.deckHand} data-dock-group="hand">
+          <span className={styles.note}>Hand</span>
+        </div>
       </div>
     </div>
   );
@@ -306,8 +304,8 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Scharnier oben</h2>
         <p className={styles.note}>
-          Das Scharnier steht über der Schau, 44 px, ohne Griff und nicht ziehbar. Unter der Schau trennt der Teiler (8 px) die Hand: Ziehen, Pfeiltasten (±16 px), Pos1 und Ende ändern ihre Höhe (560 und 200
-          px), Enter oder Doppelklick klappt sie ein und aus.
+          Das Scharnier steht über dem Dock des Bereichs, 44 px, ohne Griff und nicht ziehbar. Im Dock liegen die Schau und die Gruppen zum Bearbeiten; ihre Größe ändert der Teiler zwischen den
+          Gruppen.
         </p>
         <ShellProvider>
           <HingeOnTop />

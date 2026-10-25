@@ -168,7 +168,7 @@
   overflow: hidden;
 }
 
-/* The hinge on top of the view, then the splitter and the hand: a deck of fixed height; the hand never takes more than the lower half. */
+/* The hinge on top of the dock (the view above the edit group): a deck of fixed height; the edit group never takes more than the lower half. */
 .deckFrame {
   display: flex;
   height: 420px;
@@ -176,6 +176,13 @@
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-bildschirm);
   overflow: hidden;
+}
+
+.deckDock {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
 }
 
 .deckView {
@@ -186,14 +193,11 @@
 }
 
 .deckHand {
-  max-height: 50%;
+  height: 40%;
   flex: none;
   padding: var(--g4-raum-8);
+  border-top: 1px solid var(--g4-linie-leise);
   background: var(--g4-flaeche-gehaeuse);
-}
-
-.deckHand[hidden] {
-  display: none;
 }
 
 /* Two stand-in panes with a splitter between them. */

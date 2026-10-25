@@ -22,7 +22,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[] }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[], shell: null as unknown }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -48,11 +48,11 @@ vi.mock("./workbench/panels", () => ({
   TextStatus: () => null,
   PokemonStatus: () => "Pokémon-Status",
   ItemsStatus: () => "Gegenstände-Status",
-  DECK_COMPONENTS: { welt: { schau: {}, hand: {} }, texte: { schau: {}, hand: {} }, pokemon: { schau: {}, hand: {} }, gegenstaende: { schau: {}, hand: {} } },
+  DECK_COMPONENTS: { welt: {}, texte: {}, pokemon: {}, gegenstaende: {} },
 }));
 vi.mock("./ui/frame/Deck", async () => {
   const { Fragment, createElement, useEffect } = await import("react");
-  const { HandSplitter } = await import("./ui/frame/HandSplitter");
+  const { useShell } = await import("./ui/frame/ShellContext");
   type Ref = { current: unknown };
   /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
   const dock = (area: string, ids: string[]) => ({
@@ -84,10 +84,11 @@ vi.mock("./ui/frame/Deck", async () => {
   };
   return {
     resetLayout: (...args: unknown[]) => void shown.resets.push(args),
-    // The hand is a bare element behind the real splitter: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
-    Deck: ({ area, schauRef, handRef, hinge, wizard }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown; wizard?: boolean }) => {
-      schauRef.current = dock(area, PANELS[area]![0]);
-      handRef.current = dock(area, PANELS[area]![1]);
+    // The dock is a bare element with the wizard's strip under it (as in the real deck). The hand's height and fold are still the shell's
+    // (`shown.shell` sets them), though no deck shows them any more.
+    Deck: ({ area, dockRef, hinge, wizard }: { area: string; dockRef: Ref; hinge: unknown; wizard?: boolean }) => {
+      dockRef.current = dock(area, [...PANELS[area]![0], ...PANELS[area]![1]]);
+      shown.shell = useShell();
       useEffect(() => {
         shown.mounts++;
       }, []);
@@ -95,8 +96,7 @@ vi.mock("./ui/frame/Deck", async () => {
         Fragment,
         null,
         hinge as never,
-        createElement(HandSplitter, { area: area as never, controls: `dock-${area}-hand`, hidden: wizard === true }),
-        createElement("div", { "data-dock": "hand", hidden: wizard === true }),
+        createElement("div", { "data-dock": area }),
         wizard === undefined ? null : createElement("div", { "data-wizard-hand": "", hidden: !wizard }),
       );
     },
@@ -865,6 +865,8 @@ describe("App wiring", () => {
       return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
     };
     const handState = () => ({ height: readShellState().handHeight.welt, collapsed: readShellState().handCollapsed.welt });
+    /** Folds or unfolds the hand of `target` in the shell (the deck has no splitter any more; the links still unfold it until 3e.4 task 3). */
+    const fold = (target: "welt" | "texte") => act(async () => void (shown.shell as { toggleHandCollapsed: (a: string) => void }).toggleHandCollapsed(target));
     const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
     const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
@@ -959,7 +961,7 @@ describe("App wiring", () => {
       expect(hingeButton("Alles stimmig")).toBeDefined();
       data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "warning", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
       await tick(0);
-      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await fold("welt");
       expect(handState().collapsed).toBe(true);
       await pressHinge("1 Warnung");
       expect(shown.focused).toEqual(["problems"]);
@@ -1040,7 +1042,7 @@ describe("App wiring", () => {
 
     it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {
       // The world's hand is folded and low when the texts show.
-      await act(async () => void area("welt", "deck")!.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await fold("welt");
       expect(handState()).toEqual({ height: 286, collapsed: true });
       await act(async () => atlasEntry("Texte")!.click());
       shown.focused = [];
@@ -1055,17 +1057,9 @@ describe("App wiring", () => {
       expect(readShellState().handCollapsed.texte).toBe(false);
     });
 
-    it("folds_the_hand_of_the_area_whose_splitter_is_used", async () => {
-      await act(async () => atlasEntry("Texte")!.click());
-      const splitter = area("texte", "deck")!.querySelector("[data-splitter=hand]")!;
-      await act(async () => void splitter.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-      expect(readShellState().handCollapsed.texte).toBe(true);
-      expect(readShellState().handCollapsed.welt).toBe(false);
-    });
-
     it("opens_the_problems_in_the_hand_of_the_texts_while_the_texts_show", async () => {
       await act(async () => atlasEntry("Texte")!.click());
-      await act(async () => void area("texte", "deck")!.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await fold("texte");
       expect(readShellState().handCollapsed.texte).toBe(true);
       shown.focused = [];
       const light = [...area("texte", "deck")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Alles stimmig")!;
@@ -1204,24 +1198,7 @@ describe("App wiring", () => {
       await act(async () => data().scripts.open(42));
       expect(handState().height).toBe(400);
       // The same document again is not a new opening: a hand the user lowered stays.
-      act(() => {
-        Element.prototype.setPointerCapture = vi.fn();
-        Element.prototype.releasePointerCapture = vi.fn();
-      });
-      const splitter = container.querySelector("[data-splitter=hand]")!;
-      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-        const bottom = this.getAttribute("role") === "separator" ? 600 : 1000;
-        return { bottom, top: bottom - 44, height: 44, left: 0, right: 100, width: 100, x: 0, y: bottom - 44, toJSON: () => ({}) } as DOMRect;
-      });
-      const pointer = (type: string, clientY: number) => {
-        const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
-        Object.defineProperty(event, "pointerId", { value: 1 });
-        return act(async () => void splitter.dispatchEvent(event));
-      };
-      await pointer("pointerdown", 580);
-      await pointer("pointermove", 680);
-      await pointer("pointerup", 680);
-      vi.restoreAllMocks();
+      await act(async () => void (shown.shell as { setHandHeight: (a: string, h: number) => void }).setHandHeight("welt", 300));
       expect(handState().height).toBe(300);
       await act(async () => data().scripts.open(42));
       expect(handState().height).toBe(300);
@@ -1230,7 +1207,7 @@ describe("App wiring", () => {
     });
 
     it("opens_a_collapsed_hand_when_a_script_opens", async () => {
-      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await fold("welt");
       expect(handState().collapsed).toBe(true);
       await act(async () => data().scripts.open(42));
       expect(handState()).toEqual({ height: 400, collapsed: false });
@@ -1239,7 +1216,7 @@ describe("App wiring", () => {
     it("opens_a_collapsed_hand_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard", async () => {
       await select(listed[0]);
       shown.focused = [];
-      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await fold("welt");
       expect(handState().collapsed).toBe(true);
       const field = document.createElement("input");
       document.body.append(field);
@@ -1473,10 +1450,10 @@ describe("App wiring", () => {
   describe("wizard in the deck", () => {
     const weltDeck = () => area("welt", "deck")!;
     const barSlot = () => weltDeck().querySelector<HTMLElement>("[data-wizard-bar]")!;
-    const handDock = () => weltDeck().querySelector<HTMLElement>('[data-dock="hand"]')!;
+    const weltDock = () => weltDeck().querySelector<HTMLElement>('[data-dock="welt"]')!;
     const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
-    it("shows an open wizard in the world's hinge and hand, hides the hand dock and locks the other areas of the atlas", async () => {
+    it("shows an open wizard in the world's hinge and under its dock, keeps the dock and locks the other areas of the atlas", async () => {
       // Opened from the texts, it takes the user to the world.
       await click("Texte");
       expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
@@ -1486,7 +1463,7 @@ describe("App wiring", () => {
       expect(barSlot().textContent).toContain("Gebiet anlegen");
       expect(barSlot().querySelector('ol[aria-label="Schritte"]')).not.toBeNull();
       expect(weltDeck().querySelector('[data-wizard-hand] [role="dialog"]')).not.toBeNull();
-      expect(handDock().hidden).toBe(true);
+      expect(weltDock().hidden).toBe(false);
       // The hinge of the texts has no wizard slot.
       expect(area("texte", "deck")!.querySelector("[data-wizard-bar]")).toBeNull();
       for (const name of ["Start", "Texte", "Technik", "Einstellungen"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).toBe("true");
@@ -1497,7 +1474,7 @@ describe("App wiring", () => {
       expect(statusLine()).toContain("Schritt 1 von 4: Quelle");
       await click("Abbrechen");
       expect(barSlot().hidden).toBe(true);
-      expect(handDock().hidden).toBe(false);
+      expect(weltDock().hidden).toBe(false);
       expect(atlasEntry("Texte")?.getAttribute("aria-disabled")).toBeNull();
       expect(statusLine()).not.toContain("Schritt 1 von 4");
     });
@@ -1660,7 +1637,7 @@ describe("App wiring", () => {
       await run("layout zurück");
       expect(shown.resets).toHaveLength(1);
       expect(shown.resets[0]![0]).toBe("welt");
-      expect(shown.resets[0]![1]).toMatchObject({ schau: expect.anything(), hand: expect.anything() });
+      expect(shown.resets[0]![1]).toHaveProperty("current");
     });
 
     it("goes_to_a_header_by_its_number_and_to_an_area_by_name", async () => {

@@ -10,7 +10,7 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
-import { deckPanels } from "../workbench/layout";
+import { AREA_PANELS } from "../workbench/layout";
 import type { DeckArea, PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
 import type { AreaId } from "../ui/frame/shellState";
@@ -260,7 +260,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     pendingTimer.current = null;
     pendingFocus.current = null;
     if (focusInDocks(area, panel)) return;
-    if (deckPanels(area, "hand").some((p) => p.id === panel)) revealHand(area);
+    if (AREA_PANELS[area].some((p) => p.id === panel && !p.schau)) revealHand(area);
     pendingFocus.current = { area, panel };
     let tries = 0;
     const retry = () => {

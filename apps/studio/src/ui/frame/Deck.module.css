@@ -6,24 +6,28 @@
   flex-direction: column;
 }
 
-.schau {
+/* The area's dock: everything between the hinge and the wizard's strip (or the bottom). */
+.dock {
   position: relative;
   min-height: 0;
   flex: 1 1 0;
 }
 
-.hand {
+/* The strip of a wizard's step under the dock; the dock above it shrinks. */
+.wizard {
   position: relative;
   min-height: 0;
   flex: none;
+  border-top: 1px solid var(--g4-linie-leise);
 }
 
 /* `display` would otherwise win over the hidden attribute. */
-.hand[hidden] {
+.wizard[hidden] {
   display: none;
 }
 
-.dock {
+/* Each panel as high and wide as its place in the dock. */
+.panel {
   width: 100%;
   height: 100%;
 }

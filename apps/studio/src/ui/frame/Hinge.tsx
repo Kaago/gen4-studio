@@ -58,7 +58,7 @@ const COUNTERS = [
 /**
  * The 44 px bar above the view: where you are (breadcrumb), how deep you work, whether the project is sound
  * (problem light: errors, warnings and infos counted apart, a spinner with the progress while the checks run), what you did (history, redo)
- * and "Hier spielen". It holds no state of its own; everything comes in as props. The height of the hand is the splitter's (`HandSplitter`).
+ * and "Hier spielen". It holds no state of its own; everything comes in as props. The sizes of the dock's groups are dockview's (its sashes).
  */
 export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, wizard }: HingeProps) {
   const undoSteps = history.undo.length;

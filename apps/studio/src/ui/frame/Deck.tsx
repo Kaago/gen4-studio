@@ -1,157 +1,200 @@
-import { memo, useSyncExternalStore } from "react";
-import type { FunctionComponent, MutableRefObject, ReactNode } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
+import type { FunctionComponent, KeyboardEvent, MutableRefObject, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
-import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import { deckLayoutKey, deckPanels, dropLayout, isSaneLayout, loadLayout, saveLayout } from "../../workbench/layout";
-import type { DeckId, DeckPanelSpec } from "../../workbench/layout";
+import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
+import { AREA_PANELS, DEFAULT_ARRANGEMENT, arrangementSteps, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
+import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
-import { HandSplitter } from "./HandSplitter";
-import { useShell } from "./ShellContext";
+import { messages } from "./dockMessages";
+import { tabMenuItems } from "./dockMenu";
+import { applyArrangement, dockPanel, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace } from "./dockRules";
 import { HAND_DEFAULT } from "./shellState";
-import type { AreaId } from "./shellState";
 import styles from "./Deck.module.css";
 
 /** The panels of a dock by id. A module-level constant of the caller: dockview would remount every panel if this object changed. */
 export type DockComponents = Record<string, FunctionComponent<IDockviewPanelProps>>;
 
 export type DeckProps = {
-  area: AreaId;
-  schauComponents: DockComponents;
-  handComponents: DockComponents;
-  /** Where each dock hands out its dockview api (a link focuses the panel that shows its target). */
-  schauRef: MutableRefObject<DockviewApi | null>;
-  handRef: MutableRefObject<DockviewApi | null>;
-  /** The bar above the view. */
+  area: DeckArea;
+  components: DockComponents;
+  /** Where the dock hands out its dockview api (a link focuses the panel that shows its target). */
+  dockRef: MutableRefObject<DockviewApi | null>;
+  /** The bar above the dock. */
   hinge: ReactNode;
   /**
-   * The deck where wizards show (the world's): it keeps a slot beside the hand's dock for the wizard's step (`data-wizard-hand`, filled
-   * through a portal). True while a wizard is open: the slot shows in place of the dock. Undefined: no slot.
+   * The deck where wizards show (the world's): it keeps a strip under the dock for the wizard's step (`data-wizard-hand`, filled through a
+   * portal). True while a wizard is open: the strip shows and the dock above it shrinks. Undefined: no strip.
    */
   wizard?: boolean;
 };
 
 /**
- * Panels cannot be closed (there is no way to bring one back), only moved. The tab "Script" carries the cobalt dot while a script is unsaved;
- * its title stays "Script".
+ * Panels cannot be closed (there is no way to bring one back), only moved. A double click maximizes the tab's group or restores it (only a
+ * group in the grid can be maximized). The tab "Script" carries the cobalt dot while a script is unsaved; its title stays "Script".
  */
 function PanelTab(props: IDockviewPanelHeaderProps) {
   const unsavedScripts = useSyncExternalStore(scriptDirtyStore.subscribe, scriptDirtyStore.get);
+  const onDoubleClick = () => {
+    if (props.api.isMaximized()) props.api.exitMaximized();
+    else if (props.api.location.type === "grid") props.api.maximize();
+  };
   return (
-    <span className={styles.tab}>
+    <span className={styles.tab} onDoubleClick={onDoubleClick}>
       <DockviewDefaultTab {...props} hideClose />
       {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
     </span>
   );
 }
 
-function applyDefaultLayout(api: DockviewApi, panels: readonly DeckPanelSpec[]) {
-  api.clear();
-  for (const p of panels) {
-    api.addPanel({
-      id: p.id,
-      component: p.id,
-      title: p.title,
-      // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
-      renderer: "always",
-      position: p.position.referencePanel ? { direction: p.position.direction, referencePanel: p.position.referencePanel } : undefined,
-      initialWidth: p.width,
-    });
+/** The panel components wrapped once per components object, so dockview gets the same components on every render. */
+const wrapped = new WeakMap<DockComponents, DockComponents>();
+
+/** `Component` inside `div[data-dock-panel="<id>"]`, as high as the panel: the gate finds each panel by it. */
+function withPanelAttr(id: string, Component: FunctionComponent<IDockviewPanelProps>): FunctionComponent<IDockviewPanelProps> {
+  function DockPanel(props: IDockviewPanelProps) {
+    return (
+      <div className={styles.panel} data-dock-panel={id}>
+        <Component {...props} />
+      </div>
+    );
   }
-  // The tabs were added into the anchor's group and took focus in turn; the anchor is what opens.
-  const anchor = panels[0];
-  if (anchor) api.getPanel(anchor.id)?.api.setActive();
+  DockPanel.displayName = `DockPanel(${id})`;
+  return DockPanel;
+}
+
+function withPanelAttrs(components: DockComponents): DockComponents {
+  let result = wrapped.get(components);
+  if (!result) {
+    result = Object.fromEntries(Object.entries(components).map(([id, Component]) => [id, withPanelAttr(id, Component)]));
+    wrapped.set(components, result);
+  }
+  return result;
+}
+
+/** Marks a group's element with its id, and the view group as such (`data-dock-group-kind="schau"`). */
+function markGroup(group: DockviewGroupPanel) {
+  group.element.setAttribute("data-dock-group", group.id);
+  if (isSchauGroup(group)) group.element.setAttribute("data-dock-group-kind", "schau");
+  else group.element.removeAttribute("data-dock-group-kind");
+}
+
+/** Builds `arrangement` in the dock and remembers it as the area's arrangement and layout. */
+function arrange(api: DockviewApi, area: DeckArea, arrangement: Arrangement) {
+  applyArrangement(api, area, arrangement);
+  api.groups.forEach(markGroup);
+  saveArrangement(area, arrangement);
+  saveLayout(layoutKey(area), api.toJSON());
 }
 
 /**
- * Puts both docks of `area` back to their default layouts and remembers them. A dock that is not built yet (the world's, reset from an
- * area without a deck before the world was shown) forgets its stored layout, so it starts from the default when it is built.
+ * Builds `arrangement` (by default the area's default) in the dock of `area` and remembers it. A dock that is not built yet (the world's,
+ * reset from an area without a deck before the world was shown) forgets its stored layout and arrangement, so it starts from them when it
+ * is built.
  */
-export function resetLayout(area: AreaId, docks: Record<DeckId, MutableRefObject<DockviewApi | null>>): void {
-  for (const deck of ["schau", "hand"] as const) {
-    const api = docks[deck].current;
-    if (!api) {
-      dropLayout(deckLayoutKey(area, deck));
-      continue;
-    }
-    applyDefaultLayout(api, deckPanels(area, deck));
-    syncTabBars(api);
-    saveLayout(deckLayoutKey(area, deck), api.toJSON());
+export function resetLayout(area: DeckArea, dockRef: MutableRefObject<DockviewApi | null>, arrangement: Arrangement = DEFAULT_ARRANGEMENT[area]): void {
+  const api = dockRef.current;
+  if (!api) {
+    dropLayout(layoutKey(area));
+    saveArrangement(area, arrangement);
+    return;
   }
+  arrange(api, area, arrangement);
 }
 
-/** Restores the stored layout of this dock when it is complete, otherwise builds the dock's default one. Touches no other dock. */
-function initLayout(api: DockviewApi, key: string, panels: readonly DeckPanelSpec[]) {
-  const saved = loadLayout(key);
-  if (saved && isSaneLayout(saved, panels)) {
+/**
+ * Restores the stored layout of the dock when it is complete (and no view panel floats in it), otherwise builds the area's arrangement.
+ * The width limits of a group are not stored: a panel whose step has them gets them again when it sits alone in a docked group.
+ */
+function initLayout(api: DockviewApi, area: DeckArea) {
+  const saved = loadLayout(layoutKey(area));
+  if (saved && isSaneLayout(saved, AREA_PANELS[area])) {
     try {
       api.fromJSON(saved as SerializedDockview);
+      for (const step of arrangementSteps(area, loadArrangement(area))) {
+        const group = api.getPanel(step.id)?.group;
+        if (step.minimumWidth === undefined || !group || group.panels.length !== 1 || group.api.location.type !== "grid") continue;
+        group.api.setConstraints({ minimumWidth: step.minimumWidth, maximumWidth: step.maximumWidth });
+      }
       return;
     } catch {
-      /* damaged layout: fall through to the default */
+      /* damaged layout: fall through to the arrangement */
     }
   }
-  applyDefaultLayout(api, panels);
+  applyArrangement(api, area, loadArrangement(area));
 }
 
-/** A group with one panel needs no tab bar (the panel shows its own head); from two panels it shows. */
-function syncTabBars(api: DockviewApi) {
-  for (const group of api.groups) group.header.hidden = group.panels.length < 2;
-}
-
-/** One dock, memoised: the providers above it change with every hover, the dock itself must not. */
-const DeckDock = memo(function DeckDock({ area, deck, components, apiRef }: { area: AreaId; deck: DeckId; components: DockComponents; apiRef: MutableRefObject<DockviewApi | null> }) {
+/** The dock, memoised: the providers above it change with every hover, the dock itself must not. */
+const DeckDock = memo(function DeckDock({ area, components, apiRef }: { area: DeckArea; components: DockComponents; apiRef: MutableRefObject<DockviewApi | null> }) {
+  const panels = useMemo(() => withPanelAttrs(components), [components]);
+  // The tab menu works on this dock; it is asked for its items on every right click.
+  const menuItems = useMemo(
+    () => (params: GetTabContextMenuItemsParams) =>
+      tabMenuItems(params, {
+        float: (id) => void floatPanel(params.api, id),
+        dock: (id) => void dockPanel(params.api, area, id),
+        reset: () => resetLayout(area, apiRef, loadArrangement(area)),
+      }),
+    [area, apiRef],
+  );
   function onReady(event: DockviewReadyEvent) {
     const api = event.api;
-    const key = deckLayoutKey(area, deck);
-    const panels = deckPanels(area, deck);
     apiRef.current = api;
-    initLayout(api, key, panels);
-    syncTabBars(api);
-    // Intermediate states (clear, half-built default) must not overwrite the user's layout.
+    initLayout(api, area);
+    api.groups.forEach(markGroup);
+    // Intermediate states (clear, half-built arrangement) must not overwrite the user's layout.
     const remember = () => {
       const json = api.toJSON();
-      if (isSaneLayout(json, panels)) saveLayout(key, json);
+      if (isSaneLayout(json, AREA_PANELS[area])) saveLayout(layoutKey(area), json);
     };
     remember();
     // The subscriptions end with the api when dockview unmounts, so they need no cleanup of their own.
-    api.onDidAddPanel(() => syncTabBars(api));
-    api.onDidRemovePanel(() => syncTabBars(api));
+    api.onDidAddGroup(markGroup);
+    api.onWillDragPanel(keepViewPanelsInPlace);
+    api.onWillDragGroup(keepViewGroupInPlace);
+    api.onWillShowOverlay(keepViewGroupClosed);
     api.onDidLayoutChange(() => {
-      syncTabBars(api);
+      api.groups.forEach(markGroup);
       remember();
     });
   }
   return (
-    <div className={styles.dock}>
-      <DockviewReact components={components} onReady={onReady} className="dockview-theme-g4" defaultTabComponent={PanelTab} />
-    </div>
+    <DockviewReact
+      components={panels}
+      onReady={onReady}
+      className="dockview-theme-g4"
+      defaultTabComponent={PanelTab}
+      floatingGroupBounds="boundedWithinViewport"
+      floatingGroupDragHandle="titlebar"
+      messages={messages}
+      getTabContextMenuItems={menuItems}
+    />
   );
 });
 
+/** Shift+F10 on a tab opens its context menu, as a right click does (dockview listens for the contextmenu event on the tab). */
+function openTabMenu(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "F10" || !event.shiftKey) return;
+  const tab = (event.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
+  if (!tab || !event.currentTarget.contains(tab)) return;
+  event.preventDefault();
+  const box = tab.getBoundingClientRect();
+  tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }));
+}
+
 /**
- * The deck of an area: the hinge on top, then the view (Schau), the splitter and the hand. The hand has the remembered height, the view the
- * rest; a collapsed hand is hidden (not unmounted: CodeMirror and the scene keep their state) and only the splitter is left.
- * Each dock is its own dockview with its own layout key, so a panel moves within a dock, never between the two. Every area with a deck has
- * its own `Deck` (the shell keeps them all mounted); the hand's height and whether it is collapsed are the area's own. While a wizard is open
- * (world only), its step takes the hand's place.
+ * The deck of an area: the hinge on top, then the area's one dock (its own dockview with its own layout key): the view group in the middle,
+ * the edit panels beside or below it as the arrangement puts them; every group shows its tabs, a panel can be dragged, floated, maximized.
+ * Every area with a deck has its own `Deck` (the shell keeps them all mounted). While a wizard is open (world only), its step shows in a
+ * strip under the dock, which stays mounted and shrinks.
  */
-export function Deck({ area, schauComponents, handComponents, schauRef, handRef, hinge, wizard }: DeckProps) {
-  const { state } = useShell();
-  const collapsed = state.handCollapsed[area];
-  // A wizard needs room: a collapsed hand is lifted to at least the default height while it is open (the remembered height stays).
-  const wizardHeight = collapsed ? Math.max(state.handHeight[area], HAND_DEFAULT) : state.handHeight[area];
+export function Deck({ area, components, dockRef, hinge, wizard }: DeckProps) {
   return (
     <div className={styles.deck}>
       {hinge}
-      <div className={styles.schau} id={`dock-${area}-schau`} data-dock="schau">
-        <DeckDock area={area} deck="schau" components={schauComponents} apiRef={schauRef} />
+      <div className={styles.dock} id={`dock-${area}`} data-dock={area} onKeyDown={openTabMenu}>
+        <DeckDock key={area} area={area} components={components} apiRef={dockRef} />
       </div>
-      <HandSplitter area={area} controls={`dock-${area}-hand`} hidden={wizard === true} />
-      {/* Behind an open wizard the dock stays mounted (CodeMirror and the scene keep their state), only hidden. */}
-      <div className={styles.hand} id={`dock-${area}-hand`} data-dock="hand" hidden={collapsed || wizard === true} style={{ height: state.handHeight[area] } /* dyn */}>
-        <DeckDock area={area} deck="hand" components={handComponents} apiRef={handRef} />
-      </div>
-      {wizard !== undefined && <div className={styles.hand} data-wizard-hand="" hidden={!wizard} style={{ height: wizardHeight } /* dyn */} />}
+      {wizard !== undefined && <div className={styles.wizard} data-wizard-hand="" hidden={!wizard} style={{ height: HAND_DEFAULT } /* dyn */} />}
     </div>
   );
 }

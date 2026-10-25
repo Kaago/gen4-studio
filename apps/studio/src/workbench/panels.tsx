@@ -18,7 +18,7 @@ import { thumbnails } from "../world/thumbnailStore";
 import { Inspector } from "./Inspector";
 import { findingsFor } from "./inspector/ChecksSection";
 import type { Crumb } from "./breadcrumb";
-import type { DeckArea, DeckId } from "./layout";
+import type { DeckArea } from "./layout";
 import { withHeaderHint } from "./navigation";
 import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
@@ -526,25 +526,12 @@ export function ItemsListPane() {
 }
 
 /**
- * The panels of the view dock and of the hand dock of each area, by id. Module-level constants: dockview would remount every panel if they
- * changed. The problems are in the hands of Welt and Texte: each area's dock is its own dockview, and every instance reads the one problems
- * store.
+ * The panels of the dock of each area, by id. Module-level constants: dockview would remount every panel if they changed. The problems are
+ * panels of Welt and Texte: each area's dock is its own dockview, and every instance reads the one problems store.
  */
-export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
-  welt: {
-    schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
-    hand: { inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab },
-  },
-  texte: {
-    schau: { textView: TextViewTab },
-    hand: { textEdit: TextEditTab, problems: ProblemsTab },
-  },
-  pokemon: {
-    schau: { pokemonView: PokemonView },
-    hand: { pokemonEdit: PokemonHand },
-  },
-  gegenstaende: {
-    schau: { itemView: ItemsView },
-    hand: { itemEdit: ItemsHand },
-  },
+export const DECK_COMPONENTS: Record<DeckArea, DockComponents> = {
+  welt: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab },
+  texte: { textView: TextViewTab, textEdit: TextEditTab, problems: ProblemsTab },
+  pokemon: { pokemonView: PokemonView, pokemonEdit: PokemonHand },
+  gegenstaende: { itemView: ItemsView, itemEdit: ItemsHand },
 };
