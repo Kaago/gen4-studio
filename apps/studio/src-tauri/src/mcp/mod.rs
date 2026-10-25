@@ -30,7 +30,8 @@ const EXIT_USAGE: u8 = 2;
 #[derive(Parser)]
 #[command(
     name = "studio mcp",
-    about = "Serve the Gen 4 Studio tools for one project over MCP (stdio), read-only"
+    about = "Serve the Gen 4 Studio tools for one project over MCP (stdio): read and edit, \
+             irreversible steps only with --allow-irreversible"
 )]
 struct Cli {
     /// The project folder (with header.yaml).
@@ -39,6 +40,16 @@ struct Cli {
     /// An extra folder for imports and exports (repeatable).
     #[arg(long = "allow-dir", value_name = "DIR")]
     allow_dir: Vec<PathBuf>,
+    /// Only read: no tool that changes the project.
+    #[arg(long = "read-only")]
+    read_only: bool,
+    /// Also allow what undo does not bring back (header patch, new trainer, new script,
+    /// build outside build/, emulator, checks baseline).
+    #[arg(long = "allow-irreversible", conflicts_with = "read_only")]
+    allow_irreversible: bool,
+    /// The one emulator run_rom may start (needs --allow-irreversible too).
+    #[arg(long, value_name = "PATH")]
+    emulator: Option<PathBuf>,
     /// Also offer g4_call and g4_commands (any command by name).
     #[arg(long)]
     expert: bool,
@@ -52,7 +63,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     let cli = match Cli::try_parse_from(args.into_iter().skip(1)) {
         Ok(cli) => cli,
         Err(e) if !e.use_stderr() => {
-            // --help and --version.
+            // --help.
             let _ = e.print();
             return ExitCode::SUCCESS;
         }
@@ -71,14 +82,15 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     if std::env::var_os("G4_MCP_TEST_NOISE").is_some_and(|v| v == "1") {
         println!("G4_MCP_TEST_NOISE: this line goes to stderr, not into the protocol");
     }
-    let policy = match UserPolicy::new(&project, &cli.allow_dir, None) {
+    let policy = match UserPolicy::new(&project, &cli.allow_dir, cli.emulator.as_deref()) {
         Ok(policy) => policy,
         Err(e) => return usage(&e),
     };
-    // Read-only in 3h.1: the switches for writing come with 3h.2.
+    // Whoever sets up `studio mcp --project` chose the project: reading and editing by
+    // default, irreversible steps only when asked for.
     let access = Access {
-        write: false,
-        irreversible: false,
+        write: !cli.read_only,
+        irreversible: cli.allow_irreversible,
         expert: cli.expert,
     };
     let toolbox = match Toolbox::open(policy, access) {
@@ -92,8 +104,9 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         Ok(runtime) => runtime,
         Err(e) => return usage(&format!("Laufzeit nicht startbar: {e}")),
     };
+    // `serve` returns once the client has gone and no call runs any more (at most
+    // `server::DRAIN_LIMIT`), so a write is never cut off in the middle of its step.
     let served = runtime.block_on(Server::new(toolbox).serve(tokio::io::stdin(), protocol));
-    // A command still running on a blocking worker has no client left to answer.
     runtime.shutdown_timeout(Duration::from_secs(1));
     match served {
         Ok(()) => ExitCode::SUCCESS,

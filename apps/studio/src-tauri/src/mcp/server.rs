@@ -1,8 +1,10 @@
 //! The toolbox as an MCP server (rmcp): what the protocol asks for, mapped onto
 //! [`Toolbox`]. Each tool call and resource read runs on a blocking worker, where the
-//! toolbox takes its turn (see [`crate::mcp::tools`]).
+//! toolbox takes its turn (see [`crate::mcp::tools`]). When the client closes the
+//! connection, the server waits for a call still running before it ends.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, Implementation,
@@ -14,6 +16,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
 use serde_json::{Value, json};
 use tokio::io::AsyncWrite;
+use tokio::sync::RwLock;
 
 use crate::mcp::TOOLSET;
 use crate::mcp::access::{Access, Kind, kind_of};
@@ -23,33 +26,54 @@ use crate::mcp::tools::{ResourceDef, ToolError, Toolbox};
 /// The server's name in `initialize`.
 pub const NAME: &str = "gen4-studio";
 
+/// How long the server waits, once the client has gone, for a call still running (a build
+/// of a large game takes a while).
+pub const DRAIN_LIMIT: Duration = Duration::from_secs(600);
+
 /// One open project served to one client.
 #[derive(Clone)]
 pub struct Server {
     toolbox: Arc<Toolbox>,
+    /// Each job on a blocking worker holds a read lock until it returns; the write lock is
+    /// had once no job runs.
+    jobs: Arc<RwLock<()>>,
 }
 
 impl Server {
     pub fn new(toolbox: Toolbox) -> Server {
         Server {
             toolbox: Arc::new(toolbox),
+            jobs: Arc::new(RwLock::new(())),
         }
     }
 
-    /// Serves the client on `input` and `output` until it closes the connection.
+    /// Serves the client on `input` and `output` until it closes the connection, then waits
+    /// for the calls still running (at most [`DRAIN_LIMIT`]): their answers have no reader
+    /// any more, but a write is never cut off in the middle of its step.
     pub async fn serve<R, W>(self, input: R, output: W) -> Result<(), String>
     where
         R: tokio::io::AsyncRead + Send + Unpin + 'static,
         W: AsyncWrite + Send + Unpin + 'static,
     {
+        let jobs = Arc::clone(&self.jobs);
         let running = ServiceExt::serve(self, (input, output))
             .await
             .map_err(|e| format!("MCP-Start fehlgeschlagen: {e}"))?;
-        running
+        let served = running
             .waiting()
             .await
             .map(|_| ())
-            .map_err(|e| format!("MCP-Server abgebrochen: {e}"))
+            .map_err(|e| format!("MCP-Server abgebrochen: {e}"));
+        let drained = tokio::time::timeout(DRAIN_LIMIT, jobs.write())
+            .await
+            .map(|_| ())
+            .map_err(|_| {
+                format!(
+                    "Ein Aufruf lief nach {} s noch; der Server endet ohne ihn",
+                    DRAIN_LIMIT.as_secs()
+                )
+            });
+        served.and(drained)
     }
 
     fn instructions(&self) -> String {
@@ -79,16 +103,34 @@ impl Server {
         tool
     }
 
-    /// Runs `job` with the toolbox on a blocking worker.
+    /// Runs `job` with the toolbox on a blocking worker; it counts as running (see
+    /// [`Server::serve`]) until it returns, also when the request is dropped meanwhile.
     async fn blocking<T, F>(&self, job: F) -> Result<T, McpError>
     where
         T: Send + 'static,
         F: FnOnce(&Toolbox) -> T + Send + 'static,
     {
         let toolbox = Arc::clone(&self.toolbox);
-        tokio::task::spawn_blocking(move || job(&toolbox))
-            .await
-            .map_err(|e| McpError::internal_error(format!("Aufruf abgebrochen: {e}"), None))
+        let running = Arc::clone(&self.jobs).read_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let _running = running;
+            test_delay();
+            job(&toolbox)
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Aufruf abgebrochen: {e}"), None))
+    }
+}
+
+/// Development builds only: `G4_MCP_TEST_DELAY_MS=<n>` holds each job on its worker for
+/// `n` ms before it runs, so a test can close the connection while a call is running.
+fn test_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("G4_MCP_TEST_DELAY_MS")
+        .ok()
+        .and_then(|ms| ms.parse().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms));
     }
 }
 

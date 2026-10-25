@@ -150,11 +150,12 @@ impl UserPolicy {
 
     /// The canonical form of `path`, whose tail may not exist yet: the longest existing
     /// part is canonicalized, the rest is appended. `None` when the missing tail has a
-    /// `..` or `.`, whose place cannot be known.
+    /// `..` or `.`, or a link on the way leads nowhere, whose place cannot be known.
     fn locate(&self, path: &Path) -> Option<PathBuf> {
         let mut existing = path.to_path_buf();
         let mut tail = Vec::new();
-        while !existing.exists() {
+        // A dangling link exists as a link: it ends the search, and does not canonicalize.
+        while existing.symlink_metadata().is_err() {
             match existing.components().next_back()? {
                 Component::Normal(name) => tail.push(name.to_owned()),
                 _ => return None,
@@ -244,9 +245,11 @@ impl Policy for UserPolicy {
         let parent = self.canonicalize_inside(parent, out, |p| self.may_write(p))?;
         self.check_writable(&parent, out)?;
         let target = parent.join(name);
-        // An existing target must stay inside too: a link would be written through.
+        // An existing target must stay inside too: a link would be written through, and one
+        // that leads nowhere would create its target wherever that is.
         if target.symlink_metadata().is_ok() {
-            self.check_writable(&canonicalize(&target, out)?, out)?;
+            let canonical = self.canonicalize_inside(&target, out, |p| self.may_write(p))?;
+            self.check_writable(&canonical, out)?;
         }
         Ok(target)
     }
@@ -271,8 +274,9 @@ impl Policy for UserPolicy {
         let configured = self.emulator.as_ref().ok_or_else(|| {
             CmdError::from("Kein Emulator freigegeben (studio mcp --emulator <Pfad>)")
         })?;
+        // Relative to the project folder, like every path of a call.
         if !emulator.is_empty()
-            && Path::new(emulator).canonicalize().ok().as_ref() != Some(configured)
+            && self.resolve(emulator).canonicalize().ok().as_ref() != Some(configured)
         {
             return Err(CmdError::from(format!(
                 "Nur der freigegebene Emulator: {}",
@@ -288,11 +292,6 @@ fn outside(shown: &str) -> CmdError {
     CmdError::from(format!(
         "Pfad liegt außerhalb der erlaubten Ordner: {shown}"
     ))
-}
-
-fn canonicalize(path: &Path, shown: &str) -> Result<PathBuf, CmdError> {
-    path.canonicalize()
-        .map_err(|e| CmdError::from(format!("Pfad nicht lesbar: {shown}: {e}")))
 }
 
 fn canonical_dir(dir: &Path) -> Result<PathBuf, String> {
@@ -529,6 +528,73 @@ mod tests {
         assert!(outside(
             p.check_run("", stray.to_str().unwrap()).unwrap_err()
         ));
+    }
+
+    #[test]
+    fn build_dir_symlinked_out_is_refused() {
+        let dir = project();
+        let other = tempfile::tempdir().unwrap();
+        // build/ itself leads out of the project.
+        symlink(other.path(), dir.path().join("build")).unwrap();
+        let p = policy(&dir);
+        for out in ["build/x.nds", "build/sub/../x.nds"] {
+            assert!(outside(p.check_output(out).unwrap_err()), "{out}");
+            assert!(outside(p.write_path(out).unwrap_err()), "{out}");
+            assert!(!p.is_in_build(out), "{out}");
+        }
+        assert!(!other.path().join("x.nds").exists());
+    }
+
+    #[test]
+    fn dangling_target_is_refused() {
+        let dir = project();
+        let other = tempfile::tempdir().unwrap();
+        let p = policy(&dir);
+        p.check_output("build/ok.nds").unwrap();
+        // A link in build/ to a file that does not exist (yet) outside: writing through it
+        // would create that file.
+        let missing = other.path().join("missing.nds");
+        symlink(&missing, dir.path().join("build/x.nds")).unwrap();
+        assert!(outside(p.check_output("build/x.nds").unwrap_err()));
+        assert!(outside(p.write_path("build/x.nds").unwrap_err()));
+        assert!(!p.is_in_build("build/x.nds"));
+        // So is a dangling link inside build/: the place it names is not known to be inside.
+        symlink(
+            dir.path().join("build/gone.nds"),
+            dir.path().join("build/y.nds"),
+        )
+        .unwrap();
+        assert!(p.check_output("build/y.nds").is_err());
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn relative_wrong_emulator_is_refused() {
+        let dir = project();
+        let tools = dir.path().join("tools");
+        fs::create_dir(&tools).unwrap();
+        let emu = tools.join("emu");
+        let other = tools.join("other");
+        for file in [&emu, &other] {
+            fs::write(file, b"#!/bin/sh\n").unwrap();
+        }
+        fs::write(dir.path().join("a.nds"), b"rom").unwrap();
+        let p = UserPolicy::new_with_roms(dir.path(), &[], Some(&emu), None).unwrap();
+        let canonical = emu.canonicalize().unwrap();
+        // A relative emulator is relative to the project folder, like every path of a call.
+        assert_eq!(p.check_run("tools/emu", "a.nds").unwrap().0, canonical);
+        assert_eq!(
+            p.check_run("tools/../tools/emu", "a.nds").unwrap().0,
+            canonical
+        );
+        for wrong in ["tools/other", "other", "emu", "tools", "tools/missing"] {
+            let err = p.check_run(wrong, "a.nds").unwrap_err();
+            assert_eq!(
+                err.message,
+                format!("Nur der freigegebene Emulator: {}", canonical.display()),
+                "{wrong}"
+            );
+        }
     }
 
     #[test]

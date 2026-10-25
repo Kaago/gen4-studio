@@ -414,6 +414,13 @@ impl Toolbox {
         }
         let label = label.unwrap_or_else(|| default_label(changes));
         let mark = self.undo_depth()?;
+        // Until the batch is merged or rolled back, leaving early (a command panics, the
+        // session is gone) takes it back to the mark.
+        let mut guard = RollbackGuard {
+            toolbox: self,
+            mark,
+            armed: true,
+        };
         let mut forgotten = false;
         let mut results = Vec::with_capacity(ready.len());
         for (index, (tool, prepared)) in ready.into_iter().enumerate() {
@@ -422,9 +429,13 @@ impl Toolbox {
             forgotten |= self.undo_depth()? < before;
             match result {
                 Ok(result) => results.push(result),
-                Err(e) => return Err(self.roll_back(mark, index, tool, e, forgotten)),
+                Err(e) => {
+                    guard.armed = false;
+                    return Err(self.roll_back(mark, index, tool, e, forgotten));
+                }
             }
         }
+        guard.armed = false;
         self.with_session(|s| s.store.squash_since(mark, &label))?;
         let mut answer = json!({ "results": results, "label": label });
         if forgotten {
@@ -578,6 +589,29 @@ impl Toolbox {
         };
         let text = serde_json::to_string(&value).map_err(|e| ToolError::error(e.to_string()))?;
         Ok((JSON.to_owned(), text))
+    }
+}
+
+/// Rolls a batch back to its `mark` when it is dropped `armed`: when a call panics (the
+/// panic then reaches the server as a failed call, after the rollback) or the batch leaves
+/// early. A barrier step stops the rollback as in [`Toolbox::roll_back`].
+struct RollbackGuard<'a> {
+    toolbox: &'a Toolbox,
+    mark: usize,
+    armed: bool,
+}
+
+impl Drop for RollbackGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mark = self.mark;
+        // Nothing to report to: the caller gets the panic or the early error.
+        let _ = self.toolbox.with_session(|s| {
+            let _ = s.store.rollback_to(mark);
+            s.after_write();
+        });
     }
 }
 
@@ -1121,10 +1155,19 @@ mod tests {
                            "arguments": { "command": "apply_fix", "args": fix("wrap") } });
         assert!(toolbox.prepare_in_batch("g4_call", &call).is_ok());
         assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
-        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
-        // An empty batch is refused too.
-        let (code, _, _) = failed(toolbox.call("g4_batch", json!({ "calls": [] })));
-        assert_eq!(code, "error");
+    }
+
+    #[test]
+    fn empty_batch_is_refused() {
+        let (_fixture, toolbox) = open_toolbox(WRITE);
+        for args in [json!({ "calls": [] }), json!({}), Value::Null] {
+            let (code, message, _) = failed(toolbox.call("g4_batch", args.clone()));
+            assert_eq!(code, "error", "{args}");
+            assert_eq!(
+                message, "g4_batch braucht calls, eine Liste mit mindestens einem Aufruf",
+                "{args}"
+            );
+        }
     }
 
     #[test]
@@ -1323,6 +1366,43 @@ mod tests {
             .call("g4_batch", json!({ "calls": three_edits() }))
             .unwrap();
         assert!(answer.get("history_forgotten").is_none());
+    }
+
+    #[test]
+    fn batch_rolls_back_when_a_call_panics() {
+        let (_fixture, toolbox) = open_toolbox(WRITE);
+        toolbox
+            .call(
+                "data_edit",
+                json!({ "kind": "move", "index": 2,
+                        "patch": { "Move": { "field": "power", "value": 40 } }, "label": "vorher" }),
+            )
+            .unwrap();
+        let before = history(&toolbox);
+        let (species, moves) = (data(&toolbox, "species", 1), data(&toolbox, "move", 1));
+        // Calls 0 and 1 record their steps, call 2 panics: the drop guard takes the batch
+        // back to its mark while the panic unwinds, before the server reports it.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            toolbox.batch_with(
+                batch_tool(),
+                json!({ "calls": three_edits() }),
+                &mut |toolbox, index, prepared| {
+                    if index == 2 {
+                        panic!("Befehl bricht ab");
+                    }
+                    toolbox.run(prepared)
+                },
+            )
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(data(&toolbox, "species", 1), species);
+        assert_eq!(data(&toolbox, "move", 1), moves);
+        assert_eq!(history(&toolbox), before);
+        // The toolbox works on after the panic.
+        let answer = toolbox
+            .call("g4_batch", json!({ "calls": three_edits() }))
+            .unwrap();
+        assert_eq!(answer["label"], "Agent: 3 Änderungen");
     }
 
     #[test]
