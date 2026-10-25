@@ -216,6 +216,7 @@
   --g4-dichte-scharnier: 44px;
   --g4-dichte-symbol: 18px;
   --g4-dichte-werkzeug: 40px;
+  --g4-dichte-reiter: 28px;
   /* Thema: Hell (Standard) */
   --g4-flaeche-gehaeuse: var(--g4-platin-150);
   --g4-flaeche-deck: var(--g4-platin-250);
@@ -416,6 +417,7 @@
   --g4-dichte-scharnier: 36px;
   --g4-dichte-symbol: 16px;
   --g4-dichte-werkzeug: 32px;
+  --g4-dichte-reiter: 24px;
 }
 
 @media (prefers-reduced-motion: reduce) {

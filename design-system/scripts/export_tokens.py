@@ -134,7 +134,7 @@ dockview = '''/* Dockview-Thema für Gen4 Studio: class "dockview-theme-g4" auf 
   --dv-group-view-background-color: var(--g4-flaeche-gehaeuse);
   --dv-paneview-header-border-color: var(--g4-linie-leise);
   --dv-tabs-and-actions-container-background-color: var(--g4-flaeche-gehaeuse);
-  --dv-tabs-and-actions-container-height: 36px;
+  --dv-tabs-and-actions-container-height: var(--g4-dichte-reiter);
   --dv-tabs-and-actions-container-font-size: 13px;
   --dv-activegroup-visiblepanel-tab-background-color: var(--g4-flaeche-schau);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--g4-flaeche-gehaeuse);
@@ -150,10 +150,18 @@ dockview = '''/* Dockview-Thema für Gen4 Studio: class "dockview-theme-g4" auf 
   --dv-drag-over-background-color: color-mix(in srgb, var(--g4-akzent-grund) 18%, transparent);
   --dv-drag-over-border-color: var(--g4-akzent-grund);
   --dv-icon-hover-background-color: var(--g4-flaeche-deck);
+  --dv-floating-box-shadow: var(--g4-schatten-schwebend);
+  --dv-floating-border: 1px solid var(--g4-linie-standard);
+  --dv-floating-titlebar-background-color: var(--g4-flaeche-deck);
+  --dv-floating-titlebar-border-bottom: 1px solid var(--g4-linie-standard);
   font-family: var(--g4-schrift-familie-ui);
 }
 /* Aktiver Reiter: 2-px-Kobaltkante oben, wie die Komponente "Reiter" */
 .dockview-theme-g4 .dv-tab.dv-active-tab { box-shadow: inset 0 2px 0 var(--g4-akzent-grund); }
+/* Schwebende Gruppe: Titelleiste und Ecken wie ein Fenster (`radius/fenster`); die Griffe zum Skalieren ragen 2 px heraus, darum kein overflow am Rahmen. */
+.dockview-theme-g4 .dv-resize-container { border-radius: var(--g4-radius-fenster); }
+.dockview-theme-g4 .dv-resize-container > .dv-floating-titlebar { border-radius: var(--g4-radius-fenster) var(--g4-radius-fenster) 0 0; }
+.dockview-theme-g4 .dv-resize-container-with-titlebar > .dv-grid-view { border-radius: 0 0 var(--g4-radius-fenster) var(--g4-radius-fenster); overflow: hidden; }
 /* Das Scharnier ist kein Dockview-Panel, sondern ein eigener Trenner zwischen Schau- und Hand-Gruppe. */
 '''
 

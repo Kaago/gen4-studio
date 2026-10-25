@@ -63,7 +63,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 | Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm, Gruppe `typ` für die 18 Pokémon-Typen, Gruppe `status` für Prüfbefunde an Markern; gleich in beiden Themen |
 | Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*`, `schatten/*` (Typ `shadow`: `schatten/schwebend`, Platin 1000 mit 24 % in Hell, 48 % in Dunkel; als CSS `--g4-schatten-schwebend`, nicht in `tokens.ts`) |
 | Raum | Wert | `raum/0…64` (Pixel im Namen), `radius/feld|taste|bildschirm|fenster|plakette`, `strich/*`, `schrift/groesse/*`, `schrift/zeile/*` |
-| Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug` |
+| Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug`, `reiter` |
 | Bewegung | Wert | `dauer/sofort|kurz|mittel|scharnier` (0/120/200/280 ms) |
 | Schrift | Wert | `familie/ui|titel|code|spiel` |
 | Textstile | – | `text/xs…l`, `titel/s…l`, `code/s`, `spiel/textbox` |

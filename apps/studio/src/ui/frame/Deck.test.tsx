@@ -5,7 +5,7 @@ import type { FunctionComponent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DECK_PANELS, layoutKey } from "../../workbench/layout";
+import { DECK_PANELS, deckLayoutKey } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import type { PanelId } from "../../workbench/layout";
 import { Deck, resetLayout } from "./Deck";
@@ -138,8 +138,8 @@ describe("Deck", () => {
   });
 
   it("restores_a_stored_layout_of_each_dock", async () => {
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"], ["worldmap"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
+    localStorage.setItem(deckLayoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"], ["worldmap"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix"], ["worldmap"]]);
     expect(layoutOf(hand())).toEqual([["inspector"], ["script", "problems"]]);
@@ -147,16 +147,16 @@ describe("Deck", () => {
 
   it("resets_only_the_view_when_its_stored_layout_is_unusable", async () => {
     // The view's layout lacks a panel (a layout of another panel set); the hand's was arranged by the user.
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
+    localStorage.setItem(deckLayoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
     expect(layoutOf(hand())).toEqual([["inspector"], ["script", "problems"]]);
   });
 
   it("resets_only_the_hand_when_its_stored_json_is_broken_and_keeps_the_view", async () => {
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world"], ["matrix", "worldmap"])));
-    localStorage.setItem(layoutKey("welt", "hand"), "{not json");
+    localStorage.setItem(deckLayoutKey("welt", "schau"), JSON.stringify(stored(["world"], ["matrix", "worldmap"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), "{not json");
     await mount();
     expect(layoutOf(schau())).toEqual([["world"], ["matrix", "worldmap"]]);
     expect(layoutOf(hand())).toEqual([["inspector", "script", "problems"]]);
@@ -165,8 +165,8 @@ describe("Deck", () => {
   it("falls_back_to_the_default_of_a_dock_whose_stored_grid_cannot_be_restored", async () => {
     // Right panels, but a grid dockview refuses.
     const broken = { ...stored(["world", "matrix", "worldmap"]), grid: { root: { type: "nonsense" } } };
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(broken));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
+    localStorage.setItem(deckLayoutKey("welt", "schau"), JSON.stringify(broken));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["inspector"], ["script", "problems"])));
     await mount();
     expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
     expect(layoutOf(hand())).toEqual([["inspector"], ["script", "problems"]]);
@@ -176,7 +176,7 @@ describe("Deck", () => {
     // What v7 stored: the text panel was a tab of the world's hand. Under the old key and under the new one it is not restored.
     const v7 = JSON.stringify(stored(["tools"], ["inspector", "text"], ["script", "problems"]));
     localStorage.setItem("g4.layout.v7.welt.hand", v7);
-    localStorage.setItem(layoutKey("welt", "hand"), v7);
+    localStorage.setItem(deckLayoutKey("welt", "hand"), v7);
     await mount();
     expect(layoutOf(hand())).toEqual([["inspector", "script", "problems"]]);
     expect(hand().getPanel("text")).toBeUndefined();
@@ -184,7 +184,7 @@ describe("Deck", () => {
 
   it("falls_back_to_the_default_of_a_world_hand_that_still_has_the_tools", async () => {
     // What v8 stored: the tools were a group left of the inspector. Under the new key they are not restored.
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector"], ["script", "problems"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector"], ["script", "problems"])));
     await mount();
     expect(layoutOf(hand())).toEqual([["inspector", "script", "problems"]]);
     expect(hand().getPanel("tools")).toBeUndefined();
@@ -192,7 +192,7 @@ describe("Deck", () => {
 
   it("falls_back_to_the_default_of_a_world_hand_that_still_has_the_context", async () => {
     // What v9 stored: „An diesem Ort“ was a group right of the inspector. Under the new key it is not restored.
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "script", "problems"], ["context"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "script", "problems"], ["context"])));
     await mount();
     expect(layoutOf(hand())).toEqual([["inspector", "script", "problems"]]);
     expect(hand().getPanel("context")).toBeUndefined();
@@ -207,11 +207,11 @@ describe("Deck", () => {
   it("remembers_each_dock_under_its_own_key", async () => {
     await mount();
     await split(schau(), "worldmap");
-    const savedSchau = JSON.parse(localStorage.getItem(layoutKey("welt", "schau"))!);
+    const savedSchau = JSON.parse(localStorage.getItem(deckLayoutKey("welt", "schau"))!);
     expect(Object.keys(savedSchau.panels).sort()).toEqual(["matrix", "world", "worldmap"]);
     expect(groups(savedSchau.grid.root)).toEqual([["world", "matrix"], ["worldmap"]]);
     // The hand's key still holds the hand's panels and nothing of the view.
-    const savedHand = JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!);
+    const savedHand = JSON.parse(localStorage.getItem(deckLayoutKey("welt", "hand"))!);
     expect(Object.keys(savedHand.panels).sort()).toEqual(["inspector", "problems", "script"]);
   });
 
@@ -238,7 +238,7 @@ describe("Deck", () => {
   });
 
   it("hides_the_tab_bar_of_a_restored_group_with_one_panel", async () => {
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "script"], ["problems"])));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify(stored(["inspector", "script"], ["problems"])));
     await mount();
     expect(headerHidden(hand(), "problems")).toBe(true);
     expect(headerHidden(hand(), "inspector")).toBe(false);
@@ -280,8 +280,8 @@ describe("Deck", () => {
     expect(layoutOf(schau())).toEqual([["textView"]]);
     expect(layoutOf(hand())).toEqual([["textEdit", "problems"]]);
     expect(hand().activePanel?.id).toBe("textEdit");
-    expect(Object.keys(JSON.parse(localStorage.getItem(layoutKey("texte", "hand"))!).panels).sort()).toEqual(["problems", "textEdit"]);
-    expect(localStorage.getItem(layoutKey("welt", "hand"))).toBeNull();
+    expect(Object.keys(JSON.parse(localStorage.getItem(deckLayoutKey("texte", "hand"))!).panels).sort()).toEqual(["problems", "textEdit"]);
+    expect(localStorage.getItem(deckLayoutKey("welt", "hand"))).toBeNull();
     // The docks of an area carry its name, so two decks in one document do not share an element id.
     expect(dock("schau").id).toBe("dock-texte-schau");
     expect(dock("hand").id).toBe("dock-texte-hand");
@@ -307,8 +307,8 @@ describe("Deck", () => {
     expect(layoutOf(hand())).toEqual([["inspector", "script", "problems"]]);
     expect(headerHidden(schau(), "world")).toBe(false);
     expect(hand().activePanel?.id).toBe("inspector");
-    expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "schau"))!).grid.root)).toEqual([["world", "matrix", "worldmap"]]);
-    expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!).grid.root)).toEqual([["inspector", "script", "problems"]]);
+    expect(groups(JSON.parse(localStorage.getItem(deckLayoutKey("welt", "schau"))!).grid.root)).toEqual([["world", "matrix", "worldmap"]]);
+    expect(groups(JSON.parse(localStorage.getItem(deckLayoutKey("welt", "hand"))!).grid.root)).toEqual([["inspector", "script", "problems"]]);
   });
 
   it("marks_the_script_tab_with_a_dot_while_a_script_is_unsaved_and_keeps_its_title", async () => {
@@ -366,13 +366,13 @@ describe("Deck", () => {
 
   it("drops_the_stored_layouts_of_a_deck_that_is_not_built_so_it_starts_from_its_default", () => {
     // "Layout zurücksetzen" on Start, Technik or Einstellungen works on the world, which may never have been built in this session.
-    localStorage.setItem(layoutKey("texte", "schau"), JSON.stringify({ panels: { textView: {} } }));
-    localStorage.setItem(layoutKey("texte", "hand"), JSON.stringify({ panels: { textEdit: {} } }));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify({ panels: { tools: {} } }));
+    localStorage.setItem(deckLayoutKey("texte", "schau"), JSON.stringify({ panels: { textView: {} } }));
+    localStorage.setItem(deckLayoutKey("texte", "hand"), JSON.stringify({ panels: { textEdit: {} } }));
+    localStorage.setItem(deckLayoutKey("welt", "hand"), JSON.stringify({ panels: { tools: {} } }));
     expect(() => resetLayout("texte", { schau: { current: null }, hand: { current: null } })).not.toThrow();
-    expect(localStorage.getItem(layoutKey("texte", "schau"))).toBeNull();
-    expect(localStorage.getItem(layoutKey("texte", "hand"))).toBeNull();
+    expect(localStorage.getItem(deckLayoutKey("texte", "schau"))).toBeNull();
+    expect(localStorage.getItem(deckLayoutKey("texte", "hand"))).toBeNull();
     // Another area's layout stays.
-    expect(localStorage.getItem(layoutKey("welt", "hand"))).not.toBeNull();
+    expect(localStorage.getItem(deckLayoutKey("welt", "hand"))).not.toBeNull();
   });
 });

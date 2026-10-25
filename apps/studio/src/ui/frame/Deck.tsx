@@ -2,8 +2,8 @@ import { memo, useSyncExternalStore } from "react";
 import type { FunctionComponent, MutableRefObject, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import { deckPanels, dropLayout, isSaneLayout, layoutKey, loadLayout, saveLayout } from "../../workbench/layout";
-import type { DeckId, PanelSpec } from "../../workbench/layout";
+import { deckLayoutKey, deckPanels, dropLayout, isSaneLayout, loadLayout, saveLayout } from "../../workbench/layout";
+import type { DeckId, DeckPanelSpec } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { HandSplitter } from "./HandSplitter";
 import { useShell } from "./ShellContext";
@@ -44,7 +44,7 @@ function PanelTab(props: IDockviewPanelHeaderProps) {
   );
 }
 
-function applyDefaultLayout(api: DockviewApi, panels: readonly PanelSpec[]) {
+function applyDefaultLayout(api: DockviewApi, panels: readonly DeckPanelSpec[]) {
   api.clear();
   for (const p of panels) {
     api.addPanel({
@@ -70,17 +70,17 @@ export function resetLayout(area: AreaId, docks: Record<DeckId, MutableRefObject
   for (const deck of ["schau", "hand"] as const) {
     const api = docks[deck].current;
     if (!api) {
-      dropLayout(layoutKey(area, deck));
+      dropLayout(deckLayoutKey(area, deck));
       continue;
     }
     applyDefaultLayout(api, deckPanels(area, deck));
     syncTabBars(api);
-    saveLayout(layoutKey(area, deck), api.toJSON());
+    saveLayout(deckLayoutKey(area, deck), api.toJSON());
   }
 }
 
 /** Restores the stored layout of this dock when it is complete, otherwise builds the dock's default one. Touches no other dock. */
-function initLayout(api: DockviewApi, key: string, panels: readonly PanelSpec[]) {
+function initLayout(api: DockviewApi, key: string, panels: readonly DeckPanelSpec[]) {
   const saved = loadLayout(key);
   if (saved && isSaneLayout(saved, panels)) {
     try {
@@ -102,7 +102,7 @@ function syncTabBars(api: DockviewApi) {
 const DeckDock = memo(function DeckDock({ area, deck, components, apiRef }: { area: AreaId; deck: DeckId; components: DockComponents; apiRef: MutableRefObject<DockviewApi | null> }) {
   function onReady(event: DockviewReadyEvent) {
     const api = event.api;
-    const key = layoutKey(area, deck);
+    const key = deckLayoutKey(area, deck);
     const panels = deckPanels(area, deck);
     apiRef.current = api;
     initLayout(api, key, panels);

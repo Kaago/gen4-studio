@@ -116,7 +116,7 @@ const BRIDGE_DOWN = "Brücke nicht erreichbar";
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
   const [initialArea] = useState<AreaId>(() => {
-    // Once at the start, before a dock reads its layout: the layouts of every version before v10 (the world's hand lost „An diesem Ort“) go.
+    // Once at the start, before a dock reads its layout: the layouts of every version before v11 (one dock per area) go.
     try {
       dropOldLayouts(localStorage);
     } catch {
