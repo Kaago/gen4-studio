@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -519,3 +519,42 @@ Kopien `pt-3b4b` und `hg-3b4b` (Szenarien, optional `hgus-3b4b`), `pt-3b4b-kontr
 - **3b.3b:** der Blick auf die Screens „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ (B11) und die DSPRE-Gegenprobe der Szenario-Kopie (B12). HeartGold US im Spiel (B13) hat der Agent in der Abnahme mit dem Szenario erledigt (`game: IPKE` in einer Kopie der YAML-Datei).
 - **„Agent + Blick“:** 3a (F) Ausrichtung der Kartenbilder; 3b.1 (B) Höhen und (C) Sprites (aufrecht, nicht gespiegelt, Blickrichtung); 3c (A) und (B) der Vergleich mit den Screens des Design-Systems, 3c (E) dunkles Thema und Kompakt; 3b.3a (A3) Pokédex, Attacken und Gegenstände gegen ihre Screens, (A6) die Item- und Pokémon-Symbole; 3b.3b (B10) Trainer und Begegnungen in Dunkel und Kompakt; 3b.4a (A6) 3 die rote Treppe in der Szene; 3b.4b (B4) die Bilder der Gesamtgate-Szenarien (texturierte Route `weg.png`, Nachbar mit Trank und zweitem Text, Geber). Der Agent nennt dafür Ort und Zahlen, damit der Blick kurz bleibt.
 - **3b.4b:** DSPRE öffnet die Szenario-Kopie nach dem Import (B8) und der native Dateidialog in der gebündelten App (B9).
+
+## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A)
+
+3g.1 legt ein Projekt aus einer ROM an, ohne dass ein Projekt offen ist. Im Browser-Modus gelten zwei Regeln: Die ROM muss unter `_testkopien` (allgemein: unter einer erlaubten Wurzel) oder unter `G4_IMPORT_ROOT` liegen, und das Ziel heißt **ohne** die Endung `_DSPRE_contents` (die Brücke behandelt sie als Original und lehnt sie ab: „Originale (_DSPRE_contents) sind gesperrt: … Im Browser-Modus ohne die Endung anlegen.“). Der Elternordner des Ziels muss existieren und unter einer Wurzel liegen; das Ziel selbst fehlt oder ist ein leerer Ordner. Die Originale unter `Roms/` bleiben tabu, auch als ROM-Eingabe.
+
+**Die vier Brückenbefehle** (Argumente camelCase wie in `apps/studio/src/project/api.start.ts`; Felder der Antworten snake_case):
+
+```sh
+scripts/agent/call.sh inspect_rom '{"path":"<Roms>/_testkopien/3g-gate-a/pt.nds"}'     # title, game_code, family, language, size, sha1, known_base, support
+scripts/agent/call.sh default_project_parent                                          # {parent, dspre_suffix}: im Browser die erste Wurzel (_testkopien), dspre_suffix false
+scripts/agent/call.sh check_project_dest '{"dest":"<Roms>/_testkopien/3g-gate-a/Gate Platin","romSize":134217728}'   # {state, free_bytes, needed_bytes, ok}; needed = 2,5 × romSize
+scripts/agent/call.sh create_project '{"rom":"<Roms>/_testkopien/3g-gate-a/pt.nds","dest":"<Roms>/_testkopien/3g-gate-a/Gate Platin","template":"original"}'   # {root, game_code, template, sha1, phases:[{phase, ms}]}
+```
+
+`support` ist `verified`, `untested`, `locked` oder `unknown` (die beiden letzten mit `reason`); `template` ist `original` oder `data_only`; `state` ist `missing`, `empty`, `not_empty`, `not_a_directory` oder `unreadable`. `inspect_rom` liest den Kopf und rechnet den SHA-1 der ganzen Datei (etwa eine Sekunde). `create_project` dauert etwa eine Sekunde (Platin), öffnet das Projekt nicht und liefert keinen Live-Fortschritt, nur `phases` mit der Dauer je Phase (`read`, `extract`, `template`, `check`). Das Projekt öffnet danach `call.sh open_project '{"path":"<root>"}'` oder die Taste „Öffnen“. Gegenproben: eine Kopie mit Spielcode `ADAD` (Diamant/Perl) → „Diamant/Perl: ohne Testprojekt nicht freigegeben“; ein Ziel mit Inhalt → „destination … is not empty“; ein Ziel mit `_DSPRE_contents` → die Sperre oben.
+
+**Wo der Assistent sitzt:** Auf Start (ohne `?project=` öffnet die Seite dort) ist „Neues Spiel aus ROM…“ die primäre Taste; der Assistent läuft in einem eigenen kleinen Deck (`[data-start-deck]`: Schau `[data-start-schau]`, Scharnier mit `[data-wizard-bar]`, Hand mit `[data-wizard-hand]`), nicht im Deck der Welt. Er hat die Schritte ROM, Vorlage, Name und Ziel, Zusammenfassung; „Weiter“ und „Anlegen“ sind Tasten des Scharniers. Im Browser steht im Schalter „Endung _DSPRE_contents (für DSPRE)“ der Vorschlag aus; lässt man ihn aus, entsteht `<Ordner>/<Name>`. Ablauf mit der Seite (Rollen und Namen aus [phase-3g-gate.md](phase-3g-gate.md)): Seite `http://127.0.0.1:<Vite-Port>/`, `localStorage.clear()` und neu laden; ROM per Drop (unten) oder im Feld „ROM-Datei“ (Pfad eintippen, Enter oder Fokus verlassen liest sie); Karte „Original“ oder „Nur Daten“ (`[data-template=…]`); „Name“ und „Ordner“; „Anlegen“; die Zeilen von „Ablauf“ tragen `data-phase`; „Öffnen“ lädt das Projekt (bei „Nur Daten“ im Bereich Pokémon).
+
+**Drop im Browser:** Das Browser-Fenster liefert keinen echten Datei-Drop mit Pfad. Der Agent schickt ein synthetisches `DragEvent` an die Fläche `[data-drop]` mit dem Pfad als `text/uri-list` (`file://` mit prozentkodierten Zeichen) oder als `text/plain` (absoluter Pfad):
+
+```js
+const dt = new DataTransfer();
+dt.setData('text/uri-list', 'file:///Pfad/zu/Roms/_testkopien/3g-gate-a/pt.nds');
+const surface = document.querySelector('[data-drop]');
+for (const type of ['dragenter', 'dragover', 'drop']) surface.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+```
+
+`dragenter` und `dragover` sind nötig, damit `[data-drop]` auf `over` wechselt (der Rahmen „ROM hier ablegen“); `drop` öffnet den Assistenten mit dem Pfad, und nach erfolgreichem `inspect_rom` einer freigegebenen ROM springt er zu „Vorlage“. Eine nicht freigegebene (nur `untested`) bleibt auf „ROM“, damit man die Warnung liest. Mehr als eine Datei, mehrere Zeilen oder eine andere Endung als `.nds` zeigt unter den Tasten „Nur eine .nds-Datei ablegen.“; eine echte Datei ohne Pfad öffnet den Schritt ROM mit „Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein.“
+
+**Zuordnung:**
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (A1) `project_start_*` gated | Agent | `G4_TEST_ROM=<Kopie> cargo test --workspace --all-features -- project_start_` je Kopie (Platin DE, HeartGold DE, HeartGold US) |
+| (A2) ADAD und nicht leeres Ziel abgelehnt | Agent | `call.sh inspect_rom` und `create_project` mit den Gegenproben oben |
+| (A3) Start, Drop, Schritte, „Öffnen“ | Agent + Blick | Browser, Ablauf oben; der Agent nennt Ort und Zahlen (Platzzeile, SHA-1, Header-Zahl, Bereich nach „Öffnen“), der Nutzer sieht Start und den Assistenten kurz an; der Neubau mit `g4k build` hat denselben SHA-1 wie die Eingabe |
+| (A4) Ziel mit `_DSPRE_contents` | Agent | `call.sh create_project` mit einem solchen Ziel, Fehler „Originale (_DSPRE_contents) sind gesperrt …“ |
+| (A5) DSPRE | Hand | DSPRE läuft nur unter Windows; einen mit der Endung angelegten Ordner öffnen |
+| (A6) Tauri-App | Hand | gebündelte App: Dateidialog mit `.nds`-Filter, Drop aus dem Finder, Vorschlag `~/Documents/Gen4 Studio` |
