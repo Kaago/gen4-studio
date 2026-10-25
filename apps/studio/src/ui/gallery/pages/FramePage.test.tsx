@@ -70,4 +70,41 @@ describe("FramePage", () => {
     press(vertical, "ArrowDown");
     expect(vertical.getAttribute("aria-valuenow")).toBe("136");
   });
+
+  it("shows_the_inspector_head_and_the_scene_hierarchy", () => {
+    // The heads: the kind as an eyebrow, the title, the ident and the badges; Tüfteln says „Header“ where Bauen says „Gebiet“.
+    const heads = [...container.querySelectorAll<HTMLElement>('[data-frame="inspector-kopf"] header')];
+    expect(heads.map((h) => h.getAttribute("data-inspector-kind"))).toEqual(["figure", "area", "area", "door", "map"]);
+    expect(heads.map((h) => h.querySelector("[data-eyebrow]")?.textContent)).toEqual(["Figur", "Gebiet", "Header", "Tür", "Karte"]);
+    expect(heads[0]!.querySelector("[data-ident]")?.textContent).toBe("Objekt 2 · Eventdatei 0390");
+    expect(heads[0]!.textContent).toContain("Ungespeichert");
+    expect(heads[3]!.textContent).toContain("Gesperrt");
+    expect(heads[4]!.textContent).toContain("Nicht rückgängig");
+    // Each head has the menu „Aktionen“; the locked event cannot be deleted.
+    const menu = (head: HTMLElement) => head.querySelector<HTMLButtonElement>('button[aria-label="Aktionen"]')!;
+    expect(heads.every((h) => menu(h) !== null)).toBe(true);
+    act(() => menu(heads[3]!).click());
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.map((i) => i.textContent)).toEqual(["LöschenEntf"]);
+    expect(items[0]!.getAttribute("aria-disabled")).toBe("true");
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+
+    // The hierarchy: a tree with the groups of the sample scene, the figure chosen, a finding at the root and at the door without a target.
+    const frame = container.querySelector<HTMLElement>('[data-frame="hierarchie"]')!;
+    const tree = frame.querySelector('[role="tree"][aria-label="In dieser Szene"]')!;
+    expect([...tree.querySelectorAll("[data-scene-group]")].map((g) => g.getAttribute("data-scene-group"))).toEqual(["header", "maps", "object", "warp", "coord", "bg", "scripts"]);
+    expect(tree.querySelector('[data-scene-group="object"]')?.textContent).toBe("Figuren2");
+    expect(tree.querySelector('[data-event="object:1"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(tree.querySelector('[data-event="warp:0"]')?.textContent).toContain("→ Haus 1");
+    expect(tree.querySelector('[data-event="warp:1"]')?.textContent).toContain("→ unbekanntes Ziel 0999");
+    expect(tree.querySelector('[data-scene-group="header"] [role="img"]')).not.toBeNull();
+    expect(tree.querySelector('[data-event="warp:1"] [role="img"]')).not.toBeNull();
+    // A click selects, and the one locked scene names its reason and marks the event groups.
+    act(() => tree.querySelector<HTMLElement>('[data-event="coord:0"]')!.click());
+    expect(tree.querySelector('[data-event="coord:0"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(tree.querySelector('[data-event="object:1"]')?.getAttribute("aria-selected")).toBe("false");
+    const locked = container.querySelector<HTMLElement>('[data-frame="hierarchie-gesperrt"]')!;
+    expect(locked.textContent).toContain("Eventdatei gesperrt");
+    expect(locked.querySelector('[data-scene-group="warp"]')?.textContent).toContain("Gesperrt");
+  });
 });

@@ -229,6 +229,21 @@
   background: var(--g4-flaeche-gehaeuse);
 }
 
+/* A scene hierarchy in its own height, as the list column gives it one. */
+.sceneColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sceneFrame {
+  width: 320px;
+  height: 460px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
 .toolbarViews {
   display: flex;
   flex-wrap: wrap;
