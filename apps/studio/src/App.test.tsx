@@ -504,6 +504,35 @@ describe("App wiring", () => {
         expect(readShellState().recent[0]).toMatchObject({ path: "/roms/_testkopien/Neues Platin" });
       });
 
+      it("closes_the_wizard_and_unlocks_the_areas_as_soon_as_the_created_project_is_open", async () => {
+        // Opening goes on after the project is there (the patch state is still being read): the wizard must not linger until then.
+        let release: () => void = () => {};
+        vi.mocked(headerPatchStatus).mockImplementation(
+          () => new Promise((resolve) => (release = () => resolve({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" }))),
+        );
+        await createGame("original");
+        expect(titleBar()).toContain("Neues Platin");
+        expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+        expect(container.querySelector("[data-wizard]")).toBeNull();
+        for (const name of ["Start", "Pokémon", "Texte", "Technik"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+        expect(statusLine()).not.toContain("Schließen");
+        await act(async () => release());
+      });
+
+      it("asks_before_the_created_project_replaces_unsaved_edits_and_no_keeps_the_result", async () => {
+        // The project of beforeEach is open and has unsaved edits.
+        vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+        await act(async () => data().onEdited());
+        vi.mocked(ask).mockResolvedValue(false);
+        await createGame("original");
+        expect(ask).toHaveBeenCalledWith("Ungespeicherte Änderungen verwerfen?", { kind: "warning" });
+        expect(openProject).not.toHaveBeenCalled();
+        expect(container.querySelector("[data-wizard]")?.textContent).toContain("Projekt angelegt");
+        expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+        expect(titleBar()).not.toContain("Neues Platin");
+        expect(readShellState().recent[0]).toMatchObject({ path: "/p" });
+      });
+
       it("original_opens_in_the_world_and_a_later_start_shows_no_wizard", async () => {
         await createGame("original");
         expect(openProject).toHaveBeenCalledWith("/roms/_testkopien/Neues Platin");

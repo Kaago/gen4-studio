@@ -427,6 +427,8 @@ function AppBody() {
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
     setArea(openingArea.current);
     openingArea.current = "welt";
+    // A project is open: the wizard "Neues Spiel aus ROM" is done, in the same step as the area changes (the rest of opening may still run).
+    setStartWizard(null);
   }, [session.info, remember, setArea]);
   // The data lists and icons of the old project go; the new one's are read when they are needed.
   useEffect(() => dataStore.setProject(session.info), [session.info, dataStore]);
@@ -439,13 +441,15 @@ function AppBody() {
   function openProject() {
     if (!session.busy && wizards.request === null && !startOpen) void session.onOpen(resetProject);
   }
-  /** "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go), then the wizard is done. */
+  /**
+   * "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
+   * project is open (see above). Refused or failed: the wizard stays on its result.
+   */
   async function onOpenCreated(created: ProjectCreated) {
     if (session.busy) return;
     openingArea.current = created.template === "data_only" ? "pokemon" : "welt";
     const result = await session.onOpen(resetProject, created.root);
-    if (result === "opened") setStartWizard(null);
-    else openingArea.current = "welt";
+    if (result !== "opened") openingArea.current = "welt";
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.

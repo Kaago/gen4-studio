@@ -68,6 +68,8 @@ export const isRomPath = (p: string) => /\.nds$/i.test(p.trim());
 
 /** Whether a drag may carry a file or a path. */
 const carriesPath = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].some((t) => t === "Files" || t === "text/uri-list" || t === "text/plain");
+/** Whether a drag is a file from a file manager (files or a uri list): only that lights the drop frame; a path in plain text may be dropped quietly. */
+const carriesFileDrag = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].some((t) => t === "Files" || t === "text/uri-list");
 /** Whether a drag carries files (the browser would open a dropped one in place of the app); a drag of text into a field does not. */
 const carriesFiles = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].includes("Files");
 
@@ -136,8 +138,10 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
   const handlers: RomDrop["handlers"] = {
     onDragEnter: (e) => {
       if (!browser || !enabled || !carriesPath(e.dataTransfer)) return;
+      // A drop target cancels dragenter as well as dragover.
+      e.preventDefault();
       depth.current += 1;
-      setOver(true);
+      if (carriesFileDrag(e.dataTransfer)) setOver(true);
     },
     onDragOver: (e) => {
       if (!browser || !(enabled ? carriesPath : carriesFiles)(e.dataTransfer)) return;

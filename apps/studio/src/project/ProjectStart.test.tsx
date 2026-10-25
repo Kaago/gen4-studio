@@ -107,14 +107,30 @@ describe("ProjectStart", () => {
   it("shows_the_drop_frame_while_a_file_is_dragged_over", async () => {
     await show();
     const dt = transfer({}, ["pt.nds"]);
+    // A drop target cancels both dragenter and dragover.
+    const enter = drag("dragenter", dt);
     const over = drag("dragover", dt);
-    drag("dragenter", dt);
+    expect(enter.defaultPrevented).toBe(true);
     expect(over.defaultPrevented).toBe(true);
     expect(surface().dataset.drop).toBe("over");
     expect(container.textContent).toContain("ROM hier ablegen");
     drag("dragleave", dt);
     expect(surface().dataset.drop).toBe("idle");
     expect(container.textContent).not.toContain("ROM hier ablegen");
+  });
+
+  it("a_drag_of_plain_text_can_be_dropped_but_shows_no_frame", async () => {
+    await show();
+    const dt = transfer({ "text/plain": "/roms/_testkopien/pt.nds" });
+    const enter = drag("dragenter", dt);
+    const over = drag("dragover", dt);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(over.defaultPrevented).toBe(true);
+    expect(surface().dataset.drop).toBe("idle");
+    expect(container.textContent).not.toContain("ROM hier ablegen");
+    // A uri list is a file from a file manager: it lights the frame.
+    drag("dragenter", transfer({ "text/uri-list": "file:///roms/pt.nds" }));
+    expect(surface().dataset.drop).toBe("over");
   });
 
   it("drop_of_a_rom_path_opens_the_wizard_with_it", async () => {
