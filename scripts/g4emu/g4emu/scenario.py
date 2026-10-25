@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -15,11 +16,16 @@ from typing import Any
 
 import yaml
 
-from g4emu import paths
+from g4emu import fixtures, paths
 from g4emu.games import load_games
 
 # `${NAME}`, `${NAME.field.0}` (fields and list indices of a bound result), `${NAME+2999}` (an int offset)
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z0-9_]+)*)([+-]\d+)?\}")
+# `${sha1-of:PATH}`: the SHA-1 (hex) of a file, absolute or relative to the project copy, read where it is used.
+# PATH may hold placeholders of its own (one level), `${sha1-of:${KOPIE}/export/m.nsbmd}`.
+_FILE_HASH_OPEN = "${sha1-of:"
+_SHA1_OF = re.compile(r"\$\{sha1-of:((?:[^{}]|\$\{[^{}]*\})+)\}")
+_TOKEN = re.compile(_SHA1_OF.pattern + "|" + _PLACEHOLDER.pattern)  # one pass: group 1 is a hash's path, 2-4 a name
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _HEADER_STEPS = ("continue", "where", "expect-map")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
@@ -28,6 +34,8 @@ BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": va
 _PATH_PART = re.compile(r"([^.\[\]=]*)((?:\[[^\[\]=]+=[^\[\]]*\])*)")
 _PATH_FILTER = re.compile(r"\[([^\[\]=]+)=([^\[\]]*)\]")
 _SHOWN_MAX = 300  # characters of a found value in a message
+# the steps of `prepare:` (files made before the edits) and the arguments each takes; `path` is required
+_PREPARE_STEPS = {"make-oversize-nsbmd": ("path", "bytes")}
 
 
 @dataclass
@@ -37,12 +45,16 @@ class Scenario:
     # `${name…}` placeholders of later edits, of `check` and of `play` (resolved while the scenario runs).
     # [befehl, {argumente}, {expect: [{path, equals}, …], as?: name}]: the result must have `equals` at
     # each `path` (see `expect_lookup`), else the scenario ends with exit 2; `as` binds it as well.
+    # [befehl, {argumente}, {expect: [{error: text}]}]: the bridge must refuse the command with an error
+    # message that contains `text` (any case), else exit 2; the scenario goes on.
     edits: list[list]
     build: str | None
     play: list[str]  # flat step tokens, ready for `g4emu run` once the bound names are resolved
     name: str = ""
     # `g4k` commands run in the project after the build, before play; exit != 0 fails the scenario
     check: list[list[str]] = field(default_factory=list)
+    # [schritt, {argumente}] made in the project copy before the first edit; see `_PREPARE_STEPS`
+    prepare: list[list] = field(default_factory=list)
 
 
 def _offset(value: Any, offset: str | None, shown: str) -> Any:
@@ -106,42 +118,87 @@ def _field(results: dict[str, Any], name: str, path: str) -> Any:
     return value
 
 
-def resolve(value: Any, results: dict[str, Any]) -> Any:
+def _file_sha1(text: str, base: Path) -> str:
+    """The SHA-1 (hex) of the file `text` (absolute, or relative to `base`). Raises ValueError, naming the path."""
+    path = Path(text)
+    if not path.is_absolute():
+        path = base / path
+    digest = hashlib.sha1()
+    try:
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError as e:
+        raise ValueError(f"${{sha1-of:{text}}}: Datei fehlt oder ist nicht lesbar: {path} ({e.strerror or e})") from None
+    return digest.hexdigest()
+
+
+def _uses_file_hash(value: Any) -> bool:
+    """Whether a string anywhere in `value` (lists and dicts searched) holds a `${sha1-of:`."""
+    if isinstance(value, dict):
+        return any(_uses_file_hash(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_uses_file_hash(v) for v in value)
+    return isinstance(value, str) and _FILE_HASH_OPEN in value
+
+
+def _check_file_hashes(where: str, value: Any) -> None:
+    """Raises ValueError for a `${sha1-of:` in `value` that is no complete `${sha1-of:PATH}`."""
+    if isinstance(value, dict):
+        for v in value.values():
+            _check_file_hashes(where, v)
+    elif isinstance(value, list):
+        for v in value:
+            _check_file_hashes(where, v)
+    elif isinstance(value, str) and value.count(_FILE_HASH_OPEN) != len(_SHA1_OF.findall(value)):
+        raise ValueError(
+            f"{where}: ${{sha1-of:PFAD}} ist unvollständig (Pfad oder }} fehlt, oder zu tief verschachtelt): {value!r}"
+        )
+
+
+def resolve(value: Any, results: dict[str, Any], base: Path | None = None) -> Any:
     """Replace `${name…}` with what the edits bound (recursively through lists and dicts).
 
     A string that is exactly one placeholder becomes the JSON value as it is (number, text,
     object, list, null); inside longer text only numbers and text may stand. A dict with the
     key `$base` is the object the placeholder there names, with the dict's other keys replaced.
-    Raises KeyError (unknown name or field) and ValueError.
+    `${sha1-of:PATH}` becomes the SHA-1 (hex text) of that file, PATH relative to `base`; without `base`
+    no file is read and the placeholder stays (its PATH resolved), for a pass that only proves the names.
+    Raises KeyError (unknown name or field) and ValueError (also a file that cannot be read).
     """
     if isinstance(value, dict):
-        rest = {k: resolve(v, results) for k, v in value.items() if k != BASE_KEY}
+        rest = {k: resolve(v, results, base) for k, v in value.items() if k != BASE_KEY}
         if BASE_KEY not in value:
             return rest
-        base = resolve(value[BASE_KEY], results)
-        if not isinstance(base, dict):
-            raise ValueError(f"{BASE_KEY} muss ein Objekt nennen, nicht {base!r}")
-        return {**base, **rest}
+        found = resolve(value[BASE_KEY], results, base)
+        if not isinstance(found, dict):
+            raise ValueError(f"{BASE_KEY} muss ein Objekt nennen, nicht {found!r}")
+        return {**found, **rest}
     if isinstance(value, list):
-        return [resolve(v, results) for v in value]
+        return [resolve(v, results, base) for v in value]
     if not isinstance(value, str):
         return value
 
-    def lookup(match: re.Match) -> Any:
-        name, path, offset = match.groups()
+    def lookup(name: str, path: str, offset: str | None) -> Any:
         return _offset(_field(results, name, path), offset, f"{name}{path}")
 
     whole = _PLACEHOLDER.fullmatch(value)
     if whole:
-        return lookup(whole)
+        return lookup(*whole.groups())
 
     def inline(match: re.Match) -> str:
-        found = lookup(match)
+        if match.group(1) is not None:  # `${sha1-of:PATH}`; text a bound answer holds is not looked at again
+            text = resolve(match.group(1), results, base)
+            if isinstance(text, bool) or not isinstance(text, (int, str)):
+                raise ValueError(f"sha1-of:{match.group(1)}: {text!r} kann kein Pfad sein")
+            return f"${{sha1-of:{text}}}" if base is None else _file_sha1(str(text), base)
+        name, path, offset = match.group(2, 3, 4)
+        found = lookup(name, path, offset)
         if isinstance(found, bool) or not isinstance(found, (int, str)):
-            raise ValueError(f"{match.group(1)}{match.group(2)}: {found!r} kann nicht in Text stehen")
+            raise ValueError(f"{name}{path}: {found!r} kann nicht in Text stehen")
         return str(found)
 
-    return _PLACEHOLDER.sub(inline, value)
+    return _TOKEN.sub(inline, value)
 
 
 class PathMissing(Exception):
@@ -233,7 +290,8 @@ def _third(third: Any) -> tuple[str | None, list[dict]]:
 
 
 def _checked_third(where: str, third: Any) -> tuple[str | None, list[dict] | None]:
-    """Checks an edit's third element: a name, or {expect: {path, equals} | [{path, equals}, …], as?: name}.
+    """Checks an edit's third element: a name, or {expect: {path, equals} | [{path, equals}, …], as?: name},
+    or {expect: {error: text}} (the bridge must refuse the command; alone, no `as`: a refusal answers nothing).
     Returns the name (None: none) and the expectations (None for a bare name)."""
     if isinstance(third, str):
         return third, None
@@ -246,14 +304,78 @@ def _checked_third(where: str, third: Any) -> tuple[str | None, list[dict] | Non
     items = expect if isinstance(expect, list) else [expect]
     if not items:
         raise ValueError(f"{where}: expect ist leer")
+    if any(isinstance(item, dict) and "error" in item for item in items):
+        if len(items) != 1 or set(items[0]) != {"error"}:
+            raise ValueError(f"{where}: error steht allein, ohne path, equals und ohne zweite Erwartung: {expect!r}")
+        error = items[0]["error"]
+        if isinstance(error, bool) or not isinstance(error, (str, int)) or not str(error).strip():
+            raise ValueError(f"{where}: error muss ein nichtleerer Text sein (Teilstring der Fehlermeldung): {error!r}")
+        if "as" in third:
+            raise ValueError(f"{where}: eine Ablehnung hat keine Antwort, die as binden könnte")
+        return None, items
     for item in items:
         if not (isinstance(item, dict) and set(item) == {"path", "equals"}):
-            raise ValueError(f"{where}: jede Erwartung muss {{path, equals}} sein: {item!r}")
+            raise ValueError(f"{where}: jede Erwartung muss {{path, equals}} oder {{error}} sein: {item!r}")
         try:
             parse_expect_path(item["path"])
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
     return third.get("as"), items
+
+
+def _expectation(item: dict, env: dict[str, str], earlier: frozenset[str]) -> dict:
+    """One checked expectation with its placeholders substituted: {path, equals} or {error: text}."""
+    if "error" in item:
+        error = str(substitute(item["error"], env, earlier))
+        if not error.strip():
+            raise ValueError(f"error muss ein nichtleerer Text sein (Teilstring der Fehlermeldung): {item['error']!r}")
+        return {"error": error}
+    return {"path": item["path"], "equals": substitute(item["equals"], env, earlier)}
+
+
+def _load_prepare(path: Path, prepare: Any, env: dict[str, str], bound: frozenset[str]) -> list[list]:
+    """The checked `prepare:` steps [schritt, {argumente}] with the `--set` placeholders substituted."""
+    if prepare is None:
+        return []
+    if not isinstance(prepare, list):
+        raise ValueError(f"{path}: prepare muss eine Liste von [schritt, {{argumente}}] sein: {prepare!r}")
+    steps = []
+    for step in prepare:
+        if not (isinstance(step, list) and len(step) == 2 and isinstance(step[0], str) and isinstance(step[1], dict)):
+            raise ValueError(f"{path}: jeder Schritt in prepare muss [schritt, {{argumente}}] sein: {step!r}")
+        kind, args = step
+        if kind not in _PREPARE_STEPS:
+            raise ValueError(f"{path}: prepare kennt {kind} nicht; bekannt: {', '.join(_PREPARE_STEPS)}")
+        _refuse_file_hash(f"{path}: prepare {kind}", args)
+        args = substitute(args, env, bound)
+        late = [m.group(1) for m in _PLACEHOLDER.finditer(json.dumps(args)) if m.group(1) in bound]
+        if late:
+            raise ValueError(
+                f"{path}: prepare nutzt ${{{late[0]}}}, das eine Änderung bindet; prepare läuft vor den Änderungen"
+            )
+        unknown = sorted(str(key) for key in args if key not in _PREPARE_STEPS[kind])
+        if unknown:
+            raise ValueError(
+                f"{path}: prepare {kind}: unbekannte Schlüssel {', '.join(unknown)}; "
+                f"erlaubt sind {', '.join(_PREPARE_STEPS[kind])}"
+            )
+        if not (isinstance(args.get("path"), str) and args["path"].strip()):
+            raise ValueError(f"{path}: prepare {kind}: path fehlt oder ist kein Text: {args.get('path')!r}")
+        size = args.get("bytes", fixtures.MODEL_MAX_BYTES + 1)
+        if isinstance(size, bool) or not isinstance(size, int) or size <= fixtures.MODEL_MAX_BYTES:
+            raise ValueError(
+                f"{path}: prepare {kind}: bytes muss eine Zahl über {fixtures.MODEL_MAX_BYTES} sein: {args['bytes']!r}"
+            )
+        steps.append([kind, args])
+    return steps
+
+
+def _refuse_file_hash(where: str, value: Any) -> None:
+    """Raises ValueError for a `${sha1-of:…}` in `value`: it names a file, and the file is not there yet."""
+    if _uses_file_hash(value):
+        raise ValueError(
+            f"{where} kennt ${{sha1-of:PFAD}} nicht: die Datei gibt es erst, wenn die Änderungen gelaufen sind"
+        )
 
 
 def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[tuple[str | None, list[dict] | None]]:
@@ -270,7 +392,8 @@ def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[tuple[str | N
         ):
             raise ValueError(
                 f"{path}: jede Änderung muss [befehl, {{argumente}}], [befehl, {{argumente}}, name] oder "
-                f"[befehl, {{argumente}}, {{expect: {{path, equals}}, as: name}}] sein: {edit!r}"
+                f"[befehl, {{argumente}}, {{expect: {{path, equals}}, as: name}}] oder "
+                f"[befehl, {{argumente}}, {{expect: {{error: text}}}}] sein: {edit!r}"
             )
         if len(edit) == 2:
             found.append((None, None))
@@ -305,10 +428,8 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
         try:
             entry = [edit[0], substitute(edit[1], env, earlier)]
             name, expects = bindings[i]
-            if expects is not None:  # `equals` may hold placeholders like the arguments
-                third: dict[str, Any] = {
-                    "expect": [{"path": e["path"], "equals": substitute(e["equals"], env, earlier)} for e in expects]
-                }
+            if expects is not None:  # `equals` and `error` may hold placeholders like the arguments
+                third: dict[str, Any] = {"expect": [_expectation(e, env, earlier) for e in expects]}
                 if name is not None:
                     third["as"] = name
                 entry.append(third)
@@ -322,8 +443,10 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
                     f"{path}: {edit[0]} nutzt ${{{used}}}, das erst eine spätere Änderung bindet"
                 ) from None
             raise
-    data = substitute({k: v for k, v in raw.items() if k != "edits"}, env, bound)
+    data = substitute({k: v for k, v in raw.items() if k not in ("edits", "prepare")}, env, bound)
+    prepare = _load_prepare(path, raw.get("prepare"), env, bound)
     build = data.get("build")
+    _refuse_file_hash(f"{path}: build", build)  # the ROM path is fixed before any edit runs
     # The ROM path is fixed before any edit runs: a name an edit binds cannot stand in it.
     late = [m.group(1) for m in _PLACEHOLDER.finditer(str(build or "")) if m.group(1) in bound]
     if late:
@@ -331,6 +454,7 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     play: list[str] = []
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
+    _check_file_hashes(str(path), [edits, data])
     check = data.get("check") or []
     if not isinstance(check, list):
         raise ValueError(f"{path}: check muss eine Liste von Befehlen sein: {check!r}")
@@ -343,6 +467,7 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     return Scenario(
         game=str(data["game"]), edits=edits, build=None if build is None else str(build),
         play=play, name=Path(path).stem, check=[[str(arg) for arg in command] for command in check],
+        prepare=prepare,
     )
 
 
@@ -413,13 +538,13 @@ def _fail(scenario: Scenario, message: str) -> int:
     return 1
 
 
-def _missed(command: str, answer: Any, expects: list[dict], results: dict[str, Any]) -> list[str]:
+def _missed(command: str, answer: Any, expects: list[dict], results: dict[str, Any], base: Path) -> list[str]:
     """Checks the expectations against a command's answer; prints each met one to stderr and returns the
     missed ones as `<command> <path>: Soll <equals>, Ist <found>` (Ist `fehlt (<path up to the gap>)`).
-    Raises KeyError / ValueError when `equals` names a result that is not bound."""
+    Raises KeyError / ValueError when `equals` names a result that is not bound or a file that is not there."""
     missed = []
     for expect in expects:
-        path, want = expect["path"], resolve(expect["equals"], results)
+        path, want = expect["path"], resolve(expect["equals"], results, base)
         try:
             found = expect_lookup(answer, path)
         except PathMissing as e:
@@ -459,6 +584,41 @@ def _run_checks(checks: list[list[str]], project: Path, out: Path, repo: Path) -
     return None
 
 
+def _unresolved(step: str, error: KeyError | ValueError) -> str:
+    """The message for a placeholder that cannot be resolved in `step`."""
+    return f"Platzhalter nicht auflösbar in {step}: {error.args[0] if isinstance(error, KeyError) else error}"
+
+
+def _refusal_missed(command: str, line: dict, needle: str) -> str | None:
+    """Checks the bridge's line for a command that had to be refused: the error message must contain
+    `needle` (any case). Prints the met expectation to stderr; returns the message of a missed one."""
+    if line.get("ok"):
+        return f"{command}: Ablehnung erwartet ({_shown(needle)}), der Befehl war erfolgreich"
+    error = line.get("error")
+    message = str(error.get("message") if isinstance(error, dict) else error)
+    if needle.casefold() not in message.casefold():
+        return f"{command}: Ablehnung erwartet ({_shown(needle)}), Ist {_shown(message)}"
+    print(f"Erwartung erfüllt: {command} abgelehnt: {_shown(message)}", file=sys.stderr)
+    return None
+
+
+def _prepare(project: Path, step: list) -> str | None:
+    """Makes the file a `prepare` step names (relative to the project copy, or absolute inside it); the
+    message of what is wrong, None when it is made. Nothing is written outside the project copy."""
+    kind, args = step
+    target = (project / args["path"]).resolve()  # an absolute path stays as it is; links are followed
+    if project not in target.parents:
+        return f"prepare {kind}: {args['path']} muss im Projektordner liegen ({project})"
+    if target.is_dir():
+        return f"prepare {kind}: {target} ist ein Ordner"
+    try:
+        size = fixtures.make_oversize_nsbmd(target, args.get("bytes"))
+    except OSError as e:
+        return f"prepare {kind}: {target} nicht schreibbar: {e.strerror or e}"
+    print(f"prepare: {kind} {target} ({size} Byte)", file=sys.stderr)
+    return None
+
+
 def run_scenario(
     scenario: Scenario, project: Path, out: Path, repo: Path, saves: Path, core: Path | None = None
 ) -> int:
@@ -490,6 +650,10 @@ def run_scenario(
     # Results and batch files of an earlier run in the same folder would pass for this run's.
     for stale in [out / "results.json", *out.glob("edits*.json")]:
         stale.unlink(missing_ok=True)
+    for step in scenario.prepare:
+        failure = _prepare(project, step)
+        if failure is not None:
+            return _fail(scenario, failure)
     try:
         command = bridge_command(repo)
     except RuntimeError as e:
@@ -499,8 +663,10 @@ def run_scenario(
     results: dict[str, Any] = {}
     sessions = 0
 
-    def session(batch: list[list]) -> tuple[str | None, list[dict]]:
-        """One studio-bridge batch (its own session); the error message or None, and its lines."""
+    def session(batch: list[list], refused_at: int | None = None) -> tuple[str | None, list[dict]]:
+        """One studio-bridge batch (its own session); the error message or None, and its lines. A batch
+        stops at its first failing command, the bridge exits 1: that is no failure of the session when
+        the failing command is the one at index `refused_at`, the last one the batch ran."""
         nonlocal sessions
         sessions += 1
         batch_file = out / ("edits.json" if sessions == 1 else f"edits-{sessions}.json")
@@ -515,27 +681,54 @@ def run_scenario(
         with (out / "bridge.jsonl").open("a", encoding="utf-8") as f:
             f.write(result.stdout)
         sys.stderr.write(result.stdout)
-        if result.returncode != 0:
-            return f"studio-bridge batch fehlgeschlagen (Exit {result.returncode}); Ausgabe: {out / 'bridge.jsonl'}", []
         lines = []
         for text in result.stdout.splitlines():
             try:
                 lines.append(json.loads(text))
             except ValueError:
                 pass
+        refused = refused_at is not None and len(lines) == refused_at + 1 and lines[refused_at].get("ok") is False
+        if result.returncode != 0 and not refused:
+            return f"studio-bridge batch fehlgeschlagen (Exit {result.returncode}); Ausgabe: {out / 'bridge.jsonl'}", []
         return None, lines
 
     # An edit with a name or an expectation ends a session: its result is needed before the next edit
     # can be written (or the scenario goes on), and every batch is a fresh bridge state, so the session
-    # saves and the next opens again.
+    # saves and the next opens again. An edit that must be refused ends its session too (a refusal stops
+    # the batch); what the edits before it did is saved before it, in the same session. An edit that
+    # reads a file (`${sha1-of:…}`) waits for the edits before it: they run and are saved first.
+    step = "Start"
     batch: list[list] = [opened]
     try:
-        for edit in scenario.edits:
-            batch.append([edit[0], resolve(edit[1], results)])
+        for number, edit in enumerate(scenario.edits, 1):
+            step = f"Änderung {number} ({edit[0]})"
+            name, expects = _third(edit[2]) if len(edit) > 2 else (None, [])
+            refusal = expects[0]["error"] if expects and "error" in expects[0] else None
+            if len(batch) > 1 and _uses_file_hash(edit[1]):
+                failure, _ = session([*batch, ["save", {}]])
+                if failure is not None:
+                    return _fail(scenario, failure)
+                batch = [opened]
+            args = resolve(edit[1], results, project)
+            if refusal is not None and len(batch) > 1:
+                batch.append(["save", {}])
+            batch.append([edit[0], args])
             if len(edit) < 3:
                 continue
-            name, expects = _third(edit[2])
             at = len(batch) - 1
+            if refusal is not None:
+                failure, lines = session(batch, refused_at=at)
+                if failure is not None:
+                    return _fail(scenario, failure)
+                if len(lines) <= at:
+                    return _fail(scenario, f"keine Antwort von {edit[0]}; Ausgabe: {out / 'bridge.jsonl'}")
+                missed = _refusal_missed(edit[0], lines[at], str(resolve(refusal, results, project)))
+                if missed:
+                    print(f"Erwartung verfehlt: {missed}", file=sys.stderr)
+                    _summary(scenario, False, [])
+                    return 2
+                batch = [opened]
+                continue
             failure, lines = session([*batch, ["save", {}]])
             if failure is not None:
                 return _fail(scenario, failure)
@@ -547,23 +740,39 @@ def run_scenario(
             if name is not None:
                 results[name] = answer
                 (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
-            missed = _missed(edit[0], answer, expects, results)
+            missed = _missed(edit[0], answer, expects, results, project)
             if missed:
                 for line in missed:
                     print(f"Erwartung verfehlt: {line}", file=sys.stderr)
                 _summary(scenario, False, [])
                 return 2
             batch = [opened]
-        checks = [[str(resolve(arg, results)) for arg in check] for check in scenario.check]
-        play = [str(resolve(token, results)) for token in scenario.play]
+        # Unknown names fail before the build; the files a hash reads may come from the last edits, which
+        # only run in the final session: they are read after it.
+        for number, check in enumerate(scenario.check, 1):
+            step = f"check {number}"
+            for arg in check:
+                resolve(arg, results)
+        step = "play"
+        for token in scenario.play:
+            resolve(token, results)
     except (KeyError, ValueError) as e:
-        return _fail(scenario, f"Platzhalter aus einer Antwort nicht auflösbar: {e}")
+        return _fail(scenario, _unresolved(step, e))
     batch.append(["save", {}])
     if rom is not None:
         batch.append(["build_rom", {"out": str(rom)}])
     failure, _ = session(batch)
     if failure is not None:
         return _fail(scenario, failure)
+    try:
+        checks = []
+        for number, check in enumerate(scenario.check, 1):
+            step = f"check {number}"
+            checks.append([str(resolve(arg, results, project)) for arg in check])
+        step = "play"
+        play = [str(resolve(token, results, project)) for token in scenario.play]
+    except (KeyError, ValueError) as e:
+        return _fail(scenario, _unresolved(step, e))
 
     failure = _run_checks(checks, project, out, repo)
     if failure is not None:
