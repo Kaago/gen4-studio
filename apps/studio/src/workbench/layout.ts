@@ -6,7 +6,6 @@ export type PanelId =
   | "world"
   | "matrix"
   | "worldmap"
-  | "tools"
   | "inspector"
   | "script"
   | "problems"
@@ -36,7 +35,7 @@ export interface PanelSpec {
 
 /**
  * The panels of each dock of each area with a deck. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit
- * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v8`): a layout stored by
+ * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v9`): a layout stored by
  * an older panel set is not read, not migrated. The problems are a panel of the hands of Welt and Texte (the data areas have nothing to compile);
  * each area's dock is its own dockview, so the ids do not clash. The data areas have one panel per dock: the view of the selected member and
  * its editor, whatever part of the area shows.
@@ -52,8 +51,7 @@ export const DECK_PANELS: Record<DeckArea, Record<DeckId, PanelSpec[]>> = {
       { id: "inspector", title: "Inspector", position: { direction: "within" } },
       { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
       { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
-      // The tools to the left of the inspector, "An diesem Ort" to its right: groups of one panel, so without a tab bar.
-      { id: "tools", title: "Werkzeuge", position: { direction: "left", referencePanel: "inspector" }, width: 180 },
+      // "An diesem Ort" to the right of the inspector: a group of one panel, so without a tab bar.
       { id: "context", title: "An diesem Ort", position: { direction: "right", referencePanel: "inspector" }, width: 260 },
     ],
   },
@@ -79,19 +77,23 @@ export function deckPanels(area: AreaId, deck: DeckId): PanelSpec[] {
   return isDeckArea(area) ? DECK_PANELS[area][deck] : [];
 }
 
+/** The version of the stored layouts; v9: the world's hand lost the tools (they become a floating toolbar). */
+export const LAYOUT_VERSION = 9;
+
 /** The localStorage key of one dock's layout: per area and per deck, so one broken layout resets only its own dock. */
-export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v8.${area}.${deck}`;
+export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v${LAYOUT_VERSION}.${area}.${deck}`;
 
-/** The prefix of the layouts of the version before (the world's hand still had the text panel). */
-const OLD_PREFIX = "g4.layout.v7.";
+/** A stored layout key of any version, capturing the version. */
+const LAYOUT_KEY = /^g4\.layout\.v(\d+)\./;
 
-/** Removes the layouts stored under `v7` (called once at the start); other keys stay. A storage that cannot be read is left alone. */
+/** Removes the layouts stored under a version before `LAYOUT_VERSION` (called once at the start); other keys stay. A storage that cannot be read is left alone. */
 export function dropOldLayouts(storage: Storage): void {
   try {
     const old: string[] = [];
     for (let i = 0; i < storage.length; i++) {
       const key = storage.key(i);
-      if (key !== null && key.startsWith(OLD_PREFIX)) old.push(key);
+      const version = key === null ? null : LAYOUT_KEY.exec(key);
+      if (key !== null && version !== null && Number(version[1]) < LAYOUT_VERSION) old.push(key);
     }
     for (const key of old) storage.removeItem(key);
   } catch {

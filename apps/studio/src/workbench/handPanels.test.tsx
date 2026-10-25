@@ -9,7 +9,7 @@ import type { EventsDto, HeaderSummary } from "../api";
 import { createEditBus } from "../bus/editBus";
 import { DataStore } from "../data/dataStore";
 import { ShellProvider } from "../ui/frame/ShellContext";
-import { ContextTab, ToolsTab } from "./panels";
+import { ContextTab } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
 
@@ -77,32 +77,7 @@ describe("the hand's panels on the workbench context", () => {
       ),
     );
   };
-  const tool = (name: string) => container.querySelector<HTMLElement>(`button[aria-label="${name}"]`)!;
   const row = (text: string) => [...container.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.includes(text))!;
-
-  it("tools_switch_the_tool_through_the_context", async () => {
-    await show(<ToolsTab />);
-    expect(tool("Auswählen").getAttribute("aria-pressed")).toBe("true");
-    act(() => tool("Figur").click());
-    expect(onTool).toHaveBeenCalledWith("figure");
-  });
-
-  it("tools_lock_the_event_tools_with_the_locked_text_of_the_event_file", async () => {
-    await show(<ToolsTab />, { eventLock: { file: 103, reason: "17 bytes read" } });
-    const figure = tool("Figur");
-    expect(figure.getAttribute("aria-disabled")).toBe("true");
-    expect(document.getElementById(figure.getAttribute("aria-describedby")!)?.textContent).toBe("schreibgeschützt: 17 bytes read");
-    act(() => figure.click());
-    expect(onTool).not.toHaveBeenCalled();
-    expect(tool("Gebäude").getAttribute("aria-disabled")).toBeNull();
-  });
-
-  it("tools_lock_the_event_tools_while_no_place_is_shown", async () => {
-    await show(<ToolsTab />, { eventFileId: null, matrix: null });
-    const door = tool("Tür");
-    expect(door.getAttribute("aria-disabled")).toBe("true");
-    expect(document.getElementById(door.getAttribute("aria-describedby")!)?.textContent).toBe("Erst einen Ort wählen.");
-  });
 
   it("context_lists_the_events_of_the_shown_event_file_and_selects_on_a_click", async () => {
     await show(<ContextTab />);

@@ -12,7 +12,6 @@ import type { DataAreaProps } from "../data/useDataArea";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
-import { lockedText } from "../world/events";
 import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
@@ -40,7 +39,6 @@ import { TextView } from "./text/TextView";
 import styles from "./panels.module.css";
 import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
-import { ToolsPanel } from "./ToolsPanel";
 import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
@@ -227,14 +225,6 @@ export function ProblemsTab() {
   const open = useCallback((target: NavTarget) => goTo(withHeaderHint(target, headers)), [goTo, headers]);
   const context = useMemo<ProblemsPanelContext>(() => ({ problems, depth, goTo: open, checks }), [problems, depth, open, checks]);
   return <ProblemsPanel context={context} />;
-}
-
-export function ToolsTab() {
-  const { tool, onTool, eventFileId, eventLock } = useWorkbench();
-  const { density } = useShell();
-  // The four event tools wait for a shown place and an event file that may be written.
-  const eventsBlocked = eventLock ? lockedText(eventLock.reason) : eventFileId === null ? "Erst einen Ort wählen." : null;
-  return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
 }
 
 /**
@@ -484,7 +474,7 @@ export function ItemsListPane() {
 export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
   welt: {
     schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
-    hand: { tools: ToolsTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
+    hand: { inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
   },
   texte: {
     schau: { textView: TextViewTab },

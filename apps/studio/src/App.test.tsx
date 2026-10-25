@@ -782,12 +782,14 @@ describe("App wiring", () => {
       expect(shown.mounts).toBe(2);
     });
 
-    it("drops_the_layouts_of_v7_once_at_the_start", async () => {
+    it("drops_the_layouts_before_v9_once_at_the_start", async () => {
       localStorage.setItem("g4.layout.v7.welt.hand", "{}");
       localStorage.setItem("g4.layout.v8.welt.hand", "{}");
+      localStorage.setItem("g4.layout.v9.welt.hand", "{}");
       await renderFresh();
       expect(localStorage.getItem("g4.layout.v7.welt.hand")).toBeNull();
-      expect(localStorage.getItem("g4.layout.v8.welt.hand")).toBe("{}");
+      expect(localStorage.getItem("g4.layout.v8.welt.hand")).toBeNull();
+      expect(localStorage.getItem("g4.layout.v9.welt.hand")).toBe("{}");
     });
 
     it("names_what_the_status_line_shows_in_its_middle", async () => {
