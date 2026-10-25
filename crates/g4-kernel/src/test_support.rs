@@ -427,3 +427,38 @@ fn copy_dir(src: &Path, dst: &Path) {
         }
     }
 }
+
+/// A header-only ROM at `<tmp>/synthetic.nds` for tests of `inspect_rom` and `create_project`:
+/// 0x8000 bytes with title "POKEMON PL", game code CPUE, revision 0, a non-zero secure area
+/// CRC (0x1234) at `0x6C`, a fixed non-zero byte pattern in the secure area `0x4000..0x8000`
+/// and a valid header CRC at `0x15E`. ds-rom cannot extract it (there is no file system);
+/// it is not built from [`synthetic_project`], which ds-rom cannot build either. The returned
+/// directory owns the file.
+pub fn synthetic_rom() -> (tempfile::TempDir, PathBuf) {
+    let mut bytes = vec![0u8; 0x8000];
+    bytes[0x00..0x0A].copy_from_slice(b"POKEMON PL");
+    bytes[0x0C..0x10].copy_from_slice(b"CPUE");
+    bytes[0x10..0x12].copy_from_slice(b"01");
+    bytes[0x1E] = 0;
+    bytes[0x6C..0x6E].copy_from_slice(&0x1234u16.to_le_bytes());
+    for (i, b) in bytes[0x4000..0x8000].iter_mut().enumerate() {
+        *b = (i % 251) as u8 + 1;
+    }
+    let crc = crate::start::header_crc16(&bytes[..0x15E]);
+    bytes[0x15E..0x160].copy_from_slice(&crc.to_le_bytes());
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = tmp.path().join("synthetic.nds");
+    std::fs::write(&rom, bytes).unwrap();
+    (tmp, rom)
+}
+
+/// Writes `code` (four bytes) to the game code field (`0x0C`) of `rom` and recomputes the
+/// header CRC at `0x15E`.
+pub fn with_game_code(rom: &Path, code: &str) {
+    assert_eq!(code.len(), 4, "a game code has four bytes");
+    let mut bytes = std::fs::read(rom).unwrap();
+    bytes[0x0C..0x10].copy_from_slice(code.as_bytes());
+    let crc = crate::start::header_crc16(&bytes[..0x15E]);
+    bytes[0x15E..0x160].copy_from_slice(&crc.to_le_bytes());
+    std::fs::write(rom, bytes).unwrap();
+}
