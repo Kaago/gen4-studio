@@ -17,7 +17,7 @@ use crate::commands::policy::UserPolicy;
 use crate::commands::{ProjectInfo, dirty_impl, history_impl, open_project_impl};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
-use crate::mcp::access::{Access, COMMAND_KINDS, Kind, admit, classify, kind_of};
+use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
 use crate::mcp::catalog::{Route, ToolDef, catalog};
 use crate::state::{AppState, Session};
 
@@ -131,8 +131,10 @@ static TEMPLATES: [ResourceDef; 2] = [
     },
 ];
 
-/// Commands a batch refuses: undo and redo move the undo stack below the batch's mark, the
-/// others forget history, so the batch could neither be merged nor rolled back.
+/// Commands a batch refuses before it runs anything. Undo and redo move the undo stack below
+/// the batch's mark; reloading, accepting the disk and the header patch forget history; the
+/// saves, compiles, script files and the build write to disk, where a rollback does not reach,
+/// and reload the text archives a compile touched (which forgets their history).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
     "redo",
@@ -140,7 +142,19 @@ const NOT_IN_BATCH: &[&str] = &[
     "accept_disk",
     "apply_header_patch",
     "repair_header_patch",
+    "save",
+    "save_script",
+    "save_level_script",
+    "new_script_file",
+    "add_script",
+    "adopt_scripts",
+    "build_rom",
 ];
+
+/// Runs call `index` of a batch (the toolbox's own `run`; tests wrap it).
+type Runner<'a> = dyn FnMut(&Toolbox, usize, Prepared) -> Result<Value, ToolError> + 'a;
+
+const NO_NESTED_BATCH: &str = "g4_batch kann sich nicht selbst enthalten";
 
 /// A call whose arguments are checked, ready to run.
 enum Prepared {
@@ -257,9 +271,7 @@ impl Toolbox {
             Route::ProjectInfo => Prepared::ProjectInfo,
             Route::Commands => Prepared::Commands,
             Route::Batch => {
-                return Err(ToolError::error(
-                    "g4_batch kann sich nicht selbst enthalten",
-                ));
+                return Err(ToolError::error(NO_NESTED_BATCH));
             }
         })
     }
@@ -276,16 +288,15 @@ impl Toolbox {
         args
     }
 
-    /// Whether the access admits the call (a command by its class).
-    fn check_access(&self, prepared: &Prepared) -> Result<(), ToolError> {
-        if let Prepared::Command { command, args } = prepared {
-            admit(
-                command,
-                &classify(command, args, &self.policy),
-                &self.access,
-            )?;
-        }
-        Ok(())
+    /// Whether the access admits the call (a command by its class); answers whether the call
+    /// changes the project (its class is not `Read`).
+    fn check_access(&self, prepared: &Prepared) -> Result<bool, ToolError> {
+        let Prepared::Command { command, args } = prepared else {
+            return Ok(false);
+        };
+        let class = classify(command, args, &self.policy);
+        admit(command, &class, &self.access)?;
+        Ok(class != Class::Read)
     }
 
     fn run(&self, prepared: Prepared) -> Result<Value, ToolError> {
@@ -340,9 +351,25 @@ impl Toolbox {
         Ok(f(session))
     }
 
+    fn undo_depth(&self) -> Result<usize, ToolError> {
+        self.with_session(|s| s.store.undo_depth())
+    }
+
     /// `g4_batch`: checks every call, runs them in order and merges their undo steps into
     /// one; when a call fails, the steps of the calls before it are rolled back.
     fn batch(&self, def: &ToolDef, args: Value) -> Result<Value, ToolError> {
+        self.batch_with(def, args, &mut |toolbox, _, prepared| toolbox.run(prepared))
+    }
+
+    /// [`Toolbox::batch`] with each call run by `run`. When a call leaves the undo stack
+    /// shorter than it found it, history was forgotten: the answer (or the failure's
+    /// details) says `history_forgotten`, since merging and rolling back are then incomplete.
+    fn batch_with(
+        &self,
+        def: &ToolDef,
+        args: Value,
+        run: &mut Runner<'_>,
+    ) -> Result<Value, ToolError> {
         check_keys(def, &args)?;
         let calls = match args.get("calls") {
             Some(Value::Array(calls)) if !calls.is_empty() => calls,
@@ -353,34 +380,46 @@ impl Toolbox {
             }
         };
         let label = match args.get("label") {
-            None | Some(Value::Null) => format!("Agent: {} Änderungen", calls.len()),
-            Some(Value::String(label)) => label.clone(),
+            None | Some(Value::Null) => None,
+            Some(Value::String(label)) => Some(label.clone()),
             Some(_) => return Err(ToolError::error("label von g4_batch muss ein Text sein")),
         };
         // Every call is checked before the first runs, so a refused one changes nothing.
         let mut ready = Vec::with_capacity(calls.len());
+        let mut changes = 0;
         for (index, call) in calls.iter().enumerate() {
             let tool = call.get("tool").and_then(Value::as_str).unwrap_or_default();
-            let prepared = self
+            let (prepared, changing) = self
                 .prepare_in_batch(tool, call)
                 .map_err(|e| refused_at(index, tool, e))?;
+            changes += usize::from(changing);
             ready.push((tool, prepared));
         }
-        let mark = self.with_session(|s| s.store.undo_depth())?;
+        let label = label.unwrap_or_else(|| default_label(changes));
+        let mark = self.undo_depth()?;
+        let mut forgotten = false;
         let mut results = Vec::with_capacity(ready.len());
         for (index, (tool, prepared)) in ready.into_iter().enumerate() {
-            match self.run(prepared) {
+            let before = self.undo_depth()?;
+            let result = run(self, index, prepared);
+            forgotten |= self.undo_depth()? < before;
+            match result {
                 Ok(result) => results.push(result),
-                Err(e) => return Err(self.roll_back(mark, index, tool, e)),
+                Err(e) => return Err(self.roll_back(mark, index, tool, e, forgotten)),
             }
         }
         self.with_session(|s| s.store.squash_since(mark, &label))?;
-        Ok(json!({ "results": results, "label": label }))
+        let mut answer = json!({ "results": results, "label": label });
+        if forgotten {
+            answer["history_forgotten"] = json!(true);
+        }
+        Ok(answer)
     }
 
-    /// One call of a batch, `{tool, arguments}`, checked like a call of its own; `g4_batch`
-    /// and the commands of [`NOT_IN_BATCH`] are refused.
-    fn prepare_in_batch(&self, tool: &str, call: &Value) -> Result<Prepared, ToolError> {
+    /// One call of a batch, `{tool, arguments}`, checked like a call of its own, and whether
+    /// it changes the project; `g4_batch` (also through `g4_call`) and the commands of
+    /// [`NOT_IN_BATCH`] are refused.
+    fn prepare_in_batch(&self, tool: &str, call: &Value) -> Result<(Prepared, bool), ToolError> {
         let Some(fields) = call.as_object() else {
             return Err(ToolError::error(
                 "Ein Aufruf in g4_batch ist ein Objekt {tool, arguments}",
@@ -398,30 +437,39 @@ impl Toolbox {
             return Err(ToolError::error("Aufruf ohne tool"));
         }
         if tool == "g4_batch" {
-            return Err(ToolError::error(
-                "g4_batch kann sich nicht selbst enthalten",
-            ));
+            return Err(ToolError::error(NO_NESTED_BATCH));
         }
         let def = self
             .tool(tool)
             .ok_or_else(|| ToolError::error(format!("Unbekanntes Tool: {tool}")))?;
         let args = fields.get("arguments").cloned().unwrap_or(Value::Null);
         let prepared = self.prepare(def, args)?;
-        if let Prepared::Command { command, .. } = &prepared
-            && NOT_IN_BATCH.contains(&command.as_str())
-        {
-            return Err(ToolError::error(format!(
-                "{command} geht nicht in g4_batch"
-            )));
+        if let Prepared::Command { command, .. } = &prepared {
+            if command == "g4_batch" {
+                return Err(ToolError::error(NO_NESTED_BATCH));
+            }
+            if NOT_IN_BATCH.contains(&command.as_str()) {
+                return Err(ToolError::error(format!(
+                    "{command} geht nicht in g4_batch"
+                )));
+            }
         }
-        self.check_access(&prepared)?;
-        Ok(prepared)
+        let changing = self.check_access(&prepared)?;
+        Ok((prepared, changing))
     }
 
     /// Rolls the batch back to `mark` after call `index` (`tool`) failed with `error`, and
     /// answers `batch_failed`. A barrier step (irreversible) stops the rollback; what stays
-    /// is counted in `kept`.
-    fn roll_back(&self, mark: usize, index: usize, tool: &str, error: ToolError) -> ToolError {
+    /// is counted in `kept`. With `forgotten` (history was forgotten during the batch) the
+    /// rollback is not complete, and the details say `history_forgotten`.
+    fn roll_back(
+        &self,
+        mark: usize,
+        index: usize,
+        tool: &str,
+        error: ToolError,
+        forgotten: bool,
+    ) -> ToolError {
         let (code, message, cause) = error.into_parts();
         let mut failure = Map::new();
         failure.insert("code".to_owned(), json!(code));
@@ -449,9 +497,17 @@ impl Toolbox {
         let mut text = format!("Aufruf {index} ({tool}) fehlgeschlagen: {message}");
         if kept > 0 {
             details["kept"] = json!(kept);
-            text.push_str(&format!(
-                "; {kept} Schritte des Batchs ließen sich nicht zurücknehmen"
-            ));
+            text.push_str(&if kept == 1 {
+                "; 1 Schritt des Batchs ließ sich nicht zurücknehmen".to_owned()
+            } else {
+                format!("; {kept} Schritte des Batchs ließen sich nicht zurücknehmen")
+            });
+        }
+        if forgotten {
+            details["history_forgotten"] = json!(true);
+            text.push_str(
+                "; der Verlauf wurde während des Batchs gekürzt, nicht alles ist zurückgenommen",
+            );
         }
         if let Some(broken) = broken {
             text.push_str(&format!("; Zurücknehmen fehlgeschlagen: {broken}"));
@@ -545,6 +601,15 @@ fn refused_at(index: usize, tool: &str, error: ToolError) -> ToolError {
         code,
         message: format!("Aufruf {index} ({tool}): {message}"),
         details: Value::Object(details),
+    }
+}
+
+/// The label of a batch without one: "Agent: N Änderungen", counting the calls that change
+/// the project.
+fn default_label(changes: usize) -> String {
+    match changes {
+        1 => "Agent: 1 Änderung".to_owned(),
+        n => format!("Agent: {n} Änderungen"),
     }
 }
 
@@ -950,13 +1015,27 @@ mod tests {
             assert_eq!(details["index"], 3);
             message
         };
-        let message = refused(json!({ "tool": "g4_batch", "arguments": { "calls": [] } }));
-        assert!(
-            message.ends_with("g4_batch kann sich nicht selbst enthalten"),
-            "{message}"
-        );
-        // The commands that move the undo stack below the batch or forget history.
-        for tool in ["undo", "redo", "apply_header_patch"] {
+        // Itself, as the curated tool and through g4_call.
+        for call in [
+            json!({ "tool": "g4_batch", "arguments": { "calls": [] } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "g4_batch" } }),
+        ] {
+            let message = refused(call);
+            assert!(
+                message.ends_with("g4_batch kann sich nicht selbst enthalten"),
+                "{message}"
+            );
+        }
+        // The commands that move the undo stack below the batch, forget history or write to
+        // disk where a rollback does not reach.
+        for tool in [
+            "undo",
+            "redo",
+            "apply_header_patch",
+            "save",
+            "save_script",
+            "build_rom",
+        ] {
             let message = refused(json!({ "tool": tool }));
             assert!(
                 message.ends_with(&format!("{tool} geht nicht in g4_batch")),
@@ -970,6 +1049,13 @@ mod tests {
             "accept_disk",
             "apply_header_patch",
             "repair_header_patch",
+            "save",
+            "save_script",
+            "save_level_script",
+            "new_script_file",
+            "add_script",
+            "adopt_scripts",
+            "build_rom",
         ] {
             let message = refused(json!({ "tool": "g4_call",
                 "arguments": { "command": command, "args": { "kind": "Map", "index": 0 } } }));
@@ -998,6 +1084,19 @@ mod tests {
         assert_eq!(
             history(&toolbox),
             json!({ "undo": ["Route 201 umbauen"], "redo": [] })
+        );
+        // The default label counts the calls that change the project.
+        let answer = toolbox
+            .call(
+                "g4_batch",
+                json!({ "calls": [edit("move", 1, json!({ "Move": { "field": "power", "value": 70 } })),
+                                   { "tool": "get_header", "arguments": { "id": 0 } }] }),
+            )
+            .unwrap();
+        assert_eq!(answer["label"], "Agent: 1 Änderung");
+        assert_eq!(
+            history(&toolbox)["undo"],
+            json!(["Route 201 umbauen", "Agent: 1 Änderung"])
         );
         // A batch of reads records nothing, and also works read-only.
         let (_fixture, reader) = open_toolbox(READ);
@@ -1115,6 +1214,100 @@ mod tests {
                 .join(format!("{game_code}.nds"))
                 .is_file()
         );
+    }
+
+    /// The g4_batch tool, to run a batch with a runner of the test's own.
+    fn batch_tool() -> &'static ToolDef {
+        catalog().iter().find(|t| t.name == "g4_batch").unwrap()
+    }
+
+    #[test]
+    fn batch_reports_forgotten_history() {
+        // No command a batch admits forgets history any more, so the runner does it: after
+        // call 0 (an edit of move 1) recorded its step, call 1 reloads move 1 from disk,
+        // which forgets that step and leaves the stack shorter than call 1 found it.
+        let forget = |toolbox: &Toolbox, index: usize, prepared: Prepared| {
+            if index == 1 {
+                let asset = json!({ "kind": "Move", "index": 1 });
+                dispatch(&toolbox.state, &toolbox.policy, "reload_asset", asset).unwrap();
+            }
+            toolbox.run(prepared)
+        };
+        let (_fixture, toolbox) = open_toolbox(WRITE);
+        let moves = data(&toolbox, "move", 2);
+        let calls = json!({ "calls": [
+            three_edits()[2].clone(),
+            { "tool": "history" },
+            edit("move", 2, json!({ "Move": { "field": "power", "value": 99 } })),
+        ] });
+        let answer = toolbox
+            .batch_with(batch_tool(), calls, &mut |t, i, p| forget(t, i, p))
+            .unwrap();
+        assert_eq!(answer["history_forgotten"], true);
+        assert_ne!(data(&toolbox, "move", 2), moves);
+        // Only the step of call 2 is left to merge.
+        assert_eq!(history(&toolbox)["undo"], json!(["Agent: 2 Änderungen"]));
+
+        let (_fixture, toolbox) = open_toolbox(WRITE);
+        let calls = json!({ "calls": [
+            three_edits()[2].clone(),
+            { "tool": "history" },
+            { "tool": "get_header", "arguments": { "id": 60000 } },
+        ] });
+        let (code, message, details) =
+            failed(toolbox.batch_with(batch_tool(), calls, &mut |t, i, p| forget(t, i, p)));
+        assert_eq!(code, "batch_failed");
+        assert_eq!(details["history_forgotten"], true);
+        assert!(
+            message.contains("nicht alles ist zurückgenommen"),
+            "{message}"
+        );
+        // A batch that forgets nothing does not say so.
+        let answer = toolbox
+            .call("g4_batch", json!({ "calls": three_edits() }))
+            .unwrap();
+        assert!(answer.get("history_forgotten").is_none());
+    }
+
+    #[test]
+    fn batch_rollback_stops_at_a_barrier() {
+        let (fixture, toolbox) = open_toolbox(ALL);
+        // The synthetic project has no battle script entry of its own, so the runner creates
+        // the trainer with the meta of the battle script added here (the command's own
+        // variant for tests); the batch around it is the real one.
+        let meta = crate::commands::add_battle_script(fixture.dir.path());
+        let moves = data(&toolbox, "move", 1);
+        let calls = json!({ "calls": [
+            { "tool": "create_trainer", "arguments": { "class": 1, "name": "Jens" } },
+            three_edits()[2].clone(),
+            { "tool": "get_header", "arguments": { "id": 60000 } },
+        ] });
+        let (code, message, details) =
+            failed(
+                toolbox.batch_with(batch_tool(), calls, &mut |toolbox, index, prepared| {
+                    if index == 0 {
+                        let report = crate::commands::create_trainer_with_impl(
+                            &toolbox.state,
+                            &meta,
+                            1,
+                            "Jens",
+                        )?;
+                        return Ok(serde_json::to_value(report).unwrap());
+                    }
+                    toolbox.run(prepared)
+                }),
+            );
+        assert_eq!(code, "batch_failed");
+        assert_eq!(details["rolled_back"], 1);
+        assert_eq!(details["kept"], 1);
+        assert!(details.get("history_forgotten").is_none());
+        assert!(
+            message.contains("1 Schritt des Batchs ließ sich nicht zurücknehmen"),
+            "{message}"
+        );
+        // The edit after the barrier is rolled back, the barrier step stays.
+        assert_eq!(data(&toolbox, "move", 1), moves);
+        assert_eq!(history(&toolbox)["undo"], json!(["Trainer 3 angelegt"]));
     }
 
     #[test]
