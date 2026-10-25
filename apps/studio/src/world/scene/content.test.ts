@@ -5,7 +5,7 @@ import { szene } from "../../ui/tokens/tokens";
 import type { EventsDto, MatrixDto, SpriteDto, TileBehavior } from "../../api";
 import { MAP_SIZE, MODEL_SCALE } from "../layout";
 import { resetSprites } from "../sprites";
-import { OVERLAY_Y, addModel, buildContent, recolourMap, removeModels, setMarkers } from "./content";
+import { OVERLAY_Y, addModel, buildContent, recolourMap, removeMapModel, removeModels, setMarkers } from "./content";
 import type { SceneHost } from "./SceneHost";
 import type { Loaded } from "./types";
 
@@ -54,6 +54,12 @@ describe("addModel", () => {
     expect(h.models.map((m) => m.position.y)).toEqual([0, 2]);
   });
 
+  it("remembers the map on every instance", () => {
+    const h = handle();
+    addModel(h, matrix, 1, model());
+    expect(h.models.map((m) => m.userData.mapId)).toEqual([1, 1]);
+  });
+
   it("disposes a model that no cell shows", () => {
     const h = handle();
     const m = model();
@@ -73,6 +79,37 @@ describe("removeModels", () => {
     expect(h.models).toEqual([]);
     expect(h.content.children).toHaveLength(0);
     expect(instances.every((i) => i.parent === null)).toBe(true);
+  });
+});
+
+describe("removeMapModel", () => {
+  const three: MatrixDto = { ...matrix, width: 3, maps: [1, 2, 1] };
+
+  it("replaces every instance of the map and leaves the others standing", () => {
+    const h = handle({ matrix: three });
+    const first = model();
+    const second = model();
+    const firstDisposed = vi.spyOn(first.geometry, "dispose");
+    const secondDisposed = vi.spyOn(second.geometry, "dispose");
+    addModel(h, three, 1, first);
+    addModel(h, three, 2, second);
+    const removed = h.models.filter((m) => m.userData.mapId === 1);
+    removeMapModel(h, 1);
+    expect(h.models).toHaveLength(1);
+    expect(h.models[0].userData.mapId).toBe(2);
+    expect(h.content.children).toHaveLength(1);
+    expect(removed.every((i) => i.parent === null)).toBe(true);
+    expect(firstDisposed).toHaveBeenCalled();
+    expect(secondDisposed).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for a map without instances", () => {
+    const h = handle({ matrix: three });
+    addModel(h, three, 1, model());
+    const before = [...h.models];
+    removeMapModel(h, 7);
+    expect(h.models).toEqual(before);
+    expect(h.content.children).toHaveLength(2);
   });
 });
 
