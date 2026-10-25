@@ -27,7 +27,7 @@ const scripts: ScriptFileDto[] = [
   { file: 9, kind: "levelScript", size: 12, headers: [] },
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
-const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, cellChosen: false };
+const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, cellChosen: false, wizard: false };
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
@@ -58,6 +58,7 @@ describe("paletteEntries", () => {
     expect(new Set(entries.map((e) => e.group))).toEqual(new Set(["Befehle"]));
     expect(entries.map((e) => e.label)).toEqual([
       "Projekt öffnen",
+      "Neues Spiel aus ROM…",
       "Speichern",
       "Bauen",
       "Hier spielen",
@@ -177,6 +178,12 @@ describe("paletteEntries", () => {
     for (const id of ["cmd-open", "cmd-save", "cmd-build", "cmd-play"]) expect(byId(id, busy)?.disabled).toBe(true);
     expect(byId("cmd-area", busy)?.disabled).toBe(false);
     expect(byId("cmd-welt")).toMatchObject({ area: "welt", run: { kind: "command", command: "welt" } });
+  });
+
+  it("offers_a_new_game_from_a_rom_without_a_project_and_while_busy_but_not_while_a_wizard_is_open", () => {
+    expect(byId("cmd-newGame", { hasProject: false })).toMatchObject({ label: "Neues Spiel aus ROM…", icon: "plus", disabled: false, run: { kind: "command", command: "newGame" } });
+    expect(byId("cmd-newGame", { commands: { ...commands, busy: true } })?.disabled).toBe(false);
+    expect(byId("cmd-newGame", { commands: { ...commands, wizard: true } })).toMatchObject({ disabled: true, description: "Erst den Assistenten abschließen oder abbrechen" });
   });
 
   it("locks_the_list_toggle_where_the_area_has_no_list_and_names_the_deck_the_layout_reset_works_on", () => {

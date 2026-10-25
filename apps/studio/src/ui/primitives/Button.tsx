@@ -14,7 +14,7 @@ export type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "classNa
 
 export function Button({ kind, size = "m", icon, shortcut, children, type = "button", ...rest }: ButtonProps) {
   return (
-    <button {...rest} type={type} className={`${styles.button} ${styles[kind]} ${styles[size]}`}>
+    <button {...rest} type={type} data-kind={kind} className={`${styles.button} ${styles[kind]} ${styles[size]}`}>
       {icon && <Icon name={icon} weight={kind === "play" ? "fill" : "regular"} />}
       {children}
       {shortcut && <Kbd keys={shortcut} />}

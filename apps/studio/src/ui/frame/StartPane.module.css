@@ -179,3 +179,11 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-s);
 }
+
+/* The two sentences under "Neues Spiel aus ROM…" belong together: closer to each other than to the rest. */
+.hints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin-top: calc(-1 * var(--g4-raum-8));
+}

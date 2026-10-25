@@ -32,6 +32,8 @@ describe("Button", () => {
     expect(b.textContent).toContain("Speichern");
     expect(b.disabled).toBe(true);
     expect(b.textContent).toContain("⌘S");
+    // The kind is readable from outside (a view has at most one primary button).
+    expect(b.dataset.kind).toBe("primary");
   });
 
   it("forwards_native_props_and_clicks_and_defaults_to_type_button", () => {

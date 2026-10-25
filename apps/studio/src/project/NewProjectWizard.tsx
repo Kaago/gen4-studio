@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { checkProjectDest, createProject, defaultProjectParent, errorText, inspectRom } from "../api";
+import { errorText } from "../api";
 import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template } from "../api";
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, CheckList, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
@@ -10,6 +10,7 @@ import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
 import parts from "../workbench/wizards/WizardStep.module.css";
 import { destOf, gameName, languageName, nameProblem, suggestName } from "./projectName";
+import { StartServiceContext } from "./startService";
 import { destProblem, megabytes, startMessage } from "./startMessages";
 import styles from "./NewProjectWizard.module.css";
 
@@ -17,7 +18,10 @@ import styles from "./NewProjectWizard.module.css";
 export type WizardChoice = { rom: RomInfo | null; template: Template; name: string; dest: string | null };
 
 type Props = {
-  /** A ROM path to start with (a dropped file): read at once; a releasable ROM moves on to the step "Vorlage". */
+  /**
+   * A ROM path to start with (a dropped file): read at once; a released ROM moves on to the step "Vorlage", an untested one stays on
+   * "ROM" so its warning is read.
+   */
   initialRom?: string;
   /** A note on the step "ROM", e.g. why a dropped file brought no path. */
   initialNotice?: string;
@@ -30,7 +34,8 @@ type Props = {
 /** How long the destination check waits for the typing to stop. */
 const CHECK_DELAY_MS = 200;
 
-const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten" };
+/** How the summary and the start's view name a template. */
+export const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten" };
 
 type Card = { id: Template | "empty_region"; title: string; text?: string; later?: string };
 const CARDS: Card[] = [
@@ -208,6 +213,7 @@ type Checked = { dest: string; result: DestCheck | null; problem: string | null 
 
 /** "Neues Spiel aus ROM": a ROM, a template, a name and a folder, then the ROM is unpacked into a new project. */
 export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, onChoice }: Props) {
+  const { inspectRom, defaultProjectParent, checkProjectDest, createProject } = useContext(StartServiceContext);
   const [step, setStep] = useState(0);
   const [romPath, setRomPath] = useState(initialRom ?? "");
   const [rom, setRom] = useState<RomInfo | null>(null);
@@ -221,6 +227,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const [parentError, setParentError] = useState<string | null>(null);
   const [dspre, setDspre] = useState(false);
   const [checked, setChecked] = useState<Checked | null>(null);
+  // Counts up when the destination must be asked again although its path did not change (after a failed create).
+  const [recheck, setRecheck] = useState(0);
   const [busy, setBusy] = useState(false);
   const [phases, setPhases] = useState(freshPhases);
   const [error, setError] = useState<string | null>(null);
@@ -244,7 +252,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
       if (id !== reads.current) return;
       setRom(info);
       if (!ownName.current) setName(suggestName(info));
-      if (jump && releasable(info)) setStep(1);
+      if (jump && info.support.kind === "verified") setStep(1);
     } catch (e) {
       if (id === reads.current) setRomError(errorText(e));
     } finally {
@@ -287,14 +295,16 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
       live = false;
       clearTimeout(timer);
     };
-  }, [dest, size]);
+  }, [dest, size, recheck]);
 
   const current = checked !== null && checked.dest === dest ? checked : null;
   const destOk = current !== null && current.problem === null;
 
   const choice = useRef(onChoice);
   choice.current = onChoice;
-  useEffect(() => choice.current?.({ rom, template, name, dest }), [rom, template, name, dest]);
+  useEffect(() => {
+    choice.current?.({ rom, template, name, dest });
+  }, [rom, template, name, dest]);
 
   async function pickRom() {
     const path = await openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
@@ -303,7 +313,9 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
 
   async function pickFolder() {
     const path = await openPath({ directory: true, title: "Ordner wählen" });
-    if (path) setParent(path);
+    if (!path) return;
+    setParentError(null);
+    setParent(path);
   }
 
   async function create() {
@@ -318,6 +330,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     } catch (e) {
       setPhases(fail);
       setError(startMessage(errorText(e)));
+      // The failed work may have left the destination otherwise than the last check saw it.
+      setRecheck((n) => n + 1);
     } finally {
       setBusy(false);
     }

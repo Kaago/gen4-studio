@@ -5,10 +5,12 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
 import type { Created, CreateProgress, DestCheck, RomInfo } from "../api";
+import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
 import { NewProjectWizard } from "./NewProjectWizard";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), inspectRom: vi.fn(), defaultProjectParent: vi.fn(), checkProjectDest: vi.fn(), createProject: vi.fn() }));
+vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -258,6 +260,76 @@ describe("NewProjectWizard", () => {
     expect(current()).toBe("2. Vorlage");
   });
 
+  it("an_initial_untested_rom_stays_on_the_rom_step_so_its_warning_is_read", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(HG_FR);
+    await show({ initialRom: "/roms/hg-fr.nds" });
+    expect(inspectRom).toHaveBeenCalledWith("/roms/hg-fr.nds");
+    expect(current()).toBe("1. ROM");
+    expect(text()).toContain("Für diese Sprache gibt es kein Testprojekt. Entpacken geht, Editoren und Vorlagen sind nicht geprüft.");
+    expect(button("Weiter")?.disabled).toBe(false);
+  });
+
+  it("the_arrow_keys_move_the_template_choice_past_the_locked_card_and_wrap", async () => {
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    await act(async () => card("original")!.focus());
+    pressKey(card("original")!, "ArrowRight");
+    await flush();
+    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("original")?.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement).toBe(card("data_only"));
+    // Only the chosen card is a tab stop; the locked one never is.
+    expect(card("data_only")?.tabIndex).toBe(0);
+    expect(card("empty_region")?.tabIndex).toBe(-1);
+    pressKey(card("data_only")!, "ArrowDown");
+    await flush();
+    expect(card("original")?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(card("original"));
+    pressKey(card("original")!, "ArrowLeft");
+    await flush();
+    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(card("data_only"));
+    pressKey(card("data_only")!, "ArrowUp");
+    await flush();
+    expect(card("original")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("empty_region")?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a_picked_folder_clears_the_error_of_the_default_folder", async () => {
+    vi.mocked(defaultProjectParent).mockRejectedValue({ code: "error", message: "Kein Ordner für Projekte", asset: null });
+    vi.mocked(openPath).mockResolvedValue("/roms/_testkopien");
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    await next();
+    expect(text()).toContain("Kein Ordner für Projekte");
+    await click(button("Ordner wählen…"));
+    await flush();
+    expect(field("Ordner").value).toBe("/roms/_testkopien");
+    expect(text()).not.toContain("Kein Ordner für Projekte");
+    await settle();
+    expect(button("Weiter")?.disabled).toBe(false);
+  });
+
+  it("checks_the_destination_again_after_a_failed_create", async () => {
+    await show();
+    await toDestination();
+    await next();
+    const checks = vi.mocked(checkProjectDest).mock.calls.length;
+    // The work failed and left something behind: the check must not keep its old answer.
+    vi.mocked(createProject).mockRejectedValue({ code: "error", message: "build: boom", asset: null });
+    vi.mocked(checkProjectDest).mockResolvedValue(free({ state: "not_empty", ok: false }));
+    await click(button("Anlegen"));
+    await flush();
+    await settle();
+    expect(vi.mocked(checkProjectDest).mock.calls.length).toBeGreaterThan(checks);
+    await click(button("Zurück"));
+    expect(current()).toBe("3. Name und Ziel");
+    expect(text()).toContain("Den Ordner gibt es schon und er ist nicht leer. Wähle einen anderen Namen.");
+    expect(button("Weiter")?.disabled).toBe(true);
+  });
+
   it("shows_the_initial_notice_on_the_rom_step", async () => {
     await show({ initialNotice: "Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein." });
     expect(current()).toBe("1. ROM");
@@ -296,6 +368,8 @@ describe("NewProjectWizard", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("build: boom");
     expect(phase("extract")?.dataset.phase).toBe("failed");
     expect(current()).toBe("4. Zusammenfassung");
+    // The destination is asked again after the failure; once it answers, the work can be retried.
+    await settle();
     expect(button("Anlegen")?.disabled).toBe(false);
 
     // A known refusal of the kernel reads in German; going back leaves the error behind.

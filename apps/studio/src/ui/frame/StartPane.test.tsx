@@ -112,6 +112,30 @@ describe("StartPane", () => {
     expect(document.activeElement).toBe(card("/roms/c"));
   });
 
+  it("new_game_is_the_primary_action", () => {
+    const onNewGame = vi.fn();
+    render({ onNewGame });
+    const actions = [...container.querySelectorAll<HTMLButtonElement>("[data-start-actions] button")];
+    expect(actions.map((b) => b.textContent)).toEqual(["Neues Spiel aus ROM…", "Projekt öffnen⌘O"]);
+    expect(actions.map((b) => b.dataset.kind)).toEqual(["primary", "secondary"]);
+    // Only one primary button in the view.
+    expect(container.querySelectorAll('button[data-kind="primary"]')).toHaveLength(1);
+    expect(container.textContent).toContain("Du brauchst deine eigene ROM-Datei (.nds).");
+    expect(container.textContent).toContain("Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM.");
+    act(() => actions[0]!.click());
+    expect(onNewGame).toHaveBeenCalledOnce();
+    act(() => actions[1]!.click());
+    expect(handlers.onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("without_a_new_game_opening_a_project_stays_the_primary_action", () => {
+    render();
+    const actions = [...container.querySelectorAll<HTMLButtonElement>("[data-start-actions] button")];
+    expect(actions.map((b) => b.dataset.kind)).toEqual(["primary"]);
+    expect(container.textContent).not.toContain("Neues Spiel aus ROM");
+    expect(container.textContent).not.toContain("eigene ROM");
+  });
+
   it("opens_another_project_with_the_primary_button_that_shows_cmd_o", () => {
     render();
     expect(container.textContent).toContain("Noch kein Projekt geöffnet.");

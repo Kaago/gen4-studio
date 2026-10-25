@@ -191,3 +191,22 @@
   grid-template-columns: repeat(3, 1fr);
   gap: var(--g4-raum-8);
 }
+
+/* The start with the drop frame over it: the frame is placed inside this box. */
+.dropFrame {
+  position: relative;
+  height: 420px;
+  overflow: hidden;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-gehaeuse);
+}
+
+/* The start's own deck (view, hinge, hand) at the height of a small window. */
+.projectFrame {
+  height: 760px;
+  overflow: hidden;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-gehaeuse);
+}

@@ -23,7 +23,6 @@ import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
-import { StartPane } from "./ui/frame/StartPane";
 import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
@@ -45,7 +44,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AssetId, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
+import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -75,6 +74,8 @@ import { WizardHints, WizardStep } from "./app/WizardHints";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
+import { ProjectStart } from "./project/ProjectStart";
+import type { StartWizardRequest } from "./project/ProjectStart";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
@@ -102,6 +103,9 @@ const DATA_TRAILS: Record<DataArea, Crumb[]> = { pokemon: [{ label: "Pokémon" }
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
 const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
 const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
+/** While the wizard "Neues Spiel aus ROM" is open, Start is the only area. */
+const START_WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "start");
+const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(START_WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
@@ -137,6 +141,11 @@ function AppBody() {
   const area = shell.state.area;
   // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
   const wizardOpen = useRef(false);
+  // The wizard "Neues Spiel aus ROM" on Start (null: closed); here, so the palette can open it.
+  const [startWizard, setStartWizard] = useState<StartWizardRequest | null>(null);
+  const startOpen = startWizard !== null;
+  // The area a project opens in: the world, or Pokémon for a project created with the template "Nur Daten".
+  const openingArea = useRef<AreaId>("welt");
   // A link does not leave the world while a wizard is open there.
   const showArea = useStableCallback((target: AreaId) => {
     if (wizardOpen.current && target !== "welt") return;
@@ -371,7 +380,7 @@ function AppBody() {
   // The command palette (⌘K or the title bar's search button); not while a wizard is open, which locks everything but the world.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const openPalette = useStableCallback(() => {
-    if (!wizardOpen.current) setPaletteOpen(true);
+    if (!wizardOpen.current && !startOpen) setPaletteOpen(true);
   });
   // Whether the event tools are locked (set below, once the place is known): their letters then do nothing, like their buttons.
   const eventsBlockedRef = useRef(false);
@@ -416,7 +425,8 @@ function AppBody() {
     const info = session.info;
     if (info === null) return;
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
-    setArea("welt");
+    setArea(openingArea.current);
+    openingArea.current = "welt";
   }, [session.info, remember, setArea]);
   // The data lists and icons of the old project go; the new one's are read when they are needed.
   useEffect(() => dataStore.setProject(session.info), [session.info, dataStore]);
@@ -427,7 +437,15 @@ function AppBody() {
    * button is disabled then too).
    */
   function openProject() {
-    if (!session.busy && wizards.request === null) void session.onOpen(resetProject);
+    if (!session.busy && wizards.request === null && !startOpen) void session.onOpen(resetProject);
+  }
+  /** "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go), then the wizard is done. */
+  async function onOpenCreated(created: ProjectCreated) {
+    if (session.busy) return;
+    openingArea.current = created.template === "data_only" ? "pokemon" : "welt";
+    const result = await session.onOpen(resetProject, created.root);
+    if (result === "opened") setStartWizard(null);
+    else openingArea.current = "welt";
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.
@@ -579,9 +597,9 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen, wizard: wizards.request !== null },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen, wizards.request],
   );
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
@@ -593,6 +611,12 @@ function AppBody() {
     switch (run.command) {
       case "open":
         openProject();
+        break;
+      case "newGame":
+        if (wizards.request === null) {
+          setStartWizard((open) => open ?? {});
+          setArea("start");
+        }
         break;
       case "save":
         if (session.info && !session.busy) void session.onSave();
@@ -661,7 +685,16 @@ function AppBody() {
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
-      <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+      <ProjectStart
+        recent={shell.state.recent}
+        missing={missing}
+        onOpen={openProject}
+        onOpenRecent={(path) => void onOpenRecent(path)}
+        onForget={onForget}
+        wizard={startWizard}
+        onWizard={setStartWizard}
+        onOpenCreated={(created) => void onOpenCreated(created)}
+      />
     ) : area === "technik" ? (
       <TechnikArea
         project={info?.root ?? null}
@@ -746,13 +779,13 @@ function AppBody() {
                   game={info ? gameLabel(info) : null}
                   dirtyCount={session.dirtyCount + scripts.dirtyCount}
                   // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
-                  busy={session.busy || showsWizard}
+                  busy={session.busy || showsWizard || startOpen}
                   onOpen={openProject}
                   onSave={() => void session.onSave()}
                   onBuild={() => void session.onBuild()}
                   onHelp={onHelp}
                   onPalette={openPalette}
-                  paletteDisabled={showsWizard}
+                  paletteDisabled={showsWizard || startOpen}
                   theme={shell.theme}
                   onToggleTheme={shell.toggleTheme}
                 />
@@ -762,8 +795,8 @@ function AppBody() {
                   area={area}
                   onArea={setArea}
                   onHelp={onHelp}
-                  locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
-                  lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
+                  locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
+                  lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
                   density={shell.density}
                 />
               }
@@ -772,9 +805,9 @@ function AppBody() {
               pane={pane}
               status={
                 <StatusLine
-                  left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                  left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
                   middle={
-                    showsWizard ? (
+                    showsWizard || startOpen ? (
                       <WizardStep />
                     ) : area === "texte" ? (
                       <TextStatus />

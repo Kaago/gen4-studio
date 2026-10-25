@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Badge, Button, Icon, Notice } from "../../ui/primitives";
@@ -51,10 +51,16 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 type Slots = { bar: HTMLElement; hand: HTMLElement };
 
-/** The wizard's places in the deck: the slot in the world's hinge and the one beside its hand dock (none: rendered where it stands). */
-function findSlots(): Slots | null {
-  const bar = document.querySelector<HTMLElement>("[data-wizard-bar]");
-  const hand = document.querySelector<HTMLElement>("[data-wizard-hand]");
+/**
+ * Where a wizard looks for its slots: an element around its own hinge and hand (the start's small deck, which comes after the world's
+ * hidden deck in the document). Null: the whole document, where the world's deck comes first.
+ */
+export const WizardSlotScope = createContext<HTMLElement | null>(null);
+
+/** The wizard's places in the deck: the slot in the hinge and the one beside the hand dock (none: rendered where it stands). */
+function findSlots(scope: ParentNode): Slots | null {
+  const bar = scope.querySelector<HTMLElement>("[data-wizard-bar]");
+  const hand = scope.querySelector<HTMLElement>("[data-wizard-hand]");
   return bar && hand ? { bar, hand } : null;
 }
 
@@ -73,7 +79,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   const titleId = useId();
   const frame = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
-  const [slots, setSlots] = useState(findSlots);
+  const scope = useContext(WizardSlotScope) ?? document;
+  const [slots, setSlots] = useState(() => findSlots(scope));
   // What had the focus before the wizard opened: it gets it back when the wizard goes.
   const [before] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
 
@@ -86,7 +93,7 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
 
   // The deck's slots: when the wizard opens together with the deck that holds them, they exist only after this commit.
   useLayoutEffect(() => {
-    const found = findSlots();
+    const found = findSlots(scope);
     if (found?.bar !== slots?.bar || found?.hand !== slots?.hand) setSlots(found);
   }, []);
 

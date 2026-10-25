@@ -7,6 +7,7 @@ import { FramePage } from "./FramePage";
 import { InputsPage } from "./InputsPage";
 import { OverlayPage } from "./OverlayPage";
 import { PickerPage } from "./PickerPage";
+import { ProjectPage } from "./ProjectPage";
 import { ScreenPage } from "./ScreenPage";
 
 export type GalleryPage = { id: string; title: string; element: ReactNode };
@@ -21,4 +22,5 @@ export const pages: GalleryPage[] = [
   { id: "screen", title: "Bildschirm", element: createElement(ScreenPage) },
   { id: "data", title: "Daten", element: createElement(DataPage) },
   { id: "frame", title: "Rahmen", element: createElement(FramePage) },
+  { id: "project", title: "Projektstart", element: createElement(ProjectPage) },
 ];

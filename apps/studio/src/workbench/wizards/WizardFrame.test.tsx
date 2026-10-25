@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NumberField } from "../../ui/primitives";
 import { pressKey, typeInto } from "../../ui/primitives/testUtils";
-import { WizardFrame } from "./WizardFrame";
+import { WizardFrame, WizardSlotScope } from "./WizardFrame";
 import type { WizardFrameProps } from "./WizardFrame";
 import { wizardStatus } from "./wizardStatus";
 
@@ -243,6 +243,36 @@ describe("WizardFrame", () => {
     expect(onStep).toHaveBeenCalledExactlyOnceWith(1);
     pressKey(bar.querySelector("button")!, "Escape");
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("renders_into_the_slots_of_its_scope_and_not_into_the_first_ones_of_the_document", () => {
+    const slots = (where: HTMLElement) => {
+      const bar = document.createElement("div");
+      bar.setAttribute("data-wizard-bar", "");
+      const hand = document.createElement("div");
+      hand.setAttribute("data-wizard-hand", "");
+      where.append(bar, hand);
+      return { bar, hand };
+    };
+    // The world's deck (built earlier, hidden) comes first in the document; the start's own deck after it.
+    const world = document.createElement("div");
+    world.setAttribute("data-slot-test", "");
+    const start = document.createElement("div");
+    start.setAttribute("data-slot-test", "");
+    document.body.append(world, start);
+    const outer = slots(world);
+    const own = slots(start);
+    act(() =>
+      root.render(
+        <WizardSlotScope.Provider value={start}>
+          <Harness />
+        </WizardSlotScope.Provider>,
+      ),
+    );
+    expect(own.bar.querySelector('ol[aria-label="Schritte"]')).not.toBeNull();
+    expect(own.hand.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(outer.bar.childElementCount).toBe(0);
+    expect(outer.hand.childElementCount).toBe(0);
   });
 
   it("tells_the_status_line_which_step_shows", () => {
