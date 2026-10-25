@@ -449,7 +449,7 @@ pub(crate) fn create_project_with(
         // `DataOnly` only changes the mark.
         let t = match template {
             Template::Original | Template::DataOnly => report(Phase::Template, 0, 0),
-            Template::EmptyRegion => apply_template(&staging, &mut report)?,
+            Template::EmptyRegion => apply_template(&staging, &name, &mut report)?,
         };
         phases.push((Phase::Template, t.elapsed().as_millis()));
 
@@ -504,15 +504,17 @@ pub(crate) fn create_project_with(
 /// The template phase of [`Template::EmptyRegion`] on the unpacked project at `root`: adopts
 /// the scripts, applies the recipe and saves. Progress counts the script members adopting
 /// reports and then one step for the recipe, so it ends with `done` = `total`. Returns when the
-/// phase began.
+/// phase began. `name` is the folder name of the final destination: `rotom.toml` takes the
+/// project name from it, not from the staging folder `root`.
 fn apply_template(
     root: &Path,
+    name: &str,
     report: &mut dyn FnMut(Phase, u32, u32) -> Instant,
 ) -> Result<Instant, KernelError> {
     let started = report(Phase::Template, 0, 1);
     let project = std::sync::Arc::new(Project::open(root)?);
     let mut total = 1;
-    crate::scripts::adopt(&project, &mut |p| {
+    crate::scripts::adopt_as(&project, Some(name), &mut |p| {
         total = p.total.saturating_add(1);
         report(Phase::Template, p.done, total);
     })?;
@@ -886,6 +888,46 @@ mod create_tests {
         let template: Vec<_> = seen.iter().filter(|p| p.phase == Phase::Template).collect();
         assert!(template.len() >= 2, "{template:?}");
         assert!(template.iter().all(|p| p.done < p.total), "{template:?}");
+    }
+
+    /// [`fake_extract`] with a world the empty-region recipe accepts: matrix 0 gives the start
+    /// town T01 (header 0) the cell (0, 0) and header 1 the cell (1, 0).
+    fn fake_extract_world(rom: &Path, dest: &Path) -> Result<Project, KernelError> {
+        let project = std::sync::Arc::new(fake_extract(rom, dest)?);
+        let mut store = crate::store::Store::new(std::sync::Arc::clone(&project));
+        store.edit_matrix(0, "towns", |m| {
+            m.headers = Some(vec![0, 1]);
+            Ok(())
+        })?;
+        store.save()?;
+        Project::open(dest)
+    }
+
+    #[test]
+    fn empty_region_names_the_project_after_the_destination() {
+        // The scripts are adopted in the staging folder `.<name>.g4-new`; rotom.toml takes the
+        // name of the final folder, without DSPRE's export suffix.
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("Sinnoh-Remix_DSPRE_contents");
+        create_project_with(
+            &rom,
+            &dest,
+            Template::EmptyRegion,
+            &mut |_| {},
+            &fake_extract_world,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(dest.join(crate::scripts::ROTOM_TOML)).unwrap();
+        let config: toml::Value = toml::from_str(&text).unwrap();
+        assert_eq!(
+            config["project"]["name"].as_str(),
+            Some("Sinnoh-Remix"),
+            "{text}"
+        );
+        assert_eq!(
+            read_base_mark(&dest).unwrap().template,
+            Template::EmptyRegion
+        );
     }
 
     #[test]

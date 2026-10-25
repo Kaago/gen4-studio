@@ -148,12 +148,21 @@ fn parse_world_template(text: &str) -> Result<WorldTemplate, String> {
     }
 }
 
-/// `g4k template`: adopts the scripts when needed, applies the template, saves and prints
-/// what changed.
+/// `g4k template`: checks what refuses the template without adopted scripts (Diamond/Pearl,
+/// the plan, a world that is already empty), then adopts the scripts when needed, applies the
+/// template, saves and prints what changed. A refused run writes nothing.
 fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
     let project = Arc::new(Project::open(path)?);
     match template {
         WorldTemplate::EmptyRegion => {
+            // The refusals of `apply_empty_region` that come before it writes, with its
+            // messages, but before adopting: that writes rotom.toml and the sources.
+            g4_kernel::templates::region_recipe(project.family)?;
+            let plan =
+                g4_kernel::templates::plan_empty_region(&mut Store::new(Arc::clone(&project)))?;
+            if plan.already_empty {
+                return Err(KernelError::Refused("the world is already empty".into()).into());
+            }
             if !g4_kernel::scripts::is_adopted(&project) {
                 let adopted = g4_kernel::scripts::adopt(&project, &mut |_| {})?;
                 println!(

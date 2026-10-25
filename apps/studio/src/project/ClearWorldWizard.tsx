@@ -81,7 +81,8 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
   const [busy, setBusy] = useState(false);
   // The refusal of the last "Welt leeren" (shown in place of the summary).
   const [refusal, setRefusal] = useState<string | null>(null);
-  // A run failed for a reason the kernel does not refuse up front: files may have been written.
+  // A run failed for a reason the kernel does not refuse up front: files may have been written, so the plan is stale and
+  // "Welt leeren" stays off (a second run would write another border map, level script and start script); reopening plans again.
   const [touched, setTouched] = useState(false);
   const [report, setReport] = useState<RegionReport | null>(null);
   // Progress that arrives after the adoption ended must not bring the bar back.
@@ -163,7 +164,7 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
   const empty = plan?.already_empty === true;
   const speciesName = plan ? species?.[plan.starter_species]?.trim() || `Art ${plan.starter_species}` : "";
   const lines = plan ? [townLine(plan), emptiedLine(plan.emptied.length), borderLine(plan.border_cells), starterLine(plan, speciesName)] : [];
-  const ready = plan !== null && !empty && scripts?.adopted === true && unsaved === 0 && adopting === null && !saving;
+  const ready = plan !== null && !empty && !touched && scripts?.adopted === true && unsaved === 0 && adopting === null && !saving;
 
   let what;
   if (planState.kind === "loading") {
@@ -289,7 +290,8 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
       steps={steps}
       step={step}
       onStep={(i) => {
-        setRefusal(null);
+        // The failure that blocks the wizard stays in view.
+        if (!touched) setRefusal(null);
         setStep(i);
       }}
       busy={busy || saving || adopting !== null}

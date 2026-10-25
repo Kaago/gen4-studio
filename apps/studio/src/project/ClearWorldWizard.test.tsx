@@ -154,6 +154,27 @@ describe("ClearWorldWizard", () => {
     expect(current()).toBe("2. Zusammenfassung");
   });
 
+  it("a_failed_run_blocks_another", async () => {
+    // Not a known refusal: the kernel may have written the border map and scripts before it failed.
+    vi.mocked(applyEmptyRegion).mockRejectedValue({ code: "error", message: "compile failed", asset: null });
+    await show();
+    await click(button("Weiter"));
+    await click(button("Welt leeren"));
+    await flush();
+    expect(applyEmptyRegion).toHaveBeenCalledOnce();
+    expect(text()).toContain("compile failed");
+    expect(current()).toBe("2. Zusammenfassung");
+    // The plan is stale: no second run from this wizard, also not after stepping back and forth.
+    expect(button("Welt leeren")?.disabled).toBe(true);
+    await click(button("Zurück"));
+    expect(button("Weiter")?.disabled).toBe(true);
+    expect(text()).toContain("compile failed");
+    await click(button("Abbrechen"));
+    // The app reads the project again; reopening the wizard plans again.
+    expect(handlers.onClose).toHaveBeenCalledExactlyOnceWith(true);
+    expect(applyEmptyRegion).toHaveBeenCalledOnce();
+  });
+
   it("already_empty_blocks", async () => {
     vi.mocked(planEmptyRegion).mockResolvedValue({ ...PLAN, emptied: [], border_cells: 0, already_empty: true });
     await show({ scripts: NOT_ADOPTED });

@@ -177,6 +177,9 @@ fn project_start_empty_region_from_the_rom() {
 
     let project = std::sync::Arc::new(g4_kernel::project::Project::open(&dest).unwrap());
     assert!(g4_kernel::scripts::is_adopted(&project));
+    // Adopted in the staging folder, named after the destination.
+    let toml = std::fs::read_to_string(dest.join(g4_kernel::scripts::ROTOM_TOML)).unwrap();
+    assert!(toml.contains("name = \"leer\""), "{toml}");
     let mut store = g4_kernel::store::Store::new(std::sync::Arc::clone(&project));
     assert!(
         g4_kernel::templates::plan_empty_region(&mut store)

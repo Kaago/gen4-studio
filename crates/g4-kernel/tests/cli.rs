@@ -523,6 +523,47 @@ fn template_rejects_an_unknown_template() {
 }
 
 #[test]
+fn template_refuses_before_adopting_the_scripts() {
+    use std::sync::Arc;
+
+    use g4_kernel::project::Project;
+    use g4_kernel::store::Store;
+
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let untouched = || {
+        assert!(!root.join("rotom.toml").exists());
+        assert!(!root.join("expanded/scripts").exists());
+    };
+    // Matrix 0 of the fixture names no headers: the start town T01 has no cell.
+    g4k()
+        .args(["template"])
+        .arg(root)
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("start town T01 has no cell in matrix 0"));
+    untouched();
+    // Both cells carry the town and it has no figures: the world is already empty.
+    let mut store = Store::new(Arc::new(Project::open(root).unwrap()));
+    store
+        .edit_matrix(0, "town", |m| {
+            m.headers = Some(vec![0, 0]);
+            Ok(())
+        })
+        .unwrap();
+    store.save().unwrap();
+    g4k()
+        .args(["template"])
+        .arg(root)
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("the world is already empty"));
+    untouched();
+}
+
+#[test]
 fn create_accepts_the_empty_region_template() {
     let (tmp, rom) = common::synthetic_rom();
     let dest = tmp.path().join("neu");

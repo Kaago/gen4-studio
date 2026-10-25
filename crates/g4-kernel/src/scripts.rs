@@ -250,6 +250,17 @@ pub fn adopt(
     project: &Project,
     progress: &mut dyn FnMut(AdoptProgress),
 ) -> Result<AdoptReport, KernelError> {
+    adopt_as(project, None, progress)
+}
+
+/// [`adopt`], with the project name in `rotom.toml` taken from `folder` instead of the
+/// project folder's own name: for a project adopted in a staging folder that is renamed to
+/// `folder` afterwards (`start::create_project`).
+pub(crate) fn adopt_as(
+    project: &Project,
+    folder: Option<&str>,
+    progress: &mut dyn FnMut(AdoptProgress),
+) -> Result<AdoptReport, KernelError> {
     // rotom v0.7.0: src/project/config.rs RotomConfig, ProjectMetadata, WorkspaceConfig,
     // ProjectTypeConfig, PathsConfig, DatabaseConfig
     use rotom::project_config::{
@@ -284,11 +295,14 @@ pub fn adopt(
     write_atomic(root, &database_path, db_json.as_bytes())?;
 
     // Like `rotom init`: the project name is the folder's, without DSPRE's export suffix.
-    let folder = root
-        .canonicalize()
-        .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "rotom-project".to_owned());
+    let folder = match folder {
+        Some(folder) => folder.to_owned(),
+        None => root
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "rotom-project".to_owned()),
+    };
     let name = match folder.trim().strip_suffix("_DSPRE_contents") {
         Some(short) if !short.trim().is_empty() => short.trim().to_owned(),
         _ => folder.trim().to_owned(),

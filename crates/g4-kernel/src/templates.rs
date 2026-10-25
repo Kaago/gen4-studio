@@ -712,6 +712,90 @@ mod tests {
 
     use super::*;
 
+    /// Compiles `source` on its own with rotom against the bundled command database of
+    /// `family` and the flags and variables it names: an unknown command, a wrong number of
+    /// parameters or an unknown name is a compile error. (In a project the names come from
+    /// uxie's symbols; rotom's database type leaves the `flags` and `vars` of the JSON out,
+    /// so they go in as constants files, `{"<id>": "<name>"}`, one name per id and file.)
+    fn compile_with_database(family: Family, source: &str) -> Result<Vec<u8>, String> {
+        let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let (name, json) = scripts::scrcmd_database(family);
+        let path = tmp.path().join(name);
+        std::fs::write(&path, json).map_err(|e| e.to_string())?;
+        // rotom v0.7.0: src/database.rs DatabaseV2::load, ConstantDb::new, load_from_db,
+        // load_json
+        let db = rotom::DatabaseV2::load(&path).map_err(|e| e.to_string())?;
+        let mut constants = rotom::ConstantDb::new();
+        constants.load_from_db(&db);
+        let full: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        let mut files: Vec<serde_json::Map<String, serde_json::Value>> = Vec::new();
+        for section in ["flags", "vars"] {
+            let entries = full[section].as_object().ok_or(section)?;
+            for (symbol, entry) in entries {
+                let id = entry["id"].to_string();
+                match files.iter_mut().find(|f| !f.contains_key(&id)) {
+                    Some(file) => {
+                        file.insert(id, symbol.clone().into());
+                    }
+                    None => files.push(serde_json::Map::from_iter([(id, symbol.clone().into())])),
+                }
+            }
+        }
+        for (i, file) in files.into_iter().enumerate() {
+            let at = tmp.path().join(format!("symbols{i}.json"));
+            std::fs::write(&at, serde_json::Value::Object(file).to_string())
+                .map_err(|e| e.to_string())?;
+            constants.load_json(&at).map_err(|e| e.to_string())?;
+        }
+        // rotom v0.7.0: src/lib.rs compile (standalone, no project)
+        rotom::compile(source, &db, &constants, rotom::BinaryQuirk::default())
+            .map(|compiled| compiled.bytes)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The start script of `family` filled like `apply_empty_region` fills it (a free slot,
+    /// the wrapped message), checked to parse as it is, then with its text literal swapped for
+    /// message 0: outside a project rotom cannot lower a literal (it adds it to the map's
+    /// text archive), and in one the literal becomes that message's number.
+    fn filled_start_script(family: Family, message: &str) -> String {
+        let recipe = region_recipe(family).unwrap();
+        let wrapped = wrap_message(message).unwrap();
+        let source = start_script(&recipe, family, 7, &wrapped).unwrap();
+        // rotom v0.7.0: src/compiler/parser.rs Parser::new (strict), parse_script_file
+        let parsed = rotom::Parser::new(rotom::Lexer::new(&source)).parse_script_file();
+        assert!(parsed.is_ok(), "{family:?}: {parsed:?}\n{source}");
+        let literal = format!("\"{}\"", wrapped.replace('"', "\\\""));
+        assert_eq!(source.matches(&literal).count(), 1, "{source}");
+        source.replace(&literal, "0")
+    }
+
+    #[test]
+    fn the_start_scripts_compile_against_their_command_database() {
+        for family in [Family::Pt, Family::Hgss] {
+            let recipe = region_recipe(family).unwrap();
+            for message in [&recipe.message_de, &recipe.message_en] {
+                let source = filled_start_script(family, message);
+                let bytes = compile_with_database(family, &source)
+                    .unwrap_or_else(|e| panic!("{family:?}: {e}\n{source}"));
+                assert!(!bytes.is_empty(), "{family:?}");
+            }
+            // The check bites: a command the database does not know, one parameter too many
+            // and an unknown variable are refused.
+            let source = filled_start_script(family, &recipe.message_de);
+            for broken in [
+                source.replace("GivePokedex", "GivePokedexTwice"),
+                source.replace("GiveRunningShoes", "GiveRunningShoes 1"),
+                source.replace("VAR_PLAYER_STARTER", "VAR_NO_SUCH_VARIABLE"),
+            ] {
+                assert_ne!(broken, source);
+                assert!(
+                    compile_with_database(family, &broken).is_err(),
+                    "{family:?}: {broken}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_border_map_has_every_cell_blocked() {
         let blocked = Cell {
