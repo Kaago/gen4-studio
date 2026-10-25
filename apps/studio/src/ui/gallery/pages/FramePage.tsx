@@ -34,8 +34,6 @@ function WizardHinge() {
         onPlay={noop}
         playing={false}
         canPlay={false}
-        onDragHeight={noop}
-        onToggleCollapse={noop}
         wizard
       />
       {slot &&
@@ -81,8 +79,6 @@ function LightHinge({ problems, checking = null, unchecked = false }: { problems
         onPlay={noop}
         playing={false}
         canPlay
-        onDragHeight={noop}
-        onToggleCollapse={noop}
       />
     </div>
   );

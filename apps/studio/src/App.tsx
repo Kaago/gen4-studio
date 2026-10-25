@@ -649,13 +649,6 @@ function AppBody() {
         break;
     }
   });
-  // Each hinge works on the hand of its own area (only the shown area's hinge can be reached).
-  const onDragHeight = useStableCallback((target: DeckArea, height: number) => {
-    // Dragging a collapsed hinge opens the hand to where it is dragged.
-    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
-    shell.setHandHeight(target, height);
-  });
-  const onToggleCollapse = useStableCallback((target: DeckArea) => shell.toggleHandCollapsed(target));
 
   const { info } = session;
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
@@ -725,8 +718,6 @@ function AppBody() {
           onPlay={onPlay}
           playing={session.busy}
           canPlay={info !== null}
-          onDragHeight={(height) => onDragHeight(target, height)}
-          onToggleCollapse={() => onToggleCollapse(target)}
           wizard={target === "welt" ? showsWizard : undefined}
         />
       }

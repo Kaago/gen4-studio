@@ -35,8 +35,6 @@ describe("HingeHost", () => {
           onPlay={noop}
           playing={false}
           canPlay
-          onDragHeight={noop}
-          onToggleCollapse={noop}
         />,
       ),
     );

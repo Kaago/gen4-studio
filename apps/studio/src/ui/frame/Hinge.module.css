@@ -18,42 +18,16 @@
   flex: none;
   align-items: center;
   gap: var(--g4-raum-12);
-  padding: 0 var(--g4-raum-12) 0 var(--g4-raum-4);
+  padding: 0 var(--g4-raum-12);
   border-block: var(--g4-strich-scharnier) solid var(--g4-scharnier-kante);
   background: var(--g4-scharnier-grund);
   color: var(--g4-scharnier-text);
-  cursor: row-resize;
   user-select: none;
-  touch-action: none;
   transition: background var(--g4-dauer-scharnier);
 }
 
 .hinge button {
   cursor: pointer;
-}
-
-.hinge .grip {
-  cursor: row-resize;
-}
-
-.grip {
-  display: inline-flex;
-  width: var(--g4-raum-24);
-  height: var(--g4-raum-32);
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--g4-radius-feld);
-  background: transparent;
-  color: var(--g4-scharnier-leise);
-  font-size: var(--g4-dichte-symbol);
-}
-
-.grip:hover {
-  background: var(--g4-scharnier-taste);
-  color: var(--g4-scharnier-text);
 }
 
 .crumbs {

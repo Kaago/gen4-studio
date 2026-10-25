@@ -52,6 +52,7 @@ vi.mock("./workbench/panels", () => ({
 }));
 vi.mock("./ui/frame/Deck", async () => {
   const { Fragment, createElement, useEffect } = await import("react");
+  const { HandSplitter } = await import("./ui/frame/HandSplitter");
   type Ref = { current: unknown };
   /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
   const dock = (area: string, ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`) } : undefined) });
@@ -66,7 +67,7 @@ vi.mock("./ui/frame/Deck", async () => {
   };
   return {
     resetLayout: (...args: unknown[]) => void shown.resets.push(args),
-    // The hand is a bare element: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
+    // The hand is a bare element behind the real splitter: hidden behind an open wizard, whose step goes into the slot beside it (as in the real deck).
     Deck: ({ area, schauRef, handRef, hinge, wizard }: { area: string; schauRef: Ref; handRef: Ref; hinge: unknown; wizard?: boolean }) => {
       schauRef.current = dock(area, PANELS[area]![0]);
       handRef.current = dock(area, PANELS[area]![1]);
@@ -77,6 +78,7 @@ vi.mock("./ui/frame/Deck", async () => {
         Fragment,
         null,
         hinge as never,
+        createElement(HandSplitter, { area: area as never, controls: `dock-${area}-hand`, hidden: wizard === true }),
         createElement("div", { "data-dock": "hand", hidden: wizard === true }),
         wizard === undefined ? null : createElement("div", { "data-wizard-hand": "", hidden: !wizard }),
       );
@@ -928,7 +930,7 @@ describe("App wiring", () => {
       expect(hingeButton("Alles stimmig")).toBeDefined();
       data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "warning", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
       await tick(0);
-      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(handState().collapsed).toBe(true);
       await pressHinge("1 Warnung");
       expect(shown.focused).toEqual(["problems"]);
@@ -998,7 +1000,7 @@ describe("App wiring", () => {
 
     it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {
       // The world's hand is folded and low when the texts show.
-      await act(async () => void area("welt", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await act(async () => void area("welt", "deck")!.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(handState()).toEqual({ height: 286, collapsed: true });
       await act(async () => atlasEntry("Texte")!.click());
       shown.focused = [];
@@ -1013,17 +1015,17 @@ describe("App wiring", () => {
       expect(readShellState().handCollapsed.texte).toBe(false);
     });
 
-    it("folds_the_hand_of_the_area_whose_hinge_is_used", async () => {
+    it("folds_the_hand_of_the_area_whose_splitter_is_used", async () => {
       await act(async () => atlasEntry("Texte")!.click());
-      const grip = area("texte", "deck")!.querySelector("[data-hinge-grip]")!;
-      await act(async () => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      const splitter = area("texte", "deck")!.querySelector("[data-splitter=hand]")!;
+      await act(async () => void splitter.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(readShellState().handCollapsed.texte).toBe(true);
       expect(readShellState().handCollapsed.welt).toBe(false);
     });
 
     it("opens_the_problems_in_the_hand_of_the_texts_while_the_texts_show", async () => {
       await act(async () => atlasEntry("Texte")!.click());
-      await act(async () => void area("texte", "deck")!.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await act(async () => void area("texte", "deck")!.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(readShellState().handCollapsed.texte).toBe(true);
       shown.focused = [];
       const light = [...area("texte", "deck")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Alles stimmig")!;
@@ -1166,15 +1168,15 @@ describe("App wiring", () => {
         Element.prototype.setPointerCapture = vi.fn();
         Element.prototype.releasePointerCapture = vi.fn();
       });
-      const grip = container.querySelector("[data-hinge-grip]")!;
+      const splitter = container.querySelector("[data-splitter=hand]")!;
       vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-        const bottom = this.getAttribute("role") === "toolbar" ? 600 : 1000;
+        const bottom = this.getAttribute("role") === "separator" ? 600 : 1000;
         return { bottom, top: bottom - 44, height: 44, left: 0, right: 100, width: 100, x: 0, y: bottom - 44, toJSON: () => ({}) } as DOMRect;
       });
       const pointer = (type: string, clientY: number) => {
         const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
         Object.defineProperty(event, "pointerId", { value: 1 });
-        return act(async () => void grip.dispatchEvent(event));
+        return act(async () => void splitter.dispatchEvent(event));
       };
       await pointer("pointerdown", 580);
       await pointer("pointermove", 680);
@@ -1188,7 +1190,7 @@ describe("App wiring", () => {
     });
 
     it("opens_a_collapsed_hand_when_a_script_opens", async () => {
-      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(handState().collapsed).toBe(true);
       await act(async () => data().scripts.open(42));
       expect(handState()).toEqual({ height: 400, collapsed: false });
@@ -1197,7 +1199,7 @@ describe("App wiring", () => {
     it("opens_a_collapsed_hand_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard", async () => {
       await select(listed[0]);
       shown.focused = [];
-      await act(async () => void container.querySelector("[data-hinge-grip]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      await act(async () => void container.querySelector("[data-splitter=hand]")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
       expect(handState().collapsed).toBe(true);
       const field = document.createElement("input");
       document.body.append(field);

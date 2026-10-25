@@ -95,18 +95,35 @@ describe("Deck", () => {
     scriptDirtyStore.set(0);
   });
 
-  it("renders_two_docks_with_the_hinge_between_them", async () => {
+  it("renders_two_docks_each_in_its_own_dockview", async () => {
     await mount();
     expect(dock("schau")).not.toBeNull();
     expect(dock("hand")).not.toBeNull();
-    const hinge = container.querySelector('[role="toolbar"]')!;
-    expect(dock("schau").compareDocumentPosition(hinge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(hinge.compareDocumentPosition(dock("hand")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Each dock is its own dockview in its own container; the panels of one are not in the other.
     expect(dock("schau").contains(dock("hand"))).toBe(false);
     expect(schau()).not.toBe(hand());
     // Dockview numbers its instances; two in one document must not share an id (drag and drop tells them apart by it).
     expect(schau().id).not.toBe(hand().id);
+  });
+
+  it("puts_the_hinge_above_the_view_and_the_splitter_between_view_and_hand", async () => {
+    await mount();
+    const hinge = container.querySelector('[role="toolbar"]')!;
+    const splitter = container.querySelector('[data-splitter="hand"]')!;
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(hinge, dock("schau"))).toBe(true);
+    expect(follows(dock("schau"), splitter)).toBe(true);
+    expect(follows(splitter, dock("hand"))).toBe(true);
+    expect(splitter.getAttribute("aria-controls")).toBe("dock-welt-hand");
+  });
+
+  it("hides_the_splitter_behind_an_open_wizard", async () => {
+    await mount("welt", false);
+    expect(container.querySelector('[data-splitter="hand"]')).not.toBeNull();
+    await render("welt", true);
+    expect(container.querySelector('[data-splitter="hand"]')).toBeNull();
+    await render("welt", false);
+    expect(container.querySelector('[data-splitter="hand"]')).not.toBeNull();
   });
 
   it("builds_the_default_layouts_of_both_docks", async () => {
