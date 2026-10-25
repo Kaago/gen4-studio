@@ -11,12 +11,14 @@ import json
 import queue
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
 PROTOCOL_VERSION = "2025-11-25"
 ANSWER_TIMEOUT = 600.0  # seconds to wait for one answer (a write may rebuild a lot)
+HANDSHAKE_TIMEOUT = 30.0  # at least this long for `initialize` (the server opens the project first)
 _CLOSE_GRACE = 5.0  # seconds a closing server may need to finish before it is killed
 _STDERR_LINES = 5  # how many of the server's last stderr lines a "dead" message quotes
 
@@ -53,8 +55,14 @@ class McpSession:
 
     @classmethod
     def start(cls, command: list[str], log: Path, timeout: float = ANSWER_TIMEOUT) -> McpSession:
-        """Start the server (stderr goes to `log`) and do the handshake."""
-        stderr_log = open(log, "wb")
+        """Start the server (stderr goes to `log`, whose folder must exist) and do the handshake.
+
+        `timeout` limits each answer; the handshake waits at least `HANDSHAKE_TIMEOUT`."""
+        try:
+            stderr_log = open(log, "wb")
+        except OSError as e:
+            reason = "Ordner fehlt" if isinstance(e, FileNotFoundError) else (e.strerror or str(e))
+            raise McpError(f"MCP-Protokoll nicht schreibbar: {log} ({reason})") from e
         try:
             process = subprocess.Popen(
                 command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log,
@@ -68,7 +76,7 @@ class McpSession:
             answer = session._request("initialize", {
                 "protocolVersion": PROTOCOL_VERSION, "capabilities": {},
                 "clientInfo": {"name": "g4emu", "version": "0"},
-            })
+            }, timeout=max(timeout, HANDSHAKE_TIMEOUT))
             session.protocol_version = str(answer.get("protocolVersion", ""))
             session.server_info = dict(answer.get("serverInfo") or {})
             session._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -135,19 +143,22 @@ class McpSession:
         except OSError as e:  # broken pipe: the server is gone
             raise self._dead() from e
 
-    def _request(self, method: str, params: dict) -> dict:
-        """Send a request and return its `result`, skipping stray lines, notifications and server requests."""
+    def _request(self, method: str, params: dict, timeout: float | None = None) -> dict:
+        """Send a request and return its `result`, skipping stray lines, notifications and server requests.
+
+        The time limit (`timeout`, else the session's) holds for the answer as a whole: lines that are
+        no answer, a notification every moment say, do not extend it."""
+        limit = self._timeout if timeout is None else timeout
         self._next_id += 1
         request_id = self._next_id
         self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+        deadline = time.monotonic() + limit
         while True:
             try:
-                line = self._lines.get(timeout=self._timeout)
+                line = self._lines.get(timeout=max(deadline - time.monotonic(), 0.0))
             except queue.Empty:
                 self._stuck = True
-                raise McpError(
-                    f"MCP-Server: keine Antwort auf {method} innerhalb von {self._timeout:g} s"
-                ) from None
+                raise McpError(f"MCP-Server: keine Antwort auf {method} innerhalb von {limit:g} s") from None
             if line is None:
                 self._lines.put(None)  # a later call finds the end again
                 raise self._dead()

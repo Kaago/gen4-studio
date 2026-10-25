@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,29 @@ def test_client_gives_up_on_a_silent_server(tmp_path):
         with pytest.raises(McpError, match="keine Antwort"):
             session.call("hang", {})
     assert session.closed  # close() killed the hanging server
+
+
+def test_the_time_limit_holds_per_answer_not_per_line(tmp_path):
+    # notifications every 0.1 s must not keep a call waiting past its limit
+    with McpSession.start(fake_command(), tmp_path / "mcp.log", timeout=1.0) as session:
+        began = time.monotonic()
+        with pytest.raises(McpError, match="keine Antwort auf tools/call innerhalb von 1 s"):
+            session.call("chatter", {})
+        assert time.monotonic() - began < 5.0
+    assert session.closed
+
+
+def test_the_handshake_has_a_limit_of_its_own(tmp_path):
+    # a short limit for the answers does not cut the handshake short (a server under load starts slowly)
+    assert mcp.HANDSHAKE_TIMEOUT >= 30.0
+    with McpSession.start(fake_command(), tmp_path / "mcp.log", timeout=0.01) as session:
+        assert session.server_info["name"] == "gen4-studio"
+
+
+def test_a_log_in_a_missing_folder_is_an_mcp_error(tmp_path):
+    with pytest.raises(McpError, match=r"MCP-Protokoll nicht schreibbar: .*fehlt"):
+        McpSession.start(fake_command(), tmp_path / "fehlt" / "mcp.log")
+    assert not (tmp_path / "fehlt").exists()
 
 
 def test_a_missing_binary_is_an_mcp_error(tmp_path):

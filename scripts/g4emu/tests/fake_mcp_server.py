@@ -1,8 +1,10 @@
 """A tiny MCP server for the tests: newline-delimited JSON-RPC 2.0 over stdio.
 
-Tools: `echo` answers its arguments, `seen` the methods received so far, `fail` a tool error,
-`unknown` a JSON-RPC error, `noise` an answer behind stray output, `hang` never answers,
-`crash` writes to stderr and exits with code 3. FAKE_MCP_DIE_AT_START=1 exits before the handshake.
+Tools: `echo` answers its arguments, `give` its argument `give`, `seen` the methods received so far,
+`fail` a tool error (message: the argument `message`), `save` and `build_rom` answer like the real ones,
+`noise` an answer behind stray output, `hang` never answers, `chatter` sends notifications every 0.1 s
+and never answers, `crash` writes to stderr and exits with code 3; any other name is a JSON-RPC error.
+FAKE_MCP_DIE_AT_START=1 exits before the handshake; FAKE_MCP_ARGV=<file> writes the command line there.
 """
 
 import json
@@ -29,10 +31,17 @@ def tool_result(content: object, is_error: bool = False) -> dict:
 def call(request_id: int, name: str, arguments: dict) -> None:
     if name == "echo":
         send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": arguments})})
+    elif name == "give":
+        send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": arguments.get("give")})})
+    elif name == "save":
+        send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": {"saved": True}})})
+    elif name == "build_rom":
+        send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": {"out": arguments.get("out")}})})
     elif name == "seen":
         send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": seen})})
     elif name == "fail":
-        error = {"code": "invalid_input", "message": "Das geht so nicht.", "details": {"field": "id"}}
+        message = arguments.get("message", "Das geht so nicht.")
+        error = {"code": "invalid_input", "message": message, "details": {"field": "id"}}
         send({"jsonrpc": "2.0", "id": request_id, "result": tool_result(error, is_error=True)})
     elif name == "noise":
         sys.stdout.write("not json at all\n")
@@ -43,6 +52,10 @@ def call(request_id: int, name: str, arguments: dict) -> None:
         send({"jsonrpc": "2.0", "id": request_id, "result": tool_result({"result": "late"})})
     elif name == "hang":
         time.sleep(60)
+    elif name == "chatter":
+        for _ in range(600):
+            send({"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progress": 1}})
+            time.sleep(0.1)
     elif name == "crash":
         sys.stderr.write("boom one\nboom two\n")
         sys.stderr.flush()
@@ -52,6 +65,9 @@ def call(request_id: int, name: str, arguments: dict) -> None:
 
 
 def main() -> None:
+    if os.environ.get("FAKE_MCP_ARGV"):
+        with open(os.environ["FAKE_MCP_ARGV"], "w", encoding="utf-8") as f:
+            json.dump(sys.argv[1:], f)
     if os.environ.get("FAKE_MCP_DIE_AT_START"):
         sys.stderr.write("cannot start\n")
         sys.exit(2)
