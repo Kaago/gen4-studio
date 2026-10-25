@@ -133,27 +133,57 @@ def _hold_for_tile(
     return None
 
 
+def _one_tile(emu: Emu, game: Game, direction: str, loc: Location) -> tuple[Location, Location | None]:
+    """Try one tile from `loc`: (where the try started, where it ended or `None` when blocked).
+
+    A first press may only turn the character, so a tile that does not move is pressed twice.
+    """
+    dx, dy = DIRECTIONS[direction]
+    moved: Location | None = None
+    for attempt in range(2):
+        if attempt:
+            emu.step(RELEASE_FRAMES)  # let go, so the second press is a new one
+            loc = _current(emu, game)
+        moved = _hold_for_tile(emu, game, direction, loc, dx, dy)
+        if moved is not None:
+            break
+    return loc, moved
+
+
 def walk(emu: Emu, game: Game, direction: str, tiles: int) -> Location:
     """Walk `tiles` tiles; a header change ends the walk early and counts as success."""
     if direction not in DIRECTIONS:
         raise ValueError(f"Unbekannte Richtung: {direction}")
-    dx, dy = DIRECTIONS[direction]
     loc = _current(emu, game)
     for _ in range(tiles):
-        moved: Location | None = None
-        for attempt in range(2):  # a first press may only turn the character
-            if attempt:
-                emu.step(RELEASE_FRAMES)  # let go, so the second press is a new one
-                loc = _current(emu, game)
-            moved = _hold_for_tile(emu, game, direction, loc, dx, dy)
-            if moved is not None:
-                break
+        loc, moved = _one_tile(emu, game, direction, loc)
         if moved is None:
             raise StepFailed(f"blockiert bei x {loc.x}, y {loc.y}")
         if moved.header != loc.header:
             return _settle(emu, game, moved)
         loc = moved
     return _settle(emu, game, loc)
+
+
+def walk_until_blocked(emu: Emu, game: Game, direction: str, tiles: int) -> tuple[Location, int]:
+    """Walk single tiles until one is blocked: (the location there, tiles walked before).
+
+    Fails when all `tiles` tiles go or the header changes (a warp or a map border was crossed),
+    so a pass proves a wall within `tiles` tiles on the same map.
+    """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Unbekannte Richtung: {direction}")
+    loc = _current(emu, game)
+    header = loc.header
+    for taken in range(tiles):
+        loc, moved = _one_tile(emu, game, direction, loc)
+        if moved is None:
+            return _settle(emu, game, loc), taken
+        if moved.header != header:
+            raise StepFailed(f"Header {moved.header} statt {header} nach {taken + 1} Schritten")
+        loc = moved
+    _settle(emu, game, loc)
+    raise StepFailed(f"nicht blockiert nach {tiles} Schritten (x {loc.x}, y {loc.y})")
 
 
 def _settle(emu: Emu, game: Game, fallback: Location) -> Location:

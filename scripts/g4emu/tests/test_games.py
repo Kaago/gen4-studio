@@ -88,3 +88,36 @@ def test_heartgold_entries_use_the_same_record_layout(code, pointer, save):
     ram = bytearray(RAM_SIZE)
     put_location(ram, game, Location(header=63, warp=1, x=3, y=3))
     assert read_location(ram, game) == Location(header=63, warp=1, x=3, y=3)
+
+
+def test_games_have_intro_for_cpud_and_ipkd():
+    from g4emu.steps import parse_steps
+
+    games = load_games()
+    for code, ends in (("CPUD", (415, 4, 6)), ("IPKD", (64, 6, 6))):
+        game = games[code]
+        assert game.intro, code
+        steps = parse_steps(list(game.intro))
+        assert steps and all(s.name not in ("new-game", "shot", "walk") for s in steps), code
+        assert game.intro_ends == ends
+    assert games["IPKE"].intro is None and games["IPKE"].intro_ends is None
+
+
+def test_intro_needs_its_end_and_valid_steps(tmp_path):
+    base = (
+        "XXXX:\n  name: X\n  location: { pointer: 0x02100000, offset: 4 }\n"
+        "  save: x.sav\n  start_header: 1\n  continue_frames: 300\n"
+    )
+    path = tmp_path / "games.yaml"
+    path.write_text(base + "  intro: wait 10 press a\n")
+    with pytest.raises(ValueError, match="XXXX: intro braucht intro_ends"):
+        load_games(path)
+    path.write_text(base + "  intro: wait 10 frobnicate\n  intro_ends: {header: 1, x: 2, y: 3}\n")
+    with pytest.raises(ValueError, match="XXXX: intro ungültig"):
+        load_games(path)
+    path.write_text(base + "  intro: wait 10 new-game\n  intro_ends: {header: 1, x: 2, y: 3}\n")
+    with pytest.raises(ValueError, match="new-game"):
+        load_games(path)
+    path.write_text(base + "  intro: wait 10 press a:4\n  intro_ends: {header: 1, x: 2, y: 3}\n")
+    game = load_games(path)["XXXX"]
+    assert game.intro == ("wait", "10", "press", "a:4") and game.intro_ends == (1, 2, 3)

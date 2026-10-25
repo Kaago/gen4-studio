@@ -402,3 +402,71 @@ def test_end_battle_without_pointer_follows_the_next_enemy(fake_emu, ipke, tmp_p
     run_step(fake_emu, ipke, Step("end-battle", []), tmp_path)
     pressed = [i for i, (b, _) in enumerate(fake_emu.log) if "a" in b]
     assert 390 <= pressed[-1] < 400
+
+
+# --- new game and walk-until-blocked ------------------------------------------------------
+
+
+def test_parse_new_game_and_walk_until_blocked():
+    steps = parse_steps(["new-game", "expect-map", "415", "walk-until-blocked", "up", "40", "where"])
+    assert steps == [
+        Step("new-game", []),
+        Step("expect-map", ["415"]),
+        Step("walk-until-blocked", ["up", "40"]),
+        Step("where", []),
+    ]
+
+
+def _with_intro(game, intro, ends):
+    from dataclasses import replace
+
+    return replace(game, intro=tuple(intro), intro_ends=ends)
+
+
+def test_new_game_plays_the_intro_and_checks_where_it_ends(fake_emu, cpud, tmp_path):
+    game = _with_intro(cpud, ["wait", "10", "press", "a:4", "mash", "a", "16"], (415, 4, 6))
+    fake_emu.attach(game, Location(415, -1, 4, 6))
+    out = run_step(fake_emu, game, Step("new-game", []), tmp_path)
+    assert out["ok"] and (out["header"], out["x"], out["y"]) == (415, 4, 6)
+    assert out["frame"] == 10 + 4 + 4 + 16
+    assert sum(1 for buttons, _ in fake_emu.log if "a" in buttons) == 4 + 8
+
+
+def test_new_game_fails_when_the_intro_ends_elsewhere(fake_emu, cpud, tmp_path):
+    game = _with_intro(cpud, ["wait", "5"], (415, 4, 6))
+    fake_emu.attach(game, Location(414, -1, 3, 3))
+    with pytest.raises(StepFailed, match="Intro endet bei Header 414, x 3, y 3 statt 415, x 4, y 6"):
+        run_step(fake_emu, game, Step("new-game", []), tmp_path)
+
+
+def test_new_game_needs_an_intro(fake_emu, ipke, tmp_path):
+    with pytest.raises(StepFailed, match="IPKE: kein intro in games.yaml"):
+        run_step(fake_emu, ipke, Step("new-game", []), tmp_path)
+
+
+def test_walk_until_blocked_stops_at_the_first_blocked_tile(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(411, -1, 110, 870), facing="up")
+    fake_emu.blocked = {(110, 863)}
+    out = run_step(fake_emu, cpud, Step("walk-until-blocked", ["up", "40"]), tmp_path)
+    assert out["ok"] and out["steps"] == 6
+    assert (out["header"], out["x"], out["y"]) == (411, 110, 864)
+
+
+def test_walk_until_blocked_fails_when_never_blocked(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(411, -1, 110, 870), facing="up")
+    with pytest.raises(StepFailed, match="nicht blockiert nach 3 Schritten"):
+        run_step(fake_emu, cpud, Step("walk-until-blocked", ["up", "3"]), tmp_path)
+    assert (fake_emu.loc.x, fake_emu.loc.y) == (110, 867)
+
+
+def test_walk_until_blocked_fails_when_the_header_changes(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(411, -1, 110, 870), facing="up")
+    fake_emu.warps = {(110, 868): Location(412, 0, 3, 7)}
+    with pytest.raises(StepFailed, match="Header 412 statt 411"):
+        run_step(fake_emu, cpud, Step("walk-until-blocked", ["up", "40"]), tmp_path)
+
+
+def test_walk_until_blocked_rejects_bad_arguments(fake_emu, cpud, tmp_path):
+    fake_emu.attach(cpud, Location(411, -1, 110, 870))
+    with pytest.raises(ValueError, match="sideways"):
+        run_step(fake_emu, cpud, Step("walk-until-blocked", ["sideways", "5"]), tmp_path)
