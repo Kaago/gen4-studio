@@ -1,6 +1,6 @@
 # Gen4 Studio Design-System „Doppeldeck“
 
-Stand: 24.10.2026. Quelle der Gestaltung ist die OpenPencil-Datei [`Editor_DesignSystem.fig`](Editor_DesignSystem.fig). Quelle der Werte sind die DTCG-Tokens in [`tokens/`](tokens). Dieser Ordner liefert alles, was die Tauri-2-App (React, Dockview, three.js, CodeMirror/Monaco) zum Umsetzen braucht.
+Stand: 25.10.2026. Quelle der Gestaltung ist die OpenPencil-Datei [`Editor_DesignSystem.fig`](Editor_DesignSystem.fig). Quelle der Werte sind die DTCG-Tokens in [`tokens/`](tokens). Dieser Ordner liefert alles, was die Tauri-2-App (React, Dockview, three.js, CodeMirror/Monaco) zum Umsetzen braucht.
 
 Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Nintendo DS erschaffen (Basis Platin, HeartGold, SoulSilver). Das Design-System richtet sich an zwei Gruppen zugleich: Einsteiger, die Orte, Figuren und Geschichten erzählen wollen, und Profis, die an Skripten und Rohdaten tüfteln. Es beschreibt den Zielzustand mit allen Features, nicht den heutigen Stand der App.
 
@@ -8,7 +8,8 @@ Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Ni
 
 | Pfad | Inhalt |
 |---|---|
-| `Editor_DesignSystem.fig` | OpenPencil-Datei: Titel, Grundlagen, Komponenten, Muster, vier Screen-Seiten |
+| `Editor_DesignSystem.fig` | OpenPencil-Datei: Titel (mit „Stand der App“), Grundlagen, Komponenten, Muster, vier Seiten „Zielbild: …“ und drei Seiten „App: …“ |
+| `Audit-Design-System.md` | Abweichungen der App von der initialen Idee, mit Einordnung (bewusst, Lücke, Verbesserung) und offenen Entscheidungen |
 | `tokens/` | Tokens im W3C-DTCG-Format, eine Datei je Sammlung und Modus (wie OpenPencil/Figma sie exportiert) |
 | `apps/studio/src/ui/tokens/tokens.css` | Alle Tokens als CSS-Variablen `--g4-*`, Hell als Standard, Dunkel über `data-theme`, Kompakt über `data-dichte` |
 | `apps/studio/src/ui/tokens/dockview-theme.css` | Dockview-Thema `dockview-theme-g4`, gespeist aus den Tokens |
@@ -16,8 +17,11 @@ Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Ni
 | `scripts/export_tokens.py` | Erzeugt die drei Dateien oben aus `tokens/`; Aufruf über `pnpm tokens` (in `apps/studio`), Ausgabeordner als zweiter Parameter |
 | `scripts/check_tokens.py` | Prüft RGB555-Treue und WCAG-Kontraste aller wichtigen Paare in beiden Themen |
 | `scripts/fix_fig_text.mjs` | Repariert nach dem Speichern in OpenPencil verstümmelte Texte und rastet mit `--rgb555` alle Farben der `.fig` auf das DS-Raster |
-| `openpencil/jsx-lib.js` | JSX-Bausteine (Fenster, Atlas, Scharnier, Statusleiste, Inspector, DS-Bildschirm …), mit denen alle Screens gebaut sind |
-| `openpencil/BRIEFING-SCREENS.md` | Briefing für neue Screens: Konzept, Raster, Regeln, Tokens, Sprache |
+| `openpencil/jsx-lib.js` | JSX-Bausteine des Zielbilds (Fenster, Atlas, Scharnier, Statusleiste, Inspector, DS-Bildschirm …), mit denen die Zielbild-Screens gebaut sind |
+| `openpencil/BRIEFING-SCREENS.md` | Briefing für neue Zielbild-Screens: Konzept, Raster, Regeln, Tokens, Sprache |
+| `openpencil/jsx-lib-app.js` | JSX-Bausteine mit den Maßen der App (CSS-Module in `apps/studio/src/ui`), für die Seiten „App: …“ und die Bretter „Komponenten (App)“; `dunkel-map.js` davor liefert das dunkle Thema als Hex |
+| `openpencil/BRIEFING-APP-SCREENS.md` | Briefing zum Nachzeichnen der App aus Screenshots der Test-Umgebung; Beispiel in `openpencil/beispiele/` |
+| `openpencil/build-screen.sh`, `scripts/op.mjs` | Baut aus Bibliothek und Screen-Datei ein JSX und ruft damit den OpenPencil-MCP-Server direkt auf (`render`, `export_image` mit `--png` …), ohne riesige Aufrufe |
 
 Ablauf bei Änderungen: Token in `tokens/*.json` ändern, `python3 design-system/scripts/check_tokens.py`, dann `pnpm tokens` (in `apps/studio`, schreibt die drei generierten Dateien nach `apps/studio/src/ui/tokens/`), dann `bash scripts/check-tokens.sh` aus der Repo-Wurzel (Raster, Kontraste und Abgleich der eingecheckten Dateien mit einem frischen Export; läuft auch im Gate), dann die geänderten Dateien in OpenPencil über „Design-Tokens importieren“ (MCP `import_design_tokens`) einspielen. OpenPencil legt fehlende Variablen an und aktualisiert vorhandene über den Namen.
 
@@ -140,9 +144,17 @@ Für die Umsetzung eignen sich Radix- oder Reka-Primitives (Dialog, Popover, Tab
 
 WCAG 2.2 AA als Untergrenze: Kontraste wie oben, Ziele mindestens 24 px (Komfort 32 px), sichtbarer Fokusring nur bei Tastaturbedienung (`:focus-visible`), Roving Tabindex in Listen, Bäumen und Werkzeugen, Kachel-Cursor mit Pfeiltasten in der Welt, `lang="de"`, reduzierte Bewegung und erzwungene Farben berücksichtigt, kein Inhalt nur über Farbe oder nur über Tooltip.
 
-## Screens (Seiten „Screens: …“)
+## Screens (Seiten „Zielbild: …“ und „App: …“)
 
 Jeder Screen ist 1440 × 900 und zeigt einen konkreten Moment mit echten Zuständen (Auswahl, ungespeichert, Abweichung, Hinweis).
+
+Seit dem 25.10.2026 hat die Datei zwei Arten von Screen-Seiten:
+- **Zielbild:** Die 30 Screens vom 23.10. zeigen die Idee mit allen Features. Über jedem steht eine Marke „Umgesetzt“, „Teilweise umgesetzt“ oder „Zielbild, noch offen“ mit dem Verweis auf den App-Screen und der wichtigsten Abweichung.
+- **App:** „App: Start und Welt“, „App: Pokémon und Gegenstände“ und „App: Texte, Technik, Dialoge“ zeichnen die App so nach, wie sie nach Phase 3 aussieht. Vorlage waren Screenshots der Test-Umgebung (Platin DE); Projektname „Sinnoh-Remix“.
+
+Die Übersicht steht auf der Titelseite im Brett „Stand der App“. Abweichungen im Einzelnen stehen in [`Audit-Design-System.md`](Audit-Design-System.md).
+
+Zielbild-Seiten:
 
 | Seite | Screens |
 |---|---|
@@ -179,11 +191,11 @@ Abweichungen vom Design-System, bewusst oder bis auf Weiteres:
 - Die Zeilengrenze der Texte (38 Zeichen, „34 von 38“) zählt Zeichen; die Prüfung „Zeile zu breit“ (`text.too-wide`, seit 3b.4a) misst die Breite gegen 216 px, nur in Dialogarchiven (die frühere 200-px-Warnung des Backends gibt es nicht mehr).
 - Einstellungen › Tastenkürzel zeigt nur die ⌘-Kürzel, die Buchstaben der Werkzeuge stehen in der Statusleiste und an den Werkzeugen.
 - Im Raster zeigt auch Bauen die Kennungen der Zellen (wie vor 3c); Tüfteln fügt Header-ID und Höhe hinzu.
-- `Editor_DesignSystem.fig` kennt die Tokens der Gruppe `szene/ds` (DS-Bildschirm) erst, wenn der Nutzer `tokens/` in OpenPencil einspielt („Design-Tokens importieren“); bis dahin fehlen diese Variablen in der Datei, App und `tokens/` haben sie. Ebenso das neue Szenen-Token `szene/status/fehler` (`#DE3142`, aus Primitiv `signal/500`, 3b.4a, in `tokens/Szene/Wert.tokens.json`): die `.fig` kennt es erst nach „Design-Tokens importieren“, das Einspielen ist ein Schritt des Nutzers; die `.fig` ist in 3b.4a unverändert.
+- Die Szenen-Tokens `ds`, `typ` und `status` (3c.2, 3b.3a, 3b.4a) sind seit dem 25.10.2026 auch in `Editor_DesignSystem.fig` eingespielt. In OpenPencil heißen Szenen-Variablen ohne Präfix (`ds/grund`, `typ/flug/grund`, `status/fehler`).
 - Quellkarten ohne Bild (3b.4b): Der Picker „Quellkarte wählen“ im Import-Dialog zeigt die Karten als „Karte 0006“ ohne Kartenbild; der Plan sah die Kartenbilder als Vorschau vor (das Muster „Picker“ verlangt Treffer mit Vorschau).
 - Fix-Vorschau als Text (3b.4a): „Umbrechen“ zeigt Vorher und Nachher als Zeilen in `BeforeAfter`, nicht als DS-Bildschirm (den sieht die Spezifikation 3b.4 §6 vor); die Seiten trennt eine Leerzeile. Ein DS-Bildschirm in der Vorschau braucht den rohen Text des Fixes und kommt später.
 - Nur Warps tragen die Fehlerfarbe (3b.4a, Spezifikation §8); Figuren, Auslöser und Schilder zeigen Befunde im Inspector und in den Listen, nicht am Marker. Pokédex, Attacken und Gegenstände haben keine Prüfung und keine Markierung.
-- Typfarben als Tokens (3b.3a): Die Pokémon-Typen sind die Token-Gruppe `szene/typ` in `tokens/Szene/Wert.tokens.json` statt einer festen Tabelle in `export_tokens.py`; die Werte entsprechen den bisherigen Typfarben. Als Variablen kennt die `.fig` sie erst nach dem Import; das Einspielen in OpenPencil („Design-Tokens importieren“) ist ein Schritt des Nutzers, die `.fig` ist in 3b.3a unverändert.
+- Typfarben als Tokens (3b.3a): Die Pokémon-Typen sind die Token-Gruppe `szene/typ` in `tokens/Szene/Wert.tokens.json` statt einer festen Tabelle in `export_tokens.py`; die Werte entsprechen den bisherigen Typfarben. Seit dem 25.10.2026 sind sie in der `.fig` eingespielt.
 - Kein `g4.shell.v2` (3b.3a): Die Spezifikation sieht für Unterbereich, Auswahl und Hand-Höhe je Unterbereich einen neuen Rahmen-Schlüssel vor. Die App bleibt bei `g4.shell.v1` und ergänzt die optionalen Felder `sub` (Unterbereich von Pokémon) und `selected` (Auswahl je Teil); ältere Stände lesen sich ohne Migration.
 - Keine Hand-Höhe je Unterbereich (3b.3a, auch nach 3b.3b offen): Die Hand merkt ihre Höhe je Bereich; Pokédex, Trainer, Begegnungen und Attacken teilen sie. Grund: die Höhe hängt am Deck des Bereichs, eine Höhe je Unterbereich wartet auf den Umbau des Decks.
 - Beschreibungen über `data_get` (3b.3a): Beschreibungen von Attacken und Gegenständen kommen mit dem Dokument aus `data_get` (Archiv, Nachricht, Text) und stehen nur lesend als DS-Textbox in der Schau; bearbeitet werden sie im Bereich Texte („Beschreibung bearbeiten“ springt dorthin).
@@ -198,7 +210,10 @@ Nicht in 3c (§1 der Spezifikation): die Bereiche Geschichten, Pokémon und Gege
 
 - **Gestrichelte Konturen** immer mit beiden Angaben bauen: `strokeDash={[6, 4]} dashPattern={[6, 4]}`. OpenPencil 0.16 speichert `strokeDash` nicht; `dashPattern` am Knoten wird gespeichert und beim Laden auf die Kontur übertragen.
 - **Nach jedem Speichern in OpenPencil** einmal `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555` (aus der Repo-Wurzel) ausführen (Dokument vorher in OpenPencil schließen). OpenPencil schreibt beim Speichern für manche Texte Glyphen-Umrisse mit falschen Indizes, die nach dem nächsten Öffnen als Zeichensalat erscheinen. Das Skript entfernt diese Umrisse, dann setzt OpenPencil die Texte beim Öffnen mit der echten Schrift. `--rgb555` rastet zusätzlich alle Farben auf das DS-Raster ein. Eine Sicherung liegt danach neben der Datei (`.vor-textfix`).
-- Ab 10.000 Knoten lehnt OpenPencil `update_node` ab; Änderungen gehen dann über `render` mit `replace_id`.
+- Ab 10.000 Knoten lehnt OpenPencil `update_node`, `set_text` und `set_layout` ab; Änderungen gehen dann über `render` mit `replace_id`.
+- Große JSX nicht in den MCP-Aufruf kopieren: Screen-Code in `<name>.body.js` schreiben, mit `openpencil/build-screen.sh <name>` bauen und mit `node scripts/op.mjs render '{…}' --jsx <name>.jsx` rendern. Bilder holt `node scripts/op.mjs export_image '{…}' --png bild.png`. `op.mjs` schließt seine Sitzung nach jedem Aufruf; der Server erlaubt höchstens zehn gleichzeitige Sitzungen.
+- Scheitert ein `render` mittendrin (etwa an einer unbekannten Variablen), bleibt ein halber Frame zurück. Mit `get_page_tree` (depth 1) prüfen und löschen.
+- Szenen-Variablen heißen ohne Präfix: `v('ds/grund')`, nicht `v('szene/ds/grund')`.
 - Den MCP-Server startet die App selbst, wenn `openpencil-mcp-http` im PATH liegt. Fehlt er nach einem Neustart, hilft `OPENPENCIL_MCP_AUTH_TOKEN="" openpencil-mcp-http` aus dem Projektordner und danach ein Neustart der App.
 
 ## Grenzen der OpenPencil-Datei
