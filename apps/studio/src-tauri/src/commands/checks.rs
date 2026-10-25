@@ -21,13 +21,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{
-    ChecksReport, Finding, FixId, Group, IgnoreKey, IgnoreSet, MapCell, Registry, Severity,
-    Snapshot, SnapshotCache, Subject, fingerprint_text, fix as fixes, parse_fingerprint,
+    ChecksReport, Finding, FixId, Group, IGNORE_FILE, IgnoreKey, IgnoreSet, MapCell, Registry,
+    Severity, Snapshot, SnapshotCache, Subject, fingerprint_text, fix as fixes, parse_fingerprint,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 
 use super::data::{off_main, subject_to_nav};
 use super::{CheckFieldsDto, FixDto, ProblemDto, lock, session};
@@ -93,15 +92,12 @@ pub struct ChecksReportDto {
 impl ChecksReportDto {
     /// `report` with the pass `checks` runs now, if any.
     fn of(report: &ChecksReport, checks: &ChecksState) -> ChecksReportDto {
-        ChecksReportDto::with_pass(report, checks.running(), progress(checks))
+        ChecksReportDto::with_pass(report, &Pass::of(checks))
     }
 
-    /// `report` with `running` and `progress` of the pass running now.
-    fn with_pass(
-        report: &ChecksReport,
-        running: bool,
-        progress: Option<ProgressDto>,
-    ) -> ChecksReportDto {
+    /// `report` with `running` and `progress` of the pass running now, and the notice of a
+    /// broken ignore file.
+    fn with_pass(report: &ChecksReport, pass: &Pass) -> ChecksReportDto {
         let rows = |findings: &[Finding]| {
             findings
                 .iter()
@@ -118,12 +114,16 @@ impl ChecksReportDto {
                     code,
                     why: why.clone(),
                 })
+                .chain(pass.ignore_broken.as_ref().map(|why| SkippedDto {
+                    code: IGNORE_FILE,
+                    why: why.clone(),
+                }))
                 .collect(),
             groups: report.groups.clone(),
             ran_ms: report.ran_ms,
             generation: report.generation,
-            running,
-            progress,
+            running: pass.running,
+            progress: pass.progress.clone(),
         }
     }
 
@@ -138,6 +138,71 @@ impl ChecksReportDto {
             generation,
             running: checks.running(),
             progress: progress(checks),
+        }
+    }
+}
+
+/// What an answer tells besides the report, read under the session lock: whether a pass
+/// runs now and how far it got, and why the ignore file could not be read (a `skipped` line
+/// with the file name as its code, see [`load_ignore`]).
+struct Pass {
+    running: bool,
+    progress: Option<ProgressDto>,
+    ignore_broken: Option<String>,
+}
+
+impl Pass {
+    fn of(checks: &ChecksState) -> Pass {
+        Pass {
+            running: checks.running(),
+            progress: progress(checks),
+            ignore_broken: checks.ignore_broken.clone(),
+        }
+    }
+}
+
+/// Reads the ignore file of the project at `root`. A broken one gives an empty set and why
+/// (the parse error, without the file name): the project opens all the same (ruling R15).
+pub fn load_ignore(root: &std::path::Path) -> (IgnoreSet, Option<String>) {
+    match IgnoreSet::load(root) {
+        Ok(set) => (set, None),
+        Err(e) => {
+            let why = match e {
+                KernelError::InvalidProject(text) => text
+                    .strip_prefix(&format!("{IGNORE_FILE}: "))
+                    .map(str::to_owned)
+                    .unwrap_or(text),
+                other => other.to_string(),
+            };
+            (IgnoreSet::default(), Some(why))
+        }
+    }
+}
+
+/// Refuses a write to the ignore file while it could not be read, so it is never overwritten
+/// unread; reads it again first, and a file that reads now (repaired, or removed) is taken
+/// as the session's list.
+fn refuse_broken_ignore(session: &mut Session) -> Result<(), CmdError> {
+    if session.checks.ignore_broken.is_none() {
+        return Ok(());
+    }
+    let (ignore, broken) = load_ignore(&session.project.root);
+    match broken {
+        None => {
+            if let Some(last) = &mut session.checks.last {
+                last.apply_ignore(&ignore);
+            }
+            session.checks.ignore = ignore;
+            session.checks.ignore_broken = None;
+            Ok(())
+        }
+        Some(why) => {
+            let text = format!(
+                "{IGNORE_FILE} ist nicht lesbar ({why}). Repariere oder lösche die Datei, dann \
+                 lässt sich wieder ausblenden und abschalten; bis dahin schreibt das Studio sie nicht."
+            );
+            session.checks.ignore_broken = Some(why);
+            Err(KernelError::Refused(text).into())
         }
     }
 }
@@ -245,13 +310,12 @@ fn run_checks_with(
     loop {
         match pass(state, groups) {
             PassOutcome::Done(report) => {
-                let (running, progress) = {
+                let pass = {
                     let mut guard = lock(state)?;
-                    let checks = &session(&mut guard)?.checks;
-                    (checks.running(), progress(checks))
+                    Pass::of(&session(&mut guard)?.checks)
                 };
                 // The rows are made without the session lock.
-                return Ok(ChecksReportDto::with_pass(&report, running, progress));
+                return Ok(ChecksReportDto::with_pass(&report, &pass));
             }
             PassOutcome::Stale => {
                 stale += 1;
@@ -295,6 +359,7 @@ fn change_ignore(
 ) -> Result<ChecksReportDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    refuse_broken_ignore(session)?;
     let mut ignore = session.checks.ignore.clone();
     change(
         &mut ignore,
@@ -402,6 +467,11 @@ fn full(report: Option<&ChecksReport>) -> Option<&ChecksReport> {
 /// "Ausgangslage übernehmen": ignores every warning and info of a full report of the current
 /// state (run first when there is none) and writes the ignore file.
 pub fn accept_baseline_impl(state: &AppState) -> Result<ChecksReportDto, CmdError> {
+    // Before the pass it may run: a file that cannot be written refuses at once.
+    {
+        let mut guard = lock(state)?;
+        refuse_broken_ignore(session(&mut guard)?)?;
+    }
     if !has_full_report(state)? {
         run_checks_impl(state, CheckScope::All)?;
     }
@@ -523,7 +593,12 @@ pub fn apply_fix_impl(
     let key = finding.key()?;
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix)?;
+    let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix);
+    if fix == FixId::CreateScript {
+        // Written at once, past the store; also a compile that failed after the write.
+        session.files_written();
+    }
+    let result = result?;
     session.after_write();
     Ok(FixResultDto {
         changed: result.changed,
@@ -542,31 +617,42 @@ pub async fn run_checks(
     .await
 }
 
+/// Polled every 250 ms while a pass runs: on the blocking pool, so a session lock held by a
+/// build, an adoption or a compile never freezes the window (Tauri runs sync commands on the
+/// main thread).
 #[tauri::command]
-pub fn checks_status(state: State<AppState>) -> Result<ChecksReportDto, CmdError> {
-    checks_status_impl(&state)
+pub async fn checks_status(app: tauri::AppHandle) -> Result<ChecksReportDto, CmdError> {
+    off_main(app, checks_status_impl).await
 }
 
+/// Takes the session lock and writes the ignore file: on the blocking pool.
 #[tauri::command]
-pub fn ignore_finding(
-    state: State<AppState>,
+pub async fn ignore_finding(
+    app: tauri::AppHandle,
     code: String,
     subject: Subject,
     key: String,
     fingerprint: String,
 ) -> Result<ChecksReportDto, CmdError> {
-    ignore_finding_impl(&state, &code, subject, &key, &fingerprint)
+    off_main(app, move |state| {
+        ignore_finding_impl(state, &code, subject, &key, &fingerprint)
+    })
+    .await
 }
 
+/// Takes the session lock and writes the ignore file: on the blocking pool.
 #[tauri::command]
-pub fn unignore_finding(
-    state: State<AppState>,
+pub async fn unignore_finding(
+    app: tauri::AppHandle,
     code: String,
     subject: Subject,
     key: String,
     fingerprint: String,
 ) -> Result<ChecksReportDto, CmdError> {
-    unignore_finding_impl(&state, &code, subject, &key, &fingerprint)
+    off_main(app, move |state| {
+        unignore_finding_impl(state, &code, subject, &key, &fingerprint)
+    })
+    .await
 }
 
 /// May run a full pass first: on the blocking pool.
@@ -623,8 +709,10 @@ mod tests {
 
     use super::*;
     use crate::commands::{
-        TextEdit, dirty_impl, edit_text_archive_impl, get_header_impl, history_impl,
-        open_project_impl, open_synthetic, set_header_impl, subject_to_nav, undo_impl,
+        ScriptSourceDto, TextEdit, add_script_impl, adopt_scripts_impl, dirty_impl,
+        edit_text_archive_impl, get_header_impl, history_impl, new_script_file_impl,
+        open_project_impl, open_synthetic, read_script_impl, save_level_script_impl,
+        save_script_impl, set_header_impl, subject_to_nav, undo_impl,
     };
     use crate::state::{AppState, PassOutcome};
 
@@ -988,6 +1076,72 @@ mod tests {
         assert!(checks_status_impl(&AppState::default()).is_err());
     }
 
+    /// Every checks command takes the session lock, which a build, an adoption or a compile
+    /// holds for seconds: none may run on the main thread (sync Tauri commands do), least of
+    /// all `checks_status`, which the UI polls while a pass runs.
+    #[test]
+    fn every_checks_command_runs_off_the_main_thread() {
+        // The commands, before the tests.
+        let source = include_str!("checks.rs")
+            .split(concat!("mod ", "tests {"))
+            .next()
+            .unwrap();
+        let commands: Vec<&str> = source
+            .split(concat!("#[tauri::", "command]"))
+            .skip(1)
+            .filter_map(|rest| rest.lines().find(|l| l.contains("fn ")))
+            .collect();
+        assert_eq!(commands.len(), 8, "{commands:?}");
+        for line in commands {
+            assert!(line.contains("pub async fn "), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_script_write_on_disk_makes_the_report_stale() {
+        let (_fixture, state) = open_synthetic();
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        let generation = || {
+            state
+                .lock_session()
+                .as_ref()
+                .unwrap()
+                .store
+                .change_generation()
+        };
+        let report = run_checks_impl(&state, CheckScope::All).unwrap();
+        assert_eq!(checks_status_impl(&state).unwrap(), report);
+        // A script save writes the source and the member, not the store: the store's
+        // generation stays, the report is of an older state all the same.
+        let before = generation();
+        save_script_impl(&state, 0, "script Main #1:\n    End\n".into()).unwrap();
+        assert_eq!(generation(), before);
+        let after = checks_status_impl(&state).unwrap();
+        assert!(after.groups.is_empty() && after.findings.is_empty());
+        // The next run is current again.
+        let again = run_checks_impl(&state, CheckScope::All).unwrap();
+        assert_eq!(checks_status_impl(&state).unwrap(), again);
+
+        // A pass that spans such a write (a new script, a new file, the adoption, a level
+        // script, `create_script`) is discarded and its report never shown.
+        let input = state.begin_checks().unwrap();
+        add_script_impl(&state, 0).unwrap();
+        assert!(matches!(
+            state.finish_checks(input.run(&Group::ALL)),
+            PassOutcome::Stale
+        ));
+        assert!(checks_status_impl(&state).unwrap().groups.is_empty());
+        run_checks_impl(&state, CheckScope::All).unwrap();
+        new_script_file_impl(&state, "script".into()).unwrap();
+        assert!(checks_status_impl(&state).unwrap().groups.is_empty());
+        run_checks_impl(&state, CheckScope::All).unwrap();
+        let ScriptSourceDto::LevelScript { doc } = read_script_impl(&state, 1).unwrap() else {
+            panic!("script file 1 is the level script");
+        };
+        save_level_script_impl(&state, 1, doc).unwrap();
+        assert!(checks_status_impl(&state).unwrap().groups.is_empty());
+    }
+
     #[test]
     fn run_checks_waits_for_a_running_pass_and_takes_its_report() {
         let (_fixture, state) = open_synthetic();
@@ -1241,15 +1395,50 @@ mod tests {
     }
 
     #[test]
-    fn a_broken_ignore_file_names_itself_when_the_project_opens() {
+    fn a_broken_ignore_file_opens_the_project_and_is_never_overwritten() {
         let (fixture, _state) = open_synthetic();
-        std::fs::write(root_of(&fixture).join(IGNORE_FILE), "{ broken").unwrap();
-        let other = AppState::default();
-        let err = open_project_impl(&other, root_of(&fixture).to_str().unwrap())
-            .err()
-            .unwrap();
-        assert!(err.message.contains(IGNORE_FILE), "{}", err.message);
-        assert!(other.lock_session().is_none());
+        let file = root_of(&fixture).join(IGNORE_FILE);
+        std::fs::write(&file, "{ broken").unwrap();
+        // The project opens, with nothing ignored (ruling R15).
+        let state = AppState::default();
+        open_project_impl(&state, root_of(&fixture).to_str().unwrap()).unwrap();
+        let report = run_checks_impl(&state, CheckScope::All).unwrap();
+        assert_eq!(report.groups, Group::ALL);
+        assert!(report.ignored.is_empty());
+        // Its report names the file and the parse error.
+        let notice: Vec<&SkippedDto> = report
+            .skipped
+            .iter()
+            .filter(|s| s.code == IGNORE_FILE)
+            .collect();
+        assert_eq!(notice.len(), 1, "{:?}", report.skipped);
+        assert!(notice[0].why.contains("line 1"), "{}", notice[0].why);
+        assert_eq!(checks_status_impl(&state).unwrap().skipped, report.skipped);
+
+        // Every write to the file is refused, in German, naming it; the file stays as it was.
+        let split = rows(&report, "header.text-split")[0].clone();
+        let (code, subject, key, fingerprint) = key_of(&split);
+        let refusals = [
+            ignore(&state, &split).unwrap_err(),
+            unignore_finding_impl(&state, &code, subject, &key, &fingerprint).unwrap_err(),
+            accept_baseline_impl(&state).unwrap_err(),
+            set_check_enabled_impl(&state, "encounter.empty-slot", false).unwrap_err(),
+        ];
+        for err in refusals {
+            assert!(
+                err.message.contains(IGNORE_FILE) && err.message.contains("nicht lesbar"),
+                "{}",
+                err.message
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{ broken");
+
+        // Repaired (here: removed), the next write reads it again and works.
+        std::fs::remove_file(&file).unwrap();
+        let answer = ignore(&state, &split).unwrap();
+        assert_eq!(answer.ignored, std::slice::from_ref(&split));
+        assert!(!answer.skipped.iter().any(|s| s.code == IGNORE_FILE));
+        assert!(file.is_file());
     }
 
     #[test]

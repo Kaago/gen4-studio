@@ -58,6 +58,14 @@ impl Session {
         self.refs = RefIndex::new();
         self.checks.store_changed();
     }
+
+    /// Notes a write to the project's files that does not go through the store (a script
+    /// source or member, a new script file, the adoption, `create_script`, the members of a
+    /// new trainer): the checks read those from the disk, so their last report and a pass
+    /// running now are of an older state ([`ChecksState::disk_written`]).
+    pub fn files_written(&mut self) {
+        self.checks.disk_written();
+    }
 }
 
 /// Progress of a running check pass: a short label (`cheap`, `scripts`, `texts`, `load`) the
@@ -65,11 +73,21 @@ impl Session {
 pub type ChecksProgress = (String, u32, u32);
 
 /// The checks of a session (spec 3b.4 §5): the last current report, whether a pass runs and
-/// how far it got, when the store last changed (for the debounced cheap run), the ignore list
-/// and the cache of decoded text archives and script sources between runs.
+/// how far it got, when the store last changed (for the debounced cheap run), the disk epoch,
+/// the ignore list and the cache of decoded text archives and script sources between runs.
+///
+/// A report is current while the store has its change generation and the disk epoch is the
+/// one it began at: the generation counts the store's changes, the epoch the writes to the
+/// project's files outside the store (script saves and the like, see
+/// [`Session::files_written`]), which the checks read from the disk.
 pub struct ChecksState {
     /// The last report that was current when it finished; never one of an older generation.
     pub last: Option<ChecksReport>,
+    /// The disk epoch `last` was made at (see [`ChecksState::epoch`]).
+    last_epoch: u64,
+    /// Rises with every write to the project's files outside the store
+    /// ([`ChecksState::disk_written`]).
+    epoch: u64,
     /// Set while a pass runs; shared with it, which clears it when it ends in any way
     /// (finished, dropped or panicked, see [`PassGuard`]).
     running: Arc<AtomicBool>,
@@ -81,6 +99,10 @@ pub struct ChecksState {
     pub debounce: Instant,
     /// Disabled checks and ignored findings (from `g4-checks.json`).
     pub ignore: IgnoreSet,
+    /// Why `g4-checks.json` could not be read when the project opened (ruling R15): `ignore`
+    /// is then empty, every report names the file, and writing it is refused until it reads
+    /// again, so it is never overwritten unread. `None`: it was read (or is not there).
+    pub ignore_broken: Option<String>,
     /// Shared with the running pass, which writes it without the session lock.
     progress: Arc<Mutex<Option<ChecksProgress>>>,
     /// `None` while a pass holds it.
@@ -97,10 +119,13 @@ impl ChecksState {
     pub fn new() -> ChecksState {
         ChecksState {
             last: None,
+            last_epoch: 0,
+            epoch: 0,
             running: Arc::new(AtomicBool::new(false)),
             rerun: false,
             debounce: Instant::now(),
             ignore: IgnoreSet::default(),
+            ignore_broken: None,
             progress: Arc::new(Mutex::new(None)),
             cache: Some(SnapshotCache::default()),
         }
@@ -112,13 +137,28 @@ impl ChecksState {
     }
 
     /// The last report if it is of the store's current generation `store_generation`
-    /// (`Store::change_generation`) and of the current ignore list; `None` when there is
-    /// none, the store changed since, or a check it left out as disabled was switched on
-    /// since (its findings are missing), so a caller never shows findings of an older state.
+    /// (`Store::change_generation`), of the current disk epoch and of the current ignore list;
+    /// `None` when there is none, the store changed since, the project's files were written
+    /// outside the store since ([`ChecksState::disk_written`]), or a check it left out as
+    /// disabled was switched on since (its findings are missing), so a caller never shows
+    /// findings of an older state.
     pub fn current_report(&self, store_generation: u64) -> Option<&ChecksReport> {
         self.last.as_ref().filter(|report| {
-            report.generation == store_generation && !report.lacks_enabled(&self.ignore)
+            report.generation == store_generation
+                && self.last_epoch == self.epoch
+                && !report.lacks_enabled(&self.ignore)
         })
+    }
+
+    /// The disk epoch: how often the project's files were written outside the store.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Notes a write to the project's files outside the store: the last report and a pass
+    /// running now are of an older state.
+    pub fn disk_written(&mut self) {
+        self.epoch += 1;
     }
 
     /// How far the running pass got; `None` when none runs or it reported nothing yet.
@@ -159,6 +199,8 @@ pub enum PassOutcome {
 /// without the lock.
 pub struct PassInput {
     project: Arc<Project>,
+    /// The disk epoch the pass began at.
+    epoch: u64,
     overlay: Overlay,
     cache: SnapshotCache,
     ignore: IgnoreSet,
@@ -168,6 +210,7 @@ pub struct PassInput {
 /// A finished pass, for [`AppState::finish_checks`].
 pub struct PassResult {
     project: Arc<Project>,
+    epoch: u64,
     cache: SnapshotCache,
     report: ChecksReport,
     guard: PassGuard,
@@ -204,6 +247,7 @@ impl PassInput {
         );
         PassResult {
             project: self.project,
+            epoch: self.epoch,
             cache: snap.into_cache(),
             report,
             guard: self.guard,
@@ -277,6 +321,7 @@ impl AppState {
         *lock(&checks.progress) = None;
         Ok(PassInput {
             project: Arc::clone(&session.project),
+            epoch: checks.epoch,
             overlay: session.store.snapshot_overlay(),
             cache: checks.cache.take().unwrap_or_default(),
             ignore: checks.ignore.clone(),
@@ -288,12 +333,14 @@ impl AppState {
     }
 
     /// Ends a pass under the session lock: keeps its cache, and its report when the store is
-    /// still at its generation and no check the pass left out as disabled was switched on
-    /// meanwhile; else discards it and sets [`ChecksState::rerun`]. A session closed or
-    /// replaced meanwhile gets nothing. Either way the pass no longer runs.
+    /// still at its generation, nothing was written outside the store (the disk epoch is the
+    /// one it began at) and no check the pass left out as disabled was switched on meanwhile;
+    /// else discards it and sets [`ChecksState::rerun`]. A session closed or replaced
+    /// meanwhile gets nothing. Either way the pass no longer runs.
     pub fn finish_checks(&self, result: PassResult) -> PassOutcome {
         let PassResult {
             project,
+            epoch,
             cache,
             report,
             guard: pass,
@@ -305,7 +352,9 @@ impl AppState {
         let checks = &mut session.checks;
         // The pass ran with the ignore list it began with: a check switched on since is
         // missing from its report as much as a change of the store would be.
-        let current = report.is_current(&session.store) && !report.lacks_enabled(&checks.ignore);
+        let current = report.is_current(&session.store)
+            && epoch == checks.epoch
+            && !report.lacks_enabled(&checks.ignore);
         // Under the session lock: a status query never sees the pass ended without its
         // report and cache in place.
         drop(pass);
@@ -315,6 +364,7 @@ impl AppState {
             let mut report = report;
             report.apply_ignore(&checks.ignore);
             checks.last = Some(report.clone());
+            checks.last_epoch = epoch;
             PassOutcome::Done(Box::new(report))
         } else {
             checks.rerun = true;
