@@ -328,6 +328,9 @@ async fn concurrent_calls_are_served() {
     client.cancel().await.unwrap();
 }
 
+/// Debug builds only: `G4_MCP_TEST_NOISE` is a debug-only hook of the server (see the note above
+/// `send`), in a `--release` run no noise is printed.
+#[cfg(debug_assertions)]
 #[tokio::test]
 async fn stray_stdout_does_not_break_the_protocol() {
     let fixture = synthetic_project();
@@ -892,31 +895,52 @@ async fn structured_content_matches_output_schema() {
     client.cancel().await.unwrap();
 }
 
+// The two closing-stdin tests below rely on `G4_MCP_TEST_DELAY_MS`, a hook that exists only in
+// debug builds of the server (like `G4_MCP_TEST_NOISE`). In a `--release` run the call would be
+// fast and the test would pass without proving anything, so there the tests and their helpers
+// are left out instead of passing for nothing.
+
 /// Sends one line of JSON-RPC to the server.
+#[cfg(debug_assertions)]
 fn send(stdin: &mut impl Write, message: Value) {
     writeln!(stdin, "{message}").unwrap();
     stdin.flush().unwrap();
+}
+
+/// Kills the child when dropped, so a failed assert does not leave a server running.
+#[cfg(debug_assertions)]
+struct KillOnDrop(std::process::Child);
+
+#[cfg(debug_assertions)]
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// Starts `studio mcp` with `flags` and `G4_MCP_TEST_DELAY_MS` (each call held on its
 /// worker that long, longer than rmcp's own five seconds for answers in flight), sends
 /// `tool` with `args` and closes stdin right away. Asserts that the server waited for the
 /// call and exited with 0.
+#[cfg(debug_assertions)]
 fn close_during_call(project: &Path, flags: &[&str], tool: &str, args: Value) {
     const DELAY_MS: u64 = 7000;
-    let mut child = Command::new(STUDIO)
-        .arg("mcp")
-        .arg("--project")
-        .arg(project)
-        .args(flags)
-        .env("G4_MCP_TEST_DELAY_MS", DELAY_MS.to_string())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut child = KillOnDrop(
+        Command::new(STUDIO)
+            .arg("mcp")
+            .arg("--project")
+            .arg(project)
+            .args(flags)
+            .env("G4_MCP_TEST_DELAY_MS", DELAY_MS.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut stdin = child.0.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.0.stdout.take().unwrap());
     send(
         &mut stdin,
         json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -938,7 +962,7 @@ fn close_during_call(project: &Path, flags: &[&str], tool: &str, args: Value) {
     );
     drop(stdin);
     let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = child.0.try_wait().unwrap() {
             break status;
         }
         assert!(started.elapsed() < LIMIT, "the server did not exit");
@@ -955,7 +979,8 @@ fn close_during_call(project: &Path, flags: &[&str], tool: &str, args: Value) {
 /// is there, byte for byte the one the same call makes without the delay. (The synthetic
 /// game cannot be built into a ROM, so the write is a map part export through g4_call,
 /// which writes a file like a build; `vanilla_closing_stdin_waits_for_a_running_build`
-/// runs build_rom.)
+/// runs build_rom.) Debug builds only: see the note above `send`.
+#[cfg(debug_assertions)]
 #[test]
 fn closing_stdin_waits_for_a_running_write() {
     let fixture = synthetic_project();
@@ -985,7 +1010,9 @@ fn closing_stdin_waits_for_a_running_write() {
     assert_eq!(std::fs::read(&slow).unwrap(), plain);
 }
 
-/// Gated on `G4_TEST_PROJECT`: closing stdin during a real build.
+/// Gated on `G4_TEST_PROJECT`: closing stdin during a real build. Debug builds only: see the
+/// note above `send`.
+#[cfg(debug_assertions)]
 #[test]
 fn vanilla_closing_stdin_waits_for_a_running_build() {
     let Some((_tmp, project)) = vanilla_copy() else {
