@@ -24,13 +24,19 @@ _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _HEADER_STEPS = ("continue", "where", "expect-map")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
 BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": value} = hdr.Pt with field replaced
+# one part of an expectation path: a key, a list index or `length`, then any number of filters `[key=value]`
+_PATH_PART = re.compile(r"([^.\[\]=]*)((?:\[[^\[\]=]+=[^\[\]]*\])*)")
+_PATH_FILTER = re.compile(r"\[([^\[\]=]+)=([^\[\]]*)\]")
+_SHOWN_MAX = 300  # characters of a found value in a message
 
 
 @dataclass
 class Scenario:
     game: str
     # [befehl, {argumente}] or [befehl, {argumente}, name]: `name` binds the command's result for the
-    # `${name…}` placeholders of later edits, of `check` and of `play` (resolved while the scenario runs)
+    # `${name…}` placeholders of later edits, of `check` and of `play` (resolved while the scenario runs).
+    # [befehl, {argumente}, {expect: [{path, equals}, …], as?: name}]: the result must have `equals` at
+    # each `path` (see `expect_lookup`), else the scenario ends with exit 2; `as` binds it as well.
     edits: list[list]
     build: str | None
     play: list[str]  # flat step tokens, ready for `g4emu run` once the bound names are resolved
@@ -138,26 +144,141 @@ def resolve(value: Any, results: dict[str, Any]) -> Any:
     return _PLACEHOLDER.sub(inline, value)
 
 
-def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[str | None]:
-    """The name each edit binds (None: none), checked: a valid name, once, not a --set name."""
+class PathMissing(Exception):
+    """An expectation path that does not exist in the answer; args[0] is the path up to where it broke."""
+
+
+def parse_expect_path(path: Any) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Split an expectation path into its parts: (key, index or `length`; "" for none) and its filters.
+
+    Grammar: parts separated by dots; a part is a key, a list index (`0`) or `length` (the size of a
+    list), followed by any number of filters `[key=value]` (keep the list items whose key has that
+    value, compared as text). A filter value may contain dots: `findings[code=warp.dest-warp].length`.
+    Raises ValueError for anything else.
+    """
+    if not isinstance(path, str) or not path:
+        raise ValueError(f"Pfad {path!r} ist leer oder kein Text")
+    parts, current, inside = [], "", False
+    for ch in path:
+        if ch == "." and not inside:
+            parts.append(current)
+            current = ""
+            continue
+        if (ch == "[" and inside) or (ch == "]" and not inside):
+            raise ValueError(f"Pfad {path!r}: Klammern passen nicht")
+        inside = ch == "[" or (inside and ch != "]")
+        current += ch
+    if inside:
+        raise ValueError(f"Pfad {path!r}: Klammer [ nicht geschlossen")
+    parts.append(current)
+    parsed = []
+    for part in parts:
+        match = _PATH_PART.fullmatch(part)
+        if not part or match is None:
+            raise ValueError(f"Pfad {path!r}: Teil {part!r} ist kein Schlüssel, Index oder Filter [schlüssel=wert]")
+        parsed.append((match.group(1), _PATH_FILTER.findall(match.group(2))))
+    return parsed
+
+
+def _as_text(value: Any) -> str:
+    """A JSON value as a filter compares it: text as it is, everything else as JSON (`3`, `true`, `null`)."""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def expect_lookup(answer: Any, path: str) -> Any:
+    """The value at `path` (grammar: `parse_expect_path`) in a command's answer. Raises PathMissing."""
+    value, shown = answer, ""
+    for name, filters in parse_expect_path(path):
+        if name:
+            shown = f"{shown}.{name}" if shown else name
+            if isinstance(value, dict) and name in value:
+                value = value[name]
+            elif isinstance(value, list) and name.isdigit() and int(name) < len(value):
+                value = value[int(name)]
+            elif isinstance(value, list) and name == "length":
+                value = len(value)
+            else:
+                raise PathMissing(shown)
+        for key, want in filters:
+            shown = f"{shown}[{key}={want}]"
+            if not isinstance(value, list):
+                raise PathMissing(shown)
+            value = [item for item in value if isinstance(item, dict) and key in item and _as_text(item[key]) == want]
+    return value
+
+
+def _same(found: Any, want: Any) -> bool:
+    """JSON equality: a number is not text, and true is not 1."""
+    if isinstance(found, bool) or isinstance(want, bool):
+        return type(found) is type(want) and found == want
+    return found == want
+
+
+def _shown(value: Any) -> str:
+    text = json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= _SHOWN_MAX else text[:_SHOWN_MAX] + "…"
+
+
+def _third(third: Any) -> tuple[str | None, list[dict]]:
+    """The name an edit's third element binds (None: none) and its expectations ([] for a bare name)."""
+    if isinstance(third, str):
+        return third, []
+    expect = third["expect"]
+    return third.get("as"), expect if isinstance(expect, list) else [expect]
+
+
+def _checked_third(where: str, third: Any) -> tuple[str | None, list[dict] | None]:
+    """Checks an edit's third element: a name, or {expect: {path, equals} | [{path, equals}, …], as?: name}.
+    Returns the name (None: none) and the expectations (None for a bare name)."""
+    if isinstance(third, str):
+        return third, None
+    unknown = sorted(str(key) for key in third if key not in ("expect", "as"))
+    if unknown:
+        raise ValueError(f"{where}: unbekannte Schlüssel {', '.join(unknown)}; erlaubt sind expect und as")
+    if "expect" not in third:
+        raise ValueError(f"{where}: expect fehlt: {third!r}")
+    expect = third["expect"]
+    items = expect if isinstance(expect, list) else [expect]
+    if not items:
+        raise ValueError(f"{where}: expect ist leer")
+    for item in items:
+        if not (isinstance(item, dict) and set(item) == {"path", "equals"}):
+            raise ValueError(f"{where}: jede Erwartung muss {{path, equals}} sein: {item!r}")
+        try:
+            parse_expect_path(item["path"])
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from None
+    return third.get("as"), items
+
+
+def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[tuple[str | None, list[dict] | None]]:
+    """Per edit the name it binds (None: none), checked: a valid name, once, not a --set name; and its
+    expectations (None: the edit has no third element or a bare name)."""
     if not isinstance(edits, list):
         raise ValueError(f"{path}: edits muss eine Liste sein: {edits!r}")
-    names: list[str | None] = []
+    found: list[tuple[str | None, list[dict] | None]] = []
+    names: set[str] = set()
     for edit in edits:
         if not (
             isinstance(edit, list) and len(edit) in (2, 3) and isinstance(edit[0], str) and isinstance(edit[1], dict)
+            and (len(edit) == 2 or isinstance(edit[2], (str, dict)))
         ):
-            raise ValueError(f"{path}: jede Änderung muss [befehl, {{argumente}}] oder [befehl, {{argumente}}, name] sein: {edit!r}")
+            raise ValueError(
+                f"{path}: jede Änderung muss [befehl, {{argumente}}], [befehl, {{argumente}}, name] oder "
+                f"[befehl, {{argumente}}, {{expect: {{path, equals}}, as: name}}] sein: {edit!r}"
+            )
         if len(edit) == 2:
-            names.append(None)
+            found.append((None, None))
             continue
-        name = edit[2]
-        if not (isinstance(name, str) and _NAME.fullmatch(name)):
-            raise ValueError(f"{path}: Name {name!r} der Änderung {edit[0]} ist kein gültiger Name")
-        if name in names or name in env:
-            raise ValueError(f"{path}: Name {name} ist schon vergeben")
-        names.append(name)
-    return names
+        name, expects = _checked_third(f"{path}: {edit[0]}", edit[2])
+        if name is not None:
+            if not (isinstance(name, str) and _NAME.fullmatch(name)):
+                raise ValueError(f"{path}: Name {name!r} der Änderung {edit[0]} ist kein gültiger Name")
+            if name in names or name in env:
+                raise ValueError(f"{path}: Name {name} ist schon vergeben")
+            names.add(name)
+        found.append((name, expects))
+    return found
 
 
 def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
@@ -170,13 +291,25 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     if not isinstance(raw, dict) or "game" not in raw:
         raise ValueError(f"{path}: 'game' fehlt")
     raw_edits = raw.get("edits") or []
-    names = _bindings(path, raw_edits, env)
+    bindings = _bindings(path, raw_edits, env)
+    names = [name for name, _ in bindings]
     bound = frozenset(n for n in names if n)
     edits: list[list] = []
     for i, edit in enumerate(raw_edits):
         earlier = frozenset(n for n in names[:i] if n)
         try:
-            edits.append([edit[0], substitute(edit[1], env, earlier), *edit[2:]])
+            entry = [edit[0], substitute(edit[1], env, earlier)]
+            name, expects = bindings[i]
+            if expects is not None:  # `equals` may hold placeholders like the arguments
+                third: dict[str, Any] = {
+                    "expect": [{"path": e["path"], "equals": substitute(e["equals"], env, earlier)} for e in expects]
+                }
+                if name is not None:
+                    third["as"] = name
+                entry.append(third)
+            elif name is not None:
+                entry.append(name)
+            edits.append(entry)
         except KeyError as e:
             used = str(e.args[0]).split(".")[0]
             if used in bound:
@@ -275,6 +408,25 @@ def _fail(scenario: Scenario, message: str) -> int:
     return 1
 
 
+def _missed(command: str, answer: Any, expects: list[dict], results: dict[str, Any]) -> list[str]:
+    """Checks the expectations against a command's answer; prints each met one to stderr and returns the
+    missed ones as `<command> <path>: Soll <equals>, Ist <found>` (Ist `fehlt (<path up to the gap>)`).
+    Raises KeyError / ValueError when `equals` names a result that is not bound."""
+    missed = []
+    for expect in expects:
+        path, want = expect["path"], resolve(expect["equals"], results)
+        try:
+            found = expect_lookup(answer, path)
+        except PathMissing as e:
+            missed.append(f"{command} {path}: Soll {_shown(want)}, Ist fehlt ({e.args[0]})")
+            continue
+        if _same(found, want):
+            print(f"Erwartung erfüllt: {command} {path} = {_shown(found)}", file=sys.stderr)
+        else:
+            missed.append(f"{command} {path}: Soll {_shown(want)}, Ist {_shown(found)}")
+    return missed
+
+
 def _run_checks(checks: list[list[str]], project: Path, out: Path, repo: Path) -> str | None:
     """Runs the `check` commands in the project folder (so `out.nds` is the built ROM), output to
     out/check.log and stderr. Stops at the first exit != 0; returns its message, None if all pass."""
@@ -368,22 +520,34 @@ def run_scenario(
                 pass
         return None, lines
 
-    # An edit with a name ends a session: its result is needed before the next edit can be
-    # written, and every batch is a fresh bridge state, so the session saves and the next opens again.
+    # An edit with a name or an expectation ends a session: its result is needed before the next edit
+    # can be written (or the scenario goes on), and every batch is a fresh bridge state, so the session
+    # saves and the next opens again.
     batch: list[list] = [opened]
     try:
         for edit in scenario.edits:
             batch.append([edit[0], resolve(edit[1], results)])
             if len(edit) < 3:
                 continue
+            name, expects = _third(edit[2])
             at = len(batch) - 1
             failure, lines = session([*batch, ["save", {}]])
             if failure is not None:
                 return _fail(scenario, failure)
             if len(lines) <= at or not lines[at].get("ok"):
-                return _fail(scenario, f"keine Antwort von {edit[0]} für {edit[2]}; Ausgabe: {out / 'bridge.jsonl'}")
-            results[edit[2]] = lines[at].get("result")
-            (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+                return _fail(
+                    scenario, f"keine Antwort von {edit[0]} für {name or 'expect'}; Ausgabe: {out / 'bridge.jsonl'}"
+                )
+            answer = lines[at].get("result")
+            if name is not None:
+                results[name] = answer
+                (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+            missed = _missed(edit[0], answer, expects, results)
+            if missed:
+                for line in missed:
+                    print(f"Erwartung verfehlt: {line}", file=sys.stderr)
+                _summary(scenario, False, [])
+                return 2
             batch = [opened]
         checks = [[str(resolve(arg, results)) for arg in check] for check in scenario.check]
         play = [str(resolve(token, results)) for token in scenario.play]

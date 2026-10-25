@@ -686,3 +686,206 @@ def test_load_scenario_rejects_a_bound_name_in_build(tmp_path):
     text = 'game: CPUD\nedits: [[create_trainer, {}, t1]]\nbuild: "out-${t1.id}.nds"\n'
     with pytest.raises(ValueError, match="build"):
         load_scenario(write_yaml(tmp_path, text), {})
+
+
+# --- expectations: an edit [befehl, {argumente}, {expect: {path, equals}, as?: name}] checks its answer ---
+
+REPORT = {
+    "findings": [
+        {"code": "warp.dest-warp", "severity": "error", "subject": {"kind": "eventFile", "index": 394}, "key": "warp:0"},
+        {"code": "text.too-wide", "severity": "warning", "subject": {"kind": "textArchive", "index": 554}, "key": "m"},
+        {"code": "text.too-wide", "severity": "warning", "subject": {"kind": "textArchive", "index": 9}, "key": "n"},
+    ],
+    "groups": ["cheap", "per_script", "per_archive"],
+    "running": False,
+}
+
+
+@pytest.mark.parametrize(
+    "path, found",
+    [
+        ("findings.length", 3),
+        ("findings.0.code", "warp.dest-warp"),  # numeric index
+        ("findings.2.subject.index", 9),  # dotted keys
+        ("findings[code=warp.dest-warp].length", 1),  # a filter value may contain dots
+        ("findings[severity=warning].length", 2),
+        ("findings[severity=info].length", 0),
+        ("findings[code=text.too-wide].1.key", "n"),
+        ("findings[code=text.too-wide][key=m].0.subject.index", 554),  # filters chain
+        ("findings[key=warp:0].0.severity", "error"),
+        ("running", False),
+        ("groups.length", 3),
+    ],
+)
+def test_expect_paths_walk_keys_indices_length_and_filters(path, found):
+    assert scenario.expect_lookup(REPORT, path) == found
+
+
+def test_expect_paths_start_at_a_list_and_filter_on_the_stringified_value():
+    answer = [{"state": {"kind": "error"}, "index": 3, "ok": True, "none": None}, {"index": 30, "ok": False}]
+    assert scenario.expect_lookup(answer, "0.state.kind") == "error"
+    assert scenario.expect_lookup(answer, "[index=3].length") == 1  # 3, not 30
+    assert scenario.expect_lookup(answer, "[ok=false].0.index") == 30
+    assert scenario.expect_lookup(answer, "[none=null].length") == 1
+    assert scenario.expect_lookup(answer, "length") == 2
+
+
+@pytest.mark.parametrize(
+    "path, missing",
+    [
+        ("findings.9", "findings.9"),  # index past the end
+        ("findings.0.nope", "findings.0.nope"),
+        ("nope.length", "nope"),
+        ("running.length", "running.length"),  # .length only on lists
+        ("running[a=b]", "running[a=b]"),  # a filter only on lists
+        ("findings[nope=1].0", "findings[nope=1].0"),  # the filter keeps nothing
+    ],
+)
+def test_expect_paths_report_where_they_break(path, missing):
+    with pytest.raises(scenario.PathMissing) as e:
+        scenario.expect_lookup(REPORT, path)
+    assert e.value.args[0] == missing
+
+
+@pytest.mark.parametrize("path", ["", "a..b", ".a", "a.", "findings[code]", "findings[=x]", "findings[code=x", "a]b"])
+def test_expect_paths_with_bad_grammar_are_refused(path):
+    with pytest.raises(ValueError, match="Pfad"):
+        scenario.parse_expect_path(path)
+
+
+EXPECT_YAML = """\
+game: CPUD
+edits:
+  - [accept_baseline, {}]
+  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]
+  - [run_checks, {}, {expect: [{path: "findings[severity=error].length", equals: 0}, {path: "findings[severity=warning].length", equals: "${NULL}"}]}]
+  - [run_checks, {}, {expect: {path: "findings[code=text.too-wide].length", equals: 1}, as: r}]
+  - [apply_fix, {finding: "${r.findings.0}", fix: wrap}, {expect: {path: remaining, equals: false}}]
+  - [run_checks, {}, done]
+"""
+
+
+def test_load_scenario_reads_expectations_and_binds_their_names(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, EXPECT_YAML), {"NULL": "0"})
+    assert sc.edits[0] == ["accept_baseline", {}]
+    assert sc.edits[1][2] == {"expect": [{"path": "findings.length", "equals": 0}]}
+    # several expectations on one answer; --set placeholders in `equals` are replaced
+    assert sc.edits[2][2] == {"expect": [
+        {"path": "findings[severity=error].length", "equals": 0},
+        {"path": "findings[severity=warning].length", "equals": 0},
+    ]}
+    assert sc.edits[3][2] == {"expect": [{"path": "findings[code=text.too-wide].length", "equals": 1}], "as": "r"}
+    assert sc.edits[4][1] == {"finding": "${r.findings.0}", "fix": "wrap"}  # bound by `as`, resolved later
+    assert sc.edits[5][2] == "done"  # a bare name binds as before
+
+
+@pytest.mark.parametrize(
+    "third, message",
+    [
+        ("{}", "expect"),
+        ("{as: r}", "expect"),
+        ("{expect: {path: a}}", "equals"),
+        ("{expect: {equals: 1}}", "path"),
+        ("{expect: {path: a, equals: 1, extra: 2}}", "extra"),
+        ("{expect: [], as: r}", "expect"),
+        ("{expect: {path: 'a[b]', equals: 1}}", "Pfad"),
+        ("{expect: {path: a, equals: 1}, as: 'kein name'}", "kein name"),
+        ("{expect: {path: a, equals: 1}, other: 1}", "other"),
+        ("7", "befehl"),
+    ],
+)
+def test_load_scenario_rejects_malformed_expectations(tmp_path, third, message):
+    text = f"game: CPUD\nedits: [[run_checks, {{}}, {third}]]\n"
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def test_an_expect_name_is_bound_once_and_not_before(tmp_path):
+    used_early = 'game: CPUD\nedits: [[a, {x: "${r}"}], [b, {}, {expect: {path: a, equals: 1}, as: r}]]\n'
+    with pytest.raises(ValueError, match="später"):
+        load_scenario(write_yaml(tmp_path, used_early), {})
+    twice = "game: CPUD\nedits: [[a, {}, r], [b, {}, {expect: {path: a, equals: 1}, as: r}]]\n"
+    with pytest.raises(ValueError, match="schon vergeben"):
+        load_scenario(write_yaml(tmp_path, twice), {})
+
+
+@pytest.mark.parametrize("name", ["pt-kleiner-hack.yaml", "hg-kleiner-hack.yaml", "pt-pruefungen.yaml"])
+def test_the_scenarios_with_expectations_load(name):
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    env.update(KOPIE="/k", MODEL_SHA1="ab", PER_SHA1="cd")
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    expects = [edit[2] for edit in sc.edits if len(edit) == 3 and isinstance(edit[2], dict)]
+    assert expects and all(e["expect"] for e in expects)
+
+
+def test_a_met_expectation_ends_the_session_binds_and_goes_on(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    out = tmp_path / "out"
+    sc = simple_scenario(
+        edits=[
+            ["accept_baseline", {}],
+            ["run_checks", {"give": REPORT}, {"expect": [
+                {"path": "findings[code=warp.dest-warp].length", "equals": 1},
+                {"path": "findings[severity=warning].length", "equals": 2},
+            ], "as": "r"}],
+            ["apply_fix", {"finding": "${r.findings.1}", "fix": "wrap", "give": {"remaining": False}},
+             {"expect": {"path": "remaining", "equals": "${r.running}"}}],
+            ["update_event", {"eventFile": 394}],
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    batches = [json.loads(line) for line in (tmp_path / "batches.jsonl").read_text().splitlines()]
+    opened = ["open_project", {"path": str(project.resolve())}]
+    # every expecting edit ends a bridge session, like a named one
+    assert batches[0] == [opened, ["accept_baseline", {}], ["run_checks", {"give": REPORT}], ["save", {}]]
+    assert batches[1][1] == ["apply_fix", {"finding": REPORT["findings"][1], "fix": "wrap", "give": {"remaining": False}}]
+    assert batches[1][2] == ["save", {}] and len(batches[1]) == 3
+    assert batches[2][1:] == [["update_event", {"eventFile": 394}], ["save", {}], ["build_rom", {"out": str(project.resolve() / "out.nds")}]]
+    assert json.loads((out / "results.json").read_text()) == {"r": REPORT}
+    assert "findings[code=warp.dest-warp].length = 1" in captured.err
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is True
+
+
+def test_a_missed_expectation_exits_2_with_path_soll_and_ist(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    sc = simple_scenario(edits=[
+        ["run_checks", {"give": REPORT}, {"expect": [
+            {"path": "findings[code=warp.dest-warp].length", "equals": 1},
+            {"path": "findings[severity=error].length", "equals": 0},
+        ]}],
+        ["never", {}],
+    ])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 2 and played == []
+    assert "run_checks findings[severity=error].length: Soll 0, Ist 1" in captured.err
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1  # nothing after the miss
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_an_expectation_on_a_missing_path_exits_2(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["run_checks", {"give": REPORT}, {"expect": {"path": "findings.7.code", "equals": "x"}}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    err = capsys.readouterr().err
+    assert code == 2
+    assert 'run_checks findings.7.code: Soll "x", Ist fehlt (findings.7)' in err
+
+
+def test_an_expectation_compares_types_strictly(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    for equals in ("1", True):  # a text "1" or true is not the number 1
+        sc = simple_scenario(edits=[["run_checks", {"give": REPORT}, {"expect": {"path": "findings[severity=error].length", "equals": equals}}]])
+        code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+        assert code == 2
+    assert "Ist 1" in capsys.readouterr().err
