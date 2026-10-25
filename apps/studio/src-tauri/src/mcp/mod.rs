@@ -170,7 +170,7 @@ fn forward(cli: &Cli) -> ExitCode {
         Ok(runtime) => runtime,
         Err(e) => return usage(&format!("Laufzeit nicht startbar: {e}")),
     };
-    let forwarded = runtime.block_on(proxy::run(found, tokio::io::stdin(), protocol));
+    let forwarded = runtime.block_on(proxy::run(dir, found, tokio::io::stdin(), protocol));
     runtime.shutdown_timeout(Duration::from_secs(1));
     match forwarded {
         Ok(()) => ExitCode::SUCCESS,

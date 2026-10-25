@@ -192,24 +192,150 @@ async fn closing_stdin_ends_the_session() {
     server.stop();
 }
 
-/// After "Trennen" the session is gone: a call through the proxy is an error, not a hang.
+/// Answers the hub's next question with `answer` from a thread of its own (a client the user
+/// disconnected is asked again on its next call).
+fn answer_next_question(
+    state: &Arc<AppState>,
+    answer: &'static str,
+) -> std::thread::JoinHandle<()> {
+    let state = Arc::clone(state);
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        loop {
+            if let Some(question) = state.agents.status().question {
+                state.agents.answer(question.id, answer).unwrap();
+                return;
+            }
+            assert!(start.elapsed() < LIMIT, "no question raised");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })
+}
+
+/// After "Trennen" the proxy opens a new session with the client's handshake: the next call
+/// works (once the user let the client in again) and the hub shows it connected again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ended_session_is_an_error_answer() {
+async fn ended_session_is_renewed() {
     let app = App::new();
     let server = app.start();
     let client = connect(app.data.path()).await;
     result(call_tool(&client, "get_header", json!({ "id": 0 })).await);
     app.state.agents.disconnect_all();
     wait_until("the connection to end", || app.clients().is_empty()).await;
+    let answering = answer_next_question(&app.state, "write");
+    let answer = call_tool(&client, "get_header", json!({ "id": 0 })).await;
+    assert_eq!(
+        result(answer),
+        app.command("get_header", json!({ "id": 0 }))
+    );
+    answering.join().unwrap();
+    assert_eq!(app.clients(), vec!["proxy-test".to_owned()]);
+    client.cancel().await.unwrap();
+    wait_until("the connection to end", || app.clients().is_empty()).await;
+    server.stop();
+}
+
+/// The switch off and on again (or a new start of the app): new port, new token, same
+/// folder. The proxy reads the discovery file again and carries on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restarted_server_is_found_again() {
+    let app = App::new();
+    let server = app.start();
+    let old = discovery::read(app.data.path()).unwrap();
+    let client = connect(app.data.path()).await;
+    result(call_tool(&client, "get_header", json!({ "id": 0 })).await);
+    server.stop();
+    wait_until("the connection to end", || app.clients().is_empty()).await;
+    let server = app.start();
+    assert_ne!(discovery::read(app.data.path()).unwrap().token, old.token);
+    let answer = call_tool(&client, "get_header", json!({ "id": 0 })).await;
+    assert_eq!(
+        result(answer),
+        app.command("get_header", json!({ "id": 0 }))
+    );
+    assert_eq!(app.clients(), vec!["proxy-test".to_owned()]);
+    client.cancel().await.unwrap();
+    wait_until("the connection to end", || app.clients().is_empty()).await;
+    server.stop();
+}
+
+/// The app is gone for good (switched off, no new server): a call is an error answer within
+/// a few seconds, not a hang.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn app_gone_is_an_error_answer() {
+    let app = App::new();
+    let server = app.start();
+    let client = connect(app.data.path()).await;
+    result(call_tool(&client, "get_header", json!({ "id": 0 })).await);
+    server.stop();
     let params = CallToolRequestParams::new("get_header".to_owned())
         .with_arguments(json!({ "id": 0 }).as_object().unwrap().clone());
-    let error = tokio::time::timeout(LIMIT, client.call_tool(params))
+    let error = tokio::time::timeout(Duration::from_secs(10), client.call_tool(params))
         .await
         .expect("call timed out")
-        .expect_err("the session ended");
+        .expect_err("the app is gone");
     let text = error.to_string();
-    assert!(text.contains("Gen4 Studio: HTTP 404"), "{text}");
-    client.cancel().await.unwrap();
+    assert!(text.contains("Gen4 Studio:"), "{text}");
+    // Closing stdin still ends the proxy promptly (its DELETE has nowhere to go).
+    tokio::time::timeout(Duration::from_secs(10), client.cancel())
+        .await
+        .expect("the proxy did not end")
+        .unwrap();
+}
+
+/// A client that sends `initialize` a second time gets a new session; the proxy ends the old
+/// one first, so the hub does not keep a stale connection.
+#[test]
+fn second_initialize_replaces_the_session() {
+    use std::io::{BufRead, BufReader, Write};
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let _entered = runtime.enter();
+    let app = App::new();
+    let server = app.start();
+    let mut child = Command::new(STUDIO)
+        .arg("mcp")
+        .arg("--app-data")
+        .arg(app.data.path())
+        .env_remove(APP_DATA_ENV)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    for round in 1..=2 {
+        let init = json!({ "jsonrpc": "2.0", "id": round, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": { "name": "proxy-test", "version": "1" } } });
+        writeln!(stdin, "{init}").unwrap();
+        stdin.flush().unwrap();
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let answer: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(answer["id"], round, "{answer}");
+        assert_eq!(answer["result"]["serverInfo"]["name"], "gen4-studio");
+        let start = Instant::now();
+        while app.clients().len() != 1 {
+            assert!(
+                start.elapsed() < LIMIT,
+                "round {round}: {:?}",
+                app.clients()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let start = Instant::now();
+    while !app.clients().is_empty() {
+        assert!(start.elapsed() < LIMIT, "{:?}", app.clients());
+        std::thread::sleep(Duration::from_millis(20));
+    }
     server.stop();
 }
 

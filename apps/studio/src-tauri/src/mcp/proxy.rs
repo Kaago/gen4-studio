@@ -2,12 +2,14 @@
 //! newline-delimited JSON-RPC message from stdin goes as one `POST` to the URL of the
 //! discovery file (with its token, and the session once `initialize` opened one); the
 //! answer, JSON or SSE, goes back to stdout one message per line. When stdin ends, the
-//! session is closed with `DELETE`. Access is the app's to decide (grant, read-only switch,
+//! session is closed with `DELETE`. When the app ended the session ("Trennen", idle) or
+//! moved (switched off and on, started anew: new port and token), the proxy reads the
+//! discovery file again, repeats the client's handshake and sends the message once more. Access is the app's to decide (grant, read-only switch,
 //! questions); the proxy adds nothing.
 //!
 //! Messages are forwarded one at a time, in order; one TCP connection per request.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -28,6 +30,8 @@ const SESSION_HEADER: &str = "mcp-session-id";
 const VERSION_HEADER: &str = "mcp-protocol-version";
 /// How long connecting to the app may take (it runs on this machine).
 const CONNECT_WAIT: Duration = Duration::from_secs(5);
+/// How long the closing `DELETE` may take.
+const DELETE_WAIT: Duration = Duration::from_secs(5);
 /// JSON-RPC "internal error": the app could not be reached or refused the request.
 const INTERNAL_ERROR: i64 = -32603;
 /// How much of a refusal's text goes into the error message.
@@ -120,17 +124,17 @@ impl Target {
         method: Method,
         session: &Session,
         body: Bytes,
-    ) -> Result<(StatusCode, HeaderMap, Bytes), String> {
+    ) -> Result<Answer, Failure> {
         let stream = tokio::time::timeout(
             CONNECT_WAIT,
             tokio::net::TcpStream::connect((self.host.as_str(), self.port)),
         )
         .await
-        .map_err(|_| "nicht erreichbar (Zeitüberschreitung)".to_owned())?
-        .map_err(|e| format!("nicht erreichbar: {e}"))?;
+        .map_err(|_| Failure::Unreachable("nicht erreichbar (Zeitüberschreitung)".to_owned()))?
+        .map_err(|e| Failure::Unreachable(format!("nicht erreichbar: {e}")))?;
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
             .await
-            .map_err(|e| format!("Verbindung fehlgeschlagen: {e}"))?;
+            .map_err(|e| Failure::Unreachable(format!("Verbindung fehlgeschlagen: {e}")))?;
         tokio::spawn(async move {
             let _ = connection.await;
         });
@@ -149,18 +153,45 @@ impl Target {
         }
         let request = request
             .body(Full::new(body))
-            .map_err(|e| format!("Anfrage ungültig: {e}"))?;
+            .map_err(|e| Failure::Broken(format!("Anfrage ungültig: {e}")))?;
         let response = sender
             .send_request(request)
             .await
-            .map_err(|e| format!("Anfrage fehlgeschlagen: {e}"))?;
+            .map_err(|e| Failure::Broken(format!("Anfrage fehlgeschlagen: {e}")))?;
         let (parts, body) = response.into_parts();
         let body = body
             .collect()
             .await
-            .map_err(|e| format!("Antwort abgebrochen: {e}"))?
+            .map_err(|e| Failure::Broken(format!("Antwort abgebrochen: {e}")))?
             .to_bytes();
-        Ok((parts.status, parts.headers, body))
+        Ok(Answer {
+            status: parts.status,
+            headers: parts.headers,
+            body,
+        })
+    }
+}
+
+/// The app's answer to one request.
+struct Answer {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Bytes,
+}
+
+/// Why a request got no answer.
+enum Failure {
+    /// No connection: nothing reached the app (safe to send again).
+    Unreachable(String),
+    /// The request may have reached the app (never sent again).
+    Broken(String),
+}
+
+impl Failure {
+    fn text(&self) -> &str {
+        match self {
+            Failure::Unreachable(text) | Failure::Broken(text) => text,
+        }
     }
 }
 
@@ -171,15 +202,36 @@ struct Session {
     protocol: Option<String>,
 }
 
-/// Forwards `input` to the app of `discovery` and its answers to `output` until `input`
-/// ends; then closes the session.
-pub async fn run<I, O>(discovery: Discovery, input: I, mut output: O) -> Result<(), String>
+/// The second message of the handshake, sent after a renewed `initialize`.
+const INITIALIZED: &[u8] = br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+
+/// The proxy's state: where the app serves (read again from `dir` when it moved), the
+/// session, and the client's last `initialize` (to open a new session with it).
+struct Proxy {
+    dir: PathBuf,
+    target: Target,
+    session: Session,
+    handshake: Option<Bytes>,
+}
+
+/// Forwards `input` to the app of `discovery` (found in the app data folder `dir`) and its
+/// answers to `output` until `input` ends; then closes the session.
+pub async fn run<I, O>(
+    dir: PathBuf,
+    discovery: Discovery,
+    input: I,
+    mut output: O,
+) -> Result<(), String>
 where
     I: AsyncRead + Unpin,
     O: AsyncWrite + Unpin,
 {
-    let target = Target::of(&discovery)?;
-    let mut session = Session::default();
+    let mut proxy = Proxy {
+        dir,
+        target: Target::of(&discovery)?,
+        session: Session::default(),
+        handshake: None,
+    };
     let mut input = BufReader::new(input);
     let mut line = Vec::new();
     let mut result = Ok(());
@@ -197,17 +249,14 @@ where
         if message.is_empty() {
             continue;
         }
-        let replies = forward(&target, &mut session, message).await;
+        let replies = proxy.forward(message).await;
         if let Err(e) = write_lines(&mut output, &replies).await {
             // The client is gone.
             result = Err(format!("stdout nicht schreibbar: {e}"));
             break;
         }
     }
-    if session.id.is_some() {
-        // The app may have ended it already; nothing to tell anyone either way.
-        let _ = target.send(Method::DELETE, &session, Bytes::new()).await;
-    }
+    proxy.close_session().await;
     result
 }
 
@@ -225,63 +274,151 @@ async fn write_lines<O: AsyncWrite + Unpin>(
     output.flush().await
 }
 
-/// Sends one message to the app; the lines for stdout (the answer, or an error answer for a
-/// request the app could not take).
-async fn forward(target: &Target, session: &mut Session, message: &[u8]) -> Vec<String> {
-    let parsed: Option<Value> = serde_json::from_slice(message).ok();
-    let method = parsed
-        .as_ref()
-        .and_then(|m| m.get("method"))
-        .and_then(Value::as_str);
-    // Only a request gets an error answer (not a notification, not a client's answer).
-    let id = parsed
-        .as_ref()
-        .filter(|_| method.is_some())
-        .and_then(|m| m.get("id"))
-        .filter(|id| !id.is_null())
-        .cloned();
-    let initialize = method == Some("initialize");
-    if initialize {
-        // A new handshake opens a new session (after the app ended the old one, say).
-        *session = Session::default();
-    }
-    let had_session = session.id.is_some();
-    let sent = target
-        .send(Method::POST, session, Bytes::copy_from_slice(message))
-        .await;
-    let (status, headers, body) = match sent {
-        Ok(answer) => answer,
-        Err(e) => return error_answer(id, &format!("Gen4 Studio: {e}")),
-    };
-    if status.is_success() {
-        if initialize {
-            session.id = headers
-                .get(SESSION_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned);
+/// Whether a request is worth sending again after the proxy found the app anew: nothing
+/// reached the app, the token is old (401), or the app ended the session (404).
+fn renewable(sent: &Result<Answer, Failure>, had_session: bool) -> bool {
+    match sent {
+        Err(Failure::Unreachable(_)) => true,
+        Err(Failure::Broken(_)) => false,
+        Ok(answer) => {
+            answer.status == StatusCode::UNAUTHORIZED
+                || (answer.status == StatusCode::NOT_FOUND && had_session)
         }
-        let lines = answer_lines(&headers, &body);
-        if initialize {
-            session.protocol = lines.iter().find_map(|line| {
-                let answer: Value = serde_json::from_str(line).ok()?;
-                answer["result"]["protocolVersion"]
-                    .as_str()
-                    .map(str::to_owned)
-            });
-        }
-        return lines;
     }
-    let text = if status == StatusCode::NOT_FOUND && had_session {
-        // The app closed the session ("Trennen", the switch, idle): the client may reconnect.
-        session.id = None;
-        "Sitzung beendet".to_owned()
-    } else {
-        refusal_text(status, &body)
-    };
-    error_answer(
-        id,
-        &format!("Gen4 Studio: HTTP {}: {text}", status.as_u16()),
-    )
+}
+
+impl Proxy {
+    /// Ends the session with `DELETE` (at most [`DELETE_WAIT`]); the app may have ended it
+    /// already, nothing to tell anyone either way.
+    async fn close_session(&mut self) {
+        if self.session.id.is_some() {
+            let _ = tokio::time::timeout(
+                DELETE_WAIT,
+                self.target
+                    .send(Method::DELETE, &self.session, Bytes::new()),
+            )
+            .await;
+        }
+        self.session = Session::default();
+    }
+
+    /// Reads the discovery file again (the switch went off and on, the app started anew:
+    /// new port and token); false when no app runs.
+    fn relocate(&mut self) -> bool {
+        match locate(&self.dir).and_then(|found| Target::of(&found)) {
+            Ok(target) => {
+                self.target = target;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Takes the session id and protocol version of a successful `initialize` answer.
+    fn adopt(&mut self, answer: &Answer, lines: &[String]) {
+        self.session.id = answer
+            .headers
+            .get(SESSION_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        self.session.protocol = lines.iter().find_map(|line| {
+            let answer: Value = serde_json::from_str(line).ok()?;
+            answer["result"]["protocolVersion"]
+                .as_str()
+                .map(str::to_owned)
+        });
+    }
+
+    /// Finds the app again and opens a new session with the client's last `initialize` (its
+    /// answer is not passed on, the client has had one) and `notifications/initialized`.
+    async fn renew(&mut self) -> bool {
+        let Some(handshake) = self.handshake.clone() else {
+            return false;
+        };
+        if !self.relocate() {
+            return false;
+        }
+        self.session = Session::default();
+        match self
+            .target
+            .send(Method::POST, &self.session, handshake)
+            .await
+        {
+            Ok(answer) if answer.status.is_success() => {
+                let lines = answer_lines(&answer.headers, &answer.body);
+                self.adopt(&answer, &lines);
+            }
+            _ => return false,
+        }
+        let _ = self
+            .target
+            .send(Method::POST, &self.session, Bytes::from_static(INITIALIZED))
+            .await;
+        true
+    }
+
+    /// Sends one message to the app; the lines for stdout (the answer, or an error answer
+    /// for a request the app could not take). When the app moved or ended the session, the
+    /// proxy finds it again and sends the message once more.
+    async fn forward(&mut self, message: &[u8]) -> Vec<String> {
+        let parsed: Option<Value> = serde_json::from_slice(message).ok();
+        let method = parsed
+            .as_ref()
+            .and_then(|m| m.get("method"))
+            .and_then(Value::as_str);
+        // Only a request gets an error answer (not a notification, not a client's answer).
+        let id = parsed
+            .as_ref()
+            .filter(|_| method.is_some())
+            .and_then(|m| m.get("id"))
+            .filter(|id| !id.is_null())
+            .cloned();
+        let initialize = method == Some("initialize");
+        let body = Bytes::copy_from_slice(message);
+        if initialize {
+            // A new handshake opens a new session: the old one ends first.
+            self.close_session().await;
+            self.handshake = Some(body.clone());
+        }
+        let mut had_session = self.session.id.is_some();
+        let mut sent = self
+            .target
+            .send(Method::POST, &self.session, body.clone())
+            .await;
+        if renewable(&sent, had_session) {
+            let renewed = if initialize {
+                self.relocate()
+            } else {
+                self.renew().await
+            };
+            if renewed {
+                had_session = self.session.id.is_some();
+                sent = self.target.send(Method::POST, &self.session, body).await;
+            }
+        }
+        let answer = match sent {
+            Ok(answer) => answer,
+            Err(e) => return error_answer(id, &format!("Gen4 Studio: {}", e.text())),
+        };
+        if answer.status.is_success() {
+            let lines = answer_lines(&answer.headers, &answer.body);
+            if initialize {
+                self.adopt(&answer, &lines);
+            }
+            return lines;
+        }
+        let text = if answer.status == StatusCode::NOT_FOUND && had_session {
+            // The app closed the session and no new one could be opened.
+            self.session = Session::default();
+            "Sitzung beendet".to_owned()
+        } else {
+            refusal_text(answer.status, &answer.body)
+        };
+        error_answer(
+            id,
+            &format!("Gen4 Studio: HTTP {}: {text}", answer.status.as_u16()),
+        )
+    }
 }
 
 /// The JSON-RPC error answer to the request `id` (none for a notification; the reason then
