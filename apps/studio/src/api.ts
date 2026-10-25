@@ -816,6 +816,7 @@ export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files"
 /** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
 export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });
 
+export * from "./api.agents";
 export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";

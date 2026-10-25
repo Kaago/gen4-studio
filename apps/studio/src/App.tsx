@@ -44,7 +44,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
+import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -57,6 +57,7 @@ import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { useAgents } from "./app/useAgents";
 import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
@@ -326,6 +327,20 @@ function AppBody() {
     scene.noteHistoryMoved();
     await reloadChanged(report.changed, true);
   });
+  // An agent changed assets: read again on the same path as „Welt leeren“ (new areas appear in the world explorer). One change after
+  // the other, so two quick ones do not interleave their reloads; without a project there is nothing to read.
+  const agentReloads = useRef<Promise<void>>(Promise.resolve());
+  const reloadAfterAgent = useStableCallback(async (assets: AssetId[]) => {
+    if (session.info === null) return;
+    await session.onCountsChanged();
+    scene.noteHistoryMoved();
+    await reloadChanged(assets, true);
+  });
+  const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
+    agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
+  });
+  // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
+  useAgents({ onChanged: onAgentChanged });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });

@@ -7,7 +7,7 @@ import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
+import type { AgentEvent, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
@@ -130,7 +130,15 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
   savePath: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
+// The handlers listening to Tauri events by name (`agent-event`: the agent hub's events).
+const tauriEvents = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, fn: (e: { payload: unknown }) => void) => {
+    tauriEvents.set(name, fn);
+    // StrictMode listens twice: the first unlisten must not drop the second handler.
+    return () => void (tauriEvents.get(name) === fn && tauriEvents.delete(name));
+  },
+}));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }));
 // `env.tauri`: whether the page pretends to run inside the Tauri window.
 const env = vi.hoisted(() => ({ tauri: false }));
@@ -1761,19 +1769,20 @@ describe("App wiring", () => {
     });
   });
 
+  /** The history revision at the time of every bus event and matrix fetch after an undo or an agent's change. */
+  function record() {
+    const log: string[] = [];
+    const revision = () => data().history.current;
+    data().bus.subscribe(
+      // `edited` follows every write the app counts (the checks run again); it is no reload.
+      (e: EditEvent) => e.topic !== "edited",
+      (e: EditEvent) => log.push(`${e.topic}@${revision()}`),
+    );
+    vi.mocked(getMatrix).mockImplementation(async (index) => (log.push(`getMatrix@${revision()}`), matrixOf(index)));
+    return log;
+  }
+
   describe("undo", () => {
-    /** The history revision at the time of every bus event and matrix fetch after the undo. */
-    function record() {
-      const log: string[] = [];
-      const revision = () => data().history.current;
-      data().bus.subscribe(
-        // `edited` follows every write the app counts (the checks run again); it is no reload.
-        (e: EditEvent) => e.topic !== "edited",
-        (e: EditEvent) => log.push(`${e.topic}@${revision()}`),
-      );
-      vi.mocked(getMatrix).mockImplementation(async (index) => (log.push(`getMatrix@${revision()}`), matrixOf(index)));
-      return log;
-    }
 
     it("notes the history move before the first reload action runs", async () => {
       await select(listed[0]);
@@ -1817,6 +1826,61 @@ describe("App wiring", () => {
       // One history move for the step; the shown matrix and the text panel both reload.
       expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1"]);
       expect(data().history.current).toBe(1);
+    });
+  });
+
+  describe("agent changes", () => {
+    const changed = (seq: number, assets: AssetId[]): AgentEvent => ({ kind: "changed", seq, client: "Claude Code", tool: "set_matrix_cell", label: "Matrix 0 geändert", assets });
+    const emit = (event: AgentEvent) => act(async () => void tauriEvents.get("agent-event")!({ payload: event }));
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    async function inTheApp(open = true) {
+      env.tauri = true;
+      await renderFresh();
+      if (open) await click("Projekt öffnen");
+      expect(tauriEvents.has("agent-event")).toBe(true);
+    }
+
+    it("counts_and_reloads_what_an_agent_changed_like_after_undo", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
+      expect(data().history.current).toBe(1);
+    });
+
+    it("reloads_one_agent_change_after_the_other", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      let counted: () => void = () => {};
+      vi.mocked(memberCounts).mockReset();
+      vi.mocked(memberCounts).mockImplementationOnce(() => new Promise((resolve) => (counted = () => resolve({}))));
+      vi.mocked(memberCounts).mockResolvedValue({});
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await emit(changed(2, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      // The second change waits until the first one's reload is through.
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual([]);
+      counted();
+      await flush();
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(2);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "matrixData@2", "getMatrix@2"]);
+    });
+
+    it("reads_nothing_for_an_agent_change_without_a_project", async () => {
+      await inTheApp(false);
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(getMatrix).mockClear();
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(memberCounts).not.toHaveBeenCalled();
+      expect(getMatrix).not.toHaveBeenCalled();
     });
   });
 
