@@ -114,10 +114,20 @@ describe("useRomDrop in the app", () => {
     expect(over()).toBe("idle");
   });
 
-  it("stops_listening_while_disabled", async () => {
+  it("keeps_listening_while_disabled_and_refuses_a_drop_with_the_wizard_hint", async () => {
     await act(async () => root.render(<Probe enabled />));
     await act(async () => root.render(<Probe enabled={false} />));
-    expect(env.unlistened).toBe(1);
-    expect(env.handler).toBeNull();
+    expect(env.unlistened).toBe(0);
+    expect(env.handler).not.toBeNull();
+    await fire({ type: "enter", paths: ["/roms/pt.nds"], position: { x: 1, y: 1 } });
+    expect(over()).toBe("idle");
+    await fire({ type: "drop", paths: ["/roms/pt.nds"], position: { x: 1, y: 1 } });
+    expect(onRefuse).toHaveBeenCalledExactlyOnceWith("Erst den Assistenten abschließen oder abbrechen.");
+    expect(onRom).not.toHaveBeenCalled();
+    // Enabled again: the same listener takes the next drop.
+    await act(async () => root.render(<Probe enabled />));
+    await fire({ type: "drop", paths: ["/roms/pt.nds"], position: { x: 1, y: 1 } });
+    expect(onRom).toHaveBeenCalledExactlyOnceWith({ rom: "/roms/pt.nds" });
+    expect(env.unlistened).toBe(0);
   });
 });

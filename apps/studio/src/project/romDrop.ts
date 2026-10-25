@@ -10,6 +10,8 @@ export type StartWizardRequest = { rom?: string; notice?: string };
 export type DropSource = { path: string } | { file: string } | { none: true };
 
 export const REFUSED = "Nur eine .nds-Datei ablegen.";
+/** Said when a file is dropped while the wizard is open: the wizard keeps what it has. */
+export const WIZARD_OPEN_DROP = "Erst den Assistenten abschließen oder abbrechen.";
 export const NO_PATH = "Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein.";
 
 /** Lines of a list (`text/uri-list` or plain text) without blanks and `#` comments. */
@@ -70,8 +72,6 @@ export const isRomPath = (p: string) => /\.nds$/i.test(p.trim());
 const carriesPath = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].some((t) => t === "Files" || t === "text/uri-list" || t === "text/plain");
 /** Whether a drag is a file from a file manager (files or a uri list): only that lights the drop frame; a path in plain text may be dropped quietly. */
 const carriesFileDrag = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].some((t) => t === "Files" || t === "text/uri-list");
-/** Whether a drag carries files (the browser would open a dropped one in place of the app); a drag of text into a field does not. */
-const carriesFiles = (dt: DataTransfer | null) => dt !== null && [...(dt.types ?? [])].includes("Files");
 
 export type RomDrop = {
   /** Something is dragged over the surface that would be taken. */
@@ -88,13 +88,14 @@ export type RomDrop = {
 /**
  * A ROM dropped onto the start: in the app the webview reports the dropped paths (`onDragDropEvent`; it keeps HTML drops of files from
  * the page), in the browser the surface takes the HTML `drop`. One `.nds` path opens the wizard with it, a file without a path (browser)
- * opens it with the note to type the path; anything else is refused. While disabled (the wizard is open) a drop does nothing, and the
- * browser does not open a dropped file in place of the app either.
+ * opens it with the note to type the path; anything else is refused. While disabled (the wizard is open) a drop never replaces
+ * the wizard: it is refused with `WIZARD_OPEN_DROP` (the webview's listener stays registered for that), and the browser does not open
+ * a dropped file in place of the app either.
  */
 export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => void, onRefuse: (msg: string) => void): RomDrop {
   const [over, setOver] = useState(false);
-  const latest = useRef({ onRom, onRefuse });
-  latest.current = { onRom, onRefuse };
+  const latest = useRef({ enabled, onRom, onRefuse });
+  latest.current = { enabled, onRom, onRefuse };
   // dragenter and dragleave come for every child the pointer crosses: the surface is left when they even out.
   const depth = useRef(0);
 
@@ -108,16 +109,18 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled || !inTauri()) return;
+    if (!inTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     getCurrentWebview()
       .onDragDropEvent(({ payload }) => {
-        if (payload.type === "enter" || payload.type === "over") setOver(true);
+        const taking = latest.current.enabled;
+        if (payload.type === "enter" || payload.type === "over") setOver(taking);
         else if (payload.type === "leave") setOver(false);
         else {
           setOver(false);
-          if (payload.paths.length === 1) takePath(payload.paths[0]!);
+          if (!taking) latest.current.onRefuse(WIZARD_OPEN_DROP);
+          else if (payload.paths.length === 1) takePath(payload.paths[0]!);
           else latest.current.onRefuse(REFUSED);
         }
       })
@@ -132,7 +135,7 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
       disposed = true;
       unlisten?.();
     };
-  }, [enabled]);
+  }, []);
 
   const browser = !inTauri();
   const handlers: RomDrop["handlers"] = {
@@ -144,7 +147,7 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
       if (carriesFileDrag(e.dataTransfer)) setOver(true);
     },
     onDragOver: (e) => {
-      if (!browser || !(enabled ? carriesPath : carriesFiles)(e.dataTransfer)) return;
+      if (!browser || !(enabled ? carriesPath : carriesFileDrag)(e.dataTransfer)) return;
       // Without this the browser would open a dropped file in place of the app.
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = enabled ? "copy" : "none";
@@ -155,11 +158,14 @@ export function useRomDrop(enabled: boolean, onRom: (r: StartWizardRequest) => v
       if (depth.current === 0) setOver(false);
     },
     onDrop: (e) => {
-      if (!browser || !(enabled ? carriesPath : carriesFiles)(e.dataTransfer)) return;
+      if (!browser || !(enabled ? carriesPath : carriesFileDrag)(e.dataTransfer)) return;
       e.preventDefault();
       depth.current = 0;
       setOver(false);
-      if (!enabled) return;
+      if (!enabled) {
+        latest.current.onRefuse(WIZARD_OPEN_DROP);
+        return;
+      }
       const source = pathFromDataTransfer(e.dataTransfer);
       if ("path" in source) takePath(source.path);
       else if ("file" in source) {

@@ -698,6 +698,24 @@ describe("App wiring", () => {
       expect(shown.focused).toEqual(["problems"]);
     });
 
+    it("a_failed_build_does_not_pull_the_start_wizard_away_when_its_problems_are_offered", async () => {
+      vi.mocked(defaultProjectParent).mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let fail: (e: unknown) => void = () => {};
+      vi.mocked(buildRom).mockImplementation(() => new Promise((_, reject) => (fail = reject)));
+      await click("Bauen");
+      await act(async () => atlasEntry("Start")!.click());
+      await click("Neues Spiel aus ROM…");
+      expect(container.querySelector("[data-start-deck]")).not.toBeNull();
+      await act(async () =>
+        fail({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] }),
+      );
+      await click("Probleme zeigen");
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-start-deck]")).not.toBeNull();
+      expect(shown.focused).toEqual([]);
+    });
+
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
       expect(statusLine()).toContain("Noch nicht gebaut");
       vi.mocked(savePath).mockResolvedValue("/out.nds");

@@ -39,6 +39,7 @@ describe("ProjectStart", () => {
   let root: Root;
   const requests: (StartWizardRequest | null)[] = [];
   const onOpenCreated = vi.fn<(c: Created) => void>();
+  const onNotice = vi.fn<(text: string) => void>();
 
   /** The start with its wizard request as state, the way App keeps it. */
   function Harness({ initial = null }: { initial?: StartWizardRequest | null }) {
@@ -56,6 +57,7 @@ describe("ProjectStart", () => {
           setWizard(r);
         }}
         onOpenCreated={onOpenCreated}
+        onNotice={onNotice}
       />
     );
   }
@@ -63,6 +65,7 @@ describe("ProjectStart", () => {
   beforeEach(() => {
     requests.length = 0;
     onOpenCreated.mockReset();
+    onNotice.mockReset();
     vi.mocked(inspectRom).mockReset().mockResolvedValue(PLATIN);
     vi.mocked(defaultProjectParent).mockReset().mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
     vi.mocked(checkProjectDest).mockReset().mockResolvedValue({ state: "missing", free_bytes: 50_000_000_000, needed_bytes: 335_544_320, ok: true });
@@ -169,7 +172,7 @@ describe("ProjectStart", () => {
     expect(surface().dataset.drop).toBe("idle");
   });
 
-  it("drop_while_the_wizard_is_open_does_nothing", async () => {
+  it("drop_while_the_wizard_is_open_is_refused_with_a_hint_and_keeps_the_wizard", async () => {
     await show({});
     expect(dialog()).not.toBeNull();
     const dt = transfer({ "text/plain": "/roms/_testkopien/pt.nds" }, ["pt.nds"]);
@@ -182,6 +185,13 @@ describe("ProjectStart", () => {
     expect(requests).toEqual([]);
     expect(inspectRom).not.toHaveBeenCalled();
     expect(current()).toBe("1. ROM");
+    expect(onNotice).toHaveBeenCalledExactlyOnceWith("Erst den Assistenten abschließen oder abbrechen.");
+    // A file path dragged as a uri list is refused too; a plain text drag (into a field) is left alone.
+    drag("drop", transfer({ "text/uri-list": "file:///roms/pt.nds" }), dialog()!);
+    expect(onNotice).toHaveBeenCalledTimes(2);
+    drag("drop", transfer({ "text/plain": "/roms/pt.nds" }), dialog()!);
+    expect(onNotice).toHaveBeenCalledTimes(2);
+    expect(requests).toEqual([]);
   });
 
   it("wizard_renders_into_its_own_hinge_and_hand", async () => {

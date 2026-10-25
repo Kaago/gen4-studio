@@ -21,6 +21,8 @@ export type ProjectStartProps = StartPaneProps & {
   onWizard: (request: StartWizardRequest | null) => void;
   /** "Öffnen" on the wizard's result. */
   onOpenCreated: (created: Created) => void;
+  /** Says something while the wizard is open (the start pane, which shows refusals, is not there then): a drop onto the wizard. */
+  onNotice?: (text: string) => void;
 };
 
 const noop = () => {};
@@ -114,13 +116,14 @@ function StartDeck({ request, onClose, onOpenCreated }: { request: StartWizardRe
  * The area Start: the recent projects with "Neues Spiel aus ROM…" as the main action, and a surface that takes a dropped `.nds`; with the
  * wizard open, its own deck. A refused drop says why below the actions.
  */
-export function ProjectStart({ wizard, onWizard, onOpenCreated, ...pane }: ProjectStartProps) {
+export function ProjectStart({ wizard, onWizard, onOpenCreated, onNotice, ...pane }: ProjectStartProps) {
   const [refused, setRefused] = useState<string | null>(null);
   const open = (request: StartWizardRequest) => {
     setRefused(null);
     onWizard(request);
   };
-  const { over, handlers } = useRomDrop(wizard === null, open, setRefused);
+  // With the wizard open a drop is refused through the toast (the refusal below the actions is not on screen then).
+  const { over, handlers } = useRomDrop(wizard === null, open, (text) => (wizard === null ? setRefused(text) : onNotice?.(text)));
   // The button that opened the wizard went with the start pane: when the wizard closes, the focus comes back to the main action.
   const surface = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(wizard !== null);

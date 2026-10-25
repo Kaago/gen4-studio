@@ -428,11 +428,17 @@ pub(crate) fn create_project_with(
     };
     std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     let staging = parent.join(format!(".{name}.g4-new"));
-    if staging.symlink_metadata().is_ok() {
-        return Err(KernelError::Refused(format!(
-            "staging folder {} is in the way; remove it or choose another name",
-            staging.display()
-        )));
+    // Claimed atomically: a folder that is already there (or appears now) is not ours and is never touched. The extractor takes an
+    // empty folder.
+    match std::fs::create_dir(&staging) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(KernelError::Refused(format!(
+                "staging folder {} is in the way; remove it or choose another name",
+                staging.display()
+            )));
+        }
+        Err(e) => return Err(io_at(&staging)(e)),
     }
     phases.push((Phase::Read, started.elapsed().as_millis()));
 
@@ -800,6 +806,26 @@ mod create_tests {
             "keep"
         );
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn create_project_refuses_an_empty_foreign_staging_folder_and_keeps_it() {
+        // The staging folder is claimed with one `create_dir`: an existing one, even an empty one, is not ours to use or remove.
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("neu");
+        let staging = tmp.path().join(".neu.g4-new");
+        std::fs::create_dir(&staging).unwrap();
+        match create_fake(&rom, &dest, &mut Vec::new()) {
+            Err(KernelError::Refused(msg)) => assert!(msg.contains("is in the way"), "{msg}"),
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert!(staging.is_dir());
+        assert!(!dest.exists());
+        // Once it is gone, the same call works (the normal path claims and then renames the folder).
+        std::fs::remove_dir(&staging).unwrap();
+        create_fake(&rom, &dest, &mut Vec::new()).unwrap();
+        assert!(dest.join("header.yaml").is_file());
+        assert!(!staging.exists());
     }
 
     #[test]

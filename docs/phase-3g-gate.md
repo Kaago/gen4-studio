@@ -27,7 +27,7 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 - **Zusammenfassung:** der Satz „Legt „…“ aus … mit der Vorlage … an, in …. Die ROM bleibt unverändert.“ und die Liste „Ablauf“ (`[aria-label=Ablauf]`, Zeilen Lesen, Entpacken, Vorlage anwenden, Prüfen mit `[data-phase=open|running|done|failed]`), Taste „Anlegen“.
 - **Ergebnis:** „Projekt angelegt“, der Pfad, „Basis-ROM SHA-1 …“, „Öffnen“ und „Schließen“.
 
-Der Ablauf des Anlegens: In der Brücke gibt es keinen Live-Fortschritt; die Antwort von `create_project` trägt `phases: [{phase, ms}]`, die Oberfläche hakt danach alle Phasen ab. In Tauri meldet ein Kanal jede Phase, wenn sie beginnt. Anlegen dauert auf einem Desktop rund eine Sekunde (Platin, Debug-Build); ein Projekt ist etwa 135 MB groß.
+Der Ablauf des Anlegens: In der Brücke gibt es keinen Live-Fortschritt; die Antwort von `create_project` trägt `phases: [{phase, ms}]`, die Oberfläche hakt danach alle Phasen ab. In Tauri meldet ein Kanal jede Phase, wenn sie beginnt. Das Entpacken dauert im Debug-Build rund 1 s (Platin, gemessen am 25.10.2026; Bauen danach 0,2 s Platin bzw. 3,7 s HeartGold); die ganze Anlage ist nicht eigens gemessen. Ein Projekt ist etwa 135 MB groß.
 
 ### Vorbereitung
 
@@ -63,6 +63,8 @@ Stehen gelassen für den Blick des Nutzers: `Roms/_testkopien/3g-gate-a/Gate Pla
 - „Bekannte Basis-ROM“ heißt nur: SHA-1 und Spielcode stehen in `metadata/base_roms.yaml` (Testprojekt). Ein Abgleich mit No-Intro ist nicht gemacht.
 - Die Vorlage „Nur Daten“ ändert nichts am Projekt, nur die Marke (`template: "data_only"`) und den Bereich, in dem die App nach „Öffnen“ startet.
 - Der freie Platz kommt per `statvfs` nur auf Unix; sonst bleibt `free_bytes` leer und die Zeile nennt nur den Bedarf.
+- `scripts/gate.sh` führt die gated `project_start_*`-Tests mit jeder `.nds` direkt unter `$G4_ROMS_DIR` aus (nur lesend, wie der g4emu-Schritt); dort dürfen deshalb nur die drei bekannten Basis-ROMs liegen.
+- Im Browser-Modus schlägt der Assistent die nackte Wurzel `_testkopien` als Ordner vor; bei Gate-Läufen einen Unterordner `3g-*` eintippen.
 
 ## Teil B: Gate 3g.2 „Leere Region mit Startstadt“
 

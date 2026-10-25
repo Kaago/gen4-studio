@@ -146,8 +146,9 @@ function AppBody() {
   const startOpen = startWizard !== null;
   // The area a project opens in: the world, or Pokémon for a project created with the template "Nur Daten".
   const openingArea = useRef<AreaId>("welt");
-  // A link does not leave the world while a wizard is open there.
+  // A link does not leave the world while a wizard is open there, nor the start while its wizard is open (this callback reads the latest render).
   const showArea = useStableCallback((target: AreaId) => {
+    if (startOpen) return;
     if (wizardOpen.current && target !== "welt") return;
     setArea(target);
   });
@@ -197,8 +198,8 @@ function AppBody() {
   // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
   // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
   const showProblems = useStableCallback(() => {
-    // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
-    if (wizardOpen.current) return;
+    // The world's hand holds a wizard's step, and the start wizard fills the start: the list waits until it is done (the problem light is back then).
+    if (wizardOpen.current || startOpen) return;
     const shown = shell.state.area;
     const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
     setArea(target);
@@ -698,6 +699,7 @@ function AppBody() {
         wizard={startWizard}
         onWizard={setStartWizard}
         onOpenCreated={(created) => void onOpenCreated(created)}
+        onNotice={(text) => session.setMessage({ kind: "info", text })}
       />
     ) : area === "technik" ? (
       <TechnikArea

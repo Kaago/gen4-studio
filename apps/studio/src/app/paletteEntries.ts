@@ -102,7 +102,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
   const specs: CommandSpec[] = [
     { command: "open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", locked: busy ? BUSY : null },
     // Creating a project changes nothing of the open one; it is opened only when the user asks.
-    { command: "newGame", label: "Neues Spiel aus ROM…", icon: "plus", locked: wizard ? WIZARD_OPEN : null },
+    { command: "newGame", label: "Neues Spiel aus ROM…", icon: "plus", locked: wizard ? WIZARD_OPEN : busy ? BUSY : null },
     { command: "save", label: "Speichern", icon: "save", shortcut: "⌘S", locked: project },
     { command: "build", label: "Bauen", icon: "build", locked: project },
     { command: "play", label: "Hier spielen", icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },

@@ -180,9 +180,9 @@ describe("paletteEntries", () => {
     expect(byId("cmd-welt")).toMatchObject({ area: "welt", run: { kind: "command", command: "welt" } });
   });
 
-  it("offers_a_new_game_from_a_rom_without_a_project_and_while_busy_but_not_while_a_wizard_is_open", () => {
+  it("offers_a_new_game_from_a_rom_without_a_project_but_not_while_busy_or_while_a_wizard_is_open", () => {
     expect(byId("cmd-newGame", { hasProject: false })).toMatchObject({ label: "Neues Spiel aus ROM…", icon: "plus", disabled: false, run: { kind: "command", command: "newGame" } });
-    expect(byId("cmd-newGame", { commands: { ...commands, busy: true } })?.disabled).toBe(false);
+    expect(byId("cmd-newGame", { commands: { ...commands, busy: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
     expect(byId("cmd-newGame", { commands: { ...commands, wizard: true } })).toMatchObject({ disabled: true, description: "Erst den Assistenten abschließen oder abbrechen" });
   });
 
