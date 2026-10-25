@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
-import { errorText, getMap } from "../../api";
+import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
 import { drainWhenReady, pendingSince } from "../../reload";
 import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
+import { textureNote } from "../load";
+import { disposeTree, parseGlb } from "../sceneUtil";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
 import { reportBuildings } from "./buildingReport";
-import { recolourMap } from "./content";
+import { addModel, recolourMap, removeMapModel } from "./content";
 import { refreshEvents } from "./eventFetch";
 import type { ReportEvents, SceneRefs } from "./types";
 
@@ -52,6 +54,48 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
       });
     }
   }, [mapRefresh]);
+}
+
+/**
+ * A parts import (or its undo or redo) gave one map another terrain model: fetch it for the shown
+ * area data and swap the instances of that map, the other models stay. Queued like the maps above
+ * (a map is fetched once per batch); a result is dropped when the scene shows another matrix or
+ * area data by then, or when a newer request for the same map was made.
+ */
+export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueue<number> | null) {
+  const modelRequests = useRef(new Map<number, number>());
+  const modelsSeen = useRef(0);
+  useEffect(() => {
+    const { items, last } = pendingSince(mapModelRefresh, modelsSeen.current);
+    modelsSeen.current = last;
+    const h = refs.handle.current;
+    // A scene that is still loading fetches current models itself.
+    if (!h?.matrix) return;
+    const matrixAtStart = h.matrix;
+    const area = refs.area.current;
+    for (const map of new Set(items)) {
+      const seq = (modelRequests.current.get(map) ?? 0) + 1;
+      modelRequests.current.set(map, seq);
+      const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || modelRequests.current.get(map) !== seq;
+      (async () => {
+        if (!h.loaded.has(map)) return;
+        const model = await getMapModelGlb(map, area).then(parseGlb);
+        if (stale()) {
+          disposeTree(model);
+          return;
+        }
+        removeMapModel(h, map);
+        addModel(h, matrixAtStart, map, model);
+        h.queueRender();
+        // An untextured fallback says why; a failing status call only costs the note.
+        const issue = await mapModelTextureStatus(map, area).catch(() => null);
+        const note = issue && textureNote([issue]);
+        if (note && !stale()) refs.callbacks.current.onStatus({ kind: "info", text: note });
+      })().catch((e) => {
+        if (!h.disposed) refs.callbacks.current.onError(errorText(e));
+      });
+    }
+  }, [mapModelRefresh]);
 }
 
 /**
