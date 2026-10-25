@@ -23,6 +23,9 @@ interface ShortcutHandlers {
   unpinSelection: () => void;
   /** Switches the tool of the scene (a letter, or "select" on Escape). */
   onTool: (tool: Tool) => void;
+  /** Option+Cmd+Left and Right in the world: shows the previous or the next scene of the history („Zurück“ and „Vor“ of „In dieser Szene“). */
+  onSceneBack: () => void;
+  onSceneForward: () => void;
   /** Cmd+1 to 4 in the Pokémon area: shows that part (never a locked one). */
   onSub: (sub: PokemonSub) => void;
   /**
@@ -53,7 +56,7 @@ function inField(target: HTMLElement | null): boolean {
 
 /**
  * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), in the world the tool letters (V B F T A S G),
- * Escape back to "Auswählen" and Delete / Escape on a pinned building or event, in the Pokémon area Cmd+1 to 4 for its parts, none of them
+ * Escape back to "Auswählen", Delete / Escape on a pinned building or event and Option+Cmd+Left / Right through the scenes shown, in the Pokémon area Cmd+1 to 4 for its parts, none of them
  * while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
@@ -107,6 +110,12 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
           latest.current.onTool("select");
           return;
         }
+      }
+      // „Zurück“ and „Vor“ of the scenes shown: only in the world (the scene they show), never in a field, where the arrows move the caret.
+      if (inWorld && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !inField(e.target as HTMLElement | null)) {
+        e.preventDefault();
+        if (!e.repeat) (e.key === "ArrowLeft" ? latest.current.onSceneBack : latest.current.onSceneForward)();
+        return;
       }
       const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, inApp: inTauri(), area });
       if (action === "pokedex" || action === "trainer" || action === "encounters" || action === "moves") {

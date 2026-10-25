@@ -17,6 +17,7 @@ import type { Overview } from "./useOverview";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";
+import type { useSceneHistory } from "./useSceneHistory";
 import { useShallowStable, useStableCallback } from "./useStable";
 import type { WorldActions } from "./useWorldActions";
 
@@ -44,6 +45,8 @@ interface WorkbenchModelParams {
     | "onBuildings"
   >;
   pins: Pick<InspectorState, "pinned">;
+  /** The history of the scenes shown (App owns it: the keys act on it too). */
+  sceneHistory: ReturnType<typeof useSceneHistory>;
   /** The matrix and warp overviews of the project (the world explorer's data). */
   overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
   /** Parts were imported into a map (must keep its identity). */
@@ -80,7 +83,7 @@ interface WorkbenchModelParams {
  * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
  * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -102,6 +105,10 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     selected: scene.selected,
     onSelect,
     goTo,
+    sceneBack: sceneHistory.back,
+    sceneForward: sceneHistory.forward,
+    canBack: sceneHistory.canBack,
+    canForward: sceneHistory.canForward,
     bus,
     matrix: scene.matrix,
     areaDataId: scene.sceneArea,

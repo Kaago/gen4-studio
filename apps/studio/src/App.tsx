@@ -65,6 +65,7 @@ import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
 import { useSceneSync } from "./app/useSceneSync";
 import type { AreaDocks } from "./app/useSceneSync";
+import { useSceneHistory } from "./app/useSceneHistory";
 import { useShortcuts } from "./app/useShortcuts";
 import { useStableCallback } from "./app/useStable";
 import { useToastMirror } from "./app/useToastMirror";
@@ -238,6 +239,8 @@ function AppBody() {
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
   });
+  // Back and forward through the scenes shown: a jump shows the header the way a click in the list does.
+  const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }), session.info?.root ?? null);
   const world = useWorldActions({
     bus,
     pins: { ...pins, setPinned: pin },
@@ -390,6 +393,8 @@ function AppBody() {
     unpinSelection: world.unpinSelection,
     onTool,
     onSub: shell.setPokemonSub,
+    onSceneBack: sceneHistory.back,
+    onSceneForward: sceneHistory.forward,
     area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
     toolsShown: () => docks.welt.schau.current?.getPanel("world")?.api.isVisible ?? false,
@@ -497,6 +502,7 @@ function AppBody() {
     scene,
     world,
     pins,
+    sceneHistory,
     overview,
     onOpenWizard: wizards.open,
     onMapImported,

@@ -45,6 +45,11 @@ export interface WorkbenchData {
   onSelect: (h: HeaderSummary) => void;
   /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */
   goTo: (target: NavTarget) => void;
+  /** Shows the scene shown before / after this one (the history of the scenes shown; „Zurück“ and „Vor“ of „In dieser Szene“). */
+  sceneBack: () => void;
+  sceneForward: () => void;
+  canBack: boolean;
+  canForward: boolean;
   /** Where the writers announce that data moved: the panels and the scene listen. A stable object. */
   bus: EditBus;
   matrix: MatrixDto | null;

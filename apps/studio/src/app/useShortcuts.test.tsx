@@ -16,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -446,6 +446,33 @@ describe("useShortcuts", () => {
       await act(async () => void document.body.dispatchEvent(event));
       expect(handlers.onTool).not.toHaveBeenCalled();
     });
+  });
+
+  it("goes_back_and_forward_with_option_command_arrows_but_not_in_a_field", async () => {
+    const back = new KeyboardEvent("keydown", { key: "ArrowLeft", metaKey: true, altKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(back));
+    expect(handlers.onSceneBack).toHaveBeenCalledOnce();
+    expect(back.defaultPrevented).toBe(true);
+    await press({ key: "ArrowRight", metaKey: true, altKey: true });
+    expect(handlers.onSceneForward).toHaveBeenCalledOnce();
+    // Another modifier mix is not ours: plain arrows, Cmd alone (the browser's own back), Shift added.
+    await press({ key: "ArrowLeft" });
+    await press({ key: "ArrowLeft", metaKey: true });
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true, shiftKey: true });
+    // In a field the arrows move the caret (Cmd+Alt+Arrow too, in a code field).
+    const input = document.createElement("input");
+    container.append(input);
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true }, input);
+    // Not behind a wizard or a dialog, and not outside the world, whose scene the history shows.
+    const wizard = document.createElement("div");
+    wizard.setAttribute("data-wizard", "");
+    document.body.append(wizard);
+    await press({ key: "ArrowRight", metaKey: true, altKey: true });
+    wizard.remove();
+    handlers.area = "pokemon";
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true });
+    expect(handlers.onSceneBack).toHaveBeenCalledOnce();
+    expect(handlers.onSceneForward).toHaveBeenCalledOnce();
   });
 
   it("leaves_select_all_to_the_text_field", async () => {

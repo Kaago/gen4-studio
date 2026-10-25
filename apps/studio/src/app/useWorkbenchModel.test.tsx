@@ -96,6 +96,7 @@ const checks = fakeChecks();
 // A report of the checks arrived (else the problems panel says „Nicht geprüft“).
 checks.feed.update({ reported: true });
 const dataStore = new DataStore();
+const sceneHistory = { back: noop, forward: noop, canBack: false, canForward: true };
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
@@ -125,6 +126,7 @@ function Model({ pin = pinned, hover: _hover, message, showEvents = true, depth 
     scene: { ...scene },
     world: { ...world },
     pins: { pinned: pin },
+    sceneHistory,
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
     onMapImported: noop,
@@ -184,6 +186,13 @@ describe("workbench model", () => {
     show({ hover: null, message: null, showEvents: false });
     expect(models[1].data).not.toBe(models[0].data);
     expect(models[1].data.showEvents).toBe(false);
+  });
+
+  it("carries the history of the scenes shown for the hierarchy's buttons", () => {
+    const models: Array<{ data: WorkbenchData }> = [];
+    act(() => root.render(<Model hover={null} message={null} onModel={(m) => models.push(m)} />));
+    const { data } = models[0];
+    expect([data.sceneBack, data.sceneForward, data.canBack, data.canForward]).toEqual([sceneHistory.back, sceneHistory.forward, false, true]);
   });
 
   it("gives a new data object when the depth changes", () => {
