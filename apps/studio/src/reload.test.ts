@@ -8,7 +8,7 @@ const plan = (kind: AssetKind, index: number, state: SceneState | null = scene) 
 
 describe("reloadPlan", () => {
   it("refetches a shown map in the scene and refreshes the building inspector", () => {
-    expect(plan("Map", 11)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }, { kind: "map", map: 11 }, { kind: "mapModel" }]);
+    expect(plan("Map", 11)).toEqual([{ kind: "unpin" }, { kind: "buildings" }, { kind: "thumbnail", map: 11 }, { kind: "map", map: 11 }, { kind: "mapModel", map: 11 }]);
   });
 
   it("leaves the scene alone when the map is not shown", () => {
@@ -76,9 +76,10 @@ describe("historyPlan", () => {
       { kind: "buildings" },
       { kind: "thumbnail", map: 10 },
       { kind: "map", map: 10 },
-      { kind: "mapModel" },
+      { kind: "mapModel", map: 10 },
       { kind: "thumbnail", map: 11 },
       { kind: "map", map: 11 },
+      { kind: "mapModel", map: 11 },
       { kind: "textPanel", archive: 433 },
     ]);
   });

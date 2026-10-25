@@ -469,10 +469,10 @@ function AppBody() {
   if (isDeckArea(area)) built.current.add(area);
 
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
-  // After an import the map's pictures go, the scene reloads its models and the dirty count catches up.
+  // After an import the map's pictures go, the scene reloads that map's model and the dirty count catches up.
   const onMapImported = useStableCallback(async (map: number) => {
     thumbnails.invalidate(map);
-    bus.emit({ topic: "modelsReload" });
+    bus.emit({ topic: "mapModelReload", map });
     await session.refreshDirty();
   });
   const { data, live } = useWorkbenchModel({

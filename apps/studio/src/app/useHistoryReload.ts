@@ -81,7 +81,7 @@ export function useHistoryReload({
         thumbnails.invalidate(a.map);
         break;
       case "mapModel":
-        bus.emit({ topic: "modelsReload" });
+        bus.emit({ topic: "mapModelReload", map: a.map });
         break;
       case "matrixPanel":
         bus.emit({ topic: "matrixData" });
