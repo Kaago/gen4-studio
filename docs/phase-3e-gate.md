@@ -50,3 +50,41 @@ Befunde von 3e.1 (in der Teilphase behoben bzw. weitergegeben):
 2. Griff und Menü teilen sich keine Taste (Base UI öffnet ein Menü schon beim Drücken): der Griff `[data-toolbar-grip]` zieht nur (für Hilfstechnik verborgen), die Taste „Lage der Werkzeugleiste“ öffnet das Menü „Links“, „Oben“, „Unten“.
 3. Die Referenzhöhe 900 px ergibt mit offener Hand (286) eine Schau von 458 px, also eine waagrechte Leiste. Mit der Anordnung „Werkbank“ aus 3e.4 (Script und Probleme unten 240 px) wird die Schau höher; dort erneut prüfen.
 4. Zwei synthetische Tastendrücke am Teiler im selben Takt rechnen mit derselben alten Höhe (echte Tastendrücke sind getrennte Ereignisse und zählen richtig); ein Zittern von 1 px bei Klick oder Doppelklick auf eine eingeklappte Hand öffnet sie mit 200 px. Weitergegeben an 3e.3, Task 1 (Baustein `Splitter`: 4 px Schwelle, Start bei der gemerkten Höhe, funktionale Aktualisierung).
+
+## Teil 3e.2: Weltbaum und Sortierung
+
+Lieferumfang (Roadmap): `worldModel.ts` (Weltkarten, Gebiete, Räume über den Warp-Graphen, „Weitere Gebiete“, „Nicht verbunden“, „Sonstiges“ nur in Tüfteln), der Baum Weltkarte › Gebiet › Räume mit Ortsetikett und Klarnamen (umbenennbar, `g4-world.json`), Sortierung im Baum und in der Liste (`worldSort` in `g4.shell.v1`), Glossar mit `worldMap`, `area`, `landscape`, in Bauen kein sichtbares „Raster“, „Matrix“ oder „Header“ (der Reiter „Raster“ selbst bleibt bis 3f.1). Kernel: `HeaderSummary.location_index` und `kanto`, Befehle `world_meta_get` und `world_meta_set`. Gated Test: `workbench/worldModel.vanilla.test.ts` mit `G4_WORLD_DUMP` (Dumps aus `scripts/agent/world-dump.sh`, siehe `docs/dev-setup.md`).
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (2.1) Weltkarten | Wurzeln des Baums `[role=tree][aria-label=Orte]`: Platin DE „Sinnoh“; HeartGold DE und US „Johto“ und „Kanto“ | Agent |
+| (2.2) Weitere Gebiete | „Weitere Gebiete“ (`[data-world-group=more]`) enthält auf Platin „Großmoor“ und „Kampfzone“, auf HeartGold die Safari-Zone | Agent |
+| (2.3) Räume zugeordnet | gated Test: Räume unter einem Gebiet / alle Räume ≥ 0,9, jeder Header genau einmal, `buildWorld` < 200 ms | Agent |
+| (2.4) Kraterberg | Suche „Kraterberg“ auf Platin: die Ebenen liegen unter ihren Eingängen (Routen) bzw. unter „Weitere Gebiete“, keine unter „Nicht verbunden“ | Agent |
+| (2.5) Sortierung | Menü „Sortierung“ › „Name A–Z“ auf HeartGold: in Kanto steht „Route 2“ vor „Route 10“; `g4.shell.v1` `worldSort.tree = "name"` | Agent |
+| (2.6) Umbenennen | Raum wählen, „Weitere Aktionen für …“ › „Umbenennen…“: `g4-world.json` in der Kopie hat den Namen, nach Neuladen steht er im Baum | Agent |
+| (2.7) Tüfteln | in Tüfteln erscheint die Wurzel „Sonstiges“ | Agent |
+| (2.8) DOM-Scan Bauen | Rezept „DOM-Scan Bauen“ in [agent-gate.md](agent-gate.md): Liste, Scharnier, Schau, Hand, Statusleiste mit gewähltem Gebiet und gewählter Figur; erlaubt ist nur der Reiter „Raster“ | Agent |
+
+### Ergebnis 3e.2
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-25 | 3e-pt | (2.1) | bestanden: eine Weltkarte „Sinnoh“ (61 Gebiete); Kopfzeile „1 Weltkarte, 72 Gebiete, 492 Räume“ | – |
+| 2026-10-25 | 3e-hgd, 3e-hgu | (2.1) | bestanden: „Johto“ (34 Gebiete) und „Kanto“ (38 Gebiete); „2 Weltkarten, 83 Gebiete, 448 Räume“ | – |
+| 2026-10-25 | 3e-pt | (2.2) | bestanden: „Weitere Gebiete, 11 Gebiete“ mit „Großmoor“ und „Kampfzone“ (13 Räume) | Dazu Teile von Kraterberg und Speersäule, Park der Freunde, Platz der Treue, Duellpark, Halle d. Beginns: eigene Matrizen ohne Header-Abschnitt (Regel aus dem Gutachten, siehe Befund 1) |
+| 2026-10-25 | 3e-hgd, 3e-hgu | (2.2) | bestanden: „Safari-Zone“ / „Safari Zone“ (14 Räume) unter „Weitere Gebiete“ (11) | Auch die Häfen „Oliviana City“/„Olivine City“ und „Orania City“/„Vermilion City“ stehen dort (eigene Matrix), Befund 1 |
+| 2026-10-25 | alle drei | (2.3) | bestanden (gated, `G4_WORLD_DUMP`, 10 Tests): Platin 482/492 Räume (0,980), `buildWorld` 4,0 ms; HeartGold DE und US je 427/448 (0,953), 1,9 bzw. 1,8 ms; jeder Header genau einmal | „Nicht verbunden“: Platin 10 Räume, HeartGold 21 (Sinnoh-Reste wie Kampfareal, Jubelstadt, Sinjoh-Ruinen) |
+| 2026-10-25 | 3e-pt | (2.4) | bestanden: Ebene 1 und 2 unter Route 207, Ebene 12 und 13 unter Route 211, Ebene 11 und 3 unter Route 216, Ebene 9 unter Speersäule, Ebenen 3, 6, 7, 8, 10 unter den Kraterberg-Gebieten in „Weitere Gebiete“; keine unter „Nicht verbunden“ | – |
+| 2026-10-25 | 3e-hgd | (2.5) | bestanden: Kanto mit „Route 2“ an Stelle 10, „Route 10“ an Stelle 18; `worldSort` `{"tree":"name","list":"id"}`; nach Neuladen weiter A–Z | – |
+| 2026-10-25 | 3e-hgd | (2.6) | bestanden: Raum 0061 („Haus 1“, Neuborkia) umbenannt, `g4-world.json` `roomNames` `{"61": …}`, nach Neuladen findet die Suche den neuen Namen | – |
+| 2026-10-25 | 3e-hgu | (2.7) | bestanden: Wurzeln „Johto“, „Kanto“, „Weitere Gebiete“, „Nicht verbunden“, „Sonstiges, 4 Header“ | – |
+| 2026-10-25 | 3e-pt, 3e-hgd | (2.8) | bestanden: Gebiet (Zweiblattdorf, Neuborkia), Raum („Haus 1“) und Figur (`object:0`) gewählt: Liste, Scharnier, Hand und Statusleiste ohne Treffer, in der Schau nur der Reiter „Raster“ | Der erste Scan zählte den verborgenen Inhalt des Raster-Panels mit (Dockview verbirgt inaktive Panels mit `visibility: hidden`); `visibleWords` überspringt das jetzt (Befund 2) |
+
+Befunde von 3e.2 (in der Teilphase behoben bzw. weitergegeben):
+
+1. „Weitere Gebiete“ hat je Projekt 11 Einträge, mehr als das Gutachten nennt: Matrizen ohne Header-Abschnitt mit `map_type` 1 oder 2 und mehr als einer Zelle sind eigene Gebiete (Kraterberg- und Speersäulen-Teile, Häfen in HGSS). Bewusst so gelassen; umordnen erlaubt `g4-world.json` erst mit 3f.
+2. `visibleWords` (`ui/visibleText.ts`) überspringt seit `82a613a` auch Text unter `visibility: hidden`/`collapse`.
+3. In Bauen nennt der Inspector die Matrix eines Raums „Weltkarte 0126“ (auch Räume haben eine eigene Matrix); bis 3f.1 das Feld nach Tüfteln wandert, bleibt das Wort.
+4. Brotkrume und Inspector-Kopf nennen einen Raum noch „Raum 0412“ statt „Haus 1“: weitergegeben an 3e.3 (Inspector-Kopf, Wurzel der Szene mit dem Namen aus dem Weltmodell).
+5. Technik › Prüfen und Bauen teilt die Tabelle mit „Probleme“ und spricht in Bauen deshalb auch Bauen-Wörter.
