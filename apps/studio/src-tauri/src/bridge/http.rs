@@ -11,7 +11,7 @@ use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -42,6 +42,10 @@ const MCP_THREADS: usize = 2;
 const MCP_SHUTDOWN: Duration = Duration::from_secs(1);
 /// `/mcp` while "Lokale Agenten zulassen" is off.
 const AGENTS_OFF: &str = "Lokale Agenten sind aus (Einstellungen › Agenten)";
+/// `/mcp` calls running at once, each on a thread of its own (a call can wait 120 s for
+/// the user, so it must not hold one of the workers the UI needs to answer).
+const MCP_CALLS: usize = 16;
+const TOO_MANY_CALLS: &str = "Zu viele gleichzeitige Agenten-Aufrufe";
 
 pub struct ServeConfig {
     /// Port on `127.0.0.1`; 0 picks a free one (see `BridgeServer::addr`).
@@ -59,7 +63,7 @@ pub struct BridgeServer {
     server: Arc<Server>,
     stopping: Arc<AtomicBool>,
     workers: Vec<JoinHandle<()>>,
-    mcp: McpService,
+    shared: Arc<Shared>,
     rt: tokio::runtime::Runtime,
 }
 
@@ -72,6 +76,8 @@ struct Shared {
     token: String,
     origin: String,
     port: u16,
+    /// `/mcp` calls running now (at most [`MCP_CALLS`]).
+    mcp_calls: AtomicUsize,
 }
 
 impl BridgeServer {
@@ -108,12 +114,13 @@ impl BridgeServer {
         let stopping = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(Shared {
             state,
-            mcp: mcp.clone(),
+            mcp,
             rt: rt.handle().clone(),
             roots: config.roots,
             token: config.token,
             origin: config.origin,
             port: addr.port(),
+            mcp_calls: AtomicUsize::new(0),
         });
         let workers = (0..WORKERS)
             .map(|_| {
@@ -126,15 +133,18 @@ impl BridgeServer {
             server,
             stopping,
             workers,
-            mcp,
+            shared,
             rt,
         })
     }
 
-    /// Stops accepting requests and waits for the workers (requests in flight finish first),
-    /// then closes the MCP sessions and the runtime.
+    /// Stops accepting requests: denies the agents' open questions and closes their sessions
+    /// first (a call waiting for the user ends now), then waits for the workers (requests in
+    /// flight finish first) and closes the runtime.
     pub fn stop(self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.shared.state.agents.disconnect_all();
+        self.rt.block_on(self.shared.mcp.close_all());
         // `unblock` frees one waiting `recv` per call.
         for _ in &self.workers {
             self.server.unblock();
@@ -142,12 +152,11 @@ impl BridgeServer {
         for worker in self.workers {
             let _ = worker.join();
         }
-        self.rt.block_on(self.mcp.close_all());
         self.rt.shutdown_timeout(MCP_SHUTDOWN);
     }
 }
 
-fn worker(server: &Server, stopping: &AtomicBool, shared: &Shared) {
+fn worker(server: &Server, stopping: &AtomicBool, shared: &Arc<Shared>) {
     loop {
         match server.recv() {
             Ok(request) => {
@@ -206,14 +215,55 @@ fn plain((status, content_type, body): Parts) -> Answer {
     response
 }
 
-fn handle(shared: &Shared, mut request: Request) {
-    let is_mcp = request.url().split('?').next() == Some(MCP_PATH);
-    let response = if is_mcp {
-        answer_mcp(shared, &mut request)
-    } else {
-        plain(answer(shared, &mut request))
-    };
+fn handle(shared: &Arc<Shared>, mut request: Request) {
+    if request.url().split('?').next() == Some(MCP_PATH) {
+        match prepare_mcp(shared, &mut request) {
+            Ok(forwarded) => spawn_mcp(shared, request, forwarded),
+            Err(refusal) => {
+                let _ = request.respond(refusal);
+            }
+        }
+        return;
+    }
+    let response = plain(answer(shared, &mut request));
     let _ = request.respond(response);
+}
+
+/// One of the [`MCP_CALLS`] slots; dropping it frees the slot.
+struct McpSlot(Arc<Shared>);
+
+impl McpSlot {
+    fn take(shared: &Arc<Shared>) -> Option<McpSlot> {
+        let running = shared.mcp_calls.fetch_add(1, Ordering::SeqCst);
+        if running >= MCP_CALLS {
+            shared.mcp_calls.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(McpSlot(Arc::clone(shared)))
+    }
+}
+
+impl Drop for McpSlot {
+    fn drop(&mut self) {
+        self.0.mcp_calls.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Answers a checked `/mcp` request on a thread of its own, so the worker goes back to
+/// `recv` at once and `/invoke` (the UI answering a question) stays free.
+fn spawn_mcp(shared: &Arc<Shared>, request: Request, forwarded: hyper::Request<Full<Bytes>>) {
+    let Some(slot) = McpSlot::take(shared) else {
+        let _ = request.respond(refused(503, TOO_MANY_CALLS));
+        return;
+    };
+    // Should the thread not start, the request is dropped with it and its connection closes.
+    let _ = std::thread::Builder::new()
+        .name("bridge-mcp-call".to_owned())
+        .spawn(move || {
+            let response = run_mcp(&slot.0, forwarded);
+            let _ = request.respond(response);
+            drop(slot);
+        });
 }
 
 /// A refused `/mcp` request (a `CmdError`, as the app's server answers).
@@ -240,11 +290,15 @@ fn hyper_headers(request: &Request) -> HeaderMap {
     headers
 }
 
-/// `/mcp`: the app's precheck (with the bridge's token header as an alternative to
-/// `Authorization: Bearer`), the agents switch, then rmcp on the bridge's runtime.
-fn answer_mcp(shared: &Shared, request: &mut Request) -> Answer {
+/// `/mcp` up to rmcp: the app's precheck (with the bridge's token header as an alternative
+/// to `Authorization: Bearer`), the agents switch, the body; the request for rmcp or the
+/// refusal.
+fn prepare_mcp(
+    shared: &Shared,
+    request: &mut Request,
+) -> Result<hyper::Request<Full<Bytes>>, Answer> {
     let Ok(method) = Method::from_bytes(request.method().as_str().as_bytes()) else {
-        return refused(405, "Methode nicht erlaubt");
+        return Err(refused(405, "Methode nicht erlaubt"));
     };
     let url = request.url().to_owned();
     let path = url.split('?').next().unwrap_or("");
@@ -256,26 +310,31 @@ fn answer_mcp(shared: &Shared, request: &mut Request) -> Answer {
         checked.insert(AUTHORIZATION, bearer);
     }
     match precheck(&method, path, &checked, shared.port, &shared.token) {
-        Guard::Refuse(status @ (401 | 403), message) => return refused(status, message),
-        _ if !shared.state.agents.settings().enabled => return refused(503, AGENTS_OFF),
-        Guard::Refuse(status, message) => return refused(status, message),
+        Guard::Refuse(status @ (401 | 403), message) => return Err(refused(status, message)),
+        _ if !shared.state.agents.settings().enabled => return Err(refused(503, AGENTS_OFF)),
+        Guard::Refuse(status, message) => return Err(refused(status, message)),
         Guard::Ok => {}
     }
     let mut raw = Vec::new();
     if let Err(e) = request.as_reader().take(MAX_BODY + 1).read_to_end(&mut raw) {
-        return refused(400, &format!("Körper nicht lesbar: {e}"));
+        return Err(refused(400, &format!("Körper nicht lesbar: {e}")));
     }
     if raw.len() as u64 > MAX_BODY {
-        return refused(413, "Körper zu groß");
+        return Err(refused(413, "Körper zu groß"));
     }
     let mut forwarded = hyper::Request::new(Full::new(Bytes::from(raw)));
     *forwarded.method_mut() = method;
     match url.parse() {
         Ok(uri) => *forwarded.uri_mut() = uri,
-        Err(_) => return refused(400, "Pfad nicht lesbar"),
+        Err(_) => return Err(refused(400, "Pfad nicht lesbar")),
     }
     *forwarded.headers_mut() = headers;
-    // A panic in rmcp must not take the worker thread down with it.
+    Ok(forwarded)
+}
+
+/// rmcp's answer to a checked `/mcp` request, on the bridge's runtime.
+fn run_mcp(shared: &Shared, forwarded: hyper::Request<Full<Bytes>>) -> Answer {
+    // A panic in rmcp must not take the thread down without an answer.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         shared.rt.block_on(async {
             let (parts, body) = mcp_http::handle(&shared.mcp, forwarded).await.into_parts();
@@ -427,6 +486,10 @@ mod tests {
         body: &str,
     ) -> Reply1 {
         let mut stream = TcpStream::connect(server.addr).unwrap();
+        // A hung server fails the test instead of hanging it.
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(60)))
+            .unwrap();
         let mut head = format!("{method} {path} HTTP/1.1\r\n");
         for (name, value) in headers {
             head.push_str(&format!("{name}: {value}\r\n"));
@@ -908,5 +971,153 @@ mod tests {
         let status = post(&server, "/invoke/agent_status", "{}").json();
         assert_eq!(status["enabled"], true);
         server.stop();
+    }
+
+    /// Parks `count` `tools/call get_header` calls (one session each) on the connect question
+    /// of the open project (agents on, no grant) and runs `then` while they wait; answers
+    /// what the calls got.
+    fn with_parked_calls(
+        server: &BridgeServer,
+        count: usize,
+        then: impl FnOnce(u64),
+    ) -> Vec<Reply1> {
+        let sessions: Vec<String> = (0..count).map(|_| mcp_session(server)).collect();
+        std::thread::scope(|scope| {
+            let calls: Vec<_> = sessions
+                .iter()
+                .map(|session| {
+                    scope.spawn(move || {
+                        let call = json!({
+                            "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                            "params": { "name": "get_header", "arguments": { "id": 0 } }
+                        });
+                        send(
+                            server,
+                            "POST",
+                            "/mcp",
+                            &mcp_headers(server, Some(session)),
+                            &call.to_string(),
+                        )
+                    })
+                })
+                .collect();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let parked = server.shared.mcp_calls.load(Ordering::SeqCst) == count;
+                let question = &post(server, "/invoke/agent_status", "{}").json()["question"];
+                if parked && !question.is_null() {
+                    then(question["id"].as_u64().unwrap());
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "calls not parked");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            calls.into_iter().map(|c| c.join().unwrap()).collect()
+        })
+    }
+
+    fn open_without_grant() -> (g4_kernel::test_support::Synthetic, BridgeServer) {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let server = start_with(fixture.dir.path());
+        let args = json!({ "path": fixture.dir.path().to_str().unwrap() }).to_string();
+        assert_eq!(post(&server, "/invoke/open_project", &args).status, 200);
+        enable_agents(&server);
+        (fixture, server)
+    }
+
+    #[test]
+    fn mcp_calls_waiting_on_a_question_leave_invoke_free() {
+        let (_fixture, server) = open_without_grant();
+        // More calls than workers.
+        let replies = with_parked_calls(&server, WORKERS + 2, |question| {
+            let started = std::time::Instant::now();
+            let poll = post(&server, "/invoke/agent_poll", r#"{"since":0}"#);
+            assert_eq!(poll.status, 200);
+            assert!(started.elapsed() < std::time::Duration::from_secs(1));
+            let answer = json!({ "question": question, "answer": "read" }).to_string();
+            let reply = post(&server, "/invoke/agent_answer", &answer);
+            assert_eq!(
+                reply.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&reply.body)
+            );
+        });
+        for reply in replies {
+            assert_eq!(reply.status, 200);
+            let result = &reply.message()["result"];
+            assert_ne!(result["isError"], true, "{result}");
+        }
+        assert_eq!(server.shared.mcp_calls.load(Ordering::SeqCst), 0);
+        server.stop();
+    }
+
+    #[test]
+    fn mcp_calls_above_the_cap_are_503() {
+        let (_fixture, server) = open_without_grant();
+        let extra = mcp_session(&server);
+        let replies = with_parked_calls(&server, MCP_CALLS, |question| {
+            let reply = send(
+                &server,
+                "POST",
+                "/mcp",
+                &mcp_headers(&server, Some(&extra)),
+                &json!({ "jsonrpc": "2.0", "id": 8, "method": "ping" }).to_string(),
+            );
+            assert_eq!(reply.status, 503);
+            assert_eq!(reply.json()["message"], TOO_MANY_CALLS);
+            let answer = json!({ "question": question, "answer": "read" }).to_string();
+            assert_eq!(post(&server, "/invoke/agent_answer", &answer).status, 200);
+        });
+        assert!(replies.iter().all(|r| r.status == 200));
+        server.stop();
+    }
+
+    #[test]
+    fn stop_denies_waiting_calls() {
+        let (_fixture, server) = open_without_grant();
+        let sessions: Vec<String> = (0..2).map(|_| mcp_session(&server)).collect();
+        let addr = server.addr;
+        let calls: Vec<_> = sessions
+            .into_iter()
+            .map(|session| {
+                std::thread::spawn(move || {
+                    let mut stream = TcpStream::connect(addr).unwrap();
+                    let body = json!({
+                        "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                        "params": { "name": "get_header", "arguments": { "id": 0 } }
+                    })
+                    .to_string();
+                    let head = format!(
+                        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{TOKEN_HEADER}: {TOKEN}\r\n\
+                         Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n\
+                         Mcp-Session-Id: {session}\r\nMCP-Protocol-Version: 2025-11-25\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        addr.port(),
+                        body.len()
+                    );
+                    stream.write_all(head.as_bytes()).unwrap();
+                    stream.write_all(body.as_bytes()).unwrap();
+                    let mut raw = Vec::new();
+                    let _ = stream.read_to_end(&mut raw);
+                })
+            })
+            .collect();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while server.shared.state.agents.status().question.is_none()
+            || server.shared.mcp_calls.load(Ordering::SeqCst) < 2
+        {
+            assert!(std::time::Instant::now() < deadline, "calls not parked");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let started = std::time::Instant::now();
+        let shared = Arc::clone(&server.shared);
+        server.stop();
+        for call in calls {
+            call.join().unwrap();
+        }
+        // Denied at once, not after the question's 120 s.
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert!(shared.state.agents.status().question.is_none());
     }
 }

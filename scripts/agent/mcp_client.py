@@ -82,7 +82,13 @@ def http(method, payload, session):
             return response.status, response.headers, response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.headers, e.read().decode("utf-8", "replace")
-    except (urllib.error.URLError, OSError) as e:
+    except TimeoutError:
+        raise Failure(f"Keine Antwort in {TIMEOUT} s (127.0.0.1:{port})")
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, TimeoutError):
+            raise Failure(f"Keine Antwort in {TIMEOUT} s (127.0.0.1:{port})")
+        raise Failure(f"Brücke nicht erreichbar (127.0.0.1:{port}): {e} - läuft scripts/agent/studio-web.sh?")
+    except OSError as e:
         raise Failure(f"Brücke nicht erreichbar (127.0.0.1:{port}): {e} - läuft scripts/agent/studio-web.sh?")
 
 
