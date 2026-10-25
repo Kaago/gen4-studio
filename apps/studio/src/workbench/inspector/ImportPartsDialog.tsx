@@ -16,7 +16,7 @@ import {
   TextField,
   checkNumber,
 } from "../../ui/primitives";
-import type { CheckRow, PickerItem } from "../../ui/primitives";
+import type { CheckRow } from "../../ui/primitives";
 import type { NavTarget } from "../navigation";
 import { findingRow } from "../problems/ProblemsPanel";
 import { id4 } from "../terms";
@@ -27,6 +27,7 @@ import {
   partView,
   partsWord,
   preselected,
+  sourceMapItems,
 } from "./importParts";
 import styles from "./ImportPartsDialog.module.css";
 
@@ -221,19 +222,8 @@ export function ImportPartsDialog({
     };
   });
 
-  const mapItems = useMemo<PickerItem[]>(
-    () =>
-      pickerOpen
-        ? Array.from({ length: mapCount }, (_, i) => ({
-            id: i,
-            label: `Karte ${id4(i)}`,
-            tech: String(i),
-            area: "welt" as const,
-            disabled: i === map,
-          }))
-        : [],
-    [pickerOpen, mapCount, map],
-  );
+  // Built once per map, not per opening: emptying the list while the picker fades out showed „Nichts gefunden“ (GB7).
+  const mapItems = useMemo(() => sourceMapItems(mapCount, map), [mapCount, map]);
 
   return (
     <Dialog
