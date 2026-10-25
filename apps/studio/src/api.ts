@@ -820,3 +820,4 @@ export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";
 export * from "./project/api.start";
+export * from "./project/api.templates";

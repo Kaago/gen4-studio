@@ -136,6 +136,8 @@ pub const COMMANDS: &[&str] = &[
     "default_project_parent",
     "check_project_dest",
     "create_project",
+    "plan_empty_region",
+    "apply_empty_region",
 ];
 
 /// Import files must lie under the bridge's import roots; a map of the project needs nothing.
@@ -597,6 +599,12 @@ pub fn dispatch(
                 create_project_impl(&path_text(&rom)?, &path_text(&dest)?, a.template, &mut |_| {})
             }
         ),
+        "plan_empty_region" => run!(json, "plan_empty_region", args, {}, |_a| {
+            plan_empty_region_impl(state)
+        }),
+        "apply_empty_region" => run!(json, "apply_empty_region", args, {}, |_a| {
+            apply_empty_region_impl(state)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -878,6 +886,8 @@ mod tests {
                 "create_project",
                 json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original" }),
             ),
+            ("plan_empty_region", json!({})),
+            ("apply_empty_region", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -1475,5 +1485,137 @@ mod tests {
             json!({ "path": root }),
         ));
         assert_eq!(opened["game_code"], code, "{opened}");
+    }
+
+    /// A synthetic project whose matrix 0 has a start town (header 1 "T01", the cell (1, 0)) next
+    /// to a cell of header 0, with an unsaved edit on top: the plan works, the apply must not.
+    #[test]
+    fn apply_empty_region_refuses_unsaved_changes() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let mut names = Vec::new();
+        for name in ["E00", "T01"] {
+            let mut record = [0u8; 16];
+            record[..name.len()].copy_from_slice(name.as_bytes());
+            names.extend_from_slice(&record);
+        }
+        std::fs::write(
+            fixture
+                .dir
+                .path()
+                .join("files/fielddata/maptable/mapname.bin"),
+            names,
+        )
+        .unwrap();
+        let state = AppState::default();
+        crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        {
+            let mut guard = crate::commands::lock(&state).unwrap();
+            let session = crate::commands::session(&mut guard).unwrap();
+            session
+                .store
+                .edit_matrix(0, "town", |m| {
+                    m.headers = Some(vec![0, 1]);
+                    m.altitudes = Some(vec![0, 0]);
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let roots = roots_over(&fixture);
+        let plan = json_of(call(&state, &roots, "plan_empty_region", json!({})));
+        assert_eq!(plan["start_header"], 1, "{plan}");
+        assert_eq!(plan["town_cells"], json!([[1, 0]]), "{plan}");
+        assert_eq!(plan["already_empty"], false, "{plan}");
+        let dirty_before = dirty_impl(&state).unwrap();
+        assert!(!dirty_before.is_empty());
+        match dispatch(&state, &roots, "apply_empty_region", json!({})) {
+            Err(DispatchError::Cmd(e)) => assert_eq!(e.message, "save first"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(dirty_impl(&state).unwrap(), dirty_before);
+        // Saved, it applies: the answer names what to load again, and the world is empty now.
+        call(&state, &roots, "save", json!({}));
+        let report = json_of(call(&state, &roots, "apply_empty_region", json!({})));
+        assert_eq!(report["plan"], plan, "{report}");
+        let changed = report["changed"].as_array().unwrap();
+        assert!(
+            changed.contains(&json!({ "kind": "Matrix", "index": 0 })),
+            "{report}"
+        );
+        assert!(report["change"].is_u64(), "{report}");
+        let again = json_of(call(&state, &roots, "plan_empty_region", json!({})));
+        assert_eq!(again["already_empty"], true, "{again}");
+    }
+
+    #[test]
+    fn the_empty_region_commands_need_an_open_project() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let roots = roots_over(&fixture);
+        let state = AppState::default();
+        for name in ["plan_empty_region", "apply_empty_region"] {
+            match dispatch(&state, &roots, name, json!({})) {
+                Err(DispatchError::Cmd(e)) => assert_eq!(e.message, "no project open", "{name}"),
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    /// Needs `G4_TEST_ROM` (a copy of a ROM, read only): creates a project with the empty-region
+    /// template (the kernel adopts the scripts, applies the recipe and saves), opens it like the
+    /// app does, checks it, and shows that the world is empty now: the plan says so and a second
+    /// apply is refused.
+    #[test]
+    fn project_start_bridge_empty_region() {
+        let Some(nds) = std::env::var_os("G4_TEST_ROM").map(std::path::PathBuf::from) else {
+            eprintln!("skipped: G4_TEST_ROM not set");
+            return;
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let rom = tmp.path().join("copy.nds");
+        std::fs::copy(&nds, &rom).unwrap();
+        let roots = Roots::new(&[tmp.path().to_path_buf()]).unwrap();
+        let state = AppState::default();
+        let dest = tmp.path().join("neu");
+        let created = json_of(call(
+            &state,
+            &roots,
+            "create_project",
+            json!({ "rom": rom.to_str().unwrap(), "dest": dest.to_str().unwrap(),
+                    "template": "empty_region" }),
+        ));
+        assert_eq!(created["template"], "empty_region", "{created}");
+        let root = created["root"].as_str().unwrap().to_owned();
+        json_of(call(
+            &state,
+            &roots,
+            "open_project",
+            json!({ "path": root }),
+        ));
+        let plan = json_of(call(&state, &roots, "plan_empty_region", json!({})));
+        assert_eq!(plan["already_empty"], true, "{plan}");
+        match dispatch(&state, &roots, "apply_empty_region", json!({})) {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!(e.message, "the world is already empty");
+            }
+            other => panic!("{other:?}"),
+        }
+        let report = json_of(call(
+            &state,
+            &roots,
+            "run_checks",
+            json!({ "scope": "full" }),
+        ));
+        assert_eq!(
+            report["groups"],
+            json!(["cheap", "per_script", "per_archive"]),
+            "{report}"
+        );
+        let errors: Vec<&Value> = report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["severity"] == "error")
+            .collect();
+        assert!(errors.is_empty(), "{errors:#?}");
     }
 }

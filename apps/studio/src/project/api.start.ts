@@ -31,7 +31,7 @@ export interface RomInfo {
 }
 
 /** What a new project starts as. */
-export type Template = "original" | "data_only";
+export type Template = "original" | "data_only" | "empty_region";
 
 export type CreatePhase = "read" | "extract" | "template" | "check";
 

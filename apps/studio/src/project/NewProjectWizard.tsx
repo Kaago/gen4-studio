@@ -35,7 +35,7 @@ type Props = {
 const CHECK_DELAY_MS = 200;
 
 /** How the summary and the start's view name a template. */
-export const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten" };
+export const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten", empty_region: "Leere Region" };
 
 type Card = { id: Template | "empty_region"; title: string; text?: string; later?: string };
 const CARDS: Card[] = [
