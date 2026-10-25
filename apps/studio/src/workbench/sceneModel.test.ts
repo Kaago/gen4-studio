@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DataRowDto, EventsDto, HeaderSummary, MatrixDto } from "../api";
-import { SCENE_OPEN, inspectorOfScene, sceneRows } from "./sceneModel";
+import { SCENE_OPEN, inspectorOfScene, sceneRefOf, sceneRows } from "./sceneModel";
 import type { SceneInput, SceneRow } from "./sceneModel";
 
 const header = (id: number, internal_name: string, location_name: string, matrix_id: number, more: Partial<HeaderSummary> = {}): HeaderSummary => ({
@@ -102,12 +102,21 @@ describe("sceneRows", () => {
   });
 
   it("names_a_doors_target_in_the_second_line", () => {
-    const rows = sceneRows(input({ worldName: (h) => (h.id === 414 ? "Haus von Lucas" : "Jubelstadt") }), SCENE_OPEN, "");
+    const rows = sceneRows(input({ identify: (h) => (h.id === 414 ? { kind: "room", name: "Haus von Lucas" } : { kind: "area", name: "Jubelstadt" }) }), SCENE_OPEN, "");
     expect(find(rows, "Warp 0")).toMatchObject({ second: "→ Haus von Lucas", dest: 414, ref: { kind: "event", file: 7, eventKind: "warp", index: 0 } });
     // Without the world model, the room is named from its code or place.
     expect(find(sceneRows(input(), SCENE_OPEN, ""), "Warp 0").second).toMatch(/^→ (?!.*Header)/);
     // Tüfteln names the header too.
-    expect(find(sceneRows(input({ depth: "tuefteln", worldName: () => "Haus von Lucas" }), SCENE_OPEN, ""), "Warp 0").second).toBe("→ Header 0414 · Haus von Lucas");
+    expect(find(sceneRows(input({ depth: "tuefteln", identify: () => ({ kind: "room", name: "Haus von Lucas" }) }), SCENE_OPEN, ""), "Warp 0").second).toBe("→ Header 0414 · Haus von Lucas");
+  });
+
+  it("takes_the_roots_name_and_kind_from_the_world", () => {
+    // The world model says the town is a room called „Omas Haus“: the root says so, whatever the places would guess.
+    const root = sceneRows(input({ identify: () => ({ kind: "room", name: "Omas Haus" }) }), SCENE_OPEN, "")[0]!;
+    expect([root.label, root.icon]).toEqual(["Omas Haus", "room"]);
+    expect(sceneRows(input({ identify: () => ({ kind: "area", name: "Jubelstadt" }) }), SCENE_OPEN, "")[0]!.icon).toBe("outside");
+    // Without the world, the places tell (the town is outside: an area).
+    expect(sceneRows(input(), SCENE_OPEN, "")[0]!.icon).toBe("outside");
   });
 
   it("names_an_unknown_target", () => {
@@ -167,7 +176,7 @@ describe("sceneRows", () => {
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
-    const words = sceneRows(input({ worldName: (h) => h.location_name }), ALL_OPEN, "").flatMap((r) => [r.label, r.tech ?? "", r.second ?? ""]);
+    const words = sceneRows(input({ identify: (h) => ({ kind: "area", name: h.location_name }) }), ALL_OPEN, "").flatMap((r) => [r.label, r.tech ?? "", r.second ?? ""]);
     expect(words.join(" ")).not.toMatch(/Raster|Matrix|Header/);
     // Tüfteln keeps them: the root names header and matrix.
     expect(sceneRows(input({ depth: "tuefteln" }), SCENE_OPEN, "")[0]!.tech).toBe("Header 0003 · Matrix 0000");
@@ -179,5 +188,11 @@ describe("sceneRows", () => {
     expect(inspectorOfScene({ kind: "building", map: 6, index: 1 })).toEqual({ kind: "building", map: 6, index: 1 });
     expect(inspectorOfScene({ kind: "event", file: 7, eventKind: "warp", index: 0 })).toEqual({ kind: "event", eventFile: 7, eventKind: "warp", index: 0 });
     expect(inspectorOfScene({ kind: "script", file: 42, level: false })).toBeNull();
+    // And back: the selection is the row that stands for it.
+    for (const ref of [{ kind: "header", id: 3 }, { kind: "matrixCell", matrix: 0, x: 1, y: 2 }, { kind: "building", map: 6, index: 1 }, { kind: "event", file: 7, eventKind: "warp", index: 0 }] as const) {
+      expect(sceneRefOf(inspectorOfScene(ref)!)).toEqual(ref);
+    }
+    expect(sceneRefOf({ kind: "area", id: 7 })).toBeNull();
+    expect(sceneRefOf({ kind: "none" })).toBeNull();
   });
 });

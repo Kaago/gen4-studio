@@ -74,7 +74,6 @@ describe("HeaderEditor scripts", () => {
     goTo: vi.fn(),
     eventRevision: 0,
     onOpenWizard: vi.fn(),
-    onAddWarp: vi.fn(),
     info: null,
     scriptsAdopted: true,
     scriptsRevision: 0,
@@ -116,9 +115,9 @@ describe("HeaderEditor scripts", () => {
     expect(container.querySelector("input[aria-label='Weltkarte']")).not.toBeNull();
   });
 
-  it("shows_the_form_in_the_sections_Karten_Aussehen_Texte_und_Scripts_Ausgänge_and_Level_Script", async () => {
+  it("shows_the_form_in_the_sections_Karten_Aussehen_Texte_und_Scripts_and_Level_Script", async () => {
     await show();
-    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten", "Aussehen", "Texte und Scripts", "Level-Script"]);
     expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
   });
 
@@ -153,6 +152,32 @@ describe("HeaderEditor scripts", () => {
     expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Ort", "Zweiblattdorf"]);
     await show(context({ identify }), "tuefteln");
     expect(eyebrow()).toBe("Header");
+  });
+
+  it("has_no_exits_list_but_a_line_that_leads_to_the_doors", async () => {
+    const goTo = vi.fn();
+    const warp = (index: number, dest: number) => ({ index, x: index, z: 2, dest_header_id: dest, dest_warp_id: 0, height: 0 });
+    // A door into the house and one whose target the headers do not list.
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [warp(0, 412), warp(1, 999)] });
+    await show(context({ goTo, headers: [summary, house] }));
+    expect(getEvents).toHaveBeenCalledWith(9);
+    // No list of the exits, no „Warp hinzufügen“, no hint at the wizards (the „+“ of the places has them).
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).not.toContain("Eingänge / Ausgänge2");
+    expect(button("Warp hinzufügen")).toBeUndefined();
+    expect(button("Bearbeiten")).toBeUndefined();
+    expect(container.textContent).not.toContain("Assistenten");
+    // The line leads to the doors of this header's scene.
+    await click(button("2 Türen, 1 ohne Ziel"));
+    expect(goTo).toHaveBeenCalledWith({ kind: "sceneGroup", group: "warp", header: 411 });
+    // Counted again when the events moved; one door says so, none is no link.
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [warp(0, 412)] });
+    await show(context({ goTo, headers: [summary, house], eventRevision: 1 }));
+    expect(button("1 Tür")).toBeDefined();
+    vi.mocked(getEvents).mockResolvedValue(noEvents);
+    await show(context({ goTo, headers: [summary, house], eventRevision: 2 }));
+    expect(container.querySelector("[data-doors]")?.textContent).toBe("Keine Türen");
+    expect(container.querySelector("[data-doors] button")).toBeNull();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
   });
 
   it("binds_a_room_here_from_the_head_menu", async () => {
@@ -408,7 +433,6 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [{ index: 0, x: 1, z: 2, dest_header_id: 411, dest_warp_id: 0, height: 0 }] });
     await show();
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
-    expect(container.textContent).toContain("Neue Gebiete und Räume legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an.");
     // While the header is read, and for a header the list does not know.
     vi.mocked(getHeader).mockReturnValue(new Promise(() => {}));
     await show(context({ headers: [] }));
@@ -420,7 +444,6 @@ describe("HeaderEditor scripts", () => {
     await show(context(), "tuefteln");
     expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toContain("Karten und Raster");
     expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
-    expect(container.textContent).toContain("(Schritt „Header“, Option „Neuer Header“)");
   });
 
   it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {

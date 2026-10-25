@@ -1,6 +1,7 @@
 import type { Tool } from "../ui/frame/shellState";
 import type { IconName } from "../ui/primitives";
-import type { EventKind } from "../world/events";
+import { lockedText } from "../world/events";
+import type { EventKind, EventLock } from "../world/events";
 
 /** One tool of the toolbar in the 3D view: what it is called, its letter, and what the status line says while it is active. */
 export interface ToolSpec {
@@ -115,3 +116,7 @@ export const EVENT_TOOL_KIND: Partial<Record<Tool, EventKind>> = { figure: "obje
 
 /** Whether the tool adds an event: those are locked with the event file. */
 export const isEventTool = (tool: Tool): boolean => EVENT_TOOL_KIND[tool] !== undefined;
+
+/** Why the event tools wait (the toolbar and the „+“ of the scene say it): a locked event file, or no shown place; null when they may add. */
+export const eventToolsBlocked = (lock: EventLock | null, eventFile: number | null): string | null =>
+  lock ? lockedText(lock.reason) : eventFile === null ? "Erst einen Ort wählen." : null;

@@ -9,7 +9,6 @@ export type PanelId =
   | "inspector"
   | "script"
   | "problems"
-  | "context"
   | "textView"
   | "textEdit"
   | "pokemonView"
@@ -35,7 +34,7 @@ export interface PanelSpec {
 
 /**
  * The panels of each dock of each area with a deck. Order matters: the first panel is the anchor, the others are tabs of its group (`within`) or sit
- * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v9`): a layout stored by
+ * beside it. The explorer and the text archives are no dock panels: they are the areas' lists. The layout key is versioned (`v10`): a layout stored by
  * an older panel set is not read, not migrated. The problems are a panel of the hands of Welt and Texte (the data areas have nothing to compile);
  * each area's dock is its own dockview, so the ids do not clash. The data areas have one panel per dock: the view of the selected member and
  * its editor, whatever part of the area shows.
@@ -51,8 +50,6 @@ export const DECK_PANELS: Record<DeckArea, Record<DeckId, PanelSpec[]>> = {
       { id: "inspector", title: "Inspector", position: { direction: "within" } },
       { id: "script", title: "Script", position: { direction: "within", referencePanel: "inspector" } },
       { id: "problems", title: "Probleme", position: { direction: "within", referencePanel: "inspector" } },
-      // "An diesem Ort" to the right of the inspector: a group of one panel, so without a tab bar.
-      { id: "context", title: "An diesem Ort", position: { direction: "right", referencePanel: "inspector" }, width: 260 },
     ],
   },
   texte: {
@@ -77,8 +74,8 @@ export function deckPanels(area: AreaId, deck: DeckId): PanelSpec[] {
   return isDeckArea(area) ? DECK_PANELS[area][deck] : [];
 }
 
-/** The version of the stored layouts; v9: the world's hand lost the tools (they become a floating toolbar). */
-export const LAYOUT_VERSION = 9;
+/** The version of the stored layouts; v10: the world's hand lost „An diesem Ort“ (the list „Welt“ shows the scene). */
+export const LAYOUT_VERSION = 10;
 
 /** The localStorage key of one dock's layout: per area and per deck, so one broken layout resets only its own dock. */
 export const layoutKey = (area: AreaId, deck: DeckId) => `g4.layout.v${LAYOUT_VERSION}.${area}.${deck}`;

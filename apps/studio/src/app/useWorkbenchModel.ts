@@ -31,6 +31,7 @@ interface WorkbenchModelParams {
     | "selectedEvent"
     | "onInspect"
     | "onEventsLocked"
+    | "onPin"
     | "onSelectBuilding"
     | "onSelectEvent"
     | "onEventMoved"
@@ -137,6 +138,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     onCountsChanged: session.onCountsChanged,
     onMapImported,
     selectedBuilding,
+    onPin: world.onPin,
     onSelectBuilding: world.onSelectBuilding,
     onBuildingMoved: world.onBuildingMoved,
     onBuildingChanged: world.onBuildingChanged,

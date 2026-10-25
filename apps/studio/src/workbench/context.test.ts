@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventsDto } from "../api";
-import { contextCounts, groupEvents } from "./context";
+import { groupEvents } from "./context";
 
 const events = (over: Partial<EventsDto> = {}): EventsDto => ({
   event_file_id: 7,
@@ -52,21 +52,5 @@ describe("groupEvents", () => {
 
   it("is_empty_for_a_file_without_events", () => {
     expect(groupEvents(events({ bg: [], objects: [], warps: [], coords: [] }), "tuefteln")).toEqual([]);
-  });
-});
-
-describe("contextCounts", () => {
-  it("counts_each_class_with_its_singular_or_plural", () => {
-    expect(contextCounts(events())).toBe("2 Figuren, 1 Tür, 1 Schild");
-    expect(contextCounts(events({ objects: [events().objects[0]!], warps: [...events().warps, { ...events().warps[0]!, index: 1 }], coords: [{ index: 0, script: 1, x: 1, z: 1, width: 1, length: 1 }], bg: [] }))).toBe(
-      "1 Figur, 2 Türen, 1 Auslöser",
-    );
-  });
-
-  it("appends_the_buildings_and_says_nothing_for_an_empty_place", () => {
-    expect(contextCounts(events({ bg: [], objects: [], warps: [] }), 3)).toBe("3 Gebäude");
-    expect(contextCounts(events({ bg: [], objects: [], warps: [] }), 1)).toBe("1 Gebäude");
-    expect(contextCounts(events({ bg: [], objects: [], warps: [] }))).toBe("Noch nichts");
-    expect(contextCounts(null)).toBe("Noch nichts");
   });
 });

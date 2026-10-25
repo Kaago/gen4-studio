@@ -87,8 +87,8 @@ describe("WorldExplorer", () => {
     onOpenWizard: () => {},
     scriptsAdopted: true,
     onOpenScript: () => {},
-    listOpen: true,
-    onToggleList: () => {},
+    folded: false,
+    onFold: () => {},
     sort: { tree: "game", list: "id" },
     onSort: () => {},
     onRename: () => {},
@@ -243,27 +243,34 @@ describe("WorldExplorer", () => {
   });
 
   describe("the head", () => {
-    it("is titled Orte, names the game and folds the list through the grip", () => {
-      const onToggleList = vi.fn();
-      render(props({ onToggleList }));
+    it("is the section Orte and folds the places", () => {
+      const onFold = vi.fn();
+      render(props({ onFold }));
+      expect(container.querySelector("section")?.getAttribute("aria-label")).toBe("Orte");
       expect(container.querySelector("h2")?.textContent).toBe("Orte");
-      expect(container.textContent).toContain("Platin, EN");
       // The view switch is symbols only (so the game name has room); the options keep their names.
       const view = container.querySelector('[role="group"][aria-label="Ansicht"]')!;
       expect([...view.querySelectorAll("button")].map((b) => [b.textContent, b.getAttribute("aria-label")])).toEqual([
         ["", "Baum"],
         ["", "Liste"],
       ]);
-      act(() => button("Liste einklappen")!.click());
-      expect(onToggleList).toHaveBeenCalledTimes(1);
+      act(() => button("Orte einklappen")!.click());
+      expect(onFold).toHaveBeenLastCalledWith(true);
+      render(props({ onFold, folded: true }));
+      act(() => button("Orte ausklappen")!.click());
+      expect(onFold).toHaveBeenLastCalledWith(false);
     });
 
-    it("keeps the tree and its state while the list is folded", () => {
+    it("keeps the tree and its state while the places are folded", () => {
       render(props({ selected: 3 }));
       type(search(), "Zwei");
-      render(props({ selected: 3, listOpen: false }));
-      expect(container.querySelector("section")?.hidden).toBe(true);
-      render(props({ selected: 3, listOpen: true }));
+      render(props({ selected: 3, folded: true }));
+      expect(search().closest("[hidden]")).not.toBeNull();
+      // Folded, the head keeps „+“ and the fold; the view switch and the sort wait for the tree.
+      expect(container.querySelector('[role="group"][aria-label="Ansicht"]')).toBeNull();
+      expect(button("Neu anlegen")).toBeDefined();
+      render(props({ selected: 3, folded: false }));
+      expect(search().closest("[hidden]")).toBeNull();
       expect(search().value).toBe("Zwei");
     });
   });
@@ -427,7 +434,6 @@ describe("WorldExplorer", () => {
     const hit = (n: number, line: number, excerpt: string): ScriptHitDto => ({ file: n, line, excerpt });
     const hitRows = () => treeitems().filter((t) => t.textContent?.includes("Zeile"));
     const withScripts = headers.map((h) => (h.id === 3 ? { ...h, script_file_id: 7, level_script_id: 8 } : { ...h, script_file_id: 5, level_script_id: 0 }));
-    const toggleHeader = (id: number) => pressKey(row(id)!, "ArrowRight");
 
     it("lists_the_scripts_node_first_in_the_tree", () => {
       render(props());
@@ -436,33 +442,13 @@ describe("WorldExplorer", () => {
       expect(scriptsRoot().getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("shows_the_script_file_and_level_script_below_an_expanded_room_and_below_an_open_area", () => {
-      const onOpenScript = vi.fn();
-      render(props({ headers: withScripts, world: worldOf(withScripts), selected: 3, onOpenScript }));
-      // The open area lists its own script file first.
-      expect([...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="3"]')].map((b) => b.textContent)).toEqual(["Scriptdatei 0005"]);
+    it("has_no_script_children_below_the_rows", () => {
+      // The scene's group „Scripts“ has them; the rows of the places are leaves.
+      render(props({ headers: withScripts, world: worldOf(withScripts), selected: 3 }));
+      expect(container.querySelectorAll('[data-script-file][aria-level="3"]')).toHaveLength(0);
+      expect(row(3)?.hasAttribute("aria-expanded")).toBe(false);
+      pressKey(row(3)!, "ArrowRight");
       expect(roomChildren()).toHaveLength(0);
-      expect(row(3)?.getAttribute("aria-expanded")).toBe("false");
-      toggleHeader(3);
-      expect(row(3)?.getAttribute("aria-expanded")).toBe("true");
-      expect(roomChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0007", "Level-Script 0008"]);
-      click(roomChildren()[0]);
-      click(roomChildren()[1]);
-      expect(onOpenScript.mock.calls).toEqual([[7], [8]]);
-      pressKey(row(3)!, "ArrowLeft");
-      expect(roomChildren()).toHaveLength(0);
-    });
-
-    it("disables_the_header_children_and_asks_for_the_adoption_while_scripts_are_not_adopted", () => {
-      const onOpenScript = vi.fn();
-      render(props({ headers: withScripts, world: worldOf(withScripts), selected: 3, scriptsAdopted: false, onOpenScript }));
-      toggleHeader(3);
-      const child = roomChildren()[0];
-      expect(child.getAttribute("aria-disabled")).toBe("true");
-      expect(child.title).toBe("Erst Scripts übernehmen (Panel „Script“)");
-      click(child);
-      pressKey(child, "Enter");
-      expect(onOpenScript).not.toHaveBeenCalled();
     });
 
     it("reads_the_script_list_when_the_root_node_is_first_opened_not_before", async () => {

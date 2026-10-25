@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
-import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
+import { clampHand, clampWorldSplit, readShellState, rememberRecent, writeShellState } from "./shellState";
 import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor, WorldSort } from "./shellState";
 
 export interface ShellApi {
@@ -22,6 +22,10 @@ export interface ShellApi {
   setToolbar: (anchor: ToolbarAnchor) => void;
   /** Sets how the world tree and/or the header list are sorted (remembered); a part left out stays. */
   setWorldSort: (sort: Partial<WorldSort>) => void;
+  /** The share of the list „Welt“ the places take (remembered, clamped to 0.2..0.8). */
+  setWorldListSplit: (share: number) => void;
+  /** Folds the places to one row or opens them (remembered). */
+  setPlacesFolded: (folded: boolean) => void;
   /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -105,6 +109,11 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       }),
     [],
   );
+  const setWorldListSplit = useCallback((share: number) => {
+    const worldListSplit = clampWorldSplit(share);
+    setState((s) => (s.worldListSplit === worldListSplit ? s : { ...s, worldListSplit }));
+  }, []);
+  const setPlacesFolded = useCallback((placesFolded: boolean) => setState((s) => (s.placesFolded === placesFolded ? s : { ...s, placesFolded })), []);
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
   const setTheme = useCallback((t: Theme) => {
@@ -133,6 +142,8 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setSelected,
       setToolbar,
       setWorldSort,
+      setWorldListSplit,
+      setPlacesFolded,
       tool,
       setTool,
       pendingTrainer,
@@ -147,7 +158,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

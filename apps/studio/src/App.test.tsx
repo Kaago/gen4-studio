@@ -809,14 +809,14 @@ describe("App wiring", () => {
       expect(shown.mounts).toBe(2);
     });
 
-    it("drops_the_layouts_before_v9_once_at_the_start", async () => {
-      localStorage.setItem("g4.layout.v7.welt.hand", "{}");
+    it("drops_the_layouts_before_v10_once_at_the_start", async () => {
       localStorage.setItem("g4.layout.v8.welt.hand", "{}");
       localStorage.setItem("g4.layout.v9.welt.hand", "{}");
+      localStorage.setItem("g4.layout.v10.welt.hand", "{}");
       await renderFresh();
-      expect(localStorage.getItem("g4.layout.v7.welt.hand")).toBeNull();
       expect(localStorage.getItem("g4.layout.v8.welt.hand")).toBeNull();
-      expect(localStorage.getItem("g4.layout.v9.welt.hand")).toBe("{}");
+      expect(localStorage.getItem("g4.layout.v9.welt.hand")).toBeNull();
+      expect(localStorage.getItem("g4.layout.v10.welt.hand")).toBe("{}");
     });
 
     it("names_what_the_status_line_shows_in_its_middle", async () => {
@@ -1023,6 +1023,17 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Texte")!.click());
       await act(async () => data().goTo({ kind: "header", id: 999 }));
       expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
+    });
+
+    it("leads_a_link_to_the_doors_to_the_world_and_tells_the_list_which_group_to_focus", async () => {
+      await select(listed[0]);
+      const asked = vi.fn();
+      data().bus.subscribe("sceneGroup", asked);
+      await act(async () => atlasEntry("Texte")!.click());
+      await act(async () => void data().goTo({ kind: "sceneGroup", group: "warp", header: listed[0]!.id }));
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(asked).toHaveBeenCalledWith({ topic: "sceneGroup", group: "warp" });
+      expect(data().selected).toBe(listed[0]!.id);
     });
 
     it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {

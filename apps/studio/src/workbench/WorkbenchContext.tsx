@@ -96,6 +96,8 @@ export interface WorkbenchData {
   onCountsChanged: () => void | Promise<void>;
   /** Parts were imported into a map: its pictures are dropped, the scene reloads the models and the dirty count catches up. */
   onMapImported: (map: number) => void | Promise<void>;
+  /** Pins a selection as a click in the scene does (a row of „In dieser Szene“ chose it): the inspector, the halo and the breadcrumb follow. */
+  onPin: (model: InspectorModel) => void;
   /** The building selected in the scene (it is the pinned inspector model); null: none. */
   selectedBuilding: BuildingRef | null;
   /** A click in the scene chose a building (null: none). */

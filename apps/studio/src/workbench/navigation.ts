@@ -1,6 +1,7 @@
 import type { EventKind, HeaderSummary, SpeciesTab } from "../api";
 import type { InspectorModel } from "./Inspector";
 import type { DeckArea, PanelId } from "./layout";
+import type { SceneGroup } from "./sceneModel";
 
 /**
  * Where a link leads. `header` on a matrix cell, building or event is a header known to show it
@@ -14,6 +15,8 @@ export type NavTarget =
   | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null }
   /** A text archive, with one of its messages (omitted: the first). */
   | { kind: "textArchive"; index: number; message?: number }
+  /** A group of „In dieser Szene“ (the doors, say): the list „Welt“ opens and focuses it; with `header`, that header's scene shows first. */
+  | { kind: "sceneGroup"; group: SceneGroup; header?: number }
   /** A script file (or level script), at a 1-based line (omitted: where the cursor was). */
   | { kind: "script"; file: number; line?: number }
   /** A species (personal member) in the Pokédex, with a tab of its editor (omitted: the view). */
@@ -72,6 +75,8 @@ export interface NavResult {
   script?: { file: number; line: number | null };
   /** Set for a species, move or item: what its data area selects. */
   data?: DataNav;
+  /** Set for a group of the scene: what the list „Welt“ opens and focuses. */
+  sceneGroup?: SceneGroup;
 }
 
 /**
@@ -117,6 +122,13 @@ function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchiv
   switch (target.kind) {
     case "script":
       return { selectedHeader: state.selectedHeader, pinned: null, panel: "script", script: { file: target.file, line: target.line ?? null } };
+    case "sceneGroup": {
+      // The list „Welt“ holds the scene: another header's scene shows first (selected and pinned as a link to it does).
+      const header = switchTo(target.header);
+      return header === null
+        ? { selectedHeader: state.selectedHeader, pinned: null, panel: "headers", sceneGroup: target.group }
+        : { ...toHeader(header), sceneGroup: target.group };
+    }
     case "header":
       return known(target.id) ? toHeader(target.id) : { selectedHeader: state.selectedHeader, pinned: null, panel: null };
     case "matrixCell":

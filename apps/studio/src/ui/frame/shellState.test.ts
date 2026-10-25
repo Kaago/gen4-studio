@@ -106,6 +106,20 @@ describe("shell state", () => {
     expect(readShellState().worldSort).toEqual({ tree: "name", list: "name" });
   });
 
+  it("reads_the_split_of_the_world_list_and_the_fold_of_the_places", () => {
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.5, false]);
+    const s = readShellState();
+    writeShellState({ ...s, worldListSplit: 0.3, placesFolded: true });
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.3, true]);
+    // A share outside 0.2..0.8 is clamped, anything else gets the defaults.
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: 0.95, placesFolded: "ja" }));
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.8, false]);
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: 0.01 }));
+    expect(readShellState().worldListSplit).toBe(0.2);
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: "halb" }));
+    expect(readShellState().worldListSplit).toBe(0.5);
+  });
+
   it("reads_the_toolbar_anchor_and_falls_back_to_left", () => {
     expect(readShellState().toolbar).toBe("left");
     for (const anchor of ["left", "top", "bottom"] as const) {

@@ -5,6 +5,7 @@ import type { IconName } from "../ui/primitives";
 import type { MapBuildings } from "../world/scene/types";
 import { groupEvents } from "./context";
 import { headerIdentity } from "./headerIdentity";
+import type { HeaderIdentity } from "./headerIdentity";
 import type { InspectorModel } from "./Inspector";
 import { buildPlaces, scriptChildren } from "./places";
 import type { Place } from "./places";
@@ -54,16 +55,20 @@ export interface SceneInput {
   buildings: readonly MapBuildings[];
   trainers?: readonly DataRowDto[] | null;
   depth: Depth;
-  /** The world model's name of a header (an area's name, a room's clear name); without it `headerIdentity` names it. */
-  worldName?: (h: HeaderSummary) => string;
+  /**
+   * What the world model says a header is and how it is called (`WorkbenchWorld.identify`): the root's name and symbol, a door's target.
+   * Without it the places tell (`headerIdentity`), built once per call.
+   */
+  identify?: (h: HeaderSummary) => Pick<HeaderIdentity, "kind" | "name">;
 }
 
 export const groupKey = (group: SceneGroup) => `group:${group}`;
-const HEADER_KEY = "header";
+/** The key of the root (the area or room). */
+export const ROOT_KEY = "header";
 const GROUPS: readonly SceneGroup[] = ["maps", "object", "warp", "coord", "bg", "scripts"];
 
 /** What starts open: the root and every group; a map's buildings start closed. */
-export const SCENE_OPEN: ReadonlySet<string> = new Set([HEADER_KEY, ...GROUPS.map(groupKey)]);
+export const SCENE_OPEN: ReadonlySet<string> = new Set([ROOT_KEY, ...GROUPS.map(groupKey)]);
 
 const GROUP_LABEL: Record<SceneGroup, string> = { maps: TERMS.map.plural, object: "Figuren", warp: "Türen", coord: "Auslöser", bg: "Schilder", scripts: TERMS.script.plural };
 export const GROUP_ICON: Record<SceneGroup, IconName> = { maps: "map", object: "figure", warp: "door", coord: "trigger", bg: "sign", scripts: "script" };
@@ -86,6 +91,22 @@ export function inspectorOfScene(ref: SceneRef): InspectorModel | null {
     case "event":
       return { kind: "event", eventFile: ref.file, eventKind: ref.eventKind, index: ref.index };
     case "script":
+      return null;
+  }
+}
+
+/** The row of an inspector selection (the selected row of the tree); a selection no row stands for (an area data, a hover) has none. */
+export function sceneRefOf(model: InspectorModel): SceneRef | null {
+  switch (model.kind) {
+    case "header":
+      return { kind: "header", id: model.id };
+    case "matrixCell":
+      return { kind: "matrixCell", matrix: model.matrix, x: model.x, y: model.y };
+    case "building":
+      return { kind: "building", map: model.map, index: model.index };
+    case "event":
+      return { kind: "event", file: model.eventFile, eventKind: model.eventKind, index: model.index };
+    default:
       return null;
   }
 }
@@ -128,13 +149,13 @@ const matches = (q: string, row: Omit<SceneRow, "depth">) => [row.label, row.tec
  * that hold one, open; a group whose word matches keeps all its rows. Bauen speaks of the game (no "Raster", "Matrix", "Header").
  */
 export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: string): SceneRow[] {
-  const { header, headers, events, buildings, trainers = null, depth, worldName } = input;
+  const { header, headers, events, buildings, trainers = null, depth } = input;
   const tinker = depth === "tuefteln";
   const matrix = input.matrix !== null && input.matrix.index === header.matrix_id ? input.matrix : null;
-  // Built only when a name is not given.
+  // The places are built only without the world model, and then once.
   let places: Place[] | null = null;
-  const identity = (h: HeaderSummary) => headerIdentity((places ??= placesOf(headers, matrix)), h);
-  const nameOf = (h: HeaderSummary) => worldName?.(h) ?? identity(h).name;
+  const identity = input.identify ?? ((h: HeaderSummary) => headerIdentity((places ??= placesOf(headers, matrix)), h));
+  const nameOf = (h: HeaderSummary) => identity(h).name;
 
   const groups = new Map<SceneGroup, Child[]>();
 
@@ -190,17 +211,17 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
 
   const q = query.trim().toLowerCase();
   const searching = q !== "";
-  const kind = identity(header).kind;
+  const root = identity(header);
   const rows: SceneRow[] = [
     {
-      key: HEADER_KEY,
+      key: ROOT_KEY,
       depth: 0,
       kind: "header",
-      label: nameOf(header),
+      label: root.name,
       ...(tinker ? { tech: `${techLabel("header", header.id)} · ${techLabel("matrix", header.matrix_id)}` } : {}),
-      icon: kind === "area" ? "outside" : "room",
+      icon: root.kind === "area" ? "outside" : "room",
       ref: { kind: "header", id: header.id },
-      expanded: searching || open.has(HEADER_KEY),
+      expanded: searching || open.has(ROOT_KEY),
     },
   ];
   if (!rows[0]!.expanded) return rows;

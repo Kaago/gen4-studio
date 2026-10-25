@@ -6,13 +6,17 @@ import { DECK_AREAS, DECK_PANELS, deckPanels, dropOldLayouts, isDeckArea, isSane
 describe("deck layout persistence", () => {
   beforeEach(() => localStorage.clear());
 
-  it("keys_each_area_and_deck_on_its_own_under_v9", () => {
-    expect(layoutKey("welt", "schau")).toBe("g4.layout.v9.welt.schau");
-    expect(layoutKey("welt", "hand")).toBe("g4.layout.v9.welt.hand");
-    expect(layoutKey("texte", "schau")).toBe("g4.layout.v9.texte.schau");
-    expect(layoutKey("texte", "hand")).toBe("g4.layout.v9.texte.hand");
+  it("keys_under_v10_and_the_world_hand_is_one_group", () => {
+    expect(layoutKey("welt", "schau")).toBe("g4.layout.v10.welt.schau");
+    expect(layoutKey("welt", "hand")).toBe("g4.layout.v10.welt.hand");
+    expect(layoutKey("texte", "schau")).toBe("g4.layout.v10.texte.schau");
+    expect(layoutKey("texte", "hand")).toBe("g4.layout.v10.texte.hand");
     const keys = AREAS.flatMap((a) => [layoutKey(a, "schau"), layoutKey(a, "hand")]);
     expect(new Set(keys).size).toBe(keys.length);
+    // „An diesem Ort“ is gone (the list „Welt“ shows the scene): the inspector anchors one group, script and problems are its tabs.
+    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "script", "problems"]);
+    expect(DECK_PANELS.welt.hand.slice(1).every((p) => p.position.direction === "within" && p.position.referencePanel === "inspector")).toBe(true);
+    expect(DECK_PANELS.welt.hand.some((p) => p.title === "An diesem Ort")).toBe(false);
   });
 
   it("round_trips_a_layout_through_local_storage_and_tolerates_garbage", () => {
@@ -44,15 +48,16 @@ describe("deck layout persistence", () => {
     expect(loadLayout(layoutKey("welt", "hand"))).toBeNull();
   });
 
-  it("drops_every_layout_before_v9_and_nothing_else", () => {
+  it("drops_every_layout_before_v10_and_nothing_else", () => {
     localStorage.setItem("g4.layout.v7.welt.hand", "{}");
     localStorage.setItem("g4.layout.v8.welt.schau", "{}");
     localStorage.setItem("g4.layout.v9.welt.schau", "{}");
     localStorage.setItem("g4.layout.v10.welt.schau", "{}");
+    localStorage.setItem("g4.layout.v11.welt.schau", "{}");
     localStorage.setItem("g4.shell.v1", "{}");
     dropOldLayouts(localStorage);
     const left = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).sort();
-    expect(left).toEqual(["g4.layout.v10.welt.schau", "g4.layout.v9.welt.schau", "g4.shell.v1"]);
+    expect(left).toEqual(["g4.layout.v10.welt.schau", "g4.layout.v11.welt.schau", "g4.shell.v1"]);
   });
 
   it("drops_nothing_from_a_storage_that_cannot_be_read", () => {
@@ -66,25 +71,17 @@ describe("deck layout persistence", () => {
 
   it("splits_the_panels_of_the_world_between_the_docks_and_leaves_the_explorer_and_the_text_out", () => {
     expect(DECK_PANELS.welt.schau.map((p) => p.id)).toEqual(["world", "matrix", "worldmap"]);
-    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "script", "problems", "context"]);
+    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "script", "problems"]);
     const all = [...DECK_PANELS.welt.schau, ...DECK_PANELS.welt.hand];
     expect(all.some((p) => (p.id as string) === "headers")).toBe(false);
     expect(all.some((p) => (p.id as string) === "text")).toBe(false);
-    // The first panel anchors a dock, the others are tabs of its group, except the context of the hand beside the inspector.
+    // The first panel anchors a dock, the others are tabs of its group.
     expect(DECK_PANELS.welt.schau.slice(1).every((p) => p.position.direction === "within" && p.position.referencePanel === "world")).toBe(true);
-    const tabs = DECK_PANELS.welt.hand.filter((p) => p.id !== "inspector" && p.id !== "context");
+    const tabs = DECK_PANELS.welt.hand.filter((p) => p.id !== "inspector");
     expect(tabs.map((p) => p.id)).toEqual(["script", "problems"]);
     expect(tabs.every((p) => p.position.direction === "within" && p.position.referencePanel === "inspector")).toBe(true);
     const title = (id: string) => all.find((p) => p.id === id)?.title;
-    expect([title("world"), title("matrix"), title("worldmap"), title("inspector"), title("script"), title("problems"), title("context")]).toEqual([
-      "3D",
-      "Raster",
-      "Weltkarte",
-      "Inspector",
-      "Script",
-      "Probleme",
-      "An diesem Ort",
-    ]);
+    expect([title("world"), title("matrix"), title("worldmap"), title("inspector"), title("script"), title("problems")]).toEqual(["3D", "Raster", "Weltkarte", "Inspector", "Script", "Probleme"]);
   });
 
   it("gives_the_texts_the_view_in_the_schau_and_the_messages_with_the_problems_in_the_hand", () => {
@@ -102,17 +99,7 @@ describe("deck layout persistence", () => {
     expect(DECK_PANELS.gegenstaende.hand.map((p) => p.id)).toEqual(["itemEdit"]);
     expect(DECK_AREAS).toEqual(["welt", "texte", "pokemon", "gegenstaende"]);
     expect(isDeckArea("pokemon") && isDeckArea("gegenstaende") && !isDeckArea("geschichten")).toBe(true);
-    expect(layoutKey("pokemon", "hand")).toBe("g4.layout.v9.pokemon.hand");
-  });
-
-  it("keeps_only_the_inspector_group_and_the_context_in_the_world_hand", () => {
-    const spec = (id: string) => DECK_PANELS.welt.hand.find((p) => p.id === id)!;
-    expect(DECK_PANELS.welt.hand.map((p) => p.id)).toEqual(["inspector", "script", "problems", "context"]);
-    expect(spec("context").position).toEqual({ direction: "right", referencePanel: "inspector" });
-    expect(spec("context").width).toBe(260);
-    // The inspector is the anchor and grows with the rest.
-    expect(DECK_PANELS.welt.hand[0]?.id).toBe("inspector");
-    expect(spec("inspector").width).toBeUndefined();
+    expect(layoutKey("pokemon", "hand")).toBe("g4.layout.v10.pokemon.hand");
   });
 
   it("looks_up_the_panels_of_an_area_and_an_area_without_a_deck_has_none", () => {
@@ -133,12 +120,12 @@ describe("deck layout persistence", () => {
 
     it("accepts_a_layout_with_exactly_the_panels_of_the_dock", () => {
       expect(isSaneLayout(layout([leaf("world", "matrix", "worldmap")], ["world", "matrix", "worldmap"]), schau)).toBe(true);
-      expect(isSaneLayout(layout([leaf("inspector", "script"), leaf("problems"), leaf("context")], ["inspector", "script", "problems", "context"]), hand)).toBe(true);
+      expect(isSaneLayout(layout([leaf("inspector", "script"), leaf("problems")], ["inspector", "script", "problems"]), hand)).toBe(true);
       expect(isSaneLayout(layout([leaf("textEdit", "problems")], ["textEdit", "problems"]), DECK_PANELS.texte.hand)).toBe(true);
     });
 
     it("checks_against_the_list_it_is_given_so_one_docks_layout_is_not_the_others", () => {
-      const handLayout = layout([leaf("inspector", "script", "problems"), leaf("context")], ["inspector", "script", "problems", "context"]);
+      const handLayout = layout([leaf("inspector", "script", "problems")], ["inspector", "script", "problems"]);
       expect(isSaneLayout(handLayout, hand)).toBe(true);
       expect(isSaneLayout(handLayout, schau)).toBe(false);
       expect(isSaneLayout(handLayout, DECK_PANELS.texte.hand)).toBe(false);
@@ -152,6 +139,11 @@ describe("deck layout persistence", () => {
     it("rejects_a_world_hand_of_v8_that_still_has_the_tools", () => {
       const v8 = layout([leaf("tools"), leaf("inspector", "script", "problems"), leaf("context")], ["tools", "inspector", "script", "problems", "context"]);
       expect(isSaneLayout(v8, hand)).toBe(false);
+    });
+
+    it("rejects_a_world_hand_of_v9_that_still_has_the_context", () => {
+      const v9 = layout([leaf("inspector", "script", "problems"), leaf("context")], ["inspector", "script", "problems", "context"]);
+      expect(isSaneLayout(v9, hand)).toBe(false);
     });
 
     it("rejects_a_layout_with_a_missing_or_an_unknown_panel_or_no_panels_at_all", () => {

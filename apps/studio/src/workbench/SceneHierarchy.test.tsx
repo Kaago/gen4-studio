@@ -75,7 +75,7 @@ describe("SceneHierarchy", () => {
           events={events}
           buildings={[{ map: 6, models: [12, 13] }]}
           depth="bauen"
-          worldName={(h) => (h.id === 414 ? "Haus von Lucas" : h.location_name)}
+          identify={(h) => (h.id === 414 ? { kind: "room", name: "Haus von Lucas" } : { kind: "area", name: h.location_name })}
           selected={null}
           locked={null}
           loading={false}
@@ -267,6 +267,23 @@ describe("SceneHierarchy", () => {
     function first() {
       return items()[0]!;
     }
+  });
+
+  it("opens_a_closed_root_to_focus_a_group", () => {
+    show();
+    pressKey(group("header"), "ArrowLeft");
+    expect(group("warp")).toBeNull();
+    show({ focusGroup: { group: "warp", token: 1 } });
+    expect(group("header").getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(group("warp"));
+  });
+
+  it("waits_for_the_events_of_a_new_scene_to_focus_a_group", () => {
+    // The scene of another header shows; its events are still read.
+    show({ events: null, loading: true, focusGroup: { group: "warp", token: 1 } });
+    expect(group("warp")).toBeNull();
+    show({ events, loading: false, focusGroup: { group: "warp", token: 1 } });
+    expect(document.activeElement).toBe(group("warp"));
   });
 
   it("goes_back_and_forward", () => {

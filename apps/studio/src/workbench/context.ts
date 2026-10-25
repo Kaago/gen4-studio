@@ -3,7 +3,7 @@ import type { Depth } from "../ui/frame/shellState";
 import { eventTitle } from "../world/events";
 import type { EventData, EventKind } from "../world/events";
 
-/** The classes in the order "An diesem Ort" lists them, with the words the tools use: figures, doors, triggers, signs. */
+/** The classes in the order „In dieser Szene“ lists them, with the words the tools use: figures, doors, triggers, signs. */
 const GROUPS: { kind: EventKind; singular: string; plural: string }[] = [
   { kind: "object", singular: "Figur", plural: "Figuren" },
   { kind: "warp", singular: "Tür", plural: "Türen" },
@@ -49,16 +49,4 @@ export function groupEvents(events: EventsDto, depth: Depth, destName?: (header:
     });
     return [{ kind, label: plural, rows }];
   });
-}
-
-const count = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
-
-/** "5 Figuren, 2 Türen": how many events of each class the file has (classes without any are left out); `buildings` adds "3 Gebäude". */
-export function contextCounts(events: EventsDto | null, buildings = 0): string {
-  const parts = GROUPS.flatMap(({ kind, singular, plural }) => {
-    const n = events ? listOf(events, kind).length : 0;
-    return n > 0 ? [count(n, singular, plural)] : [];
-  });
-  if (buildings > 0) parts.push(count(buildings, "Gebäude", "Gebäude"));
-  return parts.length > 0 ? parts.join(", ") : "Noch nichts";
 }

@@ -1,4 +1,5 @@
 import type { DataChangedEvent } from "../data/dataBus";
+import type { SceneGroup } from "../workbench/sceneModel";
 
 /**
  * What happened to the data behind the panels and the scene. The editors and panels re-read their
@@ -36,6 +37,8 @@ export type EditEvent =
   | { topic: "lspFilesChanged"; changes: { path: string; type: 1 | 2 }[] }
   /** The header list scrolls to the selection (a link led to a header). */
   | { topic: "headerReveal" }
+  /** The list „Welt“ opens and focuses a group of „In dieser Szene“ (a link led to the doors). */
+  | { topic: "sceneGroup"; group: SceneGroup }
   /**
    * The app wrote to the project (after every write it counts the unsaved edits again, see `useProjectSession.refreshDirty`; a script save
    * says so itself, see `useScripts`): the checks run again, all of them, 300 ms after the last one (`useChecks`, ruling R12).

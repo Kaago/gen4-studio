@@ -308,6 +308,10 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
         // And a species, move or item: its data area selects it.
         onOpenData(next.data);
         focusPanel(next.area, next.panel);
+      } else if (next.sceneGroup) {
+        // The doors (or another group) of the shown scene: the list „Welt“ opens the group and focuses it.
+        bus.emit({ topic: "sceneGroup", group: next.sceneGroup });
+        focusPanel(next.area, next.panel);
       } else if (target.kind === "header") {
         setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
       }
@@ -323,6 +327,8 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
     focusPanel(next.area, next.panel);
+    // A group of another header's scene: the list waits for that scene's events to focus it.
+    if (next.sceneGroup) bus.emit({ topic: "sceneGroup", group: next.sceneGroup });
     return loading;
   }
 

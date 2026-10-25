@@ -1,11 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { FloatingToolbar, isLowView, shownAnchor, toolbarMinHeight } from "../ui/frame/FloatingToolbar";
 import { useShell } from "../ui/frame/ShellContext";
-import { lockedText } from "../world/events";
 import { SceneBar } from "./SceneBar";
 import type { SceneBarProps } from "./SceneBar";
 import styles from "./SceneOverlays.module.css";
-import { TOOLS } from "./tools";
+import { TOOLS, eventToolsBlocked } from "./tools";
 import { useWorkbench } from "./WorkbenchContext";
 
 /**
@@ -35,7 +34,7 @@ export function SceneOverlays({ layers }: { layers: SceneBarProps }) {
   }, [minHeight]);
   const area = useCallback(() => box.current?.getBoundingClientRect() ?? null, []);
   // The four event tools wait for a shown place and an event file that may be written.
-  const eventsBlocked = eventLock ? lockedText(eventLock.reason) : eventFileId === null ? "Erst einen Ort wählen." : null;
+  const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
   const anchor = shownAnchor(state.toolbar, low);
   return (
     <div ref={box} className={styles.overlays} data-scene-overlays="" data-anchor={anchor}>

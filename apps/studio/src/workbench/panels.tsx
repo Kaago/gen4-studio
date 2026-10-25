@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { DataRowDto, ProjectInfo } from "../api";
 import { headerMarks } from "../checks/FindingMark";
 import { useStableCallback } from "../app/useStable";
-import { useBusRevision } from "../bus/useBusEvent";
+import { useBusEvent, useBusRevision } from "../bus/useBusEvent";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "../data/PokemonArea";
 import type { DataArea } from "../data/dataModel";
@@ -15,7 +15,6 @@ import { EmptyState } from "../ui/primitives";
 import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
-import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
 import { findingsFor } from "./inspector/ChecksSection";
 import type { Crumb } from "./breadcrumb";
@@ -39,7 +38,10 @@ import { TextView } from "./text/TextView";
 import styles from "./panels.module.css";
 import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
-import { WorldExplorer } from "./WorldExplorer";
+import { inspectorOfScene, sceneRefOf } from "./sceneModel";
+import type { SceneGroup, SceneRef } from "./sceneModel";
+import { eventToolsBlocked } from "./tools";
+import { WorldList } from "./WorldList";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
@@ -51,7 +53,12 @@ const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
 
-/** The explorer: no dock panel but the shell's list column; whether it is folded is the shell's state of the world area. */
+/**
+ * The list „Welt“: no dock panel but the shell's list column, whether it is folded is the shell's state of the world area. Above, the
+ * places (the world tree); below, „In dieser Szene“, fed with what the shown scene holds: its events (read again when they moved), the
+ * buildings the scene reports, the trainers its figures fight as, the lock, the checks' marks. A row selects as a click in the scene
+ * does; a link to the doors (`sceneGroup` on the bus) opens the list and focuses them.
+ */
 export function ExplorerPane() {
   const d = useWorkbench();
   const { state, setListOpen, setWorldSort } = useShell();
@@ -65,22 +72,61 @@ export function ExplorerPane() {
   // A header the checks found an error or warning at (its own, or of its event file) is marked.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const marks = useMemo(() => headerMarks(rows, d.headers), [rows, d.headers]);
+  const faultyEvents = useFaultyEvents(rows);
   // The world model, built once for the workbench (see `WorkbenchWorld`).
-  const { world, meta, setMeta } = useWorld();
+  const { world, meta, setMeta, identify } = useWorld();
   const { onRename, onOwner } = useWorldActions(meta, setMeta);
+
+  // The events of the shown scene, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
+  // failed read already; here it only ends the "Lade …".
+  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
+  const [failedFile, setFailedFile] = useState<number | null>(null);
+  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
+  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
+  const { dataStore, info, headers, selected, onPin, onOpenWizard } = d;
+  // Trainer figures are named by class and name: the trainer rows are read once the scene has one.
+  const hasTrainers = events?.objects.some((o) => trainerOfScript(o.script) !== null) ?? false;
+  useEffect(() => {
+    if (hasTrainers && namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [hasTrainers, info, dataStore]);
+  const trainers = useTrainerRows(dataStore, info);
+  const header = useMemo(() => headers.find((h) => h.id === selected) ?? null, [headers, selected]);
+  // The selected row is the inspector's selection, the one the scene shows with its halo.
+  const inspector = useInspectorModel();
+  const sceneSelected = useMemo(() => sceneRefOf(inspector), [inspector]);
+  const onSceneSelect = useCallback(
+    (ref: SceneRef) => {
+      const model = inspectorOfScene(ref);
+      if (model) onPin(model);
+    },
+    [onPin],
+  );
+  const onFollow = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  const onConnectRoom = useCallback(() => {
+    if (selected !== null) onOpenWizard({ kind: "room", prefill: { outsideHeader: selected } });
+  }, [selected, onOpenWizard]);
+  // A link to the doors (the header editor's line) opens a folded list and focuses the group.
+  const [focusGroup, setFocusGroup] = useState<{ group: SceneGroup; token: number } | undefined>(undefined);
+  useBusEvent(d.bus, "sceneGroup", (event) => {
+    if (event.topic !== "sceneGroup") return;
+    setListOpen("welt", true);
+    setFocusGroup((previous) => ({ group: event.group, token: (previous?.token ?? 0) + 1 }));
+  });
+
   return (
-    <WorldExplorer
-      info={d.info}
-      headers={d.headers}
+    <WorldList
+      info={info}
+      headers={headers}
       world={world}
+      identify={identify}
       matricesLoaded={d.matricesLoaded}
       matricesFailed={d.matricesFailed}
-      selected={d.selected}
+      selected={selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}
       depth={d.depth}
       onSelect={d.onSelect}
-      onOpenWizard={d.onOpenWizard}
+      onOpenWizard={onOpenWizard}
       scriptsAdopted={d.scripts.status?.adopted === true}
       onOpenScript={onOpenScript}
       listOpen={listOpen}
@@ -90,6 +136,32 @@ export function ExplorerPane() {
       onSort={setWorldSort}
       onRename={onRename}
       onOwner={onOwner}
+      scene={{
+        header,
+        headers,
+        matrix: d.matrix,
+        events,
+        buildings: d.buildings,
+        trainers,
+        depth: d.depth,
+        identify,
+        selected: sceneSelected,
+        marks,
+        faultyEvents,
+        locked: events?.locked ?? null,
+        loading,
+        onSelect: onSceneSelect,
+        onFollow,
+        onOpenScript,
+        onTool: d.onTool,
+        toolsBlocked: eventToolsBlocked(d.eventLock, d.eventFileId),
+        onConnectRoom,
+        onBack: d.sceneBack,
+        onForward: d.sceneForward,
+        canBack: d.canBack,
+        canForward: d.canForward,
+        focusGroup,
+      }}
     />
   );
 }
@@ -257,40 +329,6 @@ function useTrainerRows(store: DataStore, project: ProjectInfo | null): readonly
 /** Diamond and Pearl have no data editors (their trainers are not read): the world names no trainers there. */
 const namesTrainers = (info: ProjectInfo | null): info is ProjectInfo => info !== null && info.family !== "Dp";
 
-export function ContextTab() {
-  const d = useWorkbench();
-  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
-  // failed read already; here it only ends the "Lade …".
-  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
-  const [failedFile, setFailedFile] = useState<number | null>(null);
-  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
-  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
-  const { goTo, onSelectEvent, onSelectBuilding, dataStore, info } = d;
-  const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
-  // Trainer figures are named by class and name: the trainer rows are read once the place has one.
-  const hasTrainers = events?.objects.some((o) => trainerOfScript(o.script) !== null) ?? false;
-  useEffect(() => {
-    if (hasTrainers && namesTrainers(info)) dataStore.need(info, "trainer");
-  }, [hasTrainers, info, dataStore]);
-  const trainers = useTrainerRows(dataStore, info);
-  return (
-    <ContextPanel
-      hasPlace={d.matrix !== null}
-      events={events}
-      headers={d.headers}
-      buildings={d.buildings}
-      selectedEvent={d.selectedEvent}
-      selectedBuilding={d.selectedBuilding}
-      onSelectEvent={onSelectEvent}
-      onSelectBuilding={onSelectBuilding}
-      onOpenHeader={onOpenHeader}
-      loading={loading}
-      trainers={trainers}
-      depth={d.depth}
-    />
-  );
-}
-
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
@@ -333,7 +371,6 @@ export function InspectorPanel() {
         goTo: d.goTo,
         eventRevision,
         onOpenWizard: d.onOpenWizard,
-        onAddWarp: () => void d.onAddEvent("warp"),
         info: d.info,
         scriptsAdopted: d.scripts.status?.adopted === true,
         scriptsRevision: d.scripts.revision,
@@ -494,7 +531,7 @@ export function ItemsListPane() {
 export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
   welt: {
     schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
-    hand: { inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
+    hand: { inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab },
   },
   texte: {
     schau: { textView: TextViewTab },

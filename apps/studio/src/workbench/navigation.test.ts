@@ -50,6 +50,17 @@ describe("nextSelection", () => {
     expect(nextSelection(state, { kind: "script", file: 42 })).toMatchObject({ panel: "script", script: { file: 42, line: null } });
   });
 
+  it("a_scene_group_target_focuses_the_group_in_the_hierarchy", () => {
+    // The shown scene: the list „Welt“ opens the group and focuses it; the selection and the pin stay.
+    const here = { area: "welt", selectedHeader: 3, pinned: null, panel: "headers", sceneGroup: "warp" };
+    expect(nextSelection(state, { kind: "sceneGroup", group: "warp" })).toEqual(here);
+    expect(nextSelection(state, { kind: "sceneGroup", group: "warp", header: 3 })).toEqual(here);
+    // The doors of another header: its scene shows first, as a link to it does.
+    expect(nextSelection(state, { kind: "sceneGroup", group: "warp", header: 4 })).toEqual({ area: "welt", selectedHeader: 4, pinned: { kind: "header", id: 4 }, panel: "headers", sceneGroup: "warp" });
+    // A header the project does not have shows nothing else.
+    expect(nextSelection(state, { kind: "sceneGroup", group: "object", header: 999 })).toEqual({ ...here, sceneGroup: "object" });
+  });
+
   it("an unknown header changes nothing", () => {
     expect(nextSelection(state, { kind: "header", id: 999 })).toEqual({ area: "welt", selectedHeader: 3, pinned: null, panel: null });
   });

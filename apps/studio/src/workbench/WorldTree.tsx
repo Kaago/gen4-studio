@@ -7,7 +7,7 @@ import type { Depth } from "../ui/frame/shellState";
 import { Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import { showsMatrix } from "./headers";
-import { placeColor, scriptChildren } from "./places";
+import { placeColor } from "./places";
 import { ADOPT_HINT } from "./inspector/scriptNav";
 import { RoomActions, WorldMapActions } from "./RoomActions";
 import type { AreaChoice, RenameTarget } from "./RoomActions";
@@ -35,7 +35,7 @@ export interface WorldTreeProps {
   /** Tüfteln writes the identifiers (id, code) into every row and lists „Sonstiges“; Bauen speaks of the game only. */
   depth: Depth;
   onSelect: (h: HeaderSummary) => void;
-  /** Whether rotom has taken the scripts over; without it the script entries only show a hint. */
+  /** Whether rotom has taken the scripts over; without it the root node „Scripts“ only shows a hint. */
   scriptsAdopted: boolean;
   /** Opens a script file in the script panel (at a 1-based line). Must keep its identity (the rows are memoised). */
   onOpenScript: (file: number, line?: number) => void;
@@ -132,23 +132,6 @@ function branchesOf(world: World, tinker: boolean): Map<number, string[]> {
   return paths;
 }
 
-/** The script file and level script of a header, below its row while it is expanded. */
-function ScriptRows({ header, depth, adopted, onOpenScript }: { header: HeaderSummary; depth: number; adopted: boolean; onOpenScript: (file: number, line?: number) => void }) {
-  return scriptChildren(header).map((child) => (
-    <TreeRow
-      key={child.kind}
-      depth={depth}
-      icon="script"
-      label={child.label}
-      selected={false}
-      disabled={!adopted}
-      title={adopted ? undefined : ADOPT_HINT}
-      onSelect={() => onOpenScript(child.file)}
-      dataAttrs={{ "data-script-file": child.file }}
-    />
-  ));
-}
-
 /** The hover text of a header row: Tüfteln names id, code and matrix; Bauen leaves it to the row's name. */
 function techTitle(h: HeaderSummary, marked: boolean): string {
   return `${techLabel("header", h.id)} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`;
@@ -156,7 +139,7 @@ function techTitle(h: HeaderSummary, marked: boolean): string {
 
 /**
  * A header without an area of the world: a section of an area (Tüfteln), a header of „Sonstiges“, or any header while
- * the world is read. Its script entries show below it while it is expanded. Memoised like every row of the tree.
+ * the world is read. A leaf: the scripts of the shown scene are in „In dieser Szene“. Memoised like every row of the tree.
  */
 const HeaderLeaf = memo(function HeaderLeaf({
   header: h,
@@ -167,11 +150,7 @@ const HeaderLeaf = memo(function HeaderLeaf({
   selected,
   marked,
   mark,
-  expanded,
-  adopted,
   onSelect,
-  onToggle,
-  onOpenScript,
 }: {
   header: HeaderSummary;
   depth: number;
@@ -181,36 +160,27 @@ const HeaderLeaf = memo(function HeaderLeaf({
   selected: boolean;
   marked: boolean;
   mark: MarkSeverity | undefined;
-  expanded: boolean;
-  adopted: boolean;
   onSelect: (h: HeaderSummary) => void;
-  onToggle: (id: number) => void;
-  onOpenScript: (file: number, line?: number) => void;
 }) {
   return (
-    <>
-      <TreeRow
-        depth={depth}
-        label={label}
-        icon={icon}
-        tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
-        selected={selected}
-        onSelect={() => onSelect(h)}
-        expanded={expanded}
-        onToggle={() => onToggle(h.id)}
-        title={tinker ? techTitle(h, marked) : undefined}
-        dataAttrs={{ "data-header-id": h.id }}
-        trailing={
-          marked || mark ? (
-            <>
-              {mark && <FindingMark severity={mark} />}
-              {marked && <ShownMark />}
-            </>
-          ) : undefined
-        }
-      />
-      {expanded && <ScriptRows header={h} depth={depth + 1} adopted={adopted} onOpenScript={onOpenScript} />}
-    </>
+    <TreeRow
+      depth={depth}
+      label={label}
+      icon={icon}
+      tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
+      selected={selected}
+      onSelect={() => onSelect(h)}
+      title={tinker ? techTitle(h, marked) : undefined}
+      dataAttrs={{ "data-header-id": h.id }}
+      trailing={
+        marked || mark ? (
+          <>
+            {mark && <FindingMark severity={mark} />}
+            {marked && <ShownMark />}
+          </>
+        ) : undefined
+      }
+    />
   );
 });
 
@@ -275,12 +245,8 @@ const RoomRow = memo(function RoomRow({
   selected,
   marked,
   mark,
-  expanded,
-  adopted,
   areas,
   onPick,
-  onToggle,
-  onOpenScript,
   onRename,
   onOwner,
 }: {
@@ -293,12 +259,8 @@ const RoomRow = memo(function RoomRow({
   selected: boolean;
   marked: boolean;
   mark: MarkSeverity | undefined;
-  expanded: boolean;
-  adopted: boolean;
   areas: readonly AreaChoice[];
   onPick: (h: HeaderSummary, areaKey: string | null) => void;
-  onToggle: (id: number) => void;
-  onOpenScript: (file: number, line?: number) => void;
   onRename: (target: RenameTarget, name: string) => void;
   onOwner: (room: number, areaKey: string | null) => void;
 }) {
@@ -306,38 +268,33 @@ const RoomRow = memo(function RoomRow({
   const tech = tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined;
   const plain = [room.name, labelled ? room.placeName : null].filter((part) => part !== null).join(", ");
   return (
-    <>
-      <TreeRow
-        depth={depth}
-        icon="room"
-        label={room.name}
-        tech={tech}
-        // The place label would run into the name: the row names itself.
-        ariaLabel={labelled ? [room.name, tech, room.placeName].filter(Boolean).join(", ") : undefined}
-        title={tinker ? techTitle(h, marked) : `${plain}${room.manual ? " (von Hand zugeordnet)" : ""}`}
-        selected={selected}
-        onSelect={() => onPick(h, areaKey)}
-        expanded={expanded}
-        onToggle={() => onToggle(h.id)}
-        dataAttrs={{ "data-header-id": h.id, "data-room": "" }}
-        trailing={
-          labelled || marked || mark || selected ? (
-            <>
-              {labelled && (
-                <span className={styles.placeLabel} data-place-label="">
-                  <span data-place-dot="" className={styles.dot} style={{ background: placeColor(room.placeKey) }} /* dyn */ />
-                  {room.placeName}
-                </span>
-              )}
-              {mark && <FindingMark severity={mark} />}
-              {marked && <ShownMark />}
-              {selected && <RoomActions room={room} areaKey={areaKey} areas={areas} onRename={onRename} onOwner={onOwner} />}
-            </>
-          ) : undefined
-        }
-      />
-      {expanded && <ScriptRows header={h} depth={depth + 1} adopted={adopted} onOpenScript={onOpenScript} />}
-    </>
+    <TreeRow
+      depth={depth}
+      icon="room"
+      label={room.name}
+      tech={tech}
+      // The place label would run into the name: the row names itself.
+      ariaLabel={labelled ? [room.name, tech, room.placeName].filter(Boolean).join(", ") : undefined}
+      title={tinker ? techTitle(h, marked) : `${plain}${room.manual ? " (von Hand zugeordnet)" : ""}`}
+      selected={selected}
+      onSelect={() => onPick(h, areaKey)}
+      dataAttrs={{ "data-header-id": h.id, "data-room": "" }}
+      trailing={
+        labelled || marked || mark || selected ? (
+          <>
+            {labelled && (
+              <span className={styles.placeLabel} data-place-label="">
+                <span data-place-dot="" className={styles.dot} style={{ background: placeColor(room.placeKey) }} /* dyn */ />
+                {room.placeName}
+              </span>
+            )}
+            {mark && <FindingMark severity={mark} />}
+            {marked && <ShownMark />}
+            {selected && <RoomActions room={room} areaKey={areaKey} areas={areas} onRename={onRename} onOwner={onOwner} />}
+          </>
+        ) : undefined
+      }
+    />
   );
 });
 
@@ -538,17 +495,6 @@ export function WorldTree({
     },
     [searching],
   );
-  // The headers whose script entries are shown below them.
-  const [expandedHeaders, setExpandedHeaders] = useState<ReadonlySet<number>>(new Set());
-  const toggleHeader = useCallback(
-    (id: number) =>
-      setExpandedHeaders((prev) => {
-        const next = new Set(prev);
-        if (!next.delete(id)) next.add(id);
-        return next;
-      }),
-    [],
-  );
   const onPick = useCallback(
     (h: HeaderSummary, areaKey: string | null) => {
       onSelect(h);
@@ -604,12 +550,8 @@ export function WorldTree({
         selected={room.header.id === selected}
         marked={showsMatrix(room.header, shownMatrix)}
         mark={marks?.get(room.header.id)}
-        expanded={expandedHeaders.has(room.header.id)}
-        adopted={scriptsAdopted}
         areas={choices}
         onPick={onPick}
-        onToggle={toggleHeader}
-        onOpenScript={onOpenScript}
         onRename={onRename}
         onOwner={onOwner}
       />
@@ -626,11 +568,7 @@ export function WorldTree({
       selected={h.id === selected}
       marked={showsMatrix(h, shownMatrix)}
       mark={marks?.get(h.id)}
-      expanded={expandedHeaders.has(h.id)}
-      adopted={scriptsAdopted}
       onSelect={onSelect}
-      onToggle={toggleHeader}
-      onOpenScript={onOpenScript}
     />
   );
 
@@ -638,7 +576,6 @@ export function WorldTree({
     areas.map((area) => {
       const open = isOpen(area.key);
       const sections = tinker && area.headers.length > 1;
-      const first = area.headers[0];
       return (
         <Fragment key={area.key}>
           <AreaRow
@@ -652,11 +589,7 @@ export function WorldTree({
             onPick={onPick}
             onToggle={toggleBranch}
           />
-          {open &&
-            (sections
-              ? area.headers.map((h, i) => leaf(h, level + 1, `Abschnitt ${i + 1}`, "outside"))
-              : // Until 3e.3 moves them, the area's script entries sit first among its children.
-                <ScriptRows header={first} depth={level + 1} adopted={scriptsAdopted} onOpenScript={onOpenScript} />)}
+          {open && sections && area.headers.map((h, i) => leaf(h, level + 1, `Abschnitt ${i + 1}`, "outside"))}
           {open && rowsOfRooms(area.rooms, area.key, area.placeKey, level + 1)}
         </Fragment>
       );

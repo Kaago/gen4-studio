@@ -89,6 +89,21 @@ describe("ShellProvider theme and density", () => {
     expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).worldSort).toEqual({ tree: "name", list: "code" });
   });
 
+  it("remembers_the_split_of_the_world_list_and_the_fold_of_the_places", () => {
+    expect([shell.state.worldListSplit, shell.state.placesFolded]).toEqual([0.5, false]);
+    act(() => shell.setWorldListSplit(0.9));
+    expect(shell.state.worldListSplit).toBe(0.8);
+    act(() => shell.setPlacesFolded(true));
+    expect(shell.state.placesFolded).toBe(true);
+    const stored = JSON.parse(localStorage.getItem("g4.shell.v1")!);
+    expect([stored.worldListSplit, stored.placesFolded]).toEqual([0.8, true]);
+    // Asking for what already is keeps the state.
+    const before = shell.state;
+    act(() => shell.setPlacesFolded(true));
+    act(() => shell.setWorldListSplit(0.8));
+    expect(shell.state).toBe(before);
+  });
+
   it("remembers_the_toolbar_anchor", () => {
     expect(shell.state.toolbar).toBe("left");
     act(() => shell.setToolbar("bottom"));

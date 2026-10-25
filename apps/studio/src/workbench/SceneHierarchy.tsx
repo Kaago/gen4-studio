@@ -8,8 +8,8 @@ import type { MenuEntry } from "../ui/primitives";
 import { lockedText } from "../world/events";
 import type { EventRef } from "../world/events";
 import type { MapBuildings } from "../world/scene/types";
-import { SCENE_OPEN, groupKey, sameRef, sceneRows } from "./sceneModel";
-import type { SceneGroup, SceneRef, SceneRow } from "./sceneModel";
+import { ROOT_KEY, SCENE_OPEN, groupKey, sameRef, sceneRows } from "./sceneModel";
+import type { SceneGroup, SceneInput, SceneRef, SceneRow } from "./sceneModel";
 import { TOOLS, isEventTool } from "./tools";
 import styles from "./SceneHierarchy.module.css";
 
@@ -22,8 +22,8 @@ export interface SceneHierarchyProps {
   buildings: readonly MapBuildings[];
   trainers?: readonly DataRowDto[] | null;
   depth: Depth;
-  /** The world model's name of a header (area or room); without it the places name it. */
-  worldName?: (h: HeaderSummary) => string;
+  /** What the world model says a header is and how it is called (`WorkbenchWorld.identify`); without it the places tell. */
+  identify?: SceneInput["identify"];
   selected: SceneRef | null;
   /** The worst error or warning the checks found per header (`headerMarks`): a mark at the root. */
   marks?: ReadonlyMap<number, MarkSeverity>;
@@ -48,7 +48,7 @@ export interface SceneHierarchyProps {
   onForward: () => void;
   canBack: boolean;
   canForward: boolean;
-  /** Bumping `token` opens the group, focuses its row and scrolls to it. */
+  /** Bumping `token` opens the group (and the root), focuses its row and scrolls to it; while the events load it waits for them. */
   focusGroup?: { group: SceneGroup; token: number };
 }
 
@@ -63,13 +63,13 @@ const FOLLOW_HINT = "Doppelklick oder Enter folgt der Tür zum Ziel";
  * and forward through the shown scenes and adds with „+“; a search filters the rows.
  */
 export function SceneHierarchy(props: SceneHierarchyProps) {
-  const { header, headers, matrix, events, buildings, trainers, depth, worldName, selected, marks, faultyEvents, locked, loading } = props;
+  const { header, headers, matrix, events, buildings, trainers, depth, identify, selected, marks, faultyEvents, locked, loading } = props;
   const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onBack, onForward, canBack, canForward, focusGroup } = props;
   const [open, setOpen] = useState<ReadonlySet<string>>(SCENE_OPEN);
   const [query, setQuery] = useState("");
   const rows = useMemo(
-    () => (header === null ? [] : sceneRows({ header, headers, matrix, events, buildings, trainers, depth, worldName }, open, query)),
-    [header, headers, matrix, events, buildings, trainers, depth, worldName, open, query],
+    () => (header === null ? [] : sceneRows({ header, headers, matrix, events, buildings, trainers, depth, identify }, open, query)),
+    [header, headers, matrix, events, buildings, trainers, depth, identify, open, query],
   );
   const toggle = useCallback(
     (key: string) =>
@@ -84,14 +84,22 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   const tree = useRef<HTMLDivElement>(null);
   useRovingList(tree);
 
-  // A request to focus a group opens it; the render after that focuses its row (a search that hides it is cleared first).
+  // A request to focus a group opens it and the root; the render after that focuses its row (a search that hides it is cleared first, events
+  // that are still read are waited for).
   const pending = useRef<SceneGroup | null>(null);
+  // The request opened a branch: its rows come with the next render, not this one. The open set as rendered, for the request's effect.
+  const opening = useRef(false);
+  const shownOpen = useRef(open);
+  shownOpen.current = open;
   const token = focusGroup?.token;
   const wanted = focusGroup?.group;
   useEffect(() => {
     if (token === undefined || wanted === undefined) return;
     pending.current = wanted;
-    setOpen((prev) => (prev.has(groupKey(wanted)) ? prev : new Set([...prev, groupKey(wanted)])));
+    const prev = shownOpen.current;
+    if (prev.has(groupKey(wanted)) && prev.has(ROOT_KEY)) return;
+    opening.current = true;
+    setOpen((current) => new Set([...current, ROOT_KEY, groupKey(wanted)]));
   }, [token, wanted]);
   useEffect(() => {
     const group = pending.current;
@@ -99,11 +107,15 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
     const row = tree.current?.querySelector<HTMLElement>(`[data-scene-group="${group}"]`);
     if (row) {
       pending.current = null;
+      opening.current = false;
+      // A row that just came has no tab index yet (the roving list gives it one a moment later): focusing makes it the tab stop.
+      if (!row.hasAttribute("tabindex")) row.tabIndex = -1;
       row.focus();
       row.scrollIntoView?.({ block: "nearest" });
     } else if (query !== "") setQuery("");
-    // The scene has no such group: nothing to focus.
-    else pending.current = null;
+    else if (opening.current) opening.current = false;
+    // The scene has no such group (once its events are read): nothing to focus.
+    else if (!(events === null && loading)) pending.current = null;
   });
 
   const faulty = (ref: SceneRef | undefined) =>

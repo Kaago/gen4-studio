@@ -1,6 +1,7 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
 // of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows, the selection of each data
-// part, the anchor of the toolbar in the 3D view and how the world tree and the header list are sorted. Plain module (no React); `ShellContext` holds the live copy. A state written
+// part, the anchor of the toolbar in the 3D view, how the world tree and the header list are sorted, and how the list „Welt“ splits
+// between the places and the scene. Plain module (no React); `ShellContext` holds the live copy. A state written
 // before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
@@ -44,6 +45,11 @@ export const HAND_MIN = 200;
 export const HAND_MAX = 560;
 export const HAND_DEFAULT = 286;
 
+/** The share of the list „Welt“ the places take above the scene: never less than a fifth or more than four fifths. */
+export const WORLD_SPLIT_MIN = 0.2;
+export const WORLD_SPLIT_MAX = 0.8;
+export const WORLD_SPLIT_DEFAULT = 0.5;
+
 const MAX_RECENT = 5;
 const KEY = "g4.shell.v1";
 
@@ -70,12 +76,22 @@ export interface ShellState {
   toolbar: ToolbarAnchor;
   /** The sort of the world tree and of the header list. */
   worldSort: WorldSort;
+  /** The share of the list „Welt“ the places take (0.2 to 0.8); the scene has the rest. */
+  worldListSplit: number;
+  /** The places are folded to one row (the scene then has the whole list). */
+  placesFolded: boolean;
 }
 
 /** A hand height inside 200..560; anything that is not a number gets the default. */
 export function clampHand(height: unknown): number {
   if (typeof height !== "number" || !Number.isFinite(height)) return HAND_DEFAULT;
   return Math.min(HAND_MAX, Math.max(HAND_MIN, Math.round(height)));
+}
+
+/** A share of the list „Welt“ inside 0.2..0.8; anything that is not a number gets the default. */
+export function clampWorldSplit(share: unknown): number {
+  if (typeof share !== "number" || !Number.isFinite(share)) return WORLD_SPLIT_DEFAULT;
+  return Math.min(WORLD_SPLIT_MAX, Math.max(WORLD_SPLIT_MIN, share));
 }
 
 function perArea<T>(stored: unknown, fallback: T, valid: (v: unknown) => v is T, fix: (v: T) => T = (v) => v): Record<AreaId, T> {
@@ -134,6 +150,8 @@ export function readShellState(): ShellState {
     selected: readSelection(s.selected),
     toolbar: TOOLBAR_ANCHORS.find((a) => a === s.toolbar) ?? "left",
     worldSort: readWorldSort(s.worldSort),
+    worldListSplit: clampWorldSplit(s.worldListSplit),
+    placesFolded: s.placesFolded === true,
   };
 }
 

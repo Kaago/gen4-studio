@@ -111,7 +111,6 @@ describe("Inspector and the scene's hover", () => {
       goTo: vi.fn(),
       eventRevision: 0,
       onOpenWizard: vi.fn(),
-      onAddWarp: vi.fn(),
       info: null,
       scriptsAdopted: true,
       scriptsRevision: 0,
