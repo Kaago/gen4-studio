@@ -1,6 +1,8 @@
 #[cfg(feature = "dev-bridge")]
 pub mod bridge;
 mod commands;
+/// The command table and the path policies behind it, for callers other than the webview.
+pub use commands::{dispatch, policy};
 mod errors;
 mod lsp;
 mod menu;
