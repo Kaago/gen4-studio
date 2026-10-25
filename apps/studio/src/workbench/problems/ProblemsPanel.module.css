@@ -73,14 +73,20 @@
   border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
 }
 
+/* At most half of the panel (the hand is often 250 px high): the findings keep their room when the ignored ones are unfolded. */
 .foot {
-  flex: none;
+  display: flex;
+  max-height: 50%;
+  min-height: 0;
+  flex: 0 1 auto;
+  flex-direction: column;
   border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
   background: var(--g4-flaeche-deck);
 }
 
 .footRow {
   display: flex;
+  flex: none;
   min-height: var(--g4-dichte-steuer);
   flex-wrap: wrap;
   align-items: center;
@@ -127,8 +133,11 @@
   }
 }
 
+/* The ignored findings scroll within their own cap. */
 .ignoredList {
   max-height: calc(var(--g4-raum-64) * 3);
+  min-height: 0;
+  flex: 0 1 auto;
   overflow: auto;
   padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8);
 }

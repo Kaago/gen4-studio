@@ -260,11 +260,20 @@ export function ChecksNotes({ checks }: { checks: ChecksApi }) {
   );
 }
 
-/** The foot of the checks: a running pass and how far it got, „12 ausgeblendet · Wieder melden…“ with the ignored findings, „Erneut prüfen“. */
+/**
+ * The foot of the checks: a running pass and how far it got, „12 ausgeblendet · Wieder melden…“ with the ignored findings, „Erneut prüfen“.
+ * The list of the ignored ones starts folded, folds when it empties and when entries are added to it (a baseline adds a hundred at once),
+ * and scrolls within its own height.
+ */
 export function ChecksFoot({ checks, depth }: { checks: ChecksApi; depth: Depth }) {
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   const [showIgnored, setShowIgnored] = useState(false);
   const ignored = view.ignored.length;
+  const [seen, setSeen] = useState(ignored);
+  if (seen !== ignored) {
+    setSeen(ignored);
+    if (ignored === 0 || ignored > seen) setShowIgnored(false);
+  }
   return (
     <footer className={styles.foot}>
       <div className={styles.footRow}>

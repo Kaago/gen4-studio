@@ -7,6 +7,7 @@ import type { CheckProblemDto, ProblemDto } from "../../api";
 import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
+import { readCss, ruleBody } from "../../ui/cssSource";
 import { ProblemsPanel, ProblemsTable } from "./ProblemsPanel";
 import { ProblemsStore, findingId } from "./problems";
 import type { ProblemRow } from "./problems";
@@ -245,6 +246,37 @@ describe("ProblemsPanel with findings of the checks", () => {
     expect(container.querySelector("[data-unchecked]")?.textContent).toContain("Nicht geprüft");
     act(() => checks.feed.update({ reported: true }));
     expect(container.querySelector("[data-unchecked]")).toBeNull();
+  });
+
+  it("the_ignored_list_folds_when_it_empties_and_when_a_baseline_adds_to_it_and_scrolls_within_its_cap", async () => {
+    const ignoredOf = (n: number) => Array.from({ length: n }, (_, i) => finding("warp.never-fires", "info", { key: `warp:${i}` }));
+    const more = () => button("Wieder melden…", container.querySelector<HTMLElement>("footer")!);
+    const list = () => container.querySelector<HTMLElement>("[role=list][aria-label=Ausgeblendet]");
+    act(() => checks.feed.update({ reported: true, ignored: ignoredOf(1) }));
+    expect(more()!.getAttribute("aria-expanded")).toBe("false");
+    await click(more());
+    expect(list()).not.toBeNull();
+    // The last one is reported again: the list is empty and folds.
+    act(() => checks.feed.update({ ignored: [] }));
+    expect(more()).toBeUndefined();
+    // „Ausgangslage übernehmen“ ignores 111 at once: the list stays folded.
+    act(() => checks.feed.update({ ignored: ignoredOf(111) }));
+    expect(more()!.getAttribute("aria-expanded")).toBe("false");
+    expect(list()).toBeNull();
+    // Open, entries taken off one by one keep it open; a baseline that adds to it folds it.
+    await click(more());
+    act(() => checks.feed.update({ ignored: ignoredOf(110) }));
+    expect(more()!.getAttribute("aria-expanded")).toBe("true");
+    expect(list()!.querySelectorAll("[data-finding]")).toHaveLength(110);
+    act(() => checks.feed.update({ ignored: ignoredOf(140) }));
+    expect(more()!.getAttribute("aria-expanded")).toBe("false");
+    expect(list()).toBeNull();
+    // Open, it scrolls within its own cap, and the foot takes at most half of the panel (the hand is often 250 px high).
+    const css = readCss("./ProblemsPanel.module.css", import.meta.url);
+    expect(ruleBody(css, ".ignoredList")).toMatch(/max-height:\s*calc\(var\(--g4-raum-64\)/);
+    expect(ruleBody(css, ".ignoredList")).toMatch(/overflow:\s*auto/);
+    expect(ruleBody(css, ".ignoredList")).toMatch(/min-height:\s*0/);
+    expect(ruleBody(css, ".foot")).toMatch(/max-height:\s*50%/);
   });
 
   it("says_it_is_checking_instead_of_no_problems_before_the_first_report", () => {
