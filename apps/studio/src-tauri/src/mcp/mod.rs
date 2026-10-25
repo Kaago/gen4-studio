@@ -1,11 +1,14 @@
 //! The editor's command layer for coding agents over the Model Context Protocol: which
 //! commands an agent may run ([`access`]), the curated tools it sees ([`catalog`]), the
-//! toolbox that runs them ([`tools`]) and the server over stdio ([`server`], started by
-//! `studio mcp`, see [`main`]).
+//! toolbox that runs them ([`tools`]), the server over stdio ([`server`], started by
+//! `studio mcp`, see [`main`]) and, in the running app, the agent settings ([`settings`])
+//! and the hub of connections, questions and events ([`hub`]).
 
 pub mod access;
 pub mod catalog;
+pub mod hub;
 pub mod server;
+pub mod settings;
 pub mod tools;
 
 use std::ffi::OsString;

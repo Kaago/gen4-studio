@@ -27,6 +27,10 @@ use commands::{
     set_trainer_texts, split_encounter_file, tile_behaviors, undo, unignore_finding,
     update_building, update_event, validate_text,
 };
+use commands::{
+    agent_answer, agent_disconnect, agent_poll, agent_remove_grant, agent_set_enabled,
+    agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
+};
 use commands::{apply_empty_region, plan_empty_region};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
@@ -142,7 +146,17 @@ pub fn run() {
             check_project_dest,
             create_project,
             plan_empty_region,
-            apply_empty_region
+            apply_empty_region,
+            agent_status,
+            agent_poll,
+            agent_settings,
+            agent_set_enabled,
+            agent_set_expert,
+            agent_set_grant,
+            agent_remove_grant,
+            agent_answer,
+            agent_disconnect,
+            agent_set_read_only
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

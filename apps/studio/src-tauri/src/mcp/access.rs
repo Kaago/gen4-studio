@@ -132,6 +132,16 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_project", APP_ONLY),
     ("plan_empty_region", Kind::Read),
     ("apply_empty_region", Kind::Irreversible("Welt leeren")),
+    ("agent_status", APP_ONLY),
+    ("agent_poll", APP_ONLY),
+    ("agent_settings", APP_ONLY),
+    ("agent_set_enabled", APP_ONLY),
+    ("agent_set_expert", APP_ONLY),
+    ("agent_set_grant", APP_ONLY),
+    ("agent_remove_grant", APP_ONLY),
+    ("agent_answer", APP_ONLY),
+    ("agent_disconnect", APP_ONLY),
+    ("agent_set_read_only", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -291,7 +301,9 @@ mod tests {
                 ("run_rom", Kind::Irreversible("Emulator")),
             ]
         );
+        // The agent hub's commands: `agent_commands_are_app_only`.
         let mut unavailable = of(|k| matches!(k, Kind::Unavailable(_)));
+        unavailable.retain(|(name, _)| !name.starts_with("agent_"));
         unavailable.sort_by_key(|(name, _)| *name);
         assert_eq!(
             unavailable,
@@ -351,6 +363,38 @@ mod tests {
             "ignore_finding",
         ] {
             assert_eq!(kind(name), Kind::Write, "{name}");
+        }
+    }
+
+    #[test]
+    fn agent_commands_are_app_only() {
+        // An agent must not grant itself access.
+        let agents: Vec<&str> = COMMANDS
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("agent_"))
+            .collect();
+        assert_eq!(
+            agents,
+            [
+                "agent_status",
+                "agent_poll",
+                "agent_settings",
+                "agent_set_enabled",
+                "agent_set_expert",
+                "agent_set_grant",
+                "agent_remove_grant",
+                "agent_answer",
+                "agent_disconnect",
+                "agent_set_read_only",
+            ]
+        );
+        for name in agents {
+            assert_eq!(
+                kind_of(name),
+                Some(Kind::Unavailable("Nur in der App")),
+                "{name}"
+            );
         }
     }
 

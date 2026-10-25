@@ -1,5 +1,6 @@
 //! Tauri commands. Each command is a thin wrapper over a testable `*_impl` function.
 
+mod agents;
 mod area;
 mod buildings;
 mod checks;
@@ -23,6 +24,7 @@ mod text;
 mod wizards;
 mod world;
 
+pub use agents::*;
 pub use area::*;
 pub use buildings::*;
 pub use checks::*;

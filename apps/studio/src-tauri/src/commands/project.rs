@@ -25,6 +25,18 @@ pub struct ProjectInfo {
     pub header_count: usize,
 }
 
+/// What `open_project` answers about `project`. Only the header table is read: location
+/// names are cosmetic and must not gate opening.
+pub fn project_info_of(project: &Project) -> Result<ProjectInfo, CmdError> {
+    Ok(ProjectInfo {
+        root: project.root.display().to_string(),
+        game_code: project.game_code.clone(),
+        family: format!("{:?}", project.family),
+        language: format!("{:?}", project.language),
+        header_count: project.header_count().map_err(CmdError::from)?,
+    })
+}
+
 /// Opens the project at `path` in a fresh session, with its ignore file `g4-checks.json` read.
 /// A broken one does not keep the project closed (ruling R15): nothing is ignored, the checks'
 /// reports name the file, and it is never written until it reads again (see
@@ -32,15 +44,7 @@ pub struct ProjectInfo {
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
     let (ignore, ignore_broken) = super::checks::load_ignore(&project.root);
-    // Only the header table: location names are cosmetic and must not gate opening.
-    let header_count = project.header_count().map_err(CmdError::from)?;
-    let info = ProjectInfo {
-        root: project.root.display().to_string(),
-        game_code: project.game_code.clone(),
-        family: format!("{:?}", project.family),
-        language: format!("{:?}", project.language),
-        header_count,
-    };
+    let info = project_info_of(&project)?;
     let mut session = Session::new(Arc::new(project));
     session.checks.ignore = ignore;
     session.checks.ignore_broken = ignore_broken;
