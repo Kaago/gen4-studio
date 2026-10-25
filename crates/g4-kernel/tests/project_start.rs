@@ -146,3 +146,68 @@ fn project_start_create_then_build_matches_the_rom() {
         "the rebuilt ROM differs from the input"
     );
 }
+
+/// Gated (`G4_TEST_ROM`): a new project with the empty region: the scripts are adopted, the
+/// recipe applied and saved, the mark says `empty_region` and no check reports an error.
+#[test]
+fn project_start_empty_region_from_the_rom() {
+    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
+        eprintln!("skipped: G4_TEST_ROM not set");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("leer");
+    let mut seen = Vec::new();
+    let created =
+        create_project(&nds, &dest, Template::EmptyRegion, &mut |p| seen.push(p)).unwrap();
+    assert_eq!(created.template, Template::EmptyRegion);
+    let mark = read_base_mark(&dest).expect("base mark");
+    assert_eq!(mark.template, Template::EmptyRegion);
+    let text = std::fs::read_to_string(dest.join(".g4/base.json")).unwrap();
+    assert!(text.contains("\"empty_region\""), "{text}");
+    // The template phase counts up to its total: adopting, then the recipe.
+    let template: Vec<_> = seen
+        .iter()
+        .filter(|p| p.phase == g4_kernel::start::Phase::Template)
+        .collect();
+    let last = template.last().expect("template progress");
+    assert!(last.total > 1, "{template:?}");
+    assert_eq!(last.done, last.total, "{template:?}");
+    assert!(template.windows(2).all(|w| w[0].done <= w[1].done));
+
+    let project = std::sync::Arc::new(g4_kernel::project::Project::open(&dest).unwrap());
+    assert!(g4_kernel::scripts::is_adopted(&project));
+    let mut store = g4_kernel::store::Store::new(std::sync::Arc::clone(&project));
+    assert!(
+        g4_kernel::templates::plan_empty_region(&mut store)
+            .unwrap()
+            .already_empty
+    );
+    let overlay = store.snapshot_overlay();
+    let snap = g4_kernel::checks::Snapshot::build(
+        std::sync::Arc::clone(&project),
+        overlay,
+        g4_kernel::checks::SnapshotCache::default(),
+    );
+    let checks = g4_kernel::checks::Runner::run(
+        &snap,
+        g4_kernel::project::Project::limits(),
+        &g4_kernel::checks::IgnoreSet::default(),
+        &g4_kernel::checks::Group::ALL,
+        |_, _, _| {},
+    );
+    let errors: Vec<_> = checks
+        .findings
+        .iter()
+        .filter(|f| f.severity == g4_kernel::checks::Severity::Error)
+        .collect();
+    eprintln!(
+        "{}: {} errors, {} findings, phases {:?}",
+        mark.game_code,
+        errors.len(),
+        checks.findings.len(),
+        created.phases
+    );
+    assert_eq!(checks.groups.len(), 3);
+    assert!(errors.is_empty(), "{errors:#?}");
+}

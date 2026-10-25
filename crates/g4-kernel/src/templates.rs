@@ -1,25 +1,37 @@
 //! World templates: recipes that reshape a vanilla world. The empty region keeps the start
 //! town and the rooms reached from it, empties every other header and fills matrix 0 around
-//! the town with one blocked border map. This module reads the recipe and plans it; the plan
-//! changes nothing.
+//! the town with one blocked border map; a start script in the town gives the starter. This
+//! module reads the recipe, plans it ([`plan_empty_region`], changes nothing) and applies it
+//! as one store step ([`apply_empty_region`]). See `docs/formats/templates.md`.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::OnceLock;
 
-use g4_formats::game::Family;
+use g4_formats::error::FormatError;
+use g4_formats::game::{Family, Language};
 use g4_formats::matrix::MATRIX_EMPTY;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{KernelError, io_at};
-use crate::scripts;
+use crate::error::{KernelError, guard_panic, io_at};
+use crate::project::{AssetId, AssetKind, Project};
+use crate::scripts::{self, LevelScriptDoc, ScriptSource, SourceKind};
 use crate::start::DP_LOCKED;
-use crate::store::Store;
+use crate::store::{ChangeId, EventFile, HEADER_TABLE, MapHeader, Store};
 
 const TEMPLATES_YAML: &str = include_str!("../metadata/templates.yaml");
+/// The start script of each family, with the placeholders `{n}` (script number), `{species}`,
+/// `{level}`, `{done_var}` and `{message}`.
+const START_PT: &str = include_str!("../metadata/templates/start_pt.rotom");
+const START_HGSS: &str = include_str!("../metadata/templates/start_hgss.rotom");
+
+/// The label of the store step [`apply_empty_region`] records.
+pub const REGION_LABEL: &str = "Vorlage: Leere Region mit Startstadt";
 
 /// Collision byte of a blocked cell; a map whose cells all carry it (with kind 0) is a border
 /// map of the empty region.
 const BLOCKED: u8 = 0x80;
+/// Collision cells of a map (32 × 32).
+const MAP_CELLS: usize = 1024;
 
 /// The empty-region recipe of one family, as `templates.yaml` names it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -217,11 +229,7 @@ pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
     }
     let mut border_maps = BTreeSet::new();
     for map in with_town.iter().map(|c| c.2).collect::<BTreeSet<_>>() {
-        let blocked = store
-            .map(map)?
-            .permissions
-            .iter()
-            .all(|c| c.kind == 0 && c.collision == BLOCKED);
+        let blocked = is_border_map(&store.map(map)?.permissions);
         if blocked {
             border_maps.insert(map);
         }
@@ -326,6 +334,15 @@ pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
     })
 }
 
+/// Whether a map's collision cells make it a border map: all [`MAP_CELLS`] of them
+/// `{kind 0, collision 0x80}` (an empty or short list is none).
+fn is_border_map(permissions: &[g4_formats::map::Cell]) -> bool {
+    permissions.len() == MAP_CELLS
+        && permissions
+            .iter()
+            .all(|c| c.kind == 0 && c.collision == BLOCKED)
+}
+
 /// Whether a level script member is empty: exactly four zero bytes.
 fn is_empty_level_script(bytes: &[u8]) -> bool {
     bytes == [0, 0, 0, 0]
@@ -360,4 +377,352 @@ fn empty_level_script(
     Err(KernelError::Refused(
         "no empty level script (a script member of four zero bytes)".into(),
     ))
+}
+
+/// What [`apply_empty_region`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegionReport {
+    /// The plan it carried out.
+    pub plan: RegionPlan,
+    /// The new map of every cell outside the town (written at once, not undoable).
+    pub border_map: u16,
+    /// The new level script of the town (written at once, not undoable).
+    pub level_script: u16,
+    /// `(script file, number)` of the start script appended to the town's script file
+    /// (written at once, not undoable).
+    pub start_script: (u16, u16),
+    /// The store step; `None` only when it changed nothing.
+    pub change: Option<ChangeId>,
+    /// Every asset it changed, in kind and index order: the header table, matrix 0, the
+    /// border map and event files of the step, the two script files and the text archives
+    /// the compile rewrote (the store loaded them again).
+    pub changed: Vec<AssetId>,
+}
+
+/// The start script of `family` as script `#n`, filled from `recipe` with `message` as its
+/// text literal (a `"` in it is escaped). Diamond and Pearl are refused with [`DP_LOCKED`].
+pub fn start_script(
+    recipe: &RegionRecipe,
+    family: Family,
+    n: u16,
+    message: &str,
+) -> Result<String, KernelError> {
+    let template = match family {
+        Family::Dp => return Err(KernelError::Refused(DP_LOCKED.into())),
+        Family::Pt => START_PT,
+        Family::Hgss => START_HGSS,
+    };
+    // `{message}` goes last, so a brace in the message is never taken for a placeholder.
+    Ok(template
+        .replace("{n}", &n.to_string())
+        .replace("{species}", &recipe.starter_species.to_string())
+        .replace("{level}", &recipe.starter_level.to_string())
+        .replace("{done_var}", &recipe.done_var)
+        .replace("{message}", &message.replace('"', "\\\"")))
+}
+
+/// Header `id` of `headers`; past the end is [`FormatError::OutOfRange`].
+fn header_mut(headers: &mut [MapHeader], id: u16) -> Result<&mut MapHeader, FormatError> {
+    let count = headers.len();
+    headers
+        .get_mut(usize::from(id))
+        .ok_or(FormatError::OutOfRange {
+            what: "header",
+            value: usize::from(id),
+            max: count.saturating_sub(1),
+        })
+}
+
+/// `message` wrapped like the `text.too-wide` fix does (chatot's `word_wrap` at the text
+/// window width, `dialog_line_px`): the game breaks no line by itself, and the recipe's text is
+/// one line wider than the window. The `\r` chatot appends at the end is left out.
+pub fn wrap_message(message: &str) -> Result<String, KernelError> {
+    use chatot::{default_glyph_widths, get_default_charmap, word_wrap};
+    let max = Project::limits().dialog_line_px.value;
+    // chatot v0.8.1: src/format.rs word_wrap
+    let wrapped = guard_panic("chatot", || {
+        word_wrap(message, get_default_charmap(), default_glyph_widths(), max)
+    })?
+    .map_err(|e| KernelError::InvalidProject(format!("start script message: {e}")))?;
+    Ok(match wrapped.strip_suffix("\\r") {
+        Some(kept) if !message.ends_with("\\r") => kept.to_owned(),
+        _ => wrapped,
+    })
+}
+
+/// Sets the event file (when given) and the level script of `header`.
+fn set_events(header: &mut MapHeader, event_file: Option<u16>, level_script: u16) {
+    match header {
+        MapHeader::DP(h) => {
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            h.level_script_id = level_script;
+        }
+        MapHeader::Pt(h) => {
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            h.level_script_id = level_script;
+        }
+        MapHeader::HGSS(h) => {
+            h.event_file_id = event_file.unwrap_or(h.event_file_id);
+            h.level_script_id = level_script;
+        }
+    }
+}
+
+/// The event files of the kept headers as the recipe leaves them, by number: the town's
+/// without figures and triggers, the dropped warps removed and the warps into a file that lost
+/// warps renumbered. Only files that change are returned.
+fn kept_event_files(
+    store: &mut Store,
+    plan: &RegionPlan,
+) -> Result<BTreeMap<u16, EventFile>, KernelError> {
+    let headers = store.header_table()?.to_vec();
+    let event_of = |id: u16| headers.get(usize::from(id)).map(MapHeader::event_file_id);
+    let mut removed: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+    for &(event, warp) in &plan.dropped_warps {
+        removed.entry(event).or_default().push(warp);
+    }
+    let mut files = BTreeMap::new();
+    for event in plan.kept.iter().filter_map(|&id| event_of(id)) {
+        files.insert(event, store.event(event)?.clone());
+    }
+    let mut changed = BTreeSet::from([plan.town_event_file]);
+    for (&event, file) in &mut files {
+        for warp in &mut file.warp_events {
+            if !plan.kept.contains(&warp.dest_header_id) {
+                continue;
+            }
+            let Some(gone) = event_of(warp.dest_header_id).and_then(|e| removed.get(&e)) else {
+                continue;
+            };
+            // At most u16::MAX warps in a file (its counter is 16 bits wide).
+            let shift = gone.iter().filter(|&&i| i < warp.dest_warp_id).count() as u16;
+            if shift > 0 {
+                warp.dest_warp_id -= shift;
+                changed.insert(event);
+            }
+        }
+    }
+    for (event, mut warps) in removed {
+        if let Some(file) = files.get_mut(&event) {
+            warps.sort_unstable();
+            for &i in warps.iter().rev() {
+                if usize::from(i) < file.warp_events.len() {
+                    file.warp_events.remove(usize::from(i));
+                }
+            }
+            changed.insert(event);
+        }
+    }
+    if let Some(town) = files.get_mut(&plan.town_event_file) {
+        town.object_events.clear();
+        town.coord_events.clear();
+    }
+    files.retain(|event, _| changed.contains(event));
+    Ok(files)
+}
+
+/// Applies the empty region to the store's world. Refused, each before anything is written:
+/// Diamond/Pearl ([`DP_LOCKED`]), a world that is already empty ("the world is already
+/// empty"), a project whose scripts are not adopted ("scripts are not adopted"), unsaved
+/// changes in the store ("save first") and a town script file without a rotom source.
+///
+/// Then, written at once and not undoable: the border map (a copy of the town's map without
+/// buildings), a new level script file that starts the start script while the recipe's
+/// variable is 0, and the start script appended to the town's script file and compiled (its
+/// message goes to the town's text archive, German games get the German text). Last, one store
+/// step [`REGION_LABEL`]: the header table (emptied headers get event file 0 and the empty
+/// level script, the town its new level script), matrix 0 (every cell outside the town gets
+/// the border map, the town's header and its altitude), the border map (every cell blocked)
+/// and the kept event files (the town without figures and triggers, the dropped warps gone).
+/// Undo takes that step back; the files written before stay, nothing uses them then.
+pub fn apply_empty_region(store: &mut Store) -> Result<RegionReport, KernelError> {
+    let family = store.project().family;
+    let recipe = region_recipe(family)?;
+    let plan = plan_empty_region(store)?;
+    if plan.already_empty {
+        return Err(KernelError::Refused("the world is already empty".into()));
+    }
+    if !scripts::is_adopted(store.project()) {
+        return Err(KernelError::Refused("scripts are not adopted".into()));
+    }
+    if !store.dirty().is_empty() {
+        return Err(KernelError::Refused("save first".into()));
+    }
+    let var = variable_id(family, &recipe.done_var).ok_or_else(|| {
+        KernelError::InvalidProject(format!(
+            "templates.yaml: the command database has no variable {}",
+            recipe.done_var
+        ))
+    })?;
+    // Everything the steps read, before the first write.
+    let town_file = plan.town_script_file;
+    let town_source = scripts::rotom_source(store.project(), town_file)?;
+    let n = scripts::declared_slots(&town_source)?
+        .iter()
+        .map(|(id, _)| *id)
+        .max()
+        .map_or(1, |id| id + 1);
+    let n =
+        u16::try_from(n).map_err(|_| KernelError::InvalidProject("no free script slot".into()))?;
+    let message = wrap_message(if store.project().language == Language::German {
+        &recipe.message_de
+    } else {
+        &recipe.message_en
+    })?;
+    let start = start_script(&recipe, family, n, &message)?;
+    let level_doc: LevelScriptDoc = serde_json::from_value(serde_json::json!({
+        "header_entries": [{ "type": "on_var_condition" }],
+        "var_conditions": [{ "var": var, "value": 0, "script_id": n }],
+    }))
+    .map_err(|e| KernelError::InvalidProject(format!("level script JSON: {e}")))?;
+    let events = kept_event_files(store, &plan)?;
+
+    // Written at once.
+    let border_map = store.duplicate_map_with(plan.town_map, true)?;
+    let (level_script, mut touched) = {
+        let project = store.project();
+        let (level, mut touched) =
+            scripts::new_script_file_reported(project, SourceKind::LevelScript)?;
+        scripts::write_source(project, level, &ScriptSource::LevelScript(level_doc))?;
+        let report = scripts::compile(project)?;
+        touched.extend(&report.touched_archives);
+        let errors = scripts::problems_in(project, &report, level, SourceKind::LevelScript);
+        if !errors.is_empty() {
+            return Err(KernelError::Compile(errors));
+        }
+        touched.extend(scripts::append_source(
+            project,
+            town_file,
+            town_source,
+            &start,
+        )?);
+        (level, touched)
+    };
+    touched.sort_unstable();
+    touched.dedup();
+    for &index in &touched {
+        store.reload_from_disk(AssetId {
+            kind: AssetKind::TextArchive,
+            index,
+        })?;
+    }
+
+    // The store step.
+    let outside: Vec<usize> = {
+        let matrix = store.matrix(0)?;
+        let width = usize::from(matrix.width);
+        matrix
+            .maps
+            .iter()
+            .enumerate()
+            .filter(|&(i, &map)| {
+                // A matrix is at most 255 × 255 cells (see `plan_empty_region`).
+                let cell = ((i % width) as u8, (i / width) as u8);
+                map != MATRIX_EMPTY && !plan.town_cells.contains(&cell)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let start_header = plan.start_header;
+    let ((), change) = store.transaction(REGION_LABEL, |tx| {
+        tx.edit_headers(|headers| {
+            for &id in &plan.emptied {
+                set_events(header_mut(headers, id)?, Some(0), plan.empty_level_script);
+            }
+            set_events(header_mut(headers, start_header)?, None, level_script);
+            Ok(())
+        })?;
+        tx.edit_matrix(0, |m| {
+            for &i in &outside {
+                m.maps[i] = border_map;
+                if let Some(h) = m.headers.as_mut() {
+                    h[i] = start_header;
+                }
+                if let Some(a) = m.altitudes.as_mut() {
+                    a[i] = plan.town_altitude;
+                }
+            }
+            Ok(())
+        })?;
+        tx.edit_map(border_map, |m| {
+            for cell in &mut m.permissions {
+                cell.kind = 0;
+                cell.collision = BLOCKED;
+            }
+            Ok(())
+        })?;
+        for (&event, file) in &events {
+            tx.edit_event(event, |e| {
+                *e = file.clone();
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
+
+    let mut changed = vec![
+        HEADER_TABLE,
+        AssetId {
+            kind: AssetKind::Matrix,
+            index: 0,
+        },
+        AssetId {
+            kind: AssetKind::Map,
+            index: border_map,
+        },
+        AssetId {
+            kind: AssetKind::Script,
+            index: level_script,
+        },
+        AssetId {
+            kind: AssetKind::Script,
+            index: town_file,
+        },
+    ];
+    changed.extend(events.keys().map(|&index| AssetId {
+        kind: AssetKind::Event,
+        index,
+    }));
+    changed.extend(touched.iter().map(|&index| AssetId {
+        kind: AssetKind::TextArchive,
+        index,
+    }));
+    changed.sort_by_key(|id| (id.kind.slot(), id.index));
+    changed.dedup();
+    Ok(RegionReport {
+        plan,
+        border_map,
+        level_script,
+        start_script: (town_file, n),
+        change,
+        changed,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use g4_formats::map::Cell;
+
+    use super::*;
+
+    #[test]
+    fn a_border_map_has_every_cell_blocked() {
+        let blocked = Cell {
+            kind: 0,
+            collision: BLOCKED,
+        };
+        assert!(is_border_map(&[blocked; MAP_CELLS]));
+        // No cells, or too few, is no border map (all of none would be vacuously blocked).
+        assert!(!is_border_map(&[]));
+        assert!(!is_border_map(&[blocked; MAP_CELLS - 1]));
+        let mut one_open = [blocked; MAP_CELLS];
+        one_open[5].collision = 0;
+        assert!(!is_border_map(&one_open));
+        one_open[5] = Cell {
+            kind: 1,
+            collision: BLOCKED,
+        };
+        assert!(!is_border_map(&one_open));
+    }
 }

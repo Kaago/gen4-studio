@@ -1,12 +1,14 @@
-//! The empty-region template: the recipe and its plan (which header is the start town, which
-//! rooms stay, which headers are emptied, which cells of matrix 0 get the border map).
+//! The empty-region template: the recipe, its plan (which header is the start town, which
+//! rooms stay, which headers are emptied, which cells of matrix 0 get the border map) and its
+//! application as one store step with a start script.
 //!
-//! Synthetic tests build a small world on `test_support::synthetic_project()`; the gated test
-//! (`G4_TEST_PROJECT`) plans on a copy of a vanilla project:
+//! Synthetic tests build a small world on `test_support::synthetic_project()`; the gated tests
+//! (`G4_TEST_PROJECT`) plan and apply on a copy of a vanilla project:
 //!
 //! ```sh
 //! G4_TEST_PROJECT=".../Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
-//!   cargo test --workspace --all-features vanilla_plan_empty_region -- --nocapture
+//!   cargo test --workspace --all-features -- vanilla_plan_empty_region vanilla_empty_region \
+//!   --nocapture
 //! ```
 #![cfg(feature = "test-support")]
 mod common;
@@ -15,11 +17,15 @@ use std::sync::Arc;
 
 use g4_formats::game::Family;
 use g4_formats::matrix::MATRIX_EMPTY;
+use g4_kernel::checks::{Group, IgnoreSet, Runner, Severity, Snapshot, SnapshotCache};
 use g4_kernel::error::KernelError;
-use g4_kernel::project::{AssetKind, Project};
+use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::start::DP_LOCKED;
 use g4_kernel::store::{CoordEvent, MapHeader, ObjectEvent, Store, WarpEvent};
-use g4_kernel::templates::{plan_empty_region, region_recipe};
+use g4_kernel::templates::{
+    REGION_LABEL, apply_empty_region, plan_empty_region, region_recipe, start_script, wrap_message,
+};
 
 /// Internal names of the synthetic world, by header id: 0 the "everywhere" header, 1 the
 /// start town, 2, 3 and 6 its rooms (6 only through 2), 4 a second town, 5 a room of it.
@@ -408,4 +414,412 @@ fn vanilla_plan_empty_region() {
         );
         assert!(!plan.emptied.contains(&id));
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// Applying the recipe
+// ---------------------------------------------------------------------------------------
+
+const HEADERS: AssetId = AssetId {
+    kind: AssetKind::HeaderTable,
+    index: 0,
+};
+const MATRIX_0: AssetId = AssetId {
+    kind: AssetKind::Matrix,
+    index: 0,
+};
+
+fn event_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Event,
+        index,
+    }
+}
+
+/// [`world`], saved, with the scripts adopted: what `apply_empty_region` needs.
+fn ready_world() -> (common::Synthetic, Store) {
+    let (s, mut store) = world();
+    store.save().unwrap();
+    scripts::adopt(store.project(), &mut |_| {}).unwrap();
+    (s, store)
+}
+
+fn refused(result: Result<impl std::fmt::Debug, KernelError>) -> String {
+    match result {
+        Err(KernelError::Refused(why)) => why,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// Member counts of the map and script archives and the files of `expanded/scripts`.
+fn disk_state(store: &Store) -> (usize, usize, Vec<String>) {
+    let project = store.project();
+    let sources = project.expanded_dir(AssetKind::Script);
+    let mut files: Vec<String> = std::fs::read_dir(&sources)
+        .map(|dir| {
+            dir.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    (
+        project.member_count(AssetKind::Map).unwrap(),
+        project.member_count(AssetKind::Script).unwrap(),
+        files,
+    )
+}
+
+#[test]
+fn start_script_template_fills_every_placeholder() {
+    for family in [Family::Pt, Family::Hgss] {
+        let recipe = region_recipe(family).unwrap();
+        let text = start_script(&recipe, family, 7, &recipe.message_de).unwrap();
+        assert!(!text.contains('{'), "{family:?}: {text}");
+        assert!(!text.contains('}'), "{family:?}: {text}");
+        assert!(text.contains("#7:"), "{text}");
+        assert!(text.contains(&recipe.starter_species.to_string()), "{text}");
+        assert!(text.contains(&recipe.done_var), "{text}");
+        assert!(
+            text.contains(&format!("\"{}\"", recipe.message_de)),
+            "{text}"
+        );
+    }
+    // A quote in the message stays inside the literal.
+    let recipe = region_recipe(Family::Pt).unwrap();
+    let text = start_script(&recipe, Family::Pt, 2, "Sag \"Hallo\"").unwrap();
+    assert!(text.contains(r#""Sag \"Hallo\"""#), "{text}");
+    assert_eq!(
+        refused(start_script(&recipe, Family::Dp, 2, "x")),
+        DP_LOCKED
+    );
+}
+
+#[test]
+fn start_message_is_wrapped_to_the_text_window() {
+    let recipe = region_recipe(Family::Pt).unwrap();
+    assert_eq!(
+        wrap_message(&recipe.message_de).unwrap(),
+        r"Willkommen in deiner leeren Region! Hier\nist dein erstes Pokémon."
+    );
+    let en = wrap_message(&recipe.message_en).unwrap();
+    assert!(en.contains(r"\n"), "{en}");
+    assert!(!en.ends_with(r"\r"), "{en}");
+    assert_eq!(
+        en.replace(r"\n", " ").replace(r"\r", " "),
+        recipe.message_en
+    );
+    // A short text stays one line.
+    assert_eq!(wrap_message("Hallo").unwrap(), "Hallo");
+}
+
+#[test]
+fn apply_refuses_without_adopted_scripts() {
+    let (_s, mut store) = world();
+    store.save().unwrap();
+    let before = disk_state(&store);
+    assert_eq!(
+        refused(apply_empty_region(&mut store)),
+        "scripts are not adopted"
+    );
+    assert_eq!(disk_state(&store), before);
+    assert!(store.dirty().is_empty());
+}
+
+#[test]
+fn apply_refuses_unsaved_changes_before_touching_the_disk() {
+    let (_s, mut store) = world();
+    scripts::adopt(store.project(), &mut |_| {}).unwrap();
+    assert!(!store.dirty().is_empty());
+    let before = disk_state(&store);
+    let history = store.history();
+    assert_eq!(refused(apply_empty_region(&mut store)), "save first");
+    assert_eq!(disk_state(&store), before);
+    assert_eq!(store.history(), history);
+}
+
+#[test]
+fn apply_refuses_diamond() {
+    let s = common::synthetic_project();
+    std::fs::write(
+        s.dir.path().join("header.yaml"),
+        "title: \"POKEMON D\"\ngamecode: ADAE\nmakercode: \"01\"\n",
+    )
+    .unwrap();
+    let mut store = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(refused(apply_empty_region(&mut store)), DP_LOCKED);
+}
+
+#[test]
+fn apply_is_one_undo_step() {
+    let (_s, mut store) = ready_world();
+    let before: Vec<_> = [HEADERS, MATRIX_0, event_id(1), event_id(3)]
+        .iter()
+        .map(|&id| store.current_bytes(id).unwrap())
+        .collect();
+    let (undo_before, _) = store.history();
+    let maps = store.member_count(AssetKind::Map).unwrap();
+
+    let report = apply_empty_region(&mut store).unwrap();
+    let (undo, redo) = store.history();
+    assert_eq!(undo.len(), undo_before.len() + 1);
+    assert_eq!(undo.last().map(String::as_str), Some(REGION_LABEL));
+    assert!(redo.is_empty());
+    assert!(report.change.is_some());
+    assert_eq!(report.plan.start_header, 1);
+
+    // The border map is a new member, all cells blocked.
+    assert_eq!(usize::from(report.border_map), maps);
+    let border = store.map(report.border_map).unwrap();
+    assert_eq!(border.permissions.len(), 1024);
+    assert!(
+        border
+            .permissions
+            .iter()
+            .all(|c| c.kind == 0 && c.collision == 0x80)
+    );
+    // Matrix 0: every cell with a map carries the town's header; the cells outside the
+    // town the border map at the town's altitude.
+    let matrix = store.matrix(0).unwrap().clone();
+    assert_eq!(
+        matrix.maps,
+        vec![
+            report.border_map,
+            1,
+            MATRIX_EMPTY,
+            report.border_map,
+            report.border_map,
+            report.border_map
+        ]
+    );
+    assert_eq!(matrix.headers, Some(vec![1, 1, 0, 1, 1, 1]));
+    assert_eq!(matrix.altitudes, Some(vec![7, 7, 0, 7, 7, 7]));
+    // Headers: the emptied ones get event file 0 and the empty level script, the town its
+    // new level script; the rooms stay.
+    let headers = store.header_table().unwrap().to_vec();
+    for id in [4usize, 5] {
+        assert_eq!(headers[id].event_file_id(), 0, "{id}");
+        assert_eq!(headers[id].level_script_id(), 1, "{id}");
+    }
+    assert_eq!(headers[1].level_script_id(), report.level_script);
+    for (id, event) in [(2usize, 2u16), (3, 3), (6, 6)] {
+        assert_eq!(headers[id].event_file_id(), event, "{id}");
+    }
+    // The town has no figures and triggers; room 3 lost its back door.
+    let town = store.event(1).unwrap().clone();
+    assert!(town.object_events.is_empty());
+    assert!(town.coord_events.is_empty());
+    assert_eq!(town.warp_events.len(), 2);
+    assert_eq!(store.event(3).unwrap().warp_events.len(), 1);
+
+    // The level script starts the start script once.
+    match scripts::read_source(store.project(), report.level_script).unwrap() {
+        ScriptSource::LevelScript(doc) => {
+            let json = serde_json::to_value(&doc).unwrap();
+            assert_eq!(
+                json["header_entries"],
+                serde_json::json!([{ "type": "on_var_condition" }])
+            );
+            let (file, n) = report.start_script;
+            assert_eq!(file, 0);
+            assert_eq!(
+                json["var_conditions"],
+                serde_json::json!([{ "var": 0x406C, "value": 0, "script_id": n }])
+            );
+        }
+        other => panic!("expected a level script, got {other:?}"),
+    }
+    // The start script is appended to the town's script file as #3 (it had #1 and #2).
+    assert_eq!(report.start_script, (0, 3));
+    match scripts::read_source(store.project(), 0).unwrap() {
+        ScriptSource::Rotom(text) => {
+            assert!(text.contains("#3:"), "{text}");
+            assert!(text.contains("GivePokemon 387, 5"), "{text}");
+        }
+        other => panic!("expected a script, got {other:?}"),
+    }
+    assert!(
+        store
+            .project()
+            .member_path(AssetKind::Script, report.level_script)
+            .is_file()
+    );
+    for id in [HEADERS, MATRIX_0, event_id(1), event_id(3)] {
+        assert!(
+            report.changed.contains(&id),
+            "{id} not in {:?}",
+            report.changed
+        );
+    }
+
+    // One undo restores the header table, matrix 0 and the event files byte for byte.
+    store.undo().unwrap();
+    let after: Vec<_> = [HEADERS, MATRIX_0, event_id(1), event_id(3)]
+        .iter()
+        .map(|&id| store.current_bytes(id).unwrap())
+        .collect();
+    assert_eq!(after, before);
+    assert_eq!(store.history().0, undo_before);
+    assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+}
+
+#[test]
+fn apply_twice_is_refused() {
+    let (_s, mut store) = ready_world();
+    apply_empty_region(&mut store).unwrap();
+    store.save().unwrap();
+    let before = disk_state(&store);
+    let plan = plan_empty_region(&mut store).unwrap();
+    assert!(plan.already_empty);
+    assert_eq!(plan.town_cells, vec![(1, 0)]);
+    assert_eq!(
+        refused(apply_empty_region(&mut store)),
+        "the world is already empty"
+    );
+    assert_eq!(disk_state(&store), before);
+}
+
+/// Gated: adopt, apply, save on a copy; every check group has no error.
+#[test]
+fn vanilla_empty_region_has_no_check_errors() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(Arc::clone(&project));
+    let report = apply_empty_region(&mut store).unwrap();
+    store.save().unwrap();
+    eprintln!(
+        "{}: border map {}, level script {}, start script {:?}, changed {}",
+        project.game_code,
+        report.border_map,
+        report.level_script,
+        report.start_script,
+        report.changed.len()
+    );
+    let overlay = Store::new(Arc::clone(&project)).snapshot_overlay();
+    let snap = Snapshot::build(Arc::clone(&project), overlay, SnapshotCache::default());
+    let checks = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &Group::ALL,
+        |_, _, _| {},
+    );
+    let errors: Vec<_> = checks
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .collect();
+    let warnings = checks
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count();
+    eprintln!(
+        "{}: {} errors, {warnings} warnings, {} findings, groups {:?}, skipped {:?}",
+        project.game_code,
+        errors.len(),
+        checks.findings.len(),
+        checks.groups,
+        checks.skipped
+    );
+    for f in checks
+        .findings
+        .iter()
+        .filter(|f| f.severity != Severity::Info)
+        .take(40)
+    {
+        eprintln!(
+            "  {:?} {} {:?} {}",
+            f.severity, f.code, f.subject, f.message
+        );
+    }
+    assert_eq!(checks.groups.len(), 3);
+    assert!(errors.is_empty(), "{errors:#?}");
+    // The start script's message fits the text window.
+    let town_text =
+        store.header_table().unwrap()[usize::from(report.plan.start_header)].text_archive_id();
+    let wide: Vec<_> = checks
+        .findings
+        .iter()
+        .filter(|f| {
+            f.code == "text.too-wide"
+                && f.subject == g4_kernel::checks::Subject::TextArchive(town_text)
+        })
+        .collect();
+    assert!(wide.is_empty(), "{wide:#?}");
+    // The plan on the saved result sees the empty world.
+    assert!(plan_empty_region(&mut store).unwrap().already_empty);
+}
+
+/// Gated: one undo takes the world back (the files written at once stay).
+#[test]
+fn vanilla_empty_region_undo_restores_the_world() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(Arc::clone(&project));
+    let plan = plan_empty_region(&mut store).unwrap();
+    let ids = [HEADERS, MATRIX_0, event_id(plan.town_event_file)];
+    let before: Vec<_> = ids
+        .iter()
+        .map(|&id| store.current_bytes(id).unwrap())
+        .collect();
+    let report = apply_empty_region(&mut store).unwrap();
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some(REGION_LABEL)
+    );
+    assert!(!store.dirty().is_empty());
+    let restored = store.undo().unwrap();
+    for id in ids {
+        assert!(restored.contains(&id), "{id} not restored: {restored:?}");
+    }
+    let after: Vec<_> = ids
+        .iter()
+        .map(|&id| store.current_bytes(id).unwrap())
+        .collect();
+    assert_eq!(after, before);
+    assert!(store.dirty().is_empty(), "{:?}", store.dirty());
+    assert!(store.history().0.is_empty());
+    // The border map stays as a member nothing uses.
+    assert!(
+        store
+            .project()
+            .member_path(AssetKind::Map, report.border_map)
+            .is_file()
+    );
+}
+
+/// Gated: the saved empty region builds.
+#[test]
+fn vanilla_empty_region_builds() {
+    let Some((tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(Arc::clone(&project));
+    apply_empty_region(&mut store).unwrap();
+    store.save().unwrap();
+    let out = tmp.path().join("leer.nds");
+    let report = g4_kernel::build::build(&project, &out).unwrap();
+    let errors: Vec<_> = report
+        .problems
+        .iter()
+        .filter(|p| p.severity == g4_kernel::text::Severity::Error)
+        .collect();
+    eprintln!(
+        "{}: built {} bytes, compiled {:?}, problems {}",
+        project.game_code,
+        std::fs::metadata(&out).unwrap().len(),
+        report.compiled,
+        report.problems.len()
+    );
+    assert!(errors.is_empty(), "{errors:#?}");
+    assert!(out.is_file());
 }

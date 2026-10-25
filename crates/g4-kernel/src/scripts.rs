@@ -825,7 +825,7 @@ pub fn write_source(
 }
 
 /// Errors of `report` that belong to the source file `file`.
-fn problems_in(
+pub(crate) fn problems_in(
     project: &Project,
     report: &CompileReport,
     file: u16,
@@ -971,7 +971,7 @@ pub fn add_script_at_reported(
 }
 
 /// The rotom source of script file `file`; a level script or binary is refused.
-fn rotom_source(project: &Project, file: u16) -> Result<String, KernelError> {
+pub(crate) fn rotom_source(project: &Project, file: u16) -> Result<String, KernelError> {
     match read_source(project, file)? {
         ScriptSource::Rotom(text) => Ok(text),
         _ => Err(KernelError::InvalidProject(format!(
@@ -995,7 +995,19 @@ fn append_script(
     text: String,
     n: u16,
 ) -> Result<Vec<u16>, KernelError> {
-    let appended = format!("{text}\n{}", script_stub(n));
+    append_source(project, file, text, &script_stub(n))
+}
+
+/// Appends `addition` after a blank line to `text`, the source of `file`, writes and
+/// compiles; returns the text archives the compile changed. A compile error in the file puts
+/// `text` back.
+pub(crate) fn append_source(
+    project: &Project,
+    file: u16,
+    text: String,
+    addition: &str,
+) -> Result<Vec<u16>, KernelError> {
+    let appended = format!("{text}\n{addition}");
     write_source(project, file, &ScriptSource::Rotom(appended))?;
     let restore = |project: &Project| {
         let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));

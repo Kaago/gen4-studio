@@ -195,6 +195,9 @@ pub enum Template {
     Original,
     /// Like `Original`; the app starts in the Pokemon area. Only the mark differs.
     DataOnly,
+    /// The empty region with the start town: the scripts are adopted and
+    /// [`crate::templates::apply_empty_region`] is applied and saved.
+    EmptyRegion,
 }
 
 /// A stage of [`create_project`].
@@ -373,16 +376,12 @@ pub(crate) fn create_project_with(
     extract: Extractor<'_>,
 ) -> Result<Created, KernelError> {
     let mut phases: Vec<(Phase, u128)> = Vec::new();
-    let mut begin = |phase: Phase, total: u32| {
-        progress(Progress {
-            phase,
-            done: 0,
-            total,
-        });
+    let mut report = |phase: Phase, done: u32, total: u32| {
+        progress(Progress { phase, done, total });
         Instant::now()
     };
 
-    let started = begin(Phase::Read, 1);
+    let started = report(Phase::Read, 0, 1);
     let info = inspect_rom(rom)?;
     if let Support::Locked { reason } | Support::Unknown { reason } = &info.support {
         return Err(KernelError::Refused(reason.clone()));
@@ -443,15 +442,18 @@ pub(crate) fn create_project_with(
     phases.push((Phase::Read, started.elapsed().as_millis()));
 
     let outcome = (|| -> Result<(), KernelError> {
-        let t = begin(Phase::Extract, 1);
+        let t = report(Phase::Extract, 0, 1);
         extract(rom, &staging)?;
         phases.push((Phase::Extract, t.elapsed().as_millis()));
 
-        // Nothing to do for the templates of 3g.1; `DataOnly` only changes the mark.
-        let t = begin(Phase::Template, 0);
+        // `DataOnly` only changes the mark.
+        let t = match template {
+            Template::Original | Template::DataOnly => report(Phase::Template, 0, 0),
+            Template::EmptyRegion => apply_template(&staging, &mut report)?,
+        };
         phases.push((Phase::Template, t.elapsed().as_millis()));
 
-        let t = begin(Phase::Check, 1);
+        let t = report(Phase::Check, 0, 1);
         let project = Project::open(&staging)?;
         if project.header_count()? == 0 {
             return Err(KernelError::InvalidProject(
@@ -497,6 +499,28 @@ pub(crate) fn create_project_with(
         template,
         phases,
     })
+}
+
+/// The template phase of [`Template::EmptyRegion`] on the unpacked project at `root`: adopts
+/// the scripts, applies the recipe and saves. Progress counts the script members adopting
+/// reports and then one step for the recipe, so it ends with `done` = `total`. Returns when the
+/// phase began.
+fn apply_template(
+    root: &Path,
+    report: &mut dyn FnMut(Phase, u32, u32) -> Instant,
+) -> Result<Instant, KernelError> {
+    let started = report(Phase::Template, 0, 1);
+    let project = std::sync::Arc::new(Project::open(root)?);
+    let mut total = 1;
+    crate::scripts::adopt(&project, &mut |p| {
+        total = p.total.saturating_add(1);
+        report(Phase::Template, p.done, total);
+    })?;
+    let mut store = crate::store::Store::new(std::sync::Arc::clone(&project));
+    crate::templates::apply_empty_region(&mut store)?;
+    store.save()?;
+    report(Phase::Template, total, total);
+    Ok(started)
 }
 
 /// The secure area CRC from the header and the SHA-1 of the secure area itself.
@@ -836,6 +860,40 @@ mod create_tests {
         assert_eq!(read_base_mark(&dest).unwrap().template, Template::DataOnly);
         let text = std::fs::read_to_string(dest.join(".g4/base.json")).unwrap();
         assert!(text.contains("\"data_only\""), "{text}");
+    }
+
+    #[test]
+    fn a_failed_empty_region_leaves_nothing() {
+        // The synthetic project has no start town T01 in matrix 0: the template phase fails
+        // after adopting, and only the staging folder goes.
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("neu");
+        let mut seen = Vec::new();
+        let result = create_project_with(
+            &rom,
+            &dest,
+            Template::EmptyRegion,
+            &mut |p| seen.push(p),
+            &fake_extract,
+        );
+        match result {
+            Err(KernelError::Refused(msg)) => assert!(msg.contains("T01"), "{msg}"),
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert!(!dest.exists());
+        assert!(!tmp.path().join(".neu.g4-new").exists());
+        // The template phase reported the adopted members before it failed.
+        let template: Vec<_> = seen.iter().filter(|p| p.phase == Phase::Template).collect();
+        assert!(template.len() >= 2, "{template:?}");
+        assert!(template.iter().all(|p| p.done < p.total), "{template:?}");
+    }
+
+    #[test]
+    fn empty_region_is_named_in_the_mark() {
+        assert_eq!(
+            serde_json::to_string(&Template::EmptyRegion).unwrap(),
+            "\"empty_region\""
+        );
     }
 
     #[test]

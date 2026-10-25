@@ -497,3 +497,42 @@ fn create_fails_on_an_unextractable_rom_and_leaves_nothing() {
     assert!(!dest.exists());
     assert!(!tmp.path().join(".neu.g4-new").exists());
 }
+
+#[test]
+fn template_without_a_project_fails_with_message() {
+    let d = tempfile::tempdir().unwrap();
+    g4k()
+        .args(["template"])
+        .arg(d.path())
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("not a ds-rom project"));
+}
+
+#[test]
+fn template_rejects_an_unknown_template() {
+    let s = common::synthetic_project();
+    g4k()
+        .args(["template"])
+        .arg(s.dir.path())
+        .arg("volcano")
+        .assert()
+        .failure()
+        .stderr(contains("unknown template"));
+}
+
+#[test]
+fn create_accepts_the_empty_region_template() {
+    let (tmp, rom) = common::synthetic_rom();
+    let dest = tmp.path().join("neu");
+    // The template is parsed; the synthetic ROM then fails to extract (exit 1, not a usage error).
+    g4k()
+        .args(["create"])
+        .arg(&rom)
+        .arg(&dest)
+        .args(["--template", "empty-region"])
+        .assert()
+        .code(1);
+    assert!(!dest.exists());
+}

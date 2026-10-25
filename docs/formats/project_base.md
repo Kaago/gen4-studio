@@ -20,7 +20,7 @@ JSON, eingerückt, UTF-8, eine Zeilenschaltung am Ende.
 | `title` | Text | Titel aus dem ROM-Kopf (`0x00..0x0C`), ohne NUL am Ende |
 | `revision` | Zahl | Versionsbyte (`0x1E`) |
 | `size` | Zahl | Größe der ROM in Byte |
-| `template` | Text | `"original"` oder `"data_only"` (3g.2 ergänzt `"empty_region"`); `data_only` ändert am Projekt nichts, nur die App startet im Bereich Pokémon |
+| `template` | Text | `"original"`, `"data_only"` oder `"empty_region"`; `data_only` ändert am Projekt nichts, nur die App startet im Bereich Pokémon; `empty_region` ist die Leere Region mit Startstadt ([templates.md](templates.md)) |
 | `created` | Text | RFC 3339, UTC, Sekunden: `2026-10-25T14:50:00Z` |
 | `studio_version` | Text | Version des Kernels, der das Projekt anlegte |
 | `secure_area_crc` | Zahl | CRC-16 der Secure Area aus der ROM (`0x6C`, Little Endian) |
@@ -29,13 +29,16 @@ JSON, eingerückt, UTF-8, eine Zeilenschaltung am Ende.
 ## Anlegen
 
 `create_project(rom, dest, template, progress)` arbeitet in vier Phasen (`read`, `extract`,
-`template`, `check`, je einmal am Anfang gemeldet):
+`template`, `check`, je am Anfang gemeldet; `template` mit `empty_region` meldet zusätzlich
+`done/total`):
 
 1. **read**: `inspect_rom` (Kopf, SHA-1); Diamant/Perl und Nicht-Gen-4 werden mit `Refused` abgelehnt;
    das Ziel muss fehlen oder ein leerer Ordner sein und 2,5 Mal die ROM-Größe frei haben
    (`check_destination`).
 2. **extract**: ds-rom entpackt in `<Eltern>/.<Name>.g4-new` (fehlende Eltern legt der Kernel an).
-3. **template**: für `original` und `data_only` nichts.
+3. **template**: für `original` und `data_only` nichts; für `empty_region` werden die Scripts
+   übernommen (Fortschritt über die Member), das Rezept angewendet und gespeichert
+   ([templates.md](templates.md)).
 4. **check**: das Projekt muss sich öffnen lassen und mindestens einen Karten-Header haben; dann
    wird `.g4/base.json` geschrieben und der Ordner nach `dest` umbenannt. Ein vorhandenes leeres
    `dest` wird dafür mit `remove_dir` entfernt (das verweigert alles Nichtleere).

@@ -49,9 +49,19 @@ enum Command {
     Create {
         rom: PathBuf,
         dest: PathBuf,
-        /// `original` (default) or `data-only`.
+        /// `original` (default), `data-only` or `empty-region` (adopts the scripts, applies
+        /// the empty region and saves).
         #[arg(long, default_value = "original", value_parser = parse_template)]
         template: Template,
+    },
+    /// Apply a world template to a project and save: `empty-region` adopts the scripts when
+    /// they are not yet, applies the empty region with the start town and prints its report.
+    /// The project must have no unsaved changes elsewhere (nothing else is open here).
+    Template {
+        project: PathBuf,
+        /// `empty-region`.
+        #[arg(value_parser = parse_world_template)]
+        template: WorldTemplate,
     },
     /// Map inspection and editing.
     #[command(subcommand)]
@@ -118,8 +128,75 @@ fn parse_template(text: &str) -> Result<Template, String> {
     match text {
         "original" => Ok(Template::Original),
         "data-only" | "data_only" => Ok(Template::DataOnly),
-        other => Err(format!("unknown template {other:?}: original or data-only")),
+        "empty-region" | "empty_region" => Ok(Template::EmptyRegion),
+        other => Err(format!(
+            "unknown template {other:?}: original, data-only or empty-region"
+        )),
     }
+}
+
+/// A template `g4k template` applies to an existing project.
+#[derive(Clone, Copy, Debug)]
+enum WorldTemplate {
+    EmptyRegion,
+}
+
+fn parse_world_template(text: &str) -> Result<WorldTemplate, String> {
+    match text {
+        "empty-region" | "empty_region" => Ok(WorldTemplate::EmptyRegion),
+        other => Err(format!("unknown template {other:?}: empty-region")),
+    }
+}
+
+/// `g4k template`: adopts the scripts when needed, applies the template, saves and prints
+/// what changed.
+fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
+    let project = Arc::new(Project::open(path)?);
+    match template {
+        WorldTemplate::EmptyRegion => {
+            if !g4_kernel::scripts::is_adopted(&project) {
+                let adopted = g4_kernel::scripts::adopt(&project, &mut |_| {})?;
+                println!(
+                    "adopted scripts: {} decompiled, {} empty, {} failed",
+                    adopted.decompiled,
+                    adopted.skipped_empty,
+                    adopted.failed.len()
+                );
+            }
+            let mut store = Store::new(Arc::clone(&project));
+            let report = g4_kernel::templates::apply_empty_region(&mut store)?;
+            let saved = store.save()?;
+            print_problems(&saved.problems);
+            let plan = &report.plan;
+            println!(
+                "start town: header {} ({}), cells {:?}, event file {}, script file {}",
+                plan.start_header,
+                plan.town_name,
+                plan.town_cells,
+                plan.town_event_file,
+                plan.town_script_file
+            );
+            println!(
+                "kept={:?} emptied={} border_cells={} dropped_warps={:?} removed_objects={} \
+                 removed_triggers={}",
+                plan.kept,
+                plan.emptied.len(),
+                plan.border_cells,
+                plan.dropped_warps,
+                plan.removed_objects,
+                plan.removed_triggers
+            );
+            println!(
+                "border_map={} level_script={} start_script={}#{}",
+                report.border_map,
+                report.level_script,
+                report.start_script.0,
+                report.start_script.1
+            );
+            println!("saved {} asset(s)", saved.written.len());
+        }
+    }
+    Ok(())
 }
 
 /// Why a command failed: a kernel error, or a message of the command itself.
@@ -195,6 +272,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             }
             Ok(())
         }
+        Command::Template { project, template } => apply_template(&project, template),
         Command::Map(MapCommand::Dump {
             project,
             index,
