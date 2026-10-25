@@ -2,7 +2,7 @@
 //! behind our own precheck, served by hyper on `127.0.0.1` with a fresh port and token.
 //!
 //! Requests are checked in this order: `Host`, `Origin` (any is refused: agents are no
-//! browsers), token (`Authorization: Bearer <token>`), path (`/mcp` only), method (`POST`
+//! browsers), token (`Authorization: Bearer <token>`, the scheme in any case), path (`/mcp` only), method (`POST`
 //! and `DELETE`; `GET` would open a server stream nobody needs), body size.
 
 use std::convert::Infallible;
@@ -120,8 +120,8 @@ pub fn precheck(method: &Method, path: &str, headers: &HeaderMap, port: u16, tok
     if headers.contains_key(ORIGIN) {
         return Guard::Refuse(403, ORIGIN_REFUSED);
     }
-    let sent = header(headers, AUTHORIZATION).and_then(|value| value.strip_prefix("Bearer "));
-    if !sent.is_some_and(|sent| same_secret(sent.trim(), token)) {
+    let sent = header(headers, AUTHORIZATION).and_then(bearer_token);
+    if !sent.is_some_and(|sent| same_secret(sent, token)) {
         return Guard::Refuse(401, TOKEN_REFUSED);
     }
     if path != MCP_PATH {
@@ -136,6 +136,16 @@ pub fn precheck(method: &Method, path: &str, headers: &HeaderMap, port: u16, tok
         return Guard::Refuse(413, BODY_TOO_LARGE);
     }
     Guard::Ok
+}
+
+/// The token of an `Authorization: Bearer <token>` value; the scheme is case-insensitive
+/// (RFC 9110), at least one space follows it.
+fn bearer_token(value: &str) -> Option<&str> {
+    let (scheme, rest) = value.trim().split_once(' ')?;
+    scheme
+        .eq_ignore_ascii_case("bearer")
+        .then(|| rest.trim())
+        .filter(|token| !token.is_empty())
 }
 
 /// Equality that does not stop at the first differing byte.
@@ -479,6 +489,34 @@ mod tests {
         let mut largest = good();
         largest.insert(CONTENT_LENGTH, MAX_BODY.to_string().parse().unwrap());
         assert_eq!(check(Method::POST, "/mcp", &largest), Guard::Ok);
+    }
+
+    #[test]
+    fn bearer_scheme_is_case_insensitive() {
+        // RFC 9110: the auth scheme is case-insensitive; the token itself is not.
+        for value in [
+            format!("bearer {TOKEN}"),
+            format!("BEARER {TOKEN}"),
+            format!("BeArEr   {TOKEN}"),
+        ] {
+            let mut headers = good();
+            headers.insert(AUTHORIZATION, value.parse().unwrap());
+            assert_eq!(check(Method::POST, "/mcp", &headers), Guard::Ok, "{value}");
+        }
+        for value in [
+            "bearer C0FFEE".to_owned(),
+            format!("Basic {TOKEN}"),
+            format!("Bearer{TOKEN}"),
+            "Bearer".to_owned(),
+        ] {
+            let mut headers = good();
+            headers.insert(AUTHORIZATION, value.parse().unwrap());
+            assert_eq!(
+                check(Method::POST, "/mcp", &headers),
+                Guard::Refuse(401, "Token fehlt oder ist falsch"),
+                "{value}"
+            );
+        }
     }
 
     #[test]

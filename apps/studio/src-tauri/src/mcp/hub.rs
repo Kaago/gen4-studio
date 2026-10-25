@@ -274,6 +274,9 @@ pub struct AgentHub {
     /// Held by each agent call on the user's session (a whole batch included), never while
     /// a call waits for the user: agents' calls do not interleave with one another.
     turn: Mutex<()>,
+    /// Held by [`AgentHub::set_enabled`] from the save to the server's start or stop: two
+    /// toggles at once cannot leave the switch and the server apart.
+    toggle: Mutex<()>,
 }
 
 impl AgentHub {
@@ -328,8 +331,10 @@ impl AgentHub {
     }
 
     /// "Lokale Agenten zulassen": saves the switch, then starts or stops the server (outside
-    /// the lock) and keeps its port. When the server fails the switch goes back.
+    /// the lock) and keeps its port. When the server fails the switch goes back. Toggles are
+    /// serialized end to end.
     pub fn set_enabled(&self, on: bool) -> Result<(), String> {
+        let _toggle = self.toggle.lock().unwrap_or_else(|e| e.into_inner());
         let before = self.settings().enabled;
         self.change_settings(|s| s.enabled = on)?;
         let control = self.lock().control.clone();
@@ -914,6 +919,48 @@ mod tests {
         assert_eq!(hub.set_enabled(true), Err("Port belegt".to_owned()));
         assert!(!hub.status().enabled);
         assert!(!AgentSettings::load(dir.path()).enabled);
+    }
+
+    /// Two toggles at once must not leave the saved switch and the server apart (a
+    /// start is slow, so without serialization a later stop can finish before it).
+    #[test]
+    fn concurrent_toggles_stay_consistent() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Arc::new(AgentHub::default());
+        hub.configure(Some(dir.path().to_owned()));
+        let running = Arc::new(AtomicBool::new(false));
+        {
+            let running = Arc::clone(&running);
+            hub.set_server_control(Arc::new(move |on| {
+                // Starting takes a while, stopping does not.
+                if on {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                running.store(on, Ordering::SeqCst);
+                Ok(on.then_some(4711))
+            }));
+        }
+        for round in 0..100 {
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let threads: Vec<_> = [true, false]
+                .into_iter()
+                .map(|on| {
+                    let (hub, barrier) = (Arc::clone(&hub), Arc::clone(&barrier));
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        hub.set_enabled(on).unwrap();
+                    })
+                })
+                .collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            let on = running.load(Ordering::SeqCst);
+            assert_eq!(hub.settings().enabled, on, "round {round}");
+            assert_eq!(AgentSettings::load(dir.path()).enabled, on, "round {round}");
+            assert_eq!(hub.status().port.is_some(), on, "round {round}");
+        }
     }
 
     #[test]
