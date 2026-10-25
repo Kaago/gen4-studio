@@ -823,7 +823,8 @@ export const searchScripts = (query: string, limit: number) => invoke<ScriptHitD
 /**
  * What the world tree knows that the ROM does not, kept in the project file `g4-world.json`: names that replace the
  * proposed names of world maps and rooms, matrices that are no world map, and rooms assigned to an area by hand
- * (`roomOwner`: room header id to area header id, as text). Keys of the two records are header ids as text.
+ * (`roomOwner`: room header id to area key, such as "w0:3" or "m240"; the id of one of the area's headers, as text, is
+ * also accepted). Keys of the two records are header ids as text.
  */
 export interface WorldMeta {
   version: 1;

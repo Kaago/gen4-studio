@@ -101,6 +101,28 @@ const ptInput = (patch: Partial<WorldInput> = {}): WorldInput => ({
   ...patch,
 });
 
+// HeartGold/SoulSilver: one matrix with Johto (1, 2) and Kanto (3, 4); Route 29 has the same index in both halves.
+// Room 5 is a Kanto room with an entrance at 4, room 6 a Kanto room of Route 29 without one.
+const hgssHeaders = [
+  header(0, { name: "EVERYWHERE", matrix: 0, event: 0 }),
+  header(1, { name: "T20", place: "Neuborkia", index: 126, matrix: 0, type: 1 }),
+  header(2, { name: "R29", place: "Route 29", index: 127, matrix: 0, type: 2 }),
+  header(3, { name: "T01", place: "Alabastia", index: 200, matrix: 0, type: 1, kanto: true }),
+  header(4, { name: "R29K", place: "Route 29", index: 127, matrix: 0, type: 2, kanto: true }),
+  header(5, { name: "R29KR0101", place: "Route 29", index: 127, matrix: 10, kanto: true }),
+  header(6, { name: "R29KR0201", place: "Route 29", index: 127, matrix: 10, kanto: true }),
+];
+
+const hgssInput = (patch: Partial<WorldInput> = {}): WorldInput => ({
+  family: "Hgss",
+  headers: hgssHeaders,
+  matrices: [summary(0, 3, 2, true), summary(10, 1, 1, false)],
+  links: [warp(5, 4)],
+  cells: new Map([[0, grid(0, 3, 2, [1, 2, 0, 0, 3, 4])]]),
+  meta: emptyMeta(),
+  ...patch,
+});
+
 const allAreas = (world: World): Area[] => [...world.worldMaps.flatMap((m) => m.areas), ...world.moreAreas];
 const areaKeyOf = (world: World, id: number) => world.areaOf.get(id);
 const roomIds = (area: Area) => area.rooms.map((r) => r.header.id);
@@ -213,17 +235,7 @@ describe("buildWorld", () => {
   });
 
   it("splits_one_hgss_matrix_into_johto_and_kanto", () => {
-    const headers = [
-      header(0, { name: "EVERYWHERE", matrix: 0, event: 0 }),
-      header(1, { name: "T20", place: "Neuborkia", index: 126, matrix: 0, type: 1 }),
-      header(2, { name: "R29", place: "Route 29", index: 127, matrix: 0, type: 2 }),
-      header(3, { name: "T01", place: "Alabastia", index: 200, matrix: 0, type: 1, kanto: true }),
-      header(4, { name: "R29K", place: "Route 29", index: 127, matrix: 0, type: 2, kanto: true }),
-      header(5, { name: "R29KR0101", place: "Route 29", index: 127, matrix: 10, kanto: true }),
-    ];
-    const matrices = [summary(0, 3, 2, true), summary(10, 1, 1, false)];
-    const cells = new Map([[0, grid(0, 3, 2, [1, 2, 0, 0, 3, 4])]]);
-    const world = buildWorld({ family: "Hgss", headers, matrices, links: [warp(5, 4)], cells, meta: emptyMeta() });
+    const world = buildWorld(hgssInput());
     expect(world.worldMaps.map((m) => [m.key, m.filter, m.name])).toEqual([
       ["w0", "johto", "Johto"],
       ["w0k", "kanto", "Kanto"],
@@ -278,6 +290,80 @@ describe("buildWorld", () => {
     // An owner that names no area is ignored.
     expect(areaKeyOf(world, 5)).toBe("w0:3");
     expect(area(world, "w0:3").rooms.find((r) => r.header.id === 5)?.manual).toBe(false);
+  });
+
+  it("prefers_the_area_of_the_rooms_half_for_a_room_without_entrance", () => {
+    // Room 6 has no warp; Route 29 is an area in Johto (first header 2) and in Kanto (4): the Kanto room goes to Kanto.
+    const world = buildWorld(hgssInput());
+    expect(areaKeyOf(world, 6)).toBe("w0k:127");
+  });
+
+  it("prefers_the_half_of_the_room_in_the_vote_of_its_place", () => {
+    // Bergwerk (index 9) has no area: a Johto level reached from Johto and a Kanto level reached from Kanto; the
+    // Kanto level without warp (13) joins the Kanto one, though the Johto area has the lower first header id.
+    const headers = [
+      ...hgssHeaders,
+      header(11, { name: "D01R0101", place: "Bergwerk", index: 9, matrix: 10 }),
+      header(12, { name: "D01R0102", place: "Bergwerk", index: 9, matrix: 10, kanto: true }),
+      header(13, { name: "D01R0103", place: "Bergwerk", index: 9, matrix: 10, kanto: true }),
+    ];
+    const world = buildWorld(hgssInput({ headers, links: [warp(5, 4), warp(11, 1), warp(12, 3)] }));
+    expect(areaKeyOf(world, 11)).toBe("w0:126");
+    expect(areaKeyOf(world, 12)).toBe("w0k:200");
+    expect(areaKeyOf(world, 13)).toBe("w0k:200");
+  });
+
+  it("gives_one_world_map_for_an_hgss_matrix_with_only_johto_headers", () => {
+    const headers = hgssHeaders.map((h) => ({ ...h, kanto: false }));
+    const world = buildWorld(hgssInput({ headers }));
+    expect(world.worldMaps.map((m) => [m.key, m.filter, m.name])).toEqual([["w0", null, "Johto"]]);
+    expect(world.worldMaps[0].areas.map((a) => [a.key, a.headers.map((h) => h.id)])).toEqual([
+      ["w0:126", [1]],
+      ["w0:127", [2, 4]],
+      ["w0:200", [3]],
+    ]);
+  });
+
+  it("orders_areas_and_their_headers_by_id_whatever_the_cell_order", () => {
+    const cells = ptCells();
+    cells.set(0, grid(0, 3, 3, [3, 2, 0, 1, 1, 0, 0, 0, 0], [1, 2, 3, 4, 5, 6, 7, 8, null]));
+    const world = buildWorld(ptInput({ cells }));
+    expect(world.worldMaps[0].areas.map((a) => [a.key, a.headers.map((h) => h.id)])).toEqual([
+      ["w0:2", [1]],
+      ["w0:3", [2, 3]],
+    ]);
+  });
+
+  it("takes_the_nearest_area_before_a_farther_one_of_the_same_place", () => {
+    // Room 16 (Route 201) is one warp from Zweiblattdorf and two (over room 17) from Route 201.
+    const headers = [...ptHeaders, header(16, { name: "R201X", place: "Route 201", index: 3, matrix: 26 }), header(17, { name: "R201Y", place: "Tor", index: 13, matrix: 27 })];
+    const matrices = [...ptMatrices, summary(26, 1, 1, false), summary(27, 1, 1, false)];
+    const links = [...ptLinks, warp(16, 1), warp(16, 17, 1), warp(17, 2)];
+    const world = buildWorld(ptInput({ headers, matrices, links }));
+    expect(areaKeyOf(world, 16)).toBe("w0:2");
+  });
+
+  it("puts_a_header_into_one_area_only", () => {
+    // Header 1 also has a cell on matrix 7: it stays in the area of matrix 0, and matrix 7 keeps one place.
+    const cells = ptCells();
+    cells.set(7, grid(7, 2, 2, [10, 1, 0, 10]));
+    const world = buildWorld(ptInput({ cells }));
+    expect(world.worldMaps.map((m) => m.key)).toEqual(["w0"]);
+    expect(allAreas(world).filter((a) => a.headers.some((h) => h.id === 1)).map((a) => a.key)).toEqual(["w0:2"]);
+    expect(area(world, "m7").headers.map((h) => h.id)).toEqual([10]);
+  });
+
+  it("takes_an_owner_given_as_the_id_of_an_area_header", () => {
+    const world = buildWorld(ptInput({ meta: { ...emptyMeta(), roomOwner: { "8": "3" } } }));
+    expect(areaKeyOf(world, 8)).toBe("w0:3");
+    expect(area(world, "w0:3").rooms.find((r) => r.header.id === 8)?.manual).toBe(true);
+  });
+
+  it("leaves_its_input_alone", () => {
+    const input = ptInput({ meta: { ...emptyMeta(), roomOwner: { "8": "w0:2" }, roomNames: { "4": "Omas Haus" } } });
+    const before = structuredClone({ ...input, cells: [...input.cells] });
+    buildWorld(input);
+    expect({ ...input, cells: [...input.cells] }).toEqual(before);
   });
 
   it("counts_the_rooms_and_the_assigned_ones", () => {

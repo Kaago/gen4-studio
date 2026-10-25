@@ -26,10 +26,16 @@ function codeName(code: string): string | null {
  * among the rooms of the area named so). An empty `placeName` means the room has no place.
  */
 export function roomName(header: Pick<HeaderSummary, "internal_name">, placeName: string, areaPlaceName: string, ordinal: number): string {
-  return codeName(header.internal_name) ?? (placeName !== "" && placeName !== areaPlaceName ? placeName : `Raum ${ordinal}`);
+  return suggestRoomName(header, placeName, areaPlaceName, ordinal).name;
 }
 
-/** Whether `roomName` falls back to a numbered room, so the caller counts the ordinal only for those. */
-export function isNumberedRoom(header: Pick<HeaderSummary, "internal_name">, placeName: string, areaPlaceName: string): boolean {
-  return codeName(header.internal_name) === null && (placeName === "" || placeName === areaPlaceName);
+/**
+ * `roomName` and whether it is a numbered room ("Raum" and `ordinal`), so a caller naming the rooms of an area counts
+ * the ordinal up only for those.
+ */
+export function suggestRoomName(header: Pick<HeaderSummary, "internal_name">, placeName: string, areaPlaceName: string, ordinal: number): { name: string; numbered: boolean } {
+  const fromCode = codeName(header.internal_name);
+  if (fromCode !== null) return { name: fromCode, numbered: false };
+  if (placeName !== "" && placeName !== areaPlaceName) return { name: placeName, numbered: false };
+  return { name: `Raum ${ordinal}`, numbered: true };
 }

@@ -1,6 +1,6 @@
 import { type HeaderSummary, MATRIX_EMPTY, type MatrixDto, type MatrixSummary, type WarpLink, type WorldMeta } from "../api";
 import { UNNAMED_KEY, UNNAMED_PLACE } from "./places";
-import { isNumberedRoom, roomName } from "./roomNames";
+import { suggestRoomName } from "./roomNames";
 
 export { roomName } from "./roomNames";
 
@@ -72,6 +72,8 @@ interface Draft {
   area: Area;
   /** The location index the area stands for. */
   place: number;
+  /** The half of a split HeartGold/SoulSilver world map the area lies in; null elsewhere. */
+  filter: Filter;
 }
 
 type Filter = WorldMap["filter"];
@@ -116,9 +118,10 @@ function defaultMapName(family: string, matrix: number, filter: Filter, counts: 
   return header ? placeNameOf(header) || UNNAMED_PLACE : `Weltkarte ${matrix}`;
 }
 
-const newArea = (key: string, matrix: number, headers: HeaderSummary[], named: HeaderSummary): Draft => ({
+const newArea = (key: string, matrix: number, headers: HeaderSummary[], named: HeaderSummary, filter: Filter = null): Draft => ({
   area: { key, name: placeNameOf(named) || UNNAMED_PLACE, placeKey: placeKeyOf(named), headers, rooms: [], matrix },
   place: named.location_index,
+  filter,
 });
 
 const byFirstHeader = (a: Draft, b: Draft) => a.area.headers[0].id - b.area.headers[0].id;
@@ -139,24 +142,32 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
   const more: Draft[] = [];
   /** Per matrix with known cells, the headers that have a cell there. */
   const placed = new Map<number, Map<number, number>>();
+  /** Headers already in an area: a header lies in one area only (the first by matrix index). */
+  const claimed = new Set<number>();
+  const claim = (draft: Draft) => {
+    for (const h of draft.area.headers) claimed.add(h.id);
+    return draft;
+  };
 
   for (const [index, dto] of [...cells].sort((a, b) => a[0] - b[0])) {
     if (!dto.headers) continue;
-    const counts = cellCounts(dto, byId);
-    placed.set(index, counts);
-    const named = [...counts.keys()].map((id) => byId.get(id) as HeaderSummary).filter((h) => h.location_index !== NO_PLACE_INDEX);
-    const places = new Set(named.map((h) => h.location_index));
+    const allCounts = cellCounts(dto, byId);
+    placed.set(index, allCounts);
+    const counts = new Map([...allCounts].filter(([id]) => !claimed.has(id)));
+    // By id, so the first header of an area is its lowest id whatever the order of the cells.
+    const cellHeaders = sorted.filter((h) => counts.has(h.id) && h.location_index !== NO_PLACE_INDEX);
+    const places = new Set(cellHeaders.map((h) => h.location_index));
     if (places.size === 0) continue;
     if (places.size < 2 || notWorldMaps.has(index)) {
-      more.push(newArea(`m${index}`, index, named, mostCells(counts, byId) as HeaderSummary));
+      more.push(claim(newArea(`m${index}`, index, cellHeaders, mostCells(counts, byId) as HeaderSummary)));
       continue;
     }
     const halves: [Filter, HeaderSummary[]][] = [];
-    const kanto = named.filter((h) => h.kanto);
-    if (family === "Hgss" && kanto.length > 0 && kanto.length < named.length) {
-      halves.push(["johto", named.filter((h) => !h.kanto)], ["kanto", kanto]);
+    const kanto = cellHeaders.filter((h) => h.kanto);
+    if (family === "Hgss" && kanto.length > 0 && kanto.length < cellHeaders.length) {
+      halves.push(["johto", cellHeaders.filter((h) => !h.kanto)], ["kanto", kanto]);
     } else {
-      halves.push([null, named]);
+      halves.push([null, cellHeaders]);
     }
     for (const [filter, half] of halves) {
       const key = `w${index}${filter === "kanto" ? "k" : ""}`;
@@ -166,7 +177,7 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
         if (group) group.push(h);
         else groups.set(h.location_index, [h]);
       }
-      const drafts = [...groups].map(([place, group]) => newArea(`${key}:${place}`, index, group, group[0])).sort(byFirstHeader);
+      const drafts = [...groups].map(([place, group]) => claim(newArea(`${key}:${place}`, index, group, group[0], filter))).sort(byFirstHeader);
       const halfCounts = new Map([...counts].filter(([id]) => half.some((h) => h.id === id)));
       const name = meta.worldMaps.find((w) => w.matrix === index && (w.filter ?? null) === filter)?.name.trim() || defaultMapName(family, index, filter, halfCounts, byId);
       worldMaps.push({ map: { key, matrix: index, filter, name, areas: drafts.map((d) => d.area) }, drafts });
@@ -182,9 +193,9 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
   }
   for (const m of [...matrices].sort((a, b) => a.index - b.index)) {
     if (m.has_headers || placed.has(m.index) || m.filled <= 1) continue;
-    const users = (onMatrix.get(m.index) ?? []).filter((h) => h.id !== LANDSCAPE);
+    const users = (onMatrix.get(m.index) ?? []).filter((h) => h.id !== LANDSCAPE && !claimed.has(h.id));
     if (!users.some((h) => h.map_type === 1 || h.map_type === 2)) continue;
-    more.push(newArea(`m${m.index}`, m.index, users, users.find((h) => h.location_index !== NO_PLACE_INDEX) ?? users[0]));
+    more.push(claim(newArea(`m${m.index}`, m.index, users, users.find((h) => h.location_index !== NO_PLACE_INDEX) ?? users[0])));
   }
   more.sort(byFirstHeader);
 
@@ -228,12 +239,12 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
 
   const sharing = new Map<number, number>();
   for (const h of sorted) sharing.set(h.matrix_id, (sharing.get(h.matrix_id) ?? 0) + 1);
-  const named = (list: HeaderSummary[], areaPlaceName: string, manual: (id: number) => boolean): Room[] => {
+  const roomsOf = (list: HeaderSummary[], areaPlaceName: string, manual: (id: number) => boolean): Room[] => {
     let ordinal = 0;
     return list.map((header) => {
       const placeName = placeNameOf(header);
-      if (isNumberedRoom(header, placeName, areaPlaceName)) ordinal += 1;
-      const suggested = roomName(header, placeName, areaPlaceName, ordinal);
+      const { name: suggested, numbered } = suggestRoomName(header, placeName, areaPlaceName, ordinal + 1);
+      if (numbered) ordinal += 1;
       return {
         header,
         name: meta.roomNames[String(header.id)]?.trim() || suggested,
@@ -251,9 +262,9 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
     for (const h of d.area.headers) areaOf.set(h.id, d.area.key);
     const own = rooms.filter((r) => owners.get(r.id)?.draft === d);
     for (const r of own) areaOf.set(r.id, d.area.key);
-    d.area.rooms = named(own, d.place === NO_PLACE_INDEX ? "" : placeNameOf(d.area.headers.find((h) => h.location_index === d.place) ?? d.area.headers[0]), (id) => owners.get(id)?.manual ?? false);
+    d.area.rooms = roomsOf(own, d.place === NO_PLACE_INDEX ? "" : placeNameOf(d.area.headers.find((h) => h.location_index === d.place) ?? d.area.headers[0]), (id) => owners.get(id)?.manual ?? false);
   }
-  const unconnected = named(
+  const unconnected = roomsOf(
     rooms.filter((r) => !owners.has(r.id)),
     "",
     () => false,
@@ -322,14 +333,29 @@ function entranceArea(room: HeaderSummary, neighbours: ReadonlyMap<number, Reado
   return undefined;
 }
 
-/** Of several areas the one of the room's place, else the one with the lowest first header id. */
+/**
+ * Of several areas the one of the room's place (of the room's half, Johto or Kanto, when the place lies in both), else
+ * the one with the lowest first header id.
+ */
 function pick(candidates: readonly Draft[], room: HeaderSummary): Draft | undefined {
-  const same = candidates.filter((d) => samePlace(d, room));
+  const same = preferHalf(candidates.filter((d) => samePlace(d, room)), room);
   const pool = same.length > 0 ? same : candidates;
   return [...pool].sort(byFirstHeader)[0];
 }
 
-/** The area most rooms of `room`'s place lie in by their entrance (ties: the lowest first header id). */
+/** Whether an area lies in the room's half of a split world map (an area of no split map lies in both). */
+const sameHalf = (d: Draft, room: HeaderSummary) => d.filter === null || (d.filter === "kanto") === room.kanto;
+
+/** The areas of `drafts` in the room's half, or all of them when none is. */
+function preferHalf(drafts: readonly Draft[], room: HeaderSummary): readonly Draft[] {
+  const half = drafts.filter((d) => sameHalf(d, room));
+  return half.length > 0 ? half : drafts;
+}
+
+/**
+ * The area most rooms of `room`'s place lie in by their entrance, of the room's half when one lies there (ties: the lowest
+ * first header id).
+ */
 function siblingsArea(room: HeaderSummary, rooms: readonly HeaderSummary[], byEntrance: ReadonlyMap<number, Draft>): Draft | undefined {
   if (room.location_index === NO_PLACE_INDEX) return undefined;
   const votes = new Map<Draft, number>();
@@ -337,8 +363,10 @@ function siblingsArea(room: HeaderSummary, rooms: readonly HeaderSummary[], byEn
     const draft = other.location_index === room.location_index ? byEntrance.get(other.id) : undefined;
     if (draft) votes.set(draft, (votes.get(draft) ?? 0) + 1);
   }
+  const pool = new Set(preferHalf([...votes.keys()], room));
   let best: Draft | undefined;
   for (const [draft, n] of votes) {
+    if (!pool.has(draft)) continue;
     const bestVotes = best ? (votes.get(best) ?? 0) : 0;
     if (!best || n > bestVotes || (n === bestVotes && byFirstHeader(draft, best) < 0)) best = draft;
   }
