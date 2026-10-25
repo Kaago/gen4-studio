@@ -499,6 +499,11 @@ def bridge_command(repo: Path) -> list[str]:
     )
 
 
+def studio_command(repo: Path) -> list[str]:
+    """`G4_STUDIO_BIN` if set, else build the product binary and use target/debug/studio."""
+    return _cargo_binary(repo, "G4_STUDIO_BIN", ["-p", "studio", "--bin", "studio"], "studio")
+
+
 def g4k_command(repo: Path) -> list[str]:
     """`G4K_BIN` if set, else build g4k at workspace level (never `-p`) and use target/debug/g4k."""
     return _cargo_binary(repo, "G4K_BIN", ["--workspace", "--all-features", "--bin", "g4k"], "g4k")
