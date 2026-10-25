@@ -1,4 +1,4 @@
-"""Scenarios: edit a project copy through studio-bridge, build the ROM, play it with g4emu."""
+"""Scenarios: edit a project copy through studio-bridge or `studio mcp`, build the ROM, play it with g4emu."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
 from g4emu import fixtures, paths
+from g4emu.mcp import McpError, McpSession
 from g4emu.games import load_games
 
 # `${NAME}`, `${NAME.field.0}` (fields and list indices of a bound result), `${NAME+2999}` (an int offset)
@@ -55,6 +56,9 @@ class Scenario:
     check: list[list[str]] = field(default_factory=list)
     # [schritt, {argumente}] made in the project copy before the first edit; see `_PREPARE_STEPS`
     prepare: list[list] = field(default_factory=list)
+    # `mcp: [flags]`: the edits are tool calls [tool, {arguments}, …] in one `studio mcp` session started
+    # with these flags (e.g. --allow-irreversible, --expert); `build` then lies under build/. None: the bridge.
+    mcp: list[str] | None = None
 
 
 def _offset(value: Any, offset: str | None, shown: str) -> Any:
@@ -409,6 +413,29 @@ def _bindings(path: Path, edits: Any, env: dict[str, str]) -> list[tuple[str | N
     return found
 
 
+def _load_mcp(path: Path, mcp: Any) -> list[str] | None:
+    """The checked `mcp:` flags (None: no key, the scenario runs through the bridge)."""
+    if mcp is None:
+        return None
+    if not (isinstance(mcp, list) and all(isinstance(flag, (str, int)) and not isinstance(flag, bool) for flag in mcp)):
+        raise ValueError(f"{path}: mcp muss eine Liste von Schaltern sein, z. B. [--allow-irreversible, --expert]: {mcp!r}")
+    flags = [str(flag) for flag in mcp]
+    if any(flag == "--project" or flag.startswith("--project=") for flag in flags):
+        raise ValueError(f"{path}: mcp: --project setzt g4emu selbst (die Projektkopie aus --project)")
+    return flags
+
+
+def _mcp_build(path: Path, build: str) -> str:
+    """`build` of an MCP scenario, normalised: a relative path under build/ (the rule of `build_rom`)."""
+    rom = PurePosixPath(build)
+    if rom.is_absolute() or ".." in rom.parts or len(rom.parts) < 2 or rom.parts[0] != "build":
+        raise ValueError(
+            f"{path}: build muss bei mcp ein relativer Pfad unter build/ sein (z. B. build/out.nds), "
+            f"nicht {build!r}"
+        )
+    return str(rom)
+
+
 def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     """Read the YAML file and substitute every placeholder. Raises KeyError / ValueError.
 
@@ -445,12 +472,15 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
             raise
     data = substitute({k: v for k, v in raw.items() if k not in ("edits", "prepare")}, env, bound)
     prepare = _load_prepare(path, raw.get("prepare"), env, bound)
+    mcp = _load_mcp(path, data.get("mcp"))
     build = data.get("build")
     _refuse_file_hash(f"{path}: build", build)  # the ROM path is fixed before any edit runs
     # The ROM path is fixed before any edit runs: a name an edit binds cannot stand in it.
     late = [m.group(1) for m in _PLACEHOLDER.finditer(str(build or "")) if m.group(1) in bound]
     if late:
         raise ValueError(f"{path}: build nutzt ${{{late[0]}}}, das eine Änderung bindet; build muss vorher feststehen")
+    if mcp is not None and build is not None:
+        build = _mcp_build(path, str(build))
     play: list[str] = []
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
@@ -467,7 +497,7 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     return Scenario(
         game=str(data["game"]), edits=edits, build=None if build is None else str(build),
         play=play, name=Path(path).stem, check=[[str(arg) for arg in command] for command in check],
-        prepare=prepare,
+        prepare=prepare, mcp=mcp,
     )
 
 
@@ -627,7 +657,8 @@ def _prepare(project: Path, step: list) -> str | None:
 def run_scenario(
     scenario: Scenario, project: Path, out: Path, repo: Path, saves: Path, core: Path | None = None
 ) -> int:
-    """Edit + build the project copy through studio-bridge, then play it. Exit code 0/1/2 like `run`."""
+    """Edit + build the project copy through studio-bridge (or `studio mcp` with `mcp:`), then play it.
+    Exit code 0/1/2 like `run`."""
     testkopien = (paths.roms_dir() / "_testkopien").resolve()
     project = Path(project).resolve()
     if not project.is_dir():
@@ -652,20 +683,73 @@ def run_scenario(
         return _fail(scenario, str(e))
 
     out.mkdir(parents=True, exist_ok=True)
-    # Results and batch files of an earlier run in the same folder would pass for this run's.
-    for stale in [out / "results.json", *out.glob("edits*.json")]:
+    # Results, batch files and logs of an earlier run in the same folder would pass for this run's.
+    for stale in [out / "results.json", out / "bridge.jsonl", out / "mcp.jsonl", out / "mcp-stderr.log",
+                  *out.glob("edits*.json")]:
         stale.unlink(missing_ok=True)
     for step in scenario.prepare:
         failure = _prepare(project, step)
         if failure is not None:
             return _fail(scenario, failure)
+    results: dict[str, Any] = {}
+    if scenario.mcp is None:
+        code = _edit_with_bridge(scenario, project, out, repo, rom, results)
+    else:
+        code = _edit_with_mcp(scenario, project, out, repo, results)
+    if code is not None:
+        return code
+    try:
+        checks = []
+        step = "play"
+        for number, check in enumerate(scenario.check, 1):
+            step = f"check {number}"
+            checks.append([str(resolve(arg, results, project)) for arg in check])
+        step = "play"
+        play = [str(resolve(token, results, project)) for token in scenario.play]
+    except (KeyError, ValueError) as e:
+        return _fail(scenario, _unresolved(step, e))
+
+    failure = _run_checks(checks, project, out, repo)
+    if failure is not None:
+        return _fail(scenario, failure)
+
+    if not play:
+        _summary(scenario, True, [])
+        return 0
+    assert rom is not None  # play without build was refused above
+    code, lines = _play(rom, saves / game.save, out, play, core)
+    _summary(scenario, code == 0, lines)
+    return code
+
+
+def _later_names_missing(scenario: Scenario, results: dict[str, Any]) -> str | None:
+    """Proves the names `check` and `play` use before the build (files a hash reads are read after it):
+    the message for the first unknown one, None when all are bound."""
+    step = "play"
+    try:
+        for number, check in enumerate(scenario.check, 1):
+            step = f"check {number}"
+            for arg in check:
+                resolve(arg, results)
+        step = "play"
+        for token in scenario.play:
+            resolve(token, results)
+    except (KeyError, ValueError) as e:
+        return _unresolved(step, e)
+    return None
+
+
+def _edit_with_bridge(
+    scenario: Scenario, project: Path, out: Path, repo: Path, rom: Path | None, results: dict[str, Any]
+) -> int | None:
+    """Runs the edits, `save` and `build_rom` in studio-bridge batches, binding into `results`.
+    Returns the exit code when the scenario ends here (reported), None when it goes on to check and play."""
     try:
         command = bridge_command(repo)
     except RuntimeError as e:
         return _fail(scenario, str(e))
     (out / "bridge.jsonl").write_text("", encoding="utf-8")
     opened = ["open_project", {"path": str(project)}]
-    results: dict[str, Any] = {}
     sessions = 0
 
     def session(batch: list[list], refused_at: int | None = None) -> tuple[str | None, list[dict]]:
@@ -752,40 +836,113 @@ def run_scenario(
                 _summary(scenario, False, [])
                 return 2
             batch = [opened]
-        # Unknown names fail before the build; the files a hash reads may come from the last edits, which
-        # only run in the final session: they are read after it.
-        for number, check in enumerate(scenario.check, 1):
-            step = f"check {number}"
-            for arg in check:
-                resolve(arg, results)
-        step = "play"
-        for token in scenario.play:
-            resolve(token, results)
     except (KeyError, ValueError) as e:
         return _fail(scenario, _unresolved(step, e))
+    # Unknown names fail before the build; the files a hash reads may come from the last edits, which
+    # only run in the final session: they are read after it.
+    failure = _later_names_missing(scenario, results)
+    if failure is not None:
+        return _fail(scenario, failure)
     batch.append(["save", {}])
     if rom is not None:
         batch.append(["build_rom", {"out": str(rom)}])
     failure, _ = session(batch)
     if failure is not None:
         return _fail(scenario, failure)
+    return None
+
+
+def _edit_with_mcp(
+    scenario: Scenario, project: Path, out: Path, repo: Path, results: dict[str, Any]
+) -> int | None:
+    """Runs the edits as tool calls in one `studio mcp` session on the project copy, then `save` and
+    `build_rom {out: build}` (relative to the project, under build/), binding into `results`. Every call
+    is a line {tool, arguments, ok, result | error} in out/mcp.jsonl, the server's stderr goes to
+    out/mcp-stderr.log. A tool error is a refusal: expected with {expect: {error}}, else exit 1; a
+    JSON-RPC error (an unknown tool, say) or a server that ends is never a refusal, exit 1.
+    Returns the exit code when the scenario ends here (reported), None when it goes on to check and play."""
+    log = out / "mcp.jsonl"
+    log.write_text("", encoding="utf-8")
     try:
-        checks = []
-        for number, check in enumerate(scenario.check, 1):
-            step = f"check {number}"
-            checks.append([str(resolve(arg, results, project)) for arg in check])
-        step = "play"
-        play = [str(resolve(token, results, project)) for token in scenario.play]
-    except (KeyError, ValueError) as e:
-        return _fail(scenario, _unresolved(step, e))
+        command = [*studio_command(repo), "mcp", "--project", str(project), *(scenario.mcp or [])]
+    except RuntimeError as e:
+        return _fail(scenario, str(e))
 
-    failure = _run_checks(checks, project, out, repo)
-    if failure is not None:
-        return _fail(scenario, failure)
+    try:
+        with McpSession.start(command, out / "mcp-stderr.log") as session:
+            step = "Start"
+            try:
+                for number, edit in enumerate(scenario.edits, 1):
+                    step = f"Änderung {number} ({edit[0]})"
+                    name, expects = _third(edit[2]) if len(edit) > 2 else (None, [])
+                    refusal = expects[0]["error"] if expects and "error" in expects[0] else None
+                    args = resolve(edit[1], results, project)
+                    ok, answer, error = _logged_call(session, log, step, edit[0], args)
+                    if refusal is not None:
+                        missed = _refusal_missed(
+                            edit[0], {"ok": ok, "error": error}, str(resolve(refusal, results, project))
+                        )
+                        if missed:
+                            print(f"Erwartung verfehlt: {missed}", file=sys.stderr)
+                            _summary(scenario, False, [])
+                            return 2
+                        continue
+                    if not ok:
+                        return _fail(scenario, f"{step} abgelehnt: {_error_text(error)}; Ausgabe: {log}")
+                    if name is not None:
+                        results[name] = answer
+                        (out / "results.json").write_text(
+                            json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8"
+                        )
+                    missed = _missed(edit[0], answer, expects, results, project)
+                    if missed:
+                        for line in missed:
+                            print(f"Erwartung verfehlt: {line}", file=sys.stderr)
+                        _summary(scenario, False, [])
+                        return 2
+            except (KeyError, ValueError) as e:
+                return _fail(scenario, _unresolved(step, e))
+            failure = _later_names_missing(scenario, results)
+            if failure is not None:
+                return _fail(scenario, failure)
+            finish = [("save", {})]
+            if scenario.build is not None:
+                finish.append(("build_rom", {"out": scenario.build}))
+            for tool, args in finish:
+                ok, _, error = _logged_call(session, log, tool, tool, args)
+                if not ok:
+                    return _fail(scenario, f"{tool} abgelehnt: {_error_text(error)}; Ausgabe: {log}")
+    except McpError as e:
+        return _fail(scenario, f"{e}; Server-Ausgabe: {out / 'mcp-stderr.log'}")
+    return None
 
-    if not play:
-        _summary(scenario, True, [])
-        return 0
-    code, lines = _play(rom, saves / game.save, out, play, core)
-    _summary(scenario, code == 0, lines)
-    return code
+
+def _error_text(error: dict | None) -> str:
+    """The message of a tool error ({code, message, details})."""
+    return str(error.get("message") if isinstance(error, dict) else error)
+
+
+def _logged_call(session: McpSession, log: Path, step: str, tool: str, args: Any) -> tuple[bool, Any, dict | None]:
+    """One tool call, written to `log` as {tool, arguments, ok, result | error} and to stderr; returns
+    (ok, result, error). A JSON-RPC error is logged with the code `protocol` and raised as McpError
+    naming `step`."""
+    entry: dict[str, Any] = {"tool": tool, "arguments": args}
+    try:
+        answer = session.call(tool, args)
+    except McpError as e:
+        entry.update(ok=False, error={"code": "protocol", "message": str(e)})
+        _log_line(log, entry)
+        raise McpError(f"{step}: {e}") from e
+    if answer.ok:
+        entry.update(ok=True, result=answer.result)
+    else:
+        entry.update(ok=False, error=answer.error)
+    _log_line(log, entry)
+    return answer.ok, answer.result, answer.error
+
+
+def _log_line(log: Path, entry: dict) -> None:
+    text = json.dumps(entry, ensure_ascii=False)
+    with log.open("a", encoding="utf-8") as f:
+        f.write(text + "\n")
+    print(text, file=sys.stderr)
