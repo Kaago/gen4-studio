@@ -22,8 +22,8 @@ export type ReloadAction =
   | { kind: "map"; map: number }
   /** The map's raster picture is drawn again (it may show the restored model). */
   | { kind: "thumbnail"; map: number }
-  /** The scene reloads its models: a restored map can carry another model (undo of a parts import). */
-  | { kind: "mapModel" }
+  /** The scene reloads this map's terrain model: a restored map can carry another model (undo of a parts import). */
+  | { kind: "mapModel"; map: number }
   /** The matrix panel and the cell editor re-read their matrix. */
   | { kind: "matrixPanel" }
   /** The scene's matrix is read again; a changed layout rebuilds the scene. */
@@ -59,7 +59,7 @@ export function reloadPlan(
         { kind: "thumbnail", map: asset.index },
       ];
       if (scene?.maps.includes(asset.index))
-        actions.push({ kind: "map", map: asset.index }, { kind: "mapModel" });
+        actions.push({ kind: "map", map: asset.index }, { kind: "mapModel", map: asset.index });
       return actions;
     }
     case "Matrix": {

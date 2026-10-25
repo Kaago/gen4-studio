@@ -9,7 +9,7 @@ import type { BuildingRef } from "./buildingLayer";
 import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
 import type { MapBuildings, ReportEvents, TileClick } from "./scene/types";
-import { useBuildingRefresh, useEventRefresh, useMapRefresh } from "./scene/useRefreshQueues";
+import { useBuildingRefresh, useEventRefresh, useMapModelRefresh, useMapRefresh } from "./scene/useRefreshQueues";
 import { useSceneLoader } from "./scene/useSceneLoader";
 import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
@@ -22,7 +22,8 @@ interface Props {
   /**
    * Area data of the shown header; selects the map texture set for every map of the matrix. It
    * belongs to `matrix` (App changes both in one update when another header is shown). Changed
-   * alone, or on a `modelsReload` event, only the models reload, not the maps and markers.
+   * alone, or on a `modelsReload` event, only the models reload, not the maps and markers;
+   * `mapModelReload` reloads one map's model.
    */
   areaDataId: number;
   /**
@@ -110,6 +111,7 @@ function MatrixScene({
   // The bus subscription hooks must stay declared before useSceneSetup/useSceneLoader (effect order: events queue before the scene reacts).
   // The bus events as the queues the effects below drain (see `useBusQueue`), and the counter that reloads the models.
   const mapRefresh = useBusQueue(bus, "mapRefetch", (e) => e.map);
+  const mapModelRefresh = useBusQueue(bus, "mapModelReload", (e) => e.map);
   const buildingRefresh = useBusQueue(bus, "buildingsRefetch", (e) => ({ map: e.map, retryModel: e.retryModel }));
   const eventRefresh = useBusQueue(bus, "eventsRefetch", (e) => e.file);
   const modelsToken = useBusRevision(bus, "modelsReload");
@@ -133,6 +135,7 @@ function MatrixScene({
   useSceneTheme(refs);
   useSceneLoader({ matrix, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
   useMapRefresh(refs, mapRefresh);
+  useMapModelRefresh(refs, mapModelRefresh);
   useBuildingSelection(refs, selectedMap, selectedBuilding);
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);

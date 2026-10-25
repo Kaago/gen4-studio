@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PART_TEXTS, isForeignWhole, partText, partView } from "./importParts";
+import { PART_TEXTS, isForeignWhole, partText, partView, sourceMapItems } from "./importParts";
 
 const said = (code: string, args: string[]) => partText({ code, args, message: "the kernel's sentence" });
 
@@ -53,5 +53,14 @@ describe("importParts", () => {
     const whole = { part: "whole" as const, file: null, size: 9000, state: { kind: "ok" as const }, notes: [{ code: "whole.foreign", args: ["Hgss"], message: "HeartGold/SoulSilver map file" }] };
     expect(isForeignWhole(whole)).toBe(true);
     expect(isForeignWhole({ ...whole, notes: [] })).toBe(false);
+  });
+
+  it("listet_jede_Karte_die_Zielkarte_gesperrt", () => {
+    const items = sourceMapItems(3, 1);
+    expect(items).toHaveLength(3);
+    expect(items[1].disabled).toBe(true);
+    expect(items[0].disabled).toBe(false);
+    expect(items[0].label).toBe("Karte 0000");
+    expect(items[2].tech).toBe("2");
   });
 });

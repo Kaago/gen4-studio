@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
-import { errorText, getMap } from "../../api";
+import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
 import { drainWhenReady, pendingSince } from "../../reload";
 import type { RefreshQueue } from "../../reload";
 import { reconcileBuildings } from "../buildings";
 import type { BuildingRefresh } from "../buildings";
+import { textureNote } from "../load";
+import { disposeTree, parseGlb } from "../sceneUtil";
 import { dropMissingSelection, loadMissingBuildingModels } from "./buildingModels";
 import { reportBuildings } from "./buildingReport";
-import { recolourMap } from "./content";
+import { addModel, recolourMap, removeMapModel } from "./content";
 import { refreshEvents } from "./eventFetch";
 import type { ReportEvents, SceneRefs } from "./types";
 
@@ -52,6 +54,50 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
       });
     }
   }, [mapRefresh]);
+}
+
+/**
+ * A parts import (or its undo or redo) gave one map another terrain model: fetch it for the shown
+ * area data and swap the instances of that map, the other models stay. Queued like the maps above
+ * (a map is fetched once per batch); a result is dropped when the scene shows another matrix or
+ * area data by then, or when a newer request for the same map or a full model load was made
+ * (`mapModelGen`).
+ */
+export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueue<number> | null) {
+  const modelsSeen = useRef(0);
+  useEffect(() => {
+    const { items, last } = pendingSince(mapModelRefresh, modelsSeen.current);
+    modelsSeen.current = last;
+    const h = refs.handle.current;
+    // A scene that is still loading fetches current models itself.
+    if (!h?.matrix) return;
+    const matrixAtStart = h.matrix;
+    const area = refs.area.current;
+    for (const map of new Set(items)) {
+      // The generation lives on the host: a full model load in flight drops its result for this map too.
+      const gen = (h.mapModelGen.get(map) ?? 0) + 1;
+      h.mapModelGen.set(map, gen);
+      const stale = () => h.disposed || refs.handle.current !== h || h.matrix !== matrixAtStart || refs.area.current !== area || h.mapModelGen.get(map) !== gen;
+      (async () => {
+        if (!h.loaded.has(map)) return;
+        const model = await getMapModelGlb(map, area).then(parseGlb);
+        if (stale()) {
+          disposeTree(model);
+          return;
+        }
+        removeMapModel(h, map);
+        addModel(h, matrixAtStart, map, model);
+        h.queueRender();
+        // An untextured fallback says why; a failing status call only costs the note.
+        const issue = await mapModelTextureStatus(map, area).catch(() => null);
+        const note = issue && textureNote([issue]);
+        if (note && !stale()) refs.callbacks.current.onStatus({ kind: "info", text: note });
+      })().catch((e) => {
+        // A superseded request's failure is moot: the newer one reports for itself.
+        if (!stale()) refs.callbacks.current.onError(errorText(e));
+      });
+    }
+  }, [mapModelRefresh]);
 }
 
 /**

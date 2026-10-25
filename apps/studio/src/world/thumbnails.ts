@@ -40,6 +40,8 @@ export class ThumbnailCache {
   private running = 0;
   /** Bumped by `clear()`; work started before it is dropped when it finishes. */
   private generation = 0;
+  /** Running keys whose map was invalidated meanwhile: the job frees its slot but stores nothing (one job per key). */
+  private readonly superseded = new Set<string>();
   private readonly listeners = new Set<(key: string) => void>();
   private readonly toolListeners = new Set<(e: CmdError) => void>();
   /** Whether a missing conversion tool was reported since the last `clear()` (it is reported once). */
@@ -113,9 +115,17 @@ export class ThumbnailCache {
     };
   }
 
-  /** Forgets every picture (and failure) of `map`, whatever its tileset, after its model changed; subscribers are told so mounted users ask again. Work in flight keeps running. */
+  /**
+   * Forgets every picture (and failure) of `map`, whatever its tileset, after its model changed; subscribers are told so
+   * mounted users ask again. A job of `map` already running may have fetched the old model: it still finishes, but stores
+   * nothing and tells its subscribers, so a fresh render follows. Queued jobs have fetched nothing yet and stay.
+   */
   invalidate(map: number): void {
     const prefix = `${map}:`;
+    const queued = new Set(this.queue.map((job) => job.key));
+    for (const key of this.open) {
+      if (key.startsWith(prefix) && !queued.has(key)) this.superseded.add(key);
+    }
     const keys = [...this.done.keys(), ...this.failures.keys()].filter((key) => key.startsWith(prefix));
     for (const key of keys) {
       this.done.delete(key);
@@ -132,6 +142,7 @@ export class ThumbnailCache {
     this.failures.clear();
     this.queue.length = 0;
     this.open.clear();
+    this.superseded.clear();
     this.running = 0;
     for (const key of keys) this.notify(key);
   }
@@ -164,6 +175,12 @@ export class ThumbnailCache {
     if (generation !== this.generation) return;
     this.running--;
     this.open.delete(job.key);
+    if (this.superseded.delete(job.key)) {
+      // The map changed while this job ran: its picture may show the old model.
+      this.pump();
+      this.notify(job.key);
+      return;
+    }
     const evicted: string[] = [];
     if (transient) {
       // Neither done nor failed: the key is free again for a user that still wants it.

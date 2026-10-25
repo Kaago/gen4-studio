@@ -2,7 +2,8 @@ import type { DataChangedEvent } from "../data/dataBus";
 
 /**
  * What happened to the data behind the panels and the scene. The editors and panels re-read their
- * asset on the `...Data` events; the scene refreshes on the `...Refetch` and `modelsReload` events.
+ * asset on the `...Data` events; the scene refreshes on the `...Refetch`, `modelsReload` and
+ * `mapModelReload` events.
  */
 export type EditEvent =
   /** The header table changed behind the header editor's back (undo, redo, reload). */
@@ -23,6 +24,8 @@ export type EditEvent =
   | { topic: "eventsRefetch"; file: number }
   /** The scene reloads its models (the tilesets of the shown area data changed). */
   | { topic: "modelsReload" }
+  /** The scene reloads the terrain model of this map (a parts import, or its undo or redo). */
+  | { topic: "mapModelReload"; map: number }
   /** A text archive may have changed behind the text panel (undo, redo, reload); `archive` null: any of them (a reload after a stale file). */
   | { topic: "textData"; archive: number | null }
   /**

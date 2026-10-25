@@ -29,6 +29,11 @@ export class SceneHost {
   matrix: MatrixDto | null = null;
   /** The terrain model instances in `content` (one per matrix cell showing a map), for reloading them alone. */
   models: THREE.Object3D[] = [];
+  /**
+   * Map id to its terrain model generation, bumped by every one-map model reload: a model fetched
+   * under an older generation (by that reload or by a full model load) is dropped, never shown.
+   */
+  mapModelGen = new Map<number, number>();
   /** What the last full load could not read (names, maps), kept for the summary after a models-only reload. */
   loadProblems: { names: string | null; maps: string[] } = { names: null, maps: [] };
   loaded = new Map<number, Loaded>();

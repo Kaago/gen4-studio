@@ -1,5 +1,7 @@
 import type { MapPart, PartMessage, PartReport } from "../../api";
+import type { PickerItem } from "../../ui/primitives";
 import type { CheckState } from "../../ui/primitives/CheckList";
+import { id4 } from "../terms";
 
 /** The German name of a map part. */
 export const PART_NAME: Record<MapPart, string> = {
@@ -97,3 +99,14 @@ export function partView(r: PartReport): {
 
 /** Whether the dialog chooses the part up front: not when it cannot be imported or is empty (it stays choosable). */
 export const preselected = (r: PartReport) => r.state.kind !== "error" && r.size > 0;
+
+/** The rows of the source map picker: every map, the target map itself disabled (a map cannot import from itself). */
+export function sourceMapItems(mapCount: number, target: number): PickerItem[] {
+  return Array.from({ length: mapCount }, (_, i) => ({
+    id: i,
+    label: `Karte ${id4(i)}`,
+    tech: String(i),
+    area: "welt" as const,
+    disabled: i === target,
+  }));
+}

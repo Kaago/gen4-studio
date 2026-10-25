@@ -33,6 +33,7 @@ export function addModel(h: SceneHost, matrix: MatrixDto, mapId: number, model: 
     const row = Math.floor(i / matrix.width);
     const origin = cellOrigin(col, row);
     const instance = cloneModel(model);
+    instance.userData.mapId = mapId;
     // The model is centred on the map centre.
     instance.scale.setScalar(MODEL_SCALE);
     instance.position.set(origin.x + MAP_SIZE / 2, cellY(matrix, col, row), origin.z + MAP_SIZE / 2);
@@ -51,6 +52,20 @@ export function removeModels(h: SceneHost) {
     disposeTree(instance);
   }
   h.models = [];
+}
+
+/** Takes every terrain instance of map `mapId` out of the scene and disposes it; the other maps' instances stay. */
+export function removeMapModel(h: SceneHost, mapId: number) {
+  const kept: THREE.Object3D[] = [];
+  for (const instance of h.models) {
+    if (instance.userData.mapId !== mapId) {
+      kept.push(instance);
+      continue;
+    }
+    h.content.remove(instance);
+    disposeTree(instance);
+  }
+  h.models = kept;
 }
 
 /** Builds the overlay and the building boxes once all maps are known; models are added later. */
