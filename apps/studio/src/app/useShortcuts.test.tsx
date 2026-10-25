@@ -274,6 +274,20 @@ describe("useShortcuts", () => {
     expect(handlers.onPalette).not.toHaveBeenCalled();
   });
 
+  it("opens_the_palette_again_while_the_last_dialog_still_closes", async () => {
+    // Base UI keeps a closing popup mounted for its exit transition (`data-closed`, still `aria-modal`): a Cmd+K right after Escape
+    // must open the palette again instead of being taken for a key behind an open dialog.
+    const closing = document.createElement("div");
+    closing.setAttribute("role", "dialog");
+    closing.setAttribute("aria-modal", "true");
+    closing.setAttribute("data-closed", "");
+    closing.setAttribute("data-ending-style", "");
+    document.body.append(closing);
+    await press({ key: "k", metaKey: true });
+    closing.remove();
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+  });
+
   it("does_not_play_while_a_modal_dialog_is_open", async () => {
     env.tauri = true;
     const dialog = document.createElement("div");

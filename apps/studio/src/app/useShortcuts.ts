@@ -4,6 +4,7 @@ import { redo, undo } from "../api";
 import type { EventKind } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { inTauri } from "../platform/transport";
+import { OPEN_MODAL } from "../ui/primitives/Dialog";
 import type { AreaId, PokemonSub, Tool } from "../ui/frame/shellState";
 import { isSubLocked } from "../data/dataModel";
 import { toolForKey } from "../workbench/tools";
@@ -54,7 +55,7 @@ interface ShortcutHandlers {
  * Whether a modal dialog or a wizard is open: their own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. A wizard is not
  * modal (the view stays usable), but while it works on the project nothing else may change it.
  */
-const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"], [data-wizard]') !== null;
+const modalOpen = () => document.querySelector(`${OPEN_MODAL}, [data-wizard]`) !== null;
 
 /**
  * Whether a dock's tab menu is open (dockview's own, `.dv-context-menu`): it closes on Escape through a window listener of its own, without

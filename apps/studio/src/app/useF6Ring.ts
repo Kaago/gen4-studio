@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import type { AreaId } from "../ui/frame/shellState";
+import { OPEN_MODAL } from "../ui/primitives/Dialog";
 
 /** What the keyboard can reach by Tab: the first of these in a stop is its target when nothing in it keeps the roving `tabIndex` 0. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
 /** Whether a modal dialog is open (the palette, the help, a question): its focus stays in it, F6 is not the frame's. */
-const modalOpen = (root: Document) => root.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+const modalOpen = (root: Document) => root.querySelector(OPEN_MODAL) !== null;
 
 /**
  * Whether `el` shows: not inside a `hidden` part (another area, a folded list), not hidden by an inline style (dockview hides a panel's

@@ -25,7 +25,7 @@ export type { TextFieldProps } from "./TextField";
 export { Tooltip } from "./Tooltip";
 export type { TooltipProps } from "./Tooltip";
 export type { IconName } from "./icons";
-export { Dialog } from "./Dialog";
+export { Dialog, OPEN_MODAL } from "./Dialog";
 export type { DialogAction, DialogProps } from "./Dialog";
 export { DSScreen } from "./DSScreen";
 export type { DSScreenProps } from "./DSScreen";
