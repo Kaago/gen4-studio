@@ -281,8 +281,9 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
    * list (its matrix loads under the selection guards), the inspector is pinned to the target, the
    * area of the target shows and the panel showing it is focused. A link that leads nowhere (an
    * unknown header) leaves the area alone. Resolves when the matrix of a newly selected header has loaded (or failed).
+   * With `focus: false` (the jumps of „Zurück“ and „Vor“) the selection moves the same way, but no panel takes the focus.
    */
-  function goTo(target: NavTarget): Promise<void> | void {
+  function goTo(target: NavTarget, { focus = true }: { focus?: boolean } = {}): Promise<void> | void {
     const shown = matrixRef.current;
     const current = headersRef.current.find((h) => h.id === selectedRef.current);
     const next = nextSelection(
@@ -326,7 +327,8 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
-    focusPanel(next.area, next.panel);
+    if (focus) focusPanel(next.area, next.panel);
+    else setArea(next.area);
     // A group of another header's scene: the list waits for that scene's events to focus it.
     if (next.sceneGroup) bus.emit({ topic: "sceneGroup", group: next.sceneGroup });
     return loading;

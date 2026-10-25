@@ -21,7 +21,7 @@ function markerSummary(hover: Extract<SceneHover, { kind: "eventHover" }>, depth
  * Tüfteln adds the matrix: "Zweiblattdorf, Raster 0, Zelle 3, 27"). Empty when nothing is hovered and no header is selected.
  */
 export function statusContext(pinned: InspectorModel, hover: SceneHover | null, header: HeaderSummary | undefined, depth: Depth): string {
-  if (hover?.kind === "tile") return tileSummary(hover.map, hover.x, hover.y, hover.info);
+  if (hover?.kind === "tile") return tileSummary(hover.map, hover.x, hover.y, hover.info, depth);
   if (hover?.kind === "eventHover") return markerSummary(hover, depth);
   if (!header) return "";
   const parts = [header.location_name || header.internal_name];

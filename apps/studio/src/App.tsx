@@ -239,8 +239,8 @@ function AppBody() {
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
   });
-  // Back and forward through the scenes shown: a jump shows the header the way a click in the list does.
-  const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }), session.info?.root ?? null);
+  // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
+  const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
   const world = useWorldActions({
     bus,
     pins: { ...pins, setPinned: pin },

@@ -527,8 +527,8 @@ export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], n
   return lines;
 }
 
-/** Where a door is set now: the tool, or the „+“ of „In dieser Szene“. */
-const SET_DOOR = "Tür setzen: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“";
+/** Where a door is set now (after a colon of the step it follows): the tool, or the „+“ of „In dieser Szene“. */
+const SET_DOOR = "Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“";
 
 /** What `create_room` made, in words, and where to go on from there. */
 export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[]; next: string[] } {

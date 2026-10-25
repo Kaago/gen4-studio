@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MATRIX_EMPTY, duplicateMap, getMatrix, setMatrixCell } from "../../api";
-import type { AssetId, MatrixDto } from "../../api";
+import type { AssetId, HeaderSummary, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { MatrixCellEditor } from "./MatrixCellEditor";
@@ -16,6 +16,19 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+const summary = (id: number): HeaderSummary => ({
+  id,
+  internal_name: `T${id}`,
+  location_name: "Zweiblattdorf",
+  location_index: 5,
+  kanto: false,
+  matrix_id: 3,
+  area_data_id: 0,
+  event_file_id: 0,
+  text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
+});
 const matrix = (over: Partial<MatrixDto> = {}): MatrixDto => ({ index: 3, name: "m", width: 2, height: 1, maps: [10, 11], headers: [411, 412], altitudes: [0, 2], ...over });
 
 describe("MatrixCellEditor", () => {
@@ -27,7 +40,20 @@ describe("MatrixCellEditor", () => {
   const onError = vi.fn();
   const onMapImported = vi.fn();
   let dirty: AssetId[] = [];
-  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError, onMapImported, checks: null });
+  const context = (): MatrixCellContext => ({
+    dirty,
+    headers: [summary(411), summary(412)],
+    identify: (h) => (h.id === 412 ? { kind: "room", name: "Haus von Lucas", place: "Zweiblattdorf" } : { kind: "area", name: "Zweiblattdorf", place: "Zweiblattdorf" }),
+    headerCount: 500,
+    goTo,
+    counts: { Map: 600 },
+    revision: 0,
+    onEdited,
+    onCountsChanged,
+    onError,
+    onMapImported,
+    checks: null,
+  });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -58,8 +84,9 @@ describe("MatrixCellEditor", () => {
   it("names_the_cell_and_the_matrix", async () => {
     await show();
     expect(container.querySelector("header[data-inspector-kind='map'] [data-eyebrow]")?.textContent).toBe("Karte");
-    expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
-    expect(container.querySelector("[data-ident]")?.textContent).toContain("Weltkarte 0003");
+    // Bauen: the map of the cell, and where it lies, in the words of the hierarchy (no matrix or header codes).
+    expect(container.querySelector("h2")?.textContent).toBe("Karte 0011");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0 · Haus von Lucas");
     expect(input("Karte").value).toBe("11");
     expect(input("Gebiet").value).toBe("412");
     expect(input("Höhe").value).toBe("2");
@@ -140,8 +167,29 @@ describe("MatrixCellEditor", () => {
     expect(container.textContent).toContain("außerhalb der Weltkarte (2 × 1)");
   });
 
-  it("says_no_raster_matrix_or_header_in_building", async () => {
+  it("names_the_cell_with_the_codes_in_tuefteln", async () => {
+    await show(1, 0, "tuefteln");
+    expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Raster 0003 · M0011 H0412");
+  });
+
+  it("names_a_cell_without_a_map_or_a_known_header_by_the_cell_alone", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null], headers: [411, 900] }));
+    await show(1, 0);
+    expect(container.querySelector("h2")?.textContent).toBe("Leere Zelle");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0");
+    await show(0, 0);
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 0, 0 · Zweiblattdorf");
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [411, 900] }));
+    await show(1, 0);
+    expect(container.querySelector("h2")?.textContent).toBe("Karte 0011");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0");
+  });
+
+  it("says_no_raster_matrix_or_header_and_no_codes_in_building", async () => {
     await show();
+    expect(visibleWords(container)).not.toMatch(/\bM\d{4}\b|\bH\d{4}\b/);
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     await show(5, 0);
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);

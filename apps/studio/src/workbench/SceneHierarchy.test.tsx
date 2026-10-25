@@ -103,6 +103,8 @@ describe("SceneHierarchy", () => {
   it("is_a_tree_called_In_dieser_Szene_with_groups", () => {
     show();
     expect(tree()).not.toBeNull();
+    // The list is a section of its own, as „Orte“ is (the gate's DOM scan reads it by this label).
+    expect(container.querySelector('section[aria-label="In dieser Szene"] h2')?.textContent).toBe("In dieser Szene");
     expect(container.querySelector("h2")?.textContent).toBe("In dieser Szene");
     expect([...container.querySelectorAll("[data-scene-group]")].map((g) => g.getAttribute("data-scene-group"))).toEqual(["header", "maps", "object", "warp", "coord", "bg", "scripts"]);
     expect(group("header").getAttribute("data-header-id")).toBe("3");
@@ -299,5 +301,33 @@ describe("SceneHierarchy", () => {
     show({ header: null, canBack: true });
     act(() => button("Zurück").click());
     expect(fns.onBack).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps_the_focus_where_back_and_forward_were_pressed", () => {
+    show({ canBack: true, canForward: true });
+    act(() => button("Zurück").focus());
+    act(() => button("Zurück").click());
+    // Still enabled: the focus stays on the pressed button.
+    show({ canBack: true, canForward: true });
+    expect(document.activeElement).toBe(button("Zurück"));
+    // The first scene was reached: Zurück is disabled, the focus goes to Vor.
+    act(() => button("Zurück").click());
+    show({ canBack: false, canForward: true });
+    expect(document.activeElement).toBe(button("Vor"));
+    // The last scene was reached with Vor: the other button is disabled too, the focus goes to the root row of the tree.
+    show({ canBack: true, canForward: true });
+    act(() => button("Vor").focus());
+    act(() => button("Vor").click());
+    show({ canBack: false, canForward: false });
+    expect(document.activeElement).toBe(group("header"));
+  });
+
+  it("does_not_move_the_focus_when_the_history_moves_without_the_buttons", () => {
+    show({ canBack: true, canForward: false });
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="In dieser Szene suchen"]')!;
+    act(() => field.focus());
+    // The keys ⌥⌘←/→ move the history without a click on a button.
+    show({ canBack: false, canForward: true });
+    expect(document.activeElement).toBe(field);
   });
 });

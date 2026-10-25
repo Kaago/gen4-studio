@@ -221,7 +221,7 @@ describe("areaResult", () => {
     expect(lines.join("\n")).toContain("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0055");
     const created = { ...spec, header: { id: 593, area_data_id: null, event_file: "New" as const, new_header: { template: 342, internal_name: "R231" } } };
     expect(areaResult({ ...report, header: 593 }, created).lines).toContain("Neuer Header 0593 „R231“ (Kopie von 0342) zeigt jetzt auf Raster 0131, Eventdatei 0055.");
-    expect(next).toEqual(["Mit der Welt verbinden: Tür setzen: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“ (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
+    expect(next).toEqual(["Mit der Welt verbinden: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“ (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
   });
 
   it("uses_the_singular_and_leaves_out_a_header_that_was_not_assigned", () => {
@@ -469,7 +469,7 @@ describe("roomResult", () => {
   it("points_to_the_door_tool_when_no_entrance_was_made", () => {
     const { lines, next } = roomResult({ ...report, outside_warp: null, inside_warp: null }, { ...spec, entrance: null });
     expect(lines).toHaveLength(2);
-    expect(next[0]).toBe("Eingang verbinden: Tür setzen: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“");
+    expect(next[0]).toBe("Eingang verbinden: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“");
     expect(next[0]).not.toMatch(/Ausgänge|Warp hinzufügen/);
   });
 });

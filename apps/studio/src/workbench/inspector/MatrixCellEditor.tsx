@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
-import type { AssetId, MemberCounts } from "../../api";
+import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
 import { InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
 import type { MenuEntry } from "../../ui/primitives";
+import type { HeaderIdentity } from "../headerIdentity";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
@@ -21,6 +22,9 @@ import { TechnicalSection } from "./TechnicalSection";
 export interface MatrixCellContext {
   /** The assets with unsaved changes: the head says "Ungespeichert" while the matrix is one. */
   dirty: readonly AssetId[];
+  /** The headers, and what the world tree calls each (`WorkbenchWorld.identify`): Bauen names the area or room of a cell. */
+  headers: readonly HeaderSummary[];
+  identify: (header: HeaderSummary) => HeaderIdentity;
   /** Number of map headers (the largest header id plus one). */
   headerCount: number;
   /** Follows a link (the cell's header). */
@@ -65,12 +69,12 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
+  const { dirty, headers, identify, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
-  const title = `Zelle ${x}, ${y}`;
+  const cell = `Zelle ${x}, ${y}`;
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
   const tinker = depth === "tuefteln";
   const matrixName = `${tinker ? TERMS.matrix.label : termFor("matrix", depth)} ${id4(index)}`;
@@ -79,14 +83,14 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   if (!matrix) {
     return (
       <div className={styles.panel}>
-        <InspectorHead kind="map" title={title} ident={matrixName} unsaved={unsaved} depth={depth} />
+        <InspectorHead kind="map" title={cell} ident={matrixName} unsaved={unsaved} depth={depth} />
       </div>
     );
   }
   if (x >= matrix.width || y >= matrix.height) {
     return (
       <div className={styles.panel}>
-        <InspectorHead kind="map" title={title} ident={matrixName} unsaved={unsaved} depth={depth} />
+        <InspectorHead kind="map" title={cell} ident={matrixName} unsaved={unsaved} depth={depth} />
         <p className={styles.note}>
           Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Weltkarte"} ({matrix.width} × {matrix.height}).
         </p>
@@ -99,6 +103,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const altitude = matrix.altitudes ? (matrix.altitudes[i] ?? 0) : null;
   const mapMax = Math.max(0, (counts.Map ?? 1) - 1);
   const headerMax = Math.max(0, headerCount - 1);
+  // Bauen names the cell by its map and where it lies (the area or room); Tüfteln keeps the codes of the matrix and the header.
+  const place = header === null ? undefined : headers.find((h) => h.id === header);
+  const title = tinker ? cell : map === null ? "Leere Zelle" : `Karte ${id4(map)}`;
+  const ident = tinker ? `${matrixName} · ${cellLabel(map, header)}` : place ? `${cell} · ${identify(place).name}` : cell;
 
   /** Writes the changed field of this cell; always refreshes afterwards, also after a refusal. */
   async function run(op: () => Promise<unknown>, alsoCounts = false) {
@@ -144,7 +152,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
 
   return (
     <div className={styles.panel}>
-      <InspectorHead kind="map" title={title} ident={`${matrixName} · ${cellLabel(map, header)}`} unsaved={unsaved} actions={actions} depth={depth} />
+      <InspectorHead kind="map" title={title} ident={ident} unsaved={unsaved} actions={actions} depth={depth} />
       <div className={styles.body}>
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />

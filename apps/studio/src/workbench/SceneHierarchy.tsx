@@ -84,6 +84,29 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   const tree = useRef<HTMLDivElement>(null);
   useRovingList(tree);
 
+  // The jump of „Zurück“ or „Vor“ moves no focus itself. The pressed button may be disabled by it (the end of the history): the focus then
+  // goes to the other button, or to the root row of the tree, instead of dropping to the page.
+  const panel = useRef<HTMLElement>(null);
+  const stepped = useRef<"Zurück" | "Vor" | null>(null);
+  const step = (button: "Zurück" | "Vor", jump: () => void) => {
+    stepped.current = button;
+    jump();
+  };
+  useEffect(() => {
+    const pressed = stepped.current;
+    if (pressed === null) return;
+    stepped.current = null;
+    const button = (label: string) => panel.current?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (!button(pressed)?.disabled) return;
+    const next = button(pressed === "Zurück" ? "Vor" : "Zurück");
+    if (next && !next.disabled) next.focus();
+    else {
+      const root = tree.current?.querySelector<HTMLElement>('[data-scene-group="header"]');
+      if (root && !root.hasAttribute("tabindex")) root.tabIndex = -1;
+      root?.focus();
+    }
+  });
+
   // A request to focus a group opens it and the root; the render after that focuses its row (a search that hides it is cleared first, events
   // that are still read are waited for).
   const pending = useRef<SceneGroup | null>(null);
@@ -207,13 +230,13 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   const waiting = events === null && loading;
 
   return (
-    <div className={styles.panel}>
+    <section ref={panel} className={styles.panel} aria-label="In dieser Szene">
       <PanelHead
         title="In dieser Szene"
         actions={
           <>
-            <IconButton label="Zurück" icon="back" shortcut="⌥⌘←" disabled={!canBack} onClick={onBack} />
-            <IconButton label="Vor" icon="forward" shortcut="⌥⌘→" disabled={!canForward} onClick={onForward} />
+            <IconButton label="Zurück" icon="back" shortcut="⌥⌘←" disabled={!canBack} onClick={() => step("Zurück", onBack)} />
+            <IconButton label="Vor" icon="forward" shortcut="⌥⌘→" disabled={!canForward} onClick={() => step("Vor", onForward)} />
             {header !== null && <Menu label="Hinzufügen" trigger={<Icon name="plus" />} items={adds} />}
           </>
         }
@@ -240,6 +263,6 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
           </div>
         </>
       )}
-    </div>
+    </section>
   );
 }

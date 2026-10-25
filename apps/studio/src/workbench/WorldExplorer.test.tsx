@@ -240,6 +240,31 @@ describe("WorldExplorer", () => {
     expect(scrolled).toEqual(["3", "3"]);
   });
 
+  it("keeps an area the user opened when the selection moves elsewhere", () => {
+    // A second area with rooms: Route 202 (6) with the room 7.
+    const more = [...headers, header(6, "R202", "Route 202", 4, 0, 2), header(7, "R202R0101", "Route 202", 4, 22)];
+    const grid: MatrixDto = { ...cells, width: 4, maps: [1, 2, 3, 6], headers: [1, 2, 0, 6] };
+    const two = buildWorld({
+      family: "Pt",
+      headers: more,
+      matrices: [summary(0, 4, 1, true), ...matrices.slice(1), summary(22, 1, 1)],
+      links: [...links, { event_file: 6, index: 0, x: 0, z: 0, dest_header_id: 7, dest_warp_id: 0 }],
+      cells: new Map([[0, grid]]),
+      meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} },
+    });
+    const withRooms = () => areas().filter((a) => a.getAttribute("aria-expanded") !== null);
+    render(props({ headers: more, world: two, selected: 3 }));
+    expect(withRooms()).toHaveLength(2);
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
+    caret(withRooms()[1]);
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
+    render(props({ headers: more, world: two, selected: 4 }));
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
+    // Elsewhere: an area without rooms.
+    render(props({ headers: more, world: two, selected: 2 }));
+    expect(withRooms()[1]?.getAttribute("aria-expanded")).toBe("true");
+  });
+
   describe("the head", () => {
     it("is the section Orte and folds the places", () => {
       const onFold = vi.fn();

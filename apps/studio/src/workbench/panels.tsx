@@ -410,6 +410,8 @@ export function InspectorPanel() {
       }}
       matrixEditor={{
         dirty: d.dirtyAssets,
+        headers: d.headers,
+        identify,
         headerCount: d.headers.length,
         goTo: d.goTo,
         counts: d.memberCounts,

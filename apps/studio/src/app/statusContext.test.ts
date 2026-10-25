@@ -31,7 +31,8 @@ describe("statusContext", () => {
     const figure: SceneHover = { kind: "eventHover", eventFile: 3, eventKind: "object", index: 2, data: { index: 2, local_id: 7 } as ObjectDto };
     const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
     // The hover wins over the selection ...
-    expect(statusContext(cell, tile, header(), "bauen")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
+    expect(statusContext(cell, tile, header(), "bauen")).toBe("Kachel x 8, y 4 · Karte 0187 · begehbar");
+    expect(statusContext(cell, tile, header(), "tuefteln")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
     // A door has the number the inspector's title gives it („Warp 1 → …“).
     expect(statusContext(cell, door("Haus des Rivalen"), header(), "bauen")).toBe("Tür 1 → Haus des Rivalen");
     expect(statusContext(cell, door(), header(), "bauen")).toBe("Tür 1 → Ort 0414");
