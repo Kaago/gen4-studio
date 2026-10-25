@@ -84,7 +84,7 @@ const announce = (text: string) => (shown: Message | null): Message => (shown?.k
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
 const LOCKED_AREAS: readonly AreaId[] = ["geschichten"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
-  geschichten: "Kommt mit Phase 3b.4",
+  geschichten: "Kommt mit Phase 3d",
 };
 
 /** The list column of each area with a deck. */

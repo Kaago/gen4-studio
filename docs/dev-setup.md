@@ -263,15 +263,71 @@ rotoms Build-Skript neu (siehe oben).
 Szenarien rufen es im Abschnitt `check:` auf (Beispiel `scripts/agent/scenarios/pt-daten.yaml`, Beschreibung in
 [docs/agent-gate.md](agent-gate.md), „Szenario“).
 
-#### Projektprüfungen: `g4k check`
+#### Projektprüfungen (3b.4a)
 
-`g4k check <projekt> [--json] [--expect CODE=N …]` führt alle Prüfungen (Spec 3b.4 §4) auf dem gespeicherten Projekt aus
+Seit 3b.4a prüft das Modul `crates/g4-kernel/src/checks/` das Projekt mit dem Katalog der Spezifikation 3b.4 §4 (39 Codes,
+`Registry::all`; Grenzen und Ausnahmen mit Quelle in `crates/g4-kernel/metadata/check_limits.yaml`, beschrieben in
+[docs/formats/check_limits.md](formats/check_limits.md)). Harte Regel: eine Prüfung ist nur dann „Fehler“, wenn sie auf
+Platin DE, HeartGold DE und HeartGold US je 0 Treffer hat; das beweisen die gated Tests. Die gated Tests dazu:
+
+| Test | Datei | Prüft |
+|---|---|---|
+| `vanilla_checks_match_the_fixed_counts` | `crates/g4-kernel/tests/vanilla_checks.rs` | alle Gruppen auf dem Vanilla-Projekt (nur lesend, Scripts nicht übernommen): die Zahl je Code gleicht dem festen Soll in `SOLL` (Spalten Platin DE, HeartGold DE, HeartGold US), jede Prüfung mit Schwere Fehler hat 0 Befunde; druckt Soll, Ist und Zeit je Code |
+| `vanilla_script_checks_after_adopt` | ebenda (Feature `test-support`) | auf `vanilla_copy()` vor und nach `scripts::adopt`: die Slot-Prüfungen finden aus den Quellen dasselbe wie aus den Membern, `script.message-missing` läuft und lässt nur die Common-Scripts ohne Header aus (Platin 28, HeartGold 25 Dateien) |
+| `overlay_under_lock_takes_under_5_ms_on_hgss` | `crates/g4-kernel/tests/checks_runner.rs` | auf `vanilla_copy()` mit allen Eventdateien und Textarchiven geladen und einigen geändert: die Kopie unter dem Store-Lock (`snapshot_overlay`) bleibt unter 5 ms |
+| `full_run_on_vanilla_under_three_seconds_warm` | ebenda | ein voller Lauf über alle Gruppen, zweimal: der zweite mit dem Cache des ersten unter 3 s; druckt beide Zeiten |
+
+Je Projekt einzeln (die Zeiten mit `--nocapture`; `--test-threads 1`, damit die Zeitmessungen nicht gegeneinander laufen):
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test --workspace --all-features -- vanilla_checks_match_the_fixed_counts vanilla_script_checks_after_adopt \
+  full_run_on_vanilla overlay_under_lock --nocapture --test-threads 1
+```
+
+Gemessen am 2026-10-25 (Dev-Build, je Projekt Platin DE / HeartGold DE / HeartGold US): 111 / 145 / 153 Befunde, alle
+Fehler-Codes 0; alle Gruppen auf einem neuen Snapshot 1047 / 1083 / 1004 ms, die Prüfungen allein 158 / 164 / 135 ms;
+voller Lauf kalt 3,46 / 1,18 / 3,60 s (der HeartGold-DE-Wert mit warmem Datei-Cache des Systems; in Task 6 kalt 3,8 s),
+warm 287 / 280 / 247 ms; die Kopie unter dem Lock 0,8 bis 3,1 ms. Die vier Läufe brauchen 90 bis 100 s je Projekt.
+
+**Wann geprüft wird.** Die Oberfläche (`apps/studio/src/checks/useChecks.ts`) startet einen vollen Lauf über alle Gruppen
+(`run_checks { scope: "all" }`) beim Öffnen eines Projekts, auf „Erneut prüfen“ und 300 ms nach der letzten Änderung
+(Bus-Thema `edited`, das `useProjectSession.refreshDirty` nach jedem Schreiben sendet); in Tauri und im Browser-Modus
+gleich, es gibt keinen Zeitgeber im Backend. Es läuft immer nur ein Lauf; Anfragen währenddessen werden zu einem
+weiteren Lauf zusammengefasst, und solange er läuft, fragt die Oberfläche alle 250 ms `checks_status` nach dem Fortschritt.
+Der volle Lauf auch nach jeder Änderung ist billig, weil der Snapshot die Text- und Script-Ergebnisse je Datei cacht
+(Schlüssel: Textgeneration bzw. Quell-Hash): warm kostet er den billigen Teil plus die geänderten Dateien, gemessen
+261 ms auf HeartGold DE (Task 6) und 250 bis 290 ms auf allen drei Projekten (oben); kalt, beim Öffnen, 1,2 bis 3,8 s mit
+Fortschritt im Prüflicht („Prüft … Texte 312/724“). Jeder Bericht ersetzt die Befunde als Ganzes; ein Bericht ohne
+Gruppen (`groups: []`), nur einiger Gruppen oder einer älteren Store-Generation ersetzt nichts. Ändert sich der Store
+während eines Laufs, verwirft das Backend das Ergebnis und prüft neu. Der Bereich `scope: "cheap"` (nur die billige
+Gruppe) bleibt für die Brücke und Szenarien; die Oberfläche nutzt ihn nicht. In der Brücke ist `run_checks` synchron;
+eine frische Sitzung (Szenario-Batch) prüft kalt, auf Platin DE mit übernommenen Scripts 1,5 bis 1,6 s.
+
+**`g4-checks.json`.** Ausgeblendete Befunde und abgeschaltete Prüfungen stehen im Projekt in `<projekt>/g4-checks.json`
+(nicht in `.g4/`, das ist löschbarer Cache): `{"ignored": [{"code", "subject": {"kind", "index"}, "key", "fingerprint"}],
+"disabled": [code]}`, der Fingerprint als 16 Hex-Ziffern. `ignore_finding`, `unignore_finding`, `accept_baseline` und
+`set_check_enabled` schreiben die Datei sofort (atomar); `open_project` liest sie, eine kaputte Datei lehnt das Öffnen mit
+„g4-checks.json: …“ ab, statt sie ungelesen zu überschreiben. Fehler lassen sich nie ausblenden oder abschalten. Der
+Fingerprint geht über die geprüften Bytes des Subjekts: ändert sich die Stelle, passt er nicht mehr, und der Befund meldet
+sich wieder; unveränderte bleiben ausgeblendet.
+
+**`g4k check`.** `g4k check <projekt> [--json] [--expect CODE=N …]` führt alle Prüfungen auf dem gespeicherten Projekt aus
 und liest dabei, wie das Studio, `<projekt>/g4-checks.json`: ausgeblendete Befunde zählen als „ignored“, abgeschaltete
 Prüfungen laufen nicht (Fehler werden nie ausgelassen). Ohne `--json` eine Zeile je Befund und eine Summe, mit `--json`
 der ganze Bericht (`findings`, `ignored`, `skipped` als `{code, why}`, Subjekte als `{kind, index}`, Fingerprints als
 16 Hex-Ziffern). `--expect warp.dest-warp=1` vergleicht die Zahl der nicht ausgeblendeten Befunde je Code: Exit 1 mit
 „warp.dest-warp: expected 1, found 0“ auf stderr; ein unbekannter Code endet vor dem Lauf mit Exit 2. Befunde allein
-ändern den Exit-Code nicht.
+ändern den Exit-Code nicht. Beispiel nach dem Szenario `pt-pruefungen.yaml`:
+
+```sh
+target/debug/g4k check <Kopie> --expect warp.dest-warp=0 --expect event.script-missing=0 \
+  --expect event.trainer-missing=0 --expect text.too-wide=0
+# 0 finding(s): 0 error(s), 0 warning(s), 0 info(s); 111 ignored; 1553 ms … 4 expectation(s) met
+```
+
+Szenarien prüfen die Antworten der Brücke direkt mit Erwartungen an den Änderungen (`{expect: {path, equals}}`,
+Beschreibung in [docs/agent-gate.md](agent-gate.md), „Szenario“).
 
 Messlauf, nicht Teil des normalen Durchlaufs (`#[ignore]`): `G4_APICULA=... cargo test -p studio --release -- --ignored
 --nocapture bench_matrix_models` lädt eine große Matrix (Standard: Header 3, Platin Matrix 0) und gibt die Zeiten aus;
@@ -334,7 +390,7 @@ Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch6
 
 Das Skript hält beim ersten Fehler und druckt am Ende eine Tabelle Schritt / Projekt / Ergebnis / Sekunden, auch bei Abbruch; der Exit-Code ist ungleich 0, sobald ein Schritt fehlschlägt. Ein Ordner ohne `header.yaml` zählt nicht als Projekt und erscheint als Zeile "skipped (no header.yaml)". Fehlen `G4_ROMS_DIR`, `G4_APICULA`, `G4_DSROM_CLI` oder `G4_ROTOM_LSP`, oder findet es kein Projekt, bricht es mit einer Meldung ab (sonst würden die gated Tests nur "skipped" melden und trotzdem als bestanden gelten).
 
-Dauer: bei warmem Build-Cache etwa 30 Minuten (gemessen 1704 s in 3c, 1781 s in 3b.3a, 1798 s in 3b.3b; vor 3b.2 waren es 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; seit 3b.3b die Trainer- und Begegnungs-Tests aus „Trainer und Begegnungen (3b.3b)“; gemessene Läufe stehen in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s) und [docs/phase-3b3-gate.md](phase-3b3-gate.md) (Teil A 1781 s, Teil B 1798 s); die drei Projekte brauchen 380 bis 670 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
+Dauer: bei warmem Build-Cache etwa 30 bis 40 Minuten (gemessen 1704 s in 3c, 1781 s in 3b.3a, 1798 s in 3b.3b, 2452 s in 3b.4a; vor 3b.2 waren es 1217 s, dazu rund eine Minute für die g4emu-Schritte; seit 3b.2 kommen die gated Script- und Text-Tests dazu, seit 3b.3a die Daten-Tests aus „Daten-Archive und das uxie-Orakel“; seit 3b.3b die Trainer- und Begegnungs-Tests aus „Trainer und Begegnungen (3b.3b)“, seit 3b.4a die Prüf-Tests aus „Projektprüfungen (3b.4a)“; gemessene Läufe stehen in [docs/phase-3c-gate.md](phase-3c-gate.md) (1704 s), [docs/phase-3b3-gate.md](phase-3b3-gate.md) (Teil A 1781 s, Teil B 1798 s) und [docs/phase-3b4-gate.md](phase-3b4-gate.md) (Teil A 2452 s); die drei Projekte brauchen 380 bis 830 s je Projekt, die Schritte davor zusammen unter einer Minute); ein kalter Build kommt obendrauf. Die Projekte unter `$G4_ROMS_DIR` werden nur gelesen: schreibende Tests arbeiten auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), und `_testkopien` fasst das Skript nicht an.
 
 ## Agent-Testumgebung
 
@@ -342,7 +398,7 @@ Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steh
 
 - **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Er nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter `*_DSPRE_contents`) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
 - **`scripts/agent/call.sh <befehl> ['<json>']`** ruft einen Befehl der laufenden Brücke auf; `studio-bridge batch <datei.json> --allow-root <dir>` führt eine Liste von Befehlen ohne Server aus.
-- **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`; eine Änderung kann die Antwort der Brücke an einen Namen binden, den spätere Schritte als `${name}` nutzen), `uv run g4emu find-u16` zum Suchen von Adressen. Seit 3b.3b kennt `g4emu` Kampfschritte (`expect-battle`, `walk-until-battle`, `end-battle`, `win-battle`, `mash`): ein Kampf wird an den BattleMon-Datensätzen im RAM erkannt, die Werte je Spielcode stehen in `scripts/g4emu/g4emu/games.yaml` (`battle`, `battle_pointer`, `home_header`; IPKE ohne gemessenen Zeiger); Beschreibung in [docs/agent-gate.md](agent-gate.md), „Kämpfe“. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
+- **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`; eine Änderung kann die Antwort der Brücke an einen Namen binden, den spätere Schritte als `${name}` nutzen, und seit 3b.4a Erwartungen an die Antwort stellen, `{expect: {path, equals}}`, verfehlt mit Rückgabe 2), `uv run g4emu find-u16` zum Suchen von Adressen. Seit 3b.3b kennt `g4emu` Kampfschritte (`expect-battle`, `walk-until-battle`, `end-battle`, `win-battle`, `mash`): ein Kampf wird an den BattleMon-Datensätzen im RAM erkannt, die Werte je Spielcode stehen in `scripts/g4emu/g4emu/games.yaml` (`battle`, `battle_pointer`, `home_header`; IPKE ohne gemessenen Zeiger); Beschreibung in [docs/agent-gate.md](agent-gate.md), „Kämpfe“. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.
 - **Ports:** Vite 1430, Brücke 1431. Die eigene App (`pnpm tauri dev`) bleibt auf 1420/1421.
 - **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` und `G4K_BIN` (fertiges `studio-bridge` bzw. `g4k` für Szenarien; aus einem Worktree mit `cargo build --workspace --all-features` bauen, `cargo test --no-run` erneuert `studio-bridge` nicht immer). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.

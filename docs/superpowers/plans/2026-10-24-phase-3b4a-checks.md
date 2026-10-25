@@ -26,6 +26,8 @@ Stand 24.10.2026, geschrieben gegen `main` nach dem Merge von 3b.3b (Task 0 unte
 | `map.bdhc-size` | Fehler in beiden Spielen (0x9000 ab Byte 16) | asm-Beleg für HGSS |
 | Texturnamen gegen Area-NSBTX | kein Fehler, nur Hinweis beim Import (3b.4b) | Vanilla hat 14/7/7 fehlende Namen |
 
+Geändert in der Umsetzung (Entscheid R12, Task 6): der automatische Lauf nach einer Änderung ist der **volle** Lauf über alle Gruppen (`run_checks { scope: "all" }`, 300 ms nach dem Bus-Thema `edited`, von der Oberfläche angestoßen, in Tauri und Brücke gleich, kein Zeitgeber im Backend). Die Caches je Textarchiv und Scriptdatei machen ihn warm billig (gemessen 261 ms auf HeartGold DE, 250 bis 290 ms auf allen drei Projekten); jeder Bericht ersetzt die Befunde als Ganzes. `scope: "cheap"` bleibt für Brücke und Szenarien.
+
 ## Global Constraints
 
 - Wie die Pläne 3b.3a/3b.3b (Vanilla nie beschreiben, `vanilla_copy()`, PATH, `cargo test --workspace --all-features` mit Filter, gated mit `G4_TEST_PROJECT`/`G4_ROMS_DIR`, Styling nur über `ui/`, Base UI nur in `ui/primitives`, Tests über Rollen und `data-*` (`data-check`, `data-finding`), deutsche UI-Texte mit Ausweg, Kernel-Texte englisch mit Zahlen, Commits englisch mit `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`).
@@ -108,6 +110,8 @@ Stand 24.10.2026, geschrieben gegen `main` nach dem Merge von 3b.3b (Task 0 unte
 - [ ] **Step 1: Failing tests**: `ignore_round_trips_the_file`, `changed_subject_reappears`, `errors_cannot_be_ignored`, `accept_baseline_ignores_every_warning_and_info`, `g4k_check_expect_fails_with_code_soll_ist` (`cli.rs`), Dispatch-Fixtures je Befehl, `commands_match_the_tauri_handler`, `api.checks.test.ts`.
 - [ ] **Step 2: Run, FAIL** → **Step 3: Implement** → **Step 4: Run, PASS** → **Step 5: Commit** `feat(kernel,studio): ignore file and baseline, checks commands in Tauri and the bridge, g4k check`
 
+**Task 4 ist erledigt** (Branch `phase-3b4a-checks`, Commits 7f1822e und edd000f): `checks/ignore.rs` (`IgnoreFile`, `IgnoreSet::load/save/ignore/unignore/accept_baseline/set_enabled`, `<projekt>/g4-checks.json`, Fingerprints als 16 Hex-Ziffern), `commands/checks.rs` mit den sechs Befehlen und `commands/checks/label.rs` (deutsche Orte „Eventdatei 0394 · Warp 0“), `g4k check [--json] [--expect CODE=N]`, `api.checks.ts`; ein während eines Laufs wieder eingeschalteter Check gilt nicht mehr als abgeschaltet (edd000f). Abweichend vom Text oben: `run_checks` nimmt `"full"` als `"all"` (R1, für die Entwürfe von 3b.4b); `NavTargetDto` spiegelt `navigation.ts` genau (`header`, `matrixCell`, `area`, `building`, `event`, `textArchive`, `script`, `species`, `move`, `item`, `trainer`, `encounter`; ein Warp ist `event` mit `eventKind: "warp"`, es gibt kein `map` und kein `warp`), `target` ist optional (R3); die Fix-Ids sind überall snake_case (R2); die Verbreiterung von `ProblemDto` in TypeScript (`info`, `check`) kam erst mit Task 6 (R8).
+
 ---
 
 ### Task 5: Fixes: Plan, Vorschau, Changeset, Nachprüfung
@@ -121,6 +125,8 @@ Stand 24.10.2026, geschrieben gegen `main` nach dem Merge von 3b.3b (Task 0 unte
 
 - [ ] **Step 1: Failing tests**: je Fix `finding_disappears_after_apply` und `undo_brings_it_back` (außer CreateScript), `stale_fingerprint_is_refused_and_changes_nothing`, `plan_shows_before_and_after_for_wrap`.
 - [ ] **Step 2: Run, FAIL** → **Step 3: Implement** → **Step 4: Run, PASS** → **Step 5: Commit** `feat(kernel,studio): deterministic fixes with preview, one changeset and re-check`
+
+**Task 5 ist erledigt** (Branch `phase-3b4a-checks`, Commit 4f76542): `checks/fix.rs` (`plan_fix`, `apply_fix` mit `IgnoreKey` als Identität des Befunds, Nachprüfung nur des Subjekts), `plan_fix`/`apply_fix` in Tauri, Brücke und `api.checks.ts`. Abweichend vom Text oben: beide Befehle nehmen `{ finding, fix }`, den Befund so, wie `run_checks` ihn liefert (gelesen werden `code`, `subject`, `key`, `fingerprint`), `fix` ist `wrap`, `append_message`, `swap_min_max` oder `create_script` (R2); ein veralteter Befund ist die neue Variante `KernelError::FindingStale` („finding is no longer current“, `CmdError`-Code `finding_stale`, Oberfläche „Befund ist nicht mehr aktuell“), `KernelError::Stale` bleibt „auf der Platte geändert“ (R5); „verändertes Subjekt“ heißt ein anderer Fingerprint des Befunds (R10); `create_script` legt genau Script #n an (neues `scripts::add_script_at_reported`), nicht den nächsten freien Platz wie `add_script_reported` (R9).
 
 ---
 
@@ -138,6 +144,8 @@ Stand 24.10.2026, geschrieben gegen `main` nach dem Merge von 3b.3b (Task 0 unte
 - [ ] **Step 2: Run, FAIL** → **Step 3: Implement** → **Step 4: Run, PASS**, `bash scripts/check-styles.sh`; Browser: vier absichtliche Fehler auf einer Kopie (siehe Task 7) im Panel sehen, einen beheben, einen ausblenden.
 - [ ] **Step 5: Commit** `feat(studio): check light with three counts, grouped problems with open, fix and ignore, checks in Technik, inspector and markers`
 
+**Task 6 ist erledigt** (Branch `phase-3b4a-checks`, Commits 5f0a585 und 1eac4d9): Prüflicht mit drei Zählern und Fortschritt, Panel „Probleme“ mit Gruppen, `FixDialog`, Technik mit Ausgangslage und Schaltern, `ChecksSection` im Inspector, Fehlerfarbe an Warps, Markierungen in Explorer-, Trainer- und Begegnungsliste, `checks/messages.ts` mit Rust-Wächter, `checks/useChecks.ts`, neues Primitive `BeforeAfter`, neues Szenen-Token `szene/status/fehler` (`#DE3142`). Abweichend vom Text oben: `CheckList` gab es schon (3b.4b Task 3) und wird wiederverwendet; ein TypeScript-Typ `ProblemDto` für Probleme und Befunde (R8); der automatische Lauf ist der volle Lauf, nicht `run_checks { scope: "cheap" }` (R4, ersetzt durch R12, siehe „Entscheidungen“; gemessen warm 261 ms auf HeartGold DE); die Vorschau von „Umbrechen“ zeigt Vorher und Nachher als Text in `BeforeAfter`, nicht als DS-Bildschirm (R11); Markierungen nur in den Listen, die Befunde haben können (`DataList` für Pokédex, Attacken und Gegenstände hat keine Prüfung); dazu ein fünfter Bereich „Projekt“ für `asset.unreadable`.
+
 ---
 
 ### Task 7: Szenario-Teil Gate A, `expect` in `scenario.py`, Docs, Roadmap, volle Prüfung
@@ -152,6 +160,8 @@ Stand 24.10.2026, geschrieben gegen `main` nach dem Merge von 3b.3b (Task 0 unte
 - [ ] **Step 2: Docs** nach Dateiliste.
 - [ ] **Step 3: Volle Prüfung**: `pnpm test`, `pnpm build`, `bash scripts/check-styles.sh`, `bash scripts/check-tokens.sh`, `cargo test --workspace --all-features`, `uv run pytest -q`, dann `G4_ROMS_DIR=<absolut> scripts/gate.sh` im Hintergrund; Tabelle in den Bericht.
 - [ ] **Step 4: Commit** `feat(gate): checks scenario with expectations; gate document part A, recipes and roadmap for 3b.4a`
+
+**Task 7 ist erledigt** (Branch `phase-3b4a-checks`, Commit 2ddd1b0 für `expect` und das Szenario, danach der Commit mit diesem Text, Gate-Dokument, Rezepten und Roadmap): `scenario.py` nimmt als drittes Element einer Änderung einen Namen oder `{expect: {path, equals} | [{path, equals}, …], as?: name}` (R13: Pfade aus Schlüsseln, Listenindizes, `.length` an Listen und Filtern `[schlüssel=wert]` mit Textvergleich, wie die Entwürfe von 3b.4b sie nutzen; verfehlt oder fehlend Rückgabe 2 mit Pfad, Soll, Ist); `pt-pruefungen.yaml` auf der frischen Kopie `pt-3b4a` grün (21 Erwartungen, 19 s); `docs/phase-3b4-gate.md` Teil A, Rezepte und Zuordnung in `docs/agent-gate.md`, `docs/dev-setup.md`, `docs/ROADMAP.md`, `design-system/README.md`; `scripts/gate.sh` grün. Abweichend vom Text oben: das Szenario übernimmt zuerst die Scripts (`create_script` braucht sie) und setzt beim Zurücknehmen von Objekt 6 auch das Script zurück, nicht nur `trainer_type = 0` (`event.trainer-missing` liest das Script); der Atlas-Eintrag „Geschichten“ sagt jetzt „Kommt mit Phase 3d“ (Story-Graph nach 3d, Spezifikation §1). Offen: der Browser-Teil von Gate A in der Abnahme.
 
 ---
 
