@@ -9,7 +9,7 @@ import { Palette } from "../../frame/Palette";
 import { ShellProvider, useShell } from "../../frame/ShellContext";
 import type { Tool, ToolbarAnchor } from "../../frame/shellState";
 import { StartPane } from "../../frame/StartPane";
-import { Button, Tabs } from "../../primitives";
+import { Button, Splitter, Tabs } from "../../primitives";
 import type { PickerItem, TabItem } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -130,6 +130,28 @@ function ToolbarView({ anchor, blocked = null }: { anchor: ToolbarAnchor; blocke
   );
 }
 
+/** A splitter between two stand-in panes, sizing the first: the horizontal one grows downwards, the vertical one to the right. */
+function SplitterDemo({ orientation }: { orientation: "horizontal" | "vertical" }) {
+  const [size, setSize] = useState(120);
+  const horizontal = orientation === "horizontal";
+  const first = horizontal ? { height: size } : { width: size };
+  return (
+    <div className={horizontal ? styles.splitColumn : styles.splitRow} data-frame={horizontal ? "teiler-waagrecht" : "teiler-senkrecht"}>
+      <div className={styles.splitPane} style={first /* dyn */}>
+        <span className={styles.note}>{`${size} px`}</span>
+      </div>
+      {horizontal ? (
+        <Splitter orientation="horizontal" grows="down" label="Höhe des oberen Teils" value={size} min={60} max={180} onValue={setSize} measure={(e) => e.clientY} />
+      ) : (
+        <Splitter orientation="vertical" grows="right" label="Breite des linken Teils" value={size} min={80} max={320} onValue={setSize} measure={(e) => e.clientX} />
+      )}
+      <div className={styles.splitPane} data-rest="">
+        <span className={styles.note}>Rest</span>
+      </div>
+    </div>
+  );
+}
+
 const PALETTE_ITEMS: PickerItem[] = [
   { id: "cmd-open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", group: "Befehle" },
   { id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S", group: "Befehle", disabled: true, description: "Erst ein Projekt öffnen" },
@@ -164,6 +186,18 @@ export function FramePage() {
         <ShellProvider>
           <HingeOnTop />
         </ShellProvider>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Teiler waagrecht und senkrecht</h2>
+        <p className={styles.note}>
+          Derselbe Teiler (8 px, Linie `linie/leise`) zwischen zwei Teilen: Ziehen beginnt nach 4 px, die Pfeiltasten (±16 px) ändern die Größe des ersten Teils in der Richtung, in der er wächst, Pos1 und
+          Ende setzen Höchst- und Mindestwert. Waagrecht wächst der obere Teil nach unten, senkrecht der linke nach rechts.
+        </p>
+        <div className={styles.toolbarViews}>
+          <SplitterDemo orientation="horizontal" />
+          <SplitterDemo orientation="vertical" />
+        </div>
       </section>
 
       <section className={styles.block}>

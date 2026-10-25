@@ -33,15 +33,8 @@ describe("HandSplitter", () => {
   const splitter = () => container.querySelector<HTMLElement>("[data-splitter=hand]")!;
   const height = () => shell.state.handHeight.welt;
   const collapsed = () => shell.state.handCollapsed.welt;
-  /** A splitter whose lower edge is at y 600 inside a deck that ends at y 900: the hand is 300 px high. */
-  function geometry() {
-    const rect = (bottom: number) => ({ bottom, top: bottom - 8, height: 8, left: 0, right: 100, width: 100, x: 0, y: bottom - 8, toJSON: () => ({}) }) as DOMRect;
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return this.getAttribute("role") === "separator" ? rect(600) : rect(900);
-    });
-  }
-  const pointer = (type: string, clientY: number) => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
+  const pointer = (type: string, clientY: number, clientX = 0) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY, clientX });
     Object.defineProperty(event, "pointerId", { value: 1 });
     act(() => void splitter().dispatchEvent(event));
   };
@@ -80,23 +73,21 @@ describe("HandSplitter", () => {
 
   it("sets_the_hand_height_while_dragging_with_the_pointer_captured", () => {
     show();
-    geometry();
-    pointer("pointerdown", 600);
+    pointer("pointerdown", 610);
     expect(vi.mocked(Element.prototype.setPointerCapture).mock.contexts).toEqual([splitter()]);
-    pointer("pointermove", 500);
-    // The pointer moved 100 px up: the hand grows from 300 to 400.
-    expect(height()).toBe(400);
-    pointer("pointermove", 620);
-    expect(height()).toBe(280);
-    pointer("pointerup", 620);
+    pointer("pointermove", 510);
+    // The pointer moved 100 px up: the hand grows from 286 to 386.
+    expect(height()).toBe(386);
+    pointer("pointermove", 630);
+    expect(height()).toBe(266);
+    pointer("pointerup", 630);
     pointer("pointermove", 100);
-    expect(height()).toBe(280);
+    expect(height()).toBe(266);
   });
 
   it("keeps_the_height_between_200_and_560", () => {
     show();
-    geometry();
-    pointer("pointerdown", 600);
+    pointer("pointerdown", 610);
     pointer("pointermove", -2000);
     expect(height()).toBe(560);
     pointer("pointermove", 5000);
@@ -107,11 +98,111 @@ describe("HandSplitter", () => {
     show();
     act(() => shell.toggleHandCollapsed("welt"));
     expect(collapsed()).toBe(true);
-    geometry();
-    pointer("pointerdown", 600);
-    pointer("pointermove", 450);
+    pointer("pointerdown", 900);
+    pointer("pointermove", 750);
     expect(collapsed()).toBe(false);
-    expect(height()).toBe(450);
+    // The drag began at the remembered 286 px, not at 0.
+    expect(height()).toBe(436);
+  });
+
+  it("opens_a_collapsed_hand_once_for_many_moves", () => {
+    show();
+    act(() => shell.setHandCollapsed("welt", true));
+    pointer("pointerdown", 900);
+    // Two moves reach the handler before React renders: the second must neither close the hand again nor be lost.
+    const move = (clientY: number) => {
+      const event = new MouseEvent("pointermove", { bubbles: true, cancelable: true, clientY });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      splitter().dispatchEvent(event);
+    };
+    act(() => {
+      move(800);
+      move(700);
+    });
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(486);
+    // A hand that is open stays open however the drag goes on.
+    pointer("pointermove", 760);
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(426);
+  });
+
+  it("starts_a_drag_on_a_collapsed_hand_at_the_remembered_height", () => {
+    show();
+    act(() => shell.setHandHeight("welt", 350));
+    act(() => shell.setHandCollapsed("welt", true));
+    pointer("pointerdown", 900);
+    // A drag down leaves a folded hand folded: there is no lower edge to take it to.
+    pointer("pointermove", 960);
+    expect(collapsed()).toBe(true);
+    expect(height()).toBe(350);
+    pointer("pointermove", 880);
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(370);
+  });
+
+  it("does_not_resize_on_a_click_or_double_click_that_moves_a_pixel", () => {
+    show();
+    pointer("pointerdown", 610, 50);
+    pointer("pointermove", 611, 51);
+    pointer("pointerup", 611, 51);
+    act(() => void splitter().dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+    expect(height()).toBe(286);
+    // The double click folded the hand and nothing else.
+    expect(collapsed()).toBe(true);
+    act(() => shell.setHandCollapsed("welt", false));
+    pointer("pointerdown", 610, 50);
+    pointer("pointermove", 607, 50);
+    pointer("pointerup", 607, 50);
+    expect(height()).toBe(286);
+    expect(collapsed()).toBe(false);
+  });
+
+  it("keeps_the_remembered_height_as_value_while_collapsed", () => {
+    show();
+    act(() => shell.setHandHeight("welt", 350));
+    act(() => shell.setHandCollapsed("welt", true));
+    expect(splitter().getAttribute("aria-valuenow")).toBe("350");
+    expect(splitter().getAttribute("aria-valuetext")).toBe("eingeklappt");
+  });
+
+  it("does_nothing_on_arrow_down_and_end_while_collapsed", async () => {
+    show();
+    act(() => shell.setHandHeight("welt", 350));
+    act(() => shell.setHandCollapsed("welt", true));
+    key("ArrowDown");
+    key("End");
+    expect(collapsed()).toBe(true);
+    expect(height()).toBe(350);
+    // The ignored presses leave no step behind: the next arrow up (a browser delivers it in a task of its own) opens from the remembered height.
+    await Promise.resolve();
+    key("ArrowUp");
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(366);
+    act(() => shell.setHandCollapsed("welt", true));
+    key("Home");
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(560);
+    // At the highest height the folded hand opens all the same.
+    act(() => shell.setHandCollapsed("welt", true));
+    key("ArrowUp");
+    expect(collapsed()).toBe(false);
+    expect(height()).toBe(560);
+    // And at the lowest one the arrow down and End leave it folded.
+    act(() => shell.setHandHeight("welt", 200));
+    act(() => shell.setHandCollapsed("welt", true));
+    key("ArrowDown");
+    key("End");
+    expect(collapsed()).toBe(true);
+  });
+
+  it("counts_two_arrow_presses_before_a_render_twice", () => {
+    show();
+    act(() => {
+      splitter().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+      splitter().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    });
+    expect(height()).toBe(318);
   });
 
   it("grows_and_shrinks_by_16_with_the_arrow_keys_and_jumps_with_home_and_end", () => {
@@ -132,7 +223,8 @@ describe("HandSplitter", () => {
     show();
     key("Enter");
     expect(collapsed()).toBe(true);
-    expect(splitter().getAttribute("aria-valuenow")).toBe("0");
+    // The value stays the remembered height; only the text says the hand is folded.
+    expect(splitter().getAttribute("aria-valuenow")).toBe("286");
     expect(splitter().getAttribute("aria-valuetext")).toBe("eingeklappt");
     act(() => void splitter().dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
     expect(collapsed()).toBe(false);

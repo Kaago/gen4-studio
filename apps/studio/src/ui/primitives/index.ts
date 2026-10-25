@@ -78,3 +78,5 @@ export { BeforeAfter } from "./BeforeAfter";
 export type { BeforeAfterProps } from "./BeforeAfter";
 export { CheckList } from "./CheckList";
 export type { CheckListProps, CheckRow, CheckState } from "./CheckList";
+export { DRAG_SLOP, Splitter } from "./Splitter";
+export type { SplitterProps } from "./Splitter";

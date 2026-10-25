@@ -11,6 +11,8 @@ export interface ShellApi {
   setListOpen: (area: AreaId, open: boolean) => void;
   setHandHeight: (area: AreaId, height: number) => void;
   toggleHandCollapsed: (area: AreaId) => void;
+  /** Folds or opens the hand; asking for what already is changes nothing (unlike the toggle, it cannot fold a hand that two callers both open). */
+  setHandCollapsed: (area: AreaId, collapsed: boolean) => void;
   setDepth: (depth: Depth) => void;
   /** The part the Pokémon area shows (whether it may is the area's to decide). */
   setPokemonSub: (sub: PokemonSub) => void;
@@ -77,6 +79,10 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
   const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
   const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);
+  const setHandCollapsed = useCallback(
+    (area: AreaId, collapsed: boolean) => setState((s) => (s.handCollapsed[area] === collapsed ? s : { ...s, handCollapsed: { ...s.handCollapsed, [area]: collapsed } })),
+    [],
+  );
   const setDepth = useCallback((depth: Depth) => setState((s) => (s.depth === depth ? s : { ...s, depth })), []);
   const setPokemonSub = useCallback((sub: PokemonSub) => setState((s) => (s.sub.pokemon === sub ? s : { ...s, sub: { ...s.sub, pokemon: sub } })), []);
   const setSelected = useCallback(
@@ -121,6 +127,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setListOpen,
       setHandHeight,
       toggleHandCollapsed,
+      setHandCollapsed,
       setDepth,
       setPokemonSub,
       setSelected,
@@ -140,7 +147,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

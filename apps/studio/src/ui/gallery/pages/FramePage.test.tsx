@@ -54,4 +54,20 @@ describe("FramePage", () => {
     );
     expect(order).toEqual(["scharnier", "schau", "teiler", "hand"]);
   });
+
+  it("shows_the_splitter_horizontally_and_vertically_and_sizes_the_first_part", () => {
+    const frame = (name: string) => container.querySelector<HTMLElement>(`[data-frame="${name}"]`)!;
+    const horizontal = frame("teiler-waagrecht").querySelector<HTMLElement>('[role="separator"]')!;
+    const vertical = frame("teiler-senkrecht").querySelector<HTMLElement>('[role="separator"]')!;
+    expect(horizontal.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(vertical.getAttribute("aria-orientation")).toBe("vertical");
+    const press = (el: HTMLElement, key: string) => act(() => void el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    press(horizontal, "ArrowDown");
+    expect(horizontal.getAttribute("aria-valuenow")).toBe("136");
+    expect(frame("teiler-waagrecht").firstElementChild?.getAttribute("style")).toContain("136px");
+    press(vertical, "ArrowRight");
+    expect(vertical.getAttribute("aria-valuenow")).toBe("136");
+    press(vertical, "ArrowDown");
+    expect(vertical.getAttribute("aria-valuenow")).toBe("136");
+  });
 });

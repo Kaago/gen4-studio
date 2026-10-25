@@ -2,7 +2,7 @@ import { Fragment, memo, useId, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { isEventTool } from "../../workbench/tools";
 import type { ToolSpec } from "../../workbench/tools";
-import { Icon, Kbd, Menu, Tooltip, useRovingList } from "../primitives";
+import { DRAG_SLOP, Icon, Kbd, Menu, Tooltip, useRovingList } from "../primitives";
 import type { Density } from "../tokens/theme";
 import type { Tool, ToolbarAnchor } from "./shellState";
 import styles from "./FloatingToolbar.module.css";
@@ -21,9 +21,6 @@ export function toolbarMinHeight(density: Density): number {
 export function isLowView(viewHeight: number, minHeight: number): boolean {
   return viewHeight > 0 && viewHeight < minHeight;
 }
-
-/** A pointer that moved less than this far from where it was pressed did not drag the grip. */
-const DRAG_SLOP = 4;
 
 const ANCHOR_LABELS: Record<ToolbarAnchor, string> = { left: "Links", top: "Oben", bottom: "Unten" };
 const ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];

@@ -196,6 +196,39 @@
   display: none;
 }
 
+/* Two stand-in panes with a splitter between them. */
+.splitColumn,
+.splitRow {
+  display: flex;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
+.splitColumn {
+  width: 320px;
+  height: 280px;
+  flex-direction: column;
+}
+
+.splitRow {
+  width: 480px;
+  height: 160px;
+}
+
+.splitPane {
+  min-width: 0;
+  min-height: 0;
+  flex: none;
+  padding: var(--g4-raum-8);
+  background: var(--g4-flaeche-schau);
+}
+
+.splitPane[data-rest] {
+  flex: 1 1 0;
+  background: var(--g4-flaeche-gehaeuse);
+}
+
 .toolbarViews {
   display: flex;
   flex-wrap: wrap;
