@@ -13,6 +13,7 @@ pub mod scripts;
 pub mod sprites;
 pub mod start;
 pub mod store;
+pub mod templates;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod text;

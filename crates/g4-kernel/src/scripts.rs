@@ -167,7 +167,7 @@ pub(crate) fn numbered_files(dir: &Path, ext: Option<&str>) -> Result<Vec<u16>, 
 }
 
 /// Makes sure `unpacked/scripts` exists (unpacked from the NARC on first use) and returns it.
-fn ensure_members(project: &Project) -> Result<PathBuf, KernelError> {
+pub(crate) fn ensure_members(project: &Project) -> Result<PathBuf, KernelError> {
     let dir = member_dir(project);
     if !dir.is_dir() {
         project.ensure_unpacked(AssetKind::Script)?;

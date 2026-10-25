@@ -1,0 +1,363 @@
+//! World templates: recipes that reshape a vanilla world. The empty region keeps the start
+//! town and the rooms reached from it, empties every other header and fills matrix 0 around
+//! the town with one blocked border map. This module reads the recipe and plans it; the plan
+//! changes nothing.
+
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::sync::OnceLock;
+
+use g4_formats::game::Family;
+use g4_formats::matrix::MATRIX_EMPTY;
+use serde::{Deserialize, Serialize};
+
+use crate::error::{KernelError, io_at};
+use crate::scripts;
+use crate::start::DP_LOCKED;
+use crate::store::Store;
+
+const TEMPLATES_YAML: &str = include_str!("../metadata/templates.yaml");
+
+/// Collision byte of a blocked cell; a map whose cells all carry it (with kind 0) is a border
+/// map of the empty region.
+const BLOCKED: u8 = 0x80;
+
+/// The empty-region recipe of one family, as `templates.yaml` names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RegionRecipe {
+    /// Internal name (`mapname.bin`) of the start town's header.
+    pub start_town: String,
+    pub starter_species: u16,
+    pub starter_level: u8,
+    /// Variable (command database name) the start script sets once it ran.
+    pub done_var: String,
+    /// The start script's message for German games.
+    pub message_de: String,
+    /// The start script's message for every other language.
+    pub message_en: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TemplatesYaml {
+    empty_region: EmptyRegionYaml,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmptyRegionYaml {
+    pt: FamilyYaml,
+    hgss: FamilyYaml,
+    message: MessageYaml,
+}
+
+#[derive(Debug, Deserialize)]
+struct FamilyYaml {
+    start_town: String,
+    starter: StarterYaml,
+    done_var: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StarterYaml {
+    species: u16,
+    level: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageYaml {
+    de: String,
+    en: String,
+}
+
+/// `templates.yaml`, parsed once.
+fn templates() -> Result<&'static TemplatesYaml, KernelError> {
+    static TABLE: OnceLock<Result<TemplatesYaml, String>> = OnceLock::new();
+    TABLE
+        .get_or_init(|| {
+            serde_yaml::from_str(TEMPLATES_YAML).map_err(|e| format!("templates.yaml: {e}"))
+        })
+        .as_ref()
+        .map_err(|e| KernelError::InvalidProject(e.clone()))
+}
+
+#[derive(Debug, Deserialize)]
+struct VarEntry {
+    id: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct VarTable {
+    vars: HashMap<String, VarEntry>,
+}
+
+/// Number of the variable `name` in the bundled command database of `family`
+/// (`scripts::scrcmd_database`); `None` when the database does not name it.
+pub(crate) fn variable_id(family: Family, name: &str) -> Option<u16> {
+    static TABLES: [OnceLock<Option<VarTable>>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    let slot = match family {
+        Family::Dp => 0,
+        Family::Pt => 1,
+        Family::Hgss => 2,
+    };
+    TABLES[slot]
+        .get_or_init(|| serde_json::from_str(scripts::scrcmd_database(family).1).ok())
+        .as_ref()?
+        .vars
+        .get(name)
+        .map(|v| v.id)
+}
+
+/// The empty-region recipe of `family`. Diamond and Pearl are refused with [`DP_LOCKED`]; a
+/// `done_var` the command database does not know is a metadata error.
+pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
+    let yaml = &templates()?.empty_region;
+    let game = match family {
+        Family::Dp => return Err(KernelError::Refused(DP_LOCKED.into())),
+        Family::Pt => &yaml.pt,
+        Family::Hgss => &yaml.hgss,
+    };
+    if variable_id(family, &game.done_var).is_none() {
+        return Err(KernelError::InvalidProject(format!(
+            "templates.yaml: the command database has no variable {}",
+            game.done_var
+        )));
+    }
+    Ok(RegionRecipe {
+        start_town: game.start_town.clone(),
+        starter_species: game.starter.species,
+        starter_level: game.starter.level,
+        done_var: game.done_var.clone(),
+        message_de: yaml.message.de.clone(),
+        message_en: yaml.message.en.clone(),
+    })
+}
+
+/// What the empty-region recipe would do to the store's world (unsaved edits included).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegionPlan {
+    /// The start town's header.
+    pub start_header: u16,
+    /// The town's in-game location name, for example "Zweiblattdorf" (empty when the text
+    /// bank does not name it).
+    pub town_name: String,
+    /// `(x, y)` of the town's cells in matrix 0, row by row.
+    pub town_cells: Vec<(u8, u8)>,
+    /// Map of the first town cell: the source of the border map.
+    pub town_map: u16,
+    /// Altitude of the first town cell, which every border cell gets.
+    pub town_altitude: u8,
+    pub town_event_file: u16,
+    pub town_script_file: u16,
+    /// The town and the headers reached from it through warps without entering another
+    /// header of matrix 0, ascending.
+    pub kept: Vec<u16>,
+    /// Headers that get event file 0 and the empty level script, ascending; headers that
+    /// already have both are not listed.
+    pub emptied: Vec<u16>,
+    /// Cells of matrix 0 with a map outside the town: they get the border map.
+    pub border_cells: usize,
+    /// The level script every emptied header gets.
+    pub empty_level_script: u16,
+    /// `(event file, warp index)` of the warps of kept event files that lead into a header
+    /// that is not kept; they are removed.
+    pub dropped_warps: Vec<(u16, u16)>,
+    /// Figures (object events) of the town's event file, removed.
+    pub removed_objects: usize,
+    /// Triggers (coord events) of the town's event file, removed.
+    pub removed_triggers: usize,
+    /// The world already looks like the recipe's result: every cell of matrix 0 with a map
+    /// carries the town's header, the cells outside the town share one map, and the town has
+    /// no figures.
+    pub already_empty: bool,
+}
+
+/// Plans the empty region on the store's world; reads, never edits (maps, matrix 0, event
+/// files and the header table may be loaded). Refused: Diamond/Pearl ([`DP_LOCKED`]), a
+/// start town that is no header of matrix 0 or has no cell there, and a project without an
+/// empty level script (a script member of exactly four zero bytes).
+///
+/// Town cells are the cells of matrix 0 with the town's header and a map, except cells whose
+/// map is a border map (every collision cell `{kind 0, collision 0x80}`), so a world the recipe
+/// already emptied still shows the town apart from its border.
+pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
+    let recipe = region_recipe(store.project().family)?;
+    let headers = store.header_table()?.to_vec();
+    let listing = store.project().header_listing_for(&headers)?.headers;
+    let town = listing
+        .iter()
+        .find(|h| h.internal_name == recipe.start_town && h.matrix_id == 0)
+        .ok_or_else(|| {
+            KernelError::Refused(format!("start town {} not found", recipe.start_town))
+        })?;
+    let start_header = town.id;
+    let town_name = town.location_name.clone();
+    let town_event_file = town.event_file_id;
+    let town_script_file = town.script_file_id;
+
+    // Cells of matrix 0: (x, y, map, header) of every cell with a map.
+    let matrix = store.matrix(0)?.clone();
+    let width = usize::from(matrix.width);
+    let cells: Vec<(u8, u8, u16, Option<u16>)> = matrix
+        .maps
+        .iter()
+        .enumerate()
+        .filter(|&(_, &map)| map != MATRIX_EMPTY)
+        .map(|(i, &map)| {
+            let header = matrix.headers.as_ref().and_then(|h| h.get(i).copied());
+            // A matrix is at most 255 × 255 cells, so both coordinates fit in u8.
+            ((i % width) as u8, (i / width) as u8, map, header)
+        })
+        .collect();
+    let with_town: Vec<_> = cells.iter().filter(|c| c.3 == Some(start_header)).collect();
+    if with_town.is_empty() {
+        return Err(KernelError::Refused(format!(
+            "start town {} has no cell in matrix 0",
+            recipe.start_town
+        )));
+    }
+    let mut border_maps = BTreeSet::new();
+    for map in with_town.iter().map(|c| c.2).collect::<BTreeSet<_>>() {
+        let blocked = store
+            .map(map)?
+            .permissions
+            .iter()
+            .all(|c| c.kind == 0 && c.collision == BLOCKED);
+        if blocked {
+            border_maps.insert(map);
+        }
+    }
+    let mut town_part: Vec<_> = with_town
+        .iter()
+        .filter(|c| !border_maps.contains(&c.2))
+        .collect();
+    if town_part.is_empty() {
+        // Only border maps carry the town: they are the town.
+        town_part = with_town.iter().collect();
+    }
+    let town_cells: Vec<(u8, u8)> = town_part.iter().map(|c| (c.0, c.1)).collect();
+    let first = town_part[0];
+    let town_map = first.2;
+    let town_altitude = matrix
+        .altitudes
+        .as_ref()
+        .and_then(|a| {
+            a.get(usize::from(first.1) * width + usize::from(first.0))
+                .copied()
+        })
+        .unwrap_or(0);
+    let outside: Vec<_> = cells
+        .iter()
+        .filter(|c| !town_cells.contains(&(c.0, c.1)))
+        .collect();
+    let border_cells = outside.len();
+
+    let empty_level_script = empty_level_script(store, &headers)?;
+
+    // Kept: the town plus a breadth-first walk over warps into headers off matrix 0.
+    let mut kept = BTreeSet::from([start_header]);
+    let mut queue = VecDeque::from([start_header]);
+    while let Some(id) = queue.pop_front() {
+        let event = headers[usize::from(id)].event_file_id();
+        let dests: Vec<u16> = store
+            .event(event)?
+            .warp_events
+            .iter()
+            .map(|w| w.dest_header_id)
+            .collect();
+        for dest in dests {
+            let Some(header) = headers.get(usize::from(dest)) else {
+                continue;
+            };
+            if header.matrix_id() != 0 && kept.insert(dest) {
+                queue.push_back(dest);
+            }
+        }
+    }
+
+    let emptied: Vec<u16> = (0..headers.len())
+        // The table holds at most 65536 headers (checked when it is read).
+        .map(|i| i as u16)
+        .filter(|id| !kept.contains(id))
+        .filter(|&id| {
+            let h = &headers[usize::from(id)];
+            h.event_file_id() != 0 || h.level_script_id() != empty_level_script
+        })
+        .collect();
+
+    let kept_events: BTreeSet<u16> = kept
+        .iter()
+        .map(|&id| headers[usize::from(id)].event_file_id())
+        .collect();
+    let mut dropped_warps = Vec::new();
+    for event in kept_events {
+        for (i, warp) in store.event(event)?.warp_events.iter().enumerate() {
+            let into_dropped = usize::from(warp.dest_header_id) < headers.len()
+                && !kept.contains(&warp.dest_header_id);
+            if into_dropped {
+                // An event file holds at most u16::MAX warps (its counter is 16 bits wide).
+                dropped_warps.push((event, i as u16));
+            }
+        }
+    }
+
+    let town_events = store.event(town_event_file)?;
+    let removed_objects = town_events.object_events.len();
+    let removed_triggers = town_events.coord_events.len();
+    let all_town = cells.iter().all(|c| c.3 == Some(start_header));
+    let one_border = outside.windows(2).all(|w| w[0].2 == w[1].2);
+    let already_empty = all_town && one_border && removed_objects == 0;
+
+    Ok(RegionPlan {
+        start_header,
+        town_name,
+        town_cells,
+        town_map,
+        town_altitude,
+        town_event_file,
+        town_script_file,
+        kept: kept.into_iter().collect(),
+        emptied,
+        border_cells,
+        empty_level_script,
+        dropped_warps,
+        removed_objects,
+        removed_triggers,
+        already_empty,
+    })
+}
+
+/// Whether a level script member is empty: exactly four zero bytes.
+fn is_empty_level_script(bytes: &[u8]) -> bool {
+    bytes == [0, 0, 0, 0]
+}
+
+/// The level script of header 0 when it is empty, else the first empty member of the script
+/// archive; refused when there is none.
+fn empty_level_script(
+    store: &Store,
+    headers: &[crate::store::MapHeader],
+) -> Result<u16, KernelError> {
+    let dir = scripts::ensure_members(store.project())?;
+    let read = |n: u16| -> Result<Option<Vec<u8>>, KernelError> {
+        let path = dir.join(format!("{n:04}"));
+        match std::fs::read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(io_at(&path)(e)),
+        }
+    };
+    if let Some(header) = headers.first() {
+        let n = header.level_script_id();
+        if read(n)?.is_some_and(|b| is_empty_level_script(&b)) {
+            return Ok(n);
+        }
+    }
+    for n in scripts::numbered_files(&dir, None)? {
+        if read(n)?.is_some_and(|b| is_empty_level_script(&b)) {
+            return Ok(n);
+        }
+    }
+    Err(KernelError::Refused(
+        "no empty level script (a script member of four zero bytes)".into(),
+    ))
+}
