@@ -26,8 +26,10 @@ describe("groupEvents", () => {
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
-    const doors = groupEvents(events(), "bauen", (h) => (h === 414 ? "T01R0201" : undefined)).find((g) => g.kind === "warp");
-    expect(doors?.rows[0]?.title).toBe("Warp 0 → Ort 0414 (T01R0201)");
+    // Bauen names the destination as the world tree does ("Haus 2"); without a name, by its number.
+    const doors = groupEvents(events(), "bauen", (h) => (h === 414 ? "Haus 2" : undefined)).find((g) => g.kind === "warp");
+    expect(doors?.rows[0]?.title).toBe("Warp 0 → Haus 2");
+    expect(groupEvents(events(), "bauen").find((g) => g.kind === "warp")?.rows[0]?.title).toBe("Warp 0 → Ort 0414");
   });
 
   it("titles_each_row_like_the_inspector_heading_and_puts_the_position_in_the_technical_part", () => {

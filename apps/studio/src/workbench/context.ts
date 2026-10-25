@@ -34,7 +34,7 @@ const listOf = (events: EventsDto, kind: EventKind): EventData[] => (kind === "w
 
 /**
  * The events of one event file by class (figures, doors, triggers, signs; a class without events is left out), each as a row
- * titled like the inspector heading. `destName` names the header a door leads to; `trainerName` the trainer whose battle a figure's
+ * titled like the inspector heading. `destName` names the header a door leads to (Bauen: as the world tree does, Tüfteln: its code); `trainerName` the trainer whose battle a figure's
  * script starts ("Objekt 0 · Teenager Sebastian"), null for a script that starts none. `depth` words the doors' destinations (`eventTitle`).
  */
 export function groupEvents(events: EventsDto, depth: Depth, destName?: (header: number) => string | undefined, trainerName?: (script: number) => string | null): ContextGroup[] {
