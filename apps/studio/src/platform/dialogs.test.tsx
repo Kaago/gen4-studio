@@ -218,6 +218,12 @@ describe("dialogs inside Tauri", () => {
     await expect(openPath({ directory: true })).resolves.toBeNull();
   });
 
+  it("forwards the filters of openPath", async () => {
+    vi.mocked(tauriOpen).mockResolvedValue("/roms/pt.nds");
+    await expect(openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] })).resolves.toBe("/roms/pt.nds");
+    expect(tauriOpen).toHaveBeenCalledWith({ directory: false, multiple: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
+  });
+
   it("keeps the .nds filter for a ROM and none for other save paths", async () => {
     vi.mocked(tauriSave).mockResolvedValue("/p/out.nds");
     await expect(savePath({ defaultPath: "/p/out.nds" })).resolves.toBe("/p/out.nds");

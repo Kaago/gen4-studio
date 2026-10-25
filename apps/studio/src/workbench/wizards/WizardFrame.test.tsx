@@ -215,6 +215,15 @@ describe("WizardFrame", () => {
     expect(button("Schließen")).toBeDefined();
   });
 
+  it("result_uses_the_show_label", () => {
+    show({ result: <p>Projekt angelegt</p>, onShow, showLabel: "Öffnen" });
+    expect(button("Zeigen")).toBeUndefined();
+    act(() => button("Öffnen")!.click());
+    expect(onShow).toHaveBeenCalledOnce();
+    // Without `onPlay` there is no "Hier spielen" beside it.
+    expect(button("Hier spielen")).toBeUndefined();
+  });
+
   it("renders_the_bar_and_the_step_into_the_slots_of_the_hinge_and_the_hand", () => {
     const bar = document.createElement("div");
     bar.setAttribute("data-wizard-bar", "");

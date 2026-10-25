@@ -1,0 +1,162 @@
+/*
+ * The steps of "Neues Spiel aus ROM". The columns come from WizardStep.module.css; this file adds the ROM card, the template
+ * cards, the paths and the progress list.
+ */
+
+/* A path field takes the column's width up to a readable measure. */
+.pathField {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* The ROM: its header title on a DS screen, like the label of a cartridge, the facts beside it. */
+.rom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+}
+
+.screen {
+  flex: none;
+  width: 256px;
+}
+
+/* Label and value in two columns; the rows of a <dl> stay grouped in a <div> each. */
+.facts {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--g4-raum-4) var(--g4-raum-12);
+  margin: 0;
+}
+
+/* Beside the screen the facts take the rest of the row (in a column a flex basis would stretch the grid's height). */
+.rom > .facts {
+  flex: 1 1 200px;
+}
+
+.facts > div {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--g4-text-sekundaer);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--g4-text-primaer);
+  overflow-wrap: anywhere;
+}
+
+.code {
+  font: var(--g4-font-code-s);
+}
+
+/* The full path of the new project. */
+.path {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+}
+
+/* Large choice cards side by side; they wrap below each other in a narrow hand. */
+.cards {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--g4-raum-8);
+}
+
+.card {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-12);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--g4-dauer-kurz),
+    background var(--g4-dauer-kurz);
+}
+
+.card:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+/* The chosen card: selection colour, a doubled edge and the filled mark (never colour alone). */
+.card[aria-checked="true"] {
+  border-color: var(--g4-auswahl-kante);
+  background: var(--g4-auswahl-flaeche);
+  box-shadow: inset 0 0 0 var(--g4-strich-standard) var(--g4-auswahl-kante);
+}
+
+/* A card that is not open yet: quiet, with a dashed edge and the lock. */
+.card[aria-disabled="true"] {
+  border-style: dashed;
+  border-color: var(--g4-linie-standard);
+  background: transparent;
+  color: var(--g4-text-deaktiviert);
+  cursor: default;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.card[aria-checked="true"] .mark {
+  color: var(--g4-auswahl-kante);
+}
+
+.card[aria-disabled="true"] .mark {
+  color: inherit;
+}
+
+.cardTitle {
+  font: var(--g4-font-text-m-betont);
+}
+
+.cardText {
+  color: var(--g4-text-sekundaer);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-4);
+  margin-top: auto;
+}
+
+/* Phases that have not started yet read quieter than the running and finished ones. */
+.progress {
+  align-self: stretch;
+}
+
+.progress [data-phase="open"] {
+  color: var(--g4-text-sekundaer);
+}
+
+.phaseNote {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

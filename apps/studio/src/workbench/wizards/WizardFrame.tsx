@@ -39,6 +39,8 @@ export type WizardFrameProps = {
   onCancel: () => void;
   /** "Zeigen": shows what the wizard made (only for a result that has something to show). */
   onShow?: () => void;
+  /** The label of the `onShow` button ("Zeigen" by default; the project wizard opens what it made). */
+  showLabel?: string;
   /** "Hier spielen" beside "Zeigen". */
   onPlay?: () => void;
 };
@@ -67,7 +69,7 @@ const resting = () => document.activeElement === null || document.activeElement 
  * its typed text, a button, a list) or it lands in a text area; Escape cancels by the rules of `escapeCloses` (a field takes back its
  * typed text first); Cmd+[ goes back. Opening puts the focus on the step's first control, closing gives it back to where it was.
  */
-export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, onPlay }: WizardFrameProps) {
+export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, showLabel = "Zeigen", onPlay }: WizardFrameProps) {
   const titleId = useId();
   const frame = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
@@ -190,7 +192,7 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
           <div className={styles.resultActions}>
             {onShow && (
               <Button kind="primary" onClick={onShow}>
-                Zeigen
+                {showLabel}
               </Button>
             )}
             {onShow && onPlay && (

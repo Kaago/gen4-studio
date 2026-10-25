@@ -1,0 +1,316 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
+import type { Created, CreateProgress, DestCheck, RomInfo } from "../api";
+import { pressKey } from "../ui/primitives/testUtils";
+import { NewProjectWizard } from "./NewProjectWizard";
+
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), inspectRom: vi.fn(), defaultProjectParent: vi.fn(), checkProjectDest: vi.fn(), createProject: vi.fn() }));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+/** Longer than the 200 ms the destination check waits for the typing to stop. */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 260)));
+
+const SIZE = 134_217_728;
+const rom = (change: Partial<RomInfo> = {}): RomInfo => ({
+  title: "POKEMON PL",
+  game_code: "CPUD",
+  family: "pt",
+  language: "german",
+  revision: 0,
+  size: SIZE,
+  sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4",
+  known_base: "Platin DE (Testprojekt)",
+  support: { kind: "verified" },
+  ...change,
+});
+const PLATIN = rom();
+const DIAMANT = rom({ title: "POKEMON D", game_code: "ADAD", family: "dp", known_base: null, support: { kind: "locked", reason: "Diamant/Perl: ohne Testprojekt nicht freigegeben" } });
+const HG_FR = rom({ title: "POKEMON HG", game_code: "IPKF", family: "hgss", language: "french", known_base: null, support: { kind: "untested" } });
+const free = (change: Partial<DestCheck> = {}): DestCheck => ({ state: "missing", free_bytes: 50_000_000_000, needed_bytes: SIZE * 2.5, ok: true, ...change });
+const created = (dest: string, template: Created["template"] = "original"): Created => ({
+  root: dest,
+  game_code: "CPUD",
+  template,
+  sha1: PLATIN.sha1,
+  phases: [
+    { phase: "read", ms: 30 },
+    { phase: "extract", ms: 900 },
+    { phase: "template", ms: 0 },
+    { phase: "check", ms: 40 },
+  ],
+});
+
+describe("NewProjectWizard", () => {
+  let container: HTMLElement;
+  let root: Root;
+  const onCancel = vi.fn();
+  const onOpen = vi.fn();
+  const onChoice = vi.fn();
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    for (const fn of [onCancel, onOpen, onChoice]) fn.mockReset();
+    vi.mocked(inspectRom).mockReset().mockResolvedValue(PLATIN);
+    vi.mocked(defaultProjectParent).mockReset().mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
+    vi.mocked(checkProjectDest).mockReset().mockResolvedValue(free());
+    // The browser's way: the phases arrive done, after the work.
+    vi.mocked(createProject)
+      .mockReset()
+      .mockImplementation(async (_rom, dest, template, onProgress) => {
+        const made = created(dest, template);
+        for (const { phase } of made.phases) onProgress({ phase, done: 1, total: 1 });
+        return made;
+      });
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  async function show(props: { initialRom?: string; initialNotice?: string } = {}) {
+    await act(async () => root.render(<NewProjectWizard {...props} onCancel={onCancel} onOpen={onOpen} onChoice={onChoice} />));
+    await flush();
+  }
+  const text = () => container.textContent ?? "";
+  const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+  const click = (el: Element | null | undefined) => act(async () => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  const next = () => click(button("Weiter"));
+  const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
+  const card = (template: string) => container.querySelector<HTMLElement>(`[role="radio"][data-template="${template}"]`);
+  const phase = (id: string) => container.querySelector<HTMLElement>(`[data-check="${id}"]`);
+  async function type(input: HTMLInputElement, value: string) {
+    await act(async () => input.focus());
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input.blur());
+    await flush();
+  }
+  /** ROM, template "Original", then on to the step "Name und Ziel" with the destination checked. */
+  async function toDestination() {
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    await next();
+    await settle();
+  }
+
+  it("walks_rom_template_name_and_summary_then_creates", async () => {
+    await show();
+    expect(current()).toBe("1. ROM");
+    expect(text()).toContain("Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM. Die ROM bleibt unverändert.");
+    expect(button("Weiter")?.disabled).toBe(true);
+
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    expect(inspectRom).toHaveBeenCalledWith("/roms/pt.nds");
+    expect(container.querySelector('[aria-label="DS-Bildschirm, Seite 1 von 1"]')?.textContent).toContain("POKEMON PL");
+    for (const shown of ["Platin", "Deutsch", "CPUD", "Freigegeben", "Bekannte Basis-ROM: Platin DE (Testprojekt)"]) expect(text()).toContain(shown);
+    await next();
+
+    expect(current()).toBe("2. Vorlage");
+    expect(card("original")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("original")?.textContent).toContain("Das Spiel, wie es ist.");
+    expect(card("data_only")?.textContent).toContain("Für Balancing: Werte, Lernsets, Trainer. Startet im Bereich Pokémon.");
+    expect(card("empty_region")?.getAttribute("aria-disabled")).toBe("true");
+    expect(card("empty_region")?.textContent).toContain("Kommt mit 3g.2");
+    // A ROM the editor knows needs no warning on the cards.
+    expect(text()).not.toContain("Nicht geprüft");
+    await next();
+
+    expect(current()).toBe("3. Name und Ziel");
+    expect(field("Name").value).toBe("Neues Platin");
+    expect(field("Ordner").value).toBe("/roms/_testkopien");
+    expect(container.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+    await settle();
+    expect(checkProjectDest).toHaveBeenLastCalledWith("/roms/_testkopien/Neues Platin", SIZE);
+    expect(text()).toContain("/roms/_testkopien/Neues Platin");
+    expect(onChoice).toHaveBeenLastCalledWith({ rom: PLATIN, template: "original", name: "Neues Platin", dest: "/roms/_testkopien/Neues Platin" });
+    // Enter in a field that holds no typed text moves on.
+    await act(async () => field("Name").focus());
+    pressKey(field("Name"), "Enter");
+    await flush();
+
+    expect(current()).toBe("4. Zusammenfassung");
+    expect(text()).toContain("Legt „Neues Platin“ aus Platin (Deutsch) mit der Vorlage Original an, in /roms/_testkopien/Neues Platin. Die ROM bleibt unverändert.");
+    await click(button("Anlegen"));
+    await flush();
+
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", expect.any(Function));
+    expect(text()).toContain("Projekt angelegt");
+    expect(text()).toContain("Basis-ROM SHA-1 d40f19ac…");
+    expect(text()).toContain("Öffnen lädt das Projekt.");
+    expect(button("Hier spielen")).toBeUndefined();
+    await click(button("Öffnen"));
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith(created("/roms/_testkopien/Neues Platin"));
+  });
+
+  it("creates_with_the_dspre_ending_and_only_data", async () => {
+    vi.mocked(defaultProjectParent).mockResolvedValue({ parent: "/Users/a/Documents/Gen4 Studio/", dspre_suffix: true });
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    await click(card("data_only"));
+    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("original")?.getAttribute("aria-checked")).toBe("false");
+    // The locked card cannot be chosen.
+    await click(card("empty_region"));
+    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
+    await next();
+    await settle();
+    expect(container.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(checkProjectDest).toHaveBeenLastCalledWith("/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", SIZE);
+    await next();
+    expect(text()).toContain("mit der Vorlage Nur Daten an, in /Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents.");
+    await click(button("Anlegen"));
+    await flush();
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", "data_only", expect.any(Function));
+    expect(text()).toContain("Öffnen startet im Bereich Pokémon.");
+  });
+
+  it("locks_diamond_with_its_reason", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(DIAMANT);
+    await show();
+    await type(field("ROM-Datei"), "/roms/d.nds");
+    expect(text()).toContain("Diamant/Perl");
+    expect(text()).toContain("Gesperrt");
+    expect(text()).toContain("Diamant/Perl: ohne Testprojekt nicht freigegeben");
+    expect(text()).toContain("Unbekannte Fassung: vielleicht schon verändert.");
+    expect(button("Weiter")?.disabled).toBe(true);
+  });
+
+  it("names_a_file_that_is_no_gen4_game", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(rom({ title: "TETRIS", game_code: "ATRE", family: null, language: "english", known_base: null, support: { kind: "unknown", reason: "Kein Gen-4-Spiel erkannt" } }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/t.nds");
+    expect(text()).toContain("Kein Gen-4-Spiel erkannt");
+    expect(button("Weiter")?.disabled).toBe(true);
+    // A file that is no ROM at all: the refusal shows, and the card of the earlier file goes.
+    vi.mocked(inspectRom).mockRejectedValue({ code: "error", message: "too small for a DS ROM: 12 bytes", asset: null });
+    await type(field("ROM-Datei"), "/roms/leer.nds");
+    expect(text()).toContain("too small for a DS ROM: 12 bytes");
+    expect(text()).not.toContain("TETRIS");
+    expect(button("Weiter")?.disabled).toBe(true);
+  });
+
+  it("untested_language_shows_the_plaque", async () => {
+    vi.mocked(inspectRom).mockResolvedValue(HG_FR);
+    await show();
+    await type(field("ROM-Datei"), "/roms/hg-fr.nds");
+    expect(text()).toContain("HeartGold");
+    expect(text()).toContain("Französisch");
+    expect(text()).toContain("Nicht geprüft");
+    expect(text()).toContain("Für diese Sprache gibt es kein Testprojekt. Entpacken geht, Editoren und Vorlagen sind nicht geprüft.");
+    expect(button("Weiter")?.disabled).toBe(false);
+    await next();
+    for (const t of ["original", "empty_region", "data_only"]) expect(card(t)?.textContent).toContain("Nicht geprüft");
+    await next();
+    expect(field("Name").value).toBe("Neues HeartGold");
+  });
+
+  it("refuses_a_non_empty_destination", async () => {
+    vi.mocked(checkProjectDest).mockResolvedValue(free({ state: "not_empty", ok: false }));
+    await show();
+    await toDestination();
+    expect(text()).toContain("Den Ordner gibt es schon und er ist nicht leer. Wähle einen anderen Namen.");
+    expect(button("Weiter")?.disabled).toBe(true);
+    // Another name is free.
+    vi.mocked(checkProjectDest).mockResolvedValue(free());
+    await type(field("Name"), "Mein Platin");
+    await settle();
+    expect(checkProjectDest).toHaveBeenLastCalledWith("/roms/_testkopien/Mein Platin", SIZE);
+    expect(text()).not.toContain("Den Ordner gibt es schon");
+    expect(button("Weiter")?.disabled).toBe(false);
+  });
+
+  it("refuses_too_little_space_a_bad_name_and_a_rejected_check", async () => {
+    vi.mocked(checkProjectDest).mockResolvedValue(free({ free_bytes: 100_000_000, needed_bytes: 335_544_320, ok: false }));
+    await show();
+    await toDestination();
+    expect(text()).toContain("Zu wenig Platz: 100 MB frei, gebraucht etwa 336 MB.");
+    expect(button("Weiter")?.disabled).toBe(true);
+
+    vi.mocked(checkProjectDest).mockResolvedValue(free());
+    await type(field("Name"), "a/b");
+    await settle();
+    expect(text()).toContain("Der Name darf kein /, \\ oder : enthalten und nicht mit einem Punkt beginnen.");
+    expect(button("Weiter")?.disabled).toBe(true);
+
+    // The dev bridge refuses a destination outside its roots.
+    vi.mocked(checkProjectDest).mockRejectedValue({ code: "error", message: "Pfad liegt außerhalb der erlaubten Ordner: /tmp/Neu", asset: null });
+    await type(field("Name"), "Neu");
+    await type(field("Ordner"), "/tmp");
+    await settle();
+    expect(text()).toContain("Pfad liegt außerhalb der erlaubten Ordner: /tmp/Neu");
+    expect(button("Weiter")?.disabled).toBe(true);
+  });
+
+  it("initial_rom_jumps_to_the_template_step", async () => {
+    await show({ initialRom: "/roms/pt.nds" });
+    expect(inspectRom).toHaveBeenCalledWith("/roms/pt.nds");
+    expect(current()).toBe("2. Vorlage");
+  });
+
+  it("shows_the_initial_notice_on_the_rom_step", async () => {
+    await show({ initialNotice: "Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein." });
+    expect(current()).toBe("1. ROM");
+    expect(text()).toContain("Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein.");
+  });
+
+  it("shows_progress_and_an_error", async () => {
+    let fail: (e: unknown) => void = () => {};
+    let progress: (p: CreateProgress) => void = () => {};
+    // The Tauri way: each event says a phase starts.
+    vi.mocked(createProject).mockImplementation((_rom, _dest, _template, onProgress) => {
+      progress = onProgress;
+      onProgress({ phase: "read", done: 0, total: 1 });
+      return new Promise<Created>((_, reject) => (fail = reject));
+    });
+    await show();
+    await toDestination();
+    await next();
+    expect(current()).toBe("4. Zusammenfassung");
+    for (const id of ["read", "extract", "template", "check"]) expect(phase(id)?.dataset.phase).toBe("open");
+    expect(phase("read")?.textContent).toContain("Lesen");
+    expect(phase("extract")?.textContent).toContain("Entpacken");
+    expect(phase("template")?.textContent).toContain("Vorlage anwenden");
+    expect(phase("check")?.textContent).toContain("Prüfen");
+
+    await click(button("Anlegen"));
+    expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-busy")).toBe("true");
+    expect(phase("read")?.dataset.phase).toBe("running");
+    expect(phase("extract")?.dataset.phase).toBe("open");
+    await act(async () => progress({ phase: "extract", done: 0, total: 1 }));
+    expect(phase("read")?.dataset.phase).toBe("done");
+    expect(phase("extract")?.dataset.phase).toBe("running");
+
+    await act(async () => fail({ code: "error", message: "build: boom", asset: null }));
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("build: boom");
+    expect(phase("extract")?.dataset.phase).toBe("failed");
+    expect(current()).toBe("4. Zusammenfassung");
+    expect(button("Anlegen")?.disabled).toBe(false);
+
+    // A known refusal of the kernel reads in German; going back leaves the error behind.
+    vi.mocked(createProject).mockRejectedValue({ code: "error", message: "staging folder /roms/_testkopien/.Neues Platin.g4-new is in the way; remove it or choose another name", asset: null });
+    await click(button("Anlegen"));
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Ein alter Zwischenordner liegt im Weg. Lösche ihn oder wähle einen anderen Namen.");
+    await click(button("Zurück"));
+    expect(current()).toBe("3. Name und Ziel");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("cancels", async () => {
+    await show();
+    await click(button("Abbrechen"));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
