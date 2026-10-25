@@ -35,7 +35,7 @@ describe("map import commands", () => {
   });
 
   it("passes the reports and changed assets through", async () => {
-    const report = [{ part: "model", file: "/p/a.nsbmd", size: 1024, state: { kind: "warning", message: "model length 1022 is not a multiple of 4" }, notes: [] }];
+    const report = [{ part: "model", file: "/p/a.nsbmd", size: 1024, state: { kind: "warning", code: "model.unaligned", args: ["1022"], message: "model length 1022 is not a multiple of 4" }, notes: [] }];
     invoke.mockResolvedValueOnce(report);
     await expect(inspectMapImport(1, { files: ["/p/a.nsbmd"] })).resolves.toEqual(report);
     invoke.mockResolvedValueOnce([{ kind: "Map", index: 1 }]);

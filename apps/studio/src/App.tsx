@@ -818,7 +818,7 @@ function AppBody() {
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       {importMap !== null && (
-        <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} />
+        <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
       )}
       <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}

@@ -1006,6 +1006,7 @@ impl SourceCheck for MapModelInvalid {
             let Err(why) = map_import::check_model_bytes(&map.model) else {
                 continue;
             };
+            let why = why.message;
             out.push(
                 Finding::new(
                     Self::CODE,
@@ -1038,6 +1039,7 @@ impl SourceCheck for MapBdhcSize {
             let Err(why) = map_import::check_bdhc(&map.bdhc) else {
                 continue;
             };
+            let why = why.message;
             out.push(
                 Finding::new(
                     Self::CODE,

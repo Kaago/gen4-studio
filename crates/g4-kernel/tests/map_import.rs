@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use g4_formats::game::Family;
 use g4_formats::map::{BLANK_BGS, MapFile};
-use g4_kernel::map_import::{self, Part, PartState, Source};
+use g4_kernel::map_import::{self, Part, PartCode, PartState, Source};
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, Store};
 
@@ -61,11 +61,21 @@ fn every_vanilla_model_reimported_into_itself_is_byte_identical() {
         );
         // The replaced model is the reference: no name is newly missing.
         assert!(
-            !report[0].notes.iter().any(|n| n.contains("missing in map")),
+            !report[0]
+                .notes
+                .iter()
+                .any(|n| n.code == PartCode::ModelTexturesMissing),
             "map {index}: {:?}",
             report[0].notes
         );
-        unchecked += usize::from(report[0].notes.iter().any(|n| n.contains("not checked")));
+        unchecked += usize::from(report[0].notes.iter().any(|n| {
+            matches!(
+                n.code,
+                PartCode::ModelTexturesUnreadable
+                    | PartCode::ModelTexturesNoHeader
+                    | PartCode::ModelTexturesUnchecked
+            )
+        }));
         let changed =
             map_import::import(&mut store, index, &source, &[Part::Model], false).unwrap();
         assert!(changed.is_empty(), "map {index} changed");
@@ -155,7 +165,9 @@ fn hgss_bin_into_pt_and_back() {
 
     let report = map_import::inspect(&mut store, b, &source).unwrap();
     match (&report[0].state, family) {
-        (PartState::Warning(w), Family::Pt) => assert!(w.contains("background sound"), "{w}"),
+        (PartState::Warning(w), Family::Pt) => {
+            assert_eq!(w.code, PartCode::WholeBgsDropped, "{w}");
+        }
         (PartState::Ok, Family::Hgss) => {}
         (s, _) => panic!("{s:?}"),
     }

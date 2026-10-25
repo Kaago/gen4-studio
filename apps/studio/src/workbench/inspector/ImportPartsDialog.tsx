@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorText, importMapParts, inspectMapImport } from "../../api";
-import type { ImportSource, MapPart, PartReport } from "../../api";
+import type { CheckProblemDto, ImportSource, MapPart, PartReport } from "../../api";
+import type { ChecksApi } from "../../checks/useChecks";
 import { openFiles } from "../../platform/dialogs";
 import { inTauri } from "../../platform/transport";
 import {
@@ -16,11 +17,13 @@ import {
   checkNumber,
 } from "../../ui/primitives";
 import type { CheckRow, PickerItem } from "../../ui/primitives";
+import type { NavTarget } from "../navigation";
+import { findingRow } from "../problems/ProblemsPanel";
 import { id4 } from "../terms";
 import {
   PART_NAME,
   isForeignWhole,
-  noteText,
+  partText,
   partView,
   partsWord,
   preselected,
@@ -36,9 +39,16 @@ export interface ImportPartsDialogProps {
   onClose: () => void;
   /** Number of maps in the project (the maps the picker offers). */
   mapCount: number;
-  /** An import changed the map: the app refreshes pictures, scene and the dirty count. */
+  /** An import changed the map: the app refreshes pictures, scene and the dirty count (and announces the edit, so the checks run). */
   onImported: (map: number) => void | Promise<void>;
+  /** The checks of the project: after an import the dialog lists what their next run finds at the map. None: it lists nothing. */
+  checks?: ChecksApi | null;
+  /** „Zeigen“ of such a finding (the dialog closes first). */
+  goTo?: (target: NavTarget) => void;
 }
+
+/** The findings of the map after an import: the next run is awaited, gave no report, or found these. */
+type Found = "waiting" | "unchecked" | readonly CheckProblemDto[];
 
 const MODES = [
   { value: "files", label: "Datei" },
@@ -49,7 +59,9 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /**
  * „Teile importieren…“: parts from files or from another map of the project are checked first (`inspect_map_import`), each one with its
- * size and state; the chosen parts are written as one undo step (`import_map_parts`). A part with an error cannot be chosen.
+ * size and state in German; the chosen parts are written as one undo step (`import_map_parts`). A part with an error cannot be chosen.
+ * After an import the dialog waits for the next report of the checks (the import is an edit; the full run follows its pause) and lists
+ * the findings about the map, each with „Zeigen“ where it leads somewhere (spec 3b.4 §9).
  */
 export function ImportPartsDialog({
   map,
@@ -57,6 +69,8 @@ export function ImportPartsDialog({
   onClose,
   mapCount,
   onImported,
+  checks = null,
+  goTo,
 }: ImportPartsDialogProps) {
   const [mode, setMode] = useState<Mode>("map");
   const [paths, setPaths] = useState("");
@@ -69,10 +83,15 @@ export function ImportPartsDialog({
   const [keepBuildings, setKeepBuildings] = useState(false);
   const [working, setWorking] = useState(false);
   const [done, setDone] = useState<number | null>(null);
+  const [found, setFound] = useState<Found | null>(null);
+  // Counts the openings: a report that arrives after the dialog was opened again belongs to the earlier import.
+  const opening = useRef(0);
 
   // Every opening starts afresh.
   useEffect(() => {
     if (!open) return;
+    opening.current++;
+    setFound(null);
     setMode("map");
     setPaths("");
     setSourceText("");
@@ -152,7 +171,19 @@ export function ImportPartsDialog({
         foreignWhole && keepBuildings,
       );
       setDone(changed.length > 0 ? parts.length : 0);
-      if (changed.length > 0) await onImported(map);
+      if (changed.length > 0) {
+        // Asked before the import's edit is announced (`onImported`): the run after its pause is the one that counts.
+        const next = checks?.nextReport();
+        if (next) {
+          const at = opening.current;
+          setFound("waiting");
+          void next.then((findings) => {
+            if (opening.current !== at) return;
+            setFound(findings === null ? "unchecked" : findings.filter((f) => f.subject.kind === "map" && f.subject.index === map));
+          });
+        }
+        await onImported(map);
+      }
     } catch (e) {
       setFailure(errorText(e));
     } finally {
@@ -178,8 +209,8 @@ export function ImportPartsDialog({
             <p className={styles.reason}>{view.message}</p>
           )}
           {r.notes.map((n) => (
-            <p key={n} className={styles.reason}>
-              {noteText(n)}
+            <p key={`${n.code}:${n.args.join(",")}`} className={styles.reason}>
+              {partText(n)}
             </p>
           ))}
         </div>
@@ -302,6 +333,39 @@ export function ImportPartsDialog({
               ? `${partsWord(done)} übernommen`
               : "Nichts geändert: die Teile waren schon so."}
           </Notice>
+        )}
+        {found === "waiting" && (
+          <p role="status" className={styles.reason}>
+            Prüft die Karte …
+          </p>
+        )}
+        {found === "unchecked" && <p className={styles.reason}>Die Prüfungen haben kein Ergebnis geliefert. Starte sie unter Probleme mit „Erneut prüfen“.</p>}
+        {Array.isArray(found) && found.length === 0 && <p className={styles.reason}>Keine neuen Befunde an dieser Karte.</p>}
+        {Array.isArray(found) && found.length > 0 && (
+          <CheckList
+            ariaLabel={`Befunde an Karte ${id4(map)}`}
+            rows={found.map((f) => {
+              const target = f.target;
+              return findingRow(
+                f,
+                "bauen",
+                target !== undefined && goTo !== undefined ? (
+                  <span className={styles.findingActions}>
+                    <Button
+                      kind="quiet"
+                      size="s"
+                      onClick={() => {
+                        onClose();
+                        goTo(target);
+                      }}
+                    >
+                      Zeigen
+                    </Button>
+                  </span>
+                ) : undefined,
+              );
+            })}
+          />
         )}
         {done === null && (
           <div className={styles.actions}>

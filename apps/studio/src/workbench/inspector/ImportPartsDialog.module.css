@@ -32,3 +32,10 @@
   justify-content: flex-end;
   gap: var(--g4-raum-8);
 }
+
+/* „Zeigen“ under the words of a finding of the map. */
+.findingActions {
+  display: flex;
+  gap: var(--g4-raum-4);
+  margin-top: var(--g4-raum-2);
+}
