@@ -239,7 +239,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec): { lines: string[
   }
   return {
     lines,
-    next: [`Mit der Welt verbinden: ${TERMS.header.label}-Editor › ${TERMS.warp.plural} › Warp hinzufügen (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
+    next: [`Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
   };
 }
 
@@ -527,6 +527,9 @@ export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], n
   return lines;
 }
 
+/** Where a door is set now: the tool, or the „+“ of „In dieser Szene“. */
+const SET_DOOR = "Tür setzen: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“";
+
 /** What `create_room` made, in words, and where to go on from there. */
 export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[]; next: string[] } {
   const lines = [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.matrix.label} ${id4(report.matrix)}, ${TERMS.map.label} ${id4(report.map)}.`];
@@ -541,7 +544,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[
     lines,
     next:
       spec.entrance === null
-        ? [`Eingang verbinden: ${TERMS.header.label}-Editor › Ausgänge › Warp hinzufügen`, `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]
+        ? [`Eingang verbinden: ${SET_DOOR}`, `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]
         : ["Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen", `Innenraum einrichten: Objekte und Trigger im ${TERMS.header.label}-Editor`],
   };
 }

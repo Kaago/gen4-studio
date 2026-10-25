@@ -115,6 +115,8 @@ describe("sceneRows", () => {
     const root = sceneRows(input({ identify: () => ({ kind: "room", name: "Omas Haus" }) }), SCENE_OPEN, "")[0]!;
     expect([root.label, root.icon]).toEqual(["Omas Haus", "room"]);
     expect(sceneRows(input({ identify: () => ({ kind: "area", name: "Jubelstadt" }) }), SCENE_OPEN, "")[0]!.icon).toBe("outside");
+    // A header that is neither: the symbol of a place, as the folded row of the list has it.
+    expect(sceneRows(input({ identify: () => ({ kind: "other", name: "Irgendwo" }) }), SCENE_OPEN, "")[0]!.icon).toBe("place");
     // Without the world, the places tell (the town is outside: an area).
     expect(sceneRows(input(), SCENE_OPEN, "")[0]!.icon).toBe("outside");
   });

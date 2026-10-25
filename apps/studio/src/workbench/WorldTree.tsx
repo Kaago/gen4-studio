@@ -184,7 +184,7 @@ const HeaderLeaf = memo(function HeaderLeaf({
   );
 });
 
-/** An area: a click selects its first header, the caret opens its rooms. */
+/** An area: a click selects its first header, the caret opens its rooms (and Tüfteln's sections). An area with neither is a leaf. */
 const AreaRow = memo(function AreaRow({
   area,
   depth,
@@ -192,6 +192,7 @@ const AreaRow = memo(function AreaRow({
   selected,
   marked,
   mark,
+  branch,
   open,
   onPick,
   onToggle,
@@ -202,6 +203,8 @@ const AreaRow = memo(function AreaRow({
   selected: boolean;
   marked: boolean;
   mark: MarkSeverity | undefined;
+  /** The area has rooms or sections to open. */
+  branch: boolean;
   open: boolean;
   onPick: (h: HeaderSummary, areaKey: string | null) => void;
   onToggle: (key: string) => void;
@@ -218,8 +221,8 @@ const AreaRow = memo(function AreaRow({
       title={tinker ? techTitle(first, marked) : `${area.name}, ${roomsText(count)}`}
       selected={selected}
       onSelect={() => onPick(first, area.key)}
-      expanded={open}
-      onToggle={() => onToggle(area.key)}
+      expanded={branch ? open : undefined}
+      onToggle={branch ? () => onToggle(area.key) : undefined}
       dataAttrs={{ "data-area-key": area.key, "data-place-key": area.placeKey, "data-header-id": first.id }}
       trailing={
         <>
@@ -585,6 +588,7 @@ export function WorldTree({
             selected={sections ? false : area.headers.some((h) => h.id === selected)}
             marked={area.headers.some((h) => showsMatrix(h, shownMatrix))}
             mark={worstMark(marks, area.headers)}
+            branch={sections || area.rooms.length > 0}
             open={open}
             onPick={onPick}
             onToggle={toggleBranch}

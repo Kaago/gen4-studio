@@ -130,7 +130,15 @@ function shownPlace(identity: HeaderIdentity | null, header: HeaderSummary | und
 }
 
 /** The folded places: one row with the shown place, a symbol and an arrow, as a button that opens the picker. */
-function FoldedPlaces({ world, headers, selected, depth, identify, onSelect }: Pick<WorldExplorerProps, "world" | "headers" | "selected" | "depth" | "identify" | "onSelect">) {
+function FoldedPlaces({
+  world,
+  headers,
+  selected,
+  depth,
+  identify,
+  onSelect,
+  onTouch,
+}: Pick<WorldExplorerProps, "world" | "headers" | "selected" | "depth" | "identify" | "onSelect"> & { onTouch: (areaKey: string) => void }) {
   const [open, setOpen] = useState(false);
   const header = headers.find((h) => h.id === selected);
   const { label, icon } = shownPlace(header && identify ? identify(header) : null, header);
@@ -138,7 +146,11 @@ function FoldedPlaces({ world, headers, selected, depth, identify, onSelect }: P
   const items = useMemo(() => placeItems(world, headers, depth === "tuefteln"), [world, headers, depth]);
   const pick = (item: PickerItem) => {
     const chosen = headers.find((h) => h.id === item.id);
-    if (chosen) onSelect(chosen);
+    if (!chosen) return;
+    onSelect(chosen);
+    // As a click in the tree: the area of the pick (a room's owner) is the one chosen last.
+    const areaKey = world?.areaOf.get(chosen.id);
+    if (areaKey !== undefined) onTouch(areaKey);
   };
   return (
     <>
@@ -202,7 +214,7 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded,
   return (
     <section className={folded ? `${styles.section} ${styles.folded}` : styles.section} aria-label="Orte">
       <PanelHead title="Orte" actions={actions} />
-      {folded && <FoldedPlaces world={tree.world} headers={tree.headers} selected={tree.selected} depth={tree.depth} identify={identify} onSelect={tree.onSelect} />}
+      {folded && <FoldedPlaces world={tree.world} headers={tree.headers} selected={tree.selected} depth={tree.depth} identify={identify} onSelect={tree.onSelect} onTouch={touch} />}
       <div className={styles.body} hidden={folded}>
         {mode === "list" ? (
           <HeaderList

@@ -73,6 +73,9 @@ export const SCENE_OPEN: ReadonlySet<string> = new Set([ROOT_KEY, ...GROUPS.map(
 const GROUP_LABEL: Record<SceneGroup, string> = { maps: TERMS.map.plural, object: "Figuren", warp: "Türen", coord: "Auslöser", bg: "Schilder", scripts: TERMS.script.plural };
 export const GROUP_ICON: Record<SceneGroup, IconName> = { maps: "map", object: "figure", warp: "door", coord: "trigger", bg: "sign", scripts: "script" };
 
+/** The root's symbol by what the header is, as the folded place row of the list has it: a header that is neither area nor room is a place. */
+const ROOT_ICON: Record<HeaderIdentity["kind"], IconName> = { area: "outside", room: "room", other: "place" };
+
 /** Whether two refs name the same thing. */
 export function sameRef(a: SceneRef | null, b: SceneRef | null): boolean {
   if (a === null || b === null || a.kind !== b.kind) return false;
@@ -219,7 +222,7 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
       kind: "header",
       label: root.name,
       ...(tinker ? { tech: `${techLabel("header", header.id)} · ${techLabel("matrix", header.matrix_id)}` } : {}),
-      icon: root.kind === "area" ? "outside" : "room",
+      icon: ROOT_ICON[root.kind],
       ref: { kind: "header", id: header.id },
       expanded: searching || open.has(ROOT_KEY),
     },

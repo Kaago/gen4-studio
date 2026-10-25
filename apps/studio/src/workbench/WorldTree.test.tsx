@@ -186,6 +186,19 @@ describe("WorldTree", () => {
     expect(area("m5")?.getAttribute("aria-selected")).toBe("true");
   });
 
+  it("makes_an_area_without_rooms_a_leaf", () => {
+    render();
+    click(group("more"));
+    // The Kampfzone has no rooms: no caret, no open state; an area with rooms keeps both.
+    const leaf = area("m5")!;
+    expect(leaf.hasAttribute("aria-expanded")).toBe(false);
+    expect(leaf.querySelector("span[aria-hidden]")!.childElementCount).toBe(0);
+    expect(area("w0:2")!.hasAttribute("aria-expanded")).toBe(true);
+    // Tüfteln lists sections as children only for an area of several headers; this one has one.
+    render({ depth: "tuefteln" });
+    expect(area("m5")!.hasAttribute("aria-expanded")).toBe(false);
+  });
+
   it("shows_more_areas_and_unconnected_after_the_world_maps", () => {
     render();
     expect(rootRows()).toEqual(["Scripts", "Sinnoh2", "Weitere Gebiete1", "Nicht verbunden1"]);

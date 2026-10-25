@@ -217,7 +217,8 @@ describe("WorldExplorer", () => {
     expect(areas()).toHaveLength(1);
     render(props({ selected: 4 }));
     expect(search().value).toBe("");
-    expect(expanded()).toEqual(["true", "false"]);
+    // Route 201 has no rooms: a leaf, neither open nor closed.
+    expect(expanded()).toEqual(["true", null]);
     expect(scrolled).toEqual(["4"]);
   });
 
@@ -230,16 +231,13 @@ describe("WorldExplorer", () => {
     expect(scrolled).toEqual(["3"]);
   });
 
-  it("opens an area a link reveals although the user closed it, and keeps an area the user opened", () => {
+  it("opens an area a link reveals although the user closed it", () => {
     render(props({ selected: 3 }));
     caret(areas()[0]);
     expect(expanded()[0]).toBe("false");
     render(props({ selected: 3, revealToken: 1 }));
     expect(expanded()[0]).toBe("true");
     expect(scrolled).toEqual(["3", "3"]);
-    caret(areas()[1]);
-    render(props({ selected: 4 }));
-    expect(expanded()).toEqual(["true", "true"]);
   });
 
   describe("the head", () => {
@@ -390,10 +388,13 @@ describe("WorldExplorer", () => {
       const first = treeitems()[0];
       pressKey(first, "ArrowDown");
       expect(document.activeElement).toBe(treeitems()[1]);
+      // The second area has no rooms: a leaf, the arrow opens nothing.
       pressKey(areas()[1], "ArrowRight");
-      expect(expanded()).toEqual(["true", "true"]);
+      expect(expanded()).toEqual(["true", null]);
       pressKey(areas()[0], "ArrowLeft");
-      expect(expanded()).toEqual(["false", "true"]);
+      expect(expanded()).toEqual(["false", null]);
+      pressKey(areas()[0], "ArrowRight");
+      expect(expanded()).toEqual(["true", null]);
       act(() => button("Liste")!.click());
       const options = [...container.querySelectorAll<HTMLElement>('[role="option"]')];
       pressKey(options[0], "ArrowDown");

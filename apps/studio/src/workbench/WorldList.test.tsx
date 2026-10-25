@@ -216,6 +216,22 @@ describe("WorldList", () => {
     expect(onSelect).toHaveBeenLastCalledWith(headers[5]);
   });
 
+  it("touches_the_area_of_a_pick_in_the_folded_row_like_a_click_in_the_tree", () => {
+    show();
+    act(() => button("Orte einklappen")!.click());
+    act(() => foldedRow()!.click());
+    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "Haus 2");
+    pressKey(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "Enter");
+    // The room's area is the one chosen last (the sort „Zuletzt gewählt“ reads it).
+    const area = world.areaOf.get(4)!;
+    expect(JSON.parse(localStorage.getItem("g4.world.recent./p")!)).toEqual([area]);
+    // An area on a map of its own is touched by its own key.
+    act(() => foldedRow()!.click());
+    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "Kampfzone");
+    act(() => options()[0]!.click());
+    expect(JSON.parse(localStorage.getItem("g4.world.recent./p")!)).toEqual([world.areaOf.get(5)!, area]);
+  });
+
   it("remembers_the_split_and_the_fold", () => {
     show();
     pressKey(splitter()!, "ArrowUp");
