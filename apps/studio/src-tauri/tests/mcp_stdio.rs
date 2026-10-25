@@ -186,7 +186,9 @@ async fn get_header_answers_structured() {
     // The same answer the toolbox (over get_header_impl) gives in a session of its own.
     let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
     let toolbox = Toolbox::open(policy, Access::default()).unwrap();
-    let direct = toolbox.call("get_header", json!({ "id": 0 })).unwrap();
+    let direct = toolbox
+        .call("get_header", json!({ "id": 0 }), "probe")
+        .unwrap();
     // A text block carries the same JSON.
     let text = answer.content[0]
         .as_text()
@@ -601,14 +603,14 @@ async fn edit_undo_redo_over_stdio() {
     assert_eq!(data_get(&client, "move", 1).await, before);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": [], "redo": ["Stärke 65"], "undo_agents": [], "redo_agents": [null] })
+        json!({ "undo": [], "redo": ["Stärke 65"], "undo_agents": [], "redo_agents": ["rmcp"] })
     );
 
     result(call_tool(&client, "redo", json!({})).await);
     assert_eq!(data_get(&client, "move", 1).await, after);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": ["Stärke 65"], "redo": [], "undo_agents": [null], "redo_agents": [] })
+        json!({ "undo": ["Stärke 65"], "redo": [], "undo_agents": ["rmcp"], "redo_agents": [] })
     );
     client.cancel().await.unwrap();
 }
@@ -1010,7 +1012,9 @@ fn closing_stdin_waits_for_a_running_write() {
         expert: true,
     };
     let toolbox = Toolbox::open(policy, access).unwrap();
-    toolbox.call("g4_call", export("build/plain.per")).unwrap();
+    toolbox
+        .call("g4_call", export("build/plain.per"), "probe")
+        .unwrap();
     let plain = std::fs::read(fixture.dir.path().join("build/plain.per")).unwrap();
     assert!(!plain.is_empty());
     assert_eq!(std::fs::read(&slow).unwrap(), plain);
@@ -1040,7 +1044,7 @@ fn vanilla_closing_stdin_waits_for_a_running_build() {
     };
     let toolbox = Toolbox::open(policy, write).unwrap();
     toolbox
-        .call("build_rom", json!({ "out": "build/plain.nds" }))
+        .call("build_rom", json!({ "out": "build/plain.nds" }), "probe")
         .unwrap();
     let plain = std::fs::read(project.join("build/plain.nds")).unwrap();
     assert_eq!(std::fs::read(&slow).unwrap(), plain);

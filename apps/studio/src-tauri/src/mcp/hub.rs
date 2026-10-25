@@ -271,6 +271,9 @@ impl Inner {
 pub struct AgentHub {
     inner: Mutex<Inner>,
     answered: Condvar,
+    /// Held by each agent call on the user's session (a whole batch included), never while
+    /// a call waits for the user: agents' calls do not interleave with one another.
+    turn: Mutex<()>,
 }
 
 impl AgentHub {
@@ -400,14 +403,21 @@ impl AgentHub {
     }
 
     /// "Trennen": every connected client counts as disconnected (its next call asks again),
-    /// then every session is closed.
+    /// its open questions are answered `deny` (nothing is saved, so no call waiting for them
+    /// runs afterwards), then every session is closed.
     pub fn disconnect_all(&self) {
         let mut inner = self.lock();
         let clients: Vec<String> = inner.connections.drain(..).map(|c| c.client).collect();
+        for question in &mut inner.questions {
+            if question.answer.is_none() && clients.contains(&question.client) {
+                question.answer = Some("deny".to_owned());
+            }
+        }
         inner.disconnected.extend(clients);
         let closer = inner.closer.clone();
         let emit = inner.status_event();
         drop(inner);
+        self.answered.notify_all();
         if let Some(closer) = closer {
             closer();
         }
@@ -425,6 +435,12 @@ impl AgentHub {
 
     pub fn read_only(&self) -> bool {
         self.lock().read_only
+    }
+
+    /// The agents' turn on the user's session (see the field); a poisoned lock is taken over,
+    /// it guards nothing but the order.
+    pub fn agent_turn(&self) -> MutexGuard<'_, ()> {
+        self.turn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// How far `client` may go in the project `key` (folder name `project_name`): the saved
@@ -892,6 +908,36 @@ mod tests {
         assert_eq!(hub.set_enabled(true), Err("Port belegt".to_owned()));
         assert!(!hub.status().enabled);
         assert!(!AgentSettings::load(dir.path()).enabled);
+    }
+
+    #[test]
+    fn disconnect_all_denies_open_questions() {
+        let hub = Arc::new(AgentHub::default());
+        hub.connect("Claude Code");
+        let confirming = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || hub.confirm("Claude Code", "Patch", Duration::from_secs(10)))
+        };
+        let connecting = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || {
+                hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10))
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while hub.lock().questions.len() != 2 {
+            assert!(Instant::now() < deadline, "not both questions raised");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let started = Instant::now();
+        hub.disconnect_all();
+        // "Trennen" answers both at once: no waiting call runs after it.
+        assert!(!confirming.join().unwrap());
+        assert_eq!(connecting.join().unwrap(), GrantLevel::None);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(hub.status().question, None);
+        // The refusal is not the user's answer: nothing is saved.
+        assert_eq!(hub.settings().grant_for(&key()), None);
     }
 
     #[test]

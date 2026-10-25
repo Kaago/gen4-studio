@@ -1,11 +1,13 @@
 //! The editor's command layer for coding agents over the Model Context Protocol: which
 //! commands an agent may run ([`access`]), the curated tools it sees ([`catalog`]), the
 //! toolbox that runs them ([`tools`]), the server over stdio ([`server`], started by
-//! `studio mcp`, see [`main`]) and, in the running app, the agent settings ([`settings`])
-//! and the hub of connections, questions and events ([`hub`]).
+//! `studio mcp`, see [`main`]) and, in the running app, the agent settings ([`settings`]),
+//! the hub of connections, questions and events ([`hub`]) and the state the toolbox then
+//! shares with the user ([`host`]).
 
 pub mod access;
 pub mod catalog;
+pub mod host;
 pub mod hub;
 pub mod server;
 pub mod settings;
