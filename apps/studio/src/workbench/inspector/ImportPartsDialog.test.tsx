@@ -202,6 +202,35 @@ describe("ImportPartsDialog", () => {
       expect(dialog().textContent).not.toContain("Keine neuen Befunde");
     });
 
+    it("forgets_the_findings_of_the_import_when_the_source_changes", async () => {
+      let report!: (f: readonly CheckProblemDto[] | null) => void;
+      vi.mocked(checks.nextReport).mockReturnValueOnce(new Promise((resolve) => (report = resolve))).mockResolvedValueOnce([]);
+      await importModel();
+      expect(dialog().textContent).toContain("Prüft die Karte …");
+      // Another source after the import: a fresh check list, nothing of the earlier import.
+      const field = dialog().querySelector<HTMLInputElement>("input[aria-label='Quellkarte']")!;
+      await act(async () => void field.focus());
+      typeInto(field, "7");
+      await act(async () => void field.blur());
+      await flush();
+      expect(inspectMapImport).toHaveBeenLastCalledWith(5, { map: 7 });
+      expect(dialog().textContent).not.toContain("Prüft die Karte");
+      expect(button("2 Teile übernehmen")).toBeDefined();
+      // The report of the earlier import arrives late: it is dropped.
+      await act(async () => report([atMap(5)]));
+      expect(findings()).toBeNull();
+      expect(dialog().textContent).not.toContain("Keine neuen Befunde");
+      // A report that arrived before the change goes as well.
+      await act(async () => button("2 Teile übernehmen")!.click());
+      await flush();
+      expect(dialog().textContent).toContain("Keine neuen Befunde an dieser Karte.");
+      await act(async () => void field.focus());
+      typeInto(field, "8");
+      await act(async () => void field.blur());
+      await flush();
+      expect(dialog().textContent).not.toContain("Keine neuen Befunde");
+    });
+
     it("waits_for_nothing_when_the_import_changed_nothing", async () => {
       vi.mocked(importMapParts).mockResolvedValue([]);
       await importModel();

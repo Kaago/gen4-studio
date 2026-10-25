@@ -84,7 +84,8 @@ export function ImportPartsDialog({
   const [working, setWorking] = useState(false);
   const [done, setDone] = useState<number | null>(null);
   const [found, setFound] = useState<Found | null>(null);
-  // Counts the openings: a report that arrives after the dialog was opened again belongs to the earlier import.
+  // Counts the openings and the sources: a report that arrives after the dialog was opened again, or after the source changed, belongs
+  // to the earlier import.
   const opening = useRef(0);
 
   // Every opening starts afresh.
@@ -123,12 +124,14 @@ export function ImportPartsDialog({
   }, [mode, paths, sourceText, mapCount]);
   const sourceKey = source === null ? null : JSON.stringify(source);
 
-  // The check runs whenever the source changes; an answer for an older source is dropped.
+  // The check runs whenever the source changes; an answer for an older source is dropped, and so are the findings of an import from it.
   useEffect(() => {
+    opening.current++;
     setReports(null);
     setFailure(null);
     setChosen(new Set());
     setDone(null);
+    setFound(null);
     if (!open || source === null) return;
     let current = true;
     inspectMapImport(map, source).then(
