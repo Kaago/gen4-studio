@@ -6,8 +6,6 @@
   /* Select, menu, popover and tooltip portal to body and must sit above an open dialog. */
   --g4-ebene-schwebend: 1020;
   --g4-ebene-toast: 1030;
-  /* The one shadow of everything that floats (menu, tooltip, dialog, popover, toast, select popup). */
-  --g4-schatten-schwebend: 0 8px 24px color-mix(in srgb, var(--g4-platin-1000) 24%, transparent);
 }
 
 *,

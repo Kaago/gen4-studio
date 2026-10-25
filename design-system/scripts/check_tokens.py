@@ -13,7 +13,9 @@ def flat(d, pre=''):
     out = {}
     for k, v in d.items():
         if isinstance(v, dict) and '$value' in v:
-            out[pre + k] = v['$value']
+            # Only strings are colours; a shadow's value is an object.
+            if isinstance(v['$value'], str):
+                out[pre + k] = v['$value']
         elif isinstance(v, dict):
             out.update(flat(v, pre + k + '/'))
     return out

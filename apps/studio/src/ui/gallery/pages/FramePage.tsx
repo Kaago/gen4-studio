@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { TOOLS } from "../../../workbench/tools";
 import { WizardBar } from "../../../workbench/wizards/WizardBar";
+import { FloatingToolbar } from "../../frame/FloatingToolbar";
+import { HandSplitter } from "../../frame/HandSplitter";
 import { Hinge } from "../../frame/Hinge";
 import { Palette } from "../../frame/Palette";
+import { ShellProvider, useShell } from "../../frame/ShellContext";
+import type { Tool, ToolbarAnchor } from "../../frame/shellState";
 import { StartPane } from "../../frame/StartPane";
 import { Button, Tabs } from "../../primitives";
 import type { PickerItem, TabItem } from "../../primitives";
@@ -21,7 +26,7 @@ function WizardHinge() {
   useEffect(() => setSlot(box.current?.querySelector<HTMLElement>("[data-wizard-bar]") ?? null), []);
   const last = step === STEPS.length - 1;
   return (
-    <div ref={box} className={styles.hingeFrame}>
+    <div ref={box} className={styles.hingeFrame} data-frame="assistent">
       <Hinge
         crumbs={[]}
         depth="bauen"
@@ -84,6 +89,47 @@ function LightHinge({ problems, checking = null, unchecked = false }: { problems
   );
 }
 
+/** The hinge on top of a view and a hand with the splitter between them, as the deck of an area builds them; the splitter sizes the hand here too. */
+function HingeOnTop() {
+  const { state } = useShell();
+  const hand = state.handHeight.welt;
+  return (
+    <div className={styles.deckFrame} data-frame="scharnier-oben">
+      <Hinge
+        crumbs={[{ label: "Zweiblattdorf" }, { label: "Außen 0411" }]}
+        depth="bauen"
+        onDepth={noop}
+        problems={{ errors: 0, warnings: 1, infos: 2 }}
+        onProblems={noop}
+        history={{ undo: [], redo: [] }}
+        onUndoTo={noop}
+        onRedo={noop}
+        onPlay={noop}
+        playing={false}
+        canPlay
+      />
+      <div className={styles.deckView} data-dock="schau">
+        <span className={styles.note}>Schau</span>
+      </div>
+      <HandSplitter area="welt" controls="gallery-deck-hand" />
+      <div className={styles.deckHand} id="gallery-deck-hand" data-dock="hand" hidden={state.handCollapsed.welt} style={{ height: hand } /* dyn */}>
+        <span className={styles.note}>Hand</span>
+      </div>
+    </div>
+  );
+}
+
+/** A view with the floating toolbar at one anchor; `blocked` locks the four event tools with that reason, as a view without a shown place does. */
+function ToolbarView({ anchor, blocked = null }: { anchor: ToolbarAnchor; blocked?: string | null }) {
+  const [tool, setTool] = useState<Tool>("select");
+  const [at, setAt] = useState(anchor);
+  return (
+    <div className={at === "left" ? styles.toolbarView : `${styles.toolbarView} ${styles.toolbarViewFlat}`}>
+      <FloatingToolbar tools={TOOLS} tool={tool} onTool={setTool} eventsBlocked={blocked} density="komfort" anchor={at} onAnchor={setAt} />
+    </div>
+  );
+}
+
 const PALETTE_ITEMS: PickerItem[] = [
   { id: "cmd-open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", group: "Befehle" },
   { id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S", group: "Befehle", disabled: true, description: "Erst ein Projekt öffnen" },
@@ -99,7 +145,7 @@ const TAB_ITEMS: TabItem[] = [
   { id: "c", label: "Probleme", count: 3 },
 ];
 
-/** The frame's own parts on the primitives: the hinge in wizard mode and its problem light, the start cards, the palette and tabs. */
+/** The frame's own parts on the primitives: the hinge on top of the view with its splitter, the floating toolbar, the hinge in wizard mode and its problem light, the start cards, the palette and tabs. */
 export function FramePage() {
   const [palette, setPalette] = useState(false);
   const [ran, setRan] = useState("Noch nichts ausgeführt.");
@@ -109,6 +155,30 @@ export function FramePage() {
 
   return (
     <div className={styles.stack}>
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Scharnier oben</h2>
+        <p className={styles.note}>
+          Das Scharnier heißt über der Schau, 44 px, ohne Griff und nicht ziehbar. Unter der Schau trennt der Teiler (8 px) die Hand: Ziehen, Pfeiltasten (±16 px), Pos1 und Ende ändern ihre Höhe (560 und 200
+          px), Enter oder Doppelklick klappt sie ein und aus.
+        </p>
+        <ShellProvider>
+          <HingeOnTop />
+        </ShellProvider>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Werkzeugleiste schwebend</h2>
+        <p className={styles.note}>
+          Die Leiste schwebt über der 3D-Ansicht: senkrecht am linken Rand, waagrecht oben oder unten. Der Griff zieht sie an den nächsten Anker, das Menü neben ihm wählt die Lage mit der Tastatur. Ohne
+          gezeigten Ort sind die vier Ereigniswerkzeuge gesperrt und nennen den Grund.
+        </p>
+        <div className={styles.toolbarViews}>
+          <ToolbarView anchor="left" />
+          <ToolbarView anchor="top" />
+          <ToolbarView anchor="left" blocked="Erst einen Ort wählen." />
+        </div>
+      </section>
+
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Scharnier im Assistenten-Modus</h2>
         <p className={styles.note}>Der Assistent zeigt seine Schritte im Scharnier; Weiter, Zurück und Abbrechen stehen rechts.</p>

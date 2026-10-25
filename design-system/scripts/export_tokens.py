@@ -47,6 +47,10 @@ def css_value(v):
         return 'var(' + css_name(val[1:-1].replace('.', '/')) + ')'
     if v['$type'] == 'duration':
         return f"{val['value']}{val['unit']}"
+    if v['$type'] == 'shadow':
+        # The shadow colour is a primitive with an alpha; `color-mix` lets the alpha ride on the variable.
+        color = css_name(val['color'][1:-1].replace('.', '/'))
+        return f"{val['offsetX']} {val['offsetY']} {val['blur']} {val['spread']} color-mix(in srgb, var({color}) {round(val['alpha'] * 100)}%, transparent)"
     if v['$type'] == 'fontFamily':
         fallback = 'ui-monospace, monospace' if 'Mono' in val else 'system-ui, sans-serif'
         return f'"{val}", {fallback}'
@@ -188,6 +192,9 @@ for name, src in (('hell', hell), ('dunkel', dunkel)):
     ts.append(f'/** Thema {name.capitalize()}: aufgelöste Hex-Werte (für Monaco defineTheme, Canvas, Export). */')
     ts.append(f'export const {name} = {{')
     for k, v in src.items():
+        # Shadows are CSS only: no code that reads tokens.ts draws one.
+        if v['$type'] == 'shadow':
+            continue
         ts.append(f"  '{k}': '{resolve(v)}',")
     ts.append('} as const;\n')
 ts.append('''/** Syntaxfarben für rotom-Skripte (CodeMirror HighlightStyle oder Monaco-Regeln). Kontrast >= 4.5:1 auf flaeche/blatt. */

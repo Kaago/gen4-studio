@@ -27,8 +27,8 @@ Ablauf bei Änderungen: Token in `tokens/*.json` ändern, `python3 design-system
 
 ## Prinzipien
 
-1. **Oben zeigen, unten anfassen.** Wie beim DS hat jeder Arbeitsbereich zwei Hälften. Die *Schau* zeigt, was der Spieler sehen wird: 3D-Welt, DS-Bildschirm, Story-Graph, Pokédex-Profil. Die *Hand* hält, was man anfasst: Werkzeuge, Inspector, Formulare, Listen. Beide spiegeln dieselbe Auswahl.
-2. **Das Scharnier weiß, wo du bist.** Eine Leiste zwischen Schau und Hand trägt Ort und Auswahl, die Tiefe, das Prüflicht, den Verlauf und „Hier spielen“. Im Assistenten wird sie zur Schrittleiste, im Spielmodus bernsteinfarben. Das ist die eine Signatur des Systems; alles andere bleibt ruhig.
+1. **Zeigen und anfassen.** Die *Schau* zeigt, was der Spieler sehen wird: 3D-Welt, DS-Bildschirm, Story-Graph, Pokédex-Profil. Die *Hand* hält, was man anfasst: Hierarchie, Inspector, Formulare, Listen, und als schwebende Leiste die Werkzeuge auf der Schau. Beide spiegeln dieselbe Auswahl. In der Welt steht die Hand an den Rändern (links die Hierarchie, rechts der Inspector, unten Script und Probleme); in Texten und Daten liegt sie unter der Schau wie beim DS. Jeder darf die Hand umordnen; die Schau bleibt eine Gruppe in der Mitte.
+2. **Das Scharnier weiß, wo du bist.** Eine dunkle Leiste über der Schau trägt Ort und Auswahl, die Tiefe, das Prüflicht, den Verlauf und „Hier spielen“; darunter die Reiter der Schau. Im Assistenten wird sie zur Schrittleiste, im Spielmodus bernsteinfarben. Das ist die eine Signatur des Systems; alles andere bleibt ruhig.
 3. **Erzählen, Bauen, Tüfteln.** Statt eines Expertenmodus hat jeder Bereich eine Tiefe. Erzählen nutzt Rezepte und Wörter wie Ort, Figur, Geschichte. Bauen zeigt den vollständigen Inspector, Malen und Graph. Tüfteln zeigt Skripte, Hex-Werte, Header und Matrizen.
 4. **Zwei Sprachebenen.** Vorne steht das Wort des Spieleerstellers, dahinter grau und in Mono die technische Kennung: „Haus des Rivalen `T01R0102`“. So lernt man Gen-4-Begriffe nebenbei.
 5. **DS-treue Farbe.** Jede Farbe liegt im 15-Bit-Raster des DS (RGB555, Kanalwerte `(v << 3) | (v >> 2)`). Was der Editor zeigt, kann das Spiel darstellen.
@@ -40,8 +40,9 @@ Ablauf bei Änderungen: Token in `tokens/*.json` ändern, `python3 design-system
 
 ```
 ┌ Titelleiste 40: Ampel oder Fensterknöpfe, Projekt mit Spiel und Speicherstand, Suche ⌘K, Speichern, Bauen, Veröffentlichen, Thema, Hilfe
-├ Atlas 88 ┬ Liste/Explorer 272 (optional) ┬ Schau (wächst)
-│          │                               ├ Scharnier 44 (ziehbar)
+├ Atlas 88 ┬ Liste/Explorer 272 (optional) ┬ Scharnier 44 (über der Schau, nicht ziehbar)
+│          │                               ├ Schau (wächst); in 3D schwebt die Werkzeugleiste
+│          │                               ├ Teiler 8 (ziehbar, Tasten)
 │          │                               └ Hand 286 (200 bis 560)
 └ Statusleiste 28: aktives Werkzeug mit Kürzeln, Kontext, Build-Stand, Dichte
 ```
@@ -49,7 +50,7 @@ Ablauf bei Änderungen: Token in `tokens/*.json` ändern, `python3 design-system
 - Referenzgröße 1440 × 900. Mindestgröße des Fensters 1100 × 720 (Windows: `minWidth` höchstens 500 halten, sonst bricht Snap; die App selbst skaliert ab 1100 sinnvoll).
 - Hand-Spalten werden durch 1-px-Linien getrennt (`linie/leise`), nicht durch Karten. Angedockte Flächen haben keinen Schatten und keine Rundung.
 - Der Atlas hat Start und sechs Bereiche: Welt, Geschichten, Pokémon, Gegenstände, Texte, Technik. Die Bereichsfarbe färbt Atlas-Eintrag, Referenz-Chips, Assistenten-Kopf und Story-Knoten.
-- Dockview: Schau-Gruppe und Hand-Gruppe sind zwei Dockview-Gruppen; das Scharnier ist ein eigener React-Trenner dazwischen, kein Panel. Profis dürfen Panels umdocken; das Scharnier bleibt die Kopfleiste der Hand.
+- Dockview: Schau-Gruppe und Hand-Gruppe sind zwei Dockview-Gruppen; das Scharnier ist eine eigene React-Leiste über der Schau und der Teiler ein eigener React-Trenner zwischen Schau und Hand, beide kein Panel. Profis dürfen Panels umdocken. Mit 3e.4 bekommt jeder Bereich ein Dock statt zweier: Hand und Schau werden Gruppen darin, das Scharnier bleibt die Kopfleiste darüber.
 
 ## Tokens
 
@@ -59,7 +60,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 |---|---|---|
 | Primitiv | Wert | Rampen Platin (Neutrale), Kobalt, Bernstein, Signal, Moos, Zerr, Koralle, Lagune, Sand |
 | Szene | Wert | Gelände-, Ereignis-, Höhen- und Auswahlfarben für three.js, Gruppe `ds` für den DS-Bildschirm, Gruppe `typ` für die 18 Pokémon-Typen, Gruppe `status` für Prüfbefunde an Markern; gleich in beiden Themen |
-| Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*` |
+| Thema | Hell, Dunkel | Semantik: `flaeche/*`, `text/*`, `linie/*`, `akzent/*`, `auswahl/*`, `fokus/ring`, `live/*`, `scharnier/*`, `status/*`, `bereich/*`, `schatten/*` (Typ `shadow`: `schatten/schwebend`, Platin 1000 mit 24 % in Hell, 48 % in Dunkel; als CSS `--g4-schatten-schwebend`, nicht in `tokens.ts`) |
 | Raum | Wert | `raum/0…64` (Pixel im Namen), `radius/feld|taste|bildschirm|fenster|plakette`, `strich/*`, `schrift/groesse/*`, `schrift/zeile/*` |
 | Dichte | Komfort, Kompakt | `dichte/steuer`, `zeile`, `zeile-innen`, `panel-innen`, `feld-abstand`, `scharnier`, `symbol`, `werkzeug` |
 | Bewegung | Wert | `dauer/sofort|kurz|mittel|scharnier` (0/120/200/280 ms) |
@@ -69,6 +70,7 @@ Sammlungen (in OpenPencil und `tokens/`):
 Regeln:
 - Komponenten benutzen nur Thema-, Raum- und Dichte-Tokens, nie Primitive oder Hex.
 - **Bernstein 500 gehört allein dem Spielen** (Spielen-Taste, Spielmodus, Live-Werte). Warnungen benutzen `status/warnung` (Bernstein 750) und ein Symbol.
+- Wer schwebt, hat Schatten (`schatten/schwebend`, Rand `linie/standard`); wer andockt, nie: Menü, Tooltip, Dialog, Popover, Toast, Szenenleiste und Werkzeugleiste.
 - Kobalt heißt: das bist du gerade (Auswahl, Fokus) oder das passiert, wenn du klickst (primäre Taste). Höchstens eine primäre Taste pro Ansicht.
 - Kontraste: Text und Status auf allen Flächen mindestens 4,5 : 1, Steuerkanten (`linie/stark`) und Fokusring mindestens 3 : 1. `scripts/check_tokens.py` prüft das für beide Themen.
 - Dark Mode folgt dem System, außer `data-theme="hell"` oder `data-theme="dunkel"` ist gesetzt. Kompakt über `data-dichte="kompakt"` am `html`-Element. Bei `prefers-reduced-motion` werden alle Dauern 0 ms (Überblendung statt Bewegung). Bei `forced-colors` übernehmen Systemfarben Fokus und Akzent.
@@ -107,10 +109,12 @@ Symbole: Phosphor Icons (MIT), Stil „regular“ für Oberfläche, „fill“ f
 | Budget | Ruhig, Knapp, Voll | DS-Grenzen ruhig zeigen, Speichern blockiert nie |
 | Listenzeile, Baumzeile | Ruhe, Hover, Gewählt / Ort, Raum | Name vorne, Kennung grau |
 | Inspector-Zeile | Text, Auswahl, Zahl, Schalter, Referenz, Flags; Abweichung | Bezeichnung 116 px, Kobalt-Strich bei Abweichung von der Vorlage |
-| Scharnier | Bearbeiten, Assistent, Spielen | eigene React-Komponente, 44 px, ziehbar, Übergang 280 ms |
+| Scharnier | Bearbeiten, Assistent, Spielen; Lage oben, ohne Griff, nicht ziehbar | eigene React-Komponente, 44 px über der Schau, Übergang 280 ms; Tokens `scharnier/*` |
+| Werkzeugleiste, schwebend | Ausrichtung senkrecht, waagrecht × Dichte Komfort, Kompakt; Anker Links, Oben, Unten; Werkzeug Ruhe, Hover, Aktiv, Gesperrt; Gruppen-Trenner | Overlay der 3D-Ansicht, `flaeche/blatt`, Rand `linie/standard`, `schatten/schwebend`, `radius/taste`; Taste `dichte/werkzeug` (40/32); `role="toolbar"` mit Roving; Griff (nur Zeiger) und Menü „Lage der Werkzeugleiste“; ab 460 px (Kompakt 400 px) Höhe der Ansicht senkrecht, darunter oben |
+| Teiler | waagrecht; Ruhe, Hover, Fokus | `role="separator"`, 8 px, Linie `linie/leise`, `aria-valuenow`; Ziehen, Pfeiltasten ±16 px, Pos1 560, Ende 200, Enter oder Doppelklick klappt ein |
 | Titelleiste | macOS, Windows | macOS `titleBarStyle: "Overlay"` + natives Menü; Windows `decorations: false`, eigenes Menü und Fensterknöpfe |
 | Atlas-Eintrag | 7 Bereiche × Ruhe/Aktiv | 88 px breite Leiste |
-| Werkzeug-Taste, Rezept-Taste | Ruhe, Hover, Aktiv / 4 Bereiche | Rezepte in Erzählen, Werkzeuge in Bauen |
+| Werkzeug-Taste, Rezept-Taste | Ruhe, Hover, Aktiv, Gesperrt / 4 Bereiche | Werkzeuge in Bauen: Symbol mit dem Buchstaben in der Ecke, ohne Namen unter dem Symbol; Name im Tooltip und in der Statusleiste; `data-tool`. Rezepte in Erzählen |
 | Statusleiste | – | lehrt Kürzel des aktiven Werkzeugs |
 | DS-Bildschirm | Textbox, Schild, Leer | 256 × 192, ganzzahlig skaliert, Spielschrift |
 | Weltmarker | 6 Arten × Ruhe/Gewählt | Billboards in three.js |
@@ -127,6 +131,7 @@ Für die Umsetzung eignen sich Radix- oder Reka-Primitives (Dialog, Popover, Tab
 - **Referenzen:** jede Entität hat „Verwendet in“; ein Klick öffnet das Ziel, Türen lassen sich in der Welt per Doppelklick durchqueren.
 - **Meldungen:** dort, wo das Problem ist. Prüfungen sammeln sich im Prüflicht des Scharniers und im Panel „Prüfen und Bauen“. Keine modalen Erfolgsmeldungen.
 - **Spielmodus:** „Hier spielen“ baut nur geänderte Schritte, startet den Emulator am Cursor und färbt das Scharnier bernsteinfarben. Flags und Variablen sind live änderbar, Haltepunkte sitzen an Ereignissen.
+- **Werkzeuge:** Der Buchstabe wählt das Werkzeug, Esc wählt wieder „Auswählen“. Die Buchstaben wirken nur, solange die Ansicht sichtbar ist, die die Leiste trägt (die 3D-Ansicht); sonst sagt ein Hinweis „Werkzeuge wirken in der 3D-Ansicht“.
 - **Leere Zustände:** ein Satz, was fehlt, ein Satz, wozu, eine Taste, die es tut.
 
 ## Szene (three.js)
@@ -165,14 +170,15 @@ Zielbild-Seiten:
 
 ## Was die App umsetzt
 
-Stand nach Phase 3c (3c.1 und 3c.2; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md), Gate: [docs/phase-3c-gate.md](../docs/phase-3c-gate.md)), Phase 3b.3a (Daten-Editoren Pokédex, Attacken, Gegenstände; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](../docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md), Gate: [docs/phase-3b3-gate.md](../docs/phase-3b3-gate.md), Teil A), Phase 3b.3b (Trainer und Begegnungen; Gate: [docs/phase-3b3-gate.md](../docs/phase-3b3-gate.md), Teil B), Phase 3b.4a (Prüfen und Beheben; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md](../docs/superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md), Gate: [docs/phase-3b4-gate.md](../docs/phase-3b4-gate.md), Teil A) und Phase 3b.4b (Import von Kartenteilen; Gate: [docs/phase-3b4-gate.md](../docs/phase-3b4-gate.md), Teil B). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
+Stand nach Phase 3c (3c.1 und 3c.2; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md](../docs/superpowers/specs/2026-10-23-phase-3c-doppeldeck-design.md), Gate: [docs/phase-3c-gate.md](../docs/phase-3c-gate.md)), Phase 3b.3a (Daten-Editoren Pokédex, Attacken, Gegenstände; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md](../docs/superpowers/specs/2026-10-23-phase-3b3-data-editors-design.md), Gate: [docs/phase-3b3-gate.md](../docs/phase-3b3-gate.md), Teil A), Phase 3b.3b (Trainer und Begegnungen; Gate: [docs/phase-3b3-gate.md](../docs/phase-3b3-gate.md), Teil B), Phase 3b.4a (Prüfen und Beheben; Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md](../docs/superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md), Gate: [docs/phase-3b4-gate.md](../docs/phase-3b4-gate.md), Teil A) Phase 3b.4b (Import von Kartenteilen; Gate: [docs/phase-3b4-gate.md](../docs/phase-3b4-gate.md), Teil B) und Phase 3e.1 (Scharnier über der Schau, Teiler, schwebende Werkzeugleiste; Plan: [docs/superpowers/plans/2026-10-25-phase-3e1-scharnier-teiler-werkzeugleiste.md](../docs/superpowers/plans/2026-10-25-phase-3e1-scharnier-teiler-werkzeugleiste.md)). Die Screens oben zeigen das Ziel, die App holt es in Etappen ein.
 
 Umgesetzt:
 - Tokens, Schriften und Symbole aus diesem Ordner: die drei generierten Dateien in `apps/studio/src/ui/tokens/`, die vier Schriftpakete und Phosphor Icons. Thema Hell, Dunkel oder „Wie System“ (Einstellungen; der Knopf in der Titelleiste wechselt Hell und Dunkel), Dichte Komfort oder Kompakt (Einstellungen und Statusleiste). CodeMirror und die 3D-Szene folgen dem Thema.
 - Komponentenbibliothek `apps/studio/src/ui/primitives/` auf Base UI (Taste, Symboltaste, Tastenkürzel, Eingabefeld, Zahlfeld, Auswahlfeld, Schalter, Kästchen, Segmente, Reiter, Referenz, Plakette, Meldung, Listen- und Baumzeile, Inspector-Zeile, Abschnitt, Menü, Tooltip, Popover, Dialog, Picker, Leerer Zustand, DS-Bildschirm), sichtbar in der Galerie (`?gallery` im Browser-Modus, mit einer Seite „Rahmen“). Für die Daten-Editoren (Phase 3b.3a) dazu Typ-Plakette (`TypeBadge`), Wertebalken (`StatBar`), Tabelle (`Table`), Filter-Plaketten (`FilterChips`), Kästchen-Raster (`ToggleGrid`), Hexblock (`HexBlock`) und Symbol (`Sprite`), der Panelkopf mit Unterbereichs-Menü (`PanelHead.switcher`); Galerie-Seite „Daten“. Mit Phase 3b.3b die Pokémon-Karte (`PokemonCard`: Ruhe, Gewählt, Leer „Platz 4 leer“; Fläche Blatt, Kobalt-Kante bei Auswahl, Menüsymbol aus dem ROM, „Lv. 12“ und Item), in der Galerie unter „Daten“, „Team-Karten“.
 - Die Pokémon-Typen als Szenen-Tokens `szene/typ/<schluessel>/{grund,schrift}` (18 Typen, RGB555-treu, Kontrast von `check_tokens.py` geprüft); `tokens.ts` liest `typen` daraus, die Typ-Plakette zeigt Farbe und Name.
-- Der Rahmen: Titelleiste, Atlas (Start, Welt, Pokémon, Gegenstände, Texte, Technik, dazu Geschichten gesperrt bis 3d, Hilfe, Einstellungen), Liste je Bereich, Deck aus Schau und Hand mit Scharnier (Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts, Befehlspalette ⌘K.
-- Welt: 3D, Raster und Weltkarte als Schau; Werkzeuge mit Buchstabenkürzeln (V, B, F, T, A, S, G), Inspector und „An diesem Ort“ als Hand, Script und Probleme als Reiter daneben; Szenenfarben aus den Tokens.
+- Der Rahmen: Titelleiste, Atlas (Start, Welt, Pokémon, Gegenstände, Texte, Technik, dazu Geschichten gesperrt bis 3d, Hilfe, Einstellungen), Liste je Bereich, Deck aus Scharnier, Schau, Teiler und Hand (das Scharnier oben mit Brotkrume, Bauen und Tüfteln, Prüflicht, Verlauf, „Hier spielen“), Statusleiste, Toasts, Befehlspalette ⌘K.
+- Welt: 3D, Raster und Weltkarte als Schau; die Werkzeuge mit Buchstabenkürzeln (V, B, F, T, A, S, G) als schwebende Leiste in der 3D-Ansicht; Inspector und „An diesem Ort“ als Hand, Script und Probleme als Reiter daneben; Szenenfarben aus den Tokens.
+- Werkbank, erster Schritt (Phase 3e.1): das Scharnier steht über der Schau, ohne Griff und nicht mehr ziehbar; zwischen Schau und Hand sitzt der Teiler (`role="separator"`, 8 px) mit Ziehen, Pfeiltasten, Pos1, Ende und Enter. Die Werkzeuge verließen die Hand und schweben als Leiste in der 3D-Ansicht (Anker links, oben, unten, gemerkt in `g4.shell.v1`; in einer niedrigen Ansicht liegt sie flach oben); die Buchstaben wirken nur bei sichtbarem 3D. `schatten/schwebend` ist ein DTCG-Token. Galerie „Rahmen“ › „Scharnier oben“ und „Werkzeugleiste schwebend“. Die Anordnung mit Hierarchie, Inspector-Kopf und einem Dock je Bereich folgt in 3e.2 bis 3e.4; `Editor_DesignSystem.fig` zieht dann nach.
 - Texte nach dem Screen „Texte: Archiv 0412“: Archive als Liste (Orte und Spielweit), DS-Bildschirm mit Seitenkarten als Schau, Nachrichtentabelle mit Längenbalken und Editor als Hand.
 - Pokémon und Gegenstände nach den Screens „Pokédex: Staravia bearbeiten“, „Attacken: Flügelschlag“ und „Gegenstände: Trank“ (Phase 3b.3a): der Listenkopf wird zum Menü der Unterbereiche (Pokédex, Trainer, Begegnungen, Attacken mit Zählern, ⌘1 bis ⌘4), das zweite Glied der Brotkrume öffnet dasselbe Menü; Listen mit Suche über Name und Nummer, Filter-Plaketten und Symbolen aus dem ROM; die Schau mit Kopfkarte, Wertebalken gegen den Schnitt, „Fundorte“ und „Verwendet in“ als Referenzen („ohne Scripts gezählt“), Beschreibungen als DS-Textbox; die Hand mit Reitern (Pokédex) oder Spalten (Attacken, Gegenstände), jedes Feld ein Schritt mit sprechendem Label im Verlauf; harte Grenzen sichtbar („20 von 20“). Tüfteln zeigt die Rohdaten als Hexblock mit markiertem Feld und Dez/Hex an den Zahlfeldern.
 - Trainer und Begegnungen nach den Screens „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ (Phase 3b.3b): Trainer als Baum nach Ort oder Klasse mit „Lv. 12“ rechts, die Schau mit dem Team als Pokémon-Karten und „Steht in der Welt“ (Figuren als Referenzen in die Welt, „In der Welt platzieren“), die Hand mit den Reitern Team (sechs Karten, darunter die Details des Platzes), Trainer (Klasse, Name mit „4 von 7“, KI als Segmente, Schalter, Kampftexte) und Rohdaten; „Trainer anlegen…“ als Dialog mit der Plakette „Nicht rückgängig“. Begegnungen als Liste der Dateien mit den Orten, die sie nutzen; die Schau „Wer hier wartet“ mit Anteil je Tageszeit und „Verwendet von N Orten“ mit „Für diesen Ort abspalten“; die Hand mit Reitern je Methode, Tabelle mit „Ersetzt durch“ und gedämpften leeren Plätzen; Warnungen inline, in der Schau und im Prüflicht. In der Welt das Feld „Trainer“ im Inspector und das Werkzeug „Figur“ mit Trainerbindung (Statusleiste „Klick setzt Wanderer Jens“).
