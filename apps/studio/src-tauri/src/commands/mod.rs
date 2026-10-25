@@ -4,6 +4,7 @@ mod area;
 mod buildings;
 mod checks;
 mod data;
+pub mod dispatch;
 mod events;
 mod headers;
 mod map_import;
@@ -11,6 +12,7 @@ mod matrix;
 mod models;
 mod overview;
 mod patches;
+pub mod policy;
 mod problems;
 mod project;
 mod scripts;
@@ -89,9 +91,18 @@ pub(crate) fn open_synthetic_with_battle_script() -> (
     AppState,
     g4_kernel::scripts::TrainerScriptMeta,
 ) {
-    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
     let (fixture, state) = open_synthetic();
-    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+    let meta = add_battle_script(fixture.dir.path());
+    (fixture, state, meta)
+}
+
+/// Adopts the scripts of the project at `root` (on disk) and adds the battle script of
+/// [`open_synthetic_with_battle_script`]; answers its meta for `create_trainer_with_impl`.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+pub(crate) fn add_battle_script(root: &std::path::Path) -> g4_kernel::scripts::TrainerScriptMeta {
+    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
+    let project = g4_kernel::project::Project::open(root).unwrap();
     scripts::adopt(&project, &mut |_| {}).unwrap();
     let battle_file = scripts::new_script_file(&project, SourceKind::Script).unwrap();
     let battle = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    ReleaseAll\n    End\n\
@@ -99,14 +110,10 @@ pub(crate) fn open_synthetic_with_battle_script() -> (
     scripts::write_source(&project, battle_file, &ScriptSource::Rotom(battle.into())).unwrap();
     let report = scripts::compile(&project).unwrap();
     assert!(report.problems.is_empty(), "{:?}", report.problems);
-    (
-        fixture,
-        state,
-        TrainerScriptMeta {
-            battle_file,
-            seen_script: 3003,
-        },
-    )
+    TrainerScriptMeta {
+        battle_file,
+        seen_script: 3003,
+    }
 }
 
 #[cfg(test)]

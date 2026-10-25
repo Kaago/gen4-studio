@@ -1,13 +1,15 @@
-//! The bridge's command table: every Tauri command by name, over its `*_impl` function.
+//! The product's command table: every Tauri command by name, over its `*_impl` function, for
+//! callers that are not the app's own webview (the dev bridge, the MCP server).
 //!
 //! Arguments arrive as one JSON object keyed like Tauri's `invoke` does (the camelCase of the
-//! Rust parameter names), so `api.ts` and the bridge speak the same dialect.
+//! Rust parameter names), so `api.ts` and these callers speak the same dialect. Every path a
+//! command takes goes through the caller's [`Policy`] first.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::roots::Roots;
+use crate::commands::policy::Policy;
 use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
@@ -134,13 +136,13 @@ pub const COMMANDS: &[&str] = &[
     "apply_fix",
 ];
 
-/// Import files must lie under the bridge's import roots; a map of the project needs nothing.
-fn confine_source(roots: &Roots, source: Source) -> Result<Source, CmdError> {
+/// Import files must be readable under the policy; a map of the project needs nothing.
+fn confine_source(policy: &dyn Policy, source: Source) -> Result<Source, CmdError> {
     Ok(match source {
         Source::Files(paths) => Source::Files(
             paths
                 .iter()
-                .map(|p| roots.read_path(&p.to_string_lossy()))
+                .map(|p| policy.read_path(&p.to_string_lossy()))
                 .collect::<Result<_, _>>()?,
         ),
         map => map,
@@ -181,17 +183,18 @@ macro_rules! run {
     }};
 }
 
-/// Runs the command `name` against `state`. `open_project` and `build_rom` are confined to
-/// `roots` first; `run_rom` and `force_quit` are not available in the browser.
+/// Runs the command `name` against `state`. The paths of `open_project`, `build_rom`,
+/// `run_rom` and the map part commands are checked by `policy` first; `force_quit` is a
+/// no-op and the language server is off.
 pub fn dispatch(
     state: &AppState,
-    roots: &Roots,
+    policy: &dyn Policy,
     name: &str,
     args: Value,
 ) -> Result<Reply, DispatchError> {
     match name {
         "open_project" => run!(json, "open_project", args, { path: String }, |a| {
-            let project = roots.check_project(&a.path)?;
+            let project = policy.check_project(&a.path)?;
             let project = project
                 .to_str()
                 .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", a.path)))?;
@@ -420,7 +423,7 @@ pub fn dispatch(
         "dirty" => run!(json, "dirty", args, {}, |_a| dirty_impl(state)),
         "save" => run!(json, "save", args, {}, |_a| save_impl(state)),
         "build_rom" => run!(json, "build_rom", args, { out: String }, |a| {
-            let out = roots.check_output(&a.out)?;
+            let out = policy.check_output(&a.out)?;
             let out = out
                 .to_str()
                 .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", a.out)))?;
@@ -430,9 +433,13 @@ pub fn dispatch(
             json, "run_rom", args,
             { emulator: String, rom: String },
             |a| {
-                // The arguments are checked like any other command's, then refused.
-                let _ = (a.emulator, a.rom);
-                Err::<u32, _>(CmdError::from("Im Browser-Modus nicht verfügbar, g4emu benutzen"))
+                let (emulator, rom) = policy.check_run(&a.emulator, &a.rom)?;
+                let text = |path: &std::path::Path| {
+                    path.to_str().map(str::to_owned).ok_or_else(|| {
+                        CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
+                    })
+                };
+                run_rom_impl(&text(&emulator)?, &text(&rom)?)
             }
         ),
         "reload_asset" => run!(
@@ -502,7 +509,7 @@ pub fn dispatch(
             json, "inspect_map_import", args,
             { map: u16, source: Source },
             |a| {
-                let source = confine_source(roots, a.source)?;
+                let source = confine_source(policy, a.source)?;
                 inspect_map_import_impl(state, a.map, &source)
             }
         ),
@@ -510,7 +517,7 @@ pub fn dispatch(
             json, "import_map_parts", args,
             { map: u16, source: Source, parts: Vec<Part>, keep_buildings: Option<bool> },
             |a| {
-                let source = confine_source(roots, a.source)?;
+                let source = confine_source(policy, a.source)?;
                 import_map_parts_impl(state, a.map, &source, &a.parts, a.keep_buildings.unwrap_or(false))
             }
         ),
@@ -518,7 +525,7 @@ pub fn dispatch(
             json, "export_map_part", args,
             { map: u16, part: Part, path: String },
             |a| {
-                let path = roots.write_path(&a.path)?;
+                let path = policy.write_path(&a.path)?;
                 export_map_part_impl(state, a.map, a.part, &path)
             }
         ),
@@ -566,6 +573,7 @@ pub fn dispatch(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::commands::policy::UserPolicy;
     use crate::commands::{
         dirty_impl, get_header_impl, get_matrix_impl, history_impl, list_headers_impl,
         open_synthetic,
@@ -586,12 +594,20 @@ mod tests {
             .collect()
     }
 
-    fn roots_over(fixture: &g4_kernel::test_support::Synthetic) -> Roots {
-        Roots::new(&[fixture.dir.path().to_path_buf()]).unwrap()
+    fn policy_over(fixture: &g4_kernel::test_support::Synthetic) -> UserPolicy {
+        UserPolicy::new(fixture.dir.path(), &[], None).unwrap()
     }
 
-    fn call(state: &AppState, roots: &Roots, name: &str, args: Value) -> Reply {
-        dispatch(state, roots, name, args).unwrap_or_else(|e| panic!("{name}: {e:?}"))
+    /// The bridge's policy over the synthetic project's folder.
+    #[cfg(feature = "dev-bridge")]
+    fn dev_policy_over(
+        fixture: &g4_kernel::test_support::Synthetic,
+    ) -> crate::bridge::roots::DevPolicy {
+        crate::bridge::roots::DevPolicy::new(&[fixture.dir.path().to_path_buf()]).unwrap()
+    }
+
+    fn call(state: &AppState, policy: &dyn Policy, name: &str, args: Value) -> Reply {
+        dispatch(state, policy, name, args).unwrap_or_else(|e| panic!("{name}: {e:?}"))
     }
 
     fn json_of(reply: Reply) -> Value {
@@ -617,28 +633,16 @@ mod tests {
     #[test]
     fn every_command_accepts_the_keys_api_ts_sends() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         let dir = fixture.dir.path().to_str().unwrap().to_owned();
-        let out = fixture
-            .dir
-            .path()
-            .join("out.nds")
-            .to_str()
-            .unwrap()
-            .to_owned();
+        let out = "build/out.nds".to_owned();
         let per_in = fixture.dir.path().join("in.per");
         std::fs::write(&per_in, [0u8; 2048]).unwrap();
         let per_in = per_in.to_str().unwrap().to_owned();
-        let per_out = fixture
-            .dir
-            .path()
-            .join("out.per")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let header = call(&state, &roots, "get_header", json!({ "id": 0 }));
+        let per_out = "build/out.per".to_owned();
+        let header = call(&state, &policy, "get_header", json!({ "id": 0 }));
         let header = json_of(header);
-        let area = json_of(call(&state, &roots, "get_area_data", json!({ "id": 0 })));
+        let area = json_of(call(&state, &policy, "get_area_data", json!({ "id": 0 })));
 
         // One call per command, with the keys `api.ts` passes to `invoke`.
         let cases: Vec<(&str, Value)> = vec![
@@ -837,7 +841,7 @@ mod tests {
         assert_eq!(tested, table, "every command needs a case");
 
         for (name, args) in cases {
-            match dispatch(&state, &roots, name, args) {
+            match dispatch(&state, &policy, name, args) {
                 Ok(_) => {}
                 Err(DispatchError::Unknown(n)) => panic!("{name}: the table does not know {n}"),
                 Err(DispatchError::Cmd(e)) => assert!(
@@ -852,28 +856,28 @@ mod tests {
     #[test]
     fn reads_match_the_direct_impl_call() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         fn direct<T: serde::Serialize>(v: T) -> Value {
             serde_json::to_value(v).unwrap()
         }
         assert_eq!(
-            json_of(call(&state, &roots, "list_headers", json!({}))),
+            json_of(call(&state, &policy, "list_headers", json!({}))),
             direct(list_headers_impl(&state).unwrap())
         );
         assert_eq!(
-            json_of(call(&state, &roots, "get_header", json!({ "id": 0 }))),
+            json_of(call(&state, &policy, "get_header", json!({ "id": 0 }))),
             direct(get_header_impl(&state, 0).unwrap())
         );
         assert_eq!(
-            json_of(call(&state, &roots, "get_matrix", json!({ "index": 0 }))),
+            json_of(call(&state, &policy, "get_matrix", json!({ "index": 0 }))),
             direct(get_matrix_impl(&state, 0).unwrap())
         );
         assert_eq!(
-            json_of(call(&state, &roots, "dirty", Value::Null)),
+            json_of(call(&state, &policy, "dirty", Value::Null)),
             direct(dirty_impl(&state).unwrap())
         );
         assert_eq!(
-            json_of(call(&state, &roots, "history", Value::Null)),
+            json_of(call(&state, &policy, "history", Value::Null)),
             direct(history_impl(&state).unwrap())
         );
     }
@@ -881,12 +885,12 @@ mod tests {
     #[test]
     fn glb_commands_reply_with_bytes_or_tool_missing() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         for (name, args) in [
             ("get_map_model_glb", json!({ "index": 0, "areaDataId": 0 })),
             ("get_building_glb", json!({ "modelId": 0, "areaDataId": 0 })),
         ] {
-            match dispatch(&state, &roots, name, args) {
+            match dispatch(&state, &policy, name, args) {
                 Ok(Reply::Bytes(_)) => {}
                 Err(DispatchError::Cmd(e)) if e.code == "tool_missing" => {}
                 // A debug build finds tools/apicula/bin/apicula on its own; it rejects the
@@ -901,13 +905,13 @@ mod tests {
     #[test]
     fn icon_commands_reply_with_bytes_and_an_empty_body_means_none() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         // The synthetic CPUE arm9 has no verified tables: no icon, no error.
         for (name, args) in [
             ("get_item_icon", json!({ "item": 17 })),
             ("get_mon_icon", json!({ "species": 1 })),
         ] {
-            match call(&state, &roots, name, args) {
+            match call(&state, &policy, name, args) {
                 Reply::Bytes(bytes) => assert!(bytes.is_empty(), "{name}"),
                 Reply::Json(v) => panic!("{name}: {v}"),
             }
@@ -917,17 +921,17 @@ mod tests {
     #[test]
     fn data_commands_answer_like_their_impl() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         let rows = json_of(call(
             &state,
-            &roots,
+            &policy,
             "data_list",
             json!({ "kind": "species", "filter": { "query": "ivy" } }),
         ));
         assert_eq!(rows[0]["name"], "Ivysaur");
         let doc = json_of(call(
             &state,
-            &roots,
+            &policy,
             "data_get",
             json!({ "kind": "move", "index": 1 }),
         ));
@@ -935,24 +939,24 @@ mod tests {
         assert_eq!(doc["description"]["text"], "Pounds the foe.");
         let changed = json_of(call(
             &state,
-            &roots,
+            &policy,
             "data_edit",
             json!({ "kind": "species", "index": 2, "patch": { "Personal": { "field": "attack", "value": 85 } } }),
         ));
         assert_eq!(changed, json!([{ "kind": "Personal", "index": 2 }]));
         assert_eq!(
-            json_of(call(&state, &roots, "history", json!({})))["undo"],
+            json_of(call(&state, &policy, "history", json!({})))["undo"],
             json!(["Ivysaur: Angriff 4 → 85"])
         );
         let refs = json_of(call(
             &state,
-            &roots,
+            &policy,
             "refs",
             json!({ "target": { "kind": "item", "id": 1 } }),
         ));
         assert_eq!(refs, json!([]));
         assert_eq!(
-            json_of(call(&state, &roots, "item_table", Value::Null)),
+            json_of(call(&state, &policy, "item_table", Value::Null)),
             Value::Null
         );
     }
@@ -960,11 +964,11 @@ mod tests {
     #[test]
     fn checks_answer_findings_at_the_top_level_and_ignore_through_the_bridge() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         // The drafts of 3b.4b call `{scope: full}`; it means all groups.
         let report = json_of(call(
             &state,
-            &roots,
+            &policy,
             "run_checks",
             json!({ "scope": "full" }),
         ));
@@ -986,13 +990,13 @@ mod tests {
         assert_eq!(split.len(), 1, "{report}");
         let split = split[0].clone();
         // Without arguments: all groups as well.
-        let again = json_of(call(&state, &roots, "run_checks", Value::Null));
+        let again = json_of(call(&state, &policy, "run_checks", Value::Null));
         assert_eq!(again["findings"], report["findings"]);
 
         // The finding goes back as it came, with its own fields.
         let answer = json_of(call(
             &state,
-            &roots,
+            &policy,
             "ignore_finding",
             json!({ "code": split["code"], "subject": split["subject"], "key": split["key"],
                     "fingerprint": split["fingerprint"] }),
@@ -1007,12 +1011,12 @@ mod tests {
         );
         assert!(fixture.dir.path().join("g4-checks.json").is_file());
         assert_eq!(
-            json_of(call(&state, &roots, "checks_status", json!({}))),
+            json_of(call(&state, &policy, "checks_status", json!({}))),
             answer
         );
         let back = json_of(call(
             &state,
-            &roots,
+            &policy,
             "unignore_finding",
             json!({ "code": split["code"], "subject": split["subject"], "key": split["key"],
                     "fingerprint": split["fingerprint"] }),
@@ -1025,11 +1029,11 @@ mod tests {
     #[test]
     fn fixes_take_the_finding_as_run_checks_answers_it() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         let long = "Welcome to Twinleaf Town, where a fresh breeze always blows and the grass smells sweet in the morning sun.";
         call(
             &state,
-            &roots,
+            &policy,
             "edit_text_archive",
             json!({ "index": 433, "edit": { "Set": { "index": 1, "text": long } } }),
         );
@@ -1042,28 +1046,28 @@ mod tests {
                 .cloned()
                 .collect()
         };
-        let report = json_of(call(&state, &roots, "run_checks", json!({})));
+        let report = json_of(call(&state, &policy, "run_checks", json!({})));
         let found = wide(&report);
         assert_eq!(found.len(), 1, "{report}");
         // The whole row, with label, args, fixes and the rest the backend does not read.
         let args = json!({ "finding": found[0], "fix": "wrap" });
 
-        let plan = json_of(call(&state, &roots, "plan_fix", args.clone()));
+        let plan = json_of(call(&state, &policy, "plan_fix", args.clone()));
         assert_eq!(plan["irreversible"], false);
         assert_eq!(
             plan["changes"][0]["asset"],
             json!({ "kind": "TextArchive", "index": 433 })
         );
-        let result = json_of(call(&state, &roots, "apply_fix", args.clone()));
+        let result = json_of(call(&state, &policy, "apply_fix", args.clone()));
         assert_eq!(
             result,
             json!({ "changed": [{ "kind": "TextArchive", "index": 433 }], "remaining": false })
         );
-        let after = json_of(call(&state, &roots, "run_checks", json!({})));
+        let after = json_of(call(&state, &policy, "run_checks", json!({})));
         assert!(wide(&after).is_empty(), "{after}");
 
         // Applied once: the finding is gone, a second time is refused.
-        match dispatch(&state, &roots, "apply_fix", args) {
+        match dispatch(&state, &policy, "apply_fix", args) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "finding_stale");
                 assert_eq!(e.message, "finding is no longer current");
@@ -1072,17 +1076,18 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "dev-bridge")]
     #[test]
     fn open_project_and_build_rom_are_confined_to_the_roots() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = dev_policy_over(&fixture);
         let elsewhere = tempfile::tempdir().unwrap();
         let outside = elsewhere.path().to_str().unwrap();
         for (name, args) in [
             ("open_project", json!({ "path": outside })),
             ("build_rom", json!({ "out": format!("{outside}/out.nds") })),
         ] {
-            match dispatch(&state, &roots, name, args) {
+            match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => {
                     assert!(
                         e.message.starts_with("Pfad liegt außerhalb"),
@@ -1095,10 +1100,11 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "dev-bridge")]
     #[test]
     fn bridge_refuses_paths_outside_the_import_root() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = dev_policy_over(&fixture);
         let elsewhere = tempfile::tempdir().unwrap();
         let outside = elsewhere.path().join("a.per");
         std::fs::write(&outside, [0u8; 2048]).unwrap();
@@ -1117,7 +1123,7 @@ mod tests {
                 json!({ "map": 0, "part": "permissions", "path": outside }),
             ),
         ] {
-            match dispatch(&state, &roots, name, args) {
+            match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => assert!(
                     e.message.starts_with("Pfad liegt außerhalb"),
                     "{name}: {}",
@@ -1132,7 +1138,7 @@ mod tests {
         let inside = inside.to_str().unwrap();
         let report = json_of(call(
             &state,
-            &roots,
+            &policy,
             "inspect_map_import",
             json!({ "map": 0, "source": { "files": [inside] } }),
         ));
@@ -1140,24 +1146,25 @@ mod tests {
         assert_eq!(report[0]["state"], json!({ "kind": "ok" }));
         let changed = json_of(call(
             &state,
-            &roots,
+            &policy,
             "import_map_parts",
             json!({ "map": 0, "source": { "files": [inside] }, "parts": ["permissions"] }),
         ));
         assert_eq!(changed, json!([{ "kind": "Map", "index": 0 }]));
         assert_eq!(
-            json_of(call(&state, &roots, "history", json!({})))["undo"],
+            json_of(call(&state, &policy, "history", json!({})))["undo"],
             json!(["map 0000: permissions imported"])
         );
     }
 
+    #[cfg(feature = "dev-bridge")]
     #[test]
     fn run_rom_is_unavailable() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = dev_policy_over(&fixture);
         match dispatch(
             &state,
-            &roots,
+            &policy,
             "run_rom",
             json!({ "emulator": "e", "rom": "r" }),
         ) {
@@ -1173,10 +1180,72 @@ mod tests {
     }
 
     #[test]
+    fn user_policy_confines_build_and_open() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let outside = elsewhere.path().to_str().unwrap();
+        let refused =
+            |name: &str, args: Value, starts: &str| match dispatch(&state, &policy, name, args) {
+                Err(DispatchError::Cmd(e)) => {
+                    assert!(e.message.starts_with(starts), "{name}: {}", e.message)
+                }
+                other => panic!("{name}: {other:?}"),
+            };
+        // Another folder than the project does not open, the project itself does.
+        refused(
+            "open_project",
+            json!({ "path": outside }),
+            "Nur das offene Projekt: ",
+        );
+        call(
+            &state,
+            &policy,
+            "open_project",
+            json!({ "path": fixture.dir.path().to_str().unwrap() }),
+        );
+        // Builds go to build/ (relative to the project), nowhere else.
+        for out in [
+            format!("{outside}/out.nds"),
+            "out.nds".to_owned(),
+            "build/../out.nds".to_owned(),
+        ] {
+            refused("build_rom", json!({ "out": out }), "Pfad liegt außerhalb");
+        }
+        // Map parts: reads from the project, writes under build/.
+        let stray = elsewhere.path().join("a.per");
+        std::fs::write(&stray, [0u8; 2048]).unwrap();
+        let stray = stray.to_str().unwrap();
+        refused(
+            "inspect_map_import",
+            json!({ "map": 0, "source": { "files": [stray] } }),
+            "Pfad liegt außerhalb",
+        );
+        refused(
+            "export_map_part",
+            json!({ "map": 0, "part": "permissions", "path": "out.per" }),
+            "Pfad liegt außerhalb",
+        );
+        call(
+            &state,
+            &policy,
+            "export_map_part",
+            json!({ "map": 0, "part": "permissions", "path": "build/out.per" }),
+        );
+        assert!(fixture.dir.path().join("build/out.per").is_file());
+        // The emulator has to be configured at start.
+        refused(
+            "run_rom",
+            json!({ "emulator": "", "rom": "build/out.per" }),
+            "Kein Emulator freigegeben",
+        );
+    }
+
+    #[test]
     fn lsp_is_off_in_the_bridge() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
-        match dispatch(&state, &roots, "lsp_start", json!({})) {
+        let policy = policy_over(&fixture);
+        match dispatch(&state, &policy, "lsp_start", json!({})) {
             Err(DispatchError::Cmd(e)) => {
                 assert_eq!(e.code, "tool_missing");
                 assert_eq!(e.message, "rotom-lsp fehlt — Completion und Diagnosen aus");
@@ -1184,11 +1253,11 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(matches!(
-            dispatch(&state, &roots, "lsp_send", json!({ "body": "{}" })),
+            dispatch(&state, &policy, "lsp_send", json!({ "body": "{}" })),
             Err(DispatchError::Cmd(_))
         ));
         assert!(matches!(
-            call(&state, &roots, "lsp_stop", json!({})),
+            call(&state, &policy, "lsp_stop", json!({})),
             Reply::Json(Value::Null)
         ));
     }
@@ -1196,14 +1265,14 @@ mod tests {
     #[test]
     fn adopt_scripts_runs_without_progress() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
-        let status = json_of(call(&state, &roots, "scripts_status", json!({})));
+        let policy = policy_over(&fixture);
+        let status = json_of(call(&state, &policy, "scripts_status", json!({})));
         assert_eq!(status["adopted"], false);
-        let report = json_of(call(&state, &roots, "adopt_scripts", json!({})));
+        let report = json_of(call(&state, &policy, "adopt_scripts", json!({})));
         assert_eq!(report["decompiled"], 2, "{report}");
         assert_eq!(report["skipped_empty"], 1, "{report}");
         assert_eq!(report["failed"], json!([]), "{report}");
-        let status = json_of(call(&state, &roots, "scripts_status", json!({})));
+        let status = json_of(call(&state, &policy, "scripts_status", json!({})));
         assert_eq!(status["adopted"], true);
         // The sources landed inside the project, which lies under the allowed root.
         assert!(fixture.dir.path().join("rotom.toml").is_file());
@@ -1212,8 +1281,8 @@ mod tests {
     #[test]
     fn force_quit_is_a_no_op() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
-        let reply = call(&state, &roots, "force_quit", json!({}));
+        let policy = policy_over(&fixture);
+        let reply = call(&state, &policy, "force_quit", json!({}));
         assert!(matches!(reply, Reply::Json(Value::Null)));
         assert!(!state.force_quit.load(std::sync::atomic::Ordering::SeqCst));
     }
@@ -1221,8 +1290,8 @@ mod tests {
     #[test]
     fn unknown_command_is_unknown() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
-        match dispatch(&state, &roots, "no_such_command", json!({})) {
+        let policy = policy_over(&fixture);
+        match dispatch(&state, &policy, "no_such_command", json!({})) {
             Err(DispatchError::Unknown(name)) => assert_eq!(name, "no_such_command"),
             other => panic!("{other:?}"),
         }
@@ -1231,13 +1300,13 @@ mod tests {
     #[test]
     fn bad_arguments_name_the_command() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         // snake_case instead of the camelCase key, and a missing key.
         for (name, args) in [
             ("get_events", json!({ "event_file_id": 1 })),
             ("get_matrix", json!({})),
         ] {
-            match dispatch(&state, &roots, name, args) {
+            match dispatch(&state, &policy, name, args) {
                 Err(DispatchError::Cmd(e)) => {
                     assert_eq!(e.code, "error");
                     assert!(
@@ -1255,17 +1324,17 @@ mod tests {
     #[test]
     fn add_event_takes_an_optional_patch_and_label_in_the_same_undo_step() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         // The old keys alone still work.
         call(
             &state,
-            &roots,
+            &policy,
             "add_event",
             json!({ "eventFile": 0, "kind": "object", "x": 1, "z": 1 }),
         );
         call(
             &state,
-            &roots,
+            &policy,
             "add_event",
             json!({ "eventFile": 0, "kind": "object", "x": 2, "z": 1,
                     "patch": { "script": 3929, "trainer_type": 1, "sight": 3 }, "label": "Trainer Jens platziert" }),
@@ -1281,9 +1350,9 @@ mod tests {
     #[test]
     fn null_and_empty_object_both_mean_no_arguments() {
         let (fixture, state) = open_synthetic();
-        let roots = roots_over(&fixture);
+        let policy = policy_over(&fixture);
         for args in [Value::Null, json!({})] {
-            call(&state, &roots, "list_headers", args);
+            call(&state, &policy, "list_headers", args);
         }
     }
 }

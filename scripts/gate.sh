@@ -94,6 +94,11 @@ run_step "cargo clippy (-D warnings)" "" \
 run_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
   cargo test --workspace --all-features
+# The product binary without features: `studio mcp` over stdio on the synthetic project (the gated
+# stdio tests run in the per-project step below). Hermetic like the step before.
+run_step "mcp" "" \
+  env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \
+  cargo test -p studio --test mcp_stdio
 run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "tokens" "" bash scripts/check-tokens.sh
 run_step "styles" "" bash scripts/check-styles.sh

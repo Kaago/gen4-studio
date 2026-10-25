@@ -1,0 +1,490 @@
+//! What each command does to the project, and whether an agent's access admits it.
+
+use serde_json::Value;
+
+use crate::commands::policy::UserPolicy;
+use crate::errors::CmdError;
+
+/// What a command does, as far as its name tells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Changes nothing.
+    Read,
+    /// Changes the project in an undoable step (or only the agent's own state).
+    Write,
+    /// Changes something that undo does not bring back; the text says what.
+    Irreversible(&'static str),
+    /// Not for an agent; the text says why.
+    Unavailable(&'static str),
+    /// Decided per call by [`classify`] from the arguments.
+    Depends,
+}
+
+const PATCH: Kind = Kind::Irreversible("Patch");
+const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
+const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
+
+/// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
+const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
+
+/// The kind of every command of the table (`dispatch::COMMANDS`), in its order.
+pub const COMMAND_KINDS: &[(&str, Kind)] = &[
+    (
+        "open_project",
+        Kind::Unavailable("Das Projekt ist fest (--project)"),
+    ),
+    ("list_headers", Kind::Read),
+    ("get_header", Kind::Read),
+    ("set_header", Kind::Write),
+    ("get_area_data", Kind::Read),
+    ("set_area_data", Kind::Write),
+    ("member_counts", Kind::Read),
+    ("get_matrix", Kind::Read),
+    ("set_matrix_cell", Kind::Write),
+    ("set_matrix_sections", Kind::Write),
+    ("resize_matrix", Kind::Write),
+    ("rename_matrix", Kind::Write),
+    ("create_matrix", Kind::Write),
+    ("list_matrices", Kind::Read),
+    ("list_warps", Kind::Read),
+    ("duplicate_map", Kind::Write),
+    ("create_event_file", Kind::Write),
+    ("duplicate_event_file", Kind::Write),
+    ("create_area", Kind::Write),
+    ("extend_area", Kind::Write),
+    ("create_room", Kind::Write),
+    ("header_patch_status", Kind::Read),
+    ("apply_header_patch", PATCH),
+    ("repair_header_patch", PATCH),
+    ("get_map", Kind::Read),
+    ("get_events", Kind::Read),
+    ("get_building_glb", Kind::Read),
+    ("add_building", Kind::Write),
+    ("update_building", Kind::Write),
+    ("delete_building", Kind::Write),
+    ("update_event", Kind::Write),
+    ("get_text_archive", Kind::Read),
+    ("edit_text_archive", Kind::Write),
+    ("create_text_archive", Kind::Write),
+    ("search_text", Kind::Read),
+    ("validate_text", Kind::Read),
+    ("scripts_status", Kind::Read),
+    ("adopt_scripts", Kind::Write),
+    ("list_script_files", Kind::Read),
+    ("read_script", Kind::Read),
+    ("save_script", Kind::Write),
+    ("save_level_script", Kind::Write),
+    ("new_script_file", NEW_SCRIPT),
+    ("add_script", NEW_SCRIPT),
+    ("resolve_script", Kind::Read),
+    ("search_scripts", Kind::Read),
+    ("lsp_start", APP_ONLY),
+    ("lsp_send", APP_ONLY),
+    ("lsp_stop", APP_ONLY),
+    ("add_event", Kind::Write),
+    ("delete_event", Kind::Write),
+    ("get_map_model_glb", Kind::Read),
+    ("get_object_sprite", Kind::Read),
+    ("map_model_texture_status", Kind::Read),
+    ("tile_behaviors", Kind::Read),
+    ("set_permission", Kind::Write),
+    ("undo", Kind::Write),
+    ("redo", Kind::Write),
+    ("history", Kind::Read),
+    ("dirty", Kind::Read),
+    ("save", Kind::Write),
+    ("build_rom", Kind::Depends),
+    ("run_rom", Kind::Irreversible("Emulator")),
+    ("reload_asset", Kind::Write),
+    ("accept_disk", Kind::Write),
+    ("force_quit", APP_ONLY),
+    ("data_list", Kind::Read),
+    ("data_get", Kind::Read),
+    ("data_edit", Kind::Write),
+    ("data_raw", Kind::Read),
+    ("name_tables", Kind::Read),
+    ("item_table", Kind::Read),
+    ("machine_table", Kind::Read),
+    ("refs", Kind::Read),
+    ("get_item_icon", Kind::Read),
+    ("get_mon_icon", Kind::Read),
+    ("create_trainer", Kind::Irreversible("Trainer anlegen")),
+    ("set_trainer_texts", Kind::Write),
+    ("create_encounter_file", Kind::Write),
+    ("split_encounter_file", Kind::Write),
+    ("inspect_map_import", Kind::Read),
+    ("import_map_parts", Kind::Write),
+    ("export_map_part", Kind::Depends),
+    ("run_checks", Kind::Read),
+    ("checks_status", Kind::Read),
+    ("ignore_finding", Kind::Write),
+    ("unignore_finding", Kind::Write),
+    (
+        "accept_baseline",
+        Kind::Irreversible("Ausgangslage übernehmen"),
+    ),
+    ("set_check_enabled", Kind::Write),
+    ("plan_fix", Kind::Read),
+    ("apply_fix", Kind::Depends),
+];
+
+/// The kind of `command`; `None` for a name the table does not have.
+pub fn kind_of(command: &str) -> Option<Kind> {
+    COMMAND_KINDS
+        .iter()
+        .find(|(name, _)| *name == command)
+        .map(|(_, kind)| *kind)
+}
+
+/// What one call does, with its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Class {
+    Read,
+    Write,
+    /// Cannot be undone; the text says what it does.
+    Irreversible(String),
+    /// Refused for every agent; the text says why.
+    Unavailable(String),
+}
+
+impl From<Kind> for Class {
+    /// The class of a kind that does not depend on the arguments (`Depends` counts as a
+    /// write; [`classify`] resolves it).
+    fn from(kind: Kind) -> Class {
+        match kind {
+            Kind::Read => Class::Read,
+            Kind::Write | Kind::Depends => Class::Write,
+            Kind::Irreversible(why) => Class::Irreversible(why.to_owned()),
+            Kind::Unavailable(why) => Class::Unavailable(why.to_owned()),
+        }
+    }
+}
+
+/// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build or
+/// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
+/// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
+/// a script. A name the table does not have is unavailable.
+pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
+    let Some(kind) = kind_of(command) else {
+        return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
+    };
+    if kind != Kind::Depends {
+        return kind.into();
+    }
+    match command {
+        "build_rom" | "export_map_part" => {
+            let key = if command == "build_rom" {
+                "out"
+            } else {
+                "path"
+            };
+            match args.get(key) {
+                // A target that is not text is refused by the command itself.
+                Some(Value::String(target)) if !policy.is_in_build(target) => {
+                    Class::Irreversible(OUTSIDE_BUILD.to_owned())
+                }
+                _ => Class::Write,
+            }
+        }
+        "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => {
+            NEW_SCRIPT.into()
+        }
+        _ => Class::Write,
+    }
+}
+
+/// What an agent may do: change the project (`write`), do what undo does not bring back
+/// (`irreversible`, needs `write`), and call any command by name (`expert`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Access {
+    pub write: bool,
+    pub irreversible: bool,
+    pub expert: bool,
+}
+
+fn refusal(code: &'static str, message: String) -> CmdError {
+    CmdError {
+        code,
+        message,
+        asset: None,
+        problems: Vec::new(),
+    }
+}
+
+/// Whether `access` admits a call of `command` of class `class`: `unavailable` for every
+/// agent, `read_only` for a change without `write`, `needs_confirmation` for an irreversible
+/// one without `irreversible`.
+pub fn admit(command: &str, class: &Class, access: &Access) -> Result<(), CmdError> {
+    match class {
+        Class::Read => Ok(()),
+        Class::Unavailable(why) => Err(refusal("unavailable", why.clone())),
+        Class::Write | Class::Irreversible(_) if !access.write => Err(refusal(
+            "read_only",
+            format!("Nur lesen: {command} ändert das Projekt"),
+        )),
+        Class::Irreversible(why) if !access.irreversible => Err(refusal(
+            "needs_confirmation",
+            format!(
+                "{command} lässt sich nicht rückgängig machen ({why}); \
+                 kopflos nur mit --allow-irreversible"
+            ),
+        )),
+        Class::Write | Class::Irreversible(_) => Ok(()),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::commands::dispatch::COMMANDS;
+    use crate::commands::open_synthetic;
+    use serde_json::json;
+    use std::collections::BTreeSet;
+
+    fn policy_over(fixture: &g4_kernel::test_support::Synthetic) -> UserPolicy {
+        UserPolicy::new(fixture.dir.path(), &[], None).unwrap()
+    }
+
+    #[test]
+    fn every_command_has_a_kind() {
+        let kinds: Vec<&str> = COMMAND_KINDS.iter().map(|(name, _)| *name).collect();
+        let kind_set: BTreeSet<&str> = kinds.iter().copied().collect();
+        let commands: BTreeSet<&str> = COMMANDS.iter().copied().collect();
+        assert_eq!(kinds.len(), kind_set.len(), "a command has two kinds");
+        let missing: Vec<_> = commands.difference(&kind_set).collect();
+        let extra: Vec<_> = kind_set.difference(&commands).collect();
+        assert!(missing.is_empty(), "without a kind: {missing:?}");
+        assert!(extra.is_empty(), "not a command: {extra:?}");
+    }
+
+    #[test]
+    fn irreversible_ones_are_the_decided_six_groups() {
+        let of = |wanted: fn(&Kind) -> bool| -> Vec<(&str, Kind)> {
+            COMMAND_KINDS
+                .iter()
+                .filter(|(_, kind)| wanted(kind))
+                .map(|(name, kind)| (*name, *kind))
+                .collect()
+        };
+        let mut irreversible = of(|k| matches!(k, Kind::Irreversible(_)));
+        irreversible.sort_by_key(|(name, _)| *name);
+        assert_eq!(
+            irreversible,
+            [
+                (
+                    "accept_baseline",
+                    Kind::Irreversible("Ausgangslage übernehmen")
+                ),
+                ("add_script", Kind::Irreversible("Script anlegen")),
+                ("apply_header_patch", Kind::Irreversible("Patch")),
+                ("create_trainer", Kind::Irreversible("Trainer anlegen")),
+                ("new_script_file", Kind::Irreversible("Script anlegen")),
+                ("repair_header_patch", Kind::Irreversible("Patch")),
+                ("run_rom", Kind::Irreversible("Emulator")),
+            ]
+        );
+        let mut unavailable = of(|k| matches!(k, Kind::Unavailable(_)));
+        unavailable.sort_by_key(|(name, _)| *name);
+        assert_eq!(
+            unavailable,
+            [
+                ("force_quit", Kind::Unavailable("Nur in der App")),
+                ("lsp_send", Kind::Unavailable("Nur in der App")),
+                ("lsp_start", Kind::Unavailable("Nur in der App")),
+                ("lsp_stop", Kind::Unavailable("Nur in der App")),
+                (
+                    "open_project",
+                    Kind::Unavailable("Das Projekt ist fest (--project)")
+                ),
+            ]
+        );
+        let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        depends.sort();
+        assert_eq!(depends, ["apply_fix", "build_rom", "export_map_part"]);
+        // Every lister and getter only reads; a few writers by name.
+        for (name, kind) in COMMAND_KINDS {
+            if ["get_", "list_", "search_"]
+                .iter()
+                .any(|p| name.starts_with(p))
+            {
+                assert_eq!(*kind, Kind::Read, "{name}");
+            }
+        }
+        let kind = |name: &str| COMMAND_KINDS.iter().find(|(n, _)| *n == name).unwrap().1;
+        for name in [
+            "data_list",
+            "plan_fix",
+            "run_checks",
+            "inspect_map_import",
+            "history",
+            "dirty",
+            "validate_text",
+        ] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        for name in [
+            "save",
+            "undo",
+            "set_header",
+            "data_edit",
+            "adopt_scripts",
+            "create_area",
+            "save_script",
+            "reload_asset",
+            "ignore_finding",
+        ] {
+            assert_eq!(kind(name), Kind::Write, "{name}");
+        }
+    }
+
+    #[test]
+    fn build_inside_build_is_write_outside_irreversible() {
+        let (fixture, _state) = open_synthetic();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let allowed = [elsewhere.path().to_path_buf()];
+        let policy = UserPolicy::new(fixture.dir.path(), &allowed, None).unwrap();
+        let outside = elsewhere.path().join("out.nds");
+        let outside = outside.to_str().unwrap();
+        let outside_build = Class::Irreversible("Bauen außerhalb von build/".to_owned());
+        for (command, key) in [("build_rom", "out"), ("export_map_part", "path")] {
+            assert_eq!(
+                classify(command, &json!({ key: "build/route.nds" }), &policy),
+                Class::Write,
+                "{command}"
+            );
+            assert_eq!(
+                classify(command, &json!({ key: outside }), &policy),
+                outside_build,
+                "{command}"
+            );
+        }
+        // Without a target the build goes to build/ (the toolbox fills it in).
+        assert_eq!(classify("build_rom", &json!({}), &policy), Class::Write);
+        // The other kinds come straight from the table.
+        assert_eq!(
+            classify("get_header", &json!({ "id": 0 }), &policy),
+            Class::Read
+        );
+        assert_eq!(classify("save", &json!({}), &policy), Class::Write);
+        assert_eq!(
+            classify("create_trainer", &json!({}), &policy),
+            Class::Irreversible("Trainer anlegen".to_owned())
+        );
+        assert_eq!(
+            classify("open_project", &json!({}), &policy),
+            Class::Unavailable("Das Projekt ist fest (--project)".to_owned())
+        );
+        assert_eq!(
+            classify("no_such_command", &json!({}), &policy),
+            Class::Unavailable("Unbekannter Befehl: no_such_command".to_owned())
+        );
+    }
+
+    #[test]
+    fn apply_fix_create_script_is_irreversible() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let finding = json!({ "code": "x", "subject": { "kind": "project", "index": 0 },
+                              "key": "", "fingerprint": "0000000000000000" });
+        assert_eq!(
+            classify(
+                "apply_fix",
+                &json!({ "finding": finding, "fix": "create_script" }),
+                &policy
+            ),
+            Class::Irreversible("Script anlegen".to_owned())
+        );
+        assert_eq!(
+            classify(
+                "apply_fix",
+                &json!({ "finding": finding, "fix": "wrap" }),
+                &policy
+            ),
+            Class::Write
+        );
+        // Planning a fix changes nothing, whatever the fix.
+        assert_eq!(
+            classify(
+                "plan_fix",
+                &json!({ "finding": finding, "fix": "create_script" }),
+                &policy
+            ),
+            Class::Read
+        );
+    }
+
+    fn refused(command: &str, class: &Class, access: Access) -> CmdError {
+        admit(command, class, &access).expect_err(command)
+    }
+
+    #[test]
+    fn admit_refuses_writes_when_read_only() {
+        let read_only = Access::default();
+        assert!(admit("get_header", &Class::Read, &read_only).is_ok());
+        let e = refused("save", &Class::Write, read_only);
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("read_only", "Nur lesen: save ändert das Projekt")
+        );
+        // An irreversible command writes as well; read-only says that first.
+        let e = refused(
+            "create_trainer",
+            &Class::Irreversible("Trainer anlegen".to_owned()),
+            Access {
+                irreversible: true,
+                ..read_only
+            },
+        );
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("read_only", "Nur lesen: create_trainer ändert das Projekt")
+        );
+        let writer = Access {
+            write: true,
+            ..read_only
+        };
+        assert!(admit("save", &Class::Write, &writer).is_ok());
+        // Unavailable is unavailable for everyone, with its reason.
+        let all = Access {
+            write: true,
+            irreversible: true,
+            expert: true,
+        };
+        let e = refused(
+            "lsp_start",
+            &Class::Unavailable("Nur in der App".to_owned()),
+            all,
+        );
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            ("unavailable", "Nur in der App")
+        );
+    }
+
+    #[test]
+    fn admit_refuses_irreversible_without_confirmation() {
+        let class = Class::Irreversible("Trainer anlegen".to_owned());
+        let writer = Access {
+            write: true,
+            irreversible: false,
+            expert: false,
+        };
+        let e = refused("create_trainer", &class, writer);
+        assert_eq!(e.code, "needs_confirmation");
+        assert_eq!(
+            e.message,
+            "create_trainer lässt sich nicht rückgängig machen (Trainer anlegen); \
+             kopflos nur mit --allow-irreversible"
+        );
+        assert!(e.asset.is_none() && e.problems.is_empty());
+        let confirmed = Access {
+            irreversible: true,
+            ..writer
+        };
+        assert!(admit("create_trainer", &class, &confirmed).is_ok());
+    }
+}

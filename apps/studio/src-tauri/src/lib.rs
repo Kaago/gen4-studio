@@ -1,8 +1,12 @@
 #[cfg(feature = "dev-bridge")]
 pub mod bridge;
 mod commands;
+/// The command table and the path policies behind it, for callers other than the webview.
+pub use commands::{dispatch, policy};
 mod errors;
 mod lsp;
+/// The command layer for coding agents (Model Context Protocol): tool catalog and access.
+pub mod mcp;
 mod menu;
 mod state;
 

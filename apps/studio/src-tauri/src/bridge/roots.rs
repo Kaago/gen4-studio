@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::commands::policy::Policy;
 use crate::errors::CmdError;
 
 /// Suffix of the folder names of the original ROM projects, which must never be touched.
@@ -23,17 +24,20 @@ fn is_saves(path: &Path) -> bool {
 
 /// The allowed root folders, canonical. Every path the bridge opens or writes must lie under
 /// one of them after symlinks are resolved, and must not lead through an original.
-pub struct Roots {
+pub struct DevPolicy {
     dirs: Vec<PathBuf>,
     /// Extra folders map part imports may read from (`G4_IMPORT_ROOT`, separated by `:`),
     /// canonical; folders that do not exist are left out.
     import_dirs: Vec<PathBuf>,
 }
 
+/// The bridge's policy under its old name.
+pub type Roots = DevPolicy;
+
 /// Environment variable with extra folders for map part imports.
 pub const IMPORT_ROOT_VAR: &str = "G4_IMPORT_ROOT";
 
-impl Roots {
+impl DevPolicy {
     /// Canonicalizes each dir; refuses an empty list, a missing dir and any dir with a
     /// `_DSPRE_contents` component.
     pub fn new(dirs: &[PathBuf]) -> Result<Roots, String> {
@@ -66,13 +70,31 @@ impl Roots {
                     .collect()
             })
             .unwrap_or_default();
-        Ok(Roots { dirs, import_dirs })
+        Ok(DevPolicy { dirs, import_dirs })
     }
 
+    /// Root containment first, then the original-project rule.
+    fn check_canonical(&self, canonical: &Path, shown: &str) -> Result<(), CmdError> {
+        if !self.dirs.iter().any(|root| canonical.starts_with(root)) {
+            return Err(CmdError::from(format!(
+                "Pfad liegt außerhalb der erlaubten Ordner: {shown}"
+            )));
+        }
+        if is_locked(canonical) {
+            return Err(locked(shown));
+        }
+        if is_saves(canonical) {
+            return Err(saves(shown));
+        }
+        Ok(())
+    }
+}
+
+impl Policy for DevPolicy {
     /// Map part import: the canonical path of an existing file under a root (the project and
     /// its siblings) or under an import root (`G4_IMPORT_ROOT`), never through an original or
     /// the save games.
-    pub fn read_path(&self, path: &str) -> Result<PathBuf, CmdError> {
+    fn read_path(&self, path: &str) -> Result<PathBuf, CmdError> {
         let canonical = canonicalize(Path::new(path), path)?;
         if !canonical.is_file() {
             return Err(CmdError::from(format!("Keine Datei: {path}")));
@@ -95,12 +117,12 @@ impl Roots {
     }
 
     /// Map part export: the same rules as a ROM build target (`check_output`).
-    pub fn write_path(&self, path: &str) -> Result<PathBuf, CmdError> {
+    fn write_path(&self, path: &str) -> Result<PathBuf, CmdError> {
         self.check_output(path)
     }
 
     /// `open_project`: the canonical project dir, if it lies under a root.
-    pub fn check_project(&self, path: &str) -> Result<PathBuf, CmdError> {
+    fn check_project(&self, path: &str) -> Result<PathBuf, CmdError> {
         let canonical = canonicalize(Path::new(path), path)?;
         self.check_canonical(&canonical, path)?;
         Ok(canonical)
@@ -109,7 +131,7 @@ impl Roots {
     /// `build_rom`: the out path whose canonical parent lies under a root. The file itself
     /// need not exist; when it does, it must not lead out of the roots either (a symlink to
     /// an original would be written through).
-    pub fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
+    fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(out);
         let name = path
             .file_name()
@@ -133,20 +155,11 @@ impl Roots {
         Ok(full)
     }
 
-    /// Root containment first, then the original-project rule.
-    fn check_canonical(&self, canonical: &Path, shown: &str) -> Result<(), CmdError> {
-        if !self.dirs.iter().any(|root| canonical.starts_with(root)) {
-            return Err(CmdError::from(format!(
-                "Pfad liegt außerhalb der erlaubten Ordner: {shown}"
-            )));
-        }
-        if is_locked(canonical) {
-            return Err(locked(shown));
-        }
-        if is_saves(canonical) {
-            return Err(saves(shown));
-        }
-        Ok(())
+    /// Running an emulator is not possible through the bridge.
+    fn check_run(&self, _emulator: &str, _rom: &str) -> Result<(PathBuf, PathBuf), CmdError> {
+        Err(CmdError::from(
+            "Im Browser-Modus nicht verfügbar, g4emu benutzen",
+        ))
     }
 }
 

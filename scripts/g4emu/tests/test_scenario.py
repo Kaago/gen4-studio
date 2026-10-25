@@ -1,6 +1,7 @@
 import hashlib
 import json
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -505,6 +506,15 @@ def test_resolve_inline_placeholders_become_text():
     assert resolve("${name} ${t1.id-1}", RESULTS) == "Jens 927"
     with pytest.raises(ValueError, match="t1.maps"):
         resolve("x ${t1.maps}", RESULTS)  # a list cannot stand inside text
+
+
+def test_resolve_takes_the_length_of_a_list():
+    assert resolve("${t1.maps.length}", RESULTS) == 2
+    assert resolve("${t1.maps.length+1}", RESULTS) == 3
+    assert resolve("undo.${t1.maps.length}", RESULTS) == "undo.2"
+    assert resolve("${h.length}", {"h": {"length": 7}}) == 7  # a key named length wins
+    with pytest.raises(KeyError, match="t1.id.length"):
+        resolve("${t1.id.length}", RESULTS)  # a number has no length
 
 
 def test_resolve_reports_missing_fields_and_bad_offsets():
@@ -1479,3 +1489,354 @@ check:
 """
     sc = load_scenario(write_yaml(tmp_path, text), {"KOPIE": "/k"})
     assert sc.prepare and sc.edits[1][2] == {"expect": [{"error": "zu groß"}]}
+
+
+# --- scenarios over MCP: `mcp: [flags]` runs the edits as tool calls in one `studio mcp` session ---
+
+FAKE_MCP = Path(__file__).parent / "fake_mcp_server.py"
+
+MCP_YAML = """\
+game: CPUD
+mcp: [--allow-irreversible, --expert]
+edits:
+  - [give, {give: {id: 7}}, t]
+  - [echo, {event_file: "${t.id}"}, {expect: {path: event_file, equals: "${ZIEL}"}}]
+build: build/out.nds
+"""
+
+
+def fake_studio(tmp_path: Path, monkeypatch) -> Path:
+    """`G4_STUDIO_BIN` on a start script for the fake MCP server; returns the file its command line goes to."""
+    script = tmp_path / "fake-studio.sh"
+    script.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_MCP}" "$@"\n', encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("G4_STUDIO_BIN", str(script))
+    argv = tmp_path / "studio-argv.json"
+    monkeypatch.setenv("FAKE_MCP_ARGV", str(argv))
+    return argv
+
+
+def mcp_scenario(**kw) -> Scenario:
+    base = dict(mcp=["--allow-irreversible", "--expert"], build="build/out.nds", play=[])
+    base.update(kw)
+    return simple_scenario(**base)
+
+
+def mcp_calls(out: Path) -> list[dict]:
+    return [json.loads(line) for line in (out / "mcp.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def test_load_scenario_reads_the_mcp_flags(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, MCP_YAML), {"ZIEL": "7"})
+    assert sc.mcp == ["--allow-irreversible", "--expert"]
+    assert sc.build == "build/out.nds"
+    assert sc.edits[1] == ["echo", {"event_file": "${t.id}"}, {"expect": [{"path": "event_file", "equals": 7}]}]
+    assert load_scenario(write_yaml(tmp_path), ENV).mcp is None  # without the key: the bridge
+    assert load_scenario(write_yaml(tmp_path, "game: CPUD\nmcp: []\n"), {}).mcp == []
+
+
+@pytest.mark.parametrize(
+    "mcp, message",
+    [
+        ("--expert", "Liste"),
+        ("[[--expert]]", "Liste"),
+        ("[--project, /x]", "--project"),
+        ("[--project=/x]", "--project"),
+    ],
+)
+def test_load_scenario_rejects_malformed_mcp_flags(tmp_path, mcp, message):
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, f"game: CPUD\nmcp: {mcp}\n"), {})
+
+
+@pytest.mark.parametrize(
+    "build",
+    ["out.nds", "/abs/build/out.nds", "build", "build/", "build/../out.nds", "../build/out.nds", "builds/out.nds",
+     "build/rom/out.nds"],  # the server refuses a subfolder of build/ that does not exist
+)
+def test_mcp_scenario_build_must_be_directly_in_build(tmp_path, build):
+    with pytest.raises(ValueError, match=r"build muss bei mcp eine Datei direkt in build/ sein"):
+        load_scenario(write_yaml(tmp_path, f"game: CPUD\nmcp: []\nbuild: {build}\n"), {})
+
+
+def test_mcp_scenario_build_under_build_is_kept_normalised(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, "game: CPUD\nmcp: []\nbuild: ./build/out.nds\n"), {})
+    assert sc.build == "build/out.nds"
+    # the bridge keeps its rule: any path in the project
+    assert load_scenario(write_yaml(tmp_path, "game: CPUD\nbuild: out.nds\n"), {}).build == "out.nds"
+
+
+def test_mcp_scenario_binds_and_expects(tmp_path, roms, monkeypatch, capsys):
+    argv = fake_studio(tmp_path, monkeypatch)
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, f'echo "$@" >> {tmp_path / "g4k-args"}\n')))
+    played = {}
+    monkeypatch.setattr(
+        scenario, "_play", lambda rom, save, out, steps, core: played.update(rom=rom, steps=steps) or (0, [])
+    )
+    project = roms / "_testkopien" / "proj"
+    out = tmp_path / "out"
+    sc = mcp_scenario(
+        edits=[
+            ["give", {"give": {"id": 7, "maps": [[0, 0, 600]]}}, "t"],
+            ["echo", {"event_file": "${t.id}", "map": "${t.maps.0.2}"},
+             {"expect": [{"path": "event_file", "equals": 7}, {"path": "map", "equals": "${t.maps.0.2}"}], "as": "e"}],
+            ["echo", {"header": {"$base": "${e}", "map": 601}}],
+        ],
+        check=[["g4k", "check-data", "build/out.nds", "--expect", "header:${t.id}"]],
+        play=["expect-map", "${e.map}"],
+    )
+    code = run_scenario(sc, project, out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    # one session on the project copy with the scenario's flags
+    assert json.loads(argv.read_text()) == ["mcp", "--project", str(project.resolve()), "--allow-irreversible", "--expert"]
+    calls = mcp_calls(out)
+    assert [c["tool"] for c in calls] == ["give", "echo", "echo", "save", "build_rom"]
+    assert calls[1] == {"tool": "echo", "arguments": {"event_file": 7, "map": 600}, "ok": True,
+                        "result": {"event_file": 7, "map": 600}}
+    assert calls[2]["arguments"] == {"header": {"event_file": 7, "map": 601}}
+    assert "Erwartung erfüllt: echo event_file = 7" in captured.err
+    results = json.loads((out / "results.json").read_text())
+    assert results == {"t": {"id": 7, "maps": [[0, 0, 600]]}, "e": {"event_file": 7, "map": 600}}
+    assert (out / "mcp-stderr.log").is_file()
+    assert not (out / "edits.json").exists() and not (out / "bridge.jsonl").exists()
+    assert (tmp_path / "g4k-args").read_text().split() == ["check-data", "build/out.nds", "--expect", "header:7"]
+    assert played == {"rom": project.resolve() / "build" / "out.nds", "steps": ["expect-map", "600"]}
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is True
+
+
+def test_mcp_scenario_saves_and_builds_last(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["echo", {"a": 1}], ["echo", {"b": 2}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 0
+    calls = mcp_calls(out)
+    assert [c["tool"] for c in calls] == ["echo", "echo", "save", "build_rom"]
+    assert calls[-2]["arguments"] == {} and calls[-1]["arguments"] == {"out": "build/out.nds"}
+    # without build only save
+    out2 = tmp_path / "out2"
+    sc = mcp_scenario(edits=[["echo", {}]], build=None)
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out2, tmp_path, tmp_path / "saves") == 0
+    assert [c["tool"] for c in mcp_calls(out2)] == ["echo", "save"]
+
+
+def test_mcp_scenario_expected_error(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    out = tmp_path / "out"
+    sc = mcp_scenario(
+        edits=[
+            ["fail", {"message": "Das Modell ist zu groß: 65536 Byte, erlaubt 61440"}, refusal("ZU GROSS")],
+            ["echo", {"a": 1}, {"expect": [{"path": "a", "equals": 1}]}],
+        ],
+    )
+    code = run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert 'Erwartung erfüllt: fail abgelehnt: "Das Modell ist zu groß' in captured.err
+    calls = mcp_calls(out)
+    assert [c["tool"] for c in calls] == ["fail", "echo", "save", "build_rom"]  # the session goes on
+    assert calls[0]["ok"] is False and calls[0]["error"]["code"] == "invalid_input" and "result" not in calls[0]
+
+
+def test_mcp_scenario_refusal_with_another_message_is_exit_2(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["fail", {"message": "Datei nicht lesbar"}, refusal("zu groß")], ["echo", {}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 2
+    assert 'fail: Ablehnung erwartet ("zu groß"), Ist "Datei nicht lesbar"' in captured.err
+    assert [c["tool"] for c in mcp_calls(out)] == ["fail"]
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_mcp_scenario_unexpected_success_is_exit_2(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["echo", {"a": 1}, refusal("nein")], ["echo", {"b": 2}]], play=["where"])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 2 and played == []
+    assert 'echo: Ablehnung erwartet ("nein"), der Befehl war erfolgreich' in captured.err
+    assert [c["tool"] for c in mcp_calls(out)] == ["echo"]  # no save, no build
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_mcp_scenario_missed_expectation_is_exit_2(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["echo", {"a": 1}, {"expect": [{"path": "a", "equals": 2}]}], ["echo", {}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 2
+    assert "Erwartung verfehlt: echo a: Soll 2, Ist 1" in capsys.readouterr().err
+    assert [c["tool"] for c in mcp_calls(out)] == ["echo"]
+
+
+def test_mcp_scenario_tool_error_without_expectation_is_exit_1(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["fail", {"message": "Ereignisdatei 9999 fehlt"}], ["echo", {}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 1
+    err = capsys.readouterr().err
+    assert "Änderung 1 (fail) abgelehnt: Ereignisdatei 9999 fehlt" in err and str(out / "mcp.jsonl") in err
+    assert [c["tool"] for c in mcp_calls(out)] == ["fail"]
+
+
+def test_mcp_scenario_protocol_error_is_exit_1_and_no_refusal(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    # an unknown tool is a JSON-RPC error: it fails the scenario even where a refusal is expected
+    sc = mcp_scenario(edits=[["no_such_tool", {}, refusal("Unknown")], ["echo", {}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 1
+    err = capsys.readouterr().err
+    assert "Änderung 1 (no_such_tool): MCP-Fehler -32602: Unknown tool: no_such_tool" in err
+    calls = mcp_calls(out)
+    assert [c["tool"] for c in calls] == ["no_such_tool"]
+    assert calls[0]["ok"] is False and calls[0]["error"]["code"] == "protocol"
+
+
+def test_mcp_scenario_a_server_that_does_not_start_is_exit_1(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    monkeypatch.setenv("FAKE_MCP_DIE_AT_START", "1")
+    out = tmp_path / "out"
+    assert run_scenario(mcp_scenario(), roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 1
+    assert "MCP-Server beendet (Exit 2): cannot start" in capsys.readouterr().err
+    assert "cannot start" in (out / "mcp-stderr.log").read_text()
+
+
+def test_mcp_scenario_project_outside_testkopien_never_starts_the_server(tmp_path, roms, monkeypatch, capsys):
+    argv = fake_studio(tmp_path, monkeypatch)
+    for project in (roms / "outside", roms / "_testkopien"):
+        assert run_scenario(mcp_scenario(), project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+        assert "Projekt muss unter _testkopien liegen" in capsys.readouterr().err
+    assert not argv.exists()
+
+
+def test_mcp_scenario_unknown_name_in_play_fails_before_save_and_build(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["echo", {"a": 1}]], play=["expect-map", "${nope}"])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 1
+    assert "Platzhalter nicht auflösbar in play: nope" in capsys.readouterr().err
+    assert [c["tool"] for c in mcp_calls(out)] == ["echo"]
+
+
+def test_mcp_scenario_reads_a_file_hash_when_its_call_runs(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    project = roms / "_testkopien" / "proj"
+    (project / "export").mkdir()
+    (project / "export" / "m.nsbmd").write_bytes(b"model")
+    out = tmp_path / "out"
+    sc = mcp_scenario(edits=[["echo", {"a": 1}], ["echo", {"sha": "${sha1-of:export/m.nsbmd}"}]])
+    assert run_scenario(sc, project, out, tmp_path, tmp_path / "saves") == 0, capsys.readouterr().err
+    calls = mcp_calls(out)
+    assert [c["tool"] for c in calls] == ["echo", "echo", "save", "build_rom"]  # no save in between
+    assert calls[1]["arguments"] == {"sha": sha1_hex(b"model")}
+
+
+# --- placeholders in an expectation's path: resolved before the lookup ---
+
+
+def test_load_scenario_keeps_bound_names_in_an_expect_path_and_fills_set_names(tmp_path):
+    text = """\
+game: CPUD
+mcp: []
+edits:
+  - [history, {}, h0]
+  - [history, {}, {expect: [{path: undo.length, equals: "${h0.undo.length+1}"},
+                            {path: "undo.${h0.undo.length}", equals: "${LABEL}"},
+                            {path: "redo.${N}", equals: x}]}]
+"""
+    sc = load_scenario(write_yaml(tmp_path, text), {"LABEL": "Agent: Begegnungen", "N": "0"})
+    assert sc.edits[1][2] == {"expect": [
+        {"path": "undo.length", "equals": "${h0.undo.length+1}"},
+        {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"},
+        {"path": "redo.0", "equals": "x"},
+    ]}
+
+
+@pytest.mark.parametrize(
+    "path, message",
+    [("undo.${later.n}", "später"), ("undo[${h0.x}", "Klammer"), ("undo..${h0.n}", "Pfad")],
+)
+def test_load_scenario_checks_an_expect_path_with_placeholders(tmp_path, path, message):
+    text = f"""\
+game: CPUD
+mcp: []
+edits:
+  - [history, {{}}, h0]
+  - [history, {{}}, {{expect: {{path: "{path}", equals: 1}}}}]
+  - [history, {{}}, later]
+"""
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def test_mcp_scenario_resolves_placeholders_in_an_expect_path(tmp_path, roms, monkeypatch, capsys):
+    fake_studio(tmp_path, monkeypatch)
+    out = tmp_path / "out"
+    expect = {"expect": [
+        {"path": "undo.length", "equals": "${h0.undo.length+1}"},
+        {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"},
+    ]}
+    sc = mcp_scenario(edits=[
+        ["give", {"give": {"undo": ["a"]}}, "h0"],
+        ["give", {"give": {"undo": ["a", "Agent: Begegnungen"]}}, expect],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out, tmp_path, tmp_path / "saves") == 0
+    err = capsys.readouterr().err
+    assert "Erwartung erfüllt: give undo.length = 2" in err
+    assert 'Erwartung erfüllt: give undo.1 = "Agent: Begegnungen"' in err
+    # missed: the message shows the resolved path
+    out2 = tmp_path / "out2"
+    sc = mcp_scenario(edits=[
+        ["give", {"give": {"undo": ["a"]}}, "h0"],
+        ["give", {"give": {"undo": ["a", "Agent: 3 Änderungen"]}}, expect],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out2, tmp_path, tmp_path / "saves") == 2
+    err = capsys.readouterr().err
+    assert 'Erwartung verfehlt: give undo.1: Soll "Agent: Begegnungen", Ist "Agent: 3 Änderungen"' in err
+    # a path that names nothing yet is a placeholder that cannot be resolved
+    out3 = tmp_path / "out3"
+    sc = mcp_scenario(edits=[["give", {"give": {"undo": []}}, "h0"],
+                             ["give", {"give": {}}, {"expect": [{"path": "undo.${h0.nope}", "equals": 1}]}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", out3, tmp_path, tmp_path / "saves") == 1
+    assert "Platzhalter nicht auflösbar in Änderung 2 (give): h0.nope" in capsys.readouterr().err
+
+
+def test_bridge_scenario_resolves_placeholders_in_an_expect_path(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[
+        ["give", {"give": {"n": 1}}, "g"],
+        ["give", {"give": {"list": ["a", "b"]}}, {"expect": [{"path": "list.${g.n}", "equals": "b"}]}],
+    ])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    assert 'Erwartung erfüllt: give list.1 = "b"' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("name", ["pt-mcp-route.yaml", "hg-mcp-route.yaml"])
+def test_mcp_route_scenarios_load(name):
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    assert sc.mcp == ["--allow-irreversible", "--expert"] and sc.build == "build/out.nds"
+    tools = [edit[0] for edit in sc.edits]
+    # the encounter edits are one batch with a label; history before and after, undo, redo
+    batches = [edit for edit in sc.edits if edit[0] == "g4_batch"]
+    assert len(batches) == 1 and batches[0][1]["label"] == "Agent: Begegnungen"
+    calls = batches[0][1]["calls"]
+    assert calls and all(call["tool"] == "data_edit" for call in calls)
+    at = tools.index("g4_batch")
+    assert tools[at - 1] == "history" and tools[at + 1] == "history"
+    assert tools[at + 2:at + 6] == ["undo", "data_get", "redo", "data_get"]
+    assert {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"} in sc.edits[at + 1][2]["expect"]
+    # curated tools take snake_case; only what no curated tool can do goes through g4_call
+    assert "eventFile" not in json.dumps(sc.edits)
+    called = {edit[1]["command"] for edit in sc.edits if edit[0] == "g4_call"}
+    assert called <= {"adopt_scripts", "create_encounter_file", "new_script_file", "set_permission"}
+    assert {"ankunft", "geschenk", "trainer1", "trainer2", "wild"} <= {
+        sc.play[i + 1] for i, step in enumerate(sc.play) if step == "shot"
+    }
