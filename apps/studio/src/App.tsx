@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { DockviewApi } from "dockview-react";
 import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
@@ -14,11 +13,12 @@ import { useEvents } from "./workbench/useEvents";
 import { useBusRevision } from "./bus/useBusEvent";
 import { crumbsFor, textCrumbs } from "./workbench/breadcrumb";
 import type { Crumb } from "./workbench/breadcrumb";
-import { AREA_PANELS, DECK_AREAS, dropOldLayouts, isDeckArea } from "./workbench/layout";
+import { AREA_PANELS, DECK_AREAS, dropOldLayouts, isDeckArea, loadArrangement } from "./workbench/layout";
 import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
 import { Deck, resetLayout } from "./ui/frame/Deck";
+import { dockPanel, floatPanel, toggleSchauMaximized } from "./ui/frame/dockRules";
 import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
@@ -63,8 +63,8 @@ import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
 import { useInspectorState } from "./app/useInspectorState";
 import { useProjectSession } from "./app/useProjectSession";
-import { useSceneSync } from "./app/useSceneSync";
-import type { AreaDocks } from "./app/useSceneSync";
+import { dockRef, uncover, useSceneSync } from "./app/useSceneSync";
+import type { DockRef } from "./app/useSceneSync";
 import { useSceneHistory } from "./app/useSceneHistory";
 import { useShortcuts } from "./app/useShortcuts";
 import { useStableCallback } from "./app/useStable";
@@ -107,8 +107,8 @@ const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
 
-/** A script opens in a hand at least this high. */
-const SCRIPT_HAND_HEIGHT = 400;
+/** A script opens in a group at least this high. */
+const SCRIPT_HEIGHT = 400;
 
 /** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
 const BRIDGE_DOWN = "Brücke nicht erreichbar";
@@ -145,21 +145,8 @@ function AppBody() {
   });
   const [showPermissions, setShowPermissions] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  // The dockview api of each area's one dock: a link focuses the panel that shows its target. The links still ask a view and a hand for
-  // it; both are the one dock's ref.
-  const [docks] = useState<AreaDocks>(() => {
-    const one = () => {
-      const dock = { current: null as DockviewApi | null };
-      return { schau: dock, hand: dock };
-    };
-    return { welt: one(), texte: one(), pokemon: one(), gegenstaende: one() };
-  });
-  // A collapsed hand opens before one of its panels is brought to the front; not while a wizard's step holds the hand.
-  const revealHand = useStableCallback((target: DeckArea) => {
-    if (wizardOpen.current) return;
-    if (shell.state.handCollapsed[target]) shell.toggleHandCollapsed(target);
-  });
-  const revealWorldHand = useStableCallback(() => revealHand("welt"));
+  // The dockview api of each area's one dock: a link focuses the panel that shows its target, the hinge maximizes its view.
+  const [docks] = useState<Record<DeckArea, DockRef>>(() => ({ welt: dockRef(), texte: dockRef(), pokemon: dockRef(), gegenstaende: dockRef() }));
 
   // The one edit bus of the app: a stable object, created once, that every writer emits to.
   const [bus] = useState(() => createEditBus());
@@ -185,20 +172,17 @@ function AppBody() {
   // (a build saves them first), hence the ref the session reads them through.
   const [problems] = useState(() => new ProblemsStore());
   const scriptBridge = useRef<ScriptBridge>(NO_SCRIPTS);
-  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
-  // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
+  // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the dock of the
+  // area that shows, when that dock has it (Texte), otherwise in the dock of the world; a maximized group that hides it gives way.
   const showProblems = useStableCallback(() => {
-    // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
+    // A wizard works in the world: the list waits until it is done (the problem light is back then).
     if (wizardOpen.current) return;
     const shown = shell.state.area;
     const target: DeckArea = isDeckArea(shown) && AREA_PANELS[shown].some((p) => p.id === "problems") ? shown : "welt";
     setArea(target);
     try {
-      const panel = docks[target].hand.current?.getPanel("problems");
-      if (panel) {
-        revealHand(target);
-        panel.focus();
-      }
+      const api = docks[target].current;
+      if (api) uncover(api, "problems");
     } catch {
       /* the deck is going away */
     }
@@ -211,10 +195,10 @@ function AppBody() {
   const unsavedRef = useRef(0);
   unsavedRef.current = session.dirtyCount + scripts.dirtyCount;
   const pins = useInspectorState();
-  // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector tab of the hand forward.
-  const pin = useInspectorReveal(pins.setPinned, docks.welt, revealWorldHand, () => wizardOpen.current);
-  // A link to a text or a script while a wizard is open goes nowhere: the texts would open it unasked later, and a script would open in
-  // the hand under the wizard (raising the hand's remembered height).
+  // Selecting something (scene click, list, link, a tool that added a record) also brings the Inspector of the world's dock forward.
+  const pin = useInspectorReveal(pins.setPinned, docks.welt, () => wizardOpen.current);
+  // A link to a text or a script while a wizard is open goes nowhere: the texts would open it unasked later, and a script would open
+  // behind the wizard (raising its group).
   const openTextLink = useStableCallback((index: number, message?: number) => {
     if (!wizardOpen.current) onOpenText(index, message);
   });
@@ -233,7 +217,6 @@ function AppBody() {
     setPinned: pin,
     docks,
     setArea: showArea,
-    revealHand,
     onOpenText: openTextLink,
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
@@ -396,13 +379,13 @@ function AppBody() {
     onSceneForward: sceneHistory.forward,
     area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
-    toolsShown: () => docks.welt.schau.current?.getPanel("world")?.api.isVisible ?? false,
+    toolsShown: () => docks.welt.current?.getPanel("world")?.api.isVisible ?? false,
     onToolsHidden: () => {
       if (toolsToasted.current) return;
       toolsToasted.current = true;
       toast.info("Werkzeuge wirken in der 3D-Ansicht");
       toolsReset.current?.dispose();
-      toolsReset.current = docks.welt.schau.current?.getPanel("world")?.api.onDidVisibilityChange((e) => {
+      toolsReset.current = docks.welt.current?.getPanel("world")?.api.onDidVisibilityChange((e) => {
         if (!e.isVisible) return;
         toolsToasted.current = false;
         toolsReset.current?.dispose();
@@ -410,6 +393,14 @@ function AppBody() {
       }) ?? null;
     },
     placing: shell.pendingTrainer !== null,
+    tool: shell.tool,
+    // The last use of Escape: a maximized group in the dock of the shown area gives way.
+    onEscape: () => {
+      const api = isDeckArea(area) ? docks[area].current : null;
+      if (!api?.hasMaximizedGroup()) return false;
+      api.exitMaximizedGroup();
+      return true;
+    },
   });
 
   /** Another project was opened: the scene and the world start over with its header list. */
@@ -525,15 +516,23 @@ function AppBody() {
     return header ? { header: header.id, matrix: header.matrix_id } : null;
   }, [scene.headers, scene.selected]);
 
-  // Opening a script document (the shown file changes) raises a low hand to 400 px, once per opening; a collapsed hand opens first.
+  // Opening a script document (the shown file changes) raises a low docked script group to 400 px, once per opening; a maximized group that
+  // hides the script gives way first.
   const activeScript = scripts.api.active;
   const shownScript = useRef<number | null>(null);
   useEffect(() => {
     const before = shownScript.current;
     shownScript.current = activeScript;
     if (activeScript === null || activeScript === before) return;
-    if (shell.state.handCollapsed.welt) shell.toggleHandCollapsed("welt");
-    if (shell.state.handHeight.welt < SCRIPT_HAND_HEIGHT) shell.setHandHeight("welt", SCRIPT_HAND_HEIGHT);
+    try {
+      const api = docks.welt.current;
+      const panel = api?.getPanel("script");
+      if (!api || !panel) return;
+      if (api.hasMaximizedGroup() && !panel.api.isMaximized()) api.exitMaximizedGroup();
+      if (panel.api.location.type === "grid" && panel.group.api.height < SCRIPT_HEIGHT) panel.group.api.setSize({ height: SCRIPT_HEIGHT });
+    } catch {
+      /* the deck is going away */
+    }
   }, [activeScript]);
 
   // The breadcrumb of the hinge: place, header, selection. Each crumb is a link (`data.goTo` keeps its identity).
@@ -601,7 +600,7 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), cellChosen },
       }),
     [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen],
   );
@@ -632,8 +631,21 @@ function AppBody() {
       case "list":
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
+      case "arrangeWerkbank":
+      case "arrangeDoppeldeck":
+        resetLayout("welt", docks.welt, run.command === "arrangeWerkbank" ? "werkbank" : "doppeldeck");
+        break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck].schau);
+        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck));
+        break;
+      case "maximize":
+        if (docks[paletteDeck].current) toggleSchauMaximized(docks[paletteDeck].current);
+        break;
+      case "floatInspector":
+        if (docks.welt.current) floatPanel(docks.welt.current, "inspector");
+        break;
+      case "dockInspector":
+        if (docks.welt.current) dockPanel(docks.welt.current, "welt", "inspector");
         break;
       case "theme":
         shell.toggleTheme();
@@ -723,7 +735,7 @@ function AppBody() {
       area={target}
       wizard={target === "welt" ? showsWizard : undefined}
       components={DECK_COMPONENTS[target]}
-      dockRef={docks[target].schau}
+      dockRef={docks[target]}
       hinge={
         <HingeHost
           problems={problems}
@@ -738,6 +750,7 @@ function AppBody() {
           onPlay={onPlay}
           playing={session.busy}
           canPlay={info !== null}
+          dock={docks[target]}
           wizard={target === "welt" ? showsWizard : undefined}
         />
       }

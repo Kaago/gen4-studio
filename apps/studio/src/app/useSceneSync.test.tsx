@@ -36,9 +36,14 @@ describe("useSceneSync goTo", () => {
   let root: Root;
   let scene: SceneSync;
   const focusHeaders = vi.fn();
-  const getPanel = vi.fn((id: string) => (id === "headers" ? { focus: focusHeaders } : undefined));
-  const dock = { current: { getPanel } };
-  const docks = { welt: { schau: dock, hand: dock } } as unknown as AreaDocks;
+  const focusScript = vi.fn();
+  // The world's one dock: a maximized group (the view's, `maximized`) hides every panel that is not in it.
+  let maximized = false;
+  const exitMaximizedGroup = vi.fn(() => void (maximized = false));
+  const script = { focus: focusScript, api: { isMaximized: () => false } };
+  const getPanel = vi.fn((id: string) => (id === "headers" ? { focus: focusHeaders, api: { isMaximized: () => false } } : id === "script" ? script : undefined));
+  const dock = { current: { getPanel, hasMaximizedGroup: () => maximized, exitMaximizedGroup } };
+  const docks = { welt: dock } as unknown as AreaDocks;
   const setArea = vi.fn();
 
   function Probe() {
@@ -50,7 +55,6 @@ describe("useSceneSync goTo", () => {
       setPinned: vi.fn(),
       docks,
       setArea,
-      revealHand: vi.fn(),
       onOpenText: vi.fn(),
       onOpenScript: vi.fn(),
       onOpenData: vi.fn(),
@@ -59,7 +63,8 @@ describe("useSceneSync goTo", () => {
   }
 
   beforeEach(async () => {
-    for (const fn of [focusHeaders, getPanel, setArea]) fn.mockClear();
+    for (const fn of [focusHeaders, focusScript, getPanel, setArea, exitMaximizedGroup]) fn.mockClear();
+    maximized = false;
     container = document.createElement("div");
     root = createRoot(container);
     act(() => root.render(<Probe />));
@@ -79,5 +84,25 @@ describe("useSceneSync goTo", () => {
     expect(setArea).toHaveBeenCalledWith("welt");
     expect(getPanel).not.toHaveBeenCalled();
     expect(focusHeaders).not.toHaveBeenCalled();
+  });
+
+  it("focuses_a_panel_in_the_one_dock_and_ends_a_maximization_that_hides_it", async () => {
+    // A link to a script while the view is maximized: the maximization ends, the script comes forward.
+    maximized = true;
+    await act(async () => void (await scene.goTo({ kind: "script", file: 4, line: 2 })));
+    expect(setArea).toHaveBeenCalledWith("welt");
+    expect(exitMaximizedGroup).toHaveBeenCalledOnce();
+    expect(maximized).toBe(false);
+    expect(focusScript).toHaveBeenCalledOnce();
+    // Without a maximization nothing is restored; a panel in the maximized group stays maximized.
+    await act(async () => void (await scene.goTo({ kind: "script", file: 5 })));
+    expect(exitMaximizedGroup).toHaveBeenCalledOnce();
+    maximized = true;
+    script.api.isMaximized = () => true;
+    await act(async () => void (await scene.goTo({ kind: "script", file: 6 })));
+    script.api.isMaximized = () => false;
+    expect(exitMaximizedGroup).toHaveBeenCalledOnce();
+    expect(maximized).toBe(true);
+    expect(focusScript).toHaveBeenCalledTimes(3);
   });
 });

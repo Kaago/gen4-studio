@@ -31,6 +31,10 @@ export type HingeProps = {
   /** The build (and run) is under way. */
   playing: boolean;
   canPlay: boolean;
+  /** Whether the view of the dock below is maximized („Schau maximieren“ is pressed then). */
+  maximized?: boolean;
+  /** Maximizes the view of the dock below, or restores it. Absent: the hinge has no dock with a view, and no button for it. */
+  onMaximize?: () => void;
   /**
    * The hinge where wizards show (the world's): it keeps a slot for the wizard's step bar (`data-wizard-bar`, filled through a portal).
    * True while a wizard is open: the slot replaces the content. Undefined: no slot.
@@ -57,10 +61,10 @@ const COUNTERS = [
 
 /**
  * The 44 px bar above the view: where you are (breadcrumb), how deep you work, whether the project is sound
- * (problem light: errors, warnings and infos counted apart, a spinner with the progress while the checks run), what you did (history, redo)
- * and "Hier spielen". It holds no state of its own; everything comes in as props. The sizes of the dock's groups are dockview's (its sashes).
+ * (problem light: errors, warnings and infos counted apart, a spinner with the progress while the checks run), what you did (history, redo),
+ * „Schau maximieren“ (pressed while the view is maximized; Esc restores it too) and "Hier spielen". It holds no state of its own; everything comes in as props. The sizes of the dock's groups are dockview's (its sashes).
  */
-export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, wizard }: HingeProps) {
+export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, maximized = false, onMaximize, wizard }: HingeProps) {
   const undoSteps = history.undo.length;
   const recent = history.undo.slice(-MENU_STEPS).reverse();
   const historyItems: MenuEntry[] =
@@ -150,6 +154,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
               items={historyItems}
             />
             <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
+            {onMaximize && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
             <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay || playing} onClick={onPlay}>
               {playing ? "Baut …" : "Hier spielen"}
             </Button>

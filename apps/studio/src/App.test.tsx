@@ -20,9 +20,11 @@ import type { InspectorModel } from "./workbench/Inspector";
  * The real App with its real hooks (project session, scene sync, world actions, history reload,
  * workbench model) over a mocked `api` module. Only the panels are replaced: the providers record
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
- * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
+ * stub that gives its one dockview api as far as App uses it and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[], shell: null as unknown }));
+/** What a mocked dock holds: the maximized group (0 the view's, 1 the other), each group's height, the heights set, who listens to a maximization. */
+type MockDock = { maximized: number | null; heights: number[]; sizes: number[]; listeners: (() => void)[] };
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[], docks: {} as Record<string, MockDock>, apis: {} as Record<string, { maximizeGroup: (panel: { id: string }) => void }>, docking: [] as string[] }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -52,28 +54,76 @@ vi.mock("./workbench/panels", () => ({
 }));
 vi.mock("./ui/frame/Deck", async () => {
   const { Fragment, createElement, useEffect } = await import("react");
-  const { useShell } = await import("./ui/frame/ShellContext");
   type Ref = { current: unknown };
-  /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
-  const dock = (area: string, ids: string[]) => ({
-    getPanel: (id: string) =>
-      ids.includes(id)
-        ? {
-            focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`),
-            // Whether the panel is in front is set by a test (`shown.worldVisible`), and a change is announced to what subscribed.
-            api: {
-              get isVisible() {
-                return shown.worldVisible;
-              },
-              onDidVisibilityChange: (listener: (e: { isVisible: boolean }) => void) => {
-                shown.visibility.push(listener);
-                return { dispose: () => void (shown.visibility = shown.visibility.filter((l) => l !== listener)) };
-              },
+  /**
+   * The one dockview api of an area's dock, as far as App uses it: two groups (the view's first), each of which can be maximized, the second
+   * with a height. A link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`); like dockview, focusing a panel
+   * outside the maximized group restores it.
+   */
+  const dock = (area: string, groups: string[][]) => {
+    const state = (shown.docks[area] ??= { maximized: null, heights: [400, 240], sizes: [], listeners: [] });
+    const changed = () => state.listeners.forEach((listener) => listener());
+    const exit = () => {
+      if (state.maximized === null) return;
+      state.maximized = null;
+      changed();
+    };
+    const panel = (id: string, g: number) => {
+      const made = {
+        id,
+        focus: () => {
+          if (state.maximized !== null && state.maximized !== g) exit();
+          shown.focused.push(area === "welt" ? id : `${area}/${id}`);
+        },
+        group: {
+          get activePanel() {
+            return made;
+          },
+          api: {
+            get height() {
+              return state.heights[g]!;
             },
-          }
-        : undefined,
-  });
-  const PANELS: Record<string, [string[], string[]]> = {
+            setSize: ({ height }: { height: number }) => {
+              state.sizes.push(height);
+              state.heights[g] = height;
+            },
+          },
+        },
+        api: {
+          location: { type: "grid" },
+          isMaximized: () => state.maximized === g,
+          exitMaximized: exit,
+          // Whether the panel is in front is set by a test (`shown.worldVisible`), and a change is announced to what subscribed.
+          get isVisible() {
+            return shown.worldVisible;
+          },
+          onDidVisibilityChange: (listener: (e: { isVisible: boolean }) => void) => {
+            shown.visibility.push(listener);
+            return { dispose: () => void (shown.visibility = shown.visibility.filter((l) => l !== listener)) };
+          },
+        },
+      };
+      return made;
+    };
+    const panels = groups.flatMap((ids, g) => ids.map((id) => panel(id, g)));
+    const api = {
+      panels,
+      getPanel: (id: string) => panels.find((p) => p.id === id),
+      hasMaximizedGroup: () => state.maximized !== null,
+      exitMaximizedGroup: exit,
+      maximizeGroup: (p: { id: string }) => {
+        state.maximized = groups.findIndex((ids) => ids.includes(p.id));
+        changed();
+      },
+      onDidMaximizedGroupChange: (listener: () => void) => {
+        state.listeners.push(listener);
+        return { dispose: () => void (state.listeners = state.listeners.filter((l) => l !== listener)) };
+      },
+    };
+    shown.apis[area] = api;
+    return api;
+  };
+  const PANELS: Record<string, string[][]> = {
     welt: [
       ["world", "matrix", "worldmap"],
       ["inspector", "script", "problems"],
@@ -84,13 +134,11 @@ vi.mock("./ui/frame/Deck", async () => {
   };
   return {
     resetLayout: (...args: unknown[]) => void shown.resets.push(args),
-    // The dock is a bare element with the wizard's strip under it (as in the real deck). The hand's height and fold are still the shell's
-    // (`shown.shell` sets them), though no deck shows them any more.
+    // The dock is a bare element with the wizard's strip under it (as in the real deck); it hands out its api once, like the real one.
     Deck: ({ area, dockRef, hinge, wizard }: { area: string; dockRef: Ref; hinge: unknown; wizard?: boolean }) => {
-      dockRef.current = dock(area, [...PANELS[area]![0], ...PANELS[area]![1]]);
-      shown.shell = useShell();
       useEffect(() => {
         shown.mounts++;
+        if (dockRef.current === null) dockRef.current = dock(area, PANELS[area]!);
       }, []);
       return createElement(
         Fragment,
@@ -102,6 +150,12 @@ vi.mock("./ui/frame/Deck", async () => {
     },
   };
 });
+// Floating and docking are dockview's; the test notes what the palette asked for.
+vi.mock("./ui/frame/dockRules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./ui/frame/dockRules")>()),
+  floatPanel: (_api: unknown, id: string) => shown.docking.push(`float ${id}`) > 0,
+  dockPanel: (_api: unknown, area: string, id: string) => shown.docking.push(`dock ${area}/${id}`) > 0,
+}));
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   buildRom: vi.fn(),
@@ -177,6 +231,9 @@ describe("App wiring", () => {
     shown.resets = [];
     shown.worldVisible = false;
     shown.visibility = [];
+    shown.docks = {};
+    shown.apis = {};
+    shown.docking = [];
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -324,7 +381,7 @@ describe("App wiring", () => {
     expect(data()).toBe(before);
   });
 
-  it("brings the Inspector tab of the hand forward when something is selected, not for a hover or a deselect", async () => {
+  it("brings the Inspector forward when something is selected, not for a hover or a deselect", async () => {
     await select(listed[0]);
     expect(shown.focused).toEqual(["inspector"]);
     shown.focused = [];
@@ -864,9 +921,9 @@ describe("App wiring", () => {
       });
       return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
     };
-    const handState = () => ({ height: readShellState().handHeight.welt, collapsed: readShellState().handCollapsed.welt });
-    /** Folds or unfolds the hand of `target` in the shell (the deck has no splitter any more; the links still unfold it until 3e.4 task 3). */
-    const fold = (target: "welt" | "texte") => act(async () => void (shown.shell as { toggleHandCollapsed: (a: string) => void }).toggleHandCollapsed(target));
+    /** The world's mocked dock: which group is maximized (0 the view's), the heights of its groups, the heights App set. */
+    const welt = () => shown.docks.welt!;
+    const maximize = () => hinge().querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
     const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
     const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
@@ -957,15 +1014,16 @@ describe("App wiring", () => {
       expect(data()).toBe(before);
     });
 
-    it("opens_the_problems_of_the_hand_from_the_problem_light_also_when_the_hand_is_collapsed", async () => {
+    it("opens_the_problems_from_the_problem_light_also_while_the_view_is_maximized", async () => {
       expect(hingeButton("Alles stimmig")).toBeDefined();
       data().problems.replaceForFile("expanded/scripts/0042.rotom", [{ severity: "warning", file: "expanded/scripts/0042.rotom", line: 1, col: 1, message: "m", source: "compile" }]);
       await tick(0);
-      await fold("welt");
-      expect(handState().collapsed).toBe(true);
+      await act(async () => maximize().click());
+      expect(welt().maximized).toBe(0);
       await pressHinge("1 Warnung");
       expect(shown.focused).toEqual(["problems"]);
-      expect(handState().collapsed).toBe(false);
+      expect(welt().maximized).toBeNull();
+      expect(maximize().getAttribute("aria-pressed")).toBe("false");
     });
 
     it("goes_to_the_texts_for_a_link_to_a_text_archive_and_keeps_the_target_until_the_texts_are_built", async () => {
@@ -987,14 +1045,15 @@ describe("App wiring", () => {
       expect(data().textTarget).toEqual({ index: 24, message: null });
     });
 
-    it("opens_a_collapsed_hand_of_the_texts_for_a_link_before_the_texts_were_ever_shown", async () => {
+    it("focuses_the_messages_for_a_link_before_the_texts_were_ever_shown_and_leaves_the_old_hand_state_alone", async () => {
+      // The hand's fold of 3e.3 stays readable in the shell state, but nothing writes it any more.
       writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, texte: true } });
       await renderFresh();
       expect(area("texte", "deck")).toBeNull();
       await act(async () => data().goTo({ kind: "textArchive", index: 23 }));
-      expect(readShellState().handCollapsed.texte).toBe(false);
       await tick(100);
       expect(shown.focused).toEqual(["texte/textEdit"]);
+      expect(readShellState().handCollapsed.texte).toBe(true);
     });
 
     it("reads_the_history_once_per_change_also_when_both_decks_are_built", async () => {
@@ -1040,34 +1099,30 @@ describe("App wiring", () => {
       expect(data().selected).toBe(listed[0]!.id);
     });
 
-    it("opens_a_script_from_the_texts_in_the_world_hand_open_raised_to_400_with_the_script_tab_in_front", async () => {
-      // The world's hand is folded and low when the texts show.
-      await fold("welt");
-      expect(handState()).toEqual({ height: 286, collapsed: true });
+    it("opens_a_script_from_the_texts_in_the_world_restored_raised_to_400_with_the_script_in_front", async () => {
+      // The world's view is maximized when the texts show.
+      await act(async () => maximize().click());
+      expect(welt().maximized).toBe(0);
       await act(async () => atlasEntry("Texte")!.click());
       shown.focused = [];
-      // As a script problem in the texts' hand does it.
+      // As a script problem in the texts' dock does it.
       await act(async () => data().goTo({ kind: "script", file: 42, line: 2 }));
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
-      expect(handState().collapsed).toBe(false);
-      expect(handState().height).toBeGreaterThanOrEqual(400);
+      expect(welt().maximized).toBeNull();
+      expect(welt().heights[1]).toBe(400);
       expect(shown.focused).toEqual(["script"]);
       expect(data().scripts.active).toBe(42);
-      // The texts' hand is left as it was.
-      expect(readShellState().handCollapsed.texte).toBe(false);
+      // The texts' dock is left as it was.
+      expect(shown.docks.texte!.sizes).toEqual([]);
     });
 
-    it("opens_the_problems_in_the_hand_of_the_texts_while_the_texts_show", async () => {
+    it("opens_the_problems_in_the_dock_of_the_texts_while_the_texts_show", async () => {
       await act(async () => atlasEntry("Texte")!.click());
-      await fold("texte");
-      expect(readShellState().handCollapsed.texte).toBe(true);
       shown.focused = [];
       const light = [...area("texte", "deck")!.querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Alles stimmig")!;
       await act(async () => light.click());
       expect(shown.focused).toEqual(["texte/problems"]);
       expect(atlasEntry("Texte")?.getAttribute("aria-current")).toBe("page");
-      expect(readShellState().handCollapsed.texte).toBe(false);
-      expect(readShellState().handCollapsed.welt).toBe(false);
     });
 
     it("switches_the_depth_and_remembers_it", async () => {
@@ -1193,53 +1248,72 @@ describe("App wiring", () => {
       expect(runRom).toHaveBeenCalledOnce();
     });
 
-    it("raises_a_low_hand_to_400_when_a_script_opens_once_per_opening_and_never_lowers_it", async () => {
-      expect(handState()).toEqual({ height: 286, collapsed: false });
+    it("raises_the_script_group_to_400_when_a_script_opens", async () => {
+      expect(welt().heights[1]).toBe(240);
       await act(async () => data().scripts.open(42));
-      expect(handState().height).toBe(400);
-      // The same document again is not a new opening: a hand the user lowered stays.
-      await act(async () => void (shown.shell as { setHandHeight: (a: string, h: number) => void }).setHandHeight("welt", 300));
-      expect(handState().height).toBe(300);
+      expect(welt().sizes).toEqual([400]);
+      // The same document again is not a new opening: a group the user lowered stays.
+      welt().heights[1] = 300;
       await act(async () => data().scripts.open(42));
-      expect(handState().height).toBe(300);
+      expect(welt().sizes).toEqual([400]);
       await act(async () => data().scripts.open(43));
-      expect(handState().height).toBe(400);
+      expect(welt().sizes).toEqual([400, 400]);
+      // A group higher than 400 keeps its height.
+      welt().heights[1] = 520;
+      await act(async () => data().scripts.open(44));
+      expect(welt().sizes).toEqual([400, 400]);
+      // A maximized view hides the script: it is restored first.
+      await act(async () => maximize().click());
+      expect(welt().maximized).toBe(0);
+      await act(async () => data().scripts.open(45));
+      expect(welt().maximized).toBeNull();
+      // The shell's old hand height is not written any more.
+      expect(readShellState().handHeight.welt).toBe(286);
     });
 
-    it("opens_a_collapsed_hand_when_a_script_opens", async () => {
-      await fold("welt");
-      expect(handState().collapsed).toBe(true);
-      await act(async () => data().scripts.open(42));
-      expect(handState()).toEqual({ height: 400, collapsed: false });
+    it("maximizes_the_view_from_the_hinge_and_ends_it_on_escape_when_nothing_else_takes_it", async () => {
+      expect(maximize().getAttribute("aria-pressed")).toBe("false");
+      await act(async () => maximize().click());
+      expect(welt().maximized).toBe(0);
+      expect(maximize().getAttribute("aria-pressed")).toBe("true");
+      // A selected building takes Escape first.
+      await select(listed[0]);
+      await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
+      expect(welt().maximized).toBe(0);
+      await press({ key: "Escape" });
+      expect(data().selectedBuilding).toBeNull();
+      expect(welt().maximized).toBe(0);
+      await press({ key: "Escape" });
+      expect(welt().maximized).toBeNull();
+      expect(maximize().getAttribute("aria-pressed")).toBe("false");
+      // A maximization from elsewhere (a tab's double click) shows in the hinge too; the button restores it.
+      await act(async () => void shown.apis.welt!.maximizeGroup({ id: "world" }));
+      expect(maximize().getAttribute("aria-pressed")).toBe("true");
+      await act(async () => maximize().click());
+      expect(welt().maximized).toBeNull();
     });
 
-    it("opens_a_collapsed_hand_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard", async () => {
+    it("brings_the_inspector_forward_when_something_is_selected_but_not_while_a_text_field_has_the_keyboard_nor_out_of_a_maximized_view", async () => {
       await select(listed[0]);
       shown.focused = [];
-      await fold("welt");
-      expect(handState().collapsed).toBe(true);
       const field = document.createElement("input");
       document.body.append(field);
       try {
         field.focus();
         await act(async () => data().onSelectBuilding({ map: 0, index: 1 }));
-        // The field keeps the keyboard, so the tab stays where it is and the hand stays closed.
+        // The field keeps the keyboard, so the inspector stays where it is.
         expect(shown.focused).toEqual([]);
-        expect(handState().collapsed).toBe(true);
       } finally {
         field.remove();
       }
       await act(async () => data().onSelectBuilding({ map: 0, index: 2 }));
       expect(shown.focused).toEqual(["inspector"]);
-      expect(handState().collapsed).toBe(false);
-    });
-
-    it("keeps_a_hand_that_is_higher_than_400_when_a_script_opens", async () => {
-      window.history.replaceState(null, "", "/?project=/tmp/p");
-      writeShellState({ ...readShellState(), handHeight: { ...readShellState().handHeight, welt: 520 } });
-      await renderFresh();
-      await act(async () => data().scripts.open(42));
-      expect(handState().height).toBe(520);
+      // Selecting in a maximized view is what it is maximized for: the view stays maximized.
+      shown.focused = [];
+      await act(async () => maximize().click());
+      await act(async () => data().onSelectBuilding({ map: 0, index: 3 }));
+      expect(shown.focused).toEqual([]);
+      expect(welt().maximized).toBe(0);
     });
   });
 
@@ -1516,9 +1590,6 @@ describe("App wiring", () => {
       // The build starts before the wizard opens (the title bar's "Bauen" is locked while one is open) and fails while it is.
       let fail: (reason: unknown) => void = () => {};
       vi.mocked(buildRom).mockImplementation(() => new Promise((_, reject) => (fail = reject)));
-      writeShellState({ ...readShellState(), handCollapsed: { ...readShellState().handCollapsed, welt: true } });
-      await renderFresh();
-      await click("Projekt öffnen");
       await click("Bauen");
       expect(buildRom).toHaveBeenCalledOnce();
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
@@ -1526,7 +1597,6 @@ describe("App wiring", () => {
       await act(async () => fail({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] }));
       await click("Probleme zeigen");
       expect(shown.focused).toEqual([]);
-      expect(readShellState().handCollapsed.welt).toBe(true);
       expect(barSlot().hidden).toBe(false);
     });
 
@@ -1547,7 +1617,7 @@ describe("App wiring", () => {
       for (const label of ["Projekt öffnen", "Bauen"]) expect(titleButton(label).disabled).toBe(false);
     });
 
-    it("leaves the hand of the world alone while a wizard holds it", async () => {
+    it("leaves the inspector alone while a wizard works", async () => {
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       shown.focused = [];
       await select(listed[1]);
@@ -1638,6 +1708,56 @@ describe("App wiring", () => {
       expect(shown.resets).toHaveLength(1);
       expect(shown.resets[0]![0]).toBe("welt");
       expect(shown.resets[0]![1]).toHaveProperty("current");
+      expect(shown.resets[0]![2]).toBe("werkbank");
+    });
+
+    it("runs_the_arrangement_commands_of_the_palette", async () => {
+      const hingeOf = (target: string) => area(target, "deck")!.querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
+      // The arrangements build in the world's dock and are remembered there (by `resetLayout`).
+      await pressCmdK();
+      await run("anordnung: doppeldeck");
+      await pressCmdK();
+      await run("anordnung: werkbank");
+      expect(shown.resets.map(([target, , arrangement]) => [target, arrangement])).toEqual([
+        ["welt", "doppeldeck"],
+        ["welt", "werkbank"],
+      ]);
+      // „Layout zurücksetzen“ builds the arrangement the area remembers.
+      localStorage.setItem("g4.layout.v11.welt.arrangement", "doppeldeck");
+      await pressCmdK();
+      await run("layout zurück");
+      expect([shown.resets[2]![0], shown.resets[2]![2]]).toEqual(["welt", "doppeldeck"]);
+      expect(shown.resets[2]![1]).toBe(shown.resets[0]![1]);
+      // „Schau maximieren“ maximizes the view, and again restores it; the hinge's button says so.
+      await pressCmdK();
+      await run("schau maximieren");
+      expect(shown.docks.welt!.maximized).toBe(0);
+      expect(hingeOf("welt").getAttribute("aria-pressed")).toBe("true");
+      await pressCmdK();
+      await run("schau maximieren");
+      expect(shown.docks.welt!.maximized).toBeNull();
+      expect(hingeOf("welt").getAttribute("aria-pressed")).toBe("false");
+      await pressCmdK();
+      await run("inspector schweben");
+      await pressCmdK();
+      await run("inspector andocken");
+      expect(shown.docking).toEqual(["float inspector", "dock welt/inspector"]);
+      // In the texts the view of their dock is maximized; the world's arrangements and its inspector are locked there.
+      await act(async () => atlasEntry("Texte")!.click());
+      await settle();
+      await pressCmdK();
+      typeInSearch(paletteInput()!, "inspector");
+      expect(options().map((o) => [o.textContent?.includes("Nur in der Welt"), o.getAttribute("aria-disabled")])).toEqual([
+        [true, "true"],
+        [true, "true"],
+      ]);
+      typeInSearch(paletteInput()!, "schau maximieren");
+      pressKey(paletteInput()!, "Enter");
+      await settle();
+      expect(shown.docks.texte!.maximized).toBe(0);
+      expect(hingeOf("texte").getAttribute("aria-pressed")).toBe("true");
+      expect(shown.docks.welt!.maximized).toBeNull();
+      expect(shown.resets).toHaveLength(3);
     });
 
     it("goes_to_a_header_by_its_number_and_to_an_area_by_name", async () => {

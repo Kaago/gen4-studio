@@ -1,6 +1,6 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { DockviewApi } from "dockview-react";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { DockApis } from "./useSceneSync";
 import { useStableCallback } from "./useStable";
 
 /** The pins that show an editor in the inspector (a hover, a tile or no pin does not). */
@@ -13,20 +13,22 @@ function typingInField(): boolean {
 }
 
 /**
- * `setPinned` that also brings the world hand's Inspector tab to the front when the new pin is a header, event, building, area or matrix cell:
- * the inspector shares its tab group with Script and Probleme, so a selection would otherwise change something that is hidden.
- * A collapsed hand opens first; a text field that has the focus keeps it (the tab stays as it is then). An update function (history
- * reloads settling the pin again) and the pins that show nothing editable leave the tabs alone, and so does any pin while `paused` says
- * the hand is taken (a wizard's step is in it).
+ * `setPinned` that also brings the Inspector of the world's dock to the front when the new pin is a header, event, building, area or matrix
+ * cell: the inspector may share its tab group with Script and Probleme (Doppeldeck) or float, so a selection would otherwise change something
+ * that is hidden. A text field that has the focus keeps it (the tab stays as it is then). A maximized group stays maximized: selecting in a
+ * maximized view is what it is maximized for, and focusing the inspector behind it would restore it. An update function (history reloads
+ * settling the pin again) and the pins that show nothing editable leave the tabs alone, and so does any pin while `paused` says a wizard works
+ * (its step under the dock keeps the keyboard).
  */
-export function useInspectorReveal(setPinned: Dispatch<SetStateAction<InspectorModel>>, dockApi: DockApis, revealHand: () => void, paused: () => boolean = () => false) {
+export function useInspectorReveal(setPinned: Dispatch<SetStateAction<InspectorModel>>, dock: MutableRefObject<DockviewApi | null>, paused: () => boolean = () => false) {
   return useStableCallback((next: SetStateAction<InspectorModel>) => {
     setPinned(next);
     if (typeof next === "function" || !EDITED.has(next.kind) || typingInField() || paused()) return;
     try {
-      const panel = dockApi.hand.current?.getPanel("inspector");
-      if (!panel) return;
-      revealHand();
+      const api = dock.current;
+      const panel = api?.getPanel("inspector");
+      if (!api || !panel) return;
+      if (api.hasMaximizedGroup() && !panel.api.isMaximized()) return;
       panel.focus();
     } catch {
       /* the deck is going away */

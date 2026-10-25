@@ -251,6 +251,43 @@ describe("Hinge", () => {
     expect(button(/Hier spielen/)).toBeUndefined();
   });
 
+  it("maximizes_the_view_with_its_button_and_says_so", async () => {
+    // Only a hinge over a dock with a view has the button.
+    show(base());
+    expect(container.querySelector('button[aria-label="Schau maximieren"]')).toBeNull();
+    const onMaximize = vi.fn();
+    show(base({ maximized: false, onMaximize }));
+    const maximize = () => container.querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
+    expect(maximize().getAttribute("aria-pressed")).toBe("false");
+    // An icon button in the right cluster, just before „Hier spielen“.
+    const right = [...maximize().closest("div")!.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(right.slice(-2)).toEqual(["Schau maximieren", "Hier spielen"]);
+    expect(maximize().textContent).toBe("");
+    act(() => maximize().click());
+    expect(onMaximize).toHaveBeenCalledOnce();
+    // While the view is maximized the button is pressed (a click restores it).
+    show(base({ maximized: true, onMaximize }));
+    expect(maximize().getAttribute("aria-pressed")).toBe("true");
+    act(() => maximize().click());
+    expect(onMaximize).toHaveBeenCalledTimes(2);
+    // Its tooltip names it.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        maximize().dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        maximize().dispatchEvent(new MouseEvent("mouseenter"));
+        maximize().dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Schau maximieren");
+    } finally {
+      vi.useRealTimers();
+    }
+    // In the wizard's mode the bar shows the wizard only.
+    show(base({ maximized: false, onMaximize, wizard: true }));
+    expect(container.querySelector('button[aria-label="Schau maximieren"]')).toBeNull();
+  });
+
   it("has_a_hidden_slot_for_the_wizard_bar_only_where_wizards_show", () => {
     show(base());
     expect(container.querySelector("[data-wizard-bar]")).toBeNull();

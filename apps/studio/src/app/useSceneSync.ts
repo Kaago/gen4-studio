@@ -10,25 +10,53 @@ import { sameLayout } from "../workbench/matrix";
 import { nextSelection } from "../workbench/navigation";
 import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
-import { AREA_PANELS } from "../workbench/layout";
 import type { DeckArea, PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
 import type { AreaId } from "../ui/frame/shellState";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
-/** How often, and how long apart, a link looks for the docks of a deck that its area's first showing builds (about half a second). */
+/** How often, and how long apart, a link looks for the dock of a deck that its area's first showing builds (about half a second). */
 const FOCUS_TRIES = 30;
 const FOCUS_WAIT_MS = 16;
 
-/** The dockview apis of a deck's two docks (each null until its dock is ready). */
-export interface DockApis {
-  schau: MutableRefObject<DockviewApi | null>;
-  hand: MutableRefObject<DockviewApi | null>;
+/** The dockview api of every area's one dock (null until the dock is ready). */
+export type AreaDocks = Record<DeckArea, MutableRefObject<DockviewApi | null>>;
+
+/** The ref of a dock's api that also tells who `listen`s when the dock hands its api out (in its `onReady`, after the hinge above it rendered). */
+export type DockRef = MutableRefObject<DockviewApi | null> & { listen: (listener: () => void) => () => void };
+
+/** A `DockRef` without an api yet. */
+export function dockRef(): DockRef {
+  let api: DockviewApi | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get current() {
+      return api;
+    },
+    set current(next) {
+      if (next === api) return;
+      api = next;
+      for (const listener of [...listeners]) listener();
+    },
+    listen(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
 }
 
-/** The docks of every area with a deck. */
-export type AreaDocks = Record<DeckArea, DockApis>;
+/**
+ * Brings `panel` of the dock `api` to the front: a maximized group that hides it is restored first (selecting it would restore it too, but
+ * only as a side effect), a floating one comes forward (dockview raises a floating group it activates). False when the dock has no such panel.
+ */
+export function uncover(api: DockviewApi, panel: PanelId): boolean {
+  const found = api.getPanel(panel);
+  if (!found) return false;
+  if (api.hasMaximizedGroup() && !found.api.isMaximized()) api.exitMaximizedGroup();
+  found.focus();
+  return true;
+}
 
 interface SceneSyncParams {
   bus: EditBus;
@@ -36,12 +64,10 @@ interface SceneSyncParams {
   fail: (e: unknown) => void;
   refreshDirty: () => Promise<void>;
   setPinned: (pinned: InspectorModel) => void;
-  /** The docks of each area's deck: a link focuses the panel that shows its target, in the dock of its area that has it. */
+  /** The dock of each area's deck: a link focuses the panel that shows its target in the dock of its area. */
   docks: AreaDocks;
   /** Shows an area: a link switches to the area of its target first. */
   setArea: (area: AreaId) => void;
-  /** Called before a panel of an area's hand is focused: a collapsed hand opens. */
-  revealHand: (area: DeckArea) => void;
   /** Tells the texts which archive and message to open (a link to a text archive). */
   onOpenText: (index: number, message?: number) => void;
   /** Tells the script panel which file to open, and at which 1-based line (a link to a script). */
@@ -55,7 +81,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, revealHand, onOpenText, onOpenScript, onOpenData }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, onOpenText, onOpenScript, onOpenData }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -227,21 +253,15 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     [],
   );
 
-  /** Brings `panel` to the front in the dock of `area` that has it; false while that area's deck is not built yet. */
+  /**
+   * Brings `panel` to the front in the one dock of `area`, ending a maximization that hides it (`uncover`); false while that area's deck is
+   * not built yet.
+   */
   function focusInDocks(area: DeckArea, panel: PanelId): boolean {
-    const { schau, hand } = docks[area];
-    if (schau.current === null || hand.current === null) return false;
+    const api = docks[area].current;
+    if (api === null) return false;
     try {
-      const inSchau = schau.current.getPanel(panel);
-      if (inSchau) {
-        inSchau.focus();
-        return true;
-      }
-      const inHand = hand.current.getPanel(panel);
-      if (inHand) {
-        revealHand(area);
-        inHand.focus();
-      }
+      uncover(api, panel);
     } catch {
       /* the deck is going away */
     }
@@ -249,9 +269,8 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
   }
 
   /**
-   * Shows `area` and brings `panel` to the front in the dock of that area that has it. A deck that is not built yet (the area shows for
-   * the first time) has no docks to look in: a panel of its hand opens the hand at once (it may have been left collapsed), and the
-   * panel is focused once the docks are there (tried for `FOCUS_TRIES` short waits).
+   * Shows `area` and brings `panel` to the front in its dock. A deck that is not built yet (the area shows for the first time) has no dock
+   * to look in: the panel is focused once the dock is there (tried for `FOCUS_TRIES` short waits).
    */
   function focusPanel(area: DeckArea, panel: PanelId | null) {
     if (panel === null) return;
@@ -260,7 +279,6 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     pendingTimer.current = null;
     pendingFocus.current = null;
     if (focusInDocks(area, panel)) return;
-    if (AREA_PANELS[area].some((p) => p.id === panel && !p.schau)) revealHand(area);
     pendingFocus.current = { area, panel };
     let tries = 0;
     const retry = () => {

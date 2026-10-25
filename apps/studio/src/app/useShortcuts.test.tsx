@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { AreaId } from "../ui/frame/shellState";
+import type { AreaId, Tool } from "../ui/frame/shellState";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -16,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false, tool: undefined as Tool | undefined, onEscape: vi.fn((): boolean => false) };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -31,6 +31,8 @@ describe("useShortcuts", () => {
     handlers.toolLocked = () => false;
     handlers.toolsShown = () => true;
     handlers.placing = false;
+    handlers.tool = undefined;
+    handlers.onEscape.mockImplementation(() => false);
     pinned.current = { kind: "building", map: 3, index: 1 };
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
@@ -446,6 +448,67 @@ describe("useShortcuts", () => {
       await act(async () => void document.body.dispatchEvent(event));
       expect(handlers.onTool).not.toHaveBeenCalled();
     });
+  });
+
+  it("ends_a_maximization_on_escape_when_nothing_else_takes_it", async () => {
+    handlers.onEscape.mockImplementation(() => true);
+    handlers.tool = "paint";
+    const escape = async (target: EventTarget = document.body, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, ...init });
+      await act(async () => void target.dispatchEvent(event));
+      return event;
+    };
+    // The selection takes Escape first, then the tool goes back to „Auswählen“; only then does Escape end the maximization.
+    await escape();
+    expect(handlers.unpinSelection).toHaveBeenCalledOnce();
+    pinned.current = { kind: "header", id: 3 };
+    await escape();
+    expect(handlers.onTool).toHaveBeenCalledExactlyOnceWith("select");
+    expect(handlers.onEscape).not.toHaveBeenCalled();
+    handlers.tool = "select";
+    expect((await escape()).defaultPrevented).toBe(true);
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    // A trainer waiting to be placed is let go first.
+    handlers.placing = true;
+    await escape();
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    handlers.placing = false;
+    // A field, a search field, an open menu or list, a modifier, an Escape already used, a dialog: theirs, not the dock's.
+    const input = document.createElement("input");
+    const search = document.createElement("input");
+    search.type = "search";
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("button");
+    menu.append(item);
+    container.append(input, search, menu);
+    await escape(input);
+    await escape(search);
+    await escape(item);
+    await escape(document.body, { shiftKey: true });
+    const used = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    used.preventDefault();
+    await act(async () => void document.body.dispatchEvent(used));
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.append(dialog);
+    await escape();
+    dialog.remove();
+    // A dock's tab menu closes on Escape by itself, with the focus left on the tab.
+    const dockMenu = document.createElement("div");
+    dockMenu.className = "dv-context-menu";
+    dockMenu.setAttribute("role", "menu");
+    document.body.append(dockMenu);
+    await escape();
+    dockMenu.remove();
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    // In every area with a dock; nothing maximized: the Escape stays unused.
+    handlers.area = "texte";
+    await escape();
+    expect(handlers.onEscape).toHaveBeenCalledTimes(2);
+    handlers.onEscape.mockImplementation(() => false);
+    expect((await escape()).defaultPrevented).toBe(false);
   });
 
   it("goes_back_and_forward_with_option_command_arrows_but_not_in_a_field", async () => {

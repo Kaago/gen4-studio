@@ -2,17 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
-import { clampHand, clampWorldSplit, readShellState, rememberRecent, writeShellState } from "./shellState";
+import { clampWorldSplit, readShellState, rememberRecent, writeShellState } from "./shellState";
 import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor, WorldSort } from "./shellState";
 
 export interface ShellApi {
+  /** The frame's remembered state. `handHeight` and `handCollapsed` (the hand of 3e.3) are still read from storage, but nothing sets them: each area has one dock now, whose groups dockview sizes. */
   state: ShellState;
   setArea: (area: AreaId) => void;
   setListOpen: (area: AreaId, open: boolean) => void;
-  setHandHeight: (area: AreaId, height: number) => void;
-  toggleHandCollapsed: (area: AreaId) => void;
-  /** Folds or opens the hand; asking for what already is changes nothing (unlike the toggle, it cannot fold a hand that two callers both open). */
-  setHandCollapsed: (area: AreaId, collapsed: boolean) => void;
   setDepth: (depth: Depth) => void;
   /** The part the Pokémon area shows (whether it may is the area's to decide). */
   setPokemonSub: (sub: PokemonSub) => void;
@@ -81,12 +78,6 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     if (area !== "welt") setPendingTrainer(null);
   }, []);
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
-  const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
-  const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);
-  const setHandCollapsed = useCallback(
-    (area: AreaId, collapsed: boolean) => setState((s) => (s.handCollapsed[area] === collapsed ? s : { ...s, handCollapsed: { ...s.handCollapsed, [area]: collapsed } })),
-    [],
-  );
   const setDepth = useCallback((depth: Depth) => setState((s) => (s.depth === depth ? s : { ...s, depth })), []);
   const setPokemonSub = useCallback((sub: PokemonSub) => setState((s) => (s.sub.pokemon === sub ? s : { ...s, sub: { ...s.sub, pokemon: sub } })), []);
   const setSelected = useCallback(
@@ -134,9 +125,6 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       state,
       setArea,
       setListOpen,
-      setHandHeight,
-      toggleHandCollapsed,
-      setHandCollapsed,
       setDepth,
       setPokemonSub,
       setSelected,
@@ -158,7 +146,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }
