@@ -438,12 +438,65 @@ Dauer: bei warmem Build-Cache etwa 30 bis 40 Minuten (gemessen 1704 s in 3c, 178
 
 Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steht in [docs/agent-gate.md](agent-gate.md). Die Bausteine:
 
-- **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Er nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter `*_DSPRE_contents`) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
+- **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Seit 3h.1 ist die Befehlsschicht `dispatch` (`commands/dispatch.rs`, 91 Befehle) Produktcode ohne Feature; die Brücke ist nur noch der HTTP-Rahmen darum. Welche Pfade ein Aufruf berühren darf, entscheidet ein `Policy` (`commands/policy.rs`): `DevPolicy` (die frühere Struktur `Roots` in `bridge/roots.rs`, Feature `dev-bridge`) für die Brücke, `UserPolicy` für `studio mcp` (siehe „MCP (`studio mcp`)“). Die Brücke nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter `*_DSPRE_contents`) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
 - **`scripts/agent/call.sh <befehl> ['<json>']`** ruft einen Befehl der laufenden Brücke auf; `studio-bridge batch <datei.json> --allow-root <dir>` führt eine Liste von Befehlen ohne Server aus.
 - **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`; eine Änderung kann die Antwort der Brücke an einen Namen binden, den spätere Schritte als `${name}` nutzen, und seit 3b.4a Erwartungen an die Antwort stellen, `{expect: {path, equals}}`, verfehlt mit Rückgabe 2; seit 3b.4b auch erwartete Ablehnungen `{expect: {error: …}}`, Dateihashes `${sha1-of:PFAD}` und den Abschnitt `prepare:`, siehe „Kartenteile importieren (3b.4b)“), `uv run g4emu find-u16` zum Suchen von Adressen. Seit 3b.3b kennt `g4emu` Kampfschritte (`expect-battle`, `walk-until-battle`, `end-battle`, `win-battle`, `mash`): ein Kampf wird an den BattleMon-Datensätzen im RAM erkannt, die Werte je Spielcode stehen in `scripts/g4emu/g4emu/games.yaml` (`battle`, `battle_pointer`, `home_header`; IPKE ohne gemessenen Zeiger); Beschreibung in [docs/agent-gate.md](agent-gate.md), „Kämpfe“. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.
 - **Ports:** Vite 1430, Brücke 1431; `G4_VITE_PORT` und `G4_BRIDGE_PORT` wählen andere (für eine zweite Instanz aus einem Worktree; `call.sh` liest den Brückenport aus `target/agent/bridge.port`). Die eigene App (`pnpm tauri dev`) bleibt auf 1420/1421.
 - **Umgebungsvariablen:** `G4_ROMS_DIR` (Ordner `Roms`, Standard `../Roms`), `G4_APICULA`, `G4EMU_CORE`, `G4EMU_SAVES` (anderer Spielstand-Ordner), `G4_BRIDGE_BIN` und `G4K_BIN` (fertiges `studio-bridge` bzw. `g4k` für Szenarien; aus einem Worktree mit `cargo build --workspace --all-features` bauen, `cargo test --no-run` erneuert `studio-bridge` nicht immer). In einem Git-Worktree fehlt `tools/` (nicht versioniert): `tools/apicula` verlinken oder `G4_APICULA` setzen. Dort stimmt auch der Standard von `G4_ROMS_DIR` nicht (`../Roms` liegt neben dem Haupt-Checkout): `scripts/agent/studio-web.sh` und `scripts/gate.sh` brauchen aus einem Worktree `G4_ROMS_DIR=<absoluter Pfad zu Roms>`.
+
+## MCP (`studio mcp`)
+
+Seit 3h.1 gibt es einen MCP-Server für Coding-Agenten, in der Programmdatei der App selbst: `studio mcp` (Unterbefehl vor dem Start von Tauri, `src/main.rs` ruft `studio_lib::mcp::main`). Er ist Produktcode ohne Cargo-Feature, nutzt dieselbe Befehlsschicht `dispatch` wie die Brücke und das Protokoll über stdio mit `rmcp` (3.7.0). Für Nutzer steht die Anleitung in [docs/mcp.md](mcp.md); hier steht, was Entwickler brauchen. Module in `apps/studio/src-tauri/src/mcp/`: `mod.rs` (Kommandozeile, Schutz von stdout), `catalog.rs` (die 40 Werkzeuge mit Schemas, Klasse je Befehl in `access.rs`), `tools.rs` (`Toolbox`: Aufruf, `g4_batch`, Ressourcen), `server.rs` (Abbildung auf rmcp), dazu `commands/policy.rs` (`UserPolicy`).
+
+**Bauen und Aufrufen:**
+
+```sh
+cargo build -p studio                                   # target/debug/studio (kein Feature nötig)
+target/debug/studio mcp --project <Kopie>               # wartet auf JSON-RPC (eine Nachricht je Zeile) auf stdin
+target/debug/studio mcp --help
+```
+
+Schalter: `--project <DIR>` (Pflicht in 3h.1), `--allow-dir <DIR>` (wiederholbar), `--expert` (`g4_call`, `g4_commands`). In 3h.1 ist der Zugang fest `{write: false, irreversible: false}`: `tools/list` zeigt nur die lesenden Werkzeuge und `g4_batch`; die Schalter `--read-only` und `--allow-irreversible` kommen mit 3h.2. Rückgabe 0, 1 (Fehler im Protokoll) oder 2 (nichts bedient: falsche Argumente, Projekt nicht lesbar, Original gesperrt; Meldung auf stderr). stdout gehört dem Protokoll: unter Unix lenkt der Server fd 1 auf stderr um (`libc::fcntl` mit `F_DUPFD_CLOEXEC`, `dup2`) und schreibt das Protokoll auf die Kopie; unter Windows gibt es das nicht. In Debug-Builds druckt `G4_MCP_TEST_NOISE=1` eine Zeile auf stdout (landet auf stderr), damit Tests den Schutz beweisen können.
+
+**Originale in der Entwicklung:** Ist `G4_ROMS_DIR` gesetzt, lehnt `UserPolicy` ein Projekt (und jeden `--allow-dir`-Ordner) ab, das darunter liegt, aber nicht unter `$G4_ROMS_DIR/_testkopien` (oder `_testkopien/_saves`): Rückgabe 2, „Originale sind gesperrt, nur Kopien unter _testkopien“. Die Namenssperre `*_DSPRE_contents` der Brücke gilt für Nutzer nicht (3g legt Nutzerprojekte so an). Also immer auf eine Kopie zeigen:
+
+```sh
+cp -R "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$G4_ROMS_DIR/_testkopien/<name>"   # Ziel darf nicht existieren
+```
+
+**Tests:**
+
+```sh
+cargo test -p studio --all-features                     # Bibliothek (340 in 3h.1) und tests/mcp_stdio.rs (11)
+cargo test -p studio --test mcp_stdio                   # nur der Client-Test über stdio, rund 1 s
+G4_TEST_PROJECT="$G4_ROMS_DIR/<Projekt>_DSPRE_contents" \
+  cargo test -p studio --test mcp_stdio vanilla          # gated: Header, Prüfungen, Texte auf vanilla_copy(), rund 80 s
+G4_TEST_PROJECT=… G4_DSROM_CLI=… cargo test -p studio vanilla_build_rom_defaults_into_build   # gated, rund 85 s
+```
+
+`tests/mcp_stdio.rs` startet `CARGO_BIN_EXE_studio mcp` mit einem rmcp-Client (`TokioChildProcess`) auf dem synthetischen Projekt (`synthetic_project()`); der gated Test läuft auf einer Kopie im Temp-Verzeichnis (`vanilla_copy()`), das Original wird nur gelesen. Der rmcp-Client überspringt Zeilen auf stdout, die kein JSON sind; wer den Schutz von stdout prüft, nimmt eine rohe Zeile (`initialize_line_with_2025_11_25`).
+
+**Handprobe** (ohne MCP-Client, mit Protokollversion 2025-11-25, wie ein Python-Client sie spricht): ein kleines Skript im Scratchpad startet `studio mcp --project <Kopie>` mit `subprocess.Popen` und schickt Zeilen:
+
+```python
+import json, subprocess
+p = subprocess.Popen(["target/debug/studio", "mcp", "--project", KOPIE], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+def rpc(method, params=None, id=None):
+    msg = {"jsonrpc": "2.0", "method": method, **({"params": params} if params is not None else {}), **({"id": id} if id is not None else {})}
+    p.stdin.write(json.dumps(msg) + "\n"); p.stdin.flush()
+    return json.loads(p.stdout.readline()) if id is not None else None
+print(rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "probe", "version": "0"}}, 1)["result"]["serverInfo"])
+rpc("notifications/initialized")
+print([t["name"] for t in rpc("tools/list", {}, 2)["result"]["tools"]])
+print(rpc("tools/call", {"name": "get_header", "arguments": {"id": 0}}, 3)["result"]["structuredContent"])
+p.stdin.close()
+```
+
+Eine Antwort je Anfrage kommt nicht unbedingt in der Reihenfolge der Anfragen (der Server arbeitet nebenläufig); bei mehreren offenen Anfragen nach der `id` zuordnen. Ein Befehlsfehler ist `result.isError: true`, ein unbekanntes Werkzeug eine JSON-RPC-Antwort mit `error` (-32602). Die Handprobe vom 2026-10-25 auf `_testkopien/3h-lesen` steht im Gate-Dokument [docs/phase-3h-gate.md](phase-3h-gate.md). Claude Code selbst einzurichten ist der Hand-Punkt des Gates: `claude mcp add gen4-studio -- <repo>/target/debug/studio mcp --project <Kopie>` (siehe [docs/mcp.md](mcp.md)); der Agent ändert die Claude-Konfiguration des Nutzers nicht.
+
+**Gate-Skript:** `scripts/gate.sh` bekommt den Schritt `mcp` erst mit 3h.2; bis dahin deckt der Schritt `cargo test` die `mcp_stdio`-Tests (ohne ROM-Daten) ab, die gated Tests laufen je Projekt mit.
 
 ## App-Bundle
 
