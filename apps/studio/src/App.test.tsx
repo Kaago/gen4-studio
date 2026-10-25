@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, agentSettings } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -118,6 +118,7 @@ vi.mock("./api", async (importOriginal) => ({
   defaultProjectParent: vi.fn(),
   checkProjectDest: vi.fn(),
   createProject: vi.fn(),
+  agentSettings: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -192,6 +193,7 @@ describe("App wiring", () => {
     vi.mocked(itemTable).mockResolvedValue(null);
     vi.mocked(runChecks).mockResolvedValue(report());
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
+    vi.mocked(agentSettings).mockResolvedValue({ settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: 'claude mcp add gen4-studio -- "/x" mcp', open_project: null });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);

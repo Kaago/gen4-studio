@@ -3,6 +3,8 @@ import type { SegmentedOption } from "../ui/primitives";
 import { EmulatorRow } from "../ui/frame/EmulatorRow";
 import type { Density, Theme } from "../ui/tokens/theme";
 import { SHORTCUTS } from "../world/buildings";
+import { AgentsSettings } from "./AgentsSettings";
+import type { AgentsSettingsProps } from "./AgentsSettings";
 import styles from "./SettingsArea.module.css";
 
 export type SettingsAreaProps = {
@@ -14,6 +16,8 @@ export type SettingsAreaProps = {
   onTheme: (t: Theme) => void;
   onDensity: (d: Density) => void;
   onPickEmulator: () => void;
+  /** The column Agenten (local MCP clients in the running app). */
+  agents: AgentsSettingsProps;
 };
 
 const THEMES: readonly SegmentedOption<Theme>[] = [
@@ -27,8 +31,11 @@ const DENSITIES: readonly SegmentedOption<Density>[] = [
   { value: "kompakt", label: "Kompakt" },
 ];
 
-/** The surface of the area Einstellungen: appearance, emulator and the app's shortcuts (read only). Every change applies at once, for every project. */
-export function SettingsArea({ theme, density, emulatorPath, onTheme, onDensity, onPickEmulator }: SettingsAreaProps) {
+/**
+ * The surface of the area Einstellungen: appearance, emulator, the app's shortcuts (read only) and the agents. Every change applies at
+ * once, for every project (the agents' grant of the open project is the one setting per project).
+ */
+export function SettingsArea({ theme, density, emulatorPath, onTheme, onDensity, onPickEmulator, agents }: SettingsAreaProps) {
   return (
     <section className={styles.area} aria-labelledby="settings-title">
       <h1 id="settings-title" className={styles.title}>
@@ -70,6 +77,7 @@ export function SettingsArea({ theme, density, emulatorPath, onTheme, onDensity,
             ))}
           </dl>
         </section>
+        <AgentsSettings {...agents} />
       </div>
     </section>
   );

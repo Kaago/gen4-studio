@@ -340,7 +340,7 @@ function AppBody() {
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
-  useAgents({ onChanged: onAgentChanged });
+  const agents = useAgents({ onChanged: onAgentChanged });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
@@ -760,6 +760,7 @@ function AppBody() {
         onTheme={shell.setTheme}
         onDensity={shell.setDensity}
         onPickEmulator={() => void session.onPickEmulator()}
+        agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
       />
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />

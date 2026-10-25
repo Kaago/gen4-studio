@@ -15,6 +15,7 @@ import {
   Circle,
   ClockCounterClockwise,
   Code,
+  Copy,
   Cpu,
   Cube,
   Cursor,
@@ -46,6 +47,7 @@ import {
   Play,
   Plus,
   Question,
+  Robot,
   Rows,
   Signpost,
   Stack,
@@ -120,6 +122,8 @@ export const icons = {
   patch: Bandaids,
   tools: Toolbox,
   density: Rows,
+  agent: Robot,
+  copy: Copy,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

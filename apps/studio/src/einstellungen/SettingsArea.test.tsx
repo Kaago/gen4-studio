@@ -3,6 +3,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("../platform/transport", () => ({ invoke, inTauri: () => true }));
+
 import { SHORTCUTS } from "../world/buildings";
 import { SettingsArea } from "./SettingsArea";
 import type { SettingsAreaProps } from "./SettingsArea";
@@ -15,6 +19,10 @@ describe("SettingsArea", () => {
   const handlers = { onTheme: vi.fn(), onDensity: vi.fn(), onPickEmulator: vi.fn() };
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
+    invoke.mockReset();
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === "agent_settings" ? { settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: "claude mcp add gen4-studio -- \"/x\" mcp", open_project: null } : undefined,
+    );
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -24,18 +32,23 @@ describe("SettingsArea", () => {
     container.remove();
   });
 
+  const agents = { projectOpen: false, bridge: false, status: null, onError: vi.fn() };
   const render = (props: Partial<SettingsAreaProps> = {}) =>
-    act(() => root.render(<SettingsArea theme="system" density="komfort" emulatorPath={undefined} {...handlers} {...props} />));
+    act(() => root.render(<SettingsArea theme="system" density="komfort" emulatorPath={undefined} {...handlers} agents={agents} {...props} />));
   const group = (label: string) => container.querySelector<HTMLElement>(`[role=group][aria-label="${label}"]`);
   const option = (groupLabel: string, text: string) => [...(group(groupLabel)?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text);
   const heading = (text: string) => [...container.querySelectorAll("h1, h2")].find((h) => h.textContent === text);
 
-  it("renders_the_columns_darstellung_emulator_and_tastenkuerzel", () => {
+  it("renders_the_columns_darstellung_emulator_tastenkuerzel_and_agenten", async () => {
     render();
     expect(heading("Einstellungen")).toBeDefined();
     expect(heading("Darstellung")).toBeDefined();
     expect(heading("Emulator")).toBeDefined();
     expect(heading("Tastenkürzel")).toBeDefined();
+    expect(heading("Agenten")).toBeDefined();
+    await act(async () => {});
+    expect(invoke).toHaveBeenCalledWith("agent_settings");
+    expect(container.querySelector("[data-agents-settings] [data-agents-enabled]")).not.toBeNull();
   });
 
   it("the_theme_segmented_offers_hell_dunkel_and_wie_system_and_picks_with_set_theme", () => {
