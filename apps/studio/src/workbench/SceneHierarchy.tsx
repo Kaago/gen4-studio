@@ -86,7 +86,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
 
   // The jump of „Zurück“ or „Vor“ moves no focus itself. The pressed button may be disabled by it (the end of the history): the focus then
   // goes to the other button, or to the root row of the tree, instead of dropping to the page.
-  const panel = useRef<HTMLElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const stepped = useRef<"Zurück" | "Vor" | null>(null);
   const step = (button: "Zurück" | "Vor", jump: () => void) => {
     stepped.current = button;
@@ -230,7 +230,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
   const waiting = events === null && loading;
 
   return (
-    <section ref={panel} className={styles.panel} aria-label="In dieser Szene">
+    <div ref={panel} className={styles.panel}>
       <PanelHead
         title="In dieser Szene"
         actions={
@@ -263,6 +263,6 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
           </div>
         </>
       )}
-    </section>
+    </div>
   );
 }

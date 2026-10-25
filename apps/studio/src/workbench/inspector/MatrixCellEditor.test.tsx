@@ -180,6 +180,11 @@ describe("MatrixCellEditor", () => {
     expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0");
     await show(0, 0);
     expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 0, 0 · Zweiblattdorf");
+    // Header 0 is the landscape: no place to name.
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [0, 900] }));
+    await show(0, 0);
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 0, 0");
     act(() => root.render(null));
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [411, 900] }));
     await show(1, 0);

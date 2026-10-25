@@ -104,7 +104,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const mapMax = Math.max(0, (counts.Map ?? 1) - 1);
   const headerMax = Math.max(0, headerCount - 1);
   // Bauen names the cell by its map and where it lies (the area or room); Tüfteln keeps the codes of the matrix and the header.
-  const place = header === null ? undefined : headers.find((h) => h.id === header);
+  // Header 0 is the landscape, not a place a cell lies in.
+  const place = header === null || header === 0 ? undefined : headers.find((h) => h.id === header);
   const title = tinker ? cell : map === null ? "Leere Zelle" : `Karte ${id4(map)}`;
   const ident = tinker ? `${matrixName} · ${cellLabel(map, header)}` : place ? `${cell} · ${identify(place).name}` : cell;
 

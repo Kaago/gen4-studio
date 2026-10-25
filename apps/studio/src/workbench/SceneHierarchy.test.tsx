@@ -103,8 +103,8 @@ describe("SceneHierarchy", () => {
   it("is_a_tree_called_In_dieser_Szene_with_groups", () => {
     show();
     expect(tree()).not.toBeNull();
-    // The list is a section of its own, as „Orte“ is (the gate's DOM scan reads it by this label).
-    expect(container.querySelector('section[aria-label="In dieser Szene"] h2')?.textContent).toBe("In dieser Szene");
+    // The landmark around it is the list's (`WorldList`); the hierarchy adds none of its own.
+    expect(container.querySelector("section")).toBeNull();
     expect(container.querySelector("h2")?.textContent).toBe("In dieser Szene");
     expect([...container.querySelectorAll("[data-scene-group]")].map((g) => g.getAttribute("data-scene-group"))).toEqual(["header", "maps", "object", "warp", "coord", "bg", "scripts"]);
     expect(group("header").getAttribute("data-header-id")).toBe("3");
