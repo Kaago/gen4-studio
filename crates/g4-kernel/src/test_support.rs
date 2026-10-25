@@ -414,7 +414,8 @@ pub fn vanilla_copy() -> Option<(tempfile::TempDir, PathBuf)> {
     Some((tmp, dst))
 }
 
-fn copy_dir(src: &Path, dst: &Path) {
+/// Copies a directory tree (files only) to `dst`, creating it.
+pub fn copy_dir(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).unwrap();
     for entry in std::fs::read_dir(src).unwrap() {
         let entry = entry.unwrap();

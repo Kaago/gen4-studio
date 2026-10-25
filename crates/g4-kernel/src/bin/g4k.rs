@@ -22,6 +22,7 @@ use g4_kernel::checks::{
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{ArchiveMap, AssetKind, Project};
+use g4_kernel::start::{Template, create_project, inspect_rom};
 use g4_kernel::store::Store;
 use g4_kernel::text::Problem;
 
@@ -40,6 +41,18 @@ enum Command {
     Headers { project: PathBuf },
     /// Extract a .nds ROM into a new ds-rom project folder.
     Extract { rom: PathBuf, dest: PathBuf },
+    /// Print what a .nds ROM is (title, game code, family, language, SHA-1, support) as JSON.
+    /// Reads the file only.
+    InspectRom { rom: PathBuf },
+    /// Create a project from a .nds ROM: extract it into `dest` (missing or empty) and write
+    /// the base mark `.g4/base.json`. Prints the root and the phases with their milliseconds.
+    Create {
+        rom: PathBuf,
+        dest: PathBuf,
+        /// `original` (default) or `data-only`.
+        #[arg(long, default_value = "original", value_parser = parse_template)]
+        template: Template,
+    },
     /// Map inspection and editing.
     #[command(subcommand)]
     Map(MapCommand),
@@ -101,6 +114,14 @@ enum MapCommand {
     },
 }
 
+fn parse_template(text: &str) -> Result<Template, String> {
+    match text {
+        "original" => Ok(Template::Original),
+        "data-only" | "data_only" => Ok(Template::DataOnly),
+        other => Err(format!("unknown template {other:?}: original or data-only")),
+    }
+}
+
 /// Why a command failed: a kernel error, or a message of the command itself.
 enum Failure {
     Kernel(KernelError),
@@ -150,6 +171,28 @@ fn run(cli: Cli) -> Result<(), Failure> {
         Command::Extract { rom, dest } => {
             let p = extract_rom(&rom, &dest)?;
             println!("extracted {} to {}", p.game_code, p.root.display());
+            Ok(())
+        }
+        Command::InspectRom { rom } => {
+            let info = inspect_rom(&rom)?;
+            let json = serde_json::to_string_pretty(&info)
+                .map_err(|e| Failure::Message(format!("inspect-rom: {e}")))?;
+            println!("{json}");
+            Ok(())
+        }
+        Command::Create {
+            rom,
+            dest,
+            template,
+        } => {
+            let created = create_project(&rom, &dest, template, &mut |_| {})?;
+            println!("root={}", created.root.display());
+            for (phase, ms) in &created.phases {
+                println!(
+                    "{}: {ms} ms",
+                    serde_json::json!(phase).as_str().unwrap_or("?")
+                );
+            }
             Ok(())
         }
         Command::Map(MapCommand::Dump {

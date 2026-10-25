@@ -166,3 +166,18 @@ if [ "$ran" -eq 0 ]; then
   FAILED=1
   exit 1
 fi
+
+# Project start (3g.1): extract each ROM, build it again, compare the SHA-1. Only the tests
+# named project_start_ run (they are the only ones that read G4_TEST_ROM for this).
+rom_ran=0
+for rom in "$G4_ROMS_DIR"/*.nds; do
+  label="$(basename "$rom" .nds)"
+  rom_ran=$((rom_ran + 1))
+  run_step "gated tests (project start)" "$label" \
+    env G4_TEST_ROM="$rom" G4_APICULA="$G4_APICULA" G4_DSROM_CLI="$G4_DSROM_CLI" \
+    G4_ROTOM_LSP="$G4_ROTOM_LSP" \
+    cargo test --workspace --all-features -- project_start_
+done
+if [ "$rom_ran" -eq 0 ]; then
+  record "gated tests (project start)" "-" "skipped (keine ROM)" 0
+fi

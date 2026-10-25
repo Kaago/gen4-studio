@@ -477,3 +477,23 @@ fn g4k_check_rejects_an_unknown_code_and_a_broken_ignore_file() {
         .code(1)
         .stderr(contains("g4-checks.json"));
 }
+
+#[test]
+fn inspect_rom_prints_json() {
+    let (_tmp, rom) = common::synthetic_rom();
+    g4k()
+        .args(["inspect-rom"])
+        .arg(&rom)
+        .assert()
+        .success()
+        .stdout(contains("\"game_code\": \"CPUE\""));
+}
+
+#[test]
+fn create_fails_on_an_unextractable_rom_and_leaves_nothing() {
+    let (tmp, rom) = common::synthetic_rom();
+    let dest = tmp.path().join("neu");
+    g4k().args(["create"]).arg(&rom).arg(&dest).assert().code(1);
+    assert!(!dest.exists());
+    assert!(!tmp.path().join(".neu.g4-new").exists());
+}
