@@ -44,8 +44,9 @@ function PanelTab(props: IDockviewPanelHeaderProps) {
     if (props.api.isMaximized()) props.api.exitMaximized();
     else if (props.api.location.type === "grid") props.api.maximize();
   };
+  // `data-dock-tab` names the panel: the F6 round finds the content of a group's active panel by it (dockview renders it over the group).
   return (
-    <span className={styles.tab} onDoubleClick={onDoubleClick}>
+    <span className={styles.tab} data-dock-tab={props.api.id} onDoubleClick={onDoubleClick}>
       <DockviewDefaultTab {...props} hideClose />
       {props.api.id === "script" && unsavedScripts > 0 && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
     </span>

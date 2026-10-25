@@ -225,6 +225,14 @@ describe("Deck", () => {
     expect(groupOf("inspector").element.getAttribute("data-dock-group")).toBe(groupOf("inspector").id);
   });
 
+  it("marks_each_tab_with_its_panel_so_the_f6_round_finds_the_content_of_the_active_one", async () => {
+    await mount();
+    for (const p of AREA_PANELS.welt) expect(tab(p.title).querySelector("[data-dock-tab]")?.getAttribute("data-dock-tab")).toBe(p.id);
+    // The view group's active tab names the panel whose content shows over it.
+    const active = groupOf("world").element.querySelector<HTMLElement>(".dv-active-tab [data-dock-tab]")!;
+    expect(active.getAttribute("data-dock-tab")).toBe(groupOf("world").activePanel!.id);
+  });
+
   it("does_not_let_a_view_panel_be_dragged", async () => {
     await mount();
     const drag = (title: string) => {

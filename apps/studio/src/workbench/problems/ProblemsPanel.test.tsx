@@ -49,9 +49,16 @@ describe("ProblemsPanel", () => {
   const cells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("[role=cell]")];
   const fileButton = (row: HTMLElement) => cells(row)[1]!.querySelector<HTMLButtonElement>("button")!;
 
-  it("says_there_are_no_problems_in_a_head_and_an_empty_state", () => {
+  it("has_no_head_title_that_repeats_the_tab", () => {
+    act(() => store.replaceForFile("expanded/scripts/0042.rotom", [problem("expanded/scripts/0042.rotom", 12, "unbekannter Befehl")]));
+    // The dock tab says "Probleme"; the head keeps only the counts.
+    expect(container.querySelector("h2")).toBeNull();
+    expect(container.querySelector("header")?.textContent).toBe("1 Fehler");
+  });
+
+  it("says_there_are_no_problems_in_an_empty_state_without_an_empty_head", () => {
     act(() => checks.feed.update({ reported: true }));
-    expect(container.querySelector("h2")?.textContent).toBe("Probleme");
+    expect(container.querySelector("header")).toBeNull();
     expect(container.textContent).toContain("Keine Probleme.");
     expect(container.textContent).toContain("Beim Speichern eines Scripts oder Texts landen Fehler hier.");
     expect(table()).toBeNull();

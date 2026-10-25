@@ -331,7 +331,8 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
   const pending = checksPending(view);
   return (
     <section className={styles.panel} aria-label="Probleme">
-      <PanelHead title="Probleme" subtitle={countsText(counts)} />
+      {/* The dock tab says "Probleme": the head keeps the counts, and is left out while there are none. */}
+      {countsText(counts) !== "" && <PanelHead subtitle={countsText(counts)} />}
       <div className={styles.body}>
         {checks !== null && <ChecksNotes checks={checks} depth={depth} />}
         {rows.length > 0 && checks !== null && <UncheckedNotice checks={checks} />}

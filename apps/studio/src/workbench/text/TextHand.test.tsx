@@ -42,6 +42,13 @@ describe("TextHand", () => {
     expect(h.container.textContent).toContain("Verwendet in");
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await h.open433();
+    // The dock tab says "Nachrichten"; the hand's only head is the chosen message's.
+    expect([...h.container.querySelectorAll('[aria-label="Nachricht bearbeiten"] h2')].map((t) => t.textContent)).toEqual(["Nachricht 000"]);
+    expect([...h.container.querySelectorAll("h2")].map((t) => t.textContent)).not.toContain("Nachrichten");
+  });
+
   /** Opens archive 433, used by one header without a location name, or archive 434, used by none. */
   const usedIn = async (index: number, depth: Depth) => {
     h.show(h.base({ headers: [header(12, 433)], depth }));

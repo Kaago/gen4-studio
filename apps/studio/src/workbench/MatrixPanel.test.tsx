@@ -90,9 +90,16 @@ describe("MatrixPanel", () => {
     expect(button("Neue Matrix")).toBeDefined();
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await show();
+    // The dock tab says "Raster"; the head keeps the matrix's number and its action.
+    expect(container.querySelector("header h2")).toBeNull();
+    expect(container.querySelector("header")?.textContent).toContain("0007 · Matrix");
+    expect(container.querySelector("header")?.textContent).toContain("Neue Matrix");
+  });
+
   it("heads_the_panel_with_the_matrix_and_fills_the_fields_from_it", async () => {
     await show();
-    expect(container.querySelector("header h2")?.textContent).toBe("Raster");
     expect(container.querySelector("header")?.textContent).toContain("0007");
     expect(field("Name der Matrix").value).toBe("Dorf");
     expect(field("Breite").value).toBe("2");

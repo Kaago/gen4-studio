@@ -67,6 +67,7 @@ import { dockRef, uncover, useSceneSync } from "./app/useSceneSync";
 import type { DockRef } from "./app/useSceneSync";
 import { useSceneHistory } from "./app/useSceneHistory";
 import { useShortcuts } from "./app/useShortcuts";
+import { useF6Ring } from "./app/useF6Ring";
 import { useStableCallback } from "./app/useStable";
 import { useToastMirror } from "./app/useToastMirror";
 import { useWindowGuards } from "./app/useWindowGuards";
@@ -460,6 +461,7 @@ function AppBody() {
   }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
+  useF6Ring(() => !paletteOpen && !helpOpen);
   // The entry Technik shows; kept while another area shows.
   const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.

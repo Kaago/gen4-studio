@@ -200,7 +200,8 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
   return (
     <section className={styles.panel} aria-label="Script">
       <PanelHead
-        title={doc ? docTitle(doc) : "Script"}
+        // Without a document the head names nothing: the dock tab above it says "Script".
+        title={doc ? docTitle(doc) : undefined}
         subtitle={doc && depth === "tuefteln" ? scriptPath(doc.file, doc.kind) : undefined}
         actions={
           <>

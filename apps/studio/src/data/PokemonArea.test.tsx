@@ -139,6 +139,17 @@ describe("PokemonArea", () => {
     expect(h.q("[data-hand] [role=tablist]")?.getAttribute("aria-label")).toBe("Staravia bearbeiten");
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    h.show(h.base());
+    await flush();
+    await act(async () => rowOf("data-species", 397)!.click());
+    await flush();
+    // The dock tabs say "Übersicht" and "Bearbeiten"; the heads in view and hand name the chosen species.
+    const heads = [...h.container.querySelectorAll("[data-view] h2, [data-view] header, [data-hand] h2, [data-hand] header")].map((t) => t.textContent ?? "");
+    expect(heads.some((t) => t.includes("Staravia"))).toBe(true);
+    expect(heads.filter((t) => /^(Übersicht|Bearbeiten)$/.test(t.trim()))).toEqual([]);
+  });
+
   it("offers_to_show_the_first_species_while_nothing_is_chosen", async () => {
     h.show(h.base());
     await flush();

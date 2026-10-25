@@ -142,8 +142,8 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
 
   return (
     <div className={styles.panel}>
+      {/* The dock tab says "Raster": the head keeps the matrix's number and the action. */}
       <PanelHead
-        title={TERMS.matrix.label}
         subtitle={matrix ? `${id4(matrix.index)} · ${TERMS.matrix.tech}` : undefined}
         actions={
           <Button kind="quiet" size="s" icon="plus" onClick={() => void onNew()}>

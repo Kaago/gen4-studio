@@ -152,6 +152,16 @@ describe("ScriptPanel", () => {
     expect(container.querySelector('[role="tabpanel"] .cm-editor')).not.toBeNull();
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await render();
+    await settle();
+    // Without a document the head would only say "Script", as the dock tab above it does; with one it names the document.
+    expect(container.querySelector("header")).not.toBeNull();
+    expect(title()).toBeUndefined();
+    await open(42);
+    expect(title()).toBe("Scriptdatei 0042");
+  });
+
   it("says_how_a_script_opens_while_none_is_open", async () => {
     await render();
     await settle();

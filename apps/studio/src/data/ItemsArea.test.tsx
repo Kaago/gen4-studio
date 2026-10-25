@@ -115,6 +115,17 @@ describe("ItemsArea", () => {
     expect(h.q('[data-item="1"]')?.getAttribute("aria-selected")).toBe("true");
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    h.show(h.base());
+    await flush();
+    h.show(h.base({ target: { sub: "items", index: 17 } }));
+    await flush();
+    // The dock tabs say "Übersicht" and "Bearbeiten"; the heads in view and hand name the chosen item.
+    const heads = [...h.container.querySelectorAll("[data-view] h2, [data-view] header, [data-hand] h2, [data-hand] header")].map((t) => t.textContent ?? "");
+    expect(heads.some((t) => t.includes("Trank"))).toBe(true);
+    expect(heads.filter((t) => /^(Übersicht|Bearbeiten)$/.test(t.trim()))).toEqual([]);
+  });
+
   it("opens_the_item_a_link_asks_for", async () => {
     h.show(h.base());
     await flush();
