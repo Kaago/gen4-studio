@@ -16,7 +16,7 @@ import { invoke } from "./platform/transport";
  * rejected with code "error" ("fix wrap is not offered for code warp.dest-warp").
  */
 
-/** All groups (the default; the backend also takes `"full"`) or the cheap group only, the run 300 ms after an edit. */
+/** All groups (the default, also of the run 300 ms after an edit; the backend also takes `"full"`) or the cheap group only (the bridge and the scenarios). */
 export type CheckScope = "all" | "cheap";
 
 /** What a run covered: a cheap report says nothing about script and text findings. */

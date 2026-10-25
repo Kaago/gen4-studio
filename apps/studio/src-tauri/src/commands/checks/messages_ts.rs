@@ -1,8 +1,8 @@
 //! The German sentences of the checks live in the frontend (`apps/studio/src/checks/messages.ts`);
 //! the catalogue lives in the kernel. This test holds the one against the other: every code of
 //! `Registry::all()` has its entry there, in catalogue order, with the check's group and its
-//! highest severity (the UI groups a cheap run's report and offers switches by them), and there
-//! is no entry for a code the kernel does not have.
+//! highest severity (a check that reports errors cannot be switched off), and there is no entry
+//! for a code the kernel does not have.
 
 use g4_kernel::checks::{Group, Registry, Severity};
 

@@ -9,7 +9,7 @@ use g4_kernel::project::{AssetId, AssetKind};
 use serde_json::json;
 
 use super::*;
-use crate::commands::{history_impl, open_synthetic, undo_impl};
+use crate::commands::{history_impl, open_synthetic, open_synthetic_with_battle_script, undo_impl};
 
 fn id(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
@@ -970,33 +970,6 @@ fn encounter_min_above_max_pulls_max() {
     assert_eq!(surf(&state), (0, 10));
 }
 
-/// The fixture with adopted scripts and a battle script like Platinum's for its three
-/// trainers (slot 4 is the sight script), as `trainer_create`'s own tests set it up.
-fn with_battle_script() -> (
-    g4_kernel::test_support::Synthetic,
-    AppState,
-    g4_kernel::scripts::TrainerScriptMeta,
-) {
-    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
-    let (fixture, state) = open_synthetic();
-    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
-    scripts::adopt(&project, &mut |_| {}).unwrap();
-    let battle_file = scripts::new_script_file(&project, SourceKind::Script).unwrap();
-    let battle = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    ReleaseAll\n    End\n\
-                  script script_4 #4:\n    LockAll\n    ReleaseAll\n    End\n";
-    scripts::write_source(&project, battle_file, &ScriptSource::Rotom(battle.into())).unwrap();
-    let report = scripts::compile(&project).unwrap();
-    assert!(report.problems.is_empty(), "{:?}", report.problems);
-    (
-        fixture,
-        state,
-        TrainerScriptMeta {
-            battle_file,
-            seen_script: 3003,
-        },
-    )
-}
-
 #[test]
 fn create_trainer_command_reports_placeholder() {
     let (_fixture, state) = open_synthetic();
@@ -1010,7 +983,7 @@ fn create_trainer_command_reports_placeholder() {
         )
     );
 
-    let (_fixture, state, meta) = with_battle_script();
+    let (_fixture, state, meta) = open_synthetic_with_battle_script();
     let report = create_trainer_with_impl(&state, &meta, 1, "Jens").unwrap();
     assert_eq!(
         (report.id, report.placeholder, report.script_extended),

@@ -29,21 +29,9 @@ pub fn create_trainer_impl(
     class: u8,
     name: &str,
 ) -> Result<CreateTrainerReport, CmdError> {
-    let mut guard = lock(state)?;
-    let session = session(&mut guard)?;
-    unlocked_family(&session.project)?;
-    let project = std::sync::Arc::clone(&session.project);
-    let report = trainer_create::create_trainer(
-        &project,
-        &mut session.store,
-        &mut session.names,
-        class,
-        name,
-    );
-    session.after_write();
-    // The members and the battle script are written at once, past the store.
-    session.files_written();
-    Ok(report?)
+    creating_trainer(state, |project, store, names| {
+        trainer_create::create_trainer(project, store, names, class, name)
+    })
 }
 
 /// [`create_trainer_impl`] with the battle script `meta` and flag capacity given (the
@@ -55,20 +43,38 @@ pub(crate) fn create_trainer_with_impl(
     class: u8,
     name: &str,
 ) -> Result<CreateTrainerReport, CmdError> {
+    creating_trainer(state, |project, store, names| {
+        trainer_create::create_trainer_with(
+            project,
+            store,
+            names,
+            meta,
+            trainer_create::TRAINER_FLAG_CAPACITY,
+            class,
+            name,
+        )
+    })
+}
+
+/// Runs `create` under the session lock, then notes its writes (also those of one that
+/// failed partway): the store's, and the members and battle script written past it, so the
+/// checks' last report is of an older state.
+fn creating_trainer(
+    state: &AppState,
+    create: impl FnOnce(
+        &g4_kernel::project::Project,
+        &mut g4_kernel::store::Store,
+        &mut g4_kernel::data::names::NameTables,
+    ) -> Result<CreateTrainerReport, g4_kernel::error::KernelError>,
+) -> Result<CreateTrainerReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     unlocked_family(&session.project)?;
     let project = std::sync::Arc::clone(&session.project);
-    let report = trainer_create::create_trainer_with(
-        &project,
-        &mut session.store,
-        &mut session.names,
-        meta,
-        trainer_create::TRAINER_FLAG_CAPACITY,
-        class,
-        name,
-    );
+    let report = create(&project, &mut session.store, &mut session.names);
     session.after_write();
+    // The members and the battle script are written at once, past the store.
+    session.files_written();
     Ok(report?)
 }
 

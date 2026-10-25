@@ -33,9 +33,10 @@ use super::{CheckFieldsDto, FixDto, ProblemDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, ChecksState, PassOutcome, Session};
 
-/// What `run_checks` checks: everything (`"all"`, also spelled `"full"`), or the cheap group
-/// only, which the frontend runs 300 ms after an edit. A cheap report says nothing about the
-/// script and text findings (`groups` tells).
+/// What `run_checks` checks: everything (`"all"`, also spelled `"full"`; the frontend runs it
+/// when a project opens and 300 ms after an edit, ruling R12), or the cheap group only (the
+/// bridge and the scenarios, ruling R1). A cheap report says nothing about the script and text
+/// findings (`groups` tells).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckScope {
@@ -399,8 +400,8 @@ fn finding_key(
 
 /// The severity of the finding `key`: as the last run reported it (of any state: the
 /// fingerprint names the finding), else the highest its check reports when that is no error
-/// (a text warning after a cheap run replaced the full one, say). A finding of a check that
-/// also reports errors needs to be in the last run.
+/// (a text warning after a cheap run of the bridge replaced the full report, say). A finding
+/// of a check that also reports errors needs to be in the last run.
 fn severity_of(key: &IgnoreKey, last: Option<&ChecksReport>) -> Result<Severity, CmdError> {
     let reported = last
         .into_iter()
@@ -704,15 +705,15 @@ mod tests {
         FixId, Group, IGNORE_FILE, MapCell, Severity, Subject, fingerprint_text,
     };
     use g4_kernel::project::AssetKind;
-    use g4_kernel::store::MapHeader;
+    use g4_kernel::store::{MapHeader, ObjectEvent};
     use serde_json::{Value, json};
 
     use super::*;
     use crate::commands::{
-        ScriptSourceDto, TextEdit, add_script_impl, adopt_scripts_impl, dirty_impl,
-        edit_text_archive_impl, get_header_impl, history_impl, new_script_file_impl,
-        open_project_impl, open_synthetic, read_script_impl, save_level_script_impl,
-        save_script_impl, set_header_impl, subject_to_nav, undo_impl,
+        ScriptSourceDto, TextEdit, add_script_impl, adopt_scripts_impl, create_trainer_with_impl,
+        dirty_impl, edit_text_archive_impl, get_header_impl, history_impl, new_script_file_impl,
+        open_project_impl, open_synthetic, open_synthetic_with_battle_script, read_script_impl,
+        save_level_script_impl, save_script_impl, set_header_impl, subject_to_nav, undo_impl,
     };
     use crate::state::{AppState, PassOutcome};
 
@@ -1140,6 +1141,68 @@ mod tests {
         };
         save_level_script_impl(&state, 1, doc).unwrap();
         assert!(checks_status_impl(&state).unwrap().groups.is_empty());
+    }
+
+    /// The disk epoch of the open session.
+    fn epoch(state: &AppState) -> u64 {
+        state.lock_session().as_ref().unwrap().checks.epoch()
+    }
+
+    #[test]
+    fn the_adoption_create_script_and_a_new_trainer_raise_the_disk_epoch() {
+        // The adoption writes the sources and the project config.
+        let (_fixture, state) = open_synthetic();
+        let before = epoch(&state);
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        assert!(epoch(&state) > before, "adopt_scripts");
+
+        // `create_script` writes and compiles the script file at once: an object of event file
+        // 1 (header 1) calls script 7, which script file 0 lacks.
+        {
+            let mut guard = state.lock_session();
+            let store = &mut guard.as_mut().unwrap().store;
+            store
+                .edit_header(1, "event file", |h| {
+                    let MapHeader::Pt(h) = h else {
+                        unreachable!("the fixture is Platinum")
+                    };
+                    h.event_file_id = 1;
+                    Ok(())
+                })
+                .unwrap();
+            store
+                .edit_event(1, "object", |e| {
+                    e.object_events.push(ObjectEvent {
+                        local_id: 0,
+                        graphics_id: 1,
+                        movement_type: 0,
+                        trainer_type: 0,
+                        hidden_flag: 0,
+                        script: 7,
+                        dir: 0,
+                        data: [0; 3],
+                        movement_range_x: 0,
+                        movement_range_z: 0,
+                        x: 1,
+                        z: 1,
+                        y: 0,
+                    });
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let report = run_checks_impl(&state, CheckScope::All).unwrap();
+        let missing = rows(&report, "event.script-missing");
+        assert_eq!(missing.len(), 1);
+        let before = epoch(&state);
+        apply_fix_impl(&state, &finding_arg(missing[0]), FixId::CreateScript).unwrap();
+        assert!(epoch(&state) > before, "apply_fix create_script");
+
+        // A new trainer writes its members and the battle script past the store.
+        let (_fixture, state, meta) = open_synthetic_with_battle_script();
+        let before = epoch(&state);
+        create_trainer_with_impl(&state, &meta, 1, "Jens").unwrap();
+        assert!(epoch(&state) > before, "create_trainer");
     }
 
     #[test]
