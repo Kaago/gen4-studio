@@ -11,7 +11,7 @@ const GROUPS: { kind: EventKind; singular: string; plural: string }[] = [
   { kind: "bg", singular: "Schild", plural: "Schilder" },
 ];
 
-/** The singular name of each class ("Figur", "Tür"): the inspector's subtitle uses it, too. */
+/** The singular name of each class ("Figur", "Tür"): the status line names a hovered door with it, too. */
 export const KIND_SINGULAR = Object.fromEntries(GROUPS.map((g) => [g.kind, g.singular])) as Record<EventKind, string>;
 
 export interface ContextRow {

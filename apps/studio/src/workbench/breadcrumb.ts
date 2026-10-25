@@ -4,8 +4,9 @@ import type { MenuItemSpec, PanelHeadSwitcher } from "../ui/primitives";
 import type { Depth } from "../ui/frame/shellState";
 import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
+import { headerIdentity } from "./headerIdentity";
 import type { NavTarget } from "./navigation";
-import { UNNAMED_KEY, placeOf } from "./places";
+import { placeOf } from "./places";
 import type { Place } from "./places";
 import { id4, termFor } from "./terms";
 
@@ -30,7 +31,7 @@ export interface CrumbInput {
   events?: EventsDto | null;
   /** Makes the crumbs links: each one leads where its label says. */
   goTo?: (target: NavTarget) => void;
-  /** Bauen names the header "Gebiet" or "Raum", Tüfteln "Header". */
+  /** Bauen names the header "Gebiet" or, for a room, by its name ("Haus 1"); Tüfteln "Header". */
   depth: Depth;
 }
 
@@ -45,7 +46,7 @@ function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: nu
   return eventTitle(pinned.eventKind, data, depth, destination?.internal_name);
 }
 
-/** At most three crumbs: place › header (Gebiet or Raum, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
+/** At most three crumbs: place › header (Gebiet or the room's name, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
 export function crumbsFor({ places, headers, selected, pinned, matrixName, events, goTo, depth }: CrumbInput): Crumb[] {
   const header = selected === null ? undefined : headers.find((h) => h.id === selected);
   if (header === undefined) return [{ label: headers.length === 0 ? "Kein Projekt" : "Kein Ort gewählt" }];
@@ -53,9 +54,10 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, event
   const crumbs: Crumb[] = [];
   const place = placeOf(places, header.id);
   if (place) crumbs.push({ label: place.name, onClick: link({ kind: "header", id: place.headers[0]!.header.id }) });
-  // The explorer's words, not the place's name again: an outside header is a "Gebiet", one inside a "Raum" (a header of an unnamed place is always a room).
-  const outside = place !== undefined && place.key !== UNNAMED_KEY && place.headers.find((h) => h.header.id === header.id)?.kind === "outside";
-  crumbs.push({ label: termFor("header", depth, outside ? "area" : "room"), tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
+  // The explorer's words, not the place's name again: an outside header is a "Gebiet", one inside a room by its name (a header of an unnamed place is always a room).
+  const identity = headerIdentity(places, header);
+  const label = depth === "bauen" && identity.kind === "room" ? identity.name : termFor("header", depth, identity.kind);
+  crumbs.push({ label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
       crumbs.push({ label: eventLabel(pinned, headers, events, depth), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });

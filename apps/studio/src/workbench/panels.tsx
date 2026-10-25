@@ -24,6 +24,7 @@ import { withHeaderHint } from "./navigation";
 import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
+import { buildPlaces } from "./places";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { SceneOverlays } from "./SceneOverlays";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
@@ -297,6 +298,8 @@ export function InspectorPanel() {
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
+  // The places name the header in the head: an area or a room, and the room's name.
+  const places = useMemo(() => buildPlaces(d.headers, d.matrices), [d.headers, d.matrices]);
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -324,6 +327,7 @@ export function InspectorPanel() {
       checks={d.checks}
       headerEditor={{
         headers: d.headers,
+        places,
         counts: d.memberCounts,
         revision: headerRevision,
         onChanged: d.onHeaderChanged,

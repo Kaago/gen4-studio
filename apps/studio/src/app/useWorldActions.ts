@@ -60,7 +60,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         lastTile.current = { map: model.map, x: model.x, y: model.y };
         matrixTile.current = { x: model.absX, z: model.absZ };
       }
-      setHover(model.kind === "none" ? null : model);
+      setHover(model.kind === "tile" || model.kind === "eventHover" ? model : null);
     },
     [setHover],
   );

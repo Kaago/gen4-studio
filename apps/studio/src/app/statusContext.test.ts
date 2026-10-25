@@ -1,30 +1,45 @@
 import { describe, expect, it } from "vitest";
-import type { HeaderSummary } from "../api";
+import type { HeaderSummary, ObjectDto, WarpDto } from "../api";
+import type { SceneHover } from "../workbench/Inspector";
 import { dataStatus, statusContext } from "./statusContext";
 
 const header = (over: Partial<HeaderSummary> = {}): HeaderSummary => ({ id: 3, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 3, text_archive_id: 0, script_file_id: 0, level_script_id: 0, ...over });
 
 describe("statusContext", () => {
   it("is_empty_without_a_selected_header", () => {
-    expect(statusContext({ kind: "none" }, undefined, "bauen")).toBe("");
+    expect(statusContext({ kind: "none" }, null, undefined, "bauen")).toBe("");
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
-    expect(statusContext({ kind: "header", id: 3 }, header(), "bauen")).toBe("Zweiblattdorf");
-    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
+    expect(statusContext({ kind: "header", id: 3 }, null, header(), "bauen")).toBe("Zweiblattdorf");
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
   });
 
   it("keeps_the_technical_words_in_tinkering", () => {
-    expect(statusContext({ kind: "header", id: 3 }, header(), "tuefteln")).toBe("Zweiblattdorf, Raster 0");
+    expect(statusContext({ kind: "header", id: 3 }, null, header(), "tuefteln")).toBe("Zweiblattdorf, Raster 0");
   });
 
   it("falls_back_to_the_internal_name_and_adds_the_cell", () => {
-    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, header({ location_name: "" }), "tuefteln")).toBe("T01, Raster 0, Zelle 3, 27");
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header({ location_name: "" }), "tuefteln")).toBe("T01, Raster 0, Zelle 3, 27");
   });
 
-  it("describes_the_tile_under_the_pointer", () => {
+  it("says_the_hovered_tile_or_marker_first_then_the_place", () => {
     const info = { kind: 3, collision: 0, blocked: false, name: null, class: null };
-    expect(statusContext({ kind: "tile", map: 187, x: 8, y: 4, absX: 8, absZ: 4, info }, header(), "bauen")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
+    const tile: SceneHover = { kind: "tile", map: 187, x: 8, y: 4, absX: 8, absZ: 4, info };
+    const warp: WarpDto = { index: 1, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 0, height: 0 };
+    const door = (destName?: string): SceneHover => ({ kind: "eventHover", eventFile: 3, eventKind: "warp", index: 1, data: warp, destName });
+    const figure: SceneHover = { kind: "eventHover", eventFile: 3, eventKind: "object", index: 2, data: { index: 2, local_id: 7 } as ObjectDto };
+    const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
+    // The hover wins over the selection ...
+    expect(statusContext(cell, tile, header(), "bauen")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
+    expect(statusContext(cell, door("Haus des Rivalen"), header(), "bauen")).toBe("Tür 2 → Haus des Rivalen");
+    expect(statusContext(cell, door(), header(), "bauen")).toBe("Tür 2 → Ort 0414");
+    expect(statusContext(cell, door(), header(), "tuefteln")).toBe("Tür 2 → Header 0414");
+    expect(statusContext(cell, figure, header(), "bauen")).toBe("Objekt 2 · ID 7");
+    // ... also without a selected header, and says no technical word in building.
+    expect(statusContext({ kind: "none" }, door(), undefined, "bauen")).toBe("Tür 2 → Ort 0414");
+    // ... and when the pointer leaves, the place is back.
+    expect(statusContext(cell, null, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
   });
 });
 

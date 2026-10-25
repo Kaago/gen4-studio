@@ -8,6 +8,7 @@ import type { BuildingDto, MapDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
 import { BuildingEditor } from "./BuildingEditor";
 import type { BuildingEditorContext } from "./BuildingEditor";
+import { chooseAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMap: vi.fn(), updateBuilding: vi.fn(), getBuildingGlb: vi.fn() }));
 
@@ -54,8 +55,9 @@ describe("BuildingEditor", () => {
 
   it("names_the_building_by_its_place_in_the_map", async () => {
     await show();
+    expect(container.querySelector("header[data-inspector-kind='building'] [data-eyebrow]")?.textContent).toBe("Gebäude");
     expect(container.querySelector("h2")?.textContent).toBe("Gebäude 3 von 3");
-    expect(container.textContent).toContain("Karte 0012");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Karte 0012");
   });
 
   it("says_Ungespeichert_while_the_map_has_unsaved_changes_and_not_for_another_map", async () => {
@@ -106,11 +108,18 @@ describe("BuildingEditor", () => {
     expect(updateBuilding).toHaveBeenCalledTimes(1);
   });
 
-  it("adds_and_deletes_through_the_buttons", async () => {
+  it("adds_through_the_button", async () => {
     await show();
     await click(button("Neues Gebäude"));
     expect(onAdd).toHaveBeenCalledWith(12);
-    await click(button("Löschen"));
+  });
+
+  it("deletes_from_the_head_menu", async () => {
+    await show();
+    // „Löschen“ is no button in the form any more: it is the head's action, with its key.
+    expect(button("Löschen")).toBeUndefined();
+    expect(headActions(container)).toEqual(["LöschenEntf"]);
+    chooseAction(container, "Löschen");
     expect(onDelete).toHaveBeenCalledWith(12, 2);
   });
 

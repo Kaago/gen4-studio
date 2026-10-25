@@ -32,7 +32,7 @@ describe("crumbsFor", () => {
     const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "object", index: 2 }, 414, { events: eventsOf(514, { objects: [object] }) });
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Raum", "0414"],
+      ["Raum 1", "0414"],
       ["Objekt 2 · ID 7", "Eventdatei 0514"],
     ]);
   });
@@ -53,14 +53,22 @@ describe("crumbsFor", () => {
     expect(pin({ ...pinned, eventKind: "bg", index: 0 })[2]?.label).toBe("Hintergrund-Event 0");
   });
 
-  it("calls_an_outside_header_Gebiet_and_a_room_Raum_with_the_id_grey", () => {
+  it("calls_an_outside_header_Gebiet_and_a_room_by_its_clear_name_with_the_id_grey", () => {
     expect(pin({ kind: "header", id: 0 }, 0).map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
       ["Gebiet", "0000"],
     ]);
     expect(pin({ kind: "header", id: 414 }).map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Raum", "0414"],
+      ["Raum 1", "0414"],
+    ]);
+    // The name the room's code suggests, as the world tree gives it: „Haus 1“, not „Raum 0412“.
+    const house = header(412, "Zweiblattdorf", 8, "T01R0101");
+    const withHouse = [...headers, house];
+    const crumbs = crumbsFor({ places: buildPlaces(withHouse, [matrix(0, true), matrix(7, false), matrix(8, false), matrix(9, false)]), headers: withHouse, selected: 412, pinned: { kind: "header", id: 412 }, depth: "bauen" });
+    expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
+      ["Zweiblattdorf", undefined],
+      ["Haus 1", "0412"],
     ]);
   });
 
@@ -75,14 +83,15 @@ describe("crumbsFor", () => {
 
   it("keeps_the_technical_words_in_tinkering", () => {
     expect(pin({ kind: "header", id: 0 }, 0, { depth: "tuefteln" })[1]).toMatchObject({ label: "Header", tech: "0000" });
+    expect(pin({ kind: "header", id: 414 }, 414, { depth: "tuefteln" })[1]).toMatchObject({ label: "Header", tech: "0414" });
     expect(pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }), depth: "tuefteln" })[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
   });
 
-  it("names_a_header_of_an_unnamed_place_Raum_and_gives_its_id", () => {
+  it("names_a_header_of_an_unnamed_place_a_room_and_gives_its_id", () => {
     const crumbs = pin({ kind: "header", id: 9 }, 9);
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Ohne Ortsnamen", undefined],
-      ["Raum", "0009"],
+      ["Raum 1", "0009"],
     ]);
   });
 

@@ -4,11 +4,13 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
-import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
+import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
+import { buildPlaces } from "../places";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
+import { chooseAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -47,6 +49,12 @@ const pt = (over: Partial<MapHeaderPt> = {}): MapHeader => ({
 });
 const summary: HeaderSummary = { id: 411, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
 const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [], warps: [], coords: [] };
+// Matrix 2 has a header section: header 411 is outside, an area. Matrix 3 is the one-cell map of a house.
+const matrices: MatrixSummary[] = [
+  { index: 2, name: "m2", width: 30, height: 30, has_headers: true, has_altitudes: true, filled: 600 },
+  { index: 3, name: "m3", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
+];
+const house: HeaderSummary = { ...summary, id: 412, internal_name: "T01R0101", matrix_id: 3 };
 
 describe("HeaderEditor scripts", () => {
   let container: HTMLElement;
@@ -58,6 +66,7 @@ describe("HeaderEditor scripts", () => {
   const onLevelScriptSaved = vi.fn();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
+    places: buildPlaces([summary, house], matrices),
     counts: { Script: 800 },
     revision: 0,
     onChanged,
@@ -110,7 +119,32 @@ describe("HeaderEditor scripts", () => {
     await show();
     expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
     expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
-    expect(container.textContent).toContain("0411 · T01");
+  });
+
+  it("calls_an_area_and_a_room_by_their_names_and_the_header_by_its_number_in_tinkering", async () => {
+    const eyebrow = () => container.querySelector("header[data-inspector-kind] [data-eyebrow]")?.textContent;
+    const kind = () => container.querySelector("header[data-inspector-kind]")?.getAttribute("data-inspector-kind");
+    const ident = () => container.querySelector("[data-ident]")?.textContent;
+    await show();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["area", "Gebiet", "Zweiblattdorf", "Zweiblattdorf · T01"]);
+    await show(context(), "tuefteln");
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["area", "Header", "Zweiblattdorf", "Header 0411 · T01"]);
+    // A room has the clear name its code suggests, not "Raum" and its number.
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="bauen" />));
+    await flush();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Raum", "Haus 1", "Zweiblattdorf · T01R0101"]);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="tuefteln" />));
+    await flush();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Header", "Haus 1", "Header 0412 · T01R0101"]);
+  });
+
+  it("binds_a_room_here_from_the_head_menu", async () => {
+    const onOpenWizard = vi.fn();
+    await show(context({ onOpenWizard }));
+    expect(headActions(container)).toEqual(["Raum hier anbinden…"]);
+    chooseAction(container, "Raum hier anbinden…");
+    expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
   });
 
   it("opens_the_script_file_and_the_level_script_of_the_header", async () => {

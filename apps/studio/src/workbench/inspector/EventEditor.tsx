@@ -2,19 +2,18 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
-import { Button, InspectorRow, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
+import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
-import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { AddEvent } from "./AddEvent";
 import styles from "./Editor.module.css";
-import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventSubtitle } from "./eventFields";
+import { EVENT_FIELDS, eventBackend, eventFieldSpecs } from "./eventFields";
 import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
-import { InspectorHead } from "./InspectorHead";
+import { EVENT_INSPECTOR_KIND, InspectorHead } from "./InspectorHead";
 import { destinationSpec, referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
@@ -64,8 +63,6 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
-  // How many events of this class the file has, for "Figur 3 von 5".
-  const [total, setTotal] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -74,10 +71,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const session = useRef<EditSession<EventData> | null>(null);
 
   useEffect(() => {
-    const onEvents = (events: EventsDto) => {
-      setLocked(events.locked);
-      setTotal(kind === "warp" ? events.warps.length : kind === "object" ? events.objects.length : kind === "coord" ? events.coords.length : events.bg.length);
-    };
+    const onEvents = (events: EventsDto) => setLocked(events.locked);
     const backend = eventBackend(file, kind, { getEvents, update: updateEvent, onEvents });
     const s = new EditSession<EventData>(index, backend, EVENT_FIELDS, {
       onState: setEvent,
@@ -118,11 +112,12 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
     onOpenScript(owner.script_file_id);
   };
 
-  const subtitle = eventSubtitle(kind, index, total, owner ? headerLabel(owner) : null);
+  // The event in the words of the ROM: its class and index, and the event file it is in.
+  const ident = `${KIND_LABELS[kind]} ${index} · ${TERMS.eventFile.label} ${id4(file)}`;
   if (event === null) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={`${KIND_LABELS[kind]} ${index}`} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} />
+        <InspectorHead kind={EVENT_INSPECTOR_KIND[kind]} title={`${KIND_LABELS[kind]} ${index}`} ident={ident} unsaved={isDirty(dirty, "Event", file)} depth={depth} />
       </div>
     );
   }
@@ -135,7 +130,15 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={eventTitle(kind, event, depth, destHeader?.internal_name)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
+      <InspectorHead
+        kind={EVENT_INSPECTOR_KIND[kind]}
+        title={eventTitle(kind, event, depth, destHeader?.internal_name)}
+        ident={ident}
+        unsaved={isDirty(dirty, "Event", file)}
+        locked={readOnly}
+        actions={[{ label: "Löschen", detail: <Kbd keys="Entf" />, disabled: readOnly, onSelect: () => void onDelete(file, kind, index) }]}
+        depth={depth}
+      />
       <div className={styles.body}>
         {locked !== null && (
           <div className={styles.pad}>
@@ -222,9 +225,6 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
-          <Button kind="danger" size="s" disabled={readOnly} onClick={() => void onDelete(file, kind, index)}>
-            Löschen
-          </Button>
         </div>
         <p className={styles.note}>
           Ziehen in der 3D-Ansicht verschiebt das Event um ganze Kacheln, Esc bricht das Ziehen ab. Neue Events entstehen auf der zuletzt berührten Kachel; Entf löscht das gewählte Event nach Rückfrage.

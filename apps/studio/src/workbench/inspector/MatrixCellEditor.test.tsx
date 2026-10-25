@@ -9,6 +9,7 @@ import { typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
 
@@ -56,8 +57,9 @@ describe("MatrixCellEditor", () => {
 
   it("names_the_cell_and_the_matrix", async () => {
     await show();
+    expect(container.querySelector("header[data-inspector-kind='map'] [data-eyebrow]")?.textContent).toBe("Karte");
     expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
-    expect(container.textContent).toContain("Weltkarte 0003");
+    expect(container.querySelector("[data-ident]")?.textContent).toContain("Weltkarte 0003");
     expect(input("Karte").value).toBe("11");
     expect(input("Gebiet").value).toBe("412");
     expect(input("Höhe").value).toBe("2");
@@ -126,7 +128,7 @@ describe("MatrixCellEditor", () => {
 
   it("duplicates_the_map_into_the_cell_and_refreshes_the_counts", async () => {
     await show();
-    await act(async () => void button("Karte duplizieren und hier eintragen").click());
+    chooseAction(container, "Duplizieren");
     await flush();
     expect(duplicateMap).toHaveBeenCalledWith(11);
     expect(setMatrixCell).toHaveBeenCalledWith(3, 1, 0, 77, null, null);
@@ -201,20 +203,28 @@ describe("MatrixCellEditor", () => {
     expect([...table.querySelectorAll("tbody th")].map((h) => h.textContent)).toEqual(["Karte"]);
   });
 
-  it("opens_the_import_and_export_dialogs_of_the_cell_map_from_the_field_Karte", async () => {
+  it("offers_import_export_and_duplicate_in_the_head_menu_not_in_the_field_row", async () => {
     await show();
-    await act(async () => void button("Teile importieren…").click());
+    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren"]);
+    // The buttons below the field „Karte“ and at the end of the form are gone.
+    for (const old of ["Teile importieren…", "Teile exportieren…", "Karte duplizieren und hier eintragen", "Duplizieren"]) expect(button(old), old).toBeUndefined();
+    chooseAction(container, "Teile importieren…");
+    await flush();
     expect(document.querySelector("[role=dialog]")?.textContent).toContain("Teile in Karte 0011 importieren");
     expect(document.querySelector("[data-import-dialog='11']")).not.toBeNull();
     await act(async () => void [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Abbrechen")!.click());
     await flush();
-    await act(async () => void button("Teile exportieren…").click());
+    chooseAction(container, "Teile exportieren…");
+    await flush();
     expect(document.querySelector("[data-export-dialog='11']")).not.toBeNull();
   });
 
-  it("offers_no_import_for_a_cell_without_a_map", async () => {
+  it("offers_no_parts_and_no_duplicate_for_a_cell_without_a_map", async () => {
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
     await show();
-    expect(button("Teile importieren…")).toBeUndefined();
+    expect(headAction(container, "Teile importieren…")).toBeUndefined();
+    expect(headAction(container, "Teile exportieren…")).toBeUndefined();
+    const duplicate = headAction(container, "Duplizieren");
+    expect(duplicate?.getAttribute("aria-disabled") === "true" || duplicate?.hasAttribute("data-disabled")).toBe(true);
   });
 });

@@ -137,13 +137,13 @@ export interface MatrixSelection {
 }
 
 /**
- * What changes with the pointer and the session message, each in a context of its own so a panel
- * subscribes only to what it renders: hovering the scene must not render the header list or the
- * matrix tab. The message is not read by any panel any more (the frame shows it as a toast); it stays
+ * What changes with the selection and the session message, each in a context of its own so a panel
+ * subscribes only to what it renders: selecting must not render the header list or the matrix tab
+ * (unless the selection is a matrix cell). The scene's hover is not here at all: it goes to the status line. The message is not read by any panel any more (the frame shows it as a toast); it stays
  * here as the one place that says what the session currently shows.
  */
 export interface WorkbenchLive {
-  /** What the inspector shows: the scene's hover while the pointer is over a cell, else the pinned model. */
+  /** What the inspector shows: the selection (the pin); the scene's hover goes to the status line. */
   inspector: InspectorModel;
   /** The inspector's cell if it is a matrix cell, else null. Keeps its identity while the same cell shows. */
   matrixSelection: MatrixSelection | null;
@@ -174,7 +174,7 @@ export function useWorkbench(): WorkbenchData {
   return data;
 }
 
-/** Changes with every hover; only the inspector reads it. */
+/** Changes with the selection; only the inspector reads it. */
 export function useInspectorModel(): InspectorModel {
   return useContext(InspectorContext);
 }

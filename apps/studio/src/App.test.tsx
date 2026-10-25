@@ -305,10 +305,14 @@ describe("App wiring", () => {
     // The scene reports hovers and its load progress at pointer speed; none of it may touch the rarely changing data.
     for (const x of [1, 2, 3]) {
       await act(async () => data().onInspect(tile(x)));
-      expect(live().inspector).toMatchObject({ kind: "tile", x });
+      // The hover goes to the middle of the status line; the inspector keeps the selection.
+      expect(statusLine()).toContain(`Kachel x ${x}, y 0`);
+      expect(live().inspector).toMatchObject({ kind: "header", id: 0 });
       expect(data()).toBe(before);
     }
     await act(async () => data().onInspect({ kind: "none" }));
+    expect(statusLine()).not.toContain("Kachel");
+    expect(statusLine()).toContain("Ort 0");
     expect(live().inspector).toMatchObject({ kind: "header", id: 0 });
     await act(async () => data().onLoadStatus({ kind: "info", text: "Modelle 3/900" }));
     expect(live().message?.text).toBe("Modelle 3/900");
@@ -868,15 +872,15 @@ describe("App wiring", () => {
     it("shows_place_header_and_the_pinned_event_in_the_breadcrumb", async () => {
       expect(hinge().querySelector("nav")?.textContent).toContain("Kein Ort gewählt");
       await select(listed[1]);
-      // The overview does not know the matrix here, so the header counts as a room.
-      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Raum 0001");
+      // The overview does not know the matrix here, so the header counts as a room: „Raum 1“ (its code suggests no name), the id grey.
+      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Raum 1 0001");
       vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 0, local_id: 5 } as never] });
       await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 0, header: 1 }));
       // The title is the inspector's heading once the events of the file are read.
       expect(getEvents).toHaveBeenCalledWith(101);
       expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 0 · ID 5");
       // A crumb leads where it says.
-      await act(async () => hingeButton(/^Raum 0001/)!.click());
+      await act(async () => hingeButton(/^Raum 1 0001/)!.click());
       expect(hinge().querySelector("nav")?.textContent).not.toContain("Objekt");
     });
 

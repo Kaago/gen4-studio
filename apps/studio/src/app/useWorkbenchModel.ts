@@ -39,7 +39,7 @@ interface WorkbenchModelParams {
     | "sceneBuildings"
     | "onBuildings"
   >;
-  pins: Pick<InspectorState, "pinned" | "inspector">;
+  pins: Pick<InspectorState, "pinned">;
   /** The matrix and warp overviews of the project (the world explorer's data). */
   overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
   /** Parts were imported into a map (must keep its identity). */
@@ -73,8 +73,8 @@ interface WorkbenchModelParams {
 /**
  * What App hands the workbench, in two parts. `data` is everything that changes rarely; its
  * identity changes only when one of its fields does, so the panels reading only it are not
- * rendered again by a hover or a message. `live` is the volatile part (the inspector's hover,
- * the cell it selects, the message), where a panel subscribes to the piece it renders.
+ * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
+ * it selects, the message), where a panel subscribes to the piece it renders.
  */
 export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
@@ -146,7 +146,8 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     dataStore,
   });
 
-  const { inspector } = pins;
+  // The inspector shows the selection; the hover goes to the status line and is not part of the model.
+  const inspector = pinned;
   const cell = inspector.kind === "matrixCell" ? inspector : null;
   const [cellMatrix, cellX, cellY] = [cell?.matrix, cell?.x, cell?.y];
   const matrixSelection = useMemo<MatrixSelection | null>(

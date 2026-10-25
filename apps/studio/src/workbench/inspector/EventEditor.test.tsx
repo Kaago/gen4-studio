@@ -9,6 +9,7 @@ import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtil
 import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn() }));
 
@@ -168,11 +169,26 @@ describe("EventEditor scripts", () => {
     expect(container.textContent).toContain("Ungespeichert");
   });
 
-  it("names_the_event_by_its_title_and_its_place_among_the_events_of_its_class", async () => {
+  it("names_the_event_by_its_kind_its_title_and_its_number_in_the_event_file", async () => {
     await show();
+    expect(container.querySelector("header[data-inspector-kind='figure'] [data-eyebrow]")?.textContent).toBe("Figur");
     expect(container.querySelector("h2")?.textContent).toBe("Objekt 2 · ID 1");
-    // Header 9 is the selected one of the two that use event file 8.
-    expect(container.textContent).toContain("Figur 3 von 3 in H9");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Objekt 2 · Eventdatei 0008");
+    // The other classes have their own words.
+    vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 }] }));
+    await show(context(), "warp", 0);
+    expect(container.querySelector("header[data-inspector-kind='door'] [data-eyebrow]")?.textContent).toBe("Tür");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Warp 0 · Eventdatei 0008");
+  });
+
+  it("deletes_from_the_head_menu", async () => {
+    const onDelete = vi.fn();
+    await show(context({ onDelete }));
+    // „Löschen“ is no button in the form any more: it is the head's action, with its key.
+    expect(button("Löschen")).toBeUndefined();
+    expect(headActions(container)).toEqual(["LöschenEntf"]);
+    chooseAction(container, "Löschen");
+    expect(onDelete).toHaveBeenCalledWith(8, "object", 2);
   });
 
   it("changes_the_facing_through_a_select_and_writes_only_that_field", async () => {
@@ -203,7 +219,8 @@ describe("EventEditor scripts", () => {
     expect(container.textContent).toContain("schreibgeschützt: uses common data");
     expect(field("x (Kachel)").disabled).toBe(true);
     expect(select("Blickrichtung").hasAttribute("data-disabled") || select("Blickrichtung").getAttribute("aria-disabled") === "true").toBe(true);
-    expect((button("Löschen") as HTMLButtonElement).disabled).toBe(true);
+    const remove = headAction(container, "Löschen");
+    expect(remove?.getAttribute("aria-disabled") === "true" || remove?.hasAttribute("data-disabled")).toBe(true);
   });
 
   describe("a warp", () => {

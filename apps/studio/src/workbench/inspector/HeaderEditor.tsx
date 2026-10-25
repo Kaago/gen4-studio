@@ -3,8 +3,9 @@ import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import { Button, Section } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
-import { headerLabel } from "../headers";
+import { headerIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
+import type { Place } from "../places";
 import { TERMS, id4, termFor } from "../terms";
 import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
@@ -25,6 +26,8 @@ import { TechnicalSection } from "./TechnicalSection";
 /** What the header editor needs from App besides the header id. */
 export interface HeaderEditorContext {
   headers: HeaderSummary[];
+  /** The places of the headers: whether the header is an area or a room, and the room's name (`headerIdentity`). */
+  places: Place[];
   counts: MemberCounts;
   /** Changes whenever the header table was changed behind the editor's back (undo, redo, reload). */
   revision: number;
@@ -63,7 +66,7 @@ const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
+  const { headers, places, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -114,6 +117,11 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   };
 
   const summary = headers.find((h) => h.id === id);
+  // The head: an area by its place, a room by its name; Bauen gives the place and the code as the ident, Tüfteln the header's number.
+  const identity = summary ? headerIdentity(places, summary) : null;
+  const headerId = `${termFor("header", depth)} ${id4(id)}`;
+  const code = summary ? ` · ${summary.internal_name}` : "";
+  const ident = depth === "tuefteln" ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -152,7 +160,13 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={summary ? headerLabel(summary) : `${termFor("header", depth)} ${id4(id)}`} subtitle={summary ? `${id4(id)} · ${summary.internal_name}` : id4(id)} />
+      <InspectorHead
+        kind={identity?.kind ?? "room"}
+        title={identity?.name ?? headerId}
+        ident={ident}
+        actions={summary ? [{ label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) }] : undefined}
+        depth={depth}
+      />
       <div className={styles.body}>
         {header === null ? (
           <p className={styles.note}>Lade {termFor("header", depth)} …</p>

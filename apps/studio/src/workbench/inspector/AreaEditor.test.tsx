@@ -43,6 +43,7 @@ describe("AreaEditor", () => {
 
   it("names_the_record_and_shows_its_fields", async () => {
     await show();
+    expect(container.querySelector("header[data-inspector-kind='look'] [data-eyebrow]")?.textContent).toBe("Aussehen");
     expect(container.querySelector("h2")?.textContent).toBe("Area-Data 0007");
     expect(input("Dynamische Textur").value).toBe("0");
     expect(input("Lichttyp").value).toBe("4");
@@ -57,6 +58,7 @@ describe("AreaEditor", () => {
 
   it("keeps_the_technical_words_in_tinkering", async () => {
     await show({}, [], "tuefteln");
+    expect(container.querySelector("header[data-inspector-kind='look'] [data-eyebrow]")?.textContent).toBe("Area-Data");
     expect(container.textContent).toContain("aller Karten, deren Header diese Area-Data verwendet");
   });
 

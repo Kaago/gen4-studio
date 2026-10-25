@@ -3,7 +3,8 @@ import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
-import { Button, InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
+import { InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
+import type { MenuEntry } from "../../ui/primitives";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
@@ -78,14 +79,14 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   if (!matrix) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={matrixName} unsaved={unsaved} />
+        <InspectorHead kind="map" title={title} ident={matrixName} unsaved={unsaved} depth={depth} />
       </div>
     );
   }
   if (x >= matrix.width || y >= matrix.height) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={matrixName} unsaved={unsaved} />
+        <InspectorHead kind="map" title={title} ident={matrixName} unsaved={unsaved} depth={depth} />
         <p className={styles.note}>
           Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Weltkarte"} ({matrix.width} × {matrix.height}).
         </p>
@@ -130,23 +131,24 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       await setMatrixCell(index, x, y, copy, null, null);
     }, true);
 
+  // The map's actions: its parts in and out (only when the cell has a map), and a copy of it in this cell.
+  const actions: MenuEntry[] = [
+    ...(map === null
+      ? []
+      : [
+          { label: "Teile importieren…", onSelect: () => setPartsDialog("import") },
+          { label: "Teile exportieren…", onSelect: () => setPartsDialog("export") },
+        ]),
+    { label: "Duplizieren", disabled: map === null || working, onSelect: () => map !== null && void duplicate(map) },
+  ];
+
   return (
     <div className={styles.panel}>
-      <InspectorHead title={title} subtitle={`${matrixName} · ${cellLabel(map, header)}`} unsaved={unsaved} />
+      <InspectorHead kind="map" title={title} ident={`${matrixName} · ${cellLabel(map, header)}`} unsaved={unsaved} actions={actions} depth={depth} />
       <div className={styles.body}>
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />
         </InspectorRow>
-        {map !== null && (
-          <div className={styles.actions}>
-            <Button kind="secondary" size="s" onClick={() => setPartsDialog("import")}>
-              Teile importieren…
-            </Button>
-            <Button kind="secondary" size="s" onClick={() => setPartsDialog("export")}>
-              Teile exportieren…
-            </Button>
-          </div>
-        )}
         {map !== null && (
           <>
             <ImportPartsDialog
@@ -182,12 +184,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         )}
         {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
-        <div className={styles.actions}>
-          <Button kind="secondary" disabled={map === null || working} onClick={() => map !== null && void duplicate(map)}>
-            Karte duplizieren und hier eintragen
-          </Button>
-        </div>
-        <p className={styles.note}>Anlegen lässt sich nicht rückgängig machen. Die Kopie ist sofort als neue Karte am Ende des Archivs vorhanden.</p>
+        <p className={styles.note}>
+          „Duplizieren“ (Menü „Aktionen“) trägt eine Kopie der Karte in diese Zelle ein und lässt sich nicht rückgängig machen: Die Kopie ist sofort als neue
+          Karte am Ende des Archivs vorhanden.
+        </p>
       </div>
     </div>
   );

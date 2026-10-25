@@ -63,7 +63,7 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={`Area-Data ${id4(id)}`} subtitle="Tilesets und Licht" unsaved={isDirty(dirty, "AreaData", id)} />
+      <InspectorHead kind="look" title={`Area-Data ${id4(id)}`} unsaved={isDirty(dirty, "AreaData", id)} depth={depth} />
       <div className={styles.body}>
         {area === null ? (
           <p className={styles.note}>Lade Area-Data …</p>

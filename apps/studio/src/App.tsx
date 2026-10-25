@@ -668,7 +668,7 @@ function AppBody() {
   });
 
   const { info } = session;
-  const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected), shell.state.depth);
+  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth);
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />

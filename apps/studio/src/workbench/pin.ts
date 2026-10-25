@@ -12,18 +12,3 @@ export function pinAfterHistory(pinned: InspectorModel, selectedHeader: number |
   return selectedHeader === null ? { kind: "none" } : { kind: "header", id: selectedHeader };
 }
 
-/**
- * What the inspector shows, given the pin and what the pointer is over in the scene. The scene's
- * hover wins over the pin, except while a building or event is pinned (it is edited and dragged
- * there): hovering tiles keeps it, and so does hovering the pinned event's own marker. Other
- * markers still take over.
- */
-export function shownInspector(pinned: InspectorModel, hover: InspectorModel | null): InspectorModel {
-  if (hover === null) return pinned;
-  if (pinned.kind === "building" && hover.kind === "tile") return pinned;
-  if (pinned.kind === "event") {
-    if (hover.kind === "tile") return pinned;
-    if (hover.kind === "eventHover" && hover.eventFile === pinned.eventFile && hover.eventKind === pinned.eventKind && hover.index === pinned.index) return pinned;
-  }
-  return hover;
-}
