@@ -224,8 +224,9 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "history",
         title: "Undo history",
-        description: "Lists the labels of the undo steps and of the redo steps, the newest \
-                      last.",
+        description: "Lists the labels of the undo steps, oldest first (the last one is what \
+                      undo reverts next), and of the redo steps in the order redo applies them \
+                      (the first one is next).",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("history"),
@@ -261,8 +262,12 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "get_matrix",
         title: "Get matrix",
-        description: "Returns a map matrix (the grid of maps a place is made of): its name, \
-                      size and, row by row, the map id, header id and altitude of each cell.",
+        description: concat!(
+            "Returns a map matrix (the grid of maps a place is made of): index, name, width, \
+             height and three parallel row-major arrays, maps (map id per cell, null for an \
+             empty cell), headers and altitudes (each null without that section). ",
+            data_note!()
+        ),
         input_schema: || {
             object(
                 json!({ "index": uint("matrix index, as get_header returns in matrix_id") }),
@@ -417,8 +422,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "refs",
         title: "Find references",
-        description: "Finds where a species, move, item, trainer, trainer class or encounter \
-                      file is used, each place with a link to it.",
+        description: concat!(
+            "Finds where a species, move, item, trainer, trainer class or encounter file is \
+             used, each place with a link to it. ",
+            data_note!()
+        ),
         input_schema: || {
             object(
                 json!({ "target": nested(
@@ -435,8 +443,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "run_checks",
         title: "Run checks",
-        description: "Runs the project checks (broken warps, too wide texts, missing scripts \
-                      and more) and returns the findings, each with the fixes it offers.",
+        description: concat!(
+            "Runs the project checks (broken warps, too wide texts, missing scripts and more) \
+             and returns the findings, each with the fixes it offers. ",
+            data_note!()
+        ),
         input_schema: || {
             object(
                 json!({ "scope": {
@@ -453,8 +464,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "plan_fix",
         title: "Plan fix",
-        description: "Shows what applying a fix to a finding would change and whether it can be \
-                      undone, without changing anything.",
+        description: concat!(
+            "Shows what applying a fix to a finding would change (before and after) and \
+             whether it can be undone, without changing anything. ",
+            data_note!()
+        ),
         input_schema: finding_args,
         output_schema: answers_object,
         route: command("plan_fix"),
@@ -712,7 +726,7 @@ static TOOLS: &[ToolDef] = &[
                          items}}, {\"TrainerParty\": {party}}, {\"TrainerTexts\": {texts}}, \
                          {\"CopyMoves\": {from}}"
                     ),
-                    "label": label("a German label naming the change"),
+                    "label": label("a label made from the change, such as \"<name>: <field> old → new\""),
                 }),
                 &["kind", "index", "patch"],
             )
@@ -1128,6 +1142,10 @@ mod tests {
             "search_scripts",
             "data_list",
             "data_get",
+            "get_matrix",
+            "refs",
+            "run_checks",
+            "plan_fix",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
