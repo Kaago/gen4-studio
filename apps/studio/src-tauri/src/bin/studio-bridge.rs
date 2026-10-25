@@ -32,6 +32,10 @@ enum Command {
         /// Folder projects may be opened from and ROMs built into (repeatable).
         #[arg(long = "allow-root", required = true)]
         allow_root: Vec<PathBuf>,
+        /// Folder for the agent settings (agents.json), created if missing; without it they
+        /// stay in memory.
+        #[arg(long = "app-data")]
+        app_data: Option<PathBuf>,
     },
     /// Run `[[command, args], …]` from a JSON file and print one JSON line per command.
     Batch {
@@ -48,6 +52,7 @@ fn run(cli: Cli) -> Result<(), String> {
             port,
             origin,
             allow_root,
+            app_data,
         } => {
             let token = std::env::var("G4_BRIDGE_TOKEN")
                 .ok()
@@ -59,6 +64,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 token,
                 origin,
                 roots,
+                app_data,
             })?;
             println!(
                 "studio-bridge listening on http://127.0.0.1:{}",

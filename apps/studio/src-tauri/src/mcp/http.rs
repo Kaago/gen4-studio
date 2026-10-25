@@ -24,7 +24,7 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use crate::errors::CmdError;
 use crate::mcp::discovery::{self, Discovery};
 use crate::mcp::host::StateSource;
-use crate::mcp::hub::ServerControl;
+use crate::mcp::hub::{ServerControl, SessionCloser};
 use crate::mcp::server::Server;
 
 /// The one path MCP is served on.
@@ -59,6 +59,16 @@ impl McpService {
     /// hub, and a later request with its id gets 404.
     pub async fn close_all(&self) {
         close_sessions(&self.sessions).await;
+    }
+
+    /// What the hub calls for "Trennen": closes every session in a task on `rt`. It holds
+    /// only the session manager, so a closer left behind keeps no server alive.
+    pub fn session_closer(&self, rt: tokio::runtime::Handle) -> SessionCloser {
+        let sessions = Arc::clone(&self.sessions);
+        Arc::new(move || {
+            let sessions = Arc::clone(&sessions);
+            rt.spawn(async move { close_sessions(&sessions).await });
+        })
     }
 
     /// Ends the open streams; the sessions are closed by [`McpService::close_all`].
@@ -296,13 +306,10 @@ impl HttpServer {
         let token = new_token()?;
         discovery::write(data_dir, &Discovery::new(port, &token))?;
         let service = service(Arc::clone(&source));
-        // Only the session manager: a closer left behind after `stop` holds no server.
-        let sessions = Arc::clone(&service.sessions);
-        let closer_rt = rt.clone();
-        source.state().agents.set_session_closer(Arc::new(move || {
-            let sessions = Arc::clone(&sessions);
-            closer_rt.spawn(async move { close_sessions(&sessions).await });
-        }));
+        source
+            .state()
+            .agents
+            .set_session_closer(service.session_closer(rt.clone()));
         rt.spawn(accept(
             listener,
             service.clone(),
