@@ -86,6 +86,13 @@ describe("ListRow and TreeRow", () => {
     expect(container.querySelector("[role=treeitem]")!.hasAttribute("aria-expanded")).toBe(false);
   });
 
+  it("tree_row_shows_a_subtitle_below_the_label_and_describes_itself_with_it", () => {
+    act(() => root.render(<TreeRow label="Warp 0" subtitle="→ Zweiblattdorf" depth={2} selected={false} onSelect={() => {}} />));
+    const row = container.querySelector("[role=treeitem]")!;
+    expect(document.getElementById(row.getAttribute("aria-labelledby")!)?.textContent).toBe("Warp 0");
+    expect(document.getElementById(row.getAttribute("aria-describedby")!)?.textContent).toBe("→ Zweiblattdorf");
+  });
+
   it("tree_row_toggles_with_arrow_keys_and_the_caret_without_selecting", () => {
     const onToggle = vi.fn();
     const onSelect = vi.fn();
