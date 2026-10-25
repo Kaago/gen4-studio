@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -531,8 +531,9 @@ Kopien `pt-3b4b` und `hg-3b4b` (Szenarien, optional `hgus-3b4b`), `pt-3b4b-kontr
 - **3b.3b:** der Blick auf die Screens „Trainer: Wanderer Kai“, „Neuer Trainer: Team“ und „Begegnungen: Route 201“ (B11) und die DSPRE-Gegenprobe der Szenario-Kopie (B12). HeartGold US im Spiel (B13) hat der Agent in der Abnahme mit dem Szenario erledigt (`game: IPKE` in einer Kopie der YAML-Datei).
 - **„Agent + Blick“:** 3a (F) Ausrichtung der Kartenbilder; 3b.1 (B) Höhen und (C) Sprites (aufrecht, nicht gespiegelt, Blickrichtung); 3c (A) und (B) der Vergleich mit den Screens des Design-Systems, 3c (E) dunkles Thema und Kompakt; 3b.3a (A3) Pokédex, Attacken und Gegenstände gegen ihre Screens, (A6) die Item- und Pokémon-Symbole; 3b.3b (B10) Trainer und Begegnungen in Dunkel und Kompakt; 3b.4a (A6) 3 die rote Treppe in der Szene; 3b.4b (B4) die Bilder der Gesamtgate-Szenarien (texturierte Route `weg.png`, Nachbar mit Trank und zweitem Text, Geber). Der Agent nennt dafür Ort und Zahlen, damit der Blick kurz bleibt.
 - **3b.4b:** DSPRE öffnet die Szenario-Kopie nach dem Import (B8) und der native Dateidialog in der gebündelten App (B9).
+- **3g:** DSPRE öffnet den angelegten Ordner (A5) und ein mit der Vorlage angelegtes Projekt (B6), die gebündelte Tauri-App mit Dateidialog, Finder-Drop und Vorschlag (A6) sowie der Blick auf die Bilder der Szenarien (B2: `b2-pt`, `b2-hg`) und die Screens des Assistenten.
 
-## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A)
+## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
 3g.1 legt ein Projekt aus einer ROM an, ohne dass ein Projekt offen ist. Im Browser-Modus gelten zwei Regeln: Die ROM muss unter `_testkopien` (allgemein: unter einer erlaubten Wurzel) oder unter `G4_IMPORT_ROOT` liegen, und das Ziel heißt **ohne** die Endung `_DSPRE_contents` (die Brücke behandelt sie als Original und lehnt sie ab: „Originale (_DSPRE_contents) sind gesperrt: … Im Browser-Modus ohne die Endung anlegen.“). Der Elternordner des Ziels muss existieren und unter einer Wurzel liegen; das Ziel selbst fehlt oder ist ein leerer Ordner. Die Originale unter `Roms/` bleiben tabu, auch als ROM-Eingabe.
 
@@ -570,3 +571,14 @@ for (const type of ['dragenter', 'dragover', 'drop']) surface.dispatchEvent(new 
 | (A4) Ziel mit `_DSPRE_contents` | Agent | `call.sh create_project` mit einem solchen Ziel, Fehler „Originale (_DSPRE_contents) sind gesperrt …“ |
 | (A5) DSPRE | Hand | DSPRE läuft nur unter Windows; einen mit der Endung angelegten Ordner öffnen |
 | (A6) Tauri-App | Hand | gebündelte App: Dateidialog mit `.nds`-Filter, Drop aus dem Finder, Vorschlag `~/Documents/Gen4 Studio` |
+
+**Teil B (3g.2, leere Region):** Die Befehle `plan_empty_region` und `apply_empty_region` laufen über `call.sh` (der Plan sagt `already_empty`, Start-Header, behaltene und geleerte Orte, Randzellen). In Technik › Werkzeuge hat die Karte `[data-tool=welt-leeren]` die Taste „Welt leeren…“, die den Assistenten „Welt leeren“ im Scharnier der Welt öffnet (Schritte „Was bleibt“, „Zusammenfassung“, Ergebnis „Welt geleert“; die Scripts müssen übernommen sein, sonst bietet er „Scripts übernehmen“ an). Rückgängig geht über die Taste im Scharnier; ⌘Z aus dem Browser-Werkzeug erreicht die Seite nicht immer (Fokus). Im Assistenten „Neues Spiel aus ROM“ ist `[data-template=empty_region]` die Karte der Vorlage. Die Szenarien `pt-leere-region.yaml` und `hg-leere-region.yaml` stehen oben unter „Neues Spiel ohne Spielstand“ und im Abschnitt Szenario; die Test-Umgebung für B3 lief auf den Ports 1462 und 1463.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (B1) gated Kernel- und Brückentests der Vorlage | Agent | `G4_TEST_ROM=<Kopie von 3g-probe/*.nds> cargo test --workspace --all-features -- <Test>` je ROM (Platin DE, HeartGold DE), dazu `g4k template <Kopie> empty-region` mit `g4k check` |
+| (B2) Szenarien `pt-leere-region.yaml`, `hg-leere-region.yaml` | Agent + Blick | `g4emu scenario` auf einer frischen `g4k create`-Kopie; der Agent nennt Ort und Zahlen, der Nutzer sieht die Bilder in `b2-pt` und `b2-hg` an |
+| (B3) „Welt leeren…“ und die Vorlage im Assistenten | Agent + Blick | Browser (Ports 1462/1463), Ablauf wie oben; der Agent nennt Texte, Zahlen und Statusleiste, der Nutzer sieht die Screens kurz an |
+| (B4) `scripts/gate.sh` | Agent | `G4_ROMS_DIR=<absolut> G4_APICULA=<absolut> G4_ROTOM_LSP=<absolut> bash scripts/gate.sh` (rund 55 Minuten) |
+| (B5) Gegenprobe Original | Agent | `call.sh plan_empty_region` auf einer Original-Kopie: `already_empty` false, Figuren in der Stadt, Weg hinaus |
+| (B6) DSPRE | Hand | ein mit der Vorlage und der Endung angelegtes Projekt in DSPRE öffnen |
