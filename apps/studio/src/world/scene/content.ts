@@ -33,8 +33,8 @@ export function addModel(h: SceneHost, matrix: MatrixDto, mapId: number, model: 
     const row = Math.floor(i / matrix.width);
     const origin = cellOrigin(col, row);
     const instance = cloneModel(model);
-    // The model is centred on the map centre.
     instance.userData.mapId = mapId;
+    // The model is centred on the map centre.
     instance.scale.setScalar(MODEL_SCALE);
     instance.position.set(origin.x + MAP_SIZE / 2, cellY(matrix, col, row), origin.z + MAP_SIZE / 2);
     h.content.add(instance);

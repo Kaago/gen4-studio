@@ -2,7 +2,8 @@ import type { DataChangedEvent } from "../data/dataBus";
 
 /**
  * What happened to the data behind the panels and the scene. The editors and panels re-read their
- * asset on the `...Data` events; the scene refreshes on the `...Refetch` and `modelsReload` events.
+ * asset on the `...Data` events; the scene refreshes on the `...Refetch`, `modelsReload` and
+ * `mapModelReload` events.
  */
 export type EditEvent =
   /** The header table changed behind the header editor's back (undo, redo, reload). */

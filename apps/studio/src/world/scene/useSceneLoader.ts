@@ -99,10 +99,13 @@ async function showMaps(
  * a time, each hung into the scene as it arrives; reports progress and, at the end, what failed.
  * A task that has not started when the load is superseded never starts; a started one finishes,
  * but its scene is disposed instead of added. So is a map's model when a one-map reload of that
- * map (`useMapModelRefresh`) was asked for after the task started.
+ * map (`useMapModelRefresh`) was asked for after the task started; a reload still in flight when
+ * this load starts is dropped in turn.
  */
 export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, stale: () => boolean, report: (message: Message | null) => void) {
   const modelIds = [...h.loaded.keys()];
+  // Each map task reads the generation when it starts, after this bump: only the reloads lose.
+  for (const id of modelIds) h.mapModelGen.set(id, (h.mapModelGen.get(id) ?? 0) + 1);
   const textureIssues: TextureIssue[] = [];
   const mapTasks = modelIds.map((id) => async () => {
     if (stale()) return;

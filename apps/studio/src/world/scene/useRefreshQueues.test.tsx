@@ -206,6 +206,21 @@ describe("useMapModelRefresh", () => {
     expect(clonesOf(h, fresh)).toHaveLength(2);
   });
 
+  it("eine Szene, die noch lädt, verbraucht die Anfrage ohne Abruf", async () => {
+    const { h, refs, onError } = fakeScene();
+    h.matrix = null;
+    const q1 = enqueue(null, 5);
+    act(() => root.render(<Probe refs={refs} queue={q1} />));
+    await flush();
+    expect(getMapModelGlb).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    // Consumed: once the scene is built, a later request fetches only its own map.
+    h.matrix = matrix;
+    act(() => root.render(<Probe refs={refs} queue={enqueue(q1, 2)} />));
+    await flush();
+    expect(getMapModelGlb).toHaveBeenCalledExactlyOnceWith(2, 3);
+  });
+
   it("meldet einen Texturhinweis als Status und einen Fehler über onError", async () => {
     const { h, refs, onError, onStatus } = fakeScene();
     const issue: TextureIssue = { tileset: 12, reason: "unsupported" };
@@ -264,16 +279,38 @@ describe("useMapModelRefresh", () => {
       expect(h.content.children).toHaveLength(3);
     });
 
-    it("zwei frische Ergebnisse für eine Karte lassen einen Satz Instanzen", async () => {
+    it("ein Einzelreload, der beim Start der vollen Ladung noch lädt, wird verworfen", async () => {
       const { h, refs } = fakeScene();
-      // The reload is asked for first; the full load starts after it, so its fetch is current too.
       act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
+      // The full load starts while the reload still fetches map 5; its own fetch is current too.
       const loading = loadModels(h, matrix, 3, () => false, vi.fn());
       const [reloadFetch, fullFetch] = callsFor(5);
+      const full = mesh();
+      const late = mesh();
+      const lateDisposed = vi.spyOn(late.geometry, "dispose");
+      fullFetch.resolve(glbOf(full));
+      callsFor(2)[0].resolve(glbOf(mesh()));
+      await act(() => loading);
+      reloadFetch.resolve(glbOf(late));
+      await flush();
+      expect(clonesOf(h, full)).toHaveLength(2);
+      expect(clonesOf(h, late)).toHaveLength(0);
+      expect(lateDisposed).toHaveBeenCalled();
+      expect(h.models.map((m) => m.userData.mapId).sort()).toEqual([2, 5, 5]);
+      expect(h.content.children).toHaveLength(3);
+    });
+
+    it("zwei frische Ergebnisse für eine Karte lassen einen Satz Instanzen", async () => {
+      const { h, refs } = fakeScene();
+      // The reload lands first; the full load starts after it, so its fetch is current too.
+      act(() => root.render(<Probe refs={refs} queue={enqueue(null, 5)} />));
       const first = mesh();
       const second = mesh();
-      reloadFetch.resolve(glbOf(first));
+      callsFor(5)[0].resolve(glbOf(first));
       await flush();
+      expect(clonesOf(h, first)).toHaveLength(2);
+      const loading = loadModels(h, matrix, 3, () => false, vi.fn());
+      const [, fullFetch] = callsFor(5);
       fullFetch.resolve(glbOf(second));
       callsFor(2)[0].resolve(glbOf(mesh()));
       await act(() => loading);

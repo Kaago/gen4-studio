@@ -219,6 +219,28 @@ describe("ThumbnailCache", () => {
     expect(told.sort()).toEqual(["5:0", "5:3"]);
   });
 
+  it("invalidate_drops_the_picture_of_a_job_still_running_and_a_new_render_follows", async () => {
+    const { cache, glb, calls } = setup();
+    // A mounted cell asks again whenever it is told about its key.
+    cache.subscribe((key) => {
+      if (key === "5:0") cache.request(5, 0);
+    });
+    cache.request(5, 0);
+    expect(glb).toHaveBeenCalledTimes(1);
+
+    cache.invalidate(5);
+    calls[0].bytes.resolve(new ArrayBuffer(1)); // the model before the change
+    await flush();
+    expect(cache.get(5, 0)).toBeUndefined();
+    expect(glb).toHaveBeenCalledTimes(2);
+    expect(cache.pending()).toBe(1);
+
+    calls[1].bytes.resolve(new ArrayBuffer(9));
+    await flush();
+    expect(cache.get(5, 0)).toBe("data:image/png;base64,9");
+    expect(cache.pending()).toBe(0);
+  });
+
   it("clear_forgets_everything_including_failures", async () => {
     const { cache, glb, calls } = setup();
     cache.request(1, 0);

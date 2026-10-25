@@ -60,7 +60,8 @@ export function useMapRefresh(refs: SceneRefs, mapRefresh: RefreshQueue<number> 
  * A parts import (or its undo or redo) gave one map another terrain model: fetch it for the shown
  * area data and swap the instances of that map, the other models stay. Queued like the maps above
  * (a map is fetched once per batch); a result is dropped when the scene shows another matrix or
- * area data by then, or when a newer request for the same map was made (`mapModelGen`).
+ * area data by then, or when a newer request for the same map or a full model load was made
+ * (`mapModelGen`).
  */
 export function useMapModelRefresh(refs: SceneRefs, mapModelRefresh: RefreshQueue<number> | null) {
   const modelsSeen = useRef(0);
