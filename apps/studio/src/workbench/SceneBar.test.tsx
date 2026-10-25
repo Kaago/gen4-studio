@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { visibleWords } from "../ui/visibleText";
 import { SceneBar } from "./SceneBar";
 import type { SceneBarProps } from "./SceneBar";
 
@@ -30,6 +31,11 @@ describe("SceneBar", () => {
     expect(container.querySelector("[role=toolbar]")?.getAttribute("aria-label")).toBe("Ebenen der Schau");
     expect(toggle("Gelände").getAttribute("aria-pressed")).toBe("true");
     expect(toggle("Ereignisse").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
   });
 
   it("asks_for_the_opposite_state_when_a_toggle_is_pressed", () => {

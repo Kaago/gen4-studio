@@ -7,6 +7,7 @@ import { listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto, WarpLink } from "../api";
 import { ShellProvider, useShell } from "../ui/frame/ShellContext";
 import { pressKey } from "../ui/primitives/testUtils";
+import { visibleWords } from "../ui/visibleText";
 import { buildWorld } from "./worldModel";
 import { WorldExplorer } from "./WorldExplorer";
 import type { WorldExplorerProps } from "./WorldExplorer";
@@ -482,6 +483,15 @@ describe("WorldExplorer", () => {
       expect(scriptsRoot().textContent).toBe("Scripts3");
       click(fileRows()[1]);
       expect(onOpenScript).toHaveBeenCalledWith(1);
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      vi.mocked(listScriptFiles).mockResolvedValue([file(0, "script", [0, 4]), file(1, "levelScript", [0]), file(2, "binary")]);
+      render(props({ depth: "bauen" }));
+      openScripts();
+      await flush();
+      expect(fileRows().map((r) => r.textContent)).toEqual(["Scriptdatei 0000120 Byte · Orte 0000, 0004", "Level-Script 0001120 Byte · Ort 0000", "Scriptdatei 0002binär · 120 Byte · ohne Ort"]);
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     });
 
     it("says_to_adopt_first_and_calls_no_command_while_scripts_are_not_adopted", async () => {

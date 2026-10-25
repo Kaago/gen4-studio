@@ -6,7 +6,7 @@ import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termFor } from "../terms";
 import { useMatrix } from "../useMatrix";
 import styles from "./Editor.module.css";
 import { ExportPartDialog } from "./ExportPartDialog";
@@ -70,7 +70,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
   const title = `Zelle ${x}, ${y}`;
-  const matrixName = `${TERMS.matrix.label} ${id4(index)}`;
+  // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
+  const tinker = depth === "tuefteln";
+  const matrixName = `${tinker ? TERMS.matrix.label : termFor("matrix", depth)} ${id4(index)}`;
+  const headerWord = termFor("header", depth, "area");
   const unsaved = isDirty(dirty, "Matrix", index);
   if (!matrix) {
     return (
@@ -84,7 +87,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       <div className={styles.panel}>
         <InspectorHead title={title} subtitle={matrixName} unsaved={unsaved} />
         <p className={styles.note}>
-          Die Zelle liegt außerhalb des Rasters ({matrix.width} × {matrix.height}).
+          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Weltkarte"} ({matrix.width} × {matrix.height}).
         </p>
       </div>
     );
@@ -159,23 +162,23 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           </>
         )}
         {header !== null ? (
-          <InspectorRow label="Header" hint={`0 bis ${headerMax}`}>
+          <InspectorRow label={headerWord} hint={`0 bis ${headerMax}`}>
             <div className={styles.inline}>
               <div className={styles.grow}>
-                <NumberField label="Header" value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depth === "tuefteln"} />
+                <NumberField label={headerWord} value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depth === "tuefteln"} />
               </div>
-              {map !== null && header < headerCount && <Reference area="welt" label="Header" tech={id4(header)} onOpen={() => goTo({ kind: "header", id: header })} />}
+              {map !== null && header < headerCount && <Reference area="welt" label={headerWord} tech={id4(header)} onOpen={() => goTo({ kind: "header", id: header })} />}
             </div>
           </InspectorRow>
         ) : (
-          <p className={styles.note}>Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).</p>
+          <p className={styles.note}>{tinker ? "Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Abschnitt für Gebiete."}</p>
         )}
         {altitude !== null ? (
           <InspectorRow label="Höhe" hint="0 bis 255">
             <NumberField label="Höhe" value={altitude} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
           </InspectorRow>
         ) : (
-          <p className={styles.note}>Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar).</p>
+          <p className={styles.note}>{tinker ? "Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Höhenabschnitt."}</p>
         )}
         {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}

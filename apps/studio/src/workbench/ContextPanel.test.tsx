@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventsDto, HeaderSummary } from "../api";
 import { pressKey } from "../ui/primitives/testUtils";
+import { visibleWords } from "../ui/visibleText";
 import { ContextPanel } from "./ContextPanel";
 import type { ContextPanelProps } from "./ContextPanel";
 
@@ -53,6 +54,7 @@ describe("ContextPanel", () => {
           onSelectEvent={onSelectEvent}
           onSelectBuilding={onSelectBuilding}
           onOpenHeader={onOpenHeader}
+          depth="bauen"
           {...over}
         />,
       ),
@@ -66,8 +68,18 @@ describe("ContextPanel", () => {
     const groups = [...container.querySelectorAll('[role="group"]')].map((g) => g.getAttribute("aria-label") ?? g.querySelector("div")?.textContent);
     expect(groups).toEqual(["Figuren2", "Türen1", "Schilder1", "Gebäude2", "Karte 0040"]);
     expect(row("Objekt 1 · ID 2").textContent).toContain("x 11, z 21");
-    expect(row("Warp 0 → Header 0414 (T01R0201)")).toBeDefined();
+    expect(row("Warp 0 → Ort 0414 (T01R0201)")).toBeDefined();
     expect(row("Gebäude 2").textContent).toContain("Modell 22");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    show({ depth: "tuefteln" });
+    expect(row("Warp 0 → Header 0414 (T01R0201)")).toBeDefined();
   });
 
   it("makes_the_list_reachable_by_keyboard_when_a_place_is_chosen_after_the_empty_state", () => {

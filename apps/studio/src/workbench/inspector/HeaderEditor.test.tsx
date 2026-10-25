@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
 
@@ -102,12 +103,12 @@ describe("HeaderEditor scripts", () => {
     expect(row("Scriptdatei").textContent).toContain("0 bis 799");
     expect(row("Level-Script").textContent).toContain("0 bis 799");
     // A picker whose archive size is not known yet is a plain number field.
-    expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
+    expect(container.querySelector("input[aria-label='Weltkarte']")).not.toBeNull();
   });
 
-  it("shows_the_form_in_the_sections_Karten_und_Raster_Aussehen_Texte_und_Scripts_Ausgänge_and_Level_Script", async () => {
+  it("shows_the_form_in_the_sections_Karten_Aussehen_Texte_und_Scripts_Ausgänge_and_Level_Script", async () => {
     await show();
-    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten und Raster", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
     expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
     expect(container.textContent).toContain("0411 · T01");
   });
@@ -259,16 +260,16 @@ describe("HeaderEditor scripts", () => {
     it("leads_the_matrix_and_the_area_data_to_their_targets_and_changes_them_through_the_picker", async () => {
       const goTo = vi.fn();
       await show(context({ counts: { Script: 800, Matrix: 10, AreaData: 5 }, goTo }));
-      await click(button("Matrix0002"));
+      await click(button("Weltkarte0002"));
       expect(goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 2, x: 0, y: 0 });
       await click(button("Area-Data0001"));
       expect(goTo).toHaveBeenLastCalledWith({ kind: "area", id: 1 });
-      await click(button("Matrix ändern…"));
+      await click(button("Weltkarte ändern…"));
       typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0005");
-      expect(options().map((o) => o.textContent)).toEqual(["Matrix0005"]);
+      expect(options().map((o) => o.textContent)).toEqual(["Weltkarte0005"]);
       await click(options()[0]);
       await flush();
-      expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Matrix");
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Weltkarte");
     });
   });
 
@@ -351,6 +352,25 @@ describe("HeaderEditor scripts", () => {
       expect(button("Begegnungen0008")).toBeUndefined();
       expect(container.textContent).toContain("Keine");
     });
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [{ index: 0, x: 1, z: 2, dest_header_id: 411, dest_warp_id: 0, height: 0 }] });
+    await show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.textContent).toContain("Neue Gebiete und Räume legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an.");
+    // While the header is read, and for a header the list does not know.
+    vi.mocked(getHeader).mockReturnValue(new Promise(() => {}));
+    await show(context({ headers: [] }));
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.querySelector("h2")?.textContent).toBe("Ort 0411");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show(context(), "tuefteln");
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toContain("Karten und Raster");
+    expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
+    expect(container.textContent).toContain("(Schritt „Header“, Option „Neuer Header“)");
   });
 
   it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {

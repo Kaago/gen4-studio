@@ -1,12 +1,13 @@
 import type { EventKind, EventsDto, HeaderSummary, WarpDto } from "../api";
 import { switcherMenu } from "../ui/primitives";
 import type { MenuItemSpec, PanelHeadSwitcher } from "../ui/primitives";
+import type { Depth } from "../ui/frame/shellState";
 import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
 import { UNNAMED_KEY, placeOf } from "./places";
 import type { Place } from "./places";
-import { TERMS, id4 } from "./terms";
+import { id4, termFor } from "./terms";
 
 /** One link of the hinge's breadcrumb. `tech` is the grey identifier next to the label. */
 export interface Crumb {
@@ -29,33 +30,35 @@ export interface CrumbInput {
   events?: EventsDto | null;
   /** Makes the crumbs links: each one leads where its label says. */
   goTo?: (target: NavTarget) => void;
+  /** Bauen names the header "Gebiet" or "Raum", Tüfteln "Header". */
+  depth: Depth;
 }
 
 /** The leading words of `eventTitle`, shown while the event's data is not there (yet). */
 const EVENT_WORD: Record<EventKind, string> = { warp: "Warp", object: "Objekt", coord: "Trigger", bg: "Hintergrund-Event" };
 
 /** The heading of the pinned event as the inspector writes it (`eventTitle`) once its data is known, else the short form. */
-function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: number }, headers: HeaderSummary[], events: EventsDto | null | undefined): string {
+function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: number }, headers: HeaderSummary[], events: EventsDto | null | undefined, depth: Depth): string {
   const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
   if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
   const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
-  return eventTitle(pinned.eventKind, data, destination?.internal_name);
+  return eventTitle(pinned.eventKind, data, destination?.internal_name, depth);
 }
 
-/** At most three crumbs: place › header (Außen or Raum, with its id) › selection (event, building, matrix cell or area data). */
-export function crumbsFor({ places, headers, selected, pinned, matrixName, events, goTo }: CrumbInput): Crumb[] {
+/** At most three crumbs: place › header (Gebiet or Raum, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
+export function crumbsFor({ places, headers, selected, pinned, matrixName, events, goTo, depth }: CrumbInput): Crumb[] {
   const header = selected === null ? undefined : headers.find((h) => h.id === selected);
   if (header === undefined) return [{ label: headers.length === 0 ? "Kein Projekt" : "Kein Ort gewählt" }];
   const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
   const crumbs: Crumb[] = [];
   const place = placeOf(places, header.id);
   if (place) crumbs.push({ label: place.name, onClick: link({ kind: "header", id: place.headers[0]!.header.id }) });
-  // The explorer's words, not the place's name again: an outside header is "Außen", a room "Raum" (a header of an unnamed place is always a room).
+  // The explorer's words, not the place's name again: an outside header is a "Gebiet", one inside a "Raum" (a header of an unnamed place is always a room).
   const outside = place !== undefined && place.key !== UNNAMED_KEY && place.headers.find((h) => h.header.id === header.id)?.kind === "outside";
-  crumbs.push({ label: outside ? TERMS.outside.label : TERMS.room.label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
+  crumbs.push({ label: termFor("header", depth, outside ? "area" : "room"), tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
-      crumbs.push({ label: eventLabel(pinned, headers, events), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
+      crumbs.push({ label: eventLabel(pinned, headers, events, depth), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
       break;
     case "building":
       crumbs.push({ label: `Gebäude ${pinned.index + 1}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });

@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckProblemDto, WarpDto } from "../api";
 import { fakeChecks, finding } from "../checks/checksTesting";
+import type { Depth } from "../ui/frame/shellState";
+import { visibleWords } from "../ui/visibleText";
 import { Inspector } from "./Inspector";
 import type { InspectorModel } from "./Inspector";
 
@@ -36,8 +38,10 @@ describe("Inspector read-only views", () => {
     container.remove();
   });
   // The hover views and the empty state read no context.
-  const show = (model: InspectorModel) =>
-    act(() => root.render(<Inspector model={model} headerEditor={undefined as never} matrixEditor={undefined as never} areaEditor={undefined as never} buildingEditor={undefined as never} eventEditor={undefined as never} depth="bauen" />));
+  const show = (model: InspectorModel, depth: Depth = "bauen") =>
+    act(() => root.render(<Inspector model={model} headerEditor={undefined as never} matrixEditor={undefined as never} areaEditor={undefined as never} buildingEditor={undefined as never} eventEditor={undefined as never} depth={depth} />));
+  const tile: InspectorModel = { kind: "tile", map: 187, x: 8, y: 4, absX: 40, absZ: 36, info: { kind: 0x5e, collision: 1, name: "WARP_STAIRS_EAST", blocked: false, class: null } as never };
+  const hover: InspectorModel = { kind: "eventHover", eventFile: 5, eventKind: "warp", index: 1, data: warp, destName: "T01R0201" };
   const text = () => container.textContent ?? "";
 
   it("says_what_to_do_when_nothing_is_selected", () => {
@@ -48,7 +52,7 @@ describe("Inspector read-only views", () => {
 
   it("shows_the_hovered_event_with_the_view_only_badge_and_its_details", () => {
     show({ kind: "eventHover", eventFile: 5, eventKind: "warp", index: 1, data: warp, destName: "T01R0201" });
-    expect(container.querySelector("h2")?.textContent).toBe("Warp 1 → Header 0414 (T01R0201)");
+    expect(container.querySelector("h2")?.textContent).toBe("Warp 1 → Ort 0414 (T01R0201)");
     expect(text()).toContain("Tür 2");
     expect(text()).toContain("Nur Ansicht");
     expect(text()).toContain("Position x 8, z 4");
@@ -61,7 +65,21 @@ describe("Inspector read-only views", () => {
     expect(text()).toContain("Karte 0187");
     expect(text()).toContain("Nur Ansicht");
     expect(text()).toContain("Typ 0x5E WARP_STAIRS_EAST");
+    expect(text()).toContain("Position auf der Weltkarte x 40, z 36 · Kollision 0x01");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    for (const model of [tile, hover]) {
+      show(model);
+      expect(visibleWords(container), model.kind).not.toMatch(/Raster|Matrix|Header/);
+    }
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    show(tile, "tuefteln");
     expect(text()).toContain("Matrix-Position x 40, z 36 · Kollision 0x01");
+    show(hover, "tuefteln");
+    expect(container.querySelector("h2")?.textContent).toBe("Warp 1 → Header 0414 (T01R0201)");
   });
 });
 

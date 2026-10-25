@@ -344,23 +344,25 @@ const RoomRow = memo(function RoomRow({
 const SEARCH_DELAY_MS = 300;
 const SEARCH_LIMIT = 100;
 
-/** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it. */
-function fileDetails(f: ScriptFileDto): string {
-  const users = f.headers.length === 0 ? "ohne Header" : `${TERMS.header.plural} ${f.headers.map(id4).join(", ")}`;
+/** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it (Bauen: which places). */
+function fileDetails(f: ScriptFileDto, depth: Depth): string {
+  const tinker = depth === "tuefteln";
+  const word = tinker ? TERMS.header.plural : f.headers.length === 1 ? TERMS.place.label : TERMS.place.plural;
+  const users = f.headers.length === 0 ? `ohne ${tinker ? TERMS.header.label : TERMS.place.label}` : `${word} ${f.headers.map(id4).join(", ")}`;
   return [f.kind === "binary" ? "binär" : null, `${f.size} Byte`, users].filter((part) => part !== null).join(" · ");
 }
 
-const ScriptFileRow = memo(function ScriptFileRow({ file, onOpenScript }: { file: ScriptFileDto; onOpenScript: (file: number, line?: number) => void }) {
+const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }: { file: ScriptFileDto; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
   const name = `${file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label} ${id4(file.file)}`;
   return (
     <TreeRow
       depth={1}
       icon="script"
       label={name}
-      tech={fileDetails(file)}
+      tech={fileDetails(file, depth)}
       selected={false}
       onSelect={() => onOpenScript(file.file)}
-      title={`${name}, ${fileDetails(file)}`}
+      title={`${name}, ${fileDetails(file, depth)}`}
       dataAttrs={{ "data-script-file": file.file }}
     />
   );
@@ -376,7 +378,7 @@ const HitRow = memo(function HitRow({ hit, onOpenScript }: { hit: ScriptHitDto; 
  * node is opened (not with the project), each time it is opened, so files made since then show. The search waits for a
  * pause in typing. Nothing is asked of the backend while rotom has not taken the scripts over.
  */
-function ScriptsNode({ info, adopted, onOpenScript }: { info: ProjectInfo | null; adopted: boolean; onOpenScript: (file: number, line?: number) => void }) {
+function ScriptsNode({ info, adopted, depth, onOpenScript }: { info: ProjectInfo | null; adopted: boolean; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
   const [open, setOpen] = useState(false);
   // Bumped with every opening: the list is read again.
   const [opened, setOpened] = useState(0);
@@ -462,7 +464,7 @@ function ScriptsNode({ info, adopted, onOpenScript }: { info: ProjectInfo | null
                 <Notice kind="error">{list.error}</Notice>
               </div>
             ) : (
-              list.list.map((file) => <ScriptFileRow key={file.file} file={file} onOpenScript={onOpenScript} />)
+              list.list.map((file) => <ScriptFileRow key={file.file} file={file} depth={depth} onOpenScript={onOpenScript} />)
             )}
           </>
         ))}
@@ -684,7 +686,7 @@ export function WorldTree({
         <TextField type="search" label="Welt durchsuchen" placeholder="Gebiet, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
       </div>
       <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
-        <ScriptsNode info={info} adopted={scriptsAdopted} onOpenScript={onOpenScript} />
+        <ScriptsNode info={info} adopted={scriptsAdopted} depth={depth} onOpenScript={onOpenScript} />
         {shown === null ? (
           // Until the world is read, the headers by id, so a selection and a link still find their row.
           byId.filter((h) => !searching || textMatches(query.trim().toLowerCase(), h.location_name) || codeMatches(h, query.trim().toLowerCase())).map((h) => leaf(h, 0, h.location_name || h.internal_name))

@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChecksFeed } from "../checks/useChecks";
+import type { Depth } from "../ui/frame/shellState";
+import { visibleWords } from "../ui/visibleText";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { HingeHost } from "./HingeHost";
 import { HistoryFeed } from "./useHistory";
@@ -14,20 +16,17 @@ describe("HingeHost", () => {
   let container: HTMLElement;
   let root: Root;
   let checks: ChecksFeed;
-  beforeEach(() => {
-    container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    checks = new ChecksFeed();
+  let history: HistoryFeed;
+  const show = (depth: Depth) => {
     const noop = vi.fn();
     act(() =>
       root.render(
         <HingeHost
           problems={new ProblemsStore()}
-          history={new HistoryFeed()}
+          history={history}
           checks={checks}
           crumbs={[]}
-          depth="bauen"
+          depth={depth}
           onDepth={noop}
           onProblems={noop}
           onUndoTo={noop}
@@ -38,11 +37,30 @@ describe("HingeHost", () => {
         />,
       ),
     );
+  };
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    checks = new ChecksFeed();
+    history = new HistoryFeed();
+    show("bauen");
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.body.innerHTML = "";
   });
+  /** Opens the history menu the way a pointer does and returns the words of its items. */
+  const historyMenu = () => {
+    const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Verlauf/.test(b.getAttribute("aria-label") ?? ""))!;
+    act(() => {
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.click();
+    });
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].map((item) => visibleWords(item));
+  };
   const light = () => container.querySelector<HTMLButtonElement>("[data-light]")!;
 
   it("says_Nicht_geprueft_until_a_report_arrived_and_Alles_stimmig_only_after_one", () => {
@@ -56,5 +74,18 @@ describe("HingeHost", () => {
     act(() => checks.update({ reported: true }));
     expect(light().getAttribute("aria-label")).toBe("Alles stimmig");
     expect(light().getAttribute("data-light")).toBe("sound");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    act(() => history.set({ undo: ["edit header", "edit matrix cell", "resize matrix", "assign header 0414 to matrix 0003"], redo: [] }));
+    const items = historyMenu();
+    expect(items).toEqual(["Ort 0414 Weltkarte 0003 zuweisen", "Größe der Weltkarte geändert", "Zelle geändert", "Ort geändert"]);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    show("tuefteln");
+    act(() => history.set({ undo: ["edit header", "edit matrix cell"], redo: [] }));
+    expect(historyMenu()).toEqual(["Rasterfeld geändert", "Header geändert"]);
   });
 });

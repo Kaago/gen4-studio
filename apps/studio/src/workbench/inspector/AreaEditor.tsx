@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, AssetId, MemberCounts } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import { id4 } from "../terms";
+import { id4, termFor } from "../terms";
 import { areaFieldSpecs, AREA_FIELDS, areaValue } from "./areaFields";
 import styles from "./Editor.module.css";
 import { Field } from "./Field";
@@ -76,7 +76,7 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
         )}
         {depth === "tuefteln" && area !== null && <TechnicalSection model={{ kind: "area", id }} source={{ kind: "area", area }} />}
         <p className={styles.note}>
-          Das Karten-Tileset bestimmt die Texturen aller Karten, deren Header diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
+          Das Karten-Tileset bestimmt die Texturen aller Karten, deren {termFor("header", depth)} diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
         </p>
       </div>
     </div>

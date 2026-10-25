@@ -25,6 +25,11 @@ describe("groupEvents", () => {
     ]);
   });
 
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    const doors = groupEvents(events(), (h) => (h === 414 ? "T01R0201" : undefined), undefined, "bauen").find((g) => g.kind === "warp");
+    expect(doors?.rows[0]?.title).toBe("Warp 0 → Ort 0414 (T01R0201)");
+  });
+
   it("titles_each_row_like_the_inspector_heading_and_puts_the_position_in_the_technical_part", () => {
     const [figures, doors, signs] = groupEvents(events());
     expect(figures.rows[1]).toEqual({ index: 1, title: "Objekt 1 · ID 2", tech: "x 11, z 21" });

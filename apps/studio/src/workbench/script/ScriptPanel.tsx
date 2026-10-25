@@ -12,7 +12,7 @@ import { effectiveTheme, onThemeChange } from "../../ui/tokens/theme";
 import type { EditBus } from "../../bus/editBus";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termFor } from "../terms";
 import { AdoptBox } from "./AdoptBox";
 import { scriptUri } from "./documents";
 import type { ScriptDocument } from "./documents";
@@ -231,7 +231,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
         }
       />
       {openDocs.length === 0 ? (
-        <EmptyState what="Kein Script geöffnet." why={`Eine ${TERMS.scriptFile.label} öffnet sich über den Header, ein Event oder ein Problem.`} />
+        <EmptyState what="Kein Script geöffnet." why={`Eine ${TERMS.scriptFile.label} öffnet sich über den ${termFor("header", depth)}, ein Event oder ein Problem.`} />
       ) : (
         <div className={styles.tabs}>
           <Tabs

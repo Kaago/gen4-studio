@@ -7,7 +7,7 @@ import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
 import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termFor } from "../terms";
 import { AddEvent } from "./AddEvent";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventSubtitle } from "./eventFields";
@@ -53,7 +53,7 @@ export interface EventEditorContext {
   onError: (e: unknown) => void;
 }
 
-const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", pick: "header" } as const;
+const DESTINATION = { key: "dest_header_id", label: "Ziel", kind: "pick", pick: "header" } as const;
 
 /**
  * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
@@ -107,11 +107,11 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const owner = headerOfEventFile(headers, file, selected);
   const openScript = () => {
     if (event === null) return;
-    if (!owner) return onError(`Kein Header nutzt Eventdatei ${id4(file)}`);
+    if (!owner) return onError(`Kein ${termFor("header", depth)} nutzt Eventdatei ${id4(file)}`);
     void openScriptNumber(owner.id, EVENT_FIELDS.value(event, "script"), onOpenScript, onError);
   };
   const newScript = async () => {
-    if (!owner) return onError(`Kein Header nutzt Eventdatei ${id4(file)}`);
+    if (!owner) return onError(`Kein ${termFor("header", depth)} nutzt Eventdatei ${id4(file)}`);
     const n = await onAddScript(owner.script_file_id);
     if (n === null) return;
     // The number goes through the edit path like a typed one: undoable, and the event is dirty.
@@ -135,7 +135,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
+      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name, depth)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
       <div className={styles.body}>
         {locked !== null && (
           <div className={styles.pad}>
@@ -172,7 +172,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Headers an und trägt die Nummer ein`}
+                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Ortes an und trägt die Nummer ein`}
                           >
                             Neues Script
                           </Button>
@@ -204,13 +204,13 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
               ) : (
                 <span className={styles.error}>{`${destination.label} (${destination.tech})`}</span>
               )}
-              <Button kind="quiet" size="s" aria-label="Zielheader ändern…" disabled={readOnly} onClick={() => setPicking(true)}>
+              <Button kind="quiet" size="s" aria-label="Ziel ändern…" disabled={readOnly} onClick={() => setPicking(true)}>
                 Ändern…
               </Button>
             </div>
           </InspectorRow>
         )}
-        {warp && <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={(id) => commit("dest_header_id", "Zielheader", id)} />}
+        {warp && <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={(id) => commit("dest_header_id", "Ziel", id)} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />

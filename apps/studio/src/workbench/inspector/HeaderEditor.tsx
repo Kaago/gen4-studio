@@ -5,7 +5,7 @@ import { Button, Section } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termFor } from "../terms";
 import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
 import { EncounterFileField } from "./EncounterFileField";
@@ -152,13 +152,13 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={summary ? headerLabel(summary) : `${TERMS.header.label} ${id4(id)}`} subtitle={summary ? `${id4(id)} · ${summary.internal_name}` : id4(id)} />
+      <InspectorHead title={summary ? headerLabel(summary) : `${termFor("header", depth)} ${id4(id)}`} subtitle={summary ? `${id4(id)} · ${summary.internal_name}` : id4(id)} />
       <div className={styles.body}>
         {header === null ? (
-          <p className={styles.note}>Lade Header …</p>
+          <p className={styles.note}>Lade {termFor("header", depth)} …</p>
         ) : (
           <div key={refused}>
-            {headerSections(headerFamily(header)).map((section) => (
+            {headerSections(headerFamily(header), depth).map((section) => (
               <Section key={section.id} title={section.title} open={folds.isOpen(foldKey(section.id))} onToggle={() => folds.toggle(foldKey(section.id))}>
                 {section.specs.map((spec) => fieldRow(spec, header))}
                 {section.id === "texts" && !scriptsAdopted && (
@@ -190,7 +190,11 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           />
         )}
         {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
-        <p className={styles.note}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
+        <p className={styles.note}>
+          {depth === "tuefteln"
+            ? "Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“)."
+            : "Neue Gebiete und Räume legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an."}
+        </p>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { finding } from "./checksTesting";
-import { AREA_LABELS, CHECK_CODES, CHECK_MESSAGES, areaOf, checkTitle, findingText, groupOf, progressText, skippedText } from "./messages";
+import { AREA_LABELS, CHECK_CODES, CHECK_MESSAGES, areaOf, checkTitle, findingLabel, findingText, groupOf, progressText, skippedText } from "./messages";
 
 /** The sentences of a text: a statement, then the way out (at least two). */
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "");
@@ -28,6 +28,44 @@ describe("check messages", () => {
       "Header 0012 nennt als Eventdatei 900, aber es gibt nur 620. Wähle im Header einen gültigen Wert.",
     );
     expect(findingText(finding("text.too-wide", "warning", { args: ["433", "1", "1", "240", "216"] }))).toBe("Die Zeile ist 240 px breit, das Textfenster nur 216 px. Brich sie um oder kürze den Text.");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    // Every argument a field name the sentence could hold, and a label that names a header and its matrix field.
+    const args = ["1", "matrix_id", "2", "3", "4", "5"];
+    for (const code of CHECK_CODES) {
+      const m = CHECK_MESSAGES[code]!;
+      const f = finding(code, m.severity, { args, label: "Header 0012 · Matrix", subject: { kind: "header", index: 12 } });
+      const words = `${checkTitle(code, "bauen")} ${findingText(f, "bauen")} ${findingLabel(f, "bauen")}`;
+      expect(words, code).not.toMatch(/Raster|Matrix|Header/);
+      // The way out stays: a statement and what to do.
+      expect(sentences(findingText(f, "bauen")).length, code).toBeGreaterThanOrEqual(2);
+    }
+    for (const kind of ["matrix", "header table"]) {
+      const f = finding("asset.unreadable", "error", { key: "unreadable:x", args: [kind, "3", "truncated"] });
+      expect(findingText(f, "bauen"), kind).not.toMatch(/Raster|Matrix|Header/);
+    }
+    expect(findingText(finding("warp.dest-warp", "error", { args: ["2", "414", "5", "411", "3"] }), "bauen")).toBe(
+      "Die Tür führt zu Warp 5 von Ort 0414, aber dessen Eventdatei 0411 hat nur 3 Warps. Wähle einen anderen Ziel-Warp oder lege dort einen Warp an.",
+    );
+    expect(findingText(finding("header.ref-range", "error", { args: ["12", "matrix_id", "900", "620"] }), "bauen")).toBe(
+      "Ort 0012 nennt als Weltkarte 900, aber es gibt nur 620. Wähle beim Ort einen gültigen Wert.",
+    );
+    expect(findingLabel(finding("header.ref-range", "error", { label: "Header 0012 · Matrix" }), "bauen")).toBe("Ort 0012 · Weltkarte");
+    expect(skippedText({ code: "script.message-missing", why: "28 script files that no header uses (common scripts) are not checked: 0101" }, "bauen")).toBe(
+      "Nachricht fehlt: 28 Common-Scripts ohne Ort nicht geprüft.",
+    );
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    expect(checkTitle("matrix.header-elsewhere", "tuefteln")).toBe("Header einer anderen Matrix");
+    expect(findingText(finding("header.ref-range", "error", { args: ["12", "matrix_id", "900", "620"] }), "tuefteln")).toBe(
+      "Header 0012 nennt als Matrix 900, aber es gibt nur 620. Wähle im Header einen gültigen Wert.",
+    );
+    expect(findingLabel(finding("header.ref-range", "error", { label: "Header 0012 · Matrix" }), "tuefteln")).toBe("Header 0012 · Matrix");
+    expect(skippedText({ code: "script.message-missing", why: "28 script files that no header uses (common scripts) are not checked: 0101" }, "tuefteln")).toBe(
+      "Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.",
+    );
   });
 
   it("names_the_asset_that_cannot_be_read", () => {

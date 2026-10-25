@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, resolveScript, updateEvent } from "../../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
 
@@ -213,7 +214,7 @@ describe("EventEditor scripts", () => {
       const goTo = vi.fn();
       withWarp(1);
       await show(context({ goTo }), "warp", 0);
-      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Ort 0001 (H1)");
       await click(button("H10001 · H1"));
       expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
     });
@@ -221,12 +222,28 @@ describe("EventEditor scripts", () => {
     it("picks_another_destination_header_in_the_picker_by_number", async () => {
       withWarp(1);
       await show(context(), "warp", 0);
-      await click(container.querySelector("button[aria-label='Zielheader ändern…']") ?? undefined);
+      await click(container.querySelector("button[aria-label='Ziel ändern…']") ?? undefined);
       typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0009");
       expect(options().map((o) => o.textContent)).toEqual(["H90009"]);
       await click(options()[0]);
       await flush();
       expect(updateEvent).toHaveBeenCalledWith(8, "warp", 0, { dest_header_id: 9 });
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0);
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+      // The figure the Gate selects.
+      vi.mocked(getEvents).mockImplementation(async () => events());
+      await show();
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    });
+
+    it("keeps_the_technical_words_in_tinkering", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0, "tuefteln");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
     });
 
     it("says_a_door_to_a_header_that_does_not_exist_leads_nowhere_and_how_to_fix_it", async () => {

@@ -22,7 +22,7 @@ interface Props {
   onError: (e: unknown) => void;
 }
 
-const DESTINATION = { key: "dest_header_id", label: "Zielheader", kind: "pick", pick: "header" } as const;
+const DESTINATION = { key: "dest_header_id", label: "Ziel", kind: "pick", pick: "header" } as const;
 
 /** The "Eingänge / Ausgänge" of the header editor: the warps of the header's event file, where they lead, and the ways to add one. */
 export function ExitsSection({ header, headers, revision, goTo, onOpenWizard, onAddWarp, onError }: Props) {

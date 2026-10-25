@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MATRIX_EMPTY, duplicateMap, getMatrix, setMatrixCell } from "../../api";
 import type { AssetId, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
 
@@ -56,9 +57,9 @@ describe("MatrixCellEditor", () => {
   it("names_the_cell_and_the_matrix", async () => {
     await show();
     expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
-    expect(container.textContent).toContain("Raster 0003");
+    expect(container.textContent).toContain("Weltkarte 0003");
     expect(input("Karte").value).toBe("11");
-    expect(input("Header").value).toBe("412");
+    expect(input("Gebiet").value).toBe("412");
     expect(input("Höhe").value).toBe("2");
   });
 
@@ -98,29 +99,29 @@ describe("MatrixCellEditor", () => {
 
   it("writes_a_header_and_an_altitude_and_refuses_beyond_their_limits", async () => {
     await show();
-    await typeAndBlur("Header", "413");
+    await typeAndBlur("Gebiet", "413");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, 413, null);
     await typeAndBlur("Höhe", "9");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, null, 9);
     await typeAndBlur("Höhe", "300");
     expect(container.textContent).toContain("höchstens 255");
-    await typeAndBlur("Header", "600");
+    await typeAndBlur("Gebiet", "600");
     expect(container.textContent).toContain("höchstens 499");
     expect(setMatrixCell).toHaveBeenCalledTimes(2);
   });
 
   it("leads_the_header_of_the_cell_to_its_editor", async () => {
     await show();
-    await act(async () => void button("Header0412").click());
+    await act(async () => void button("Gebiet0412").click());
     expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 412 });
   });
 
   it("says_which_sections_the_matrix_lacks", async () => {
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
     await show();
-    expect(container.textContent).toContain("Das Raster hat keinen Header-Abschnitt");
-    expect(container.textContent).toContain("Das Raster hat keinen Höhenabschnitt");
-    expect(input("Header")).toBeNull();
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Höhenabschnitt.");
+    expect(input("Gebiet")).toBeNull();
   });
 
   it("duplicates_the_map_into_the_cell_and_refreshes_the_counts", async () => {
@@ -134,6 +135,32 @@ describe("MatrixCellEditor", () => {
 
   it("says_a_cell_outside_the_matrix_is_outside", async () => {
     await show(5, 0);
+    expect(container.textContent).toContain("außerhalb der Weltkarte (2 × 1)");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    await show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await show(5, 0);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // A matrix without the sections, read anew.
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
+    await show();
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show(1, 0, "tuefteln");
+    expect(container.textContent).toContain("Raster 0003");
+    expect(input("Header").value).toBe("412");
+    expect(button("Header0412")).toBeDefined();
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
+    await show(1, 0, "tuefteln");
+    expect(container.textContent).toContain("Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).");
+    await show(5, 0, "tuefteln");
     expect(container.textContent).toContain("außerhalb des Rasters (2 × 1)");
   });
 

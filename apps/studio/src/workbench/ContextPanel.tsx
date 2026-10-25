@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef } from "react";
 import type { DataRowDto, EventsDto, HeaderSummary } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { EmptyState, ListRow, Notice, PanelHead, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import { lockedText } from "../world/events";
@@ -30,18 +31,20 @@ export interface ContextPanelProps {
   loading?: boolean;
   /** The trainer list: a figure whose script starts a battle is named by the trainer's class and name (by number while it is not read). */
   trainers?: readonly DataRowDto[] | null;
+  /** Bauen says where a door leads with "Ort", Tüfteln with "Header". */
+  depth: Depth;
 }
 
 const KIND_ICON: Record<EventKind, IconName> = { object: "figure", warp: "door", coord: "trigger", bg: "sign" };
 
 /** "An diesem Ort": what the shown place holds, as a list: its events by class and the buildings of its maps; a click selects like a click in the scene. */
-export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader, loading = false, trainers = null }: ContextPanelProps) {
+export function ContextPanel({ hasPlace, events, headers, buildings, selectedEvent, selectedBuilding, onSelectEvent, onSelectBuilding, onOpenHeader, loading = false, trainers = null, depth }: ContextPanelProps) {
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   const uid = useId();
   const groups = useMemo(
-    () => (events ? groupEvents(events, (id) => headers.find((h) => h.id === id)?.internal_name, (script) => scriptTrainerLabel(trainers, script)) : []),
-    [events, headers, trainers],
+    () => (events ? groupEvents(events, (id) => headers.find((h) => h.id === id)?.internal_name, (script) => scriptTrainerLabel(trainers, script), depth) : []),
+    [events, headers, trainers, depth],
   );
   const buildingTotal = buildings.reduce((sum, m) => sum + m.models.length, 0);
   if (!hasPlace) {

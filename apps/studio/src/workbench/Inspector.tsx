@@ -116,7 +116,7 @@ export function Inspector({
     case "eventHover":
       return (
         <div className={styles.panel}>
-          <InspectorHead title={eventTitle(model.eventKind, model.data, model.destName)} subtitle={eventSubtitle(model.eventKind, model.data.index, null, null)} viewOnly />
+          <InspectorHead title={eventTitle(model.eventKind, model.data, model.destName, depth)} subtitle={eventSubtitle(model.eventKind, model.data.index, null, null)} viewOnly />
           <p className={styles.note}>{eventDetails(model.eventKind, model.data)}</p>
         </div>
       );
@@ -126,7 +126,7 @@ export function Inspector({
           <InspectorHead title={`Kachel x ${model.x}, y ${model.y}`} subtitle={`Karte ${id4(model.map)}`} viewOnly />
           <p className={styles.note}>{tileSummary(model.map, model.x, model.y, model.info)}</p>
           <p className={styles.note}>
-            Matrix-Position x {model.absX}, z {model.absZ} · Kollision 0x{model.info.collision.toString(16).toUpperCase().padStart(2, "0")}
+            {depth === "tuefteln" ? "Matrix-Position" : "Position auf der Weltkarte"} x {model.absX}, z {model.absZ} · Kollision 0x{model.info.collision.toString(16).toUpperCase().padStart(2, "0")}
             {model.info.class ? ` · Klasse ${model.info.class}` : ""}
           </p>
         </div>

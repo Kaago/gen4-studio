@@ -206,7 +206,7 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
         <p className={styles.text}>Keine Probleme. Beim Speichern und Bauen landen Fehler und Warnungen hier.</p>
       ) : (
         <div className={styles.table}>
-          {checks !== null && <ChecksNotes checks={checks} />}
+          {checks !== null && <ChecksNotes checks={checks} depth={depth} />}
           {rows.length === 0 ? (
             <EmptyList checks={checks} />
           ) : (

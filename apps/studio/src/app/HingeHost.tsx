@@ -20,12 +20,13 @@ export type HingeHostProps = Omit<HingeProps, "problems" | "history" | "checking
  * The hinge with its own state: the problem counts, the progress of the checks and the undo history are subscribed to here, so a change of
  * any reaches this bar and not the panels (they get none of it through `WorkbenchData`), nor App. Every deck has a hinge; they all read the
  * same history, which App reads from the backend once per change. The history labels are the kernel's English ones and are named in German
- * on the way to the bar.
+ * on the way to the bar, in the words of the depth.
  */
 export function HingeHost({ problems, history, checks, ...rest }: HingeHostProps) {
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   const view = useSyncExternalStore(checks.subscribe, checks.get);
   const read = useSyncExternalStore(history.subscribe, history.get);
-  const labels = useMemo(() => germanHistory(read), [read]);
+  // Bauen names the steps without "Raster", "Matrix" and "Header" (a switch of the depth names them anew).
+  const labels = useMemo(() => germanHistory(read, rest.depth), [read, rest.depth]);
   return <Hinge {...rest} problems={counts} checking={view.running ? progressText(view.progress) : null} unchecked={notChecked(view)} history={labels} />;
 }

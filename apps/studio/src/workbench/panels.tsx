@@ -214,11 +214,11 @@ export function WorldMapTab() {
   const d = useWorkbench();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
-    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus],
+    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus, depth }),
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth],
   );
   return <WorldMapPanel context={context} />;
 }
@@ -286,6 +286,7 @@ export function ContextTab() {
       onOpenHeader={onOpenHeader}
       loading={loading}
       trainers={trainers}
+      depth={d.depth}
     />
   );
 }

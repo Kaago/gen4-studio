@@ -2,13 +2,14 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ReactNode, RefObject } from "react";
 import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import type { Depth } from "../ui/frame/shellState";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";
 import type { NavTarget } from "./navigation";
 import { buildPlaces, mapsText, placeColor } from "./places";
 import type { Place, PlaceHeader } from "./places";
-import { TERMS, id4 } from "./terms";
+import { TERMS, id4, termFor } from "./terms";
 import { useMatrix } from "./useMatrix";
 import styles from "./WorldMapPanel.module.css";
 import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
@@ -32,6 +33,8 @@ export interface WorldMapContext {
   onLoadStatus: (message: Message | null) => void;
   /** Default: the app-wide cache. */
   cache?: ThumbnailCache;
+  /** Bauen calls an outside header "Gebiet", Tüfteln "Header". */
+  depth: Depth;
 }
 
 const CELL_SIZE = 32;
@@ -306,6 +309,7 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
 
 interface PlaceListProps {
   places: Place[];
+  depth: Depth;
   links: ReadonlyMap<string, RoomLink[]>;
   selected: number | null;
   openKeys: ReadonlySet<string>;
@@ -315,7 +319,7 @@ interface PlaceListProps {
 }
 
 /** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
-const PlaceList = memo(function PlaceList({ places, links, selected, openKeys, onToggle, onOpen, list }: PlaceListProps) {
+const PlaceList = memo(function PlaceList({ places, depth, links, selected, openKeys, onToggle, onOpen, list }: PlaceListProps) {
   return (
     <div ref={list} className={styles.places}>
       {places.map((place) => (
@@ -338,7 +342,7 @@ const PlaceList = memo(function PlaceList({ places, links, selected, openKeys, o
                   onClick={() => onOpen(entry.header.id)}
                   className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >
-                  {TERMS.outside.label} · {id4(entry.header.id)}
+                  {termFor("header", depth, "area")} · {id4(entry.header.id)}
                 </button>
               ),
             )}
@@ -358,7 +362,7 @@ const NO_LINKS: RoomLink[] = [];
  * never for a hover of the scene; pan and zoom live in `MapView` and render neither the grid nor the list.
  */
 export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context: WorldMapContext }) {
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails } = context;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails, depth } = context;
   useCacheProgress(cache, onLoadStatus);
 
   // Without the overview every header would count as a room.
@@ -421,7 +425,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const listLayout = useMemo(() => ({}), [places, links, selected, openKeys]);
   const rootBox = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const noRegion = matricesLoaded ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
+  const none = depth === "tuefteln" ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : "Keine Region gefunden (keine Weltkarte mit Gebieten).";
+  const noRegion = matricesLoaded ? none : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
 
   return (
     <div ref={rootBox} className={styles.panel}>
@@ -436,7 +441,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
         rootBox={rootBox}
         list={list}
       />
-      <PlaceList places={places} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
+      <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
     </div>
   );
 });

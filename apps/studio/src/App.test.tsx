@@ -815,7 +815,9 @@ describe("App wiring", () => {
 
     it("names_what_the_status_line_shows_in_its_middle", async () => {
       await select(listed[1]);
-      expect(statusLine()).toContain("Ort 1, Raster 1");
+      // Bauen names the place, not the matrix.
+      expect(statusLine()).toContain("Ort 1");
+      expect(statusLine()).not.toMatch(/Raster|Matrix|Header/);
       await act(async () => data().onInspect(tile(4)));
       expect(statusLine()).toContain("Kachel x 4, y 0");
     });
@@ -823,7 +825,7 @@ describe("App wiring", () => {
     it("leaves_the_middle_of_the_status_line_empty_on_start_and_technik", async () => {
       // The world's context (header, tile) belongs to the world: the panes without a deck do not show it.
       await select(listed[1]);
-      expect(statusLine()).toContain("Ort 1, Raster 1");
+      expect(statusLine()).toContain("Ort 1");
       for (const name of ["Start", "Technik"]) {
         await act(async () => atlasEntry(name)!.click());
         expect(atlasEntry(name)?.getAttribute("aria-current")).toBe("page");
@@ -831,7 +833,7 @@ describe("App wiring", () => {
         expect(statusLine()).not.toContain("Raster 1");
       }
       await act(async () => atlasEntry("Welt")!.click());
-      expect(statusLine()).toContain("Ort 1, Raster 1");
+      expect(statusLine()).toContain("Ort 1");
     });
   });
 

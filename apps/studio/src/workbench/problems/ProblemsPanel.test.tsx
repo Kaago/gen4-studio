@@ -8,6 +8,7 @@ import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
 import { readCss, ruleBody } from "../../ui/cssSource";
+import { visibleWords } from "../../ui/visibleText";
 import { ProblemsPanel, ProblemsTable } from "./ProblemsPanel";
 import { ProblemsStore, findingId } from "./problems";
 import type { ProblemRow } from "./problems";
@@ -188,7 +189,7 @@ describe("ProblemsPanel with findings of the checks", () => {
   it("a_row_says_the_german_sentence_and_the_label_and_opens_its_target", async () => {
     act(() => store.replaceChecks([dest]));
     const r = row(dest);
-    expect(r.textContent).toContain("Die Tür führt zu Warp 5 in Header 0414, aber dessen Eventdatei 0411 hat nur 3 Warps.");
+    expect(r.textContent).toContain("Die Tür führt zu Warp 5 von Ort 0414, aber dessen Eventdatei 0411 hat nur 3 Warps.");
     expect(r.textContent).toContain("Eventdatei 0411 · Warp 2");
     expect(r.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Fehler");
     await click(button("Öffnen", r));
@@ -301,6 +302,33 @@ describe("ProblemsPanel with findings of the checks", () => {
     const status = container.querySelector<HTMLElement>("footer [role=status]")!;
     expect(status.textContent).toBe("Prüft … Texte 312/724");
     expect(button("Erneut prüfen")?.disabled).toBe(true);
+  });
+
+  // A finding at a header and one at a cell as the kernel labels them, and the common scripts every vanilla project leaves unchecked.
+  const atHeader = finding("header.ref-range", "error", { subject: { kind: "header", index: 12 }, key: "matrix_id", label: "Header 0012 · Matrix", args: ["12", "matrix_id", "900", "620"], target: { kind: "header", id: 12 } });
+  const elsewhere = finding("matrix.header-elsewhere", "error", { subject: { kind: "matrix", index: 0 }, key: "cell:3,4", label: "Matrix 0000 · Zelle 3, 4", args: ["0", "3", "4", "12", "5"] });
+  const common = { code: "script.message-missing", why: "28 script files that no header uses (common scripts) are not checked: 0101, 0164" };
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    act(() => {
+      checks.feed.update({ reported: true, skipped: [common] });
+      store.replaceChecks([dest, atHeader, elsewhere]);
+    });
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.textContent).toContain("Ort verweist ins Leere");
+    expect(container.textContent).toContain("28 Common-Scripts ohne Ort nicht geprüft.");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    act(() => root.render(<ProblemsPanel context={{ problems: store, depth: "tuefteln", goTo, checks }} />));
+    act(() => {
+      checks.feed.update({ reported: true, skipped: [common] });
+      store.replaceChecks([atHeader, elsewhere]);
+    });
+    expect(container.textContent).toContain("Header verweist ins Leere");
+    expect(container.textContent).toContain("Header 0012 · Matrix");
+    expect(container.textContent).toContain("Header einer anderen Matrix");
+    expect(container.textContent).toContain("28 Common-Scripts ohne Header nicht geprüft.");
   });
 
   it("says_what_was_not_checked", () => {

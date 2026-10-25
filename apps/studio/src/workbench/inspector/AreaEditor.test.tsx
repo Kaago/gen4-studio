@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, AssetId } from "../../api";
 import { openSelect, typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { AreaEditor } from "./AreaEditor";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getAreaData: vi.fn(), setAreaData: vi.fn() }));
@@ -46,6 +47,17 @@ describe("AreaEditor", () => {
     expect(input("Dynamische Textur").value).toBe("0");
     expect(input("Lichttyp").value).toBe("4");
     expect(select("Gebietstyp").textContent).toContain("Außen (1)");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    await show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.textContent).toContain("aller Karten, deren Ort diese Area-Data verwendet");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show({}, [], "tuefteln");
+    expect(container.textContent).toContain("aller Karten, deren Header diese Area-Data verwendet");
   });
 
   it("says_Ungespeichert_while_this_area_data_has_unsaved_changes_and_not_for_another_one", async () => {

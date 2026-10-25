@@ -34,6 +34,15 @@ describe("event texts", () => {
     expect(eventDetails("warp", warp)).toBe("Position x 8, z 4 · Ziel-Warp 1 · Höhe 0");
   });
 
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    expect(eventTitle("warp", warp, "T01R0201", "bauen")).toBe("Warp 0 → Ort 0414 (T01R0201)");
+    expect(eventTitle("warp", warp, undefined, "bauen")).toBe("Warp 0 → Ort 0414");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    expect(eventTitle("warp", warp, "T01R0201", "tuefteln")).toBe("Warp 0 → Header 0414 (T01R0201)");
+  });
+
   it("describes objects, triggers and background events", () => {
     const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, dir: 1, trainer_type: 0, sight: 0, x: 12, z: 13, y: -1 };
     expect(eventTitle("object", object)).toBe("Objekt 2 · ID 7");

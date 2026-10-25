@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { getMatrix } from "../api";
 import { mapsText } from "./places";
+import { visibleWords } from "../ui/visibleText";
 import { ThumbnailCache } from "../world/thumbnails";
 import { WorldMapPanel } from "./WorldMapPanel";
 import type { WorldMapContext } from "./WorldMapPanel";
@@ -83,6 +84,7 @@ describe("WorldMapPanel", () => {
     onError: vi.fn(),
     onLoadStatus: vi.fn(),
     cache,
+    depth: "bauen",
     ...extra,
   });
   const show = async (ctx: WorldMapContext) => {
@@ -92,11 +94,27 @@ describe("WorldMapPanel", () => {
 
   it("says_there_is_no_region_and_still_lists_the_places", async () => {
     await show(context({ matrices: withoutRegion }));
-    expect(container.textContent).toContain("Keine Region gefunden (kein Raster mit Header-Abschnitt).");
+    expect(container.textContent).toContain("Keine Region gefunden (keine Weltkarte mit Gebieten).");
     expect(container.querySelector("[data-cell]")).toBeNull();
     expect(container.querySelector('[data-place-key="Zweiblattdorf"]')).not.toBeNull();
     expect(container.querySelector('[data-place-key="Route 201"]')).not.toBeNull();
     expect(getMatrix).not.toHaveBeenCalled();
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    await show(context());
+    for (const details of container.querySelectorAll("details")) details.open = true;
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet · 0000");
+    await show(context({ matrices: withoutRegion }));
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show(context({ depth: "tuefteln" }));
+    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Header · 0000");
+    await show(context({ matrices: withoutRegion, depth: "tuefteln" }));
+    expect(container.textContent).toContain("Keine Region gefunden (kein Raster mit Header-Abschnitt).");
   });
 
   it("says_the_overview_is_loading_instead_of_claiming_there_is_no_region", async () => {

@@ -152,7 +152,8 @@ describe("TechnikArea", () => {
     await render();
     const groups = [...surface()!.querySelectorAll<HTMLElement>("[role=group][data-check]")].map((g) => g.dataset.check);
     expect(groups).toEqual(["warp.dest-warp", "warp.never-fires"]);
-    expect(surface()?.textContent).toContain("Die Tür führt zu Warp 5 in Header 0414");
+    // The same words as the panel at the same depth (Bauen here).
+    expect(surface()?.textContent).toContain("Die Tür führt zu Warp 5 von Ort 0414");
     await click(button("Ausblenden", surface()!.querySelector(`[data-finding="${findingId(never)}"]`)!));
     expect(checks.ignore).toHaveBeenCalledWith(never);
     await click(button("Erneut prüfen"));

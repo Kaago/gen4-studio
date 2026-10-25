@@ -541,8 +541,8 @@ function AppBody() {
   const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo, shell.state.depth],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
@@ -668,7 +668,7 @@ function AppBody() {
   });
 
   const { info } = session;
-  const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
+  const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected), shell.state.depth);
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
