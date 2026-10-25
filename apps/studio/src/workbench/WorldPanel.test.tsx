@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto } from "../api";
+import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
 import { ProblemsStore } from "./problems/problems";
@@ -68,9 +69,11 @@ describe("WorldPanel", () => {
     } as unknown as WorkbenchData;
     act(() =>
       root.render(
-        <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
-          <WorldPanel />
-        </WorkbenchProviders>,
+        <ShellProvider>
+          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
+            <WorldPanel />
+          </WorkbenchProviders>
+        </ShellProvider>,
       ),
     );
   };
@@ -103,13 +106,22 @@ describe("WorldPanel", () => {
     expect(onShowPermissions).toHaveBeenCalledWith(false);
   });
 
-  it("has_no_add_buttons_over_the_scene_any_more_the_tools_of_the_hand_add", () => {
+  it("has_no_add_buttons_over_the_scene_any_more_the_tools_add", () => {
     show({ matrix });
     expect(button("Neues Gebäude")).toBeUndefined();
     expect(button("Hinzufügen")).toBeUndefined();
     expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
-    // Only the two layer toggles are left in the bar.
-    expect([...container.querySelectorAll('[role="toolbar"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+    // Only the two layer toggles are left in the layer bar.
+    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+  });
+
+  it("floats_the_toolbar_over_the_scene_with_the_tool_of_the_workbench", () => {
+    show({ matrix, tool: "door" });
+    const toolbar = container.querySelector('[role="toolbar"][aria-label="Werkzeugleiste"]')!;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.querySelector('[data-tool="door"]')?.getAttribute("aria-pressed")).toBe("true");
+    show();
+    expect(container.querySelector('[role="toolbar"][aria-label="Werkzeugleiste"]')).toBeNull();
   });
 
   it("hands_the_scene_the_tool_and_what_it_reports_back", () => {

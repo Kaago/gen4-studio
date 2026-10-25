@@ -1,13 +1,7 @@
-/* The floating bar over the top left of the 3D view. */
+/* The floating bar of the layers; `SceneOverlays` places it at the top left of the 3D view. */
 .bar {
-  position: absolute;
-  top: var(--g4-raum-8);
-  left: var(--g4-raum-8);
-  right: var(--g4-raum-8);
-  z-index: 1;
   display: flex;
   width: max-content;
-  max-width: calc(100% - 2 * var(--g4-raum-8));
   flex-wrap: wrap;
   align-items: center;
   gap: var(--g4-raum-4);

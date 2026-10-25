@@ -79,4 +79,11 @@ describe("ShellProvider theme and density", () => {
     act(() => shell.toggleDensity());
     expect(shell.density).toBe("komfort");
   });
+
+  it("remembers_the_toolbar_anchor", () => {
+    expect(shell.state.toolbar).toBe("left");
+    act(() => shell.setToolbar("bottom"));
+    expect(shell.state.toolbar).toBe("bottom");
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).toolbar).toBe("bottom");
+  });
 });

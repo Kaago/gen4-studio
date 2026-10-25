@@ -1,12 +1,17 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
-// of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows and the selection of each data
-// part. Plain module (no React); `ShellContext` holds the live copy. A state written before a field existed reads it as its default.
+// of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows, the selection of each data
+// part and the anchor of the toolbar in the 3D view. Plain module (no React); `ShellContext` holds the live copy. A state written
+// before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
 export type Depth = "bauen" | "tuefteln";
 export type Tool = "select" | "paint" | "figure" | "door" | "trigger" | "sign" | "building";
 
 export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+
+/** Where the toolbar floats in the 3D view: upright at the left edge, flat at the top (beside the layer bar), or flat at the bottom middle. */
+export type ToolbarAnchor = "left" | "top" | "bottom";
+const TOOLBAR_ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];
 
 /** The parts of the Pokémon area, in the order of their keys ⌘1 to ⌘4. */
 export type PokemonSub = "pokedex" | "trainer" | "encounters" | "moves";
@@ -50,6 +55,8 @@ export interface ShellState {
   sub: { pokemon: PokemonSub };
   /** The selection of each data part; a part without one has none. */
   selected: DataSelection;
+  /** The anchor the toolbar was put at; a low view may show it elsewhere (`shownAnchor`), this stays. */
+  toolbar: ToolbarAnchor;
 }
 
 /** A hand height inside 200..560; anything that is not a number gets the default. */
@@ -107,6 +114,7 @@ export function readShellState(): ShellState {
     recent: Array.isArray(s.recent) ? s.recent.filter(isRecent).slice(0, MAX_RECENT) : [],
     sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
     selected: readSelection(s.selected),
+    toolbar: TOOLBAR_ANCHORS.find((a) => a === s.toolbar) ?? "left",
   };
 }
 

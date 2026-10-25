@@ -25,7 +25,7 @@ import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
-import { SceneBar } from "./SceneBar";
+import { SceneOverlays } from "./SceneOverlays";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import { isFinding } from "./problems/problems";
@@ -149,11 +149,9 @@ export function WorldPanel() {
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}
       />
-      <SceneBar
-        showPermissions={d.showPermissions}
-        showEvents={d.showEvents}
-        onShowPermissions={d.onShowPermissions}
-        onShowEvents={d.onShowEvents}
+      {/* The layer bar and the toolbar; they read the shell themselves, so moving the toolbar does not render the scene. */}
+      <SceneOverlays
+        layers={{ showPermissions: d.showPermissions, showEvents: d.showEvents, onShowPermissions: d.onShowPermissions, onShowEvents: d.onShowEvents }}
       />
       <Legend />
     </div>

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
 import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
-import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool } from "./shellState";
+import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor } from "./shellState";
 
 export interface ShellApi {
   state: ShellState;
@@ -16,6 +16,8 @@ export interface ShellApi {
   setPokemonSub: (sub: PokemonSub) => void;
   /** The selection of a data part; null: none. */
   setSelected: (key: DataSelectKey, index: number | null) => void;
+  /** Puts the toolbar of the 3D view at an anchor (remembered). */
+  setToolbar: (anchor: ToolbarAnchor) => void;
   /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -86,6 +88,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       }),
     [],
   );
+  const setToolbar = useCallback((toolbar: ToolbarAnchor) => setState((s) => (s.toolbar === toolbar ? s : { ...s, toolbar })), []);
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
   const setTheme = useCallback((t: Theme) => {
@@ -111,6 +114,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDepth,
       setPokemonSub,
       setSelected,
+      setToolbar,
       tool,
       setTool,
       pendingTrainer,
@@ -125,7 +129,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

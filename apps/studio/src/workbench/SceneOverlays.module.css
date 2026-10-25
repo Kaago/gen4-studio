@@ -1,0 +1,23 @@
+/* Covers the 3D view; the bars take the pointer, the rest of the view keeps it. */
+.overlays {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8);
+  pointer-events: none;
+}
+
+/* Anchor top: the toolbar in one row with the layer bar. */
+.overlays[data-anchor="top"] {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.overlays > * {
+  max-width: 100%;
+  pointer-events: auto;
+}

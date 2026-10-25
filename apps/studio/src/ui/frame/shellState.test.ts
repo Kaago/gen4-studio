@@ -92,6 +92,18 @@ describe("shell state", () => {
     expect(read.selected).toEqual({});
   });
 
+  it("reads_the_toolbar_anchor_and_falls_back_to_left", () => {
+    expect(readShellState().toolbar).toBe("left");
+    for (const anchor of ["left", "top", "bottom"] as const) {
+      localStorage.setItem(KEY, JSON.stringify({ toolbar: anchor }));
+      expect(readShellState().toolbar).toBe(anchor);
+    }
+    localStorage.setItem(KEY, JSON.stringify({ toolbar: "right" }));
+    expect(readShellState().toolbar).toBe("left");
+    localStorage.setItem(KEY, JSON.stringify({ toolbar: 2 }));
+    expect(readShellState().toolbar).toBe("left");
+  });
+
   it("drops_recent_entries_that_are_not_projects", () => {
     localStorage.setItem(KEY, JSON.stringify({ recent: [project(1), { path: 3 }, null, "x", { path: "/q", name: "q", game: "g" }, project(2)] }));
     expect(readShellState().recent.map((p) => p.path)).toEqual(["/p/1", "/p/2"]);
