@@ -268,6 +268,40 @@ describe("ScriptPanel", () => {
     expect(problems.list().map((p) => p.file)).toEqual(["expanded/scripts/0043.rotom"]);
   });
 
+  it("tells_the_checks_after_every_write_to_the_scripts", async () => {
+    // The checks read the script sources from the disk: each write the app makes to them is an edit for the checks (`edited`).
+    const edited = () => events.filter((e) => e.topic === "edited").length;
+    vi.mocked(scriptsStatus).mockResolvedValueOnce({ adopted: false, file_count: 2 });
+    vi.mocked(adoptScripts).mockResolvedValue({ decompiled: 2, skipped_empty: 0, failed: [] });
+    vi.mocked(addScript).mockResolvedValue(2);
+    await render();
+    await settle();
+    click(button("Übernehmen"));
+    await settle();
+    expect(edited()).toBe(1);
+    click(button("Weiter"));
+    // „Speichern“ (the button; ⌘S in the editor saves the same way).
+    await open(42);
+    typeAt(0, "x");
+    click(button("Speichern"));
+    await settle();
+    expect(edited()).toBe(2);
+    typeAt(0, "y");
+    await act(async () => api.save(42));
+    expect(edited()).toBe(3);
+    // „Script anfügen“.
+    await act(async () => void (await api.add(42)));
+    expect(edited()).toBe(4);
+    // A level script saved by the form.
+    act(() => api.onLevelScriptSaved(projectA, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
+    expect(edited()).toBe(5);
+    // A refused save wrote nothing.
+    vi.mocked(saveScript).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    typeAt(0, "z");
+    await act(async () => api.save(42).catch(() => {}));
+    expect(edited()).toBe(5);
+  });
+
   it("editor_saves_without_lsp", async () => {
     vi.mocked(lspStart).mockRejectedValue(MISSING);
     await render();
