@@ -4,6 +4,7 @@ import stat
 from pathlib import Path
 
 import pytest
+import yaml
 
 from g4emu import scenario
 from g4emu.cli import main
@@ -861,6 +862,27 @@ def test_the_small_hack_scenarios_count_only_runs_with_all_groups(name):
     assert any(len(e) == 3 and isinstance(e[2], dict) and e[2]["expect"] == [{"error": "61440"}] for e in sc.edits)
     hashes = " ".join(sc.check[0])
     assert "model_sha1=${sha1-of:" in hashes and "per_sha1=${sha1-of:" in hashes
+
+
+@pytest.mark.parametrize("name", ["pt-kleiner-hack", "hg-kleiner-hack"])
+def test_the_control_without_the_import_is_the_scenario_minus_the_import(name):
+    # the control shows that the gate's way needs the imported collision: it must be the scenario
+    # without exactly the successful import, without `check:`, its play cut after `shot weg`
+    folder = Path(__file__).resolve().parents[2] / "agent" / "scenarios"
+    gate = yaml.safe_load((folder / f"{name}.yaml").read_text(encoding="utf-8"))
+    control = yaml.safe_load((folder / f"{name}-ohne-import.yaml").read_text(encoding="utf-8"))
+    imports = [e for e in gate["edits"] if e[0] == "import_map_parts" and e[1].get("parts") == ["model", "permissions"]]
+    assert len(imports) == 1
+    assert control["edits"] == [e for e in gate["edits"] if e is not imports[0]]
+    assert "check" not in control
+    assert control["play"] == gate["play"][: gate["play"].index("shot weg") + 1]
+    assert {k: v for k, v in control.items() if k not in ("edits", "play")} == {
+        k: v for k, v in gate.items() if k not in ("edits", "play", "check")
+    }
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    env.update(KOPIE="/k")
+    sc = load_scenario(folder / f"{name}-ohne-import.yaml", env)
+    assert sc.check == [] and sc.play[-2:] == ["shot", "weg"]
 
 
 def test_a_met_expectation_ends_the_session_binds_and_goes_on(tmp_path, roms, monkeypatch, capsys):

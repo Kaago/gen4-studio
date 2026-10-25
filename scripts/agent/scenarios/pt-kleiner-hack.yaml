@@ -34,8 +34,9 @@
 # The import: model and permissions of map 6 exported to <copy>/export/, the import checked
 # (inspect_map_import) and done. Counter case: a synthetic model over 0xF000 bytes (made by
 # `prepare:`) is refused by import_map_parts with "61440" in the message and inspect_map_import
-# reports it as an error (model.too-big); that it changed nothing shows the built ROM, whose model of
-# the new map is still map 6's (`model_sha1` below).
+# reports it as an error (model.too-big). That a refusal writes nothing is not shown here (the
+# refused call's session ends unsaved); the kernel test import_refuses_on_error_and_changes_nothing
+# covers it.
 # The new header gets its own text archive (create_text_archive): its message 0 is changed and one
 # message appended (index 1, the archive held one), so Route 201's dialog archive stays as it was.
 # The script file: script 2 gives S_GIFT at level 100 once (by a flag), script 3 gives a Potion
@@ -333,7 +334,7 @@ edits:
         - {path: findings.length, equals: 0}
 build: out.nds
 check:
-  # the ROM holds map 6's model (the refused import changed nothing) and the permissions the studio
+  # the ROM holds map 6's model (the import reached the ROM) and the permissions the studio
   # exported after the door; the new encounter file
   - [g4k, check-data, out.nds,
      --expect, "map:${area.maps.0.2}:model_sha1=${sha1-of:export/karte6.nsbmd}",
