@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the dev bridge (port 1431) and the studio frontend in Vite (port 1430)
+# Starts the dev bridge (port 1431, or $G4_BRIDGE_PORT) and the studio frontend in Vite (port 1430, or $G4_VITE_PORT)
 # for browser-based agent testing. Ctrl-C / SIGTERM stops both.
 #
 # Variables (all optional):
@@ -24,8 +24,9 @@ if [ -d "$TOOLCHAIN_BIN" ]; then
   export PATH="$TOOLCHAIN_BIN:$PATH"
 fi
 
-VITE_PORT=1430
-BRIDGE_PORT=1431
+# Ports; override both for a second instance (a parallel worktree): G4_VITE_PORT=1440 G4_BRIDGE_PORT=1441.
+VITE_PORT="${G4_VITE_PORT:-1430}"
+BRIDGE_PORT="${G4_BRIDGE_PORT:-1431}"
 # Absolute, so the bridge (which canonicalizes) and the shell agree; a relative value is relative to the repo root.
 abs() { # abs <path>: absolute form of a path whose parent exists
   local dir base
@@ -50,6 +51,8 @@ mkdir -p target/agent
 TOKEN="$(openssl rand -hex 16)"
 (umask 077; printf '%s' "$TOKEN" > target/agent/bridge.token)
 chmod 600 target/agent/bridge.token
+# call.sh reads the port from here, so a non-default port needs no flag.
+printf '%s' "$BRIDGE_PORT" > target/agent/bridge.port
 
 if [ -z "${G4_APICULA:-}" ] && [ -x "$ROOT/tools/apicula/bin/apicula" ]; then
   export G4_APICULA="$ROOT/tools/apicula/bin/apicula"

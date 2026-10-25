@@ -7,6 +7,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TOKEN_FILE="$ROOT/target/agent/bridge.token"
+PORT_FILE="$ROOT/target/agent/bridge.port"
 
 if [ $# -lt 1 ]; then
   echo "Aufruf: scripts/agent/call.sh <befehl> ['<json>']" >&2
@@ -17,6 +18,8 @@ if [ ! -f "$TOKEN_FILE" ]; then
   exit 1
 fi
 
+# The port studio-web.sh chose (G4_BRIDGE_PORT); 1431 when the file predates it.
+PORT="$(cat "$PORT_FILE" 2>/dev/null || echo 1431)"
 cmd="$1"
 body="${2:-}"
 [ -n "$body" ] || body='{}'
@@ -27,8 +30,8 @@ trap 'rm -f "$out"' EXIT
 # The token header is read from stdin (-H @-) so it never shows up in the process list.
 meta="$(printf 'X-G4-Bridge-Token: %s\n' "$(cat "$TOKEN_FILE")" | curl -sS --noproxy '*' -o "$out" -w '%{http_code} %{content_type}' -X POST \
   -H "Content-Type: application/json" -H @- \
-  --data-raw "$body" "http://127.0.0.1:1431/invoke/$cmd")" || {
-  echo "Brücke nicht erreichbar (127.0.0.1:1431) - läuft scripts/agent/studio-web.sh?" >&2
+  --data-raw "$body" "http://127.0.0.1:$PORT/invoke/$cmd")" || {
+  echo "Brücke nicht erreichbar (127.0.0.1:$PORT) - läuft scripts/agent/studio-web.sh?" >&2
   exit 1
 }
 status="${meta%% *}"
