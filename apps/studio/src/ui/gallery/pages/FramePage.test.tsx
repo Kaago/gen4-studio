@@ -50,7 +50,17 @@ describe("FramePage", () => {
     // The hinge heads the first frame of the section, before the dock with the view above the edit group.
     const frame = container.querySelector('[data-frame="scharnier-oben"]')!;
     const order = [...frame.querySelectorAll('[aria-label="Scharnier"], [data-dock], [data-dock-group]')].map((el) => el.getAttribute("data-dock-group") ?? el.getAttribute("data-dock") ?? "scharnier");
-    expect(order).toEqual(["scharnier", "welt", "schau", "hand"]);
+    expect(order).toEqual(["scharnier", "welt", "schau", "bearbeiten"]);
+  });
+
+  it("speaks_of_the_app_as_it_is_now_without_markdown_in_the_notes", () => {
+    // Token names are quoted in the notes, not written as Markdown code (the page shows no backtick).
+    expect(container.textContent).not.toContain("`");
+    // The hinge above the dock: the place as the app names it, the dock with the view and the edit group (no „Hand“ any more).
+    const frame = container.querySelector<HTMLElement>('[data-frame="scharnier-oben"]')!;
+    expect(frame.textContent).toContain("Gebiet 0411");
+    expect(frame.textContent).not.toContain("Hand");
+    expect(frame.textContent).not.toContain("Außen");
   });
 
   it("shows_the_dock_tabs_and_a_floating_group", () => {
@@ -93,7 +103,7 @@ describe("FramePage", () => {
     expect(maximize.getAttribute("aria-pressed")).toBe("false");
     act(() => maximize.click());
     expect(maximize.getAttribute("aria-pressed")).toBe("true");
-    expect(frame("scharnier-oben").querySelector<HTMLElement>('[data-dock-group="hand"]')!.hidden).toBe(true);
+    expect(frame("scharnier-oben").querySelector<HTMLElement>('[data-dock-group="bearbeiten"]')!.hidden).toBe(true);
   });
 
   it("shows_the_splitter_horizontally_and_vertically_and_sizes_the_first_part", () => {

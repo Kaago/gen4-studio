@@ -297,6 +297,51 @@ describe("Deck", () => {
     expect(api().hasMaximizedGroup()).toBe(false);
   });
 
+  it("fills_the_dock_with_a_maximized_group_whatever_its_width_limits", async () => {
+    await mount();
+    act(() => api().layout(1000, 600));
+    expect(groupOf("inspector").width).toBeLessThanOrEqual(480);
+    // The inspector beside the view keeps at most 480 px; maximized it fills the dock, not 480 px of it.
+    act(() => api().getPanel("inspector")!.api.maximize());
+    expect(groupOf("inspector").width).toBe(1000);
+    act(() => api().exitMaximizedGroup());
+    expect([groupOf("inspector").minimumWidth, groupOf("inspector").maximumWidth]).toEqual([280, 480]);
+    expect(groupOf("inspector").width).toBeLessThanOrEqual(480);
+  });
+
+  it("remembers_the_arrangement_it_builds_on_the_first_start", async () => {
+    await mount();
+    expect(localStorage.getItem(arrangementKey("welt"))).toBe("werkbank");
+    await mount("texte");
+    expect(localStorage.getItem(arrangementKey("texte"))).toBe("doppeldeck");
+  });
+
+  it("works_the_tab_menu_with_the_keyboard", async () => {
+    await mount();
+    const script = tab("Script");
+    script.focus();
+    await act(async () => void script.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    const items = () => [...document.querySelectorAll<HTMLElement>('.dv-context-menu [role="menuitem"]')];
+    // The menu takes the focus on its first item; the arrows walk the items, round.
+    expect(document.activeElement).toBe(items()[0]);
+    const key = (k: string) => act(async () => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })));
+    await key("ArrowDown");
+    expect(document.activeElement?.textContent).toBe("Schweben lassen");
+    await key("ArrowUp");
+    await key("ArrowUp");
+    expect(document.activeElement?.textContent).toBe("Anordnung zurücksetzen");
+    // Escape closes it and gives the focus back to the tab.
+    await key("Escape");
+    expect(items()).toHaveLength(0);
+    expect(document.activeElement).toBe(script);
+    // Enter runs the item.
+    await act(async () => void script.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    await key("Enter");
+    await settle();
+    expect(api().getPanel("script")!.api.isMaximized()).toBe(true);
+    expect(items()).toHaveLength(0);
+  });
+
   it("offers_the_tab_menu_in_german_also_with_shift_f10", async () => {
     await mount();
     expect((await menu("Inspector")).map((i) => i.textContent)).toEqual(["Maximieren", "Schweben lassen", "Anordnung zurücksetzen"]);

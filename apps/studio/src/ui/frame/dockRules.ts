@@ -65,6 +65,32 @@ function limit(group: DockviewGroupPanel, step: ArrangementStep) {
   group.api.setConstraints({ minimumWidth: step.minimumWidth, maximumWidth: step.maximumWidth });
 }
 
+/**
+ * Gives every docked group that holds just one panel the width limits of that panel's step in the area's arrangement (the inspector beside
+ * the view: 280 to 480 px). dockview stores no limits with a layout, so a restored layout gets them here, and a maximized group gets them
+ * back when it is restored.
+ */
+export function restoreLimits(api: DockviewApi, area: DeckArea, arrangement: Arrangement = loadArrangement(area)): void {
+  for (const step of arrangementSteps(area, arrangement)) {
+    const group = api.getPanel(step.id)?.group;
+    if (step.minimumWidth === undefined || !group || group.panels.length !== 1 || group.api.location.type !== "grid") continue;
+    group.api.setConstraints({ minimumWidth: step.minimumWidth, maximumWidth: step.maximumWidth });
+  }
+}
+
+/**
+ * `onDidMaximizedGroupChange`: a maximized group fills the dock, so it drops its width limit while it is maximized (otherwise the inspector
+ * would stay 480 px wide beside an empty dock); restored, it gets its limits back.
+ */
+export function fillWhileMaximized(api: DockviewApi, area: DeckArea): (event: { group: DockviewGroupPanel; isMaximized: boolean }) => void {
+  return ({ group, isMaximized }) => {
+    if (isMaximized) group.api.setConstraints({ minimumWidth: 0, maximumWidth: Number.POSITIVE_INFINITY });
+    else restoreLimits(api, area);
+    // dockview sizes its views anew only on a layout; forced, the maximized group takes the whole width.
+    api.layout(api.width, api.height, true);
+  };
+}
+
 /** Brings a step's group to its size; only a group in the grid has one to set. */
 function size(group: DockviewGroupPanel, step: ArrangementStep) {
   if (group.api.location.type !== "grid") return;

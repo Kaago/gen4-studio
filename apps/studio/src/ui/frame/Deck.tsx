@@ -2,12 +2,13 @@ import { memo, useMemo, useSyncExternalStore } from "react";
 import type { FunctionComponent, KeyboardEvent, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, DockviewTheme, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
-import { AREA_PANELS, DEFAULT_ARRANGEMENT, arrangementSteps, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
+import { AREA_PANELS, DEFAULT_ARRANGEMENT, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
 import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { messages } from "./dockMessages";
 import { tabMenuItems } from "./dockMenu";
-import { applyArrangement, dockPanel, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace } from "./dockRules";
+import { workMenuByKeyboard } from "./dockMenuKeys";
+import { applyArrangement, dockPanel, fillWhileMaximized, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace, restoreLimits } from "./dockRules";
 import styles from "./Deck.module.css";
 
 /**
@@ -110,24 +111,24 @@ export function resetLayout(area: DeckArea, dockRef: MutableRefObject<DockviewAp
 
 /**
  * Restores the stored layout of the dock when it is complete (and no view panel floats in it), otherwise builds the area's arrangement.
- * The width limits of a group are not stored: a panel whose step has them gets them again when it sits alone in a docked group.
+ * The width limits of a group are not stored: a panel whose step has them gets them again when it sits alone in a docked group
+ * (`restoreLimits`).
  */
 function initLayout(api: DockviewApi, area: DeckArea) {
   const saved = loadLayout(layoutKey(area));
   if (saved && isSaneLayout(saved, AREA_PANELS[area])) {
     try {
       api.fromJSON(saved as SerializedDockview);
-      for (const step of arrangementSteps(area, loadArrangement(area))) {
-        const group = api.getPanel(step.id)?.group;
-        if (step.minimumWidth === undefined || !group || group.panels.length !== 1 || group.api.location.type !== "grid") continue;
-        group.api.setConstraints({ minimumWidth: step.minimumWidth, maximumWidth: step.maximumWidth });
-      }
+      restoreLimits(api, area);
       return;
     } catch {
       /* damaged layout: fall through to the arrangement */
     }
   }
-  applyArrangement(api, area, loadArrangement(area));
+  // The first build (or one after an unusable layout) remembers its arrangement, as a chosen one is.
+  const arrangement = loadArrangement(area);
+  applyArrangement(api, area, arrangement);
+  saveArrangement(area, arrangement);
 }
 
 /** The dock, memoised: the providers above it change with every hover, the dock itself must not. */
@@ -159,6 +160,7 @@ const DeckDock = memo(function DeckDock({ area, components, apiRef }: { area: De
     api.onWillDragPanel(keepViewPanelsInPlace);
     api.onWillDragGroup(keepViewGroupInPlace);
     api.onWillShowOverlay(keepViewGroupClosed);
+    api.onDidMaximizedGroupChange(fillWhileMaximized(api, area));
     api.onDidLayoutChange(() => {
       api.groups.forEach(markGroup);
       remember();
@@ -178,7 +180,10 @@ const DeckDock = memo(function DeckDock({ area, components, apiRef }: { area: De
   );
 });
 
-/** Shift+F10 on a tab opens its context menu, as a right click does (dockview listens for the contextmenu event on the tab). */
+/**
+ * Shift+F10 on a tab opens its context menu, as a right click does (dockview listens for the contextmenu event on the tab), and lets the
+ * keyboard work it.
+ */
 function openTabMenu(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "F10" || !event.shiftKey) return;
   const tab = (event.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
@@ -186,6 +191,13 @@ function openTabMenu(event: KeyboardEvent<HTMLElement>) {
   event.preventDefault();
   const box = tab.getBoundingClientRect();
   tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }));
+  // dockview builds the menu for the mouse; opened by key, it is worked by keys. The focus comes back to the panel's tab, found anew
+  // (an item may have moved the panel into another group).
+  const menu = document.querySelector<HTMLElement>(".dv-context-menu");
+  const panel = tab.querySelector<HTMLElement>("[data-dock-tab]")?.dataset.dockTab;
+  const dock = event.currentTarget;
+  if (!menu || panel === undefined) return;
+  workMenuByKeyboard(menu, () => dock.querySelector<HTMLElement>(`[data-dock-tab="${CSS.escape(panel)}"]`)?.closest<HTMLElement>('[role="tab"]')?.focus());
 }
 
 /**

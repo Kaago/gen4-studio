@@ -103,7 +103,7 @@ function HingeOnTop() {
   return (
     <div className={styles.deckFrame} data-frame="scharnier-oben">
       <Hinge
-        crumbs={[{ label: "Zweiblattdorf" }, { label: "Außen 0411" }]}
+        crumbs={[{ label: "Zweiblattdorf" }, { label: "Gebiet 0411" }]}
         depth="bauen"
         onDepth={noop}
         problems={{ errors: 0, warnings: 1, infos: 2 }}
@@ -121,8 +121,8 @@ function HingeOnTop() {
         <div className={styles.deckView} data-dock-group="schau" data-dock-group-kind="schau">
           <span className={styles.note}>Schau</span>
         </div>
-        <div className={styles.deckHand} data-dock-group="hand" hidden={maximized}>
-          <span className={styles.note}>Hand</span>
+        <div className={styles.deckHand} data-dock-group="bearbeiten" hidden={maximized}>
+          <span className={styles.note}>Script, Probleme</span>
         </div>
       </div>
     </div>
@@ -459,7 +459,7 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Dock-Reiter</h2>
         <p className={styles.note}>
-          Jede Gruppe zeigt ihre Reiter, `dichte/reiter` hoch. Der sichtbare Reiter trägt die 2-px-Kobaltkante, in der Gruppe mit Fokus auf `flaeche/schau`; ein Punkt sagt „ungespeichert“, ein Schließen gibt es
+          Jede Gruppe zeigt ihre Reiter, „dichte/reiter“ hoch. Der sichtbare Reiter trägt die 2-px-Kobaltkante, in der Gruppe mit Fokus auf „flaeche/schau“; ein Punkt sagt „ungespeichert“, ein Schließen gibt es
           nicht. Doppelklick maximiert die Gruppe. Das Menü (Rechtsklick, Umschalt+F10) eines Schau-Reiters hat nur „Maximieren“.
         </p>
         <DockTabs />
@@ -468,7 +468,7 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Schwebende Gruppe</h2>
         <p className={styles.note}>
-          Ein schwebendes Panel ist ein Blatt mit Rand, `radius/fenster` und `schatten/schwebend`; die Titelleiste ist der Griff. „Schweben lassen“ legt es an den rechten Rand der Schau, „Zurück ins
+          Ein schwebendes Panel ist ein Blatt mit Rand, „radius/fenster“ und „schatten/schwebend“; die Titelleiste ist der Griff. „Schweben lassen“ legt es an den rechten Rand der Schau, „Zurück ins
           Dock“ an seinen Platz der Anordnung. Die Schau selbst schwebt nie.
         </p>
         <FloatingGroupDemo />
@@ -483,7 +483,7 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Teiler waagrecht und senkrecht</h2>
         <p className={styles.note}>
-          Derselbe Teiler (8 px, Linie `linie/leise`) zwischen zwei Teilen, in der App zwischen „Orte“ und „In dieser Szene“: Ziehen beginnt nach 4 px, die Pfeiltasten (±16 px) ändern die Größe des ersten Teils in der Richtung, in der er wächst, Pos1 und
+          Derselbe Teiler (8 px, Linie „linie/leise“) zwischen zwei Teilen, in der App zwischen „Orte“ und „In dieser Szene“: Ziehen beginnt nach 4 px, die Pfeiltasten (±16 px) ändern die Größe des ersten Teils in der Richtung, in der er wächst, Pos1 und
           Ende setzen Höchst- und Mindestwert. Waagrecht wächst der obere Teil nach unten, senkrecht der linke nach rechts.
         </p>
         <div className={styles.toolbarViews}>
