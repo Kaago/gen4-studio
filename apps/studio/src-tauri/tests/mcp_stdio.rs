@@ -601,14 +601,14 @@ async fn edit_undo_redo_over_stdio() {
     assert_eq!(data_get(&client, "move", 1).await, before);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": [], "redo": ["Stärke 65"] })
+        json!({ "undo": [], "redo": ["Stärke 65"], "undo_agents": [], "redo_agents": [null] })
     );
 
     result(call_tool(&client, "redo", json!({})).await);
     assert_eq!(data_get(&client, "move", 1).await, after);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": ["Stärke 65"], "redo": [] })
+        json!({ "undo": ["Stärke 65"], "redo": [], "undo_agents": [null], "redo_agents": [] })
     );
     client.cancel().await.unwrap();
 }
@@ -635,7 +635,10 @@ async fn irreversible_needs_the_flag() {
     assert_eq!(error["code"], "needs_confirmation");
     let status = result(call_tool(&client, "header_patch_status", json!({})).await);
     assert_eq!(status["applied"], false);
-    assert_eq!(history(&client).await, json!({ "undo": [], "redo": [] }));
+    assert_eq!(
+        history(&client).await,
+        json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+    );
     client.cancel().await.unwrap();
 
     let client = connect(fixture.dir.path(), &["--allow-irreversible"]).await;
@@ -754,7 +757,10 @@ async fn batch_checks_every_call_before_running() {
     assert_eq!(error["details"]["tool"], "create_trainer");
     // Call 0 never ran.
     assert_eq!(data_get(&client, "move", 1).await, moves);
-    assert_eq!(history(&client).await, json!({ "undo": [], "redo": [] }));
+    assert_eq!(
+        history(&client).await,
+        json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+    );
     client.cancel().await.unwrap();
 }
 

@@ -229,7 +229,8 @@ static TOOLS: &[ToolDef] = &[
         description: concat!(
             "Lists the labels of the undo steps, oldest first (the last one is what undo \
              reverts next), and of the redo steps in the order redo applies them (the first \
-             one is next). ",
+             one is next). `undo_agents` and `redo_agents` run parallel to those lists: the name \
+             of the agent client that made the step, null for the user's own steps. ",
             data_note!()
         ),
         input_schema: no_args,

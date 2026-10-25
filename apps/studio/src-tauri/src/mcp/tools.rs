@@ -777,7 +777,7 @@ mod tests {
         // No arguments at all are no arguments.
         assert_eq!(
             toolbox.call("history", Value::Null).unwrap(),
-            json!({ "undo": [], "redo": [] })
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
         );
         // A command error is a failed call with the command's code and details.
         let (code, message, details) = failed(toolbox.call("get_header", json!({ "id": 60000 })));
@@ -938,7 +938,10 @@ mod tests {
             failed(toolbox.call("create_trainer", json!({ "class": 1, "name": "Jens" })));
         assert_eq!(code, "needs_confirmation");
         assert!(message.starts_with("create_trainer lässt sich nicht rückgängig machen"));
-        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            history(&toolbox),
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
     }
 
     #[test]
@@ -952,7 +955,10 @@ mod tests {
             json!({ "write": true, "irreversible": false, "expert": false })
         );
         assert_eq!(info["dirty"], json!([]));
-        assert_eq!(info["history"], json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            info["history"],
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
         let root = fixture.dir.path().canonicalize().unwrap();
         assert_eq!(info["root"], root.display().to_string());
         toolbox
@@ -976,7 +982,12 @@ mod tests {
         assert_ne!(data(&toolbox, "move", 1), moves);
         assert_eq!(
             history(&toolbox),
-            json!({ "undo": ["Agent: 3 Änderungen"], "redo": [] })
+            json!({
+                "undo": ["Agent: 3 Änderungen"],
+                "redo": [],
+                "undo_agents": [null],
+                "redo_agents": []
+            })
         );
 
         toolbox.call("undo", json!({})).unwrap();
@@ -984,7 +995,7 @@ mod tests {
         assert_eq!(data(&toolbox, "move", 1), moves);
         assert_eq!(
             history(&toolbox),
-            json!({ "undo": [], "redo": ["Agent: 3 Änderungen"] })
+            json!({ "undo": [], "redo": ["Agent: 3 Änderungen"], "undo_agents": [], "redo_agents": [null] })
         );
     }
 
@@ -1038,7 +1049,10 @@ mod tests {
         assert_eq!(details["index"], 1);
         assert_eq!(details["tool"], "create_trainer");
         assert_eq!(data(&toolbox, "species", 1), species);
-        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            history(&toolbox),
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
 
         // An unknown argument in the last call refuses the batch as well.
         let mut calls = three_edits();
@@ -1121,7 +1135,10 @@ mod tests {
             );
         }
         assert_eq!(data(&toolbox, "species", 1), species);
-        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            history(&toolbox),
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
     }
 
     #[test]
@@ -1154,7 +1171,10 @@ mod tests {
         let call = json!({ "tool": "g4_call",
                            "arguments": { "command": "apply_fix", "args": fix("wrap") } });
         assert!(toolbox.prepare_in_batch("g4_call", &call).is_ok());
-        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            history(&toolbox),
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
     }
 
     #[test]
@@ -1182,7 +1202,7 @@ mod tests {
         assert_eq!(answer["label"], "Route 201 umbauen");
         assert_eq!(
             history(&toolbox),
-            json!({ "undo": ["Route 201 umbauen"], "redo": [] })
+            json!({ "undo": ["Route 201 umbauen"], "redo": [], "undo_agents": [null], "redo_agents": [] })
         );
         // The default label counts the calls that change the project.
         let answer = toolbox
@@ -1206,8 +1226,14 @@ mod tests {
                                    { "tool": "history" }] }),
             )
             .unwrap();
-        assert_eq!(answer["results"][1], json!({ "undo": [], "redo": [] }));
-        assert_eq!(history(&reader), json!({ "undo": [], "redo": [] }));
+        assert_eq!(
+            answer["results"][1],
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
+        assert_eq!(
+            history(&reader),
+            json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+        );
     }
 
     #[test]
