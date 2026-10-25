@@ -1,60 +1,79 @@
-# Platin DE, 3b overall gate ("small hack", 3b.4b Task 4): a new place on a NEW header whose map is
-# a copy of Route 201 map 5 (template 342) with the model and the collision of Route 201 map 6
+# Platin DE, 3b overall gate ("small hack", 3b.4b Task 4, gate B): a new place on a NEW header whose
+# map is a copy of Route 201 map 5 (template 342) with the model and the collision of Route 201 map 6
 # imported, a new encounter file, two trainers, a gift and a script found missing and fixed, every
 # step checked by the project checks (3b.4a) and the result walked, met and beaten in the game.
-# Continues pt-trainer-begegnung.yaml (3b.3b); trainers, gift, encounters as there.
+# Continues pt-trainer-begegnung.yaml (3b.3b); trainers, gift and encounters as there.
 #
-# DRAFT, written before 3b.4a landed: lines marked `# 3b.4a` need accept_baseline, run_checks,
-# apply_fix (3b.4a Tasks 4 and 5) and the third element `{expect: {path, equals}}` of an edit
-# (3b.4a Task 7, scenario.py). Open points for 3b.4b Task 4 are marked `# TODO(3b.4b T4)`.
+# Every `run_checks` is a full run whose answer the third element `{expect: …}` checks, always with
+# `groups.length = 3` (an answer without all groups is "no result", never "clean"). A missed
+# expectation ends the scenario with exit 2 and names path, Soll and Ist.
 #
 # The new map: create_area makes a 1x1 area from map 5 (matrix 0 cell (3, 26)); its map is
-# ${area.maps.0.2}. Map 5 blocks the way at (11, 17) (a row of trees, collision 0x80); map 6 is
-# walkable from (11, 18) to (11, 14) through tall grass (task0-3b4.md §7). So `walk-to 11 14` in
-# play only works with the imported collision, and the shot shows the imported model (same area
-# pack 6, so it is textured).
-# Arrival: warp 0 of the new event file at the start of the way (11, 18), a door tile (behaviour
-# 0x69, collision 0x80, as the door tool makes it). It is set AFTER the import, which replaces the
-# whole permission file. The bedroom stairs (event file 394, warp 0) lead there.
+# ${area.maps.0.2} (666 on an unmodified Platin DE), its coordinates are those of map 5 and 6. Map 5
+# blocks the whole row 19 and (5, 20) (collision 0x80); map 6 is open there. So `walk-to 5 17` from
+# row 22 only works with the imported collision (without the import it ends "blockiert bei x 5,
+# y 21"), and the shot shows the imported model (same area pack 6, so it is textured). The way leads
+# over plain ground: in the tall grass of map 6 (about columns 10-20 of rows 10-19) rate 100 gives a
+# wild battle on most steps (about 60 % a step from the fifth step on the map), so the plan's way
+# (11, 18) -> (11, 14) through it is not walked; everything except the wild battle stays off the
+# grass.
+# Arrival: warp 0 of the new event file at (12, 21), free on map 5 and map 6, on a door tile (behaviour
+# 0x69, collision 0x80, as the door tool makes it), set AFTER the import, which replaces the whole
+# permission file. The bedroom stairs (event file 394, warp 0) lead there; the player arrives on the
+# door and steps east by itself to (13, 21) (`where` after `wait 150`), so the way never crosses the
+# door.
+# Figures (map 6's ground, the 3b.3b positions moved by -32): the gift (script 2) at (13, 20) north of
+# where the player stands after arriving; the neighbour (script 3, the one found missing) at (14, 20);
+# Jens (sightline, looks north) at (18, 23), seen at (18, 21); Mia (talked to, looks south) at (22, 21).
 #
 # Checks (after accept_baseline every vanilla warning and hint is ignored, so `findings` holds only
 # what this scenario causes): warp.dest-warp while the stairs point at a header without warp 0;
 # trainer.no-party after create_trainer; text.too-wide for an appended long line (fixed by `wrap`);
 # event.script-missing for a figure with script 3 that the new script file lacks (fixed by
 # `create_script`, which is not undoable).
+# The import: model and permissions of map 6 exported to <copy>/export/, the import checked
+# (inspect_map_import) and done. Counter case: a synthetic model over 0xF000 bytes (made by
+# `prepare:`) is refused by import_map_parts with "61440" in the message and inspect_map_import
+# reports it as an error (model.too-big); that it changed nothing shows the built ROM, whose model of
+# the new map is still map 6's (`model_sha1` below).
+# The new header gets its own text archive (create_text_archive): its message 0 is changed and one
+# message appended (index 1, the archive held one), so Route 201's dialog archive stays as it was.
+# The script file: script 2 gives S_GIFT at level 100 once (by a flag), script 3 gives a Potion
+# (item 17) once (by another flag) and says another text afterwards.
 #
 # Placeholders (all required, passed with --set NAME=VALUE):
 #   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
-#   KOPIE         absolute path of the project copy (export target ${KOPIE}/export/, under the
+#   KOPIE         absolute path of the project copy (the exports go to ${KOPIE}/export/, under the
 #                 bridge's import root)
-#   MODEL_SHA1    SHA-1 of map 6's model without TEX0 = of ${KOPIE}/export/karte6.nsbmd
-#   PER_SHA1      SHA-1 of map 6's permissions = of ${KOPIE}/export/karte6.per
-#                 Both are fixed by vanilla map 6, but the file appears only while the scenario
-#                 runs; scenario.py has no file hash. TODO(3b.4b T4): either compute them once
-#                 before the run (`call.sh export_map_part` on another fresh copy, `shasum`), or
-#                 extend scenario.py by a placeholder `${sha1-of:PATH}` resolved after the edits.
 #   S_WILD L_WILD wild species and level (150 Mewtu, 5)
 #   S_T1 L_T1     Jens' Pokémon (25 Pikachu, 12)        S_T2 L_T2  Mia's Pokémon (133 Evoli, 14)
-#   S_GIFT        the gift, level 100 (445 Knakrack)
-# Prerequisite: ${KOPIE}/export/zu-gross.nsbmd, a synthetic model over 0xF000 bytes (BMD0 header,
-# one MDL0 block), made before the run (the counter case of step 3).
-# Names an edit binds (third element) come from the bridge's answers: area, hdr, enc, geber_datei,
-# trainer1, trainer2, hdr_text, r_text, r_script; `${trainer1.id+2999}` adds to a number.
+#   S_GIFT        the gift, level 100 (445 Knakrack: no Intimidate or Keen Eye)
+# The file hashes in `check:` (`${sha1-of:export/…}`, relative to the copy) are read after the build.
+# Names an edit binds (third element) come from the bridge's answers: area, hdr, enc, archiv,
+# geber_datei, trainer1, trainer2, r_text, r_script; `${trainer1.id+2999}` adds to a number.
 # Example (from scripts/g4emu; the copy lives under Roms/_testkopien; in a worktree set G4_ROMS_DIR,
 # G4_BRIDGE_BIN and G4K_BIN, see docs/agent-gate.md):
 #   uv run g4emu scenario ../agent/scenarios/pt-kleiner-hack.yaml \
 #     --project ../../../Roms/_testkopien/pt-3b4b --out ../../target/agent/gate-$(date +%F)/pt-kleiner-hack \
 #     --set NEUER_HEADER=593 --set KOPIE=$(cd ../../../Roms/_testkopien/pt-3b4b && pwd) \
-#     --set MODEL_SHA1=<hex> --set PER_SHA1=<hex> --set S_WILD=150 --set L_WILD=5 \
-#     --set S_T1=25 --set L_T1=12 --set S_T2=133 --set L_T2=14 --set S_GIFT=445
+#     --set S_WILD=150 --set L_WILD=5 --set S_T1=25 --set L_T1=12 --set S_T2=133 --set L_T2=14 \
+#     --set S_GIFT=445
 game: CPUD
+prepare:
+  - [make-oversize-nsbmd, {path: export/zu-gross.nsbmd}]
 edits:
-  # (1) baseline: the vanilla findings are accepted, nothing is left
-  - [accept_baseline, {}]                                                          # 3b.4a
-  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]      # 3b.4a
-  # (2) patch, scripts, the new place (1x1 from map 5, new header, new empty event file)
+  # (1) patch and scripts (adopting adds the script checks), then the vanilla findings as the
+  # baseline: nothing is left
   - [apply_header_patch, {}]
   - [adopt_scripts, {}]
+  - [accept_baseline, {}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+  # (2) the new place (1x1 from map 5, new header, new empty event file)
   - - create_area
     - spec:
         name: Kleiner Hack
@@ -71,36 +90,60 @@ edits:
     - area
   # the stairs point at the new header, which has no warp 0 yet: one error
   - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
-  - [run_checks, {scope: full}, {expect: {path: "findings[code=warp.dest-warp].length", equals: 1}}]   # 3b.4a
-  - [add_event, {eventFile: "${area.event_file}", kind: warp, x: 11, z: 18, patch: {dest_header_id: 415, dest_warp_id: 0}}]
-  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]      # 3b.4a
-  # (3) export model and permissions of map 6, import them into the new map
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=warp.dest-warp].length", equals: 1}
+        - {path: findings.length, equals: 1}
+  # the arrival, warp 0 back to the stairs: green
+  - [add_event, {eventFile: "${area.event_file}", kind: warp, x: 12, z: 21, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (3) export model and permissions of map 6, check and import them into the new map
   - [export_map_part, {map: 6, part: model, path: "${KOPIE}/export/karte6.nsbmd"}]
   - [export_map_part, {map: 6, part: permissions, path: "${KOPIE}/export/karte6.per"}]
   - - inspect_map_import
     - map: "${area.maps.0.2}"
       source: {files: ["${KOPIE}/export/karte6.nsbmd", "${KOPIE}/export/karte6.per"]}
+    - expect:
+        - {path: length, equals: 2}
+        - {path: "[part=model].0.state.kind", equals: ok}
+        - {path: "[part=permissions].0.state.kind", equals: ok}
   - - import_map_parts
     - map: "${area.maps.0.2}"
       source: {files: ["${KOPIE}/export/karte6.nsbmd", "${KOPIE}/export/karte6.per"]}
       parts: [model, permissions]
-  # counter case: a model over 0xF000 is refused and changes nothing (dirty unchanged).
-  # TODO(3b.4b T4): scenario.py stops on a failed edit and has no expectation on an error answer
-  # or on `dirty`; either add `{expect: {path: error, ...}}` for refused edits, or check the refusal
-  # through inspect_map_import (state error) as here and keep the refused import out of the run.
+  # counter case: a model over 0xF000 bytes is refused (the message names the limit 61440) ...
+  - - import_map_parts
+    - map: "${area.maps.0.2}"
+      source: {files: ["${KOPIE}/export/zu-gross.nsbmd"]}
+      parts: [model]
+    - {expect: {error: "61440"}}
+  # ... and the import check reports it as an error, too big
   - - inspect_map_import
     - map: "${area.maps.0.2}"
       source: {files: ["${KOPIE}/export/zu-gross.nsbmd"]}
-    - {expect: {path: 0.state.kind, equals: error}}                                # 3b.4a
-  # the door rule on the arrival, after the import (the import replaced the whole .per)
-  - [set_permission, {index: "${area.maps.0.2}", x: 11, y: 18, kind: 105, collision: 128}]
-  # (4) a new encounter file and a new script file on the new header; every grass slot, rate 100
+    - expect:
+        - {path: 0.state.kind, equals: error}
+        - {path: 0.state.code, equals: model.too-big}
+  # the door rule on the arrival, after the import (the import replaced the whole .per); the new
+  # map's permissions as the ROM must hold them: map 6's plus the door
+  - [set_permission, {index: "${area.maps.0.2}", x: 12, y: 21, kind: 105, collision: 128}]
+  - [export_map_part, {map: "${area.maps.0.2}", part: permissions, path: "${KOPIE}/export/neu-mit-tuer.per"}]
+  # (4) a new encounter file, a new script file and a new text archive on the new header; every
+  # grass slot, rate 100, and every replacement list the game reads in grass (day, night, swarm,
+  # radar, the five dual-slot lists), so no slot gives a glitch Pokémon (encounter.empty-slot)
   - [get_header, {id: "${area.header}"}, hdr]
   - [create_encounter_file, {}, enc]
   - [new_script_file, {kind: script}, geber_datei]
+  - [create_text_archive, {}, archiv]
   - - set_header
     - id: "${area.header}"
-      header: {Pt: {$base: "${hdr.Pt}", wild_pokemon: "${enc}", script_file_id: "${geber_datei}"}}
+      header: {Pt: {$base: "${hdr.Pt}", wild_pokemon: "${enc}", script_file_id: "${geber_datei}", text_archive_id: "${archiv}"}}
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, field: rate, value: 100}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: species, value: "${S_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: level, value: "${L_WILD}"}}}]
@@ -126,15 +169,42 @@ edits:
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 10, field: level, value: "${L_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: species, value: "${S_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: level, value: "${L_WILD}"}}}]
-  # the day and night lists replace slots 2 and 3 by the clock (the emulator's clock is not set)
+  # the replacement lists: day and night replace slots 2 and 3 by the clock (the emulator's clock is
+  # not set), swarm 0 and 1, radar 4, 5, 10 and 11, the dual-slot lists 8 and 9
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 0, field: species, value: "${S_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 1, field: species, value: "${S_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 0, field: species, value: "${S_WILD}"}}}]
   - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: swarm, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: swarm, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 2, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 3, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_ruby, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_ruby, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_sapphire, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_sapphire, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_emerald, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_emerald, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_firered, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_firered, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_leafgreen, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_leafgreen, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
   # (5) two trainers: without a party each is a finding, with one Pokémon none
   - [create_trainer, {class: 9, name: Jens}, trainer1]
   - [create_trainer, {class: 9, name: Mia}, trainer2]
-  - [run_checks, {scope: full}, {expect: {path: "findings[code=trainer.no-party].length", equals: 2}}]   # 3b.4a
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=trainer.no-party].length", equals: 2}
+        - {path: findings.length, equals: 2}
   - - data_edit
     - kind: trainer
       index: "${trainer1.id}"
@@ -143,38 +213,55 @@ edits:
     - kind: trainer
       index: "${trainer2.id}"
       patch: {TrainerParty: {party: [{iv_or_difficulty: 0, byte1: 0, level: "${L_T2}", species: "${S_T2}", form: 0, item: null, moves: null, ball_capsule: 0}]}}
+  # battle texts (before the battle ends on \r: the box waits)
   - - set_trainer_texts
     - trainer: "${trainer1.id}"
       texts: [{kind: 0, text: 'Halt! Ich bin Jens!\r'}, {kind: 1, text: 'Du bist stark!'}, {kind: 2, text: 'Gut gekämpft.'}]
   - - set_trainer_texts
     - trainer: "${trainer2.id}"
       texts: [{kind: 0, text: 'Ich bin Mia, kämpf mit mir!\r'}, {kind: 1, text: 'Oh nein!'}, {kind: 2, text: 'Weiter so.'}]
-  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]      # 3b.4a
-  # (6) the header's text archive: one message changed, one appended with a line too wide for the
-  # box (216 px); `wrap` breaks it. TODO(3b.4b T4): message 0 is the template's (Route 201) archive,
-  # shared with Route 201; pick a message the game does not show on the way to the new place.
-  - [get_header, {id: "${area.header}"}, hdr_text]
-  - [edit_text_archive, {index: "${hdr_text.Pt.text_archive_id}", edit: {Set: {index: 0, text: 'Willkommen auf dem kleinen Hack!'}}}]
-  - [edit_text_archive, {index: "${hdr_text.Pt.text_archive_id}", edit: Append}]
-  # TODO(3b.4b T4): the index of the appended message is the archive's length before; bind it
-  # (get_text_archive) instead of 1 when the archive is longer
-  - [edit_text_archive, {index: "${hdr_text.Pt.text_archive_id}", edit: {Set: {index: 1, text: 'Diese Zeile ist viel zu lang für das Textfenster des Spiels und muss umbrochen werden.'}}}]
-  - [run_checks, {scope: full}, {expect: {path: "findings[code=text.too-wide].length", equals: 1}}]     # 3b.4a
-  - [run_checks, {scope: full}, r_text]                                            # 3b.4a
-  - [apply_fix, {finding: "${r_text.findings.0}", fix: wrap}]                      # 3b.4a
-  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]      # 3b.4a
-  # (7) a figure with script 3, which the new script file lacks: create_script makes it
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (6) the new header's text archive: message 0 changed, one appended (index 1) with a line too wide
+  # for the text window (216 px); `wrap` breaks it
+  - [edit_text_archive, {index: "${archiv}", edit: {Set: {index: 0, text: 'Willkommen auf dem kleinen Hack!'}}}]
+  - [edit_text_archive, {index: "${archiv}", edit: Append}]
+  - [edit_text_archive, {index: "${archiv}", edit: {Set: {index: 1, text: 'Diese Zeile ist viel zu lang für das Textfenster des Spiels und muss umbrochen werden.'}}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=text.too-wide].length", equals: 1}
+        - {path: findings.length, equals: 1}
+        - {path: findings.0.code, equals: text.too-wide}
+      as: r_text
+  - [apply_fix, {finding: "${r_text.findings.0}", fix: wrap}, {expect: {path: remaining, equals: false}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (7) the neighbour with script 3, which the new script file lacks: create_script makes it
   - - add_event
     - eventFile: "${area.event_file}"
       kind: object
-      x: 10
-      z: 16
+      x: 14
+      z: 20
       patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 3, trainer_type: 0, sight: 0}
-  - [run_checks, {scope: full}, {expect: {path: "findings[code=event.script-missing].length", equals: 1}}]   # 3b.4a
-  - [run_checks, {scope: full}, r_script]                                          # 3b.4a
-  - [apply_fix, {finding: "${r_script.findings.0}", fix: create_script}]           # 3b.4a
-  # (8) the trainers and the gift on the new place (map 6's ground: positions as in 3b.3b, 32 tiles
-  # to the left. TODO(3b.4b T4): measure on the imported map with t7/show.py)
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=event.script-missing].length", equals: 1}
+        - {path: findings.length, equals: 1}
+        - {path: findings.0.code, equals: event.script-missing}
+      as: r_script
+  - [apply_fix, {finding: "${r_script.findings.0}", fix: create_script}, {expect: {path: remaining, equals: false}}]
+  # (8) the trainers and the gift on the new place (graphics 20: hiker; movement 14 looks north,
+  # 15 south)
   - - add_event
     - eventFile: "${area.event_file}"
       kind: object
@@ -187,15 +274,14 @@ edits:
       x: 22
       z: 21
       patch: {graphics_id: 20, movement_type: 15, dir: 1, script: "${trainer2.id+2999}", trainer_type: 1, sight: 3}
-  # the gift east of the arrival (script 2); the figure of step 7 (script 3) says something else
-  # once the gift was given
   - - add_event
     - eventFile: "${area.event_file}"
       kind: object
-      x: 12
-      z: 17
+      x: 13
+      z: 20
       patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 2, trainer_type: 0, sight: 0}
-  # a text literal needs a saved header that uses the script file (it goes to the header's archive)
+  # a text literal needs a saved header that uses the script file (it goes to the header's archive);
+  # script 3 replaces the one create_script made: a Potion once by a flag, another text afterwards
   - [save, {}]
   - - save_script
     - file: "${geber_datei}"
@@ -216,34 +302,45 @@ edits:
             End
 
         label_given:
-            Message "Pass gut darauf auf!"
-            WaitButton
-            CloseMessage
             ReleaseAll
             End
 
         script Nachbar #3:
             LockAll
             FacePlayer
+            GoToIfSet FLAG_UNUSED_0x0095, label_trank_gegeben
+            Message "Ein Trank für deinen Weg!"
+            WaitButton
+            CloseMessage
+            AddItem 17, 1, VAR_RESULT
+            SetFlag FLAG_UNUSED_0x0095
+            ReleaseAll
+            End
+
+        label_trank_gegeben:
             Message "Schöner Weg, nicht?"
             WaitButton
             CloseMessage
             ReleaseAll
             End
-  # (9) nothing left, save (build follows from `build`)
-  - [run_checks, {scope: full}, {expect: {path: findings.length, equals: 0}}]      # 3b.4a
-  - [save, {}]
+  # (9) nothing left (save and build follow from `build`)
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+        - {path: findings.length, equals: 0}
 build: out.nds
 check:
+  # the ROM holds map 6's model (the refused import changed nothing) and the permissions the studio
+  # exported after the door; the new encounter file
   - [g4k, check-data, out.nds,
-     --expect, "map:${area.maps.0.2}:model_sha1=${MODEL_SHA1}",
-     --expect, "map:${area.maps.0.2}:per_sha1=${PER_SHA1}",
+     --expect, "map:${area.maps.0.2}:model_sha1=${sha1-of:export/karte6.nsbmd}",
+     --expect, "map:${area.maps.0.2}:per_sha1=${sha1-of:export/neu-mit-tuer.per}",
      --expect, "encounter:${enc}:grass_rate=100",
      --expect, "encounter:${enc}:grass0=${S_WILD}",
      --expect, "encounter:${enc}:grass11_level=${L_WILD}"]
-  # TODO(3b.4b T4): per_sha1 is the hash of the .per in the ROM, which carries the door tile at
-  # (11, 18) and so differs from map 6's file; either check the per hash before set_permission is
-  # added, or drop the per hash and rely on `walk-to 11 14` in play.
 play:
   - continue
   - expect-map 415
@@ -253,18 +350,31 @@ play:
   - wait 150
   - where
   - shot ankunft
-  # the way north through the imported collision (map 5 blocks at (11, 17))
-  - walk-to 11 14
-  - where
-  - shot weg
-  # the gift, back at the start of the way: east of (11, 17)
-  - walk-to 11 17
-  - press right:8
+  # the gift: face north, talk, through the text
+  - press up:8
   - press a
   - mash a 300
   - shot geschenk
-  # Jens sees the player at (18, 21), walks up and talks
-  - walk-to 17 21
+  # the neighbour: a Potion once, then another text (B goes through a text and never talks again)
+  - walk right 1
+  - press up:8
+  - press a
+  - wait 90
+  - shot nachbar
+  - mash b 240
+  - press a
+  - wait 90
+  - shot nachbar_danach
+  - mash b 240
+  # the way north over plain ground through the imported collision (map 5 blocks at (5, 20))
+  - walk down 1
+  - walk-to 5 17
+  - where
+  - shot weg
+  # Jens sees the player at (18, 21), walks up and talks; A through his text into the battle
+  - walk-to 5 22
+  - walk-to 17 22
+  - walk up 1
   - walk right 1
   - mash a 240
   - expect-battle ${S_T1} ${L_T1} 900
@@ -286,8 +396,8 @@ play:
   - wait 120
   - press b
   - expect-map ${area.header}
-  # the tall grass of the way: rate 100, every slot S_WILD
-  - walk-to 11 15
+  # the tall grass north of the way: rate 100, every slot S_WILD
+  - walk-to 16 20
   - walk-until-battle up 40 back-and-forth
   - expect-battle ${S_WILD} ${L_WILD}
   - wait 400

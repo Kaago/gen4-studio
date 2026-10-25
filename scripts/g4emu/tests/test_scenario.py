@@ -837,11 +837,30 @@ def test_an_expect_name_is_bound_once_and_not_before(tmp_path):
 @pytest.mark.parametrize("name", ["pt-kleiner-hack.yaml", "hg-kleiner-hack.yaml", "pt-pruefungen.yaml"])
 def test_the_scenarios_with_expectations_load(name):
     env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
-    env.update(KOPIE="/k", MODEL_SHA1="ab", PER_SHA1="cd")
+    env.update(KOPIE="/k")
     path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
     sc = load_scenario(path, env)
     expects = [edit[2] for edit in sc.edits if len(edit) == 3 and isinstance(edit[2], dict)]
     assert expects and all(e["expect"] for e in expects)
+
+
+@pytest.mark.parametrize("name", ["pt-kleiner-hack.yaml", "hg-kleiner-hack.yaml"])
+def test_the_small_hack_scenarios_count_only_runs_with_all_groups(name):
+    # gate B: an answer without all three groups is "no result", never "clean"; the oversize model is
+    # made by the scenario and must be refused; the ROM's model and permissions are compared by file hash
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    env.update(KOPIE="/k")
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    runs = [edit for edit in sc.edits if edit[0] == "run_checks"]
+    assert len(runs) >= 9
+    for edit in runs:
+        assert len(edit) == 3, edit
+        assert {"path": "groups.length", "equals": 3} in edit[2]["expect"], edit
+    assert sc.prepare == [["make-oversize-nsbmd", {"path": "export/zu-gross.nsbmd"}]]
+    assert any(len(e) == 3 and isinstance(e[2], dict) and e[2]["expect"] == [{"error": "61440"}] for e in sc.edits)
+    hashes = " ".join(sc.check[0])
+    assert "model_sha1=${sha1-of:" in hashes and "per_sha1=${sha1-of:" in hashes
 
 
 def test_a_met_expectation_ends_the_session_binds_and_goes_on(tmp_path, roms, monkeypatch, capsys):
