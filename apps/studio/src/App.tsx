@@ -5,6 +5,8 @@ import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus
 import { DataStore, useDataLists } from "./data/dataStore";
 import type { DataArea } from "./data/dataModel";
 import { withHeaderHint } from "./workbench/navigation";
+import { namedByWizard } from "./workbench/RoomActions";
+import type { WorkbenchWorld } from "./workbench/WorkbenchContext";
 import type { DataNav } from "./workbench/navigation";
 import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
@@ -245,8 +247,14 @@ function AppBody() {
   const showAfterSync = useRef<(Created & { header: number; settled: boolean }) | null>(null);
   // Bumped when the sync of a creation settled, so the effect below judges that creation even though no new list arrived (the read failed).
   const [syncSettled, setSyncSettled] = useState(0);
+  // The world model as the last render had it: a wizard's name for what it made goes into the project file (set below, after the model).
+  const worldRef = useRef<WorkbenchWorld | null>(null);
   const wizards = useWizards({
     onCreated: async (made) => {
+      // The name the wizard asked for is the clear name of the new room (or of the area's header) in the world tree.
+      const shown = worldRef.current;
+      const named = made && shown ? namedByWizard(shown.meta, made) : null;
+      if (named && shown) await shown.setMeta(named);
       await session.onCountsChanged();
       bus.emit({ topic: "matrixData" });
       // A room's entrance adds a warp to the event file of the header outside, which may be the one shown.
@@ -505,6 +513,7 @@ function AppBody() {
     dataStore,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
   });
+  worldRef.current = live.world;
 
   // An event tool that was chosen when its file got locked (or the place went away) goes back to "Auswählen": it could only fail.
   const eventsBlocked = world.eventLock !== null || data.eventFileId === null;

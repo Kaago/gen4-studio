@@ -7,6 +7,8 @@ export interface Created {
   matrix: number;
   header: number | null;
   announcement: string;
+  /** The name the wizard asked for: the world tree calls the header so (`namedByWizard`). */
+  name?: string;
 }
 
 interface WizardsParams {

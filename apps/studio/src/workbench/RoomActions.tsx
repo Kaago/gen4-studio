@@ -31,6 +31,16 @@ export function renamedMeta(meta: WorldMeta, target: RenameTarget, name: string)
   return { ...meta, worldMaps };
 }
 
+/**
+ * The project file with the name a wizard gave what it made ("Raum anlegen": the room's name; "Gebiet anlegen": the area's name for the header
+ * it assigned) as the header's clear name, as if it was renamed in the tree; null when nothing was assigned or no name given.
+ */
+export function namedByWizard(meta: WorldMeta, made: { header: number | null; name?: string }): WorldMeta | null {
+  const name = made.name?.trim() ?? "";
+  if (made.header === null || name === "") return null;
+  return renamedMeta(meta, { kind: "room", id: made.header }, name);
+}
+
 /** The project file with a room given to an area by hand; null takes the assignment back (the entrance decides again). */
 export function ownedMeta(meta: WorldMeta, room: number, areaKey: string | null): WorldMeta {
   const roomOwner = { ...meta.roomOwner };

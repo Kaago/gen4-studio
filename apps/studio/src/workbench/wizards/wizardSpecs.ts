@@ -545,7 +545,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec): { lines: string[
     next:
       spec.entrance === null
         ? [`Eingang verbinden: ${SET_DOOR}`, `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]
-        : ["Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen", `Innenraum einrichten: Objekte und Trigger im ${TERMS.header.label}-Editor`],
+        : ["Ausprobieren: speichern, bauen und im Emulator hinein- und zurücklaufen", "Innenraum einrichten: Figuren, Auslöser und Schilder mit den Werkzeugen oder „+“ in „In dieser Szene“"],
   };
 }
 

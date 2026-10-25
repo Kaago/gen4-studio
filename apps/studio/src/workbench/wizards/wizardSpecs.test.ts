@@ -456,6 +456,8 @@ describe("roomResult", () => {
     expect(lines[1]).toBe("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0020.");
     expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 im neuen Raum.");
     expect(next[0]).toContain("Emulator");
+    // Figures and triggers come from the tools and the „+“ of „In dieser Szene“ since 3e.3, not from a header editor.
+    expect(next[1]).toBe("Innenraum einrichten: Figuren, Auslöser und Schilder mit den Werkzeugen oder „+“ in „In dieser Szene“");
   });
 
   it("calls_a_created_header_new_and_names_the_door_tiles_and_the_reused_warp", () => {

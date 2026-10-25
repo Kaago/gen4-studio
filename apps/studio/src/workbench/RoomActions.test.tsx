@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, WorldMeta } from "../api";
-import { ownedMeta, renamedMeta, RoomActions } from "./RoomActions";
+import { namedByWizard, ownedMeta, renamedMeta, RoomActions } from "./RoomActions";
 import type { Room } from "./worldModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,6 +16,16 @@ describe("renamedMeta and ownedMeta", () => {
     const named = renamedMeta(meta(), { kind: "room", id: 3 }, "  Labor ");
     expect(named.roomNames).toEqual({ "3": "Labor" });
     expect(renamedMeta(named, { kind: "room", id: 3 }, " ").roomNames).toEqual({});
+  });
+
+  it("keeps_the_name_a_wizard_gave_what_it_made_as_the_clear_name_of_its_header", () => {
+    // "Raum anlegen" asks for the room's name: the world tree calls the room that, not "Raum 1" (which renumbers as rooms come).
+    expect(namedByWizard(meta(), { header: 593, name: " Labor " })?.roomNames).toEqual({ "593": "Labor" });
+    expect(namedByWizard(meta({ roomNames: { "12": "Keller" } }), { header: 1, name: "Route 230" })?.roomNames).toEqual({ "12": "Keller", "1": "Route 230" });
+    // Nothing assigned (an area without a header) or no name: the file stays as it is.
+    expect(namedByWizard(meta(), { header: null, name: "Route 230" })).toBeNull();
+    expect(namedByWizard(meta(), { header: 4, name: "  " })).toBeNull();
+    expect(namedByWizard(meta(), { header: 4 })).toBeNull();
   });
 
   it("names_a_world_map_per_half_and_replaces_its_earlier_name", () => {
