@@ -5,6 +5,10 @@
 # battle_pointer: u32 that is 0 outside a battle and != 0 from the encounter until the battle
 # screen closes (CPUD and IPKD measured in 3b.3b; IPKE not measured, so it has none).
 # home_header: where a lost battle without a party ends (the game warps home).
+# intro: the steps of `new-game`, a new game from power-on without a save until the player can move
+# in the room upstairs (measured on 2026-10-25, deterministic; target/agent/probe-intro/INTRO.md);
+# player "AAAAA" (Platin, rival "AAAAA" too) or "AAAAAAA" (HeartGold), boy. intro_ends: where it ends.
+# Platin shows a stale location during the intro (415, 4, 6), so only the first walk proves control.
 CPUD:
   name: Platin DE
   location: { pointer: 0x02101EE0, offset: 0x1294 }
@@ -14,6 +18,21 @@ CPUD:
   battle: { signature: "06x8@0x18", species_at: 0, level_at: 0x34 }
   battle_pointer: 0x02101F88
   home_header: 414
+  # title and opening by mash; Rowan's slide answers JA only by touch (tap 120 81, twice); the info
+  # menu: down twice, A (KEINE INFOS MEHR); the Poké Ball screen only by touch (tap 128 96); name
+  # entry: the first A only wakes the cursor, five more type "AAAAA", start jumps to O.K.; the same
+  # for the rival; then mash through the TV show until the room (control from frame ~10150)
+  intro: >-
+    mash a 2400 wait 400 tap 120 81 wait 200 tap 120 81 wait 200 press a:4 wait 120
+    press down:4 wait 15 press down:4 wait 15 press a:4 wait 200 mash a 1200 wait 200 tap 128 96
+    wait 300 mash a 1100 wait 90
+    press a:4 wait 10 press a:4 wait 10 press a:4 wait 10 press a:4 wait 10 press a:4 wait 10
+    press a:4 wait 10 press start:4 wait 10 press a:4 wait 200
+    press a:4 wait 60 press a:4 wait 60 mash a 450 wait 90
+    press a:4 wait 10 press a:4 wait 10 press a:4 wait 10 press a:4 wait 10 press a:4 wait 10
+    press a:4 wait 10 press start:4 wait 10 press a:4 wait 200
+    mash a 900 mash a 600 mash a 600 mash a 400 wait 30
+  intro_ends: { header: 415, x: 4, y: 6 }
 IPKD:
   name: HeartGold DE
   location: { pointer: 0x02111860, offset: 0x1244 }
@@ -23,6 +42,12 @@ IPKD:
   battle: { signature: "06x8@0x18", species_at: 0, level_at: 0x34 }
   battle_pointer: 0x0211DB34  # wild loss and trainer win measured; 0 ~32 frames after the hits go
   home_header: 63
+  # title by mash; the info menu shows ~300 frames after the title: tap KEINE INFOS MEHR (128 152);
+  # then mash through Oak, boy (JA), the name (the mash types 7 A and takes O.K.) until the room
+  # (control from frame ~4560)
+  intro: >-
+    mash a 600 wait 330 tap 128 152 wait 100 mash a 1000 mash a 1200 mash a 600 mash a 900 wait 120
+  intro_ends: { header: 64, x: 6, y: 6 }
 IPKE:
   name: HeartGold US
   location: { pointer: 0x02111880, offset: 0x1244 }

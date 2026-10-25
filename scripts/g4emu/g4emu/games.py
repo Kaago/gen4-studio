@@ -48,6 +48,10 @@ class Game:
     continue_frames: int  # `continue` presses A at least this long (the intro shows a valid pointer)
     battle: BattleSpec | None = None
     home_header: int | None = None  # where a lost battle without a party ends (`win-battle`)
+    # `new-game`: the step tokens that play a new game from power-on (no save) until the player
+    # can move, and where it ends (header, x, y); None where it is not measured
+    intro: tuple[str, ...] | None = None
+    intro_ends: tuple[int, int, int] | None = None
 
 
 def _continue_frames(code: str, entry: dict) -> int:
@@ -77,12 +81,36 @@ def _battle(code: str, entry: dict) -> BattleSpec | None:
     )
 
 
+def _intro(code: str, entry: dict) -> tuple[tuple[str, ...] | None, tuple[int, int, int] | None]:
+    """`intro` (one line of steps) and `intro_ends` ({header, x, y}); both or neither."""
+    from g4emu.steps import parse_steps
+
+    raw = entry.get("intro")
+    if raw is None:
+        return None, None
+    tokens = tuple(str(raw).split())
+    try:
+        steps = parse_steps(list(tokens))
+    except ValueError as e:
+        raise ValueError(f"games.yaml: {code}: intro ungültig ({e})") from None
+    if not steps or any(step.name == "new-game" for step in steps):
+        raise ValueError(f"games.yaml: {code}: intro ungültig (leer oder mit new-game)")
+    ends = entry.get("intro_ends")
+    if ends is None:
+        raise ValueError(f"games.yaml: {code}: intro braucht intro_ends")
+    try:
+        return tokens, (int(ends["header"]), int(ends["x"]), int(ends["y"]))
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"games.yaml: {code}: intro_ends ungültig ({e})") from None
+
+
 def load_games(path: Path | None = None) -> dict[str, Game]:
     path = path or Path(__file__).with_name("games.yaml")
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     games: dict[str, Game] = {}
     for code, entry in raw.items():
         loc = entry["location"]
+        intro, intro_ends = _intro(code, entry)
         games[code] = Game(
             code=code,
             name=entry["name"],
@@ -93,6 +121,8 @@ def load_games(path: Path | None = None) -> dict[str, Game]:
             continue_frames=_continue_frames(code, entry),
             battle=_battle(code, entry),
             home_header=None if entry.get("home_header") is None else int(entry["home_header"]),
+            intro=intro,
+            intro_ends=intro_ends,
         )
     return games
 

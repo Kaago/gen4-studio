@@ -75,10 +75,13 @@ export function ask(message: string, opts?: { kind?: AskKind }): Promise<boolean
   return new Promise((resolve) => enqueue({ kind: "ask", message, level: opts?.kind ?? "info", resolve }));
 }
 
-/** A folder (`directory`) or file to open; null when cancelled or left empty. */
-export async function openPath(opts: { directory: boolean; title?: string }): Promise<string | null> {
+/** A file type the system dialog offers, e.g. `{ name: "DS-ROM", extensions: ["nds"] }`. */
+export type FileFilter = { name: string; extensions: string[] };
+
+/** A folder (`directory`) or file to open; null when cancelled or left empty. `filters` narrow the system dialog (a typed path is taken as it is). */
+export async function openPath(opts: { directory: boolean; title?: string; filters?: FileFilter[] }): Promise<string | null> {
   if (inTauri()) {
-    const chosen = await tauriOpen({ directory: opts.directory, multiple: false, title: opts.title });
+    const chosen = await tauriOpen({ directory: opts.directory, multiple: false, title: opts.title, ...(opts.filters ? { filters: opts.filters } : {}) });
     return typeof chosen === "string" ? chosen : null;
   }
   const title = opts.title ?? (opts.directory ? "Ordner wählen" : "Datei wählen");

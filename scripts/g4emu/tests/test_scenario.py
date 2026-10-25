@@ -1840,3 +1840,67 @@ def test_mcp_route_scenarios_load(name):
     assert {"ankunft", "geschenk", "trainer1", "trainer2", "wild"} <= {
         sc.play[i + 1] for i, step in enumerate(sc.play) if step == "shot"
     }
+
+
+def test_scenario_save_none_runs_without_save(tmp_path, roms, monkeypatch):
+    path = write_yaml(tmp_path, SCENARIO_YAML + "save: none\n")
+    sc = load_scenario(path, ENV)
+    assert sc.without_save is True
+    assert load_scenario(write_yaml(tmp_path), ENV).without_save is False
+
+    real_play = scenario._play
+    bridge = make_fake_bridge(tmp_path, "exit 0\n")
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(bridge))
+    seen = {}
+    monkeypatch.setattr(scenario, "_play", lambda rom, save, out, steps, core: seen.update(save=save) or (0, []))
+    project = roms / "_testkopien" / "proj"
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    assert seen["save"] is None
+
+    # the command of `g4emu run` has no --save then
+    calls = []
+
+    class Done:
+        stdout = ""
+        returncode = 0
+
+    monkeypatch.setattr(scenario.subprocess, "run", lambda cmd, **k: calls.append(cmd) or Done())
+    real_play(tmp_path / "out.nds", None, tmp_path / "out", ["new-game"], None)
+    real_play(tmp_path / "out.nds", tmp_path / "s.sav", tmp_path / "out", ["continue"], None)
+    assert "--save" not in calls[0] and calls[0][-1] == "new-game"
+    assert calls[1][calls[1].index("--save") + 1] == str(tmp_path / "s.sav")
+
+
+def test_scenario_save_takes_only_none(tmp_path):
+    with pytest.raises(ValueError, match="save"):
+        load_scenario(write_yaml(tmp_path, SCENARIO_YAML + "save: CPUD-zimmer.sav\n"), ENV)
+
+
+@pytest.mark.parametrize("name, town", [("pt-leere-region.yaml", 411), ("hg-leere-region.yaml", 60)])
+def test_the_empty_region_scenarios_start_a_new_game(name, town):
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, {})
+    assert sc.without_save and sc.build == "out.nds"
+    assert [e[0] for e in sc.edits] == ["adopt_scripts", "apply_empty_region", "run_checks"]
+    assert {"path": "plan.start_header", "equals": town} in sc.edits[1][2]["expect"]
+    assert {"path": "groups.length", "equals": 3} in sc.edits[2][2]["expect"]
+    assert sc.play[0] == "new-game"
+    # the walk to the border is pinned: the step right after it checks where it stopped
+    at = sc.play.index("walk-until-blocked")
+    assert sc.play[at + 3] == "expect-at"
+    play = " ".join(sc.play)
+    for shot in ("zimmer", "ankunft", "start-script", "team", "rand"):
+        assert f"shot {shot}" in play
+
+
+def test_play_keeps_the_step_lines_under_out(tmp_path, monkeypatch):
+    class Done:
+        stdout = '{"step": "walk-until-blocked", "ok": true, "steps": 22}\nnoise\n{"step": "expect-at", "ok": true}\n'
+        returncode = 0
+
+    monkeypatch.setattr(scenario.subprocess, "run", lambda cmd, **k: Done())
+    out = tmp_path / "out"
+    out.mkdir()
+    code, lines = scenario._play(tmp_path / "out.nds", None, out, ["new-game"], None)
+    assert code == 0 and len(lines) == 2
+    assert (out / "play.jsonl").read_text(encoding="utf-8") == Done.stdout

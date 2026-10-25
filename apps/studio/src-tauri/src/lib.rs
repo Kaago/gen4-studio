@@ -27,6 +27,8 @@ use commands::{
     set_trainer_texts, split_encounter_file, tile_behaviors, undo, unignore_finding,
     update_building, update_event, validate_text,
 };
+use commands::{apply_empty_region, plan_empty_region};
+use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{AppState, QuitAction, quit_action};
 use std::sync::atomic::Ordering;
@@ -134,7 +136,13 @@ pub fn run() {
             accept_baseline,
             set_check_enabled,
             plan_fix,
-            apply_fix
+            apply_fix,
+            inspect_rom,
+            default_project_parent,
+            check_project_dest,
+            create_project,
+            plan_empty_region,
+            apply_empty_region
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

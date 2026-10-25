@@ -16,8 +16,11 @@ import type { ProblemsStore } from "./problems/problems";
 import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
 
-/** What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in. */
-export type WizardRequest = { kind: "area"; prefill?: { matrix?: number } } | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } };
+/**
+ * What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in, or the wizard that
+ * clears the world down to the start town ("Welt leeren").
+ */
+export type WizardRequest = { kind: "area"; prefill?: { matrix?: number } } | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } } | { kind: "clearWorld" };
 
 /**
  * The data the panels show that changes rarely: the header list, the selection, the matrix, the

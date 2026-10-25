@@ -22,6 +22,7 @@ use g4_kernel::checks::{
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{ArchiveMap, AssetKind, Project};
+use g4_kernel::start::{Template, create_project, inspect_rom};
 use g4_kernel::store::Store;
 use g4_kernel::text::Problem;
 
@@ -40,6 +41,28 @@ enum Command {
     Headers { project: PathBuf },
     /// Extract a .nds ROM into a new ds-rom project folder.
     Extract { rom: PathBuf, dest: PathBuf },
+    /// Print what a .nds ROM is (title, game code, family, language, SHA-1, support) as JSON.
+    /// Reads the file only.
+    InspectRom { rom: PathBuf },
+    /// Create a project from a .nds ROM: extract it into `dest` (missing or empty) and write
+    /// the base mark `.g4/base.json`. Prints the root and the phases with their milliseconds.
+    Create {
+        rom: PathBuf,
+        dest: PathBuf,
+        /// `original` (default), `data-only` or `empty-region` (adopts the scripts, applies
+        /// the empty region and saves).
+        #[arg(long, default_value = "original", value_parser = parse_template)]
+        template: Template,
+    },
+    /// Apply a world template to a project and save: `empty-region` adopts the scripts when
+    /// they are not yet, applies the empty region with the start town and prints its report.
+    /// The project must have no unsaved changes elsewhere (nothing else is open here).
+    Template {
+        project: PathBuf,
+        /// `empty-region`.
+        #[arg(value_parser = parse_world_template)]
+        template: WorldTemplate,
+    },
     /// Map inspection and editing.
     #[command(subcommand)]
     Map(MapCommand),
@@ -101,6 +124,90 @@ enum MapCommand {
     },
 }
 
+fn parse_template(text: &str) -> Result<Template, String> {
+    match text {
+        "original" => Ok(Template::Original),
+        "data-only" | "data_only" => Ok(Template::DataOnly),
+        "empty-region" | "empty_region" => Ok(Template::EmptyRegion),
+        other => Err(format!(
+            "unknown template {other:?}: original, data-only or empty-region"
+        )),
+    }
+}
+
+/// A template `g4k template` applies to an existing project.
+#[derive(Clone, Copy, Debug)]
+enum WorldTemplate {
+    EmptyRegion,
+}
+
+fn parse_world_template(text: &str) -> Result<WorldTemplate, String> {
+    match text {
+        "empty-region" | "empty_region" => Ok(WorldTemplate::EmptyRegion),
+        other => Err(format!("unknown template {other:?}: empty-region")),
+    }
+}
+
+/// `g4k template`: checks what refuses the template without adopted scripts (Diamond/Pearl,
+/// the plan, a world that is already empty), then adopts the scripts when needed, applies the
+/// template, saves and prints what changed. A refused run writes nothing.
+fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
+    let project = Arc::new(Project::open(path)?);
+    match template {
+        WorldTemplate::EmptyRegion => {
+            // The refusals of `apply_empty_region` that come before it writes, with its
+            // messages, but before adopting: that writes rotom.toml and the sources.
+            g4_kernel::templates::region_recipe(project.family)?;
+            let plan =
+                g4_kernel::templates::plan_empty_region(&mut Store::new(Arc::clone(&project)))?;
+            if plan.already_empty {
+                return Err(KernelError::Refused("the world is already empty".into()).into());
+            }
+            if !g4_kernel::scripts::is_adopted(&project) {
+                let adopted = g4_kernel::scripts::adopt(&project, &mut |_| {})?;
+                println!(
+                    "adopted scripts: {} decompiled, {} empty, {} failed",
+                    adopted.decompiled,
+                    adopted.skipped_empty,
+                    adopted.failed.len()
+                );
+            }
+            let mut store = Store::new(Arc::clone(&project));
+            let report = g4_kernel::templates::apply_empty_region(&mut store)?;
+            let saved = store.save()?;
+            print_problems(&saved.problems);
+            let plan = &report.plan;
+            println!(
+                "start town: header {} ({}), cells {:?}, event file {}, script file {}",
+                plan.start_header,
+                plan.town_name,
+                plan.town_cells,
+                plan.town_event_file,
+                plan.town_script_file
+            );
+            println!(
+                "kept={:?} emptied={} border_cells={} dropped_warps={:?} removed_objects={} \
+                 removed_triggers={}",
+                plan.kept,
+                plan.emptied.len(),
+                plan.border_cells,
+                plan.dropped_warps,
+                plan.removed_objects,
+                plan.removed_triggers
+            );
+            println!(
+                "border_map={} level_script={} start_script={}#{}",
+                report.border_map,
+                report.level_script,
+                report.start_script.0,
+                report.start_script.1
+            );
+            println!("saved {} asset(s)", saved.written.len());
+        }
+    }
+    Ok(())
+}
+
 /// Why a command failed: a kernel error, or a message of the command itself.
 enum Failure {
     Kernel(KernelError),
@@ -152,6 +259,29 @@ fn run(cli: Cli) -> Result<(), Failure> {
             println!("extracted {} to {}", p.game_code, p.root.display());
             Ok(())
         }
+        Command::InspectRom { rom } => {
+            let info = inspect_rom(&rom)?;
+            let json = serde_json::to_string_pretty(&info)
+                .map_err(|e| Failure::Message(format!("inspect-rom: {e}")))?;
+            println!("{json}");
+            Ok(())
+        }
+        Command::Create {
+            rom,
+            dest,
+            template,
+        } => {
+            let created = create_project(&rom, &dest, template, &mut |_| {})?;
+            println!("root={}", created.root.display());
+            for (phase, ms) in &created.phases {
+                println!(
+                    "{}: {ms} ms",
+                    serde_json::json!(phase).as_str().unwrap_or("?")
+                );
+            }
+            Ok(())
+        }
+        Command::Template { project, template } => apply_template(&project, template),
         Command::Map(MapCommand::Dump {
             project,
             index,

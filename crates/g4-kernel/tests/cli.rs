@@ -477,3 +477,103 @@ fn g4k_check_rejects_an_unknown_code_and_a_broken_ignore_file() {
         .code(1)
         .stderr(contains("g4-checks.json"));
 }
+
+#[test]
+fn inspect_rom_prints_json() {
+    let (_tmp, rom) = common::synthetic_rom();
+    g4k()
+        .args(["inspect-rom"])
+        .arg(&rom)
+        .assert()
+        .success()
+        .stdout(contains("\"game_code\": \"CPUE\""));
+}
+
+#[test]
+fn create_fails_on_an_unextractable_rom_and_leaves_nothing() {
+    let (tmp, rom) = common::synthetic_rom();
+    let dest = tmp.path().join("neu");
+    g4k().args(["create"]).arg(&rom).arg(&dest).assert().code(1);
+    assert!(!dest.exists());
+    assert!(!tmp.path().join(".neu.g4-new").exists());
+}
+
+#[test]
+fn template_without_a_project_fails_with_message() {
+    let d = tempfile::tempdir().unwrap();
+    g4k()
+        .args(["template"])
+        .arg(d.path())
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("not a ds-rom project"));
+}
+
+#[test]
+fn template_rejects_an_unknown_template() {
+    let s = common::synthetic_project();
+    g4k()
+        .args(["template"])
+        .arg(s.dir.path())
+        .arg("volcano")
+        .assert()
+        .failure()
+        .stderr(contains("unknown template"));
+}
+
+#[test]
+fn template_refuses_before_adopting_the_scripts() {
+    use std::sync::Arc;
+
+    use g4_kernel::project::Project;
+    use g4_kernel::store::Store;
+
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let untouched = || {
+        assert!(!root.join("rotom.toml").exists());
+        assert!(!root.join("expanded/scripts").exists());
+    };
+    // Matrix 0 of the fixture names no headers: the start town T01 has no cell.
+    g4k()
+        .args(["template"])
+        .arg(root)
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("start town T01 has no cell in matrix 0"));
+    untouched();
+    // Both cells carry the town and it has no figures: the world is already empty.
+    let mut store = Store::new(Arc::new(Project::open(root).unwrap()));
+    store
+        .edit_matrix(0, "town", |m| {
+            m.headers = Some(vec![0, 0]);
+            Ok(())
+        })
+        .unwrap();
+    store.save().unwrap();
+    g4k()
+        .args(["template"])
+        .arg(root)
+        .arg("empty-region")
+        .assert()
+        .code(1)
+        .stderr(contains("the world is already empty"));
+    untouched();
+}
+
+#[test]
+fn create_accepts_the_empty_region_template() {
+    let (tmp, rom) = common::synthetic_rom();
+    let dest = tmp.path().join("neu");
+    // The template is parsed; the synthetic ROM then fails to extract (exit 1, not a usage error).
+    g4k()
+        .args(["create"])
+        .arg(&rom)
+        .arg(&dest)
+        .args(["--template", "empty-region"])
+        .assert()
+        .code(1);
+    assert!(!dest.exists());
+}

@@ -14,11 +14,13 @@ import type { ArchiveRow } from "../workbench/text/textModel";
 /** What a command of the palette does; App carries it out. */
 export type PaletteCommand =
   | "open"
+  | "newGame"
   | "save"
   | "build"
   | "play"
   | "area"
   | "room"
+  | "clearWorld"
   | "list"
   | "layout"
   | "theme"
@@ -55,6 +57,8 @@ export interface CommandState {
   deck: DeckArea;
   /** Whether a matrix cell is pinned in the inspector (the import of parts works on its map). */
   cellChosen: boolean;
+  /** A wizard of the world is open: no new game is started beside it. */
+  wizard: boolean;
 }
 
 export interface PaletteData {
@@ -84,6 +88,7 @@ const NO_PROJECT = "Erst ein Projekt öffnen";
 const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
 const NO_CELL = "Erst eine Rasterzelle mit Karte wählen";
+const WIZARD_OPEN = "Erst den Assistenten abschließen oder abbrechen";
 const DECK_NAME: Record<DeckArea, string> = { welt: "Welt", texte: "Texte", pokemon: "Pokémon", gegenstaende: "Gegenstände" };
 
 /** "Verwendet von Header 0412, 0413" (lower case "verwendet" after a comma): the headers that use an archive or a script file. */
@@ -92,16 +97,19 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck, cellChosen } = commands;
+  const { busy, hasList, inApp, deck, cellChosen, wizard } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   const specs: CommandSpec[] = [
     { command: "open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", locked: busy ? BUSY : null },
+    // Creating a project changes nothing of the open one; it is opened only when the user asks.
+    { command: "newGame", label: "Neues Spiel aus ROM…", icon: "plus", locked: wizard ? WIZARD_OPEN : busy ? BUSY : null },
     { command: "save", label: "Speichern", icon: "save", shortcut: "⌘S", locked: project },
     { command: "build", label: "Bauen", icon: "build", locked: project },
     { command: "play", label: "Hier spielen", icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },
     { command: "area", label: "Gebiet anlegen…", icon: "plus", locked: hasProject ? null : NO_PROJECT },
     { command: "room", label: "Raum anlegen…", icon: "room", locked: hasProject ? null : NO_PROJECT },
+    { command: "clearWorld", label: "Welt leeren…", icon: "world", description: "Leere Region mit Startstadt", locked: hasProject ? null : NO_PROJECT },
     {
       command: "importParts",
       label: "Teile in die Karte importieren…",

@@ -33,6 +33,9 @@ ARITY: dict[str, tuple[int, int]] = {
     "mash": (2, 2),
     "end-battle": (0, 1),
     "win-battle": (0, 1),
+    "new-game": (0, 0),
+    "walk-until-blocked": (2, 2),
+    "expect-at": (2, 2),
 }
 
 # Battle steps (see battle.py for the detection).
@@ -74,8 +77,24 @@ def parse_steps(tokens: list[str]) -> list[Step]:
             i += 1
         if len(args) < lo:
             raise ValueError(f"Schritt {name} braucht {lo} Argument(e), bekam {len(args)}")
-        steps.append(Step(name, args))
+        step = Step(name, args)
+        if name == "walk-until-blocked":
+            _walk_until_blocked_args(step)
+        steps.append(step)
     return steps
+
+
+def _walk_until_blocked_args(step: Step) -> tuple[str, int]:
+    """Direction and N of `walk-until-blocked`; N >= 1, else the step could prove nothing."""
+    direction = step.args[0]
+    if direction not in OPPOSITE:
+        raise ValueError(
+            f"walk-until-blocked: unbekannte Richtung '{direction}' (erlaubt: {' '.join(OPPOSITE)})"
+        )
+    tiles = _int(step.args[1], "walk-until-blocked")
+    if tiles < 1:
+        raise ValueError("walk-until-blocked: N muss mindestens 1 sein")
+    return direction, tiles
 
 
 def touch_point(x: int, y: int) -> tuple[int, int]:
@@ -443,6 +462,57 @@ def _win_battle(
     return _loc_json(loc)
 
 
+def _new_game(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Play the game's `intro` (games.yaml) from power-on and check where it ends.
+
+    Meant for a run without a save; the intro's steps print no lines of their own. On Platin the
+    check cannot prove control: the intro shows a stale location that equals `intro_ends`, so only
+    the first walk after `new-game` proves the player can move.
+    """
+    game = _require_game(game)
+    if game.intro is None or game.intro_ends is None:
+        raise StepFailed(f"{game.code}: kein intro in games.yaml")
+    start = emu.frame
+    for sub in parse_steps(list(game.intro)):
+        run_step(emu, game, sub, out, protected)
+    loc = read_location(emu.ram(), game)
+    want = game.intro_ends
+    if loc is None or (loc.header, loc.x, loc.y) != want:
+        seen = "kein gültiger Ort" if loc is None else f"Header {loc.header}, x {loc.x}, y {loc.y}"
+        raise StepFailed(
+            f"Intro endet bei {seen} statt {want[0]}, x {want[1]}, y {want[2]} "
+            f"(nach {emu.frame - start} Bildern)"
+        )
+    return {**_loc_json(loc), "intro_frames": emu.frame - start}
+
+
+def _walk_until_blocked(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """Walk up to N single tiles in one direction; ok once a tile is blocked after at least one
+    walked tile (`steps` = walked). Pin where it stopped with `expect-at X Y`."""
+    from g4emu import movement
+
+    direction, tiles = _walk_until_blocked_args(step)
+    loc, taken = movement.walk_until_blocked(emu, _require_game(game), direction, tiles)
+    return {**_loc_json(loc), "steps": taken}
+
+
+def _expect_at(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """The player stands at tile (X, Y) now (any header; `expect-map` checks that)."""
+    x, y = _int(step.args[0], "expect-at"), _int(step.args[1], "expect-at")
+    loc = read_location(emu.ram(), _require_game(game))
+    if loc is None:
+        raise StepFailed("kein gültiger Ort")
+    if (loc.x, loc.y) != (x, y):
+        raise StepFailed(f"Spieler bei x {loc.x}, y {loc.y} statt x {x}, y {y} (Header {loc.header})")
+    return _loc_json(loc)
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
     "expect-battle": _expect_battle,
@@ -462,6 +532,9 @@ HANDLERS: dict[str, Handler] = {
     "state": _state,
     "write-save": _write_save,
     "dump-ram": _dump_ram,
+    "new-game": _new_game,
+    "walk-until-blocked": _walk_until_blocked,
+    "expect-at": _expect_at,
 }
 
 

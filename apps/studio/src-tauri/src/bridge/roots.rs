@@ -73,6 +73,11 @@ impl DevPolicy {
         Ok(DevPolicy { dirs, import_dirs })
     }
 
+    /// The first allowed root (canonical): the bridge's default place for new projects.
+    pub fn first(&self) -> &Path {
+        &self.dirs[0]
+    }
+
     /// Root containment first, then the original-project rule.
     fn check_canonical(&self, canonical: &Path, shown: &str) -> Result<(), CmdError> {
         if !self.dirs.iter().any(|root| canonical.starts_with(root)) {
@@ -160,6 +165,42 @@ impl Policy for DevPolicy {
         Err(CmdError::from(
             "Im Browser-Modus nicht verfügbar, g4emu benutzen",
         ))
+    }
+
+    /// The first root: the bridge has no Documents folder.
+    fn new_project_parent(&self) -> Result<PathBuf, CmdError> {
+        Ok(self.first().to_path_buf())
+    }
+
+    /// `create_project`: the destination of a new project. Its parent must exist and lie under
+    /// a root; the last name must not be an original (`_DSPRE_contents`) or the save game
+    /// folder. When `dest` exists it must not lead out of the roots either (a link to an
+    /// original would be written through). The folder itself need not exist.
+    fn check_new_project(&self, dest: &str) -> Result<PathBuf, CmdError> {
+        let path = Path::new(dest);
+        let name = path
+            .file_name()
+            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {dest}")))?;
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        let parent = canonicalize(parent, dest)?;
+        self.check_canonical(&parent, dest)?;
+        let full = parent.join(name);
+        if name.to_string_lossy().ends_with(LOCKED_SUFFIX) {
+            return Err(CmdError::from(format!(
+                "Originale (_DSPRE_contents) sind gesperrt: {dest}. \
+                 Im Browser-Modus ohne die Endung anlegen."
+            )));
+        }
+        if is_saves(&full) {
+            return Err(saves(dest));
+        }
+        if full.symlink_metadata().is_ok() {
+            self.check_canonical(&canonicalize(&full, dest)?, dest)?;
+        }
+        Ok(full)
     }
 }
 
@@ -450,5 +491,104 @@ mod tests {
             "{}",
             err.message
         );
+    }
+
+    #[test]
+    fn new_project_under_the_root_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = roots_in(&dir);
+        let dest = dir.path().join("neu");
+        let got = roots.check_new_project(dest.to_str().unwrap()).unwrap();
+        assert_eq!(got, dir.path().canonicalize().unwrap().join("neu"));
+        assert!(!got.exists());
+        // An existing folder is fine as well (the kernel decides whether it is empty).
+        fs::create_dir(&dest).unwrap();
+        assert_eq!(
+            roots.check_new_project(dest.to_str().unwrap()).unwrap(),
+            got
+        );
+    }
+
+    #[test]
+    fn new_project_with_the_dspre_suffix_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("Platin_DSPRE_contents");
+        let err = roots_in(&dir)
+            .check_new_project(dest.to_str().unwrap())
+            .unwrap_err();
+        assert!(
+            err.message
+                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("ohne die Endung"), "{}", err.message);
+        assert!(
+            err.message.contains(dest.to_str().unwrap()),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn new_project_outside_or_in_saves_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let roots = roots_in(&root);
+        let err = roots
+            .check_new_project(other.path().join("neu").to_str().unwrap())
+            .unwrap_err();
+        assert!(
+            err.message.starts_with("Pfad liegt außerhalb"),
+            "{}",
+            err.message
+        );
+        let saves = root.path().join("_saves");
+        fs::create_dir(&saves).unwrap();
+        for dest in [saves.join("neu"), saves.clone()] {
+            let err = roots.check_new_project(dest.to_str().unwrap()).unwrap_err();
+            assert!(
+                err.message
+                    .starts_with("Spielstände (_saves) sind gesperrt: "),
+                "{}",
+                err.message
+            );
+        }
+        // A name that is not a plain folder name.
+        let err = roots
+            .check_new_project(root.path().join("..").to_str().unwrap())
+            .unwrap_err();
+        assert!(err.message.starts_with("Kein Dateiname"), "{}", err.message);
+        // An existing link that leads out of the root is refused.
+        let link = root.path().join("link");
+        symlink(other.path(), &link).unwrap();
+        let err = roots.check_new_project(link.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.message.starts_with("Pfad liegt außerhalb"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn new_project_needs_an_existing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("missing").join("neu");
+        let err = roots_in(&dir)
+            .check_new_project(dest.to_str().unwrap())
+            .unwrap_err();
+        assert!(
+            err.message.starts_with("Pfad nicht lesbar"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn first_is_the_first_canonical_root() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let roots = Roots::new(&[a.path().to_path_buf(), b.path().to_path_buf()]).unwrap();
+        assert_eq!(roots.first(), a.path().canonicalize().unwrap());
     }
 }

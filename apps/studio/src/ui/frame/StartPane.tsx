@@ -1,4 +1,5 @@
 import { useId, useRef } from "react";
+import type { ReactNode } from "react";
 import { Badge, Button, DSScreen, Icon, Menu, useRovingList } from "../primitives";
 import { ago, useNow } from "./timeAgo";
 import type { RecentProject } from "./shellState";
@@ -11,6 +12,10 @@ export type StartPaneProps = {
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onForget: (path: string) => void;
+  /** "Neues Spiel aus ROM…": with it, that is the primary button and "Projekt öffnen" the secondary one. */
+  onNewGame?: () => void;
+  /** A message below the actions (a refused drop). */
+  notice?: ReactNode;
 };
 
 /** The index of the project opened last (the list is kept newest first, but the time decides). */
@@ -93,7 +98,7 @@ function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
 }
 
 /** The surface of the area Start: a greeting, the recently opened projects as cards, and the way to open another one. */
-export function StartPane({ recent, missing, onOpen, onOpenRecent, onForget }: StartPaneProps) {
+export function StartPane({ recent, missing, onOpen, onOpenRecent, onForget, onNewGame, notice }: StartPaneProps) {
   const grid = useRef<HTMLUListElement>(null);
   useRovingList(grid, { orientation: "grid" });
   const now = useNow();
@@ -120,11 +125,23 @@ export function StartPane({ recent, missing, onOpen, onOpenRecent, onForget }: S
       ) : (
         <p className={styles.hint}>Noch kein Projekt geöffnet.</p>
       )}
-      <div className={styles.actions}>
-        <Button kind="primary" icon="open" shortcut="⌘O" onClick={onOpen}>
+      <div className={styles.actions} data-start-actions="">
+        {onNewGame && (
+          <Button kind="primary" icon="plus" onClick={onNewGame}>
+            Neues Spiel aus ROM…
+          </Button>
+        )}
+        <Button kind={onNewGame ? "secondary" : "primary"} icon="open" shortcut="⌘O" onClick={onOpen}>
           Projekt öffnen
         </Button>
       </div>
+      {onNewGame && (
+        <div className={styles.hints}>
+          <p className={styles.hint}>Du brauchst deine eigene ROM-Datei (.nds).</p>
+          <p className={styles.hint}>Gen4 Studio liefert keine Spieldaten; du nutzt deine eigene ROM.</p>
+        </div>
+      )}
+      {notice}
       <p className={styles.hint}>Projekte sind entpackte DSPRE-Ordner.</p>
     </section>
   );

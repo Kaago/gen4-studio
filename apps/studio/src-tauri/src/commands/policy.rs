@@ -33,6 +33,11 @@ pub trait Policy: Send + Sync {
     fn write_path(&self, path: &str) -> Result<PathBuf, CmdError>;
     /// `run_rom`: the canonical emulator and ROM, if they may be run.
     fn check_run(&self, emulator: &str, rom: &str) -> Result<(PathBuf, PathBuf), CmdError>;
+    /// `default_project_parent`: the canonical folder new projects are proposed in.
+    fn new_project_parent(&self) -> Result<PathBuf, CmdError>;
+    /// `create_project` and `check_project_dest`: the destination of a new project, whose
+    /// canonical parent must be allowed. The folder itself need not exist.
+    fn check_new_project(&self, dest: &str) -> Result<PathBuf, CmdError>;
 }
 
 /// One open project: what an agent may reach through `studio mcp` or the app. Reads come
@@ -285,7 +290,19 @@ impl Policy for UserPolicy {
         }
         Ok((configured.clone(), self.read_path(rom)?))
     }
+
+    /// New projects are made in the app, not by an agent of one open project.
+    fn new_project_parent(&self) -> Result<PathBuf, CmdError> {
+        Err(CmdError::from(NO_NEW_PROJECT))
+    }
+
+    fn check_new_project(&self, _dest: &str) -> Result<PathBuf, CmdError> {
+        Err(CmdError::from(NO_NEW_PROJECT))
+    }
 }
+
+const NO_NEW_PROJECT: &str =
+    "Neue Projekte legt nur die App an, nicht ein Agent des offenen Projekts";
 
 /// The error for a path outside the allowed folders, as the dev bridge words it.
 fn outside(shown: &str) -> CmdError {

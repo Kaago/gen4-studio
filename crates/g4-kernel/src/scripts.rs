@@ -167,7 +167,7 @@ pub(crate) fn numbered_files(dir: &Path, ext: Option<&str>) -> Result<Vec<u16>, 
 }
 
 /// Makes sure `unpacked/scripts` exists (unpacked from the NARC on first use) and returns it.
-fn ensure_members(project: &Project) -> Result<PathBuf, KernelError> {
+pub(crate) fn ensure_members(project: &Project) -> Result<PathBuf, KernelError> {
     let dir = member_dir(project);
     if !dir.is_dir() {
         project.ensure_unpacked(AssetKind::Script)?;
@@ -250,6 +250,17 @@ pub fn adopt(
     project: &Project,
     progress: &mut dyn FnMut(AdoptProgress),
 ) -> Result<AdoptReport, KernelError> {
+    adopt_as(project, None, progress)
+}
+
+/// [`adopt`], with the project name in `rotom.toml` taken from `folder` instead of the
+/// project folder's own name: for a project adopted in a staging folder that is renamed to
+/// `folder` afterwards (`start::create_project`).
+pub(crate) fn adopt_as(
+    project: &Project,
+    folder: Option<&str>,
+    progress: &mut dyn FnMut(AdoptProgress),
+) -> Result<AdoptReport, KernelError> {
     // rotom v0.7.0: src/project/config.rs RotomConfig, ProjectMetadata, WorkspaceConfig,
     // ProjectTypeConfig, PathsConfig, DatabaseConfig
     use rotom::project_config::{
@@ -284,11 +295,14 @@ pub fn adopt(
     write_atomic(root, &database_path, db_json.as_bytes())?;
 
     // Like `rotom init`: the project name is the folder's, without DSPRE's export suffix.
-    let folder = root
-        .canonicalize()
-        .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "rotom-project".to_owned());
+    let folder = match folder {
+        Some(folder) => folder.to_owned(),
+        None => root
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "rotom-project".to_owned()),
+    };
     let name = match folder.trim().strip_suffix("_DSPRE_contents") {
         Some(short) if !short.trim().is_empty() => short.trim().to_owned(),
         _ => folder.trim().to_owned(),
@@ -825,7 +839,7 @@ pub fn write_source(
 }
 
 /// Errors of `report` that belong to the source file `file`.
-fn problems_in(
+pub(crate) fn problems_in(
     project: &Project,
     report: &CompileReport,
     file: u16,
@@ -971,7 +985,7 @@ pub fn add_script_at_reported(
 }
 
 /// The rotom source of script file `file`; a level script or binary is refused.
-fn rotom_source(project: &Project, file: u16) -> Result<String, KernelError> {
+pub(crate) fn rotom_source(project: &Project, file: u16) -> Result<String, KernelError> {
     match read_source(project, file)? {
         ScriptSource::Rotom(text) => Ok(text),
         _ => Err(KernelError::InvalidProject(format!(
@@ -995,7 +1009,19 @@ fn append_script(
     text: String,
     n: u16,
 ) -> Result<Vec<u16>, KernelError> {
-    let appended = format!("{text}\n{}", script_stub(n));
+    append_source(project, file, text, &script_stub(n))
+}
+
+/// Appends `addition` after a blank line to `text`, the source of `file`, writes and
+/// compiles; returns the text archives the compile changed. A compile error in the file puts
+/// `text` back.
+pub(crate) fn append_source(
+    project: &Project,
+    file: u16,
+    text: String,
+    addition: &str,
+) -> Result<Vec<u16>, KernelError> {
+    let appended = format!("{text}\n{addition}");
     write_source(project, file, &ScriptSource::Rotom(appended))?;
     let restore = |project: &Project| {
         let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));

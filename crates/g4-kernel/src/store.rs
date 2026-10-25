@@ -539,6 +539,50 @@ impl Tx<'_> {
         })
     }
 
+    /// Edits several map headers as one part of the transaction: the header table is one
+    /// asset, so [`Tx::edit_header`] can edit only one header per transaction. The table
+    /// cannot grow or shrink; a header that does not fit the game's header layout afterwards
+    /// fails the transaction as [`KernelError::Uxie`], as with [`Store::edit_header`].
+    pub fn edit_headers(
+        &mut self,
+        edit: impl FnOnce(&mut [MapHeader]) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let family = uxie_family(self.store.project.family);
+        let game_code = self.store.project.game_code.clone();
+        self.edit(HEADER_TABLE, |loaded| match loaded {
+            Loaded::HeaderTable(headers) => {
+                edit(headers)?;
+                match headers.iter().position(|h| !header_round_trips(h, family)) {
+                    None => Ok(()),
+                    Some(id) => Err(KernelError::Uxie(format!(
+                        "header {id} does not fit the {game_code} header layout"
+                    ))),
+                }
+            }
+            _ => Err(mismatch(HEADER_TABLE)),
+        })
+    }
+
+    /// Edits map `index`, see [`Store::edit_map`].
+    pub fn edit_map(
+        &mut self,
+        index: u16,
+        edit: impl FnOnce(&mut MapFile) -> Result<(), FormatError>,
+    ) -> Result<(), KernelError> {
+        let id = AssetId {
+            kind: AssetKind::Map,
+            index,
+        };
+        self.edit(id, |loaded| match loaded {
+            Loaded::Map(m) => {
+                edit(m)?;
+                m.validate()?;
+                Ok(())
+            }
+            _ => Err(mismatch(id)),
+        })
+    }
+
     /// Edits text archive `index`.
     pub fn edit_text_archive(
         &mut self,
@@ -744,7 +788,7 @@ pub const MAX_HEADERS: usize = 10_000;
 const MAPNAME_RECORD: usize = 16;
 
 /// The one asset of kind `HeaderTable`.
-const HEADER_TABLE: AssetId = AssetId {
+pub const HEADER_TABLE: AssetId = AssetId {
     kind: AssetKind::HeaderTable,
     index: 0,
 };

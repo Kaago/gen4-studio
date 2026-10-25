@@ -28,7 +28,7 @@ _FILE_HASH_OPEN = "${sha1-of:"
 _SHA1_OF = re.compile(r"\$\{sha1-of:((?:[^{}]|\$\{[^{}]*\})+)\}")
 _TOKEN = re.compile(_SHA1_OF.pattern + "|" + _PLACEHOLDER.pattern)  # one pass: group 1 is a hash's path, 2-4 a name
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_HEADER_STEPS = ("continue", "where", "expect-map")  # the steps that make up the header sequence
+_HEADER_STEPS = ("continue", "new-game", "where", "expect-map", "walk-until-blocked", "expect-at")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
 BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": value} = hdr.Pt with field replaced
 # one part of an expectation path: a key, a list index or `length`, then any number of filters `[key=value]`
@@ -60,6 +60,8 @@ class Scenario:
     # `mcp: [flags]`: the edits are tool calls [tool, {arguments}, …] in one `studio mcp` session started
     # with these flags (e.g. --allow-irreversible, --expert); `build` then lies under build/. None: the bridge.
     mcp: list[str] | None = None
+    # `save: none`: play a new game without a save (`new-game`) instead of the game's save from games.yaml
+    without_save: bool = False
 
 
 def _offset(value: Any, offset: str | None, shown: str) -> Any:
@@ -492,6 +494,9 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     for entry in data.get("play") or []:
         play.extend(shlex.split(str(entry)))
     _check_file_hashes(str(path), [edits, data])
+    save = data.get("save")
+    if save is not None and save != "none":
+        raise ValueError(f"{path}: save kennt nur 'none' (ohne Spielstand), bekam {save!r}")
     check = data.get("check") or []
     if not isinstance(check, list):
         raise ValueError(f"{path}: check muss eine Liste von Befehlen sein: {check!r}")
@@ -504,7 +509,7 @@ def load_scenario(path: Path, env: dict[str, str]) -> Scenario:
     return Scenario(
         game=str(data["game"]), edits=edits, build=None if build is None else str(build),
         play=play, name=Path(path).stem, check=[[str(arg) for arg in command] for command in check],
-        prepare=prepare, mcp=mcp,
+        prepare=prepare, mcp=mcp, without_save=save == "none",
     )
 
 
@@ -546,12 +551,17 @@ def g4k_command(repo: Path) -> list[str]:
     return _cargo_binary(repo, "G4K_BIN", ["--workspace", "--all-features", "--bin", "g4k"], "g4k")
 
 
-def _play(rom: Path, save: Path, out: Path, steps: list[str], core: Path | None) -> tuple[int, list[dict]]:
-    """Run `g4emu run` in a child process; returns its exit code and the parsed step lines."""
-    cmd = [sys.executable, "-m", "g4emu.cli", "run", "--rom", str(rom), "--save", str(save), "--out", str(out)]
+def _play(rom: Path, save: Path | None, out: Path, steps: list[str], core: Path | None) -> tuple[int, list[dict]]:
+    """Run `g4emu run` in a child process (without `--save` when `save` is None); returns its exit
+    code and the parsed step lines, which are kept in `<out>/play.jsonl` as well."""
+    cmd = [sys.executable, "-m", "g4emu.cli", "run", "--rom", str(rom)]
+    if save is not None:
+        cmd += ["--save", str(save)]
+    cmd += ["--out", str(out)]
     if core is not None:
         cmd += ["--core", str(core)]
     result = subprocess.run(cmd + steps, stdout=subprocess.PIPE, text=True)
+    (Path(out) / "play.jsonl").write_text(result.stdout, encoding="utf-8")  # step lines, auditable later
     lines: list[dict] = []
     for text in result.stdout.splitlines():
         print(text, flush=True)
@@ -744,7 +754,7 @@ def run_scenario(
         _summary(scenario, True, [])
         return 0
     assert rom is not None  # play without build was refused above
-    code, lines = _play(rom, saves / game.save, out, play, core)
+    code, lines = _play(rom, None if scenario.without_save else saves / game.save, out, play, core)
     _summary(scenario, code == 0, lines)
     return code
 

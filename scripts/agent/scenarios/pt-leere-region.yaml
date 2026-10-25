@@ -1,0 +1,63 @@
+# Platin DE (Gate 3g.2): the template "Leere Region mit Startstadt" on a fresh copy, then a NEW game
+# without a save: intro, room, rival, mother, out of the door into Zweiblattdorf (header 411), the
+# start script gives Chelast (387) Lv. 5 and the Pokédex, the team shows it, and the way north ends
+# at the border map (no Route 201 any more, the header stays 411).
+#
+# No placeholders. The copy must come from `g4k create <rom> <kopie>` (template original) and is
+# saved and built by the run: every run needs a fresh copy.
+#
+# Example (from scripts/g4emu, G4_ROMS_DIR absolute when run from a worktree):
+#   uv run g4emu scenario ../agent/scenarios/pt-leere-region.yaml \
+#     --project /…/Roms/_testkopien/3g-gate-b/pt --out ../../target/agent/gate-$(date +%F)/b2-pt
+# Expected header sequence: 415, 414, 411. Frames measured on 2026-10-25 (the run is deterministic).
+game: CPUD
+edits:
+  - [adopt_scripts, {}]
+  - [apply_empty_region, {}, {expect: [{path: plan.start_header, equals: 411}]}]
+  - [run_checks, {scope: all}, {expect: [{path: "findings[severity=error].length", equals: 0}, {path: groups.length, equals: 3}]}]
+build: out.nds
+save: none
+play:
+  - new-game                 # intro from power-on (games.yaml), ends in 415 at x 4, y 6
+  - expect-map 415
+  - shot zimmer
+  - walk up 1                # the rival storms in after the first step
+  - mash b 1500              # B closes his texts; in the room B does nothing (A would examine things)
+  - walk-to 8 4              # the stairs
+  - walk right 1
+  - expect-map 414
+  - wait 150
+  - mash b 600               # the mother walks over, talks and goes back
+  - walk down 2
+  - walk-to 6 10             # the door mat
+  - press down:8             # the mother stops the player at the door with a text
+  - wait 60
+  - shot mutter
+  - mash b 400
+  - press down:8
+  - expect-map 411           # Zweiblattdorf, arrival x 116, y 885
+  - wait 90
+  - shot ankunft             # town banner, no figures
+  - wait 270                 # the start script runs by itself on the first visit (level script, var condition)
+  - shot start-script        # "Willkommen in deiner leeren Region! Hier ist dein erstes Pokémon."
+  - press a:4
+  - wait 60
+  - mash b 200
+  - press x:4
+  - wait 60
+  - shot menue               # POKéDEX and POKéMON in the menu (VAR_PLAYER_STARTER set)
+  - press down:4
+  - wait 10
+  - press a:4
+  - wait 120
+  - shot team                # Chelast Lv. 5
+  - press b:4
+  - wait 120
+  - press b:4                # the menu is closed again
+  - wait 60
+  - walk left 4              # x 112: an open column up to the town's top row
+  - walk-until-blocked up 40 # 22 tiles, blocked at y 864: above lies the border map
+  - expect-at 112 864         # pinned: the stop is the town's top row, not an open menu
+  - where
+  - expect-map 411
+  - shot rand

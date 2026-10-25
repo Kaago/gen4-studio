@@ -55,6 +55,8 @@ export type TechnikAreaProps = {
   onHeaderPatch: () => Promise<void>;
   /** A repair of the patch went in (the app closes the toast that offered it and says what changed). */
   onHeaderPatchRepaired?: () => void;
+  /** "Welt leeren…" (Werkzeuge): opens the wizard that makes the world an empty region with the start town. */
+  onClearWorld: () => void;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -97,7 +99,7 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 
 /**
  * The area Technik (spec 5.9): a list of four entries with their state, and the surface of the chosen one. Prüfen und Bauen
- * and Patches need a project; Emulator and Werkzeuge do not. The patch state is read once per project, when the area shows.
+ * and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state is read once per project, when the area shows.
  */
 export function TechnikArea(props: TechnikAreaProps) {
   return props.project === null ? <TechnikView {...props} patch={null} /> : <WithPatch key={props.project} {...props} />;
@@ -139,7 +141,7 @@ function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatc
           <EmulatorRow path={emulatorPath} onPick={props.onPickEmulator} />
         </Surface>
       ) : (
-        <ToolsSurface lsp={status.lsp} apicula={status.apicula} subtitle={subtitles.werkzeuge} />
+        <ToolsSurface lsp={status.lsp} apicula={status.apicula} subtitle={subtitles.werkzeuge} hasProject={props.project !== null} onClearWorld={props.onClearWorld} />
       )}
     </div>
   );
@@ -390,7 +392,9 @@ function lspNote(lsp: LspTool | null): string | undefined {
   return lsp.note;
 }
 
-function ToolsSurface({ lsp, apicula, subtitle }: { lsp: LspTool | null; apicula: ApiculaState; subtitle: string }) {
+type ToolsProps = { lsp: LspTool | null; apicula: ApiculaState; subtitle: string; hasProject: boolean; onClearWorld: () => void };
+
+function ToolsSurface({ lsp, apicula, subtitle, hasProject, onClearWorld }: ToolsProps) {
   const lspBadge = lsp === null ? { kind: "neutral" as const, text: "Nicht gestartet" } : LSP_BADGE[lsp.state];
   const apiculaBadge = APICULA_BADGE[apicula];
   const note = lspNote(lsp);
@@ -417,6 +421,18 @@ function ToolsSurface({ lsp, apicula, subtitle }: { lsp: LspTool | null; apicula
           </div>
           <p className={styles.text}>Sprachdienst für Scripts: Vervollständigung und Diagnosen im Editor.</p>
           {note && <p className={styles.note}>{note}</p>}
+        </li>
+        <li className={styles.tool} data-tool="welt-leeren">
+          <div className={styles.toolHead}>
+            <span className={styles.toolTitle}>Welt leeren</span>
+          </div>
+          <p className={styles.text}>Macht aus der Welt eine leere Region mit Startstadt. Die Welt holst du mit ⌘Z zurück.</p>
+          <div className={styles.actions}>
+            <Button kind="secondary" icon="world" disabled={!hasProject} onClick={onClearWorld}>
+              Welt leeren…
+            </Button>
+            {!hasProject && <span className={styles.note}>Erst ein Projekt öffnen</span>}
+          </div>
         </li>
       </ul>
     </Surface>

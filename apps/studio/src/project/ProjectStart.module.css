@@ -1,0 +1,148 @@
+/*
+ * The area Start: the surface that takes a dropped ROM (around the start pane), and the small deck of the wizard
+ * "Neues Spiel aus ROM" (view, hinge, hand) while no project needs to be open.
+ */
+
+.surface {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* While a ROM is dragged over: the whole surface becomes the slot it goes into. */
+.drop {
+  position: absolute;
+  z-index: 1;
+  inset: var(--g4-raum-16);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-8);
+  border: var(--g4-strich-scharnier) dashed var(--g4-auswahl-kante);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-auswahl-flaeche);
+  pointer-events: none;
+}
+
+.dropIcon {
+  color: var(--g4-auswahl-kante);
+  font-size: var(--g4-raum-48);
+  line-height: 0;
+}
+
+.dropTitle {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-titel-m);
+}
+
+.dropText {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The wizard's deck: view on top, the hinge, the hand below (its height comes from the grip). */
+.deck {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.schau {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  padding: var(--g4-raum-24);
+  overflow: auto;
+  background: var(--g4-flaeche-schau);
+}
+
+/* The screen beside what was chosen; in a narrow view the facts go below it. */
+.preview {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--g4-raum-24);
+}
+
+/* Up to two times the DS screen (the scale is measured from this width), in its dark frame like a recent project's card. */
+.screen {
+  box-sizing: border-box;
+  width: 528px;
+  max-width: 100%;
+  flex: none;
+  padding: var(--g4-raum-8);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-bildschirm-rahmen);
+}
+
+.screen > div {
+  display: flex;
+  justify-content: center;
+}
+
+/* The header title on the screen, in the game's font, like the label of a cartridge. */
+.title {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(12px * var(--ds-scale));
+  overflow: hidden;
+  color: var(--g4-szene-ds-textbox-flaeche);
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(16px * var(--ds-scale));
+  line-height: calc(20px * var(--ds-scale));
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* No ROM yet: the screen waits, its text dimmed. */
+.none {
+  opacity: 0.6;
+}
+
+.facts {
+  display: grid;
+  min-width: 0;
+  max-width: 360px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--g4-raum-6) var(--g4-raum-12);
+  margin: 0;
+  font: var(--g4-font-text-s);
+}
+
+.facts > div {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--g4-text-sekundaer);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--g4-text-primaer);
+  overflow-wrap: anywhere;
+}
+
+.code {
+  font: var(--g4-font-code-s);
+}
+
+.hand {
+  position: relative;
+  min-height: 0;
+  flex: none;
+}

@@ -126,6 +126,12 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("set_check_enabled", Kind::Write),
     ("plan_fix", Kind::Read),
     ("apply_fix", Kind::Depends),
+    ("inspect_rom", Kind::Read),
+    ("default_project_parent", APP_ONLY),
+    ("check_project_dest", APP_ONLY),
+    ("create_project", APP_ONLY),
+    ("plan_empty_region", Kind::Read),
+    ("apply_empty_region", Kind::Irreversible("Welt leeren")),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -259,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn irreversible_ones_are_the_decided_six_groups() {
+    fn irreversible_ones_are_the_decided_groups() {
         let of = |wanted: fn(&Kind) -> bool| -> Vec<(&str, Kind)> {
             COMMAND_KINDS
                 .iter()
@@ -277,6 +283,7 @@ mod tests {
                     Kind::Irreversible("Ausgangslage übernehmen")
                 ),
                 ("add_script", Kind::Irreversible("Script anlegen")),
+                ("apply_empty_region", Kind::Irreversible("Welt leeren")),
                 ("apply_header_patch", Kind::Irreversible("Patch")),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
@@ -289,6 +296,12 @@ mod tests {
         assert_eq!(
             unavailable,
             [
+                ("check_project_dest", Kind::Unavailable("Nur in der App")),
+                ("create_project", Kind::Unavailable("Nur in der App")),
+                (
+                    "default_project_parent",
+                    Kind::Unavailable("Nur in der App")
+                ),
                 ("force_quit", Kind::Unavailable("Nur in der App")),
                 ("lsp_send", Kind::Unavailable("Nur in der App")),
                 ("lsp_start", Kind::Unavailable("Nur in der App")),

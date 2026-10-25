@@ -218,6 +218,8 @@ pub fn build_prepared(
     )?;
     let raw_rom = rom.build(None).map_err(build_err)?;
     raw_rom.save(out_rom).map_err(build_err)?;
+    // ds-rom writes 0000 as the secure area CRC; a project from `create_project` knows it.
+    crate::start::restore_header_crcs(&project.root, out_rom)?;
     Ok(BuildReport {
         packed,
         rom: out_rom.to_path_buf(),

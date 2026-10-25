@@ -23,7 +23,6 @@ import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Palette } from "./ui/frame/Palette";
 import { Shell } from "./ui/frame/Shell";
 import { ShellProvider, useShell } from "./ui/frame/ShellContext";
-import { StartPane } from "./ui/frame/StartPane";
 import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
@@ -45,7 +44,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AssetId, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
+import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -75,6 +74,8 @@ import { WizardHints, WizardStep } from "./app/WizardHints";
 import { WizardHost } from "./app/WizardHost";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
+import { ProjectStart } from "./project/ProjectStart";
+import type { StartWizardRequest } from "./project/ProjectStart";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
@@ -102,6 +103,9 @@ const DATA_TRAILS: Record<DataArea, Crumb[]> = { pokemon: [{ label: "Pokémon" }
 /** While a wizard is open, the world is the only area: the others wait until it is done. */
 const WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "welt");
 const WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
+/** While the wizard "Neues Spiel aus ROM" is open, Start is the only area. */
+const START_WIZARD_LOCKED: readonly AreaId[] = AREAS.filter((a) => a !== "start");
+const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(START_WIZARD_LOCKED.map((a) => [a, "Erst den Assistenten abschließen oder abbrechen"]));
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
@@ -137,8 +141,14 @@ function AppBody() {
   const area = shell.state.area;
   // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
   const wizardOpen = useRef(false);
-  // A link does not leave the world while a wizard is open there.
+  // The wizard "Neues Spiel aus ROM" on Start (null: closed); here, so the palette can open it.
+  const [startWizard, setStartWizard] = useState<StartWizardRequest | null>(null);
+  const startOpen = startWizard !== null;
+  // The area a project opens in: the world, or Pokémon for a project created with the template "Nur Daten".
+  const openingArea = useRef<AreaId>("welt");
+  // A link does not leave the world while a wizard is open there, nor the start while its wizard is open (this callback reads the latest render).
   const showArea = useStableCallback((target: AreaId) => {
+    if (startOpen) return;
     if (wizardOpen.current && target !== "welt") return;
     setArea(target);
   });
@@ -188,8 +198,8 @@ function AppBody() {
   // A build that failed to compile offers the problems list (and the problem light opens it): it comes to the front in the hand of the
   // area that shows, when that hand has it (Texte), otherwise in the hand of the world.
   const showProblems = useStableCallback(() => {
-    // The world's hand holds a wizard's step: the list waits until it is done (the problem light is back then).
-    if (wizardOpen.current) return;
+    // The world's hand holds a wizard's step, and the start wizard fills the start: the list waits until it is done (the problem light is back then).
+    if (wizardOpen.current || startOpen) return;
     const shown = shell.state.area;
     const target: DeckArea = isDeckArea(shown) && deckPanels(shown, "hand").some((p) => p.id === "problems") ? shown : "welt";
     setArea(target);
@@ -297,16 +307,24 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
-  // A fix of the checks changed these assets: the scene and the editors read them again (an open script file too), then the dirty count
-  // (no `edited`: the fix asks for its run of the checks itself).
-  const onFixed = useStableCallback(async (changed: AssetId[]) => {
+  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count.
+  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean) => {
     try {
       await reloadAfterHistory(changed);
       for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index);
     } catch (e) {
       session.fail(e);
     }
-    await session.refreshDirty({ edited: false });
+    await session.refreshDirty({ edited });
+  });
+  // A fix of the checks changed these assets (no `edited`: the fix asks for its run of the checks itself).
+  const onFixed = useStableCallback((changed: AssetId[]) => reloadChanged(changed, false));
+  // „Welt leeren“ went in: the new members are counted, then the world is read again as after ⌘Z (header table, matrix 0, event files,
+  // maps, the town's scripts and texts); the checks run on the edit.
+  const onRegionApplied = useStableCallback(async (report: RegionReport) => {
+    await session.onCountsChanged();
+    scene.noteHistoryMoved();
+    await reloadChanged(report.changed, true);
   });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
@@ -371,7 +389,7 @@ function AppBody() {
   // The command palette (⌘K or the title bar's search button); not while a wizard is open, which locks everything but the world.
   const [paletteOpen, setPaletteOpen] = useState(false);
   const openPalette = useStableCallback(() => {
-    if (!wizardOpen.current) setPaletteOpen(true);
+    if (!wizardOpen.current && !startOpen) setPaletteOpen(true);
   });
   // Whether the event tools are locked (set below, once the place is known): their letters then do nothing, like their buttons.
   const eventsBlockedRef = useRef(false);
@@ -416,7 +434,10 @@ function AppBody() {
     const info = session.info;
     if (info === null) return;
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
-    setArea("welt");
+    setArea(openingArea.current);
+    openingArea.current = "welt";
+    // A project is open: the wizard "Neues Spiel aus ROM" is done, in the same step as the area changes (the rest of opening may still run).
+    setStartWizard(null);
   }, [session.info, remember, setArea]);
   // The data lists and icons of the old project go; the new one's are read when they are needed.
   useEffect(() => dataStore.setProject(session.info), [session.info, dataStore]);
@@ -427,7 +448,17 @@ function AppBody() {
    * button is disabled then too).
    */
   function openProject() {
-    if (!session.busy && wizards.request === null) void session.onOpen(resetProject);
+    if (!session.busy && wizards.request === null && !startOpen) void session.onOpen(resetProject);
+  }
+  /**
+   * "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
+   * project is open (see above). Refused or failed: the wizard stays on its result.
+   */
+  async function onOpenCreated(created: ProjectCreated) {
+    if (session.busy) return;
+    openingArea.current = created.template === "data_only" ? "pokemon" : "welt";
+    const result = await session.onOpen(resetProject, created.root);
+    if (result !== "opened") openingArea.current = "welt";
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.
@@ -579,9 +610,9 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, cellChosen, wizard: wizards.request !== null },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, cellChosen, wizards.request],
   );
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
@@ -594,6 +625,12 @@ function AppBody() {
       case "open":
         openProject();
         break;
+      case "newGame":
+        if (wizards.request === null) {
+          setStartWizard((open) => open ?? {});
+          setArea("start");
+        }
+        break;
       case "save":
         if (session.info && !session.busy) void session.onSave();
         break;
@@ -605,6 +642,7 @@ function AppBody() {
         break;
       case "area":
       case "room":
+      case "clearWorld":
         if (session.info) wizards.open({ kind: run.command });
         break;
       case "list":
@@ -661,7 +699,17 @@ function AppBody() {
   const context = statusContext(live.inspector, scene.headers.find((h) => h.id === scene.selected));
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
-      <StartPane recent={shell.state.recent} missing={missing} onOpen={openProject} onOpenRecent={(path) => void onOpenRecent(path)} onForget={onForget} />
+      <ProjectStart
+        recent={shell.state.recent}
+        missing={missing}
+        onOpen={openProject}
+        onOpenRecent={(path) => void onOpenRecent(path)}
+        onForget={onForget}
+        wizard={startWizard}
+        onWizard={setStartWizard}
+        onOpenCreated={(created) => void onOpenCreated(created)}
+        onNotice={(text) => session.setMessage({ kind: "info", text })}
+      />
     ) : area === "technik" ? (
       <TechnikArea
         project={info?.root ?? null}
@@ -685,6 +733,9 @@ function AppBody() {
         tools={toolStatus}
         onHeaderPatch={onHeaderPatch}
         onHeaderPatchRepaired={session.patchRepaired}
+        onClearWorld={() => {
+          if (session.info) wizards.open({ kind: "clearWorld" });
+        }}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -746,13 +797,13 @@ function AppBody() {
                   game={info ? gameLabel(info) : null}
                   dirtyCount={session.dirtyCount + scripts.dirtyCount}
                   // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
-                  busy={session.busy || showsWizard}
+                  busy={session.busy || showsWizard || startOpen}
                   onOpen={openProject}
                   onSave={() => void session.onSave()}
                   onBuild={() => void session.onBuild()}
                   onHelp={onHelp}
                   onPalette={openPalette}
-                  paletteDisabled={showsWizard}
+                  paletteDisabled={showsWizard || startOpen}
                   theme={shell.theme}
                   onToggleTheme={shell.toggleTheme}
                 />
@@ -762,8 +813,8 @@ function AppBody() {
                   area={area}
                   onArea={setArea}
                   onHelp={onHelp}
-                  locked={showsWizard ? WIZARD_LOCKED : LOCKED_AREAS}
-                  lockedHint={showsWizard ? WIZARD_HINTS : LOCKED_HINTS}
+                  locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
+                  lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
                   density={shell.density}
                 />
               }
@@ -772,9 +823,9 @@ function AppBody() {
               pane={pane}
               status={
                 <StatusLine
-                  left={showsWizard ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                  left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
                   middle={
-                    showsWizard ? (
+                    showsWizard || startOpen ? (
                       <WizardStep />
                     ) : area === "texte" ? (
                       <TextStatus />
@@ -814,6 +865,11 @@ function AppBody() {
         onHeaderPatchRepaired={session.patchRepaired}
         onError={session.fail}
         onPlay={() => void onPlay()}
+        scripts={scripts.api.status}
+        onAdoptScripts={scripts.api.adopt}
+        unsaved={session.dirtyCount + scripts.dirtyCount}
+        onSave={session.onSave}
+        onRegionApplied={onRegionApplied}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       {importMap !== null && (

@@ -1,0 +1,14 @@
+script start_region_{n} #{n}:
+    LockAll
+    NonNPCMsg "{message}"
+    WaitButton
+    GiveMon {species}, {level}, 0, 0, 0, VAR_SPECIAL_RESULT
+    GivePokedex
+    SetFlag FLAG_GOT_POKEDEX
+    SetFlag FLAG_GOT_STARTER
+    GiveRunningShoes
+    SetVar VAR_PLAYER_STARTER, {species}
+    SetVar {done_var}, 1
+    CloseMsg
+    ReleaseAll
+    End

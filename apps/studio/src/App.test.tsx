@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
+import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
@@ -113,6 +114,10 @@ vi.mock("./api", async (importOriginal) => ({
   runChecks: vi.fn(),
   checksStatus: vi.fn(),
   applyFix: vi.fn(),
+  inspectRom: vi.fn(),
+  defaultProjectParent: vi.fn(),
+  checkProjectDest: vi.fn(),
+  createProject: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -126,6 +131,7 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }));
 // `env.tauri`: whether the page pretends to run inside the Tauri window.
 const env = vi.hoisted(() => ({ tauri: false }));
 vi.mock("./platform/transport", () => ({ invoke: vi.fn(), inTauri: () => env.tauri }));
@@ -456,6 +462,87 @@ describe("App wiring", () => {
       expect(container.textContent).not.toContain("Willkommen zurück");
     });
 
+    describe("a new game from a ROM", () => {
+      const ROM = { title: "POKEMON PL", game_code: "CPUD", family: "pt", language: "german", revision: 0, size: 134_217_728, sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", known_base: null, support: { kind: "verified" } } as const;
+      const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 260)));
+      beforeEach(() => {
+        vi.mocked(inspectRom).mockResolvedValue(ROM);
+        vi.mocked(defaultProjectParent).mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
+        vi.mocked(checkProjectDest).mockResolvedValue({ state: "missing", free_bytes: 50_000_000_000, needed_bytes: 335_544_320, ok: true });
+        vi.mocked(createProject).mockImplementation(async (_rom, dest, template) => ({ root: dest, game_code: "CPUD", template, sha1: ROM.sha1, phases: [] }));
+      });
+      /** From Start: the new game with the ROM, the template card, the name proposed, then created. */
+      async function createGame(template: "original" | "data_only") {
+        await act(async () => atlasEntry("Start")!.click());
+        await click("Neues Spiel aus ROM…");
+        const rom = container.querySelector<HTMLInputElement>('input[aria-label="ROM-Datei"]')!;
+        await act(async () => rom.focus());
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(rom, "/roms/_testkopien/pt.nds");
+          rom.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => rom.blur());
+        await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+        await click("Weiter");
+        await act(async () => container.querySelector<HTMLElement>(`[role="radio"][data-template="${template}"]`)!.click());
+        await click("Weiter");
+        await settle();
+        await click("Weiter");
+        await click("Anlegen");
+        await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, expect.any(Function));
+        // The backend hands out a new info object for every project it opens.
+        vi.mocked(openProject).mockClear().mockImplementation(async (root) => ({ root, game_code: "CPUD", family: "Platinum", language: "de", header_count: 2 }));
+        await click("Öffnen");
+      }
+
+      it("data_only_opens_in_pokemon", async () => {
+        await createGame("data_only");
+        expect(openProject).toHaveBeenCalledWith("/roms/_testkopien/Neues Platin");
+        expect(atlasEntry("Pokémon")?.getAttribute("aria-current")).toBe("page");
+        expect(container.querySelector("[data-wizard]")).toBeNull();
+        expect(readShellState().recent[0]).toMatchObject({ path: "/roms/_testkopien/Neues Platin" });
+      });
+
+      it("closes_the_wizard_and_unlocks_the_areas_as_soon_as_the_created_project_is_open", async () => {
+        // Opening goes on after the project is there (the patch state is still being read): the wizard must not linger until then.
+        let release: () => void = () => {};
+        vi.mocked(headerPatchStatus).mockImplementation(
+          () => new Promise((resolve) => (release = () => resolve({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" }))),
+        );
+        await createGame("original");
+        expect(titleBar()).toContain("Neues Platin");
+        expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+        expect(container.querySelector("[data-wizard]")).toBeNull();
+        for (const name of ["Start", "Pokémon", "Texte", "Technik"]) expect(atlasEntry(name)?.getAttribute("aria-disabled")).not.toBe("true");
+        expect(statusLine()).not.toContain("Schließen");
+        await act(async () => release());
+      });
+
+      it("asks_before_the_created_project_replaces_unsaved_edits_and_no_keeps_the_result", async () => {
+        // The project of beforeEach is open and has unsaved edits.
+        vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+        await act(async () => data().onEdited());
+        vi.mocked(ask).mockResolvedValue(false);
+        await createGame("original");
+        expect(ask).toHaveBeenCalledWith("Ungespeicherte Änderungen verwerfen?", { kind: "warning" });
+        expect(openProject).not.toHaveBeenCalled();
+        expect(container.querySelector("[data-wizard]")?.textContent).toContain("Projekt angelegt");
+        expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+        expect(titleBar()).not.toContain("Neues Platin");
+        expect(readShellState().recent[0]).toMatchObject({ path: "/p" });
+      });
+
+      it("original_opens_in_the_world_and_a_later_start_shows_no_wizard", async () => {
+        await createGame("original");
+        expect(openProject).toHaveBeenCalledWith("/roms/_testkopien/Neues Platin");
+        expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+        await act(async () => atlasEntry("Start")!.click());
+        expect(container.querySelector("[data-wizard]")).toBeNull();
+        expect(container.textContent).toContain("Willkommen zurück");
+      });
+    });
+
     it("keeps_the_dock_alive_while_the_start_pane_covers_it", async () => {
       expect(shown.mounts).toBe(1);
       await act(async () => atlasEntry("Start")!.click());
@@ -609,6 +696,24 @@ describe("App wiring", () => {
       await click("Probleme zeigen");
       expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
       expect(shown.focused).toEqual(["problems"]);
+    });
+
+    it("a_failed_build_does_not_pull_the_start_wizard_away_when_its_problems_are_offered", async () => {
+      vi.mocked(defaultProjectParent).mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let fail: (e: unknown) => void = () => {};
+      vi.mocked(buildRom).mockImplementation(() => new Promise((_, reject) => (fail = reject)));
+      await click("Bauen");
+      await act(async () => atlasEntry("Start")!.click());
+      await click("Neues Spiel aus ROM…");
+      expect(container.querySelector("[data-start-deck]")).not.toBeNull();
+      await act(async () =>
+        fail({ code: "compile", message: "1 Fehler", asset: null, problems: [{ severity: "error", file: "expanded/scripts/0003.rotom", line: 2, col: 1, message: "e1", source: "compile" }] }),
+      );
+      await click("Probleme zeigen");
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-start-deck]")).not.toBeNull();
+      expect(shown.focused).toEqual([]);
     });
 
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
@@ -1626,6 +1731,24 @@ describe("App wiring", () => {
       await pressCmdK();
       expect(paletteInput()).toBeNull();
       expect(paletteButton().disabled).toBe(true);
+    });
+
+    it("palette_new_game_opens_the_start_wizard", async () => {
+      vi.mocked(defaultProjectParent).mockResolvedValue({ parent: "/roms/_testkopien", dspre_suffix: false });
+      await pressCmdK();
+      await run("neues spiel");
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      const start = container.querySelector<HTMLElement>("[data-start-deck]");
+      // The wizard is in the start's own hinge and hand, not in the world's (hidden) slots that come first in the document.
+      expect(start?.querySelector("[data-wizard-bar]")?.textContent).toContain("Neues Spiel aus ROM");
+      expect(start?.querySelector('[data-wizard-hand] [role="dialog"][data-wizard]')).not.toBeNull();
+      expect(container.querySelector('[data-area="welt"] [data-wizard-bar]')?.childElementCount ?? 0).toBe(0);
+      // While it is open, Start is the only area and the palette is off.
+      expect(atlasEntry("Welt")?.getAttribute("aria-disabled")).toBe("true");
+      expect(paletteButton().disabled).toBe(true);
+      await click("Abbrechen");
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      expect(atlasEntry("Welt")?.getAttribute("aria-disabled")).not.toBe("true");
     });
 
     it("lists_only_commands_without_a_project_with_the_wizards_locked", async () => {

@@ -31,7 +31,7 @@ describe("TechnikArea", () => {
   let problems: ProblemsStore;
   let checks: ChecksApi;
   let tools: ToolStatusStore;
-  const handlers = { onBuild: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}) };
+  const handlers = { onBuild: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}), onClearWorld: vi.fn() };
 
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
@@ -359,5 +359,24 @@ describe("TechnikArea", () => {
     // Off because the scripts are not adopted: the panel's reason.
     await act(async () => tools.set({ lsp: { state: "aus", note: "Läuft, sobald die Scripts des Projekts übernommen sind." } }));
     expect(lsp()?.textContent).toContain("Läuft, sobald die Scripts des Projekts übernommen sind.");
+  });
+  it("clear_world_needs_a_project", async () => {
+    await render({ start: "werkzeuge", project: null });
+    const tool = surface()!.querySelector<HTMLElement>("[data-tool=welt-leeren]");
+    expect(tool?.textContent).toContain("Welt leeren");
+    expect(tool?.textContent).toContain("Macht aus der Welt eine leere Region mit Startstadt. Die Welt holst du mit ⌘Z zurück.");
+    expect(tool?.textContent).toContain("Erst ein Projekt öffnen");
+    expect(button("Welt leeren…", tool!)?.disabled).toBe(true);
+    await click(button("Welt leeren…", tool!));
+    expect(handlers.onClearWorld).not.toHaveBeenCalled();
+  });
+
+  it("clear_world_opens_the_wizard", async () => {
+    await render({ start: "werkzeuge" });
+    const tool = surface()!.querySelector<HTMLElement>("[data-tool=welt-leeren]");
+    expect(tool?.textContent).not.toContain("Erst ein Projekt öffnen");
+    expect(button("Welt leeren…", tool!)?.disabled).toBe(false);
+    await click(button("Welt leeren…", tool!));
+    expect(handlers.onClearWorld).toHaveBeenCalledOnce();
   });
 });

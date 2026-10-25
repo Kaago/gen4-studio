@@ -150,7 +150,7 @@ beschrieben.
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
-| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project` |
+| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
 Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
@@ -375,6 +375,54 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
 
 **Szenarien.** `g4emu scenario` kann seit 3b.4b: `${sha1-of:PFAD}` (SHA-1 einer Datei der Kopie, gelesen erst beim Einsetzen, etwa in `check:` nach dem Bauen), `{expect: {error: Teilstring}}` (die Brücke muss den Befehl ablehnen, das Szenario läuft weiter), einen Befehl ohne Argumente mit Erwartung (`[dirty, {}, {expect: …}]`) und den Abschnitt `prepare:` mit dem Schritt `make-oversize-nsbmd {path, bytes?}` (ein synthetisches Modell über 0xF000 Byte für den Gegenfall; `scripts/g4emu/g4emu/fixtures.py`, `make_oversize_nsbmd`; einen eigenen Befehl `g4emu make-oversize-nsbmd` gibt es nicht). Beschreibung in [docs/agent-gate.md](agent-gate.md), „Szenario“. Die Gesamtgate-Szenarien `pt-kleiner-hack.yaml` und `hg-kleiner-hack.yaml` brauchen je unter einer Minute (gemessen 47 bis 49 s, 23 Brücken-Sitzungen) plus den Bau der Werkzeuge; dazu gehören die Gegenproben `pt-kleiner-hack-ohne-import.yaml` und `hg-kleiner-hack-ohne-import.yaml`, die am Weg scheitern müssen. Rezept „Gesamtgate“ in [docs/agent-gate.md](agent-gate.md).
 
+#### Projekt aus ROM anlegen (3g.1)
+
+`crates/g4-kernel/src/start.rs` legt ein Projekt aus einer `.nds`-Datei an; Aufbau der Marke und der CRC-Wiederherstellung in [docs/formats/project_base.md](formats/project_base.md).
+
+```sh
+cargo build --workspace --all-features
+target/debug/g4k inspect-rom <rom.nds>            # JSON: Titel, Spielcode, Familie, Sprache, SHA-1, known_base, support
+target/debug/g4k create <rom.nds> <neuer-ordner>  # [--template original|data-only|empty-region]; druckt root=… und die Phasen mit ms
+```
+
+`inspect-rom` liest nur. `create` entpackt nach `<Eltern>/.<Name>.g4-new`, schreibt `.g4/base.json` und benennt erst dann nach `<neuer-ordner>` um; das Ziel muss fehlen oder leer sein. Es nimmt den Namen wörtlich: ein Ordner mit der Endung `_DSPRE_contents` bleibt ein Name wie jeder andere (die Brücke sperrt solche Namen, `g4k` nicht). Diamant/Perl lehnt es ab („Diamant/Perl: ohne Testprojekt nicht freigegeben“), ebenso eine Datei ohne Gen-4-Spielcode. Erfolgsweg-Tests ohne ROM benutzen einen Fake-Extraktor (`create_project_with` in `start.rs`), weil ds-rom die synthetische Kopf-ROM (`test_support::synthetic_rom`) nicht entpacken kann.
+
+Der gated Test `project_start_create_then_build_matches_the_rom` (`G4_TEST_ROM`) legt das Projekt in einem Temp-Ordner an, baut es und vergleicht den SHA-1 der gebauten ROM mit dem der Eingabe (ohne `restore_header_crcs` weichen `0x6C` und `0x15E` ab):
+
+```sh
+G4_TEST_ROM="$PWD/../Roms/_testkopien/3g-probe/pt.nds" \
+  cargo test --workspace --all-features -- project_start_ --nocapture
+```
+
+Im Gate-Skript läuft das als Schritt „gated tests (project start)“, einmal je `*.nds` direkt unter `$G4_ROMS_DIR` (nur gelesen); ohne `.nds` steht die Zeile „skipped (keine ROM)“. Der Filter `project_start_` wählt nur diese Tests; je ROM dauert der Schritt etwa 15 bis 25 s plus den Bau der Tests.
+
+#### Leere Region mit Startstadt (3g.2)
+
+`crates/g4-kernel/src/templates.rs` plant und wendet die Weltvorlage „Leere Region mit Startstadt“ an (Rezept `metadata/templates.yaml`, Start-Scripts `metadata/templates/start_pt.rotom` und `start_hgss.rotom`); Ablauf, Vorbedingungen und Start-Script in [docs/formats/templates.md](formats/templates.md). Rand-Karte, Level-Script und Start-Script schreibt der Kernel sofort (nicht rückgängig), alles Übrige ist ein Schritt im Verlauf („Vorlage: Leere Region mit Startstadt“).
+
+```sh
+target/debug/g4k template <projekt> empty-region   # übernimmt die Scripts, wenn nötig; wendet an, speichert, druckt den Bericht
+target/debug/g4k create <rom.nds> <neuer-ordner> --template empty-region
+```
+
+`g4k template` schreibt ins Projekt; nur auf Kopien unter `_testkopien` anwenden. Die gated Tests (`crates/g4-kernel/tests/templates.rs`, auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `vanilla_plan_empty_region` | der Plan: Startstadt, behaltene Räume, Rand-Zellen, leeres Level-Script |
+| `vanilla_empty_region_has_no_check_errors` | Scripts übernehmen, anwenden, speichern: alle drei Prüfgruppen ohne Fehler, kein `text.too-wide` im Textarchiv der Stadt, ein neuer Plan sieht `already_empty` |
+| `vanilla_empty_region_undo_restores_the_world` | ein ⌘Z stellt Header-Tabelle, Matrix 0 und die Eventdatei der Stadt byte-gleich wieder her |
+| `vanilla_empty_region_builds` | das gespeicherte Ergebnis baut ohne Fehler |
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/3g-b-pt" \
+  cargo test --workspace --all-features --test templates -- vanilla_ --nocapture --test-threads 1
+G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/3g-probe/pt.nds" \
+  cargo test --workspace --all-features -- project_start_ --nocapture
+```
+
+`project_start_empty_region_from_the_rom` (`G4_TEST_ROM`) legt ein Projekt mit `Template::EmptyRegion` an und verlangt die Marke `empty_region`, Fortschritt bis `done = total` und 0 Fehler in allen Prüfgruppen. Gemessen: die vier Tests in `templates.rs` brauchen auf Platin DE etwa 50 s, auf HeartGold DE etwa 40 s (dreimal Scripts übernehmen); die Vorlagen-Phase von `create_project` 4 bis 7 s.
+
 ## Design-System und Tokens
 
 Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.
@@ -416,6 +464,7 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 9. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
 10. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
 11. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+12. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
 
 ```sh
 scripts/gate.sh

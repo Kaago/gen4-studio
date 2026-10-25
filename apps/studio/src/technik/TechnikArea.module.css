@@ -151,6 +151,11 @@
   font-weight: 600;
 }
 
+/* A tool of the studio itself (no program): named in words, not in code. */
+.toolTitle {
+  font: var(--g4-font-text-s-betont);
+}
+
 .inset {
   padding: var(--g4-raum-12);
 }
