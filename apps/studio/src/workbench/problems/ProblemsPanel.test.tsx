@@ -248,7 +248,7 @@ describe("ProblemsPanel with findings of the checks", () => {
     expect(container.querySelector("[data-unchecked]")).toBeNull();
   });
 
-  it("the_ignored_list_folds_when_it_empties_and_when_a_baseline_adds_to_it_and_scrolls_within_its_cap", async () => {
+  it("the_ignored_list_folds_when_it_empties_and_after_a_baseline_and_scrolls_within_its_cap", async () => {
     const ignoredOf = (n: number) => Array.from({ length: n }, (_, i) => finding("warp.never-fires", "info", { key: `warp:${i}` }));
     const more = () => button("Wieder melden…", container.querySelector<HTMLElement>("footer")!);
     const list = () => container.querySelector<HTMLElement>("[role=list][aria-label=Ausgeblendet]");
@@ -260,16 +260,23 @@ describe("ProblemsPanel with findings of the checks", () => {
     act(() => checks.feed.update({ ignored: [] }));
     expect(more()).toBeUndefined();
     // „Ausgangslage übernehmen“ ignores 111 at once: the list stays folded.
-    act(() => checks.feed.update({ ignored: ignoredOf(111) }));
+    act(() => checks.feed.update({ ignored: ignoredOf(111), baselines: 1 }));
     expect(more()!.getAttribute("aria-expanded")).toBe("false");
     expect(list()).toBeNull();
-    // Open, entries taken off one by one keep it open; a baseline that adds to it folds it.
+    // Open, entries taken off one by one and a single „Ausblenden“ keep it open; a baseline folds it.
     await click(more());
     act(() => checks.feed.update({ ignored: ignoredOf(110) }));
     expect(more()!.getAttribute("aria-expanded")).toBe("true");
     expect(list()!.querySelectorAll("[data-finding]")).toHaveLength(110);
-    act(() => checks.feed.update({ ignored: ignoredOf(140) }));
+    act(() => checks.feed.update({ ignored: ignoredOf(111) }));
+    expect(more()!.getAttribute("aria-expanded")).toBe("true");
+    expect(list()!.querySelectorAll("[data-finding]")).toHaveLength(111);
+    act(() => checks.feed.update({ ignored: ignoredOf(140), baselines: 2 }));
     expect(more()!.getAttribute("aria-expanded")).toBe("false");
+    expect(list()).toBeNull();
+    // A baseline that adds nothing folds it as well.
+    await click(more());
+    act(() => checks.feed.update({ baselines: 3 }));
     expect(list()).toBeNull();
     // Open, it scrolls within its own cap, and the foot takes at most half of the panel (the hand is often 250 px high).
     const css = readCss("./ProblemsPanel.module.css", import.meta.url);

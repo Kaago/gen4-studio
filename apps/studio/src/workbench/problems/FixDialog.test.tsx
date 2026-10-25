@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FixPlanDto } from "../../api";
 import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
+import { pressKey } from "../../ui/primitives/testUtils";
 import { FixDialog } from "./FixDialog";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -136,10 +137,36 @@ describe("FixDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("creates_no_script_when_the_dialog_is_cancelled_or_escaped_while_it_saves", async () => {
+    const unsaved = { code: "error", message: "text archive 0554 has unsaved changes; save it first (creating a script compiles the scripts, which rewrites text archives)", asset: null };
+    for (const leave of ["Abbrechen", "Escape"]) {
+      vi.mocked(checks.planFix).mockResolvedValue({ changes: [{ asset: { kind: "Script", index: 5 }, label: "Scriptdatei 0005", before: "", after: "script script_7 #7:\n\tEnd" }], irreversible: true });
+      vi.mocked(checks.applyFix).mockReset().mockRejectedValue(unsaved);
+      onClose.mockReset();
+      await show(missing);
+      await click(button("Script anlegen"));
+      let saved!: () => void;
+      vi.mocked(checks.save).mockReset().mockReturnValue(new Promise<void>((resolve) => (saved = resolve)));
+      vi.mocked(checks.applyFix).mockReset().mockResolvedValue({ changed: [{ kind: "Script", index: 5 }], remaining: false });
+      await click(button("Speichern und anlegen"));
+      expect(checks.save).toHaveBeenCalledOnce();
+      // The save runs; the dialog is left before it ends.
+      if (leave === "Abbrechen") await click(button("Abbrechen"));
+      else pressKey(dialog(), "Escape");
+      expect(onClose).toHaveBeenCalled();
+      await act(async () => saved());
+      // Creating the script cannot be taken back: a dialog that was left does not do it.
+      expect(checks.applyFix, leave).not.toHaveBeenCalled();
+      act(() => root.unmount());
+      root = createRoot(container);
+    }
+  });
+
   it("says_why_a_preview_cannot_be_made", async () => {
     vi.mocked(checks.planFix).mockRejectedValue({ code: "error", message: "word 'WWW' is 520px wide", asset: null });
     await show();
-    expect(dialog().querySelector("[role=alert]")?.textContent).toContain("word 'WWW' is 520px wide");
+    // A German sentence with the way out; the kernel's reason only as a detail in brackets.
+    expect(dialog().querySelector("[role=alert]")?.textContent).toContain("Das Studio kann diesen Befund nicht beheben (word 'WWW' is 520px wide). Behebe ihn von Hand.");
     expect(button("Umbrechen")).toBeUndefined();
   });
 });

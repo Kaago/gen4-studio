@@ -24,9 +24,11 @@ export interface ChecksView {
   /** A pass runs (one this hook asked for, or any the backend reports). */
   running: boolean;
   progress: ChecksProgressDto | null;
+  /** How many times „Ausgangslage übernehmen“ was answered in this project: the list of the ignored ones folds for each. */
+  baselines: number;
 }
 
-const NOTHING: ChecksView = { reported: false, ignored: [], skipped: [], disabled: [], running: false, progress: null };
+const NOTHING: ChecksView = { reported: false, ignored: [], skipped: [], disabled: [], running: false, progress: null, baselines: 0 };
 
 /**
  * No report of the open project arrived and none runs (the first run failed, or answered without a report): the findings say nothing, so
@@ -97,13 +99,28 @@ export interface ChecksApi {
   setEnabled: (code: string, enabled: boolean) => Promise<void>;
   /** What `fix` would change; rejects as the command does (code "finding_stale" when the finding is no longer current). */
   planFix: (finding: CheckProblemDto, fix: FixId) => Promise<FixPlanDto>;
-  /** Applies `fix`, reloads what it changed (`onFixed`) and checks everything again; rejects as the command does. */
+  /**
+   * Applies `fix`, reloads what it changed (`onFixed`) and checks everything again; rejects as the command does. An edit's run still
+   * waiting for its pause (the save of „Speichern und anlegen“) is this run: one run after the fix, none before it.
+   */
   applyFix: (finding: CheckProblemDto, fix: FixId) => Promise<FixResultDto>;
   /**
    * Saves the project as „Speichern“ in the title bar does (`onSave`), for the fix dialog's „Speichern und anlegen“; a failure is reported
    * there (the app's message), not here.
    */
   save: () => Promise<void>;
+  /**
+   * The findings of the next report of a run that starts after this call (the run an edit asks for after its pause, say: an import sends
+   * `edited`); a run under way now is of the state before and does not count. Null when that run gives no report or fails, or the project
+   * changes first.
+   */
+  nextReport: () => Promise<readonly CheckProblemDto[] | null>;
+}
+
+/** A `nextReport` waiting for a run that starts after the `after`-th one. */
+interface Waiter {
+  after: number;
+  settle: (findings: readonly CheckProblemDto[] | null) => void;
 }
 
 export interface UseChecksParams {
@@ -150,6 +167,9 @@ export function useChecks(params: UseChecksParams): ChecksApi {
     progress: null as ChecksProgressDto | null,
     poll: null as ReturnType<typeof setTimeout> | null,
     debounce: null as ReturnType<typeof setTimeout> | null,
+    /** Runs started in this project; the `nextReport`s waiting for a later one. */
+    runs: 0,
+    waiters: [] as Waiter[],
   });
   const s = state.current;
 
@@ -162,6 +182,12 @@ export function useChecks(params: UseChecksParams): ChecksApi {
     const stopPoll = () => {
       if (s.poll !== null) clearTimeout(s.poll);
       s.poll = null;
+    };
+    /** Hands what the `run`-th run gave to the waiters for a run after an earlier one. */
+    const settle = (run: number, findings: readonly CheckProblemDto[] | null) => {
+      const due = s.waiters.filter((w) => w.after < run);
+      s.waiters = s.waiters.filter((w) => w.after >= run);
+      for (const w of due) w.settle(findings);
     };
     /** Takes an answer of `project` (a run, a status, an ignore, ...); whether it replaced what is shown. */
     const take = (report: ChecksReportDto, of: ProjectInfo): boolean => {
@@ -196,12 +222,18 @@ export function useChecks(params: UseChecksParams): ChecksApi {
         s.pending = false;
         s.inFlight = true;
         s.ownRun = true;
+        const run = ++s.runs;
         show();
         poll(of);
         try {
-          take(await runChecks("all"), of);
+          const report = await runChecks("all");
+          if (take(report, of)) settle(run, report.findings);
+          else if (s.project === of) settle(run, null);
         } catch (e) {
-          if (s.project === of) latest.current.onError(e);
+          if (s.project === of) {
+            latest.current.onError(e);
+            settle(run, null);
+          }
         } finally {
           s.inFlight = false;
           s.ownRun = false;
@@ -233,12 +265,25 @@ export function useChecks(params: UseChecksParams): ChecksApi {
       recheck: () => request(),
       ignore: (f) => answer(() => ignoreFinding(f)),
       unignore: (f) => answer(() => unignoreFinding(f)),
-      acceptBaseline: () => answer(() => acceptBaseline()),
+      acceptBaseline: async () => {
+        const of = s.project;
+        await answer(() => acceptBaseline());
+        if (s.project === of) feed.update({ baselines: feed.get().baselines + 1 });
+      },
       setEnabled: (code, enabled) => answer(() => setCheckEnabled(code, enabled)),
       planFix: (f, fix) => planFix(f, fix),
       applyFix: async (f, fix) => {
         const of = s.project;
-        const result = await applyFix(f, fix);
+        const owed = s.debounce !== null;
+        if (owed) clearTimeout(s.debounce!);
+        s.debounce = null;
+        let result: FixResultDto;
+        try {
+          result = await applyFix(f, fix);
+        } catch (e) {
+          if (owed && s.project === of) void request();
+          throw e;
+        }
         if (s.project === of) {
           try {
             await latest.current.onFixed?.(result.changed);
@@ -251,6 +296,7 @@ export function useChecks(params: UseChecksParams): ChecksApi {
       save: async () => {
         await latest.current.onSave?.();
       },
+      nextReport: () => new Promise((resolve) => (s.project === null ? resolve(null) : s.waiters.push({ after: s.runs, settle: resolve }))),
     };
     return { api, request, poll };
   }, [feed, s]);
@@ -265,6 +311,10 @@ export function useChecks(params: UseChecksParams): ChecksApi {
     s.progress = null;
     if (s.debounce !== null) clearTimeout(s.debounce);
     s.debounce = null;
+    s.runs = 0;
+    const waiting = s.waiters;
+    s.waiters = [];
+    for (const w of waiting) w.settle(null);
     latest.current.problems.replaceChecks([]);
     feed.reset();
     if (project !== null) void engine.request();

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyFix, checksStatus, ignoreFinding, runChecks, setCheckEnabled } from "../api";
+import { acceptBaseline, applyFix, checksStatus, ignoreFinding, runChecks, setCheckEnabled } from "../api";
 import type { ChecksReportDto, ProjectInfo } from "../api";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
@@ -56,7 +56,7 @@ describe("useChecks", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    for (const fn of [runChecks, checksStatus, ignoreFinding, setCheckEnabled, applyFix]) vi.mocked(fn).mockReset();
+    for (const fn of [runChecks, checksStatus, ignoreFinding, setCheckEnabled, applyFix, acceptBaseline]) vi.mocked(fn).mockReset();
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [], running: false }));
     onError.mockReset();
     onFixed.mockClear();
@@ -245,5 +245,84 @@ describe("useChecks", () => {
     await render(null);
     expect(codes()).toEqual([]);
     expect(api.feed.get().reported).toBe(false);
+  });
+
+  it("a_fix_right_after_a_save_runs_the_checks_once_after_the_fix_also_when_it_outlasts_the_pause", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report());
+    await render(project("/p"));
+    vi.mocked(runChecks).mockClear();
+    // „Speichern und anlegen“: the save announces an edit, then the fix runs (creating a script compiles, longer than the pause).
+    const fix = deferred<{ changed: []; remaining: false }>();
+    vi.mocked(applyFix).mockReturnValue(fix.promise);
+    act(() => bus.emit({ topic: "edited" }));
+    let applied: Promise<unknown> = Promise.resolve();
+    act(() => void (applied = api.applyFix(finding("event.script-missing"), "create_script")));
+    await wait(CHECKS_DEBOUNCE_MS * 3);
+    expect(runChecks).not.toHaveBeenCalled();
+    await act(async () => {
+      fix.resolve({ changed: [], remaining: false });
+      await applied;
+    });
+    await wait(CHECKS_DEBOUNCE_MS * 3);
+    expect(runChecks).toHaveBeenCalledOnce();
+  });
+
+  it("a_fix_that_fails_still_runs_the_checks_an_edit_before_it_asked_for", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report());
+    await render(project("/p"));
+    vi.mocked(runChecks).mockClear();
+    vi.mocked(applyFix).mockRejectedValue({ code: "error", message: "text archive 0554 has unsaved changes", asset: null });
+    act(() => bus.emit({ topic: "edited" }));
+    await act(async () => void (await api.applyFix(finding("event.script-missing"), "create_script").catch(() => {})));
+    await wait(CHECKS_DEBOUNCE_MS * 3);
+    expect(runChecks).toHaveBeenCalledOnce();
+    // Without an edit waiting, a refused fix runs nothing.
+    vi.mocked(runChecks).mockClear();
+    await act(async () => void (await api.applyFix(finding("event.script-missing"), "create_script").catch(() => {})));
+    await wait(CHECKS_DEBOUNCE_MS * 3);
+    expect(runChecks).not.toHaveBeenCalled();
+  });
+
+  it("counts_the_baselines_taken_so_the_ignored_list_can_fold", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report());
+    await render(project("/p"));
+    expect(api.feed.get().baselines).toBe(0);
+    const ignored = [finding("warp.never-fires", "info")];
+    vi.mocked(ignoreFinding).mockResolvedValue(report({ ignored }));
+    await act(async () => api.ignore(finding("warp.never-fires", "info")));
+    expect(api.feed.get().baselines).toBe(0);
+    vi.mocked(acceptBaseline).mockResolvedValue(report({ ignored: [...ignored, finding("warp.never-fires", "info", { key: "warp:7" })] }));
+    await act(async () => api.acceptBaseline());
+    expect(api.feed.get().baselines).toBe(1);
+    expect(api.feed.get().ignored).toHaveLength(2);
+    await render(null);
+    expect(api.feed.get().baselines).toBe(0);
+  });
+
+  it("next_report_gives_the_findings_of_the_first_run_that_starts_after_it_was_asked_for", async () => {
+    const old = finding("warp.dest-warp");
+    const mapped = finding("map.model-invalid", "error", { subject: { kind: "map", index: 5 }, key: "model" });
+    const running = deferred<ChecksReportDto>();
+    vi.mocked(runChecks).mockReturnValueOnce(running.promise);
+    await render(project("/p"));
+    // A run under way when it is asked is of the state before (an import, say): its report does not count.
+    let next: readonly unknown[] | null | undefined;
+    act(() => void api.nextReport().then((findings) => (next = findings)));
+    await act(async () => running.resolve(report({ findings: [old] })));
+    expect(next).toBeUndefined();
+    vi.mocked(runChecks).mockResolvedValue(report({ findings: [old, mapped], generation: 2 }));
+    act(() => bus.emit({ topic: "edited" }));
+    await wait(CHECKS_DEBOUNCE_MS);
+    expect(next).toEqual([old, mapped]);
+    // A failed run, or another project, settles it with nothing.
+    let failed: readonly unknown[] | null | undefined;
+    act(() => void api.nextReport().then((findings) => (failed = findings)));
+    vi.mocked(runChecks).mockRejectedValueOnce({ code: "error", message: "boom", asset: null });
+    await act(async () => api.recheck());
+    expect(failed).toBeNull();
+    let gone: readonly unknown[] | null | undefined;
+    act(() => void api.nextReport().then((findings) => (gone = findings)));
+    await render(null);
+    expect(gone).toBeNull();
   });
 });

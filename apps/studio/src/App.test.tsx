@@ -259,6 +259,23 @@ describe("App wiring", () => {
     expect(runChecks).toHaveBeenCalledTimes(2);
   });
 
+  it("checks the project once after „Speichern und anlegen“, after the script is created", async () => {
+    const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+    await wait(450);
+    vi.mocked(runChecks).mockClear();
+    vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+    // Creating the script compiles the scripts: longer than an edit's pause.
+    vi.mocked(applyFix).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({ changed: [], remaining: false }), 400)));
+    await act(async () => {
+      await data().checks.save();
+      await data().checks.applyFix(finding("event.script-missing", "error"), "create_script");
+    });
+    await wait(450);
+    expect(save).toHaveBeenCalledOnce();
+    expect(runChecks).toHaveBeenCalledOnce();
+    expect(vi.mocked(applyFix).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(runChecks).mock.invocationCallOrder[0]!);
+  });
+
   it("keeps the workbench data object through hover and message updates", async () => {
     await select(listed[0]);
     expect(data().matrix?.index).toBe(0);
