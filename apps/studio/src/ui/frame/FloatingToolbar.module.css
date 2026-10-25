@@ -38,7 +38,8 @@
 }
 
 /* The menu's trigger is drawn like the grip: a quiet half of the handle. */
-.handle > button {
+.handle > button,
+.handle > .grip {
   display: inline-flex;
   width: var(--g4-raum-24);
   min-width: 0;
@@ -54,7 +55,8 @@
   font-size: var(--g4-dichte-symbol);
 }
 
-.handle > button:hover {
+.handle > button:hover,
+.handle > .grip:hover {
   background: var(--g4-flaeche-deck);
   color: var(--g4-text-primaer);
 }

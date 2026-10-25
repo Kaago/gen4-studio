@@ -97,6 +97,29 @@ describe("SceneOverlays", () => {
     expect(JSON.parse(localStorage.getItem(KEY)!).toolbar).toBe("left");
   });
 
+  it("ticks_the_remembered_anchor_in_a_low_view_and_writes_the_entry_chosen", () => {
+    viewHeight(300);
+    show();
+    const openMenu = () => {
+      const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Lage der Werkzeugleiste"]')!;
+      act(() => {
+        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.click();
+      });
+      return [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")];
+    };
+    // The remembered left shows flat on top; the menu ticks "Links" and says why.
+    const items = openMenu();
+    expect(items.map((i) => [i.textContent, i.getAttribute("aria-checked")])).toEqual([
+      ["Links (bei dieser Höhe oben)", "true"],
+      ["Oben", "false"],
+      ["Unten", "false"],
+    ]);
+    act(() => items[1]!.click());
+    expect(JSON.parse(localStorage.getItem(KEY)!).toolbar).toBe("top");
+  });
+
   it("calls_a_view_low_below_460_px_in_komfort_and_below_400_in_kompakt", () => {
     viewHeight(430);
     show();

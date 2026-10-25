@@ -1,4 +1,4 @@
-import { Fragment, useId, useRef } from "react";
+import { Fragment, memo, useId, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { isEventTool } from "../../workbench/tools";
 import type { ToolSpec } from "../../workbench/tools";
@@ -49,6 +49,8 @@ export interface FloatingToolbarProps {
   density: Density;
   /** Where the toolbar shows: upright at the left, flat at the top or at the bottom. */
   anchor: ToolbarAnchor;
+  /** The anchor the user chose (the shell remembers it): the menu ticks this one, `anchor` differs from it in a low view. */
+  chosen: ToolbarAnchor;
   /** A new anchor, chosen in the grip's menu or by dragging the grip. */
   onAnchor: (anchor: ToolbarAnchor) => void;
   /** The view the toolbar floats in, measured when a drag of the grip ends; without it a drag moves nothing. */
@@ -61,24 +63,24 @@ export interface FloatingToolbarProps {
  * anchor when dragged; the caret next to it chooses the anchor from a menu (the keyboard's way). Base UI opens a menu on the press of its
  * trigger, so the grip cannot be the trigger and a drag handle at once.
  */
-export function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, onAnchor, area }: FloatingToolbarProps) {
+export const FloatingToolbar = memo(function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, anchor, chosen, onAnchor, area }: FloatingToolbarProps) {
   const bar = useRef<HTMLDivElement>(null);
   const vertical = anchor === "left";
   useRovingList(bar, { orientation: vertical ? "vertical" : "horizontal" });
   const uid = useId();
   const drag = useRef<{ pointer: number; x: number; y: number; moved: boolean } | null>(null);
 
-  function onPointerDown(e: ReactPointerEvent<HTMLButtonElement>) {
+  function onPointerDown(e: ReactPointerEvent<HTMLSpanElement>) {
     if (e.button !== 0) return;
     drag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
-  function onPointerMove(e: ReactPointerEvent<HTMLButtonElement>) {
+  function onPointerMove(e: ReactPointerEvent<HTMLSpanElement>) {
     const d = drag.current;
     if (d === null || e.pointerId !== d.pointer || d.moved) return;
     d.moved = Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_SLOP;
   }
-  function endDrag(e: ReactPointerEvent<HTMLButtonElement>, drop: boolean) {
+  function endDrag(e: ReactPointerEvent<HTMLSpanElement>, drop: boolean) {
     const d = drag.current;
     if (d === null || e.pointerId !== d.pointer) return;
     drag.current = null;
@@ -98,26 +100,28 @@ export function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, a
       className={styles.bar}
     >
       <span className={styles.handle}>
-        <button
-          type="button"
+        <span
           className={styles.grip}
           data-toolbar-grip=""
-          aria-label="Werkzeugleiste verschieben"
           // For the pointer only: the caret's menu next to it is the way of the keyboard and of assistive tech.
           aria-hidden="true"
           title="Ziehen verschiebt die Leiste"
-          tabIndex={-1}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={(e) => endDrag(e, true)}
           onPointerCancel={(e) => endDrag(e, false)}
         >
           <Icon name="grip" />
-        </button>
+        </span>
         <Menu
           trigger={<Icon name="caretDown" />}
           label="Lage der Werkzeugleiste"
-          items={ANCHORS.map((a) => ({ label: ANCHOR_LABELS[a], checked: a === anchor, onSelect: () => onAnchor(a) }))}
+          // The menu ticks the chosen anchor and always writes the entry; in a low view it says why "Links" shows flat on top.
+          items={ANCHORS.map((a) => ({
+            label: a === "left" && chosen === "left" && anchor !== "left" ? `${ANCHOR_LABELS[a]} (bei dieser Höhe oben)` : ANCHOR_LABELS[a],
+            checked: a === chosen,
+            onSelect: () => onAnchor(a),
+          }))}
         />
       </span>
       {tools.map((t, at) => {
@@ -168,4 +172,4 @@ export function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, a
       })}
     </div>
   );
-}
+});

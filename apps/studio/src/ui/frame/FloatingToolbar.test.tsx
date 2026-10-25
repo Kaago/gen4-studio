@@ -32,7 +32,7 @@ describe("FloatingToolbar", () => {
     container.remove();
   });
 
-  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor } = {}) =>
+  const show = (opts: { tool?: Tool; eventsBlocked?: string | null; density?: Density; anchor?: ToolbarAnchor; chosen?: ToolbarAnchor } = {}) =>
     act(() =>
       root.render(
         <FloatingToolbar
@@ -42,6 +42,7 @@ describe("FloatingToolbar", () => {
           eventsBlocked={opts.eventsBlocked ?? null}
           density={opts.density ?? "komfort"}
           anchor={opts.anchor ?? "left"}
+          chosen={opts.chosen ?? opts.anchor ?? "left"}
           onAnchor={onAnchor}
           area={area}
         />,
@@ -50,7 +51,7 @@ describe("FloatingToolbar", () => {
   const bar = () => container.querySelector<HTMLElement>('[role="toolbar"][aria-label="Werkzeugleiste"]')!;
   const keys = () => [...container.querySelectorAll<HTMLButtonElement>("button[data-tool]")];
   const tool = (name: string) => keys().find((b) => b.getAttribute("aria-label") === name)!;
-  const grip = () => container.querySelector<HTMLButtonElement>("button[data-toolbar-grip]")!;
+  const grip = () => container.querySelector<HTMLElement>("[data-toolbar-grip]")!;
   const pointer = (type: string, clientY: number) => {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY });
     Object.defineProperty(event, "pointerId", { value: 1 });
@@ -145,6 +146,31 @@ describe("FloatingToolbar", () => {
     expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
     act(() => items[2]!.click());
     expect(onAnchor).toHaveBeenCalledWith("bottom");
+  });
+
+  const openAnchorMenu = () => {
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Lage der Werkzeugleiste"]')!;
+    act(() => {
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      trigger.click();
+    });
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")];
+  };
+
+  it("ticks_the_remembered_anchor_in_a_low_view_and_says_why_left_lies_flat", () => {
+    // The view is low: the remembered left bar shows flat on top.
+    show({ anchor: "top", chosen: "left" });
+    const items = openAnchorMenu();
+    expect(items.map((i) => i.textContent)).toEqual(["Links (bei dieser Höhe oben)", "Oben", "Unten"]);
+    expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+  });
+
+  it("writes_the_entry_chosen_in_a_low_view_even_when_it_is_what_shows", () => {
+    show({ anchor: "top", chosen: "left" });
+    const items = openAnchorMenu();
+    act(() => items[1]!.click());
+    expect(onAnchor).toHaveBeenCalledExactlyOnceWith("top");
   });
 
   it("moves_to_the_nearest_anchor_after_a_drag", () => {

@@ -22,7 +22,7 @@ import type { InspectorModel } from "./workbench/Inspector";
  * what App hands them (so the tests call the callbacks the panels would call), and the deck is a
  * stub that gives the two dockview apis as far as App uses them and renders the hinge it is given.
  */
-const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown }));
+const shown = vi.hoisted(() => ({ data: null as unknown, live: null as unknown, renders: 0, focused: [] as string[], mounts: 0, resets: [] as unknown[][], dataTarget: null as unknown, onTrail: null as unknown, onPlaceTrainer: null as unknown, worldVisible: false, visibility: [] as ((e: { isVisible: boolean }) => void)[] }));
 vi.mock("./workbench/Workbench", () => ({
   default: ({ data, live, children }: { data: unknown; live: unknown; children: unknown }) => {
     shown.data = data;
@@ -55,7 +55,24 @@ vi.mock("./ui/frame/Deck", async () => {
   const { HandSplitter } = await import("./ui/frame/HandSplitter");
   type Ref = { current: unknown };
   /** A dockview api that knows these panels: a link focuses the panel that shows its target (a panel of Texte is noted as `texte/<id>`). */
-  const dock = (area: string, ids: string[]) => ({ getPanel: (id: string) => (ids.includes(id) ? { focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`) } : undefined) });
+  const dock = (area: string, ids: string[]) => ({
+    getPanel: (id: string) =>
+      ids.includes(id)
+        ? {
+            focus: () => shown.focused.push(area === "welt" ? id : `${area}/${id}`),
+            // Whether the panel is in front is set by a test (`shown.worldVisible`), and a change is announced to what subscribed.
+            api: {
+              get isVisible() {
+                return shown.worldVisible;
+              },
+              onDidVisibilityChange: (listener: (e: { isVisible: boolean }) => void) => {
+                shown.visibility.push(listener);
+                return { dispose: () => void (shown.visibility = shown.visibility.filter((l) => l !== listener)) };
+              },
+            },
+          }
+        : undefined,
+  });
   const PANELS: Record<string, [string[], string[]]> = {
     welt: [
       ["world", "matrix", "worldmap"],
@@ -157,6 +174,8 @@ describe("App wiring", () => {
     shown.focused = [];
     shown.mounts = 0;
     shown.resets = [];
+    shown.worldVisible = false;
+    shown.visibility = [];
     listed = [header(0, 0), header(1, 1)];
     vi.mocked(openPath).mockResolvedValue("/p");
     vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
@@ -1239,6 +1258,30 @@ describe("App wiring", () => {
     expect(repairHeaderPatch).toHaveBeenCalledOnce();
     expect(live().message?.kind).toBe("info");
     expect(live().message?.text).toContain("repariert");
+  });
+
+  it("tells_once_per_switch_that_the_tools_work_in_the_3d_view", async () => {
+    const told = () => listToasts().filter((t) => t.text === "Werkzeuge wirken in der 3D-Ansicht");
+    const letter = () => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true, cancelable: true })));
+    const switchTo = (visible: boolean) => {
+      shown.worldVisible = visible;
+      act(() => shown.visibility.forEach((listener) => listener({ isVisible: visible })));
+    };
+    // Raster in front: the first letter tells, the next ones stay silent.
+    await letter();
+    await letter();
+    expect(told()).toHaveLength(1);
+    // Back to 3D and away again without a letter in between: the next letter tells again.
+    switchTo(true);
+    switchTo(false);
+    await letter();
+    await letter();
+    expect(told()).toHaveLength(2);
+    // With 3D in front a letter changes the tool and tells nothing.
+    switchTo(true);
+    await letter();
+    expect(data().tool).toBe("paint");
+    expect(told()).toHaveLength(2);
   });
 
   it("repairing_the_patch_in_technik_says_so_and_closes_the_broken_patch_toast", async () => {

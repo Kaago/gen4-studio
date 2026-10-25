@@ -125,7 +125,7 @@ function ToolbarView({ anchor, blocked = null }: { anchor: ToolbarAnchor; blocke
   const [at, setAt] = useState(anchor);
   return (
     <div className={at === "left" ? styles.toolbarView : `${styles.toolbarView} ${styles.toolbarViewFlat}`}>
-      <FloatingToolbar tools={TOOLS} tool={tool} onTool={setTool} eventsBlocked={blocked} density="komfort" anchor={at} onAnchor={setAt} />
+      <FloatingToolbar tools={TOOLS} tool={tool} onTool={setTool} eventsBlocked={blocked} density="komfort" anchor={at} chosen={at} onAnchor={setAt} />
     </div>
   );
 }
@@ -158,7 +158,7 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Scharnier oben</h2>
         <p className={styles.note}>
-          Das Scharnier heißt über der Schau, 44 px, ohne Griff und nicht ziehbar. Unter der Schau trennt der Teiler (8 px) die Hand: Ziehen, Pfeiltasten (±16 px), Pos1 und Ende ändern ihre Höhe (560 und 200
+          Das Scharnier steht über der Schau, 44 px, ohne Griff und nicht ziehbar. Unter der Schau trennt der Teiler (8 px) die Hand: Ziehen, Pfeiltasten (±16 px), Pos1 und Ende ändern ihre Höhe (560 und 200
           px), Enter oder Doppelklick klappt sie ein und aus.
         </p>
         <ShellProvider>

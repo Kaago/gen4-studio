@@ -12,16 +12,16 @@ import { useWorkbench } from "./WorkbenchContext";
  * The bars floating over the 3D view, in one corner: the layer bar at the top left, the toolbar under it (anchor left), beside it (top),
  * or at the bottom middle. It covers the view without taking its pointer; only the bars do. A sibling of the scene: reading the shell here
  * renders the bars, never the scene. In a view lower than `toolbarMinHeight` an upright toolbar lies flat at the top; the anchor the
- * shell remembers stays.
+ * shell remembers stays (and is the one the toolbar's menu ticks).
  */
 export function SceneOverlays({ layers }: { layers: SceneBarProps }) {
   const { tool, onTool, eventFileId, eventLock } = useWorkbench();
   const { state, setToolbar, density } = useShell();
   const box = useRef<HTMLDivElement>(null);
   const minHeight = toolbarMinHeight(density);
-  // Only whether the view is too low is kept, not its height: dragging the splitter renders the bars when it crosses the line, not for
-  // every pixel. Measured before the first paint, so a low view never shows the upright bar for a frame; a view that is not measured
-  // (jsdom has no layout) is not low.
+  // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
+  // with every shell change, but the bars only when this flag, the anchor or their own props change. Measured before the first paint, so
+  // a low view never shows the upright bar for a frame; a view that is not measured (jsdom has no layout) is not low.
   const [low, setLow] = useState(false);
   useLayoutEffect(() => {
     const el = box.current;
@@ -47,6 +47,7 @@ export function SceneOverlays({ layers }: { layers: SceneBarProps }) {
         eventsBlocked={eventsBlocked}
         density={density}
         anchor={anchor}
+        chosen={state.toolbar}
         onAnchor={setToolbar}
         area={area}
       />
