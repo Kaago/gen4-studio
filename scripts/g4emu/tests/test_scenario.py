@@ -1816,3 +1816,27 @@ def test_bridge_scenario_resolves_placeholders_in_an_expect_path(tmp_path, roms,
     assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 0
     assert 'Erwartung erfüllt: give list.1 = "b"' in capsys.readouterr().err
 
+
+@pytest.mark.parametrize("name", ["pt-mcp-route.yaml", "hg-mcp-route.yaml"])
+def test_mcp_route_scenarios_load(name):
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    assert sc.mcp == ["--allow-irreversible", "--expert"] and sc.build == "build/out.nds"
+    tools = [edit[0] for edit in sc.edits]
+    # the encounter edits are one batch with a label; history before and after, undo, redo
+    batches = [edit for edit in sc.edits if edit[0] == "g4_batch"]
+    assert len(batches) == 1 and batches[0][1]["label"] == "Agent: Begegnungen"
+    calls = batches[0][1]["calls"]
+    assert calls and all(call["tool"] == "data_edit" for call in calls)
+    at = tools.index("g4_batch")
+    assert tools[at - 1] == "history" and tools[at + 1] == "history"
+    assert tools[at + 2:at + 6] == ["undo", "data_get", "redo", "data_get"]
+    assert {"path": "undo.${h0.undo.length}", "equals": "Agent: Begegnungen"} in sc.edits[at + 1][2]["expect"]
+    # curated tools take snake_case; only what no curated tool can do goes through g4_call
+    assert "eventFile" not in json.dumps(sc.edits)
+    called = {edit[1]["command"] for edit in sc.edits if edit[0] == "g4_call"}
+    assert called <= {"adopt_scripts", "create_encounter_file", "new_script_file", "set_permission"}
+    assert {"ankunft", "geschenk", "trainer1", "trainer2", "wild"} <= {
+        sc.play[i + 1] for i, step in enumerate(sc.play) if step == "shot"
+    }
