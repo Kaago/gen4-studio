@@ -154,7 +154,8 @@ def parse_expect_path(path: Any) -> list[tuple[str, list[tuple[str, str]]]]:
     Grammar: parts separated by dots; a part is a key, a list index (`0`) or `length` (the size of a
     list), followed by any number of filters `[key=value]` (keep the list items whose key has that
     value, compared as text). A filter value may contain dots: `findings[code=warp.dest-warp].length`.
-    Raises ValueError for anything else.
+    Raises ValueError for anything else. (`expect_lookup` refuses a filter key that no item of a non-empty
+    list has; a misspelled value matches nothing and goes unnoticed.)
     """
     if not isinstance(path, str) or not path:
         raise ValueError(f"Pfad {path!r} ist leer oder kein Text")
@@ -202,6 +203,10 @@ def expect_lookup(answer: Any, path: str) -> Any:
         for key, want in filters:
             shown = f"{shown}[{key}={want}]"
             if not isinstance(value, list):
+                raise PathMissing(shown)
+            # A key no item of a non-empty list has is a typo, not "none match" (a `length == 0` would pass with it). A
+            # misspelled value cannot be told from one that matches nothing.
+            if value and not any(isinstance(item, dict) and key in item for item in value):
                 raise PathMissing(shown)
             value = [item for item in value if isinstance(item, dict) and key in item and _as_text(item[key]) == want]
     return value

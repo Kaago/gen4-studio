@@ -738,13 +738,23 @@ def test_expect_paths_start_at_a_list_and_filter_on_the_stringified_value():
         ("nope.length", "nope"),
         ("running.length", "running.length"),  # .length only on lists
         ("running[a=b]", "running[a=b]"),  # a filter only on lists
-        ("findings[nope=1].0", "findings[nope=1].0"),  # the filter keeps nothing
+        ("findings[severity=info].0", "findings[severity=info].0"),  # the filter keeps nothing
+        # A key no item has is a typo, not "none match": `length == 0` would pass with it.
+        ("findings[nope=1].0", "findings[nope=1]"),
+        ("findings[cdoe=warp.dest-warp].length", "findings[cdoe=warp.dest-warp]"),
+        ("findings[code=text.too-wide][kye=m].length", "findings[code=text.too-wide][kye=m]"),
     ],
 )
 def test_expect_paths_report_where_they_break(path, missing):
     with pytest.raises(scenario.PathMissing) as e:
         scenario.expect_lookup(REPORT, path)
     assert e.value.args[0] == missing
+
+
+def test_a_filter_on_an_empty_list_keeps_nothing_whatever_its_key():
+    # No item to have the key: nothing to tell a typo by, and nothing found is the answer.
+    assert scenario.expect_lookup({"findings": []}, "findings[code=warp.dest-warp].length") == 0
+    assert scenario.expect_lookup(REPORT, "findings[code=text.too-wide][key=nope].length") == 0
 
 
 @pytest.mark.parametrize("path", ["", "a..b", ".a", "a.", "findings[code]", "findings[=x]", "findings[code=x", "a]b"])
