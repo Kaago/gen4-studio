@@ -7,8 +7,20 @@ import type { Density } from "../tokens/theme";
 import type { Tool, ToolbarAnchor } from "./shellState";
 import styles from "./FloatingToolbar.module.css";
 
-/** A view lower than this shows a toolbar anchored at the left flat at the top: upright it would not fit under the layer bar. */
-export const TOOLBAR_MIN_HEIGHT = 400;
+/**
+ * A view lower than this shows a toolbar anchored at the left flat at the top: upright under the layer bar it would reach the legend at
+ * the bottom left. The keys of "kompakt" are smaller, so its bar is shorter.
+ */
+const TOOLBAR_MIN_HEIGHT: Record<Density, number> = { komfort: 460, kompakt: 400 };
+
+export function toolbarMinHeight(density: Density): number {
+  return TOOLBAR_MIN_HEIGHT[density];
+}
+
+/** Whether a view `viewHeight` high is too low for the upright toolbar; 0 (not measured) is not. */
+export function isLowView(viewHeight: number, minHeight: number): boolean {
+  return viewHeight > 0 && viewHeight < minHeight;
+}
 
 /** A pointer that moved less than this far from where it was pressed did not drag the grip. */
 const DRAG_SLOP = 4;
@@ -16,9 +28,9 @@ const DRAG_SLOP = 4;
 const ANCHOR_LABELS: Record<ToolbarAnchor, string> = { left: "Links", top: "Oben", bottom: "Unten" };
 const ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];
 
-/** Where the toolbar shows in a view `viewHeight` high: an upright toolbar lies flat at the top in a low view; 0 (not measured) keeps it. */
-export function shownAnchor(anchor: ToolbarAnchor, viewHeight: number): ToolbarAnchor {
-  return anchor === "left" && viewHeight > 0 && viewHeight < TOOLBAR_MIN_HEIGHT ? "top" : anchor;
+/** Where the toolbar shows: an upright toolbar lies flat at the top in a low view (`isLowView`), the others stay. */
+export function shownAnchor(anchor: ToolbarAnchor, low: boolean): ToolbarAnchor {
+  return anchor === "left" && low ? "top" : anchor;
 }
 
 /** The anchor nearest to a point `y` px below the top of a view `height` high: the upper quarter is the top, the lower the bottom. */
@@ -91,6 +103,8 @@ export function FloatingToolbar({ tools, tool, onTool, eventsBlocked, density, a
           className={styles.grip}
           data-toolbar-grip=""
           aria-label="Werkzeugleiste verschieben"
+          // For the pointer only: the caret's menu next to it is the way of the keyboard and of assistive tech.
+          aria-hidden="true"
           title="Ziehen verschiebt die Leiste"
           tabIndex={-1}
           onPointerDown={onPointerDown}

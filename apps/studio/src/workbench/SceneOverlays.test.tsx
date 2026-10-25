@@ -83,15 +83,29 @@ describe("SceneOverlays", () => {
     expect(JSON.parse(localStorage.getItem(KEY)!).toolbar).toBe("bottom");
   });
 
-  it("lays_the_toolbar_flat_on_top_in_a_view_lower_than_400_px_and_keeps_the_anchor", () => {
+  const viewHeight = (height: number) =>
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      const height = this.hasAttribute("data-scene-overlays") ? 300 : 0;
-      return { top: 0, bottom: height, height, left: 0, right: 600, width: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+      const h = this.hasAttribute("data-scene-overlays") ? height : 0;
+      return { top: 0, bottom: h, height: h, left: 0, right: 600, width: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
     });
+
+  it("lays_the_toolbar_flat_on_top_in_a_low_view_and_keeps_the_anchor", () => {
+    viewHeight(300);
     show();
     expect(overlays().getAttribute("data-anchor")).toBe("top");
     expect(toolbar().getAttribute("aria-orientation")).toBe("horizontal");
     expect(JSON.parse(localStorage.getItem(KEY)!).toolbar).toBe("left");
+  });
+
+  it("calls_a_view_low_below_460_px_in_komfort_and_below_400_in_kompakt", () => {
+    viewHeight(430);
+    show();
+    expect(overlays().getAttribute("data-anchor")).toBe("top");
+    act(() => root.unmount());
+    root = createRoot(container);
+    localStorage.setItem("g4.density", "kompakt");
+    show();
+    expect(overlays().getAttribute("data-anchor")).toBe("left");
   });
 
   it("locks_the_event_tools_with_the_locked_text_of_the_event_file", () => {

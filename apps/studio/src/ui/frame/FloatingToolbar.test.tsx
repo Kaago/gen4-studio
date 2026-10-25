@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TOOLS } from "../../workbench/tools";
 import { pressKey } from "../primitives/testUtils";
 import type { Density } from "../tokens/theme";
-import { FloatingToolbar, TOOLBAR_MIN_HEIGHT, anchorAt, shownAnchor } from "./FloatingToolbar";
+import { FloatingToolbar, anchorAt, isLowView, shownAnchor, toolbarMinHeight } from "./FloatingToolbar";
 import type { ToolbarAnchor, Tool } from "./shellState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -149,7 +149,9 @@ describe("FloatingToolbar", () => {
 
   it("moves_to_the_nearest_anchor_after_a_drag", () => {
     show();
-    expect(grip().getAttribute("aria-label")).toBe("Werkzeugleiste verschieben");
+    // The grip is for the pointer only; the caret's menu is the way of the keyboard and of assistive tech.
+    expect(grip().getAttribute("aria-hidden")).toBe("true");
+    expect(grip().tabIndex).toBe(-1);
     for (const [y, anchor] of [
       [50, "top"],
       [350, "bottom"],
@@ -175,14 +177,20 @@ describe("FloatingToolbar", () => {
     expect(bar().getAttribute("data-dichte")).toBe("kompakt");
   });
 
-  it("shownAnchor_falls_back_to_the_top_below_400_px", () => {
-    expect(TOOLBAR_MIN_HEIGHT).toBe(400);
-    expect(shownAnchor("left", 399)).toBe("top");
-    expect(shownAnchor("left", 400)).toBe("left");
-    // Not measured yet: no fallback.
-    expect(shownAnchor("left", 0)).toBe("left");
-    expect(shownAnchor("bottom", 300)).toBe("bottom");
-    expect(shownAnchor("top", 300)).toBe("top");
+  it("shownAnchor_falls_back_to_the_top_in_a_low_view_460_px_in_komfort_and_400_in_kompakt", () => {
+    const komfort = toolbarMinHeight("komfort");
+    const kompakt = toolbarMinHeight("kompakt");
+    expect([komfort, kompakt]).toEqual([460, 400]);
+    expect(isLowView(459, komfort)).toBe(true);
+    expect(isLowView(460, komfort)).toBe(false);
+    expect(isLowView(399, kompakt)).toBe(true);
+    expect(isLowView(400, kompakt)).toBe(false);
+    // Not measured yet: not low.
+    expect(isLowView(0, komfort)).toBe(false);
+    expect(shownAnchor("left", true)).toBe("top");
+    expect(shownAnchor("left", false)).toBe("left");
+    expect(shownAnchor("bottom", true)).toBe("bottom");
+    expect(shownAnchor("top", true)).toBe("top");
   });
 
   it("anchorAt_splits_the_view_in_quarters", () => {

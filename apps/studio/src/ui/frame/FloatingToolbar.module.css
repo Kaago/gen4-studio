@@ -25,26 +25,25 @@
   transform: translateX(-50%);
 }
 
-/* The grip and the caret of its menu share one strip across the bar. */
+/* The grip and the caret of its menu side by side, each at least 24 × 24 (WCAG 2.5.8): a cap over the upright bar, as high as a key
+   in the flat one. */
 .handle {
   display: flex;
-  width: var(--g4-dichte-werkzeug);
-  height: var(--g4-raum-20);
+  height: var(--g4-raum-24);
   flex: none;
 }
 
 .bar[aria-orientation="horizontal"] .handle {
-  width: var(--g4-raum-20);
   height: var(--g4-dichte-werkzeug);
-  flex-direction: column;
 }
 
-/* The menu's trigger is drawn like the grip: a quiet half of the strip. */
+/* The menu's trigger is drawn like the grip: a quiet half of the handle. */
 .handle > button {
   display: inline-flex;
+  width: var(--g4-raum-24);
   min-width: 0;
   min-height: 0;
-  flex: 1;
+  flex: none;
   align-items: center;
   justify-content: center;
   padding: 0;
