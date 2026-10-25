@@ -375,6 +375,8 @@ function AppBody() {
   });
   // Whether the event tools are locked (set below, once the place is known): their letters then do nothing, like their buttons.
   const eventsBlockedRef = useRef(false);
+  // The toast about the tool letters was shown and 3D has not been in front since: further letters stay silent.
+  const toolsToasted = useRef(false);
   useShortcuts(pins.pinnedRef, {
     onSave: session.onSave,
     onPlay,
@@ -388,6 +390,16 @@ function AppBody() {
     onSub: shell.setPokemonSub,
     area,
     toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
+    toolsShown: () => {
+      const shown = docks.welt.schau.current?.getPanel("world")?.api.isVisible ?? false;
+      if (shown) toolsToasted.current = false;
+      return shown;
+    },
+    onToolsHidden: () => {
+      if (toolsToasted.current) return;
+      toolsToasted.current = true;
+      toast.info("Werkzeuge wirken in der 3D-Ansicht");
+    },
     placing: shell.pendingTrainer !== null,
   });
 

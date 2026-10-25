@@ -32,6 +32,10 @@ interface ShortcutHandlers {
   area: AreaId;
   /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
   toolLocked: (tool: Tool) => boolean;
+  /** Whether the 3D view of the world is the one in front: only then do the tool letters act (not with Raster or Weltkarte shown). */
+  toolsShown: () => boolean;
+  /** A tool letter was pressed while the 3D view is hidden: the letter did nothing (the caller says so, once). */
+  onToolsHidden: () => void;
   /** A trainer waits to be placed with the figure tool: Escape drops that binding first (back to "Auswählen"), before it unpins anything. */
   placing?: boolean;
 }
@@ -92,7 +96,11 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
         const tool = toolForKey(e.key);
         if (tool !== null) {
           // The palette's button of a locked tool cannot be pressed; its letter cannot switch to it either.
-          if (!latest.current.toolLocked(tool)) latest.current.onTool(tool);
+          if (!latest.current.toolLocked(tool)) {
+            // The tools belong to the 3D view; with Raster or Weltkarte in front the letter is consumed, but changes nothing.
+            if (latest.current.toolsShown()) latest.current.onTool(tool);
+            else latest.current.onToolsHidden();
+          }
           return;
         }
         if (e.key === "Escape" && !e.defaultPrevented) {

@@ -16,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, placing: false };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -29,6 +29,7 @@ describe("useShortcuts", () => {
     env.tauri = false;
     handlers.area = "welt";
     handlers.toolLocked = () => false;
+    handlers.toolsShown = () => true;
     handlers.placing = false;
     pinned.current = { kind: "building", map: 3, index: 1 };
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
@@ -314,6 +315,37 @@ describe("useShortcuts", () => {
       await press({ key: "b" });
       expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
       expect(handlers.onTool).toHaveBeenCalledOnce();
+    });
+
+    it("ignores_a_tool_letter_while_the_3d_view_is_hidden", async () => {
+      // Raster or Weltkarte in front: a letter changes nothing and says why.
+      handlers.toolsShown = () => false;
+      await press({ key: "b" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      expect(handlers.onToolsHidden).toHaveBeenCalledOnce();
+    });
+
+    it("switches_the_tool_with_a_letter_while_the_3d_view_shows", async () => {
+      handlers.toolsShown = () => true;
+      await press({ key: "g" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("building");
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
+    });
+
+    it("still_goes_back_to_select_on_escape_while_the_3d_view_is_hidden", async () => {
+      mountWith(none);
+      handlers.toolsShown = () => false;
+      await press({ key: "Escape" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("select");
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
+    });
+
+    it("keeps_a_locked_tool_silent_while_the_3d_view_is_hidden", async () => {
+      handlers.toolsShown = () => false;
+      handlers.toolLocked = (tool) => tool === "figure";
+      await press({ key: "f" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
     });
 
     it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {

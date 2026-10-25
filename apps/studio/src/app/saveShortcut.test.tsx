@@ -56,6 +56,8 @@ describe("Cmd+S inside the script editor", () => {
       onSub: () => {},
       area: "welt" as const,
       toolLocked: () => false,
+      toolsShown: () => true,
+      onToolsHidden: () => {},
       onDeleteEvent: () => {},
       unpinSelection: () => {},
     });
