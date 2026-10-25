@@ -1,8 +1,8 @@
 # Phase 3h: Gate prüfen
 
-Stand: 2026-10-25. Teil 3h.1 (Werkzeugschicht und kopflos, nur lesend): vom Agenten bestanden, (b) bis (d) über den Rust-Client und die Handprobe auf einer Testkopie; offen sind (a) der Hand-Punkt mit Claude Code und (e) `scripts/gate.sh`, der einmal am Ende von 3h.2 läuft. Teil 3h.2 folgt, Teil 3h.3 danach.
+Stand: 2026-10-25. Teil 3h.1 (Werkzeugschicht und kopflos, nur lesend): vom Agenten bestanden, (b) bis (d) über den Rust-Client und die Handprobe auf einer Testkopie; offen sind (a) der Hand-Punkt mit Claude Code und (e) `scripts/gate.sh`, der einmal am Ende von 3h.2 läuft. Teil 3h.2 (Schreiben und Batch) ist umgesetzt, die Tests und der Schritt `mcp` laufen, Läufe und Bilder der Szenarien sind offen. Teil 3h.3 folgt.
 
-Phase 3h macht die Befehlsschicht der Brücke zur Agenten-Schnittstelle nach dem Model Context Protocol. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 3h: Agenten-Schnittstelle (MCP)“. Plan von 3h.1: [docs/superpowers/plans/2026-10-25-phase-3h1-werkzeugschicht.md](superpowers/plans/2026-10-25-phase-3h1-werkzeugschicht.md). Anleitung für Nutzer: [docs/mcp.md](mcp.md). Entwickler-Seite: [docs/dev-setup.md](dev-setup.md), Abschnitt „MCP (`studio mcp`)“. Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien unter `$G4_ROMS_DIR/_testkopien`.
+Phase 3h macht die Befehlsschicht der Brücke zur Agenten-Schnittstelle nach dem Model Context Protocol. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 3h: Agenten-Schnittstelle (MCP)“. Pläne: [3h.1](superpowers/plans/2026-10-25-phase-3h1-werkzeugschicht.md), [3h.2](superpowers/plans/2026-10-25-phase-3h2-schreiben-batch.md). Anleitung für Nutzer: [docs/mcp.md](mcp.md). Entwickler-Seite: [docs/dev-setup.md](dev-setup.md), Abschnitt „MCP (`studio mcp`)“. Die Originale der Test-ROMs bleiben unberührt: alles läuft auf Kopien unter `$G4_ROMS_DIR/_testkopien`.
 
 ## Teil 3h.1: Gate
 
@@ -66,16 +66,61 @@ Behaltene Testkopie für den Hand-Punkt: `$G4_ROMS_DIR/_testkopien/3h-lesen` (fr
 
 ### Bekannte Grenzen und Folgepunkte
 
-- Nur lesend: schreibende Werkzeuge, `--allow-irreversible`, `--read-only` und `g4_batch` mit Änderungen kommen mit 3h.2; die laufende App (ohne `--project`) mit 3h.3. Ein Start ohne `--project` bricht mit Rückgabe 2 ab („--project fehlt (die laufende App kommt mit 3h.3)“).
+- Nur lesend war der Stand von 3h.1; schreibende Werkzeuge, `--allow-irreversible`, `--read-only` und `g4_batch` mit Änderungen kamen mit 3h.2 (Teil 3h.2 unten). Die laufende App (ohne `--project`) kommt mit 3h.3: ein Start ohne `--project` bricht mit Rückgabe 2 ab („--project fehlt (die laufende App kommt mit 3h.3)“).
 - Lizenz-Audit (`cargo deny`) für die neuen Abhängigkeiten (`rmcp` 3.7.0, Apache-2.0, verträglich mit MIT) ist nicht Teil von 3h; Folgepunkt.
 - Windows: der Schutz von stdout (fd 1 auf stderr, Protokoll auf einer Kopie) gilt nur unter macOS und Linux; unter Windows fehlt er, und `studio mcp` ist dort nicht geprüft.
 - Der rmcp-Client überspringt Zeilen auf stdout, die kein JSON sind; nur der Rohzeilen-Test (`initialize_line_with_2025_11_25`) und die stderr-Prüfung beweisen den Schutz.
-- `--allow-dir` ist in 3h.1 ohne sichtbare Wirkung (nichts schreibt); `studio mcp` prüft ihn trotzdem gegen die Sperre der Originale.
+- `--allow-dir` war in 3h.1 ohne sichtbare Wirkung (nichts schrieb); seit 3h.2 sind Build und Export dorthin möglich, aber unumkehrbar (nur mit `--allow-irreversible`).
 - Eine Klickzeile in der App („Einrichtungszeile kopieren“) gibt es erst mit 3h.3; die Zeile steht in [docs/mcp.md](mcp.md).
 
 ## Teil 3h.2: Schreiben und Batch
 
-folgt.
+Roadmap-Gate (der Teil für 3h.2):
+
+> ein `g4emu`-Szenario legt kopflos über MCP eine Route mit Trainer und Text an, baut und begeht sie, ein Batch ist ein Undo-Schritt (3h.2); `scripts/gate.sh` mit dem Schritt `mcp` grün
+
+Teil 3h.2 besteht aus diesen Punkten; die Spalte „Wer“ sagt **Agent** (Tests, Szenarien, Gate-Skript) oder **Agent + Blick** (der Agent beschreibt die Bilder, der Nutzer bestätigt am Bild):
+
+| Punkt | Was | Wer |
+|---|---|---|
+| (a) | Szenario `pt-mcp-route.yaml`, Platin DE: über `studio mcp` (eine Sitzung) Patch, neues Gebiet mit neuem Header, Begegnungsdatei per `g4_batch`, zwei Trainer mit Kampftexten, Geber mit Script-Text, Treppe und Ankunft; gespeichert, gebaut (`build/out.nds`), `check-data`, gespielt: Ankunft, Geschenk, beide Trainerkämpfe, Wildkampf | Agent |
+| (b) | Szenario `hg-mcp-route.yaml`, HeartGold DE: dasselbe | Agent |
+| (c) | Batch ist ein Undo-Schritt: im Szenario (`history` vor und nach dem Batch, `undo`, `data_get`, `redo` mit Erwartungen) und im Test `batch_over_stdio_is_one_undo_step` | Agent |
+| (d) | Unumkehrbares nur mit `--allow-irreversible`: Tests `irreversible_needs_the_flag`, `run_rom_needs_emulator_and_flag`, `build_inside_build_needs_no_flag_outside_does`, `batch_checks_every_call_before_running` und gated `vanilla_trainer_and_builds_over_stdio` | Agent |
+| (e) | Bilder der Szenarien (Route, Nachbar, Geber, Trainer) ansehen und beschreiben | Agent + Blick |
+| (f) | `scripts/gate.sh` mit dem Schritt `mcp` grün | Agent |
+
+Ablauf der Szenarien und des Gate-Skripts: [docs/agent-gate.md](agent-gate.md), „Szenarien über MCP“ und „Phase 3h.2“. Kopien: `3h-pt-route` und `3h-hg-route`, je frisch unter `$G4_ROMS_DIR/_testkopien`.
+
+```sh
+cargo test -p studio --test mcp_stdio                      # der Gate-Schritt `mcp`: 25 Tests, 3 davon gated
+G4_TEST_PROJECT="$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  G4_DSROM_CLI="$G4_ROMS_DIR/_tools/dsrom" \
+  cargo test -p studio --test mcp_stdio vanilla             # gated, kopiert selbst (vanilla_copy())
+scripts/gate.sh > target/agent/gate.log 2>&1               # einmal am Ende, 30 bis 45 Minuten
+```
+
+### Ergebnis 3h.2
+
+Stand: 2026-10-25, im Worktree des Branches `phase-3h-mcp`. Die Szenarien und das Gate-Skript sind noch nicht gelaufen; die Zeilen mit „offen“ füllt der Lauf nach.
+
+| Punkt | Wer | Datum | Projekt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|---|
+| (a) Szenario `pt-mcp-route.yaml` | Agent | | Platin DE | offen | Szenario geschrieben und vom Lader angenommen (`mcp:`, `build/out.nds`); der Lauf auf einer frischen Kopie steht aus. |
+| (b) Szenario `hg-mcp-route.yaml` | Agent | | HeartGold DE | offen | wie (a). |
+| (c) Batch ist ein Undo-Schritt | Agent | 2026-10-25 | synthetisches Projekt | Test bestanden; Szenario offen | `batch_over_stdio_is_one_undo_step`: zehn `data_edit` in einem `g4_batch`, `history.undo` wächst um genau 1, ein `undo` nimmt alle zehn zurück. Dazu `batch_checks_every_call_before_running` (`[data_edit, create_trainer]` ohne Flag: `needs_confirmation` mit `details.index == 1`, Daten und Verlauf unverändert) und, in der Bibliothek, `batch_rolls_back_when_a_call_panics` und `empty_batch_is_refused`. Die Erwartungen im Szenario (`history`, `undo`, `redo`) sind offen. |
+| (d) Unumkehrbares nur mit `--allow-irreversible` | Agent | 2026-10-25 | synthetisches Projekt, Platin DE, HeartGold DE | bestanden | Ohne Flag antworten `create_trainer` und `apply_header_patch` mit `needs_confirmation`, nichts ändert sich (`irreversible_needs_the_flag`); mit Flag geht `apply_header_patch` (`applied: true`). `build_rom` nach `build/` braucht kein Flag, in einen `--allow-dir`-Ordner nur mit (`build_inside_build_needs_no_flag_outside_does`). `run_rom` braucht Flag und `--emulator`, der Emulator lief nie (`run_rom_needs_emulator_and_flag`); `--read-only` zusammen mit `--allow-irreversible` ist Rückgabe 2. Gated, Platin DE (Kopie `3h-t1-pt`): `vanilla_trainer_and_builds_over_stdio`, `vanilla_reads_header_checks_and_texts` und `vanilla_closing_stdin_waits_for_a_running_build` bestanden, 124 s; HeartGold DE (Kopie `3h-t1-hg`): `vanilla_trainer_and_builds_over_stdio` bestanden, 88 s: ohne Flag `needs_confirmation` für den Trainer und den Build außerhalb von `build/`, mit Flag ein Trainer mit `id`, ein Build nach `build/` und eine Datei außerhalb. |
+| (e) Bilder der Szenarien | Agent + Blick | | Platin DE, HeartGold DE | offen | folgt nach (a) und (b). |
+| (f) `scripts/gate.sh` mit Schritt `mcp` | Agent | | Platin DE, HeartGold DE, HeartGold US | offen; Schritt `mcp` einzeln bestanden | Der Schritt einzeln, mit der Umgebung des Skripts (`env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP cargo test -p studio --test mcp_stdio`): 25 Tests bestanden (3 gated, ohne Daten übersprungen), Tests 8,05 s, mit Bauen 30,5 s; im Gate-Skript steht er nach `cargo test (no ROM data)`. Der volle Lauf von `scripts/gate.sh` steht aus. |
+
+Schon bewiesen:
+
+- **Tests:** `cargo test -p studio --all-features`: Bibliothek 350 bestanden (1 ignoriert), `tests/mcp_stdio.rs` 25 bestanden. Die Schemas der Antworten aller aufgerufenen Werkzeuge prüft `structured_content_matches_output_schema` gegen `outputSchema` (24 lesende und schreibende Werkzeuge). Schließt der Client stdin, wartet der Server auf den laufenden Aufruf (`closing_stdin_waits_for_a_running_write` mit dem Haken `G4_MCP_TEST_DELAY_MS`; gated `vanilla_closing_stdin_waits_for_a_running_build` mit einem echten Bau auf Platin DE, byteweise gleich einem zweiten Bau).
+- **Release:** Drei Tests brauchen Haken, die es nur in Debug-Builds gibt (`G4_MCP_TEST_DELAY_MS`, `G4_MCP_TEST_NOISE`); sie sind mit `#[cfg(debug_assertions)]` ausgenommen. `cargo test -p studio --test mcp_stdio --release`: 22 bestanden.
+- **Gate-Schritt `mcp`:** siehe Zeile (f).
+- Standard kopflos ist lesen und bearbeiten; Beschreibung und Fehlercodes in [docs/mcp.md](mcp.md).
+
+Vorläufige Grenzen: Der Schritt `mcp` selbst baut keine ROM (das synthetische Projekt kann das nicht); den echten Bau belegen die gated Tests und die Szenarien.
 
 ## Teil 3h.3: In der laufenden App
 

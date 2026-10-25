@@ -1,8 +1,8 @@
 # Gen4 Studio für Coding-Agenten (MCP)
 
-Gen4 Studio spricht das Model Context Protocol (MCP): Ein Coding-Agent wie Claude Code kann ein Projekt über dieselben Befehle lesen und (ab 3h.2) bearbeiten, die auch die Oberfläche benutzt. Der Agent sieht rund 40 kuratierte Werkzeuge mit englischen Namen und Schemas („Tools“) und einige Ressourcen. Alles läuft lokal über stdio; es gibt keinen Netzzugang.
+Gen4 Studio spricht das Model Context Protocol (MCP): Ein Coding-Agent wie Claude Code kann ein Projekt über dieselben Befehle lesen und bearbeiten, die auch die Oberfläche benutzt. Der Agent sieht rund 40 kuratierte Werkzeuge mit englischen Namen und Schemas („Tools“) und einige Ressourcen. Alles läuft lokal über stdio; es gibt keinen Netzzugang.
 
-Stand: 2026-10-25, Phase 3h.2. Der Server **liest und bearbeitet** standardmäßig: Header, Matrizen, Events, Texte, Scripts, Daten und die Projektprüfungen, dazu Bauen und `g4_batch` mit Änderungen als ein Undo-Schritt. `--read-only` schaltet das Schreiben ab; Unumkehrbares geht nur mit `--allow-irreversible`. Der Betrieb in der laufenden App (ohne `--project`, mit Freigabe je Projekt und Verlauf „Agent: …“) kommt mit 3h.3. Der Gate-Stand steht in [docs/phase-3h-gate.md](phase-3h-gate.md), die Entwickler-Seite in [docs/dev-setup.md](dev-setup.md), Abschnitt „MCP (`studio mcp`)“.
+Stand: 2026-10-25, Phase 3h.2. Der Server **liest und bearbeitet** standardmäßig: Header, Matrizen, Events, Texte, Scripts, Daten und die Projektprüfungen, dazu Bauen und `g4_batch` mit Änderungen als ein Undo-Schritt. `--read-only` schaltet das Schreiben ab; Unumkehrbares geht nur mit `--allow-irreversible`. Wer den Server mit `--project` einrichtet, hat das Projekt ausdrücklich gewählt, darum ist Schreiben der Standard; die Freigabe je Projekt mit „nur lesen“ als Standard gehört zur App (3h.3). Der Betrieb in der laufenden App (ohne `--project`, mit Freigabe je Projekt und Verlauf „Agent: …“) kommt mit 3h.3. Der Gate-Stand steht in [docs/phase-3h-gate.md](phase-3h-gate.md), die Entwickler-Seite in [docs/dev-setup.md](dev-setup.md), Abschnitt „MCP (`studio mcp`)“; Szenarien über MCP beschreibt [docs/agent-gate.md](agent-gate.md).
 
 ## Einrichten
 
@@ -30,9 +30,9 @@ Andere MCP-Clients tragen dasselbe als Befehl mit Argumenten ein: Befehl `…/st
 |---|---|
 | `--project <Ordner>` | Pflicht (ohne: Abbruch mit „--project fehlt (die laufende App kommt mit 3h.3)“). Der Ordner muss eine `header.yaml` enthalten. |
 | `--allow-dir <Ordner>` | zusätzlicher Ordner für Importe und Exporte, wiederholbar. Ohne ihn sind nur das Projekt und sein Unterordner `build/` erreichbar. Ein Build oder Export dorthin ist unumkehrbar und braucht `--allow-irreversible`. |
-| `--read-only` | nur lesen: die schreibenden Werkzeuge fehlen in `tools/list`, ein Batch oder `g4_call` mit Änderungen antwortet `read_only`. Standard: lesen und bearbeiten. Nicht zusammen mit `--allow-irreversible` (Rückgabe 2). |
-| `--allow-irreversible` | erlaubt, was sich nicht zurücknehmen lässt (siehe „Sicherheit“); ohne antworten diese Werkzeuge mit `needs_confirmation`. Standard: aus. |
-| `--emulator <Pfad>` | das eine Programm, das `run_rom` starten darf (nur über `g4_call`, also mit `--expert`, und nur mit `--allow-irreversible`). Das Argument `emulator` des Befehls bleibt leer oder nennt dasselbe Programm (relativ zum Projektordner). Ohne den Schalter: „Kein Emulator freigegeben (studio mcp --emulator <Pfad>)“. Fehlt die Datei, startet der Server nicht. |
+| `--read-only` | nur lesen: die schreibenden Werkzeuge fehlen in `tools/list` und sind ein Protokollfehler „Unbekanntes Tool“. `g4_call` mit einem Befehl, der ändert, antwortet `read_only`; ein `g4_batch`, der ein schreibendes Werkzeug enthält, antwortet `error` („Aufruf N (…): Unbekanntes Tool: …“), weil der Batch nur die angebotenen Werkzeuge kennt, und läuft gar nicht erst an. Standard: lesen und bearbeiten. Nicht zusammen mit `--allow-irreversible` (Rückgabe 2). |
+| `--allow-irreversible` | erlaubt, was sich nicht zurücknehmen lässt (siehe „Schreiben und Bestätigung“ und „Sicherheit“); ohne antworten diese Werkzeuge mit `needs_confirmation`, ihr Eintrag in `tools/list` bleibt. Standard: aus. |
+| `--emulator <Pfad>` | das eine Programm, das `run_rom` starten darf (nur über `g4_call`, also mit `--expert`, und nur mit `--allow-irreversible`; ein Agent kann kein beliebiges Programm nennen). Das Argument `emulator` des Befehls bleibt leer oder nennt dasselbe Programm (relativ zum Projektordner). Ohne den Schalter: „Kein Emulator freigegeben (studio mcp --emulator <Pfad>)“. Fehlt die Datei, startet der Server nicht. |
 | `--expert` | schaltet `g4_call` und `g4_commands` ein (jeder Befehl des Editors beim Namen, siehe unten). Standard: aus. |
 | `--help` | Hilfe, Rückgabe 0. |
 
@@ -40,11 +40,32 @@ Rückgabewerte: 0 nach einer ordentlichen Sitzung, 1 bei einem Fehler im Protoko
 
 stdout gehört dem Protokoll. Damit ein `println!` im Kern oder ein Kindprozess (apicula, rotom) es nicht zerstören kann, lenkt der Server nach dem Start fd 1 auf stderr um und schreibt das Protokoll auf eine eigene Kopie (nur macOS und Linux; unter Windows gibt es diesen Schutz nicht, und der Server ist dort ungeprüft). Meldungen und Diagnosen stehen auf stderr.
 
-Schließt der Client die Verbindung (stdin), während ein Aufruf läuft, wartet der Server, bis er fertig ist (höchstens 600 s), damit kein Schritt mitten im Schreiben abbricht; die Antwort geht dann ins Leere.
+Schließt der Client die Verbindung (stdin), während ein Aufruf läuft, wartet der Server, bis er fertig ist, damit kein Schritt mitten im Schreiben abbricht (ein Bau mit `build_rom` dauert gut eine Minute); die Antwort geht dann ins Leere. Das Warten gilt für alle noch laufenden und eingereihten Aufrufe zusammen und dauert höchstens 600 s (`DRAIN_LIMIT` in `mcp/server.rs`); läuft dann noch einer, endet der Server mit Rückgabe 1 und einer Meldung auf stderr.
+
+## Schreiben und Bestätigung
+
+Ein Aufruf gehört zu einer von drei Klassen, und der Server lässt ihn nur zu, wenn die Schalter es erlauben:
+
+| Klasse | Beispiele | Ohne `--read-only` und ohne `--allow-irreversible` |
+|---|---|---|
+| lesend | `get_header`, `run_checks`, `data_get` | immer erlaubt |
+| schreibend | `set_header`, `data_edit`, `create_area`, `save_script`, `save`, `undo`, `build_rom` nach `build/` | erlaubt; Änderungen liegen im Speicher mit Verlauf, `undo` nimmt sie zurück, `save` und `build_rom` schreiben auf die Platte |
+| unumkehrbar | siehe unten | Werkzeug-Fehler `needs_confirmation` |
+
+Ohne `--allow-irreversible` bleiben die unumkehrbaren Werkzeuge in `tools/list` (mit `destructiveHint`, und ihre Beschreibung nennt `--allow-irreversible`), damit der Agent weiß, dass es sie gibt. Ruft er eines auf, antwortet der Server mit `needs_confirmation`, einem deutschen Satz („create_trainer lässt sich nicht rückgängig machen (…); kopflos nur mit --allow-irreversible“) und dem Grund; es ändert sich nichts. Der Agent kann Sie dann bitten, den Server mit dem Schalter neu zu starten. Mit `--read-only` kommt zuerst `read_only`, auch bei unumkehrbaren Werkzeugen.
+
+Unumkehrbar sind diese Gruppen:
+
+- **Header-Patch:** `apply_header_patch`, `repair_header_patch`;
+- **Trainer anlegen:** `create_trainer`;
+- **Script anlegen:** `new_script_file`, `add_script`, `apply_fix` mit `create_script`;
+- **Bauen und Exportieren außerhalb von `build/`:** `build_rom` und `export_map_part` (nur über `g4_call`) mit einem Ziel außerhalb von `build/`, also in einem `--allow-dir`-Ordner (nach `build/` im Projekt zählt es als schreibend);
+- **Emulator:** `run_rom`, zusätzlich nur mit `--emulator`;
+- **Ausgangslage der Prüfungen:** `accept_baseline`.
 
 ## Werkzeuge
 
-Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den `instructions` des Servers und in `project_info` unter `toolset`). Die Spalte „Art“ ist die Klasse, nach der der Server einen Aufruf zulässt: **lesend** ändert nichts; **schreibend** ändert das Projekt im Speicher, ist ein Schritt im Verlauf und lässt sich mit `undo` zurücknehmen (`save` schreibt auf die Platte); **unumkehrbar** lässt sich nicht zurücknehmen. Standardmäßig bietet der Server alle Werkzeuge außer `g4_call` und `g4_commands` an, die unumkehrbaren eingeschlossen; ohne `--allow-irreversible` antworten sie mit `needs_confirmation`. Mit `--read-only` fehlen die schreibenden Werkzeuge in `tools/list`, und ein Aufruf ist ein Protokollfehler „Unbekanntes Tool“.
+Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den `instructions` des Servers und in `project_info` unter `toolset`). Die Spalte „Art“ ist die Klasse, nach der der Server einen Aufruf zulässt: **lesend** ändert nichts; **schreibend** ändert das Projekt im Speicher, ist ein Schritt im Verlauf und lässt sich mit `undo` zurücknehmen (`save` schreibt auf die Platte); **unumkehrbar** lässt sich nicht zurücknehmen. Standardmäßig bietet der Server alle Werkzeuge außer `g4_call` und `g4_commands` an, die unumkehrbaren eingeschlossen; ohne `--allow-irreversible` antworten sie mit `needs_confirmation` (siehe „Schreiben und Bestätigung“). Mit `--read-only` fehlen die schreibenden Werkzeuge in `tools/list`, und ein Aufruf ist ein Protokollfehler „Unbekanntes Tool“.
 
 | Werkzeug | Art | Was es tut |
 |---|---|---|
@@ -100,7 +121,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 
 ### Batch
 
-`g4_batch {calls: [{tool, arguments}], label?}` führt die Aufrufe der Reihe nach aus und fasst ihre Schritte zu einem Undo-Schritt zusammen (Standardname „Agent: N Änderungen“). Was über den Speicher hinaus auf die Platte schreibt oder den Verlauf vergisst, kann ein Zurücknehmen nicht erreichen; solche Befehle lehnt der Batch vorab ab („<Befehl> geht nicht in g4_batch“), als kuratiertes Werkzeug wie über `g4_call`:
+`g4_batch {calls: [{tool, arguments}], label?}` führt die Aufrufe der Reihe nach aus und fasst ihre Schritte zu **einem** Undo-Schritt zusammen: ein `undo` nimmt den ganzen Batch zurück, ein `redo` stellt ihn wieder her. Der Schritt heißt `label`, ohne Angabe „Agent: N Änderungen“ (N zählt die Aufrufe, die etwas ändern; bei einem „Agent: 1 Änderung“); er steht in `history` unter diesem Namen. Die Antwort ist `{results: […], label}`, mit den Antworten der Aufrufe in der Reihenfolge der Liste. Was über den Speicher hinaus auf die Platte schreibt oder den Verlauf vergisst, kann ein Zurücknehmen nicht erreichen; solche Befehle lehnt der Batch vorab ab („<Befehl> geht nicht in g4_batch“), als kuratiertes Werkzeug wie über `g4_call`:
 
 - Verlauf: `undo`, `redo`;
 - Neu laden und Plattenstand übernehmen: `reload_asset`, `accept_disk`;
@@ -111,7 +132,11 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 - Prüf-Einstellungen in `g4-checks.json`: `accept_baseline`, `ignore_finding`, `unignore_finding`, `set_check_enabled`;
 - `g4_batch` selbst („g4_batch kann sich nicht selbst enthalten“).
 
-Bricht ein Befehl im Batch mit einem Programmfehler ab, nimmt der Server den Batch bis zu seinem Anfang zurück, bevor er den Fehler meldet (Protokollfehler „Aufruf abgebrochen“).
+Vor dem ersten Aufruf prüft der Batch jeden Aufruf (bekanntes Werkzeug, bekannte Schlüssel, nicht in der Liste oben, vom Zugang erlaubt); ein Verstoß lehnt alles ab, und nichts läuft (Codes siehe „Fehler“). Scheitert danach ein Aufruf beim Ausführen, nimmt der Server alle Schritte des Batchs bis zu seinem Anfang zurück und antwortet `batch_failed`; `details` nennt `index`, `tool`, `error` (Code und Meldung des Aufrufs) und `rolled_back` (Zahl der zurückgenommenen Schritte), ein Rest der Schritte steht in `kept`. Ein unumkehrbarer Aufruf im Batch (mit `--allow-irreversible`) lässt sich nicht zurücknehmen: Das Zurücknehmen hält an ihm an, und der Batch ist insgesamt ein Schritt, hinter den ein `undo` nicht zurückgeht.
+
+Wird der Verlauf während des Batchs kürzer (ein Aufruf hat Schritte vergessen), ist weder das Zusammenfassen noch das Zurücknehmen vollständig. Die Antwort trägt dann `history_forgotten: true` (bei Erfolg im Ergebnis, bei einem Fehler in `details`), und beim Fehler sagt die Meldung, dass nicht alles zurückgenommen ist. Prüfen Sie dann mit `history` und `data_get`, was vom Batch liegen geblieben ist.
+
+Bricht ein Befehl im Batch mit einem Programmfehler ab (eine Panik), nimmt der Server den Batch bis zu seinem Anfang zurück, bevor er den Fehler meldet (Protokollfehler „Aufruf abgebrochen“).
 
 ### Expertenmodus (`--expert`)
 
@@ -140,6 +165,5 @@ Doku und Glossar des Editors als Ressourcen sind für 3h.4 geplant.
 
 ## Was später kommt
 
-- **3h.2 Schreiben und Batch (Rest):** Szenarien mit `g4emu` über MCP, Gate-Schritt `mcp` in `scripts/gate.sh`.
 - **3h.3 In der laufenden App:** Einstellungen › Agenten („Lokale Agenten zulassen“), `studio mcp` ohne `--project` reicht an die laufende App durch, Freigabe je Projekt („nicht / lesen / lesen und bearbeiten“), Statusleiste „Agent verbunden“ mit „Trennen“, Agenten-Schritte im Verlauf (⌘Z nimmt sie zurück), die Einrichtungszeile mit Kopierknopf in der App.
 - **3h.4 Politur** (optional): Ressourcen für Doku und Glossar, Beschreibungen in den Worten der Nutzer, Beispiele.
