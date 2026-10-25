@@ -296,7 +296,8 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
-  // A fix of the checks changed these assets: the scene and the editors read them again (an open script file too), then the dirty count.
+  // A fix of the checks changed these assets: the scene and the editors read them again (an open script file too), then the dirty count
+  // (no `edited`: the fix asks for its run of the checks itself).
   const onFixed = useStableCallback(async (changed: AssetId[]) => {
     try {
       await reloadAfterHistory(changed);
@@ -304,9 +305,10 @@ function AppBody() {
     } catch (e) {
       session.fail(e);
     }
-    await session.refreshDirty();
+    await session.refreshDirty({ edited: false });
   });
-  // The project checks: everything when a project opens, the cheap ones after every edit (the hinge's light, Problems, Technik, inspector).
+  // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
+  // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed });
   // The undo history of every hinge, read once per change for all of them (a deck per area, each with its hinge).
   const [historyFeed] = useState(() => new HistoryFeed());

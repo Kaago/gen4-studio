@@ -100,6 +100,14 @@ describe("useProjectSession with open scripts", () => {
     events.length = 0;
     await act(async () => session.refreshDirty());
     expect(events).toEqual([]);
+    // Opening a project is no edit: the checks run for it as it opens (once, not again after an edit's pause).
+    vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "Pt", language: "English", header_count: 0 });
+    await act(async () => void (await session.openProjectAt("/q", () => {})));
+    expect(events.filter((e) => e.topic === "edited")).toEqual([]);
+    expect(session.dirtyCount).toBe(0);
+    // Nor is the read after a fix, which asks for its run itself.
+    await act(async () => session.refreshDirty({ edited: false }));
+    expect(events).toEqual([]);
   });
 
   it("keeps_the_list_of_dirty_assets_next_to_the_count_and_the_same_list_while_it_does_not_change", async () => {

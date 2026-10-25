@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { addEvent, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -112,6 +112,7 @@ vi.mock("./api", async (importOriginal) => ({
   itemTable: vi.fn(),
   runChecks: vi.fn(),
   checksStatus: vi.fn(),
+  applyFix: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -238,6 +239,24 @@ describe("App wiring", () => {
     const light = [...container.querySelectorAll<HTMLButtonElement>("[data-light]")];
     expect(light.length).toBeGreaterThan(0);
     expect(light[0]!.getAttribute("aria-label")).toBe("1 Fehler, 1 Hinweis");
+  });
+
+  it("checks the project once per opening and once per fix", async () => {
+    const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+    // The beforeEach opened a project: one run, and none more once an edit's pause (300 ms) is over.
+    await wait(450);
+    expect(runChecks).toHaveBeenCalledTimes(1);
+    // A fix asks for one run; reading the unsaved edits afterwards is no edit of its own.
+    vi.mocked(applyFix).mockResolvedValue({ changed: [], remaining: false });
+    vi.mocked(runChecks).mockClear();
+    await act(async () => void (await data().checks.applyFix(finding("text.too-wide", "warning"), "wrap")));
+    await wait(450);
+    expect(applyFix).toHaveBeenCalledOnce();
+    expect(runChecks).toHaveBeenCalledTimes(1);
+    // An edit runs them once more, after its pause.
+    await act(async () => data().bus.emit({ topic: "edited" }));
+    await wait(450);
+    expect(runChecks).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the workbench data object through hover and message updates", async () => {
