@@ -16,7 +16,7 @@
 # (5) Back to green: the stairs' target warp restored; `apply_fix create_script` (script 950 in the
 #     new file, written at once, no undo step); object 6's script and trainer type restored (the check
 #     reads the script: a trainer script battles when talked to, whatever the trainer type); `apply_fix
-#     wrap` on the long line. Then errors 0, warnings 0.
+#     wrap` on the long line. Then errors 0, warnings 0, infos 0.
 # `apply_fix` takes the finding as `run_checks` answered it; findings come in catalogue order
 # (warp.*, event.trainer-missing, ..., event.script-missing, ..., text.*), so the run before each
 # fix binds its answer (`as:`) and expects the code at the index the fix uses.
@@ -99,3 +99,4 @@ edits:
         - {path: groups.length, equals: 3}
         - {path: "findings[severity=error].length", equals: 0}
         - {path: "findings[severity=warning].length", equals: 0}
+        - {path: "findings[severity=info].length", equals: 0}

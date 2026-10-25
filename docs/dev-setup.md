@@ -291,24 +291,41 @@ voller Lauf kalt 3,46 / 1,18 / 3,60 s (der HeartGold-DE-Wert mit warmem Datei-Ca
 warm 287 / 280 / 247 ms; die Kopie unter dem Lock 0,8 bis 3,1 ms. Die vier Läufe brauchen 90 bis 100 s je Projekt.
 
 **Wann geprüft wird.** Die Oberfläche (`apps/studio/src/checks/useChecks.ts`) startet einen vollen Lauf über alle Gruppen
-(`run_checks { scope: "all" }`) beim Öffnen eines Projekts, auf „Erneut prüfen“ und 300 ms nach der letzten Änderung
-(Bus-Thema `edited`, das `useProjectSession.refreshDirty` nach jedem Schreiben sendet); in Tauri und im Browser-Modus
-gleich, es gibt keinen Zeitgeber im Backend. Es läuft immer nur ein Lauf; Anfragen währenddessen werden zu einem
+(`run_checks { scope: "all" }`) beim Öffnen eines Projekts, nach einem Fix, auf „Erneut prüfen“ und 300 ms nach der letzten
+Änderung (Bus-Thema `edited`, das `useProjectSession.refreshDirty` nach jedem Schreiben sendet und `useScripts` nach dem
+Speichern eines Scripts oder Level-Scripts, „Script anfügen“ und dem Übernehmen; das erste Lesen nach dem Öffnen und das
+Lesen nach einem Fix senden es nicht, damit dort genau ein Lauf läuft); in Tauri und im Browser-Modus gleich, es gibt
+keinen Zeitgeber im Backend. Bis ein Bericht da ist, sagen Prüflicht, Panel und Technik nie „Alles stimmig“ oder „Keine
+Probleme“: während des ersten Laufs „Prüft …“, ohne Bericht und ohne Lauf (der erste Lauf ist gescheitert oder kam ohne
+Bericht) „Nicht geprüft“ mit „Erneut prüfen“ (`data-light="unchecked"`). Es läuft immer nur ein Lauf; Anfragen währenddessen werden zu einem
 weiteren Lauf zusammengefasst, und solange er läuft, fragt die Oberfläche alle 250 ms `checks_status` nach dem Fortschritt.
-Der volle Lauf auch nach jeder Änderung ist billig, weil der Snapshot die Text- und Script-Ergebnisse je Datei cacht
-(Schlüssel: Textgeneration bzw. Quell-Hash): warm kostet er den billigen Teil plus die geänderten Dateien, gemessen
+Der volle Lauf auch nach jeder Änderung ist warm schnell, weil der Snapshot die Text- und Script-Ergebnisse je Datei cacht
+(Schlüssel: Textgeneration und Dateistempel bzw. Dateistempel der Quelle, also Länge und Änderungszeit; auf einem
+Dateisystem mit grober Änderungszeit wie HFS+ oder exFAT bliebe eine gleich lange Änderung derselben Sekunde unbemerkt,
+APFS hat Nanosekunden): warm kostet er den billigen Teil plus die geänderten Dateien, gemessen
 261 ms auf HeartGold DE (Task 6) und 250 bis 290 ms auf allen drei Projekten (oben); kalt, beim Öffnen, 1,2 bis 3,8 s mit
 Fortschritt im Prüflicht („Prüft … Texte 312/724“). Jeder Bericht ersetzt die Befunde als Ganzes; ein Bericht ohne
 Gruppen (`groups: []`), nur einiger Gruppen oder einer älteren Store-Generation ersetzt nichts. Ändert sich der Store
-während eines Laufs, verwirft das Backend das Ergebnis und prüft neu. Der Bereich `scope: "cheap"` (nur die billige
+während eines Laufs, verwirft das Backend das Ergebnis und prüft neu. Dasselbe gilt für Schreibzugriffe am Store vorbei,
+die die Prüfungen von der Platte lesen: das Speichern eines Scripts oder Level-Scripts, `add_script`, `new_script_file`,
+`adopt_scripts`, `apply_fix create_script` und `create_trainer` zählen eine Epoche der Platte hoch
+(`ChecksState::disk_written` über `Session::files_written`, `apps/studio/src-tauri/src/state.rs`); ein Bericht gilt nur,
+solange Store-Generation und Epoche die seines Laufs sind (`finish_checks`, `current_report`), sonst liefert
+`checks_status` keinen und `run_checks` prüft neu. Der Bereich `scope: "cheap"` (nur die billige
 Gruppe) bleibt für die Brücke und Szenarien; die Oberfläche nutzt ihn nicht. In der Brücke ist `run_checks` synchron;
 eine frische Sitzung (Szenario-Batch) prüft kalt, auf Platin DE mit übernommenen Scripts 1,5 bis 1,6 s.
 
 **`g4-checks.json`.** Ausgeblendete Befunde und abgeschaltete Prüfungen stehen im Projekt in `<projekt>/g4-checks.json`
 (nicht in `.g4/`, das ist löschbarer Cache): `{"ignored": [{"code", "subject": {"kind", "index"}, "key", "fingerprint"}],
 "disabled": [code]}`, der Fingerprint als 16 Hex-Ziffern. `ignore_finding`, `unignore_finding`, `accept_baseline` und
-`set_check_enabled` schreiben die Datei sofort (atomar); `open_project` liest sie, eine kaputte Datei lehnt das Öffnen mit
-„g4-checks.json: …“ ab, statt sie ungelesen zu überschreiben. Fehler lassen sich nie ausblenden oder abschalten. Der
+`set_check_enabled` schreiben die Datei sofort (atomar); `open_project` liest sie. Eine kaputte Datei (von Hand bearbeitet,
+ein Merge-Konflikt, von einem neueren Studio mit unbekannter Subjekt-Art) hält das Projekt nicht zu (Ruling R15): es öffnet
+ohne ausgeblendete Befunde, jeder Bericht nennt die Datei als `skipped`-Zeile mit `code` „g4-checks.json“ und dem
+Parse-Fehler (im Panel „g4-checks.json ist nicht lesbar (…): nichts ist ausgeblendet oder abgeschaltet …“), und die vier
+Befehle lehnen jedes Schreiben mit „g4-checks.json ist nicht lesbar (…). Repariere oder lösche die Datei …“ ab, damit sie
+nie ungelesen überschrieben wird. Vor jedem Schreibversuch liest das Studio sie neu: ist sie repariert oder gelöscht, gilt
+sie ab da. `g4k check` lehnt eine kaputte Datei weiter mit „g4-checks.json: …“ ab. Fehler lassen sich nie ausblenden oder
+abschalten. Der
 Fingerprint geht über die geprüften Bytes des Subjekts: ändert sich die Stelle, passt er nicht mehr, und der Befund meldet
 sich wieder; unveränderte bleiben ausgeblendet.
 

@@ -82,7 +82,7 @@ pub trait Check: Sync { fn code(&self) -> &'static str; fn group(&self) -> Group
 
 ## 6. Beheben
 
-Ein Fix nur, wenn das Ergebnis eindeutig ist oder genau eine Auswahl braucht: `warp.dest-*` → Ziel bzw. Ziel-Warp wählen (Picker); `event.script-missing` → Script #n anlegen (`add_script`, nicht rückgängig, Plakette); `script.message-missing` → Nachricht anlegen (`Append`); `text.too-wide` → Umbrechen (chatot `word_wrap` mit 216, Vorschau als `DSScreen`); `event.trainer-missing` → Trainer wählen oder `trainer_type` zurücksetzen; `encounter.min-max` → Tauschen. Ablauf: `plan_fix` liefert die Änderungssätze (Vorher/Nachher), der Dialog zeigt sie und die Plakette, `apply_fix` läuft als ein Changeset (`Store::transaction`) mit Fingerprint-Schutz (verändertes Subjekt → „Befund ist nicht mehr aktuell“), danach Nachprüfung des Subjekts; bleibt der Befund, heißt es „Nicht behoben“. Kein „Alle beheben“. Tests sichern je Fix: der Befund verschwindet, ⌘Z bringt ihn zurück (außer bei Anlagen).
+Ein Fix nur, wenn das Ergebnis eindeutig ist oder genau eine Auswahl braucht: `warp.dest-*` → Ziel bzw. Ziel-Warp wählen (Picker); `event.script-missing` → Script #n anlegen (`add_script`, nicht rückgängig, Plakette); `script.message-missing` → Nachricht anlegen (`Append`); `text.too-wide` → Umbrechen (chatot `word_wrap` mit 216, Vorschau als `DSScreen`); `event.trainer-missing` → Trainer wählen (die Prüfung hängt am Script 3000–6999, nicht am `trainer_type`: der Ausweg ist ein vorhandener Trainer oder das alte Script); `encounter.min-max` → Tauschen. Ablauf: `plan_fix` liefert die Änderungssätze (Vorher/Nachher), der Dialog zeigt sie und die Plakette, `apply_fix` läuft als ein Changeset (`Store::transaction`) mit Fingerprint-Schutz (verändertes Subjekt → „Befund ist nicht mehr aktuell“), danach Nachprüfung des Subjekts; bleibt der Befund, heißt es „Nicht behoben“. Kein „Alle beheben“. Tests sichern je Fix: der Befund verschwindet, ⌘Z bringt ihn zurück (außer bei Anlagen).
 
 ## 7. Ausblenden und Ausgangslage
 
@@ -134,6 +134,24 @@ Fehler lassen sich nie ausblenden. Warnungen und Hinweise: `g4-checks.json` im P
 ## 13. Offene Prüfungen (Plan-Task 0)
 
 216 px in pret (`Window_Add` des Feld-Textfensters); Bedeutung von 0x0FFF; HGSS-Puffergrößen für Modell und BDHC; Vanilla-Zählungen auf HGSS für alle Fehler-Kandidaten; Lock-Dauer des Text-Index-Aufbaus und Snapshot-Kosten; ob rotom `MessageLineTooLong` als Warnungsart öffentlich macht; Material-Leser (Texturnamen) auf Vanilla; Karte SRC mit eindeutig neuem Weg für das Gate; ob `XX_YY` in PDSMS-Dateinamen absolut ist (nur für die Doku); ob ein Trainer ohne Party wirklich abstürzt (für die Schwere von `trainer.no-party`).
+
+## Stand nach der Umsetzung (3b.4a)
+
+Entscheidungen der Umsetzung, die den Text oben ändern (Rulings im Ledger des Plans 3b.4a, `.superpowers/sdd/2026-10-24-phase-3b4a-checks/progress.md`):
+
+- R1 `run_checks { scope? }`: `"all"` (Standard) oder `"cheap"`; `"full"` wird als `"all"` angenommen (die Entwürfe von 3b.4b schreiben es so).
+- R2 `plan_fix` und `apply_fix` nehmen `{ finding, fix }`: den Befund, wie `run_checks` ihn lieferte (gelesen werden `code`, `subject`, `key`, `fingerprint`), und `fix` als snake_case-ID (`wrap`, `append_message`, `swap_min_max`, `create_script`); `apply_fix` antwortet `{ changed, remaining }` (§10).
+- R3 `NavTargetDto` spiegelt `navigation.ts` genau (`header`, `matrixCell`, `area`, `building`, `event`, `textArchive`, `script`, `species`, `move`, `item`, `trainer`, `encounter`); ein Warp ist `event` mit `eventKind: "warp"`; `target` ist optional, ohne Ziel kein „Öffnen“ (§5).
+- R8 Ein TypeScript-Typ je Form: `ProblemDto` trägt die Felder des Befunds optional, `CheckProblemDto` ist `ProblemDto & CheckFieldsDto` (§5).
+- R9 `create_script` legt genau Script #n an (`add_script_at_reported`), nicht den nächsten freien Platz (§6).
+- R10 „Verändertes Subjekt“ heißt: der Fingerprint des Befunds (die geprüften Bytes) hat sich geändert; `wrap` lehnt zusätzlich ab, wenn Store-Text und Snapshot nicht übereinstimmen (§6).
+- R11 Die Vorschau von „Umbrechen“ ist `BeforeAfter` mit Textzeilen, nicht `DSScreen` (§6, §8); die Zeilen brechen nicht um, die Spalten rollen seitlich.
+- R12 Der automatische Lauf nach einer Änderung ist ein voller Lauf (alle Gruppen, 300 ms nach der letzten), kein billiger (§5); die Caches je Datei machen ihn warm schnell (250 bis 290 ms auf den drei Projekten). Nach dem Öffnen und nach einem Fix läuft genau ein Lauf.
+- R13 `expect` in Szenarien: Pfade aus Schlüsseln mit Punkt, Listenindizes, `.length` und Filtern `[schlüssel=wert]` (Vergleich als Text); ein Filter auf einen Schlüssel, den kein Eintrag einer nicht leeren Liste hat, ist ein fehlender Pfad (§11).
+- R15 Eine kaputte `g4-checks.json` hält das Projekt nicht zu: es öffnet ohne Ausblendungen, der Bericht nennt die Datei und den Parse-Fehler, Schreiben in die Datei wird abgelehnt, bis sie repariert oder gelöscht ist (§7).
+- R16 `matrix.header-elsewhere` ist Fehler (Task 0 maß 0/0/0 mit der Ausnahme Header-Zelle 0); ebenso die anderen „bedingten“ `map.building-range` und `area.tileset-range` (§4). Dazu kamen im Katalog `script.unreadable`, `encounter.level-high` und `encounter.rate-byte`; `map.bdhc-size` ist Fehler (Grenze 0x9000 ab Byte 16).
+
+Aus der Schlussprüfung und der Abnahme von Gate A: ein Bericht gilt nur, solange Store-Generation und die Epoche der Schreibzugriffe am Store vorbei (Scripts, neue Trainer) seine sind; ohne Bericht sagen Prüflicht und Panel „Nicht geprüft“, nie „Alles stimmig“; der Platzhalter-Trainer des „gesehen“-Slots (`trainer.sight_slot`, Platin 929, HGSS 740) ist weder `asset.unreadable` noch ein Trainer-Befund.
 
 ## 14. Dokumentation und Roadmap
 
