@@ -116,7 +116,7 @@ export function Inspector({
     case "eventHover":
       return (
         <div className={styles.panel}>
-          <InspectorHead title={eventTitle(model.eventKind, model.data, model.destName, depth)} subtitle={eventSubtitle(model.eventKind, model.data.index, null, null)} viewOnly />
+          <InspectorHead title={eventTitle(model.eventKind, model.data, depth, model.destName)} subtitle={eventSubtitle(model.eventKind, model.data.index, null, null)} viewOnly />
           <p className={styles.note}>{eventDetails(model.eventKind, model.data)}</p>
         </div>
       );

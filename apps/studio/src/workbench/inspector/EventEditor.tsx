@@ -15,7 +15,7 @@ import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
 import { InspectorHead } from "./InspectorHead";
-import { referenceFor } from "./referenceFor";
+import { destinationSpec, referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 import { TrainerField } from "./TrainerField";
@@ -53,7 +53,6 @@ export interface EventEditorContext {
   onError: (e: unknown) => void;
 }
 
-const DESTINATION = { key: "dest_header_id", label: "Ziel", kind: "pick", pick: "header" } as const;
 
 /**
  * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
@@ -130,12 +129,13 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const readOnly = locked !== null;
   const warp = kind === "warp" ? (event as WarpDto) : null;
   const destHeader = warp ? headers.find((h) => h.id === warp.dest_header_id) : undefined;
-  const destination = warp ? referenceFor(DESTINATION, warp.dest_header_id, headers) : null;
+  const destinationField = destinationSpec(depth);
+  const destination = warp ? referenceFor(destinationField, warp.dest_header_id, headers) : null;
   const destinationTarget = destination?.target ?? null;
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={eventTitle(kind, event, destHeader?.internal_name, depth)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
+      <InspectorHead title={eventTitle(kind, event, depth, destHeader?.internal_name)} subtitle={subtitle} unsaved={isDirty(dirty, "Event", file)} locked={readOnly} />
       <div className={styles.body}>
         {locked !== null && (
           <div className={styles.pad}>
@@ -172,7 +172,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des Ortes an und trägt die Nummer ein`}
+                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depth === "tuefteln" ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
                           >
                             Neues Script
                           </Button>
@@ -204,13 +204,21 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
               ) : (
                 <span className={styles.error}>{`${destination.label} (${destination.tech})`}</span>
               )}
-              <Button kind="quiet" size="s" aria-label="Ziel ändern…" disabled={readOnly} onClick={() => setPicking(true)}>
+              <Button kind="quiet" size="s" aria-label={`${destinationField.label} ändern…`} disabled={readOnly} onClick={() => setPicking(true)}>
                 Ändern…
               </Button>
             </div>
           </InspectorRow>
         )}
-        {warp && <HeaderPicker open={picking} onOpenChange={setPicking} headers={headers} onPick={(id) => commit("dest_header_id", "Ziel", id)} />}
+        {warp && (
+          <HeaderPicker
+            open={picking}
+            onOpenChange={setPicking}
+            headers={headers}
+            title={`${destinationField.label} wählen`}
+            onPick={(id) => commit("dest_header_id", destinationField.label, id)}
+          />
+        )}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />

@@ -26,6 +26,15 @@ describe("visibleWords", () => {
     expect(visibleWords(root)).toBe("Sichtbar Auch sichtbar Da");
   });
 
+  it("leaves_out_text_under_visibility_hidden_or_collapse_but_reads_a_child_that_is_visible_again", () => {
+    // Dockview keeps an inactive panel mounted under an overlay with `visibility: hidden`.
+    const root = host(
+      '<p>Schau</p><div style="visibility: hidden"><span>Raster</span><input placeholder="Matrix"><b style="visibility: visible">Wieder da</b></div>' +
+        '<table><tr style="visibility: collapse"><td>Header</td></tr></table>',
+    );
+    expect(visibleWords(root)).toBe("Schau Wieder da");
+  });
+
   it("returns_nothing_for_a_concealed_root", () => {
     expect(visibleWords(host("<p>Raster</p>").appendChild(Object.assign(document.createElement("div"), { hidden: true, textContent: "Matrix" })))).toBe("");
   });

@@ -57,6 +57,7 @@ export function textHarness() {
     target: null,
     revision: 0,
     problems,
+    depth: "bauen",
     ...calls,
     ...over,
   });

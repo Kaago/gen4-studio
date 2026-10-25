@@ -32,7 +32,7 @@ describe("terms", () => {
     expect(termFor("header", "bauen")).toBe("Ort");
     expect(termFor("matrix", "bauen")).toBe("Weltkarte");
     // The words Bauen explains with: the game's, not the ROM's.
-    for (const key of ["worldMap", "area", "room", "place", "landscape", "outside", "map", "warp"] as const) {
+    for (const key of ["worldMap", "area", "room", "place", "landscape", "map", "warp"] as const) {
       expect(`${TERMS[key].label} ${TERMS[key].plural} ${TERMS[key].short}`).not.toMatch(/Raster|Matrix|Header/);
     }
   });

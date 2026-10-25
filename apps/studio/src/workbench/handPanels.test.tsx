@@ -65,6 +65,7 @@ describe("the hand's panels on the workbench context", () => {
       onSelectBuilding,
       goTo,
       dataStore: new DataStore(),
+      depth: "bauen",
       ...over,
     } as unknown as WorkbenchData;
     await act(async () =>
@@ -83,7 +84,7 @@ describe("the hand's panels on the workbench context", () => {
     await show(<ContextTab />);
     expect(getEvents).toHaveBeenCalledWith(103);
     expect(row("Objekt 0")).toBeDefined();
-    expect(row("Warp 0 → Header 0004 (T01R0201)")).toBeDefined();
+    expect(row("Warp 0 → Ort 0004 (T01R0201)")).toBeDefined();
     act(() => row("Objekt 0").click());
     expect(onSelectEvent).toHaveBeenCalledWith({ file: 103, kind: "object", index: 0 });
     act(() => row("Gebäude 1").click());

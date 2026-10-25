@@ -37,7 +37,7 @@ export interface HeaderPickerProps {
 }
 
 /** Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id. */
-export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Ziel wählen", cache = thumbnails, describe }: HeaderPickerProps) {
+export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails, describe }: HeaderPickerProps) {
   const items = useMemo<PickerItem[]>(
     () =>
       open

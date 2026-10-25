@@ -1,4 +1,5 @@
 import type { HeaderSummary } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, Reference, Section } from "../../ui/primitives";
 import { KIND_LABELS, lockedText } from "../../world/events";
 import type { NavTarget } from "../navigation";
@@ -8,7 +9,7 @@ import { useEvents } from "../useEvents";
 import styles from "./Editor.module.css";
 import exits from "./ExitsSection.module.css";
 import { useSectionOpen } from "./foldState";
-import { referenceFor } from "./referenceFor";
+import { destinationSpec, referenceFor } from "./referenceFor";
 
 interface Props {
   header: HeaderSummary;
@@ -20,12 +21,13 @@ interface Props {
   /** Adds a warp to the header's event file (the app decides where). */
   onAddWarp: () => void;
   onError: (e: unknown) => void;
+  /** Names an unknown destination's field in the words of the depth. */
+  depth: Depth;
 }
 
-const DESTINATION = { key: "dest_header_id", label: "Ziel", kind: "pick", pick: "header" } as const;
 
 /** The "Eingänge / Ausgänge" of the header editor: the warps of the header's event file, where they lead, and the ways to add one. */
-export function ExitsSection({ header, headers, revision, goTo, onOpenWizard, onAddWarp, onError }: Props) {
+export function ExitsSection({ header, headers, revision, goTo, onOpenWizard, onAddWarp, onError, depth }: Props) {
   const events = useEvents(header.event_file_id, onError, revision);
   const locked = events?.locked ?? null;
   const [open, toggle] = useSectionOpen("header:exits", true);
@@ -38,7 +40,7 @@ export function ExitsSection({ header, headers, revision, goTo, onOpenWizard, on
       ) : (
         <ul className={exits.list}>
           {events.warps.map((w) => {
-            const dest = referenceFor(DESTINATION, w.dest_header_id, headers);
+            const dest = referenceFor(destinationSpec(depth), w.dest_header_id, headers);
             const target = dest.target;
             return (
               <li key={w.index} className={exits.row}>

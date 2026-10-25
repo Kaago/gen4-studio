@@ -338,7 +338,7 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
                   type="button"
                   data-header-id={entry.header.id}
                   aria-current={entry.header.id === selected ? "true" : undefined}
-                  title={TERMS.outside.short}
+                  title={depth === "tuefteln" ? TERMS.outside.short : TERMS.area.short}
                   onClick={() => onOpen(entry.header.id)}
                   className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >

@@ -38,7 +38,7 @@ describe("ExitsSection", () => {
   });
 
   async function show(revision = 0) {
-    await act(async () => root.render(<ExitsSection header={headers[0]} headers={headers} revision={revision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />));
+    await act(async () => root.render(<ExitsSection header={headers[0]} headers={headers} revision={revision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} depth="bauen" />));
     await flush();
   }
   const button = (text: string, within: ParentNode = container) => [...within.querySelectorAll("button")].find((b) => b.textContent === text);

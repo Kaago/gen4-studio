@@ -56,7 +56,7 @@ export const TERMS: Record<TermKey, { label: string; plural: string; tech: strin
   outside: {
     label: "Außen", plural: "Außen",
     tech: null,
-    short: "Ein Gebiet auf einer Weltkarte, im Freien: die Zellen der Weltkarte sagen, welches Gebiet wo gilt (die Region).",
+    short: "Ein Header, dessen Raster einen Header-Abschnitt hat (die Region, meist Matrix 0): die Zellen des Rasters sagen, welcher Header wo gilt.",
   },
   matrix: {
     label: "Raster", plural: "Raster",

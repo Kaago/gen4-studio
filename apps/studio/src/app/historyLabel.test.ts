@@ -32,18 +32,18 @@ describe("historyLabel", () => {
   ];
 
   it.each(kernel)("names_%s_in_german", (label, german) => {
-    expect(historyLabel(label)).toBe(german);
+    expect(historyLabel(label, "tuefteln")).toBe(german);
   });
 
   it("passes_a_german_label_of_the_frontend_through_unchanged", () => {
-    expect(historyLabel("Wetter")).toBe("Wetter");
-    expect(historyLabel("Skript")).toBe("Skript");
-    expect(historyLabel("Tür verschoben")).toBe("Tür verschoben");
+    expect(historyLabel("Wetter", "tuefteln")).toBe("Wetter");
+    expect(historyLabel("Skript", "tuefteln")).toBe("Skript");
+    expect(historyLabel("Tür verschoben", "tuefteln")).toBe("Tür verschoben");
   });
 
   it("reads_Aenderung_for_an_empty_or_unknown_label", () => {
-    expect(historyLabel("")).toBe("Änderung");
-    expect(historyLabel("something new")).toBe("Änderung");
+    expect(historyLabel("", "tuefteln")).toBe("Änderung");
+    expect(historyLabel("something new", "tuefteln")).toBe("Änderung");
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
@@ -66,6 +66,6 @@ describe("historyLabel", () => {
   });
 
   it("translates_both_lists_and_keeps_their_order", () => {
-    expect(germanHistory({ undo: ["paint", "edit header"], redo: ["add event"] })).toEqual({ undo: ["Malen", "Header geändert"], redo: ["Event hinzugefügt"] });
+    expect(germanHistory({ undo: ["paint", "edit header"], redo: ["add event"] }, "tuefteln")).toEqual({ undo: ["Malen", "Header geändert"], redo: ["Event hinzugefügt"] });
   });
 });

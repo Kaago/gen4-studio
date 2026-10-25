@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { getMatrix } from "../api";
 import { mapsText } from "./places";
+import { TERMS } from "./terms";
 import { visibleWords } from "../ui/visibleText";
 import { ThumbnailCache } from "../world/thumbnails";
 import { WorldMapPanel } from "./WorldMapPanel";
@@ -106,6 +107,7 @@ describe("WorldMapPanel", () => {
     for (const details of container.querySelectorAll("details")) details.open = true;
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet · 0000");
+    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.area.short);
     await show(context({ matrices: withoutRegion }));
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
   });
@@ -113,6 +115,7 @@ describe("WorldMapPanel", () => {
   it("keeps_the_technical_words_in_tinkering", async () => {
     await show(context({ depth: "tuefteln" }));
     expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Header · 0000");
+    expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.outside.short);
     await show(context({ matrices: withoutRegion, depth: "tuefteln" }));
     expect(container.textContent).toContain("Keine Region gefunden (kein Raster mit Header-Abschnitt).");
   });

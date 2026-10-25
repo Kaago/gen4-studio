@@ -17,7 +17,7 @@ const events = (over: Partial<EventsDto> = {}): EventsDto => ({
 
 describe("groupEvents", () => {
   it("groups_by_class_in_the_palette_order_and_leaves_empty_classes_out", () => {
-    const groups = groupEvents(events());
+    const groups = groupEvents(events(), "tuefteln");
     expect(groups.map((g) => [g.kind, g.label, g.rows.length])).toEqual([
       ["object", "Figuren", 2],
       ["warp", "Türen", 1],
@@ -26,32 +26,32 @@ describe("groupEvents", () => {
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
-    const doors = groupEvents(events(), (h) => (h === 414 ? "T01R0201" : undefined), undefined, "bauen").find((g) => g.kind === "warp");
+    const doors = groupEvents(events(), "bauen", (h) => (h === 414 ? "T01R0201" : undefined)).find((g) => g.kind === "warp");
     expect(doors?.rows[0]?.title).toBe("Warp 0 → Ort 0414 (T01R0201)");
   });
 
   it("titles_each_row_like_the_inspector_heading_and_puts_the_position_in_the_technical_part", () => {
-    const [figures, doors, signs] = groupEvents(events());
+    const [figures, doors, signs] = groupEvents(events(), "tuefteln");
     expect(figures.rows[1]).toEqual({ index: 1, title: "Objekt 1 · ID 2", tech: "x 11, z 21" });
     expect(doors.rows[0]).toEqual({ index: 0, title: "Warp 0 → Header 0414", tech: "x 8, z 9", dest: 414 });
     expect(signs.rows[0]?.title).toBe("Hintergrund-Event 0 · Script 12");
   });
 
   it("names_the_header_a_door_leads_to_when_asked", () => {
-    const doors = groupEvents(events(), (h) => (h === 414 ? "T01R0201" : undefined)).find((g) => g.kind === "warp");
+    const doors = groupEvents(events(), "tuefteln", (h) => (h === 414 ? "T01R0201" : undefined)).find((g) => g.kind === "warp");
     expect(doors?.rows[0]?.title).toBe("Warp 0 → Header 0414 (T01R0201)");
   });
 
   it("titles_a_trainer_figure_by_class_and_name_when_asked", () => {
     const trainer = { ...events().objects[0]!, script: 3355 };
-    const figures = groupEvents(events({ objects: [trainer, events().objects[1]!] }), undefined, (script) => (script === 3355 ? "Teenager Sebastian" : null))[0]!;
+    const figures = groupEvents(events({ objects: [trainer, events().objects[1]!] }), "tuefteln", undefined, (script) => (script === 3355 ? "Teenager Sebastian" : null))[0]!;
     expect(figures.rows[0]).toEqual({ index: 0, title: "Objekt 0 · Teenager Sebastian", tech: "x 10, z 20" });
     // A figure that starts no battle keeps its title.
     expect(figures.rows[1]?.title).toBe("Objekt 1 · ID 2");
   });
 
   it("is_empty_for_a_file_without_events", () => {
-    expect(groupEvents(events({ bg: [], objects: [], warps: [], coords: [] }))).toEqual([]);
+    expect(groupEvents(events({ bg: [], objects: [], warps: [], coords: [] }), "tuefteln")).toEqual([]);
   });
 });
 

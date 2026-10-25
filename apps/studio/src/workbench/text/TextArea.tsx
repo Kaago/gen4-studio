@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createTextArchive, editTextArchive, errorText, searchText } from "../../api";
 import type { HeaderSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
 import type { EditBus } from "../../bus/editBus";
+import type { Depth } from "../../ui/frame/shellState";
 import type { NavTarget } from "../navigation";
 import type { ProblemsStore } from "../problems/problems";
 import { TERMS, id4 } from "../terms";
@@ -46,6 +47,8 @@ export interface TextAreaProps {
   onError: (e: unknown) => void;
   /** Hears which archive and message the area shows (the hinge's breadcrumb follows them). Must keep its identity. */
   onShown?: (shown: TextShown) => void;
+  /** Bauen names the users of an archive places ("Ort"), Tüfteln headers. */
+  depth: Depth;
 }
 
 /** Quiet time before the search over all archives asks the backend. */
@@ -56,7 +59,7 @@ const DEBOUNCE_MS = 300;
  * `context` changes (the owner keeps it, see `TextAreaHost`) or its children do, not for every render of the app.
  */
 export const TextArea = memo(function TextArea({ context, children }: { context: TextAreaProps; children?: ReactNode }) {
-  const { project, headers, counts, target, revision, problems, goTo, onShown } = context;
+  const { project, headers, counts, target, revision, problems, goTo, onShown, depth } = context;
   const [archiveIndex, setArchiveIndex] = useState<number | null>(null);
   const [message, setMessage] = useState(0);
   const [page, setPage] = useState(0);
@@ -230,8 +233,9 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       removeLast: () => void removeLast(),
       createArchive: () => void createArchive(),
       goTo,
+      depth,
     }),
-    [archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append, removeLast, createArchive, goTo],
+    [archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append, removeLast, createArchive, goTo, depth],
   );
   return <TextAreaContext.Provider value={model}>{children}</TextAreaContext.Provider>;
 });

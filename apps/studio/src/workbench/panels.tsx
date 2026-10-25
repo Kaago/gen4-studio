@@ -393,10 +393,10 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
   // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, depth } = d;
   const context = useMemo<TextAreaProps>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown],
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }

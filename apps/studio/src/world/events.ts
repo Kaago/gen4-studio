@@ -40,7 +40,7 @@ export function markerPosition(x: number, z: number, matrix: MatrixDto): { wx: n
 const id4 = (n: number) => String(n).padStart(4, "0");
 
 /** Headline of an event in the inspector, e.g. "Warp 0 → Header 0414 (T01R0201)"; Bauen: "Warp 0 → Ort 0414 (T01R0201)". */
-export function eventTitle(kind: EventKind, data: EventData, destName?: string, depth: Depth = "tuefteln"): string {
+export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destName?: string): string {
   switch (kind) {
     case "warp": {
       const w = data as WarpDto;

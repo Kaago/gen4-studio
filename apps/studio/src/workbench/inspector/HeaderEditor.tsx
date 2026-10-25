@@ -171,7 +171,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           </div>
         )}
         {summary && (
-          <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
+          <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} depth={depth} />
         )}
         {summary && header !== null && (
           <LevelScriptSection

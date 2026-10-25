@@ -244,6 +244,16 @@ describe("EventEditor scripts", () => {
       withWarp(1);
       await show(context(), "warp", 0, "tuefteln");
       expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
+      await click(container.querySelector("button[aria-label='Zielheader ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Zielheader wählen");
+    });
+
+    it("names_the_destination_ziel_in_building", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0);
+      await click(container.querySelector("button[aria-label='Ziel ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Ziel wählen");
+      expect(document.querySelector("[role=dialog]")?.textContent).not.toContain("Zielheader");
     });
 
     it("says_a_door_to_a_header_that_does_not_exist_leads_nowhere_and_how_to_fix_it", async () => {

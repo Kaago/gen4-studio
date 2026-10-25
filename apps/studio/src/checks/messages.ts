@@ -295,7 +295,7 @@ export const areaOf = (f: Pick<CheckProblemDto, "subject">): CheckArea => AREA_O
 export const groupOf = (code: string): CheckGroup | null => CHECK_MESSAGES[code]?.group ?? null;
 
 /** The title of the check `code` in the words of `depth`; the code itself when it is not known. */
-export const checkTitle = (code: string, depth: Depth = "tuefteln"): string => {
+export const checkTitle = (code: string, depth: Depth): string => {
   const m = CHECK_MESSAGES[code];
   return (depth === "bauen" ? m?.building?.title : undefined) ?? m?.title ?? code;
 };
@@ -372,7 +372,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
  * The German sentence of a finding with its way out, in the words of `depth`; the kernel's (English) sentence for a code this list
  * does not know.
  */
-export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth = "tuefteln"): string {
+export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth): string {
   const m = CHECK_MESSAGES[f.code];
   if (!m) return f.message;
   const text = (depth === "bauen" ? m.building?.text : undefined) ?? m.text;
@@ -388,7 +388,7 @@ export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "
 }
 
 /** Where a finding is, as the kernel names it („Header 0012 · Matrix“); Bauen says „Ort 0012 · Weltkarte“. */
-export function findingLabel(f: Pick<CheckProblemDto, "label">, depth: Depth = "tuefteln"): string {
+export function findingLabel(f: Pick<CheckProblemDto, "label">, depth: Depth): string {
   return depth === "bauen" ? f.label.replace(/\bHeader\b/g, "Ort").replace(/\bMatrix\b/g, "Weltkarte") : f.label;
 }
 
@@ -410,7 +410,7 @@ const ONE_FILE = /^(level )?script file (\d+) is not checked: (.+)$/;
  * A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“):
  * German sentences with the way out, the kernel's reason only as a detail in brackets.
  */
-export function skippedText({ code, why }: { code: string; why: string }, depth: Depth = "tuefteln"): string {
+export function skippedText({ code, why }: { code: string; why: string }, depth: Depth): string {
   // Not a check: the ignore file could not be read when the project opened (ruling R15).
   if (code === IGNORE_FILE) return `${IGNORE_FILE} ist nicht lesbar (${why}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.`;
   const title = checkTitle(code, depth);

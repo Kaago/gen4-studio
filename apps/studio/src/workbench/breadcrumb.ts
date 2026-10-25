@@ -42,7 +42,7 @@ function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: nu
   const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
   if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
   const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
-  return eventTitle(pinned.eventKind, data, destination?.internal_name, depth);
+  return eventTitle(pinned.eventKind, data, depth, destination?.internal_name);
 }
 
 /** At most three crumbs: place › header (Gebiet or Raum, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */

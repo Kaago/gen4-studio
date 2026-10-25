@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { TextHit } from "../../api";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
-import { id4 } from "../terms";
+import { id4, termFor } from "../terms";
 import { MessageEditor } from "./MessageEditor";
 import { draftKey, useTextArea } from "./TextAreaContext";
 import type { TextScope } from "./TextAreaContext";
@@ -211,10 +211,11 @@ export function TextHand() {
 
 /** The column of the selected message: its field, the headers that use the archive and the removal of the last message. */
 function EditorColumn({ archive, message, field }: { archive: number; message: number; field: RefObject<HTMLTextAreaElement | null> }) {
-  const { project, loaded, users, headers, commit, draft, setEditorFocused, removeLast, goTo } = useTextArea();
+  const { project, loaded, users, headers, commit, draft, setEditorFocused, removeLast, goTo, depth } = useTextArea();
   const usedBy = users.get(archive) ?? [];
-  // Each header under its own location name.
-  const nameOf = (id: number) => headers.find((h) => h.id === id)?.location_name.trim() || "Header";
+  // Each header under its own location name ("Ort" in Bauen, "Header" in Tüfteln when it has none).
+  const word = termFor("header", depth);
+  const nameOf = (id: number) => headers.find((h) => h.id === id)?.location_name.trim() || word;
   const count = loaded?.messages.length ?? 0;
   const key = draftKey(archive, message);
   return (
@@ -232,7 +233,7 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
         <div className={styles.usedIn}>
           <span className={styles.label}>Verwendet in</span>
           {usedBy.length === 0 ? (
-            <span className={styles.none}>keinem Header</span>
+            <span className={styles.none}>keinem {word}</span>
           ) : (
             usedBy.map((id) => <Reference key={id} area="welt" label={nameOf(id)} tech={id4(id)} onOpen={() => goTo({ kind: "header", id })} dataAttrs={{ "data-header": id }} />)
           )}

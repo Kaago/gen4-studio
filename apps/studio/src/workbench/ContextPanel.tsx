@@ -43,7 +43,7 @@ export function ContextPanel({ hasPlace, events, headers, buildings, selectedEve
   useRovingList(list);
   const uid = useId();
   const groups = useMemo(
-    () => (events ? groupEvents(events, (id) => headers.find((h) => h.id === id)?.internal_name, (script) => scriptTrainerLabel(trainers, script), depth) : []),
+    () => (events ? groupEvents(events, depth, (id) => headers.find((h) => h.id === id)?.internal_name, (script) => scriptTrainerLabel(trainers, script)) : []),
     [events, headers, trainers, depth],
   );
   const buildingTotal = buildings.reduce((sum, m) => sum + m.models.length, 0);

@@ -51,7 +51,7 @@ const DEVELOPER_STRING = /^[a-z0-9 ]+$/;
  * that is not a lowercase ASCII developer string (the editors commit with a German field label such as "Wetter") passes through; an
  * empty or unknown developer label reads "Änderung".
  */
-export function historyLabel(label: string, depth: Depth = "tuefteln"): string {
+export function historyLabel(label: string, depth: Depth): string {
   const known = (depth === "bauen" ? KNOWN_BUILDING[label] : undefined) ?? KNOWN[label];
   if (known !== undefined) return known;
   for (const [pattern, text, building] of PATTERNS) {
@@ -61,7 +61,7 @@ export function historyLabel(label: string, depth: Depth = "tuefteln"): string {
   return label !== "" && !DEVELOPER_STRING.test(label) ? label : "Änderung";
 }
 
-export const germanHistory = (history: HistoryDto, depth: Depth = "tuefteln"): HistoryDto => ({
+export const germanHistory = (history: HistoryDto, depth: Depth): HistoryDto => ({
   undo: history.undo.map((label) => historyLabel(label, depth)),
   redo: history.redo.map((label) => historyLabel(label, depth)),
 });

@@ -40,7 +40,7 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
  * for a fix undo cannot take back, then one step (`apply_fix`). It closes when the finding is gone; it stays with „Nicht behoben“ when the
  * check still reports it, and says „Befund ist nicht mehr aktuell“ (and offers to check again) when its subject changed meanwhile.
  */
-export function FixDialog({ finding, checks, depth = "tuefteln", onClose }: { finding: CheckProblemDto; checks: ChecksApi; depth?: Depth; onClose: () => void }) {
+export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckProblemDto; checks: ChecksApi; depth: Depth; onClose: () => void }) {
   const fix = finding.fixes[0];
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   // Set once the dialog is left (a button, Escape, or its owner took it away): a save under way does not go on to the fix then.
