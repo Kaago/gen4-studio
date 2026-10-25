@@ -25,7 +25,7 @@ describe("MatrixCellEditor", () => {
   const onError = vi.fn();
   const onMapImported = vi.fn();
   let dirty: AssetId[] = [];
-  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError, onMapImported });
+  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError, onMapImported, checks: null });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);

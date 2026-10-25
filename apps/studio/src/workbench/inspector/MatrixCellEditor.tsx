@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, MemberCounts } from "../../api";
+import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
 import { cellLabel } from "../matrix";
@@ -31,6 +32,8 @@ export interface MatrixCellContext {
   onError: (e: unknown) => void;
   /** Parts were imported into a map: pictures, scene and dirty count catch up. */
   onMapImported: (map: number) => void | Promise<void>;
+  /** The checks of the project: the import dialog lists what they find at the map after an import. */
+  checks: ChecksApi | null;
 }
 
 /** The map of a cell: a number from 0 to `max`, or nothing for a cell without a map. An entry outside that is refused with its limit. */
@@ -61,7 +64,7 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
 
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
-  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported } = context;
+  const { dirty, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
   const matrix = useMatrix(index, revision, onError);
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
@@ -143,7 +146,15 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         )}
         {map !== null && (
           <>
-            <ImportPartsDialog map={map} open={partsDialog === "import"} onClose={() => setPartsDialog(null)} mapCount={counts.Map ?? 0} onImported={onMapImported} />
+            <ImportPartsDialog
+              map={map}
+              open={partsDialog === "import"}
+              onClose={() => setPartsDialog(null)}
+              mapCount={counts.Map ?? 0}
+              onImported={onMapImported}
+              checks={checks}
+              goTo={goTo}
+            />
             <ExportPartDialog map={map} open={partsDialog === "export"} onClose={() => setPartsDialog(null)} />
           </>
         )}

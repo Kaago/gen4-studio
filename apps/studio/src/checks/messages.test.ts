@@ -77,13 +77,13 @@ describe("check messages", () => {
       "Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.",
     );
     expect(skippedText({ code: "event.script-missing", why: "script file 101 is not checked: rotom cannot decode it: bad jump" })).toBe(
-      "Script fehlt: Scriptdatei 0101 nicht geprüft (rotom cannot decode it: bad jump).",
+      "Script fehlt: Scriptdatei 0101 nicht geprüft (rotom cannot decode it: bad jump). Behebe den Fehler in der Datei, dann prüft das Studio sie.",
     );
     expect(skippedText({ code: "header.level-target", why: "level script file 0012 is not checked: rotom cannot decode it: x" })).toBe(
-      "Level-Script ruft fehlendes Script: Level-Script 0012 nicht geprüft (rotom cannot decode it: x).",
+      "Level-Script ruft fehlendes Script: Level-Script 0012 nicht geprüft (rotom cannot decode it: x). Behebe den Fehler in der Datei, dann prüft das Studio sie.",
     );
     expect(skippedText({ code: "text.too-wide", why: "the header table cannot be read (it names the dialog archives)" })).toBe(
-      "Zeile zu breit: nicht geprüft (the header table cannot be read (it names the dialog archives)).",
+      "Zeile zu breit: nicht geprüft (the header table cannot be read (it names the dialog archives)). Sieh unter „Datei nicht lesbar“ nach, was fehlt, und prüfe dann erneut.",
     );
     // The ignore file could not be read (ruling R15): the project opened with nothing ignored, and the file is not written.
     expect(skippedText({ code: "g4-checks.json", why: "key must be a string at line 1 column 3" })).toBe(

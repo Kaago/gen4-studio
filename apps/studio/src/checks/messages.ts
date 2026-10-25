@@ -377,7 +377,10 @@ const IGNORE_FILE = "g4-checks.json";
 const COMMON_SCRIPTS = /^(\d+) script files that no header uses \(common scripts\) are not checked/;
 const ONE_FILE = /^(level )?script file (\d+) is not checked: (.+)$/;
 
-/** A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“). */
+/**
+ * A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“):
+ * German sentences with the way out, the kernel's reason only as a detail in brackets.
+ */
 export function skippedText({ code, why }: { code: string; why: string }): string {
   // Not a check: the ignore file could not be read when the project opened (ruling R15).
   if (code === IGNORE_FILE) return `${IGNORE_FILE} ist nicht lesbar (${why}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.`;
@@ -386,6 +389,7 @@ export function skippedText({ code, why }: { code: string; why: string }): strin
   const common = COMMON_SCRIPTS.exec(why);
   if (common) return `${title}: ${common[1]} Common-Scripts ohne Header nicht geprüft.`;
   const file = ONE_FILE.exec(why);
-  if (file) return `${title}: ${file[1] ? "Level-Script" : "Scriptdatei"} ${id4(Number(file[2]))} nicht geprüft (${file[3]}).`;
-  return `${title}: nicht geprüft (${why}).`;
+  if (file) return `${title}: ${file[1] ? "Level-Script" : "Scriptdatei"} ${id4(Number(file[2]))} nicht geprüft (${file[3]}). Behebe den Fehler in der Datei, dann prüft das Studio sie.`;
+  // Mostly a file that cannot be read (the header table, an archive): its finding „Datei nicht lesbar“ names it.
+  return `${title}: nicht geprüft (${why}). Sieh unter „${CHECK_MESSAGES["asset.unreadable"]!.title}“ nach, was fehlt, und prüfe dann erneut.`;
 }

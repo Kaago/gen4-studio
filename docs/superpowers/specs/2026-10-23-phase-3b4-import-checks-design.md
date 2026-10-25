@@ -135,7 +135,7 @@ Fehler lassen sich nie ausblenden. Warnungen und Hinweise: `g4-checks.json` im P
 
 216 px in pret (`Window_Add` des Feld-Textfensters); Bedeutung von 0x0FFF; HGSS-Puffergrößen für Modell und BDHC; Vanilla-Zählungen auf HGSS für alle Fehler-Kandidaten; Lock-Dauer des Text-Index-Aufbaus und Snapshot-Kosten; ob rotom `MessageLineTooLong` als Warnungsart öffentlich macht; Material-Leser (Texturnamen) auf Vanilla; Karte SRC mit eindeutig neuem Weg für das Gate; ob `XX_YY` in PDSMS-Dateinamen absolut ist (nur für die Doku); ob ein Trainer ohne Party wirklich abstürzt (für die Schwere von `trainer.no-party`).
 
-## Stand nach der Umsetzung (3b.4a)
+## Stand nach der Umsetzung (3b.4a und 3b.4b)
 
 Entscheidungen der Umsetzung, die den Text oben ändern (Rulings im Ledger des Plans 3b.4a, `.superpowers/sdd/2026-10-24-phase-3b4a-checks/progress.md`):
 
@@ -152,6 +152,16 @@ Entscheidungen der Umsetzung, die den Text oben ändern (Rulings im Ledger des P
 - R16 `matrix.header-elsewhere` ist Fehler (Task 0 maß 0/0/0 mit der Ausnahme Header-Zelle 0); ebenso die anderen „bedingten“ `map.building-range` und `area.tileset-range` (§4). Dazu kamen im Katalog `script.unreadable`, `encounter.level-high` und `encounter.rate-byte`; `map.bdhc-size` ist Fehler (Grenze 0x9000 ab Byte 16).
 
 Aus der Schlussprüfung und der Abnahme von Gate A: ein Bericht gilt nur, solange Store-Generation und die Epoche der Schreibzugriffe am Store vorbei (Scripts, neue Trainer) seine sind; ohne Bericht sagen Prüflicht und Panel „Nicht geprüft“, nie „Alles stimmig“; der Platzhalter-Trainer des „gesehen“-Slots (`trainer.sight_slot`, Platin 929, HGSS 740) ist weder `asset.unreadable` noch ein Trainer-Befund.
+
+Aus der Umsetzung von 3b.4b (Regelungen im Ledger des Plans 3b.4b, `.superpowers/sdd/2026-10-24-phase-3b4b-import/progress.md`):
+
+- S1 Szenarien kennen den Platzhalter `${sha1-of:PFAD}` (SHA-1 einer Datei, gelesen erst beim Einsetzen, in `check:` nach dem Bauen). Damit vergleicht `g4k check-data --expect map:N:model_sha1=… --expect map:N:per_sha1=…` den Kartenteil im ROM mit dem Export; das ersetzt `verify: [rom-map-part, …]` (§11 (8)) und `g4k rom-map-part` (§10, Entscheidung des Plans).
+- S2 Eine Änderung darf abgelehnt werden müssen: `{expect: {error: Teilstring}}` als drittes Element (§11 (3), Gegenfall). Der Lauf speichert vorher, was die Änderungen davor taten; die Ablehnung beendet die Brücken-Sitzung ohne Speichern. Ein `dirty` nach der Ablehnung belegt nichts (die nächste Sitzung öffnet das Projekt neu); was die Ablehnung belegt, regelt S5 (Ruling S6).
+- S3 Jede `run_checks`-Erwartung der Szenarien prüft auch `groups.length = 3`: ein Bericht ohne alle Gruppen ist kein Ergebnis, nie „sauber“.
+- S4 Das synthetische Modell über 0xF000 entsteht im Abschnitt `prepare:` eines Szenarios (`make-oversize-nsbmd`, `scripts/g4emu/g4emu/fixtures.py`): Kopf und ein MDL0-Block mit genau einem Modell sind gültig, nur die Größe lehnt ab.
+- S5 `map:N:per_sha1` vergleicht mit der Kollision, die das Studio nach dem Setzen der Tür exportiert (die Tür kommt nach dem Import, der die ganze Kollision ersetzt). Die Ablehnung und ihre Einordnung belegen die Meldung („61440“) und `inspect_map_import` mit `state.kind = error` und dem Code `model.too-big`. „`dirty` unverändert“ (§11 (3)) prüft kein Szenario: nach einer Ablehnung öffnet die nächste Sitzung das Projekt neu von der Platte, `dirty` ist dort immer leer, und der Hash im ROM zeigt nur den gelungenen Import. Dass eine Ablehnung nichts ändert, belegen die Tests vor dem Schreiben (Ruling S6): `import_refuses_on_error_and_changes_nothing` im Kernel und `export_then_import_from_files_and_a_refusal_changes_nothing` im Studio; §11 Tests verlangt dafür „Ablehnung > 0xF000 und zwei Modelle (synthetisch)“, ohne die Tests zu benennen.
+- Teilprüfungen (§9) tragen einen Code (`PartCode`, 29 Codes) mit Argumenten; der Dialog sagt jeden deutsch mit Ausweg (`importParts.ts`), Brücke und `call.sh` behalten den englischen Satz des Kernels. Nach dem Import nennt der Dialog alle Befunde der Karte aus dem nächsten vollen Lauf (R12), nicht nur die neuen (§9). Der Picker der Quellkarte zeigt keine Kartenbilder.
+- Szenarien, abweichend von §11: Wege und Figuren liegen auf gewöhnlichem Boden statt im hohen Gras (Rate 100), in HeartGold liegt die Ankunft auf (8, 25) statt am Weganfang; Patch und `adopt_scripts` kommen vor `accept_baseline`; der neue Header bekommt ein eigenes Textarchiv; die Begegnungsdatei füllt jede Ersatzliste, die das Spiel im Gras liest (sonst `encounter.empty-slot`); „Item per Flag, anderer Text danach“ ist die Figur, deren Script `create_script` anlegte; die Trainer kämpfen per Sichtlinie bzw. nach Ansprechen statt mit `walk-until-battle` (§11 (9)). Dass der Weg nur mit der importierten Kollision geht, belegen die Gegenproben `pt-kleiner-hack-ohne-import.yaml` und `hg-kleiner-hack-ohne-import.yaml` (sie scheitern am Weg); Text, Flags und Texturen, die `g4emu` nicht liest, belegen Bilder für den Blick des Nutzers („Agent + Blick“). Ablauf und Ergebnis: [docs/phase-3b4-gate.md](../../phase-3b4-gate.md), Teil B.
 
 ## 14. Dokumentation und Roadmap
 

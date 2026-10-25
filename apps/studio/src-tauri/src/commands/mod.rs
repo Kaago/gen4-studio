@@ -80,6 +80,35 @@ pub(crate) fn open_synthetic() -> (g4_kernel::test_support::Synthetic, AppState)
     (fixture, state)
 }
 
+/// [`open_synthetic`] with adopted scripts and a battle script like Platinum's for its three
+/// trainers (slot 4 is the sight script), as `trainer_create`'s own tests set it up.
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+pub(crate) fn open_synthetic_with_battle_script() -> (
+    g4_kernel::test_support::Synthetic,
+    AppState,
+    g4_kernel::scripts::TrainerScriptMeta,
+) {
+    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
+    let (fixture, state) = open_synthetic();
+    let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let battle_file = scripts::new_script_file(&project, SourceKind::Script).unwrap();
+    let battle = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    ReleaseAll\n    End\n\
+                  script script_4 #4:\n    LockAll\n    ReleaseAll\n    End\n";
+    scripts::write_source(&project, battle_file, &ScriptSource::Rotom(battle.into())).unwrap();
+    let report = scripts::compile(&project).unwrap();
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    (
+        fixture,
+        state,
+        TrainerScriptMeta {
+            battle_file,
+            seen_script: 3003,
+        },
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

@@ -62,6 +62,18 @@ describe("BeforeAfter", () => {
     expect(ruleBody(css, ".lines")).toMatch(/overflow:\s*auto/);
   });
 
+  it("keeps_the_signs_in_view_while_a_column_scrolls_sideways", () => {
+    const css = readCss("./BeforeAfter.module.css", import.meta.url);
+    // The sign column stays at the left edge of its column; the text scrolls under it, so the gutter is opaque, in the line's surface.
+    const sign = ruleBody(css, ".line::before");
+    expect(sign).toMatch(/position:\s*sticky;/);
+    expect(sign).toMatch(/left:\s*0;/);
+    expect(sign).toMatch(/background:\s*var\(--g4-flaeche-blatt\)/);
+    // The app's reset makes every ::before border-box: the sign keeps its 1ch beside the inset and the gap, else it sits on the text.
+    expect(sign).toMatch(/box-sizing:\s*content-box;/);
+    expect(ruleBody(css, ".changed::before")).toMatch(/background:\s*var\(--g4-auswahl-flaeche\)/);
+  });
+
   it("highlights_changed_lines_in_the_selection_surface", () => {
     const css = readCss("./BeforeAfter.module.css", import.meta.url);
     expect(ruleBody(css, ".changed")).toMatch(/background:\s*var\(--g4-auswahl-flaeche\)/);

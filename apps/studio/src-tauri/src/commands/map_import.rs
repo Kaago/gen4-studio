@@ -98,6 +98,30 @@ pub fn export_map_part(
 mod tests {
     use super::*;
     use crate::commands::{dirty_impl, open_synthetic};
+    use g4_kernel::map_import::PartCode;
+
+    /// The dialog's German sentences (`importParts.ts`): `PART_TEXTS` has an entry for every
+    /// code of the part checks, in the kernel's order, and none for a code the kernel lacks.
+    #[test]
+    fn every_part_code_has_its_german_sentence() {
+        const IMPORT_PARTS_TS: &str =
+            include_str!("../../../src/workbench/inspector/importParts.ts");
+        let start = IMPORT_PARTS_TS
+            .find("export const PART_TEXTS")
+            .expect("importParts.ts declares PART_TEXTS");
+        let body = &IMPORT_PARTS_TS[start..];
+        let body = &body[..body.find("\n};").expect("PART_TEXTS ends with `};`")];
+        let codes: Vec<&str> = body
+            .lines()
+            .filter_map(|line| {
+                line.strip_prefix("  \"")?
+                    .split_once("\": \"")
+                    .map(|(code, _)| code)
+            })
+            .collect();
+        let kernel: Vec<&str> = PartCode::ALL.iter().map(|c| c.as_str()).collect();
+        assert_eq!(codes, kernel);
+    }
 
     #[test]
     fn export_then_import_from_files_and_a_refusal_changes_nothing() {

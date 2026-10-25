@@ -1,8 +1,10 @@
+import hashlib
 import json
 import stat
 from pathlib import Path
 
 import pytest
+import yaml
 
 from g4emu import scenario
 from g4emu.cli import main
@@ -568,15 +570,29 @@ def test_load_scenario_rejects_bad_bindings(tmp_path, edits, message):
 
 
 FAKE_BRIDGE_PY = """\
-import json, sys
+import json, os, sys
+from pathlib import Path
 batch = json.load(open(sys.argv[2]))
 with open(sys.argv[-1] + "/batches.jsonl", "a") as log:
     log.write(json.dumps(batch) + "\\n")
+dirty = []  # what the commands of this session changed and `save` has not written yet
 for name, args in batch:
-    if name == "fail":
-        print(json.dumps({"command": name, "ok": False, "error": {"code": "error", "message": "nein"}}))
+    args = args if isinstance(args, dict) else {}
+    if name == "fail" or (name == "open_project" and os.environ.get("FAKE_OPEN_FAILS")):
+        message = args.get("message", "nein")
+        print(json.dumps({"command": name, "ok": False, "error": {"code": "error", "message": message}}))
         sys.exit(1)
-    print(json.dumps({"command": name, "ok": True, "result": args.get("give") if isinstance(args, dict) else None}))
+    if name == "write_file":  # an export: the file exists once the command ran
+        Path(args["path"]).parent.mkdir(parents=True, exist_ok=True)
+        Path(args["path"]).write_text(args["text"], encoding="utf-8")
+    result = args.get("give")
+    if name == "dirty":
+        result = list(dirty)
+    elif name == "save":
+        dirty.clear()
+    elif name not in ("open_project", "build_rom"):
+        dirty.append(name)
+    print(json.dumps({"command": name, "ok": True, "result": result}))
 """
 
 
@@ -822,11 +838,51 @@ def test_an_expect_name_is_bound_once_and_not_before(tmp_path):
 @pytest.mark.parametrize("name", ["pt-kleiner-hack.yaml", "hg-kleiner-hack.yaml", "pt-pruefungen.yaml"])
 def test_the_scenarios_with_expectations_load(name):
     env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
-    env.update(KOPIE="/k", MODEL_SHA1="ab", PER_SHA1="cd")
+    env.update(KOPIE="/k")
     path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
     sc = load_scenario(path, env)
     expects = [edit[2] for edit in sc.edits if len(edit) == 3 and isinstance(edit[2], dict)]
     assert expects and all(e["expect"] for e in expects)
+
+
+@pytest.mark.parametrize("name", ["pt-kleiner-hack.yaml", "hg-kleiner-hack.yaml"])
+def test_the_small_hack_scenarios_count_only_runs_with_all_groups(name):
+    # gate B: an answer without all three groups is "no result", never "clean"; the oversize model is
+    # made by the scenario and must be refused; the ROM's model and permissions are compared by file hash
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    env.update(KOPIE="/k")
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    runs = [edit for edit in sc.edits if edit[0] == "run_checks"]
+    assert len(runs) >= 9
+    for edit in runs:
+        assert len(edit) == 3, edit
+        assert {"path": "groups.length", "equals": 3} in edit[2]["expect"], edit
+    assert sc.prepare == [["make-oversize-nsbmd", {"path": "export/zu-gross.nsbmd"}]]
+    assert any(len(e) == 3 and isinstance(e[2], dict) and e[2]["expect"] == [{"error": "61440"}] for e in sc.edits)
+    hashes = " ".join(sc.check[0])
+    assert "model_sha1=${sha1-of:" in hashes and "per_sha1=${sha1-of:" in hashes
+
+
+@pytest.mark.parametrize("name", ["pt-kleiner-hack", "hg-kleiner-hack"])
+def test_the_control_without_the_import_is_the_scenario_minus_the_import(name):
+    # the control shows that the gate's way needs the imported collision: it must be the scenario
+    # without exactly the successful import, without `check:`, its play cut after `shot weg`
+    folder = Path(__file__).resolve().parents[2] / "agent" / "scenarios"
+    gate = yaml.safe_load((folder / f"{name}.yaml").read_text(encoding="utf-8"))
+    control = yaml.safe_load((folder / f"{name}-ohne-import.yaml").read_text(encoding="utf-8"))
+    imports = [e for e in gate["edits"] if e[0] == "import_map_parts" and e[1].get("parts") == ["model", "permissions"]]
+    assert len(imports) == 1
+    assert control["edits"] == [e for e in gate["edits"] if e is not imports[0]]
+    assert "check" not in control
+    assert control["play"] == gate["play"][: gate["play"].index("shot weg") + 1]
+    assert {k: v for k, v in control.items() if k not in ("edits", "play")} == {
+        k: v for k, v in gate.items() if k not in ("edits", "play", "check")
+    }
+    env = {k: "1" for k in ("NEUER_HEADER", "S_WILD", "L_WILD", "S_T1", "L_T1", "S_T2", "L_T2", "S_GIFT")}
+    env.update(KOPIE="/k")
+    sc = load_scenario(folder / f"{name}-ohne-import.yaml", env)
+    assert sc.check == [] and sc.play[-2:] == ["shot", "weg"]
 
 
 def test_a_met_expectation_ends_the_session_binds_and_goes_on(tmp_path, roms, monkeypatch, capsys):
@@ -899,3 +955,527 @@ def test_an_expectation_compares_types_strictly(tmp_path, roms, monkeypatch, cap
         code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
         assert code == 2
     assert "Ist 1" in capsys.readouterr().err
+
+
+# --- `${sha1-of:PATH}`: the SHA-1 of a file, read where the placeholder is used ---
+
+
+def sha1_hex(data: bytes) -> str:
+    return hashlib.sha1(data).hexdigest()
+
+
+def test_sha1_of_hashes_an_absolute_or_a_copy_relative_file(tmp_path):
+    (tmp_path / "export").mkdir()
+    (tmp_path / "export" / "m.nsbmd").write_bytes(b"model")
+    want = sha1_hex(b"model")
+    assert resolve(f"${{sha1-of:{tmp_path}/export/m.nsbmd}}", {}, tmp_path) == want
+    assert resolve("${sha1-of:export/m.nsbmd}", {}, tmp_path) == want  # relative to the copy
+    assert resolve("map:5:model_sha1=${sha1-of:export/m.nsbmd}", {}, tmp_path) == f"map:5:model_sha1={want}"
+    assert resolve({"a": ["${sha1-of:export/m.nsbmd}", 7]}, {}, tmp_path) == {"a": [want, 7]}
+    assert resolve("${sha1-of:${dir}/m.nsbmd}", {"dir": "export"}, tmp_path) == want  # a bound name inside the path
+
+
+def test_sha1_of_stands_next_to_other_placeholders(tmp_path):
+    (tmp_path / "m").write_bytes(b"x")
+    results = {"area": {"maps": [[0, 0, 600]]}}
+    got = resolve("map:${area.maps.0.2}:model_sha1=${sha1-of:m}:n=${area.maps.0.2+1}", results, tmp_path)
+    assert got == f"map:600:model_sha1={sha1_hex(b'x')}:n=601"
+    # the early pass resolves the names and leaves the hash
+    assert resolve("map:${area.maps.0.2}:model_sha1=${sha1-of:m}", results) == "map:600:model_sha1=${sha1-of:m}"
+
+
+def test_sha1_of_reads_no_file_without_a_folder_but_keeps_the_placeholder():
+    # the early pass of `check` and `play` only proves that the names resolve; the files do not exist yet
+    assert resolve("${sha1-of:export/m.nsbmd}", {}) == "${sha1-of:export/m.nsbmd}"
+    assert resolve("x=${sha1-of:${dir}/m}", {"dir": "export"}) == "x=${sha1-of:export/m}"
+    with pytest.raises(KeyError, match="dir"):
+        resolve("${sha1-of:${dir}/m}", {})
+
+
+def test_sha1_of_does_not_resolve_what_an_answer_contains(tmp_path):
+    (tmp_path / "f").write_bytes(b"x")
+    # text of a bound answer is data: a placeholder in it stays text
+    assert resolve("${t.text}", {"t": {"text": "${sha1-of:f}"}}, tmp_path) == "${sha1-of:f}"
+    assert resolve("a ${t.text}", {"t": {"text": "${sha1-of:f}"}}, tmp_path) == "a ${sha1-of:f}"
+
+
+def test_sha1_of_a_missing_file_names_the_path(tmp_path):
+    with pytest.raises(ValueError, match="gibtsnicht.nsbmd") as e:
+        resolve("${sha1-of:export/gibtsnicht.nsbmd}", {}, tmp_path)
+    assert str(tmp_path / "export" / "gibtsnicht.nsbmd") in str(e.value)
+    (tmp_path / "dir").mkdir()
+    with pytest.raises(ValueError, match="dir"):
+        resolve("${sha1-of:dir}", {}, tmp_path)  # a folder is no file
+
+
+HASH_YAML = """\
+game: CPUD
+edits:
+  - [use, {sha: "${sha1-of:${KOPIE}/export/m.nsbmd}", other: "${sha1-of:export/m.per}"}]
+  - [report, {}, {expect: {path: sha, equals: "${sha1-of:${KOPIE}/export/m.nsbmd}"}}]
+build: out.nds
+check:
+  - [g4k, check-data, out.nds, --expect, "map:5:model_sha1=${sha1-of:${KOPIE}/export/m.nsbmd}"]
+play:
+  - shot "${sha1-of:export/m.per}"
+"""
+
+
+def test_load_scenario_keeps_file_hashes_for_later_and_fills_the_names_in_their_paths(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, HASH_YAML), {"KOPIE": "/k"})
+    assert sc.edits[0] == ["use", {"sha": "${sha1-of:/k/export/m.nsbmd}", "other": "${sha1-of:export/m.per}"}]
+    assert sc.edits[1][2] == {"expect": [{"path": "sha", "equals": "${sha1-of:/k/export/m.nsbmd}"}]}
+    assert sc.check == [["g4k", "check-data", "out.nds", "--expect", "map:5:model_sha1=${sha1-of:/k/export/m.nsbmd}"]]
+    assert sc.play == ["shot", "${sha1-of:export/m.per}"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "game: CPUD\nedits: [[a, {x: '${sha1-of:}'}]]\n",  # no path
+        "game: CPUD\nedits: [[a, {x: '${sha1-of:/k/f'}]]\n",  # not closed
+        "game: CPUD\nedits: [[a, {}, {expect: {path: p, equals: '${sha1-of:}'}}]]\n",
+        "game: CPUD\nbuild: out.nds\ncheck: [[g4k, x, '--expect=${sha1-of:}']]\n",
+        "game: CPUD\nbuild: out.nds\nplay: ['shot ${sha1-of:']\n",
+        "game: CPUD\nbuild: '${sha1-of:/k/f}.nds'\n",  # the ROM path is fixed before any edit runs
+    ],
+)
+def test_load_scenario_refuses_a_malformed_or_misplaced_file_hash(tmp_path, text):
+    with pytest.raises(ValueError, match="sha1-of"):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def test_a_file_hash_in_an_edit_is_read_after_the_edits_that_made_the_file(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    target = project / "export" / "karte6.nsbmd"
+    sc = simple_scenario(
+        edits=[
+            ["write_file", {"path": str(target), "text": "model-bytes"}],  # an export, not named, no expectation
+            ["use", {"sha": "${sha1-of:export/karte6.nsbmd}"}],
+            ["after", {}],
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 0, capsys.readouterr().err
+    batches = [json.loads(line) for line in (tmp_path / "batches.jsonl").read_text().splitlines()]
+    opened = ["open_project", {"path": str(project.resolve())}]
+    # the edits before it ran and were saved first; only then the placeholder could be filled
+    assert batches[0] == [opened, ["write_file", {"path": str(target), "text": "model-bytes"}], ["save", {}]]
+    assert batches[1][:2] == [opened, ["use", {"sha": sha1_hex(b"model-bytes")}]]
+    assert [c[0] for c in batches[1]] == ["open_project", "use", "after", "save", "build_rom"]
+    assert len(batches) == 2
+
+
+def test_an_edit_without_a_file_hash_keeps_sharing_the_session(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["a", {}], ["b", {}]], play=[])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1
+
+
+def test_a_missing_file_for_a_hash_fails_with_the_path_and_the_step(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    project = roms / "_testkopien" / "proj"
+    sc = simple_scenario(edits=[["use", {"sha": "${sha1-of:export/gibtsnicht.nsbmd}"}]])
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 1 and played == []
+    assert str(project.resolve() / "export" / "gibtsnicht.nsbmd") in captured.err
+    assert "Änderung 1 (use)" in captured.err
+    assert not (tmp_path / "batches.jsonl").exists()  # nothing ran
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_a_file_hash_in_check_and_play_is_read_after_the_build(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, f'echo "$@" >> {tmp_path / "g4k-args"}\n')))
+    played = {}
+    monkeypatch.setattr(scenario, "_play", lambda rom, save, out, steps, core: played.update(steps=steps) or (0, []))
+    project = roms / "_testkopien" / "proj"
+    target = project / "export" / "karte6.per"
+    sc = simple_scenario(
+        edits=[["write_file", {"path": str(target), "text": "per-bytes"}]],  # in the last session: not run before it
+        check=[["g4k", "check-data", "out.nds", "--expect", "map:5:per_sha1=${sha1-of:export/karte6.per}"]],
+        play=["shot", "${sha1-of:export/karte6.per}"],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 0, capsys.readouterr().err
+    want = sha1_hex(b"per-bytes")
+    assert (tmp_path / "g4k-args").read_text().split() == ["check-data", "out.nds", "--expect", f"map:5:per_sha1={want}"]
+    assert played["steps"] == ["shot", want]
+
+
+def test_an_unknown_name_in_check_still_fails_before_the_build(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    sc = simple_scenario(check=[["g4k", "x", "${sha1-of:export/m}", "${nope}"]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 1
+    assert "nope" in capsys.readouterr().err
+    assert not (tmp_path / "batches.jsonl").exists()  # the last session (with the build) never started
+
+
+def test_a_missing_file_in_check_fails_with_the_path_and_the_step(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setenv("G4K_BIN", str(make_fake_g4k(tmp_path, "exit 0\n")))
+    project = roms / "_testkopien" / "proj"
+    sc = simple_scenario(check=[["g4k", "ok"], ["g4k", "check-data", "--expect", "x=${sha1-of:export/fehlt.per}"]])
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    err = capsys.readouterr().err
+    assert code == 1
+    assert str(project.resolve() / "export" / "fehlt.per") in err and "check 2" in err
+
+
+def test_a_file_hash_works_in_equals(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    target = project / "export" / "karte6.nsbmd"
+    sc = simple_scenario(
+        edits=[
+            ["write_file", {"path": str(target), "text": "model-bytes"}],
+            ["report", {"give": {"sha": sha1_hex(b"model-bytes")}},
+             {"expect": [{"path": "sha", "equals": "${sha1-of:export/karte6.nsbmd}"}]}],
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 0, capsys.readouterr().err
+    sc = simple_scenario(edits=[["report", {"give": {"sha": "00"}}, {"expect": [{"path": "sha", "equals": "${sha1-of:export/karte6.nsbmd}"}]}]])
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 2
+    assert f'Soll "{sha1_hex(b"model-bytes")}", Ist "00"' in capsys.readouterr().err
+
+
+# --- an edit that must be refused: [befehl, {argumente}, {expect: {error: <Teilstring>}}] ---
+
+REFUSE_YAML = """\
+game: CPUD
+edits:
+  - [update_event, {eventFile: 394}]
+  - - import_map_parts
+    - {map: 5, source: {files: ["/k/export/zu-gross.nsbmd"]}, parts: [model]}
+    - {expect: {error: "${LIMIT}"}}
+  - [dirty, {}, {expect: {path: length, equals: 0}}]
+"""
+
+
+def test_load_scenario_reads_an_expected_refusal_and_a_command_without_arguments(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, REFUSE_YAML), {"LIMIT": "61440"})
+    assert sc.edits[1][2] == {"expect": [{"error": "61440"}]}  # an int placeholder becomes the text it stands for
+    assert sc.edits[2] == ["dirty", {}, {"expect": [{"path": "length", "equals": 0}]}]
+
+
+@pytest.mark.parametrize(
+    "third, message",
+    [
+        ("{expect: {error: ''}}", "nichtleerer Text"),
+        ("{expect: {error: '  '}}", "nichtleerer Text"),
+        ("{expect: {error: null}}", "nichtleerer Text"),
+        ("{expect: {error: true}}", "nichtleerer Text"),
+        ("{expect: {error: [a]}}", "nichtleerer Text"),
+        ("{expect: {error: x, path: a}}", "error steht allein"),
+        ("{expect: {error: x, equals: 1}}", "error steht allein"),
+        ("{expect: [{error: x}, {path: a, equals: 1}]}", "error steht allein"),
+        ("{expect: [{error: x}, {error: y}]}", "error steht allein"),
+        ("{expect: {error: x}, as: r}", "keine Antwort, die as binden"),
+    ],
+)
+def test_load_scenario_rejects_a_malformed_refusal(tmp_path, third, message):
+    text = f"game: CPUD\nedits: [[import_map_parts, {{}}, {third}]]\n"
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def refusal(text: str) -> dict:
+    return {"expect": [{"error": text}]}
+
+
+def test_a_refused_edit_passes_saves_what_came_before_and_the_scenario_goes_on(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    out = tmp_path / "out"
+    sc = simple_scenario(
+        edits=[
+            ["update_event", {"eventFile": 394}],
+            ["fail", {"message": "Das Modell ist zu gross: 65536 Byte, erlaubt 61440"}, refusal("ZU GROSS")],
+            ["dirty", {}, {"expect": [{"path": "length", "equals": 0}]}],
+            ["update_event", {"eventFile": 395}],
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, out, tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    batches = [json.loads(line) for line in (tmp_path / "batches.jsonl").read_text().splitlines()]
+    opened = ["open_project", {"path": str(project.resolve())}]
+    # what came before is saved before the refused command, which ends its session (a refusal stops a batch)
+    assert batches[0] == [
+        opened, ["update_event", {"eventFile": 394}], ["save", {}],
+        ["fail", {"message": "Das Modell ist zu gross: 65536 Byte, erlaubt 61440"}],
+    ]
+    assert batches[1] == [opened, ["dirty", {}], ["save", {}]]
+    assert batches[2] == [
+        opened, ["update_event", {"eventFile": 395}], ["save", {}], ["build_rom", {"out": str(project.resolve() / "out.nds")}]
+    ]
+    assert len(batches) == 3
+    assert 'Erwartung erfüllt: fail abgelehnt: "Das Modell ist zu gross' in captured.err
+    assert "Erwartung erfüllt: dirty length = 0" in captured.err
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is True
+
+
+def test_a_refused_edit_that_reads_a_file_waits_for_the_edits_before_it(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    target = project / "export" / "m.nsbmd"
+    sc = simple_scenario(
+        edits=[
+            ["write_file", {"path": str(target), "text": "model"}],
+            ["fail", {"sha": "${sha1-of:export/m.nsbmd}", "message": "zu gross"}, refusal("zu gross")],
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 0, capsys.readouterr().err
+    batches = [json.loads(line) for line in (tmp_path / "batches.jsonl").read_text().splitlines()]
+    assert [[c[0] for c in b] for b in batches[:2]] == [["open_project", "write_file", "save"], ["open_project", "fail"]]
+    assert batches[1][1][1]["sha"] == sha1_hex(b"model")
+
+
+def test_a_refused_first_edit_needs_no_save_before_it(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["fail", {}, refusal("nein")]], play=[])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    first = json.loads((tmp_path / "batches.jsonl").read_text().splitlines()[0])
+    assert [c[0] for c in first] == ["open_project", "fail"]
+
+
+def test_a_refusal_with_another_message_exits_2_and_shows_both(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    sc = simple_scenario(edits=[["fail", {"message": "Datei nicht lesbar"}, refusal("zu gross")], ["never", {}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 2 and played == []
+    assert 'fail: Ablehnung erwartet ("zu gross"), Ist "Datei nicht lesbar"' in captured.err
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_an_accepted_edit_where_a_refusal_was_expected_exits_2(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    played = []
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: played.append(a) or (0, []))
+    sc = simple_scenario(edits=[["update_event", {"eventFile": 394}, refusal("zu gross")], ["never", {}]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 2 and played == []
+    assert 'update_event: Ablehnung erwartet ("zu gross"), der Befehl war erfolgreich' in captured.err
+    assert len((tmp_path / "batches.jsonl").read_text().splitlines()) == 1
+    assert json.loads(captured.out.splitlines()[-1])["ok"] is False
+
+
+def test_an_earlier_failure_is_no_refusal(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    # the first `fail` is not expected to be refused; it stops the session before the one that is
+    sc = simple_scenario(edits=[["fail", {"message": "nein"}], ["fail", {"message": "nein"}, refusal("nein")]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 1
+    assert "studio-bridge batch fehlgeschlagen" in capsys.readouterr().err
+
+
+def test_a_project_that_does_not_open_is_no_refusal(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setenv("FAKE_OPEN_FAILS", "1")
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["fail", {"message": "nein"}, refusal("nein")]])
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    assert code == 1
+    assert "studio-bridge batch fehlgeschlagen" in capsys.readouterr().err
+
+
+def test_an_edit_without_a_refusal_still_stops_the_scenario_on_an_error(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(edits=[["fail", {"message": "nein"}, {"expect": [{"path": "x", "equals": 1}]}]])
+    assert run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+
+
+# --- a command without arguments with an expectation: [dirty, {}, {expect: {path: length, equals: N}}] ---
+
+
+def test_dirty_with_an_expectation_sees_the_edits_of_its_own_session(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    sc = simple_scenario(
+        edits=[
+            ["dirty", {}, {"expect": [{"path": "length", "equals": 0}]}],  # a fresh session: nothing dirty
+            ["update_event", {"eventFile": 394}],
+            ["set_permission", {"index": 6}],
+            ["dirty", {}, {"expect": [{"path": "length", "equals": 2}]}],  # both edits of this session
+        ],
+        play=[],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "Erwartung erfüllt: dirty length = 0" in captured.err and "Erwartung erfüllt: dirty length = 2" in captured.err
+    sc = simple_scenario(edits=[["update_event", {"eventFile": 394}], ["dirty", {}, {"expect": [{"path": "length", "equals": 0}]}]])
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 2
+    assert "dirty length: Soll 0, Ist 1" in capsys.readouterr().err
+
+
+def test_an_expectation_on_a_list_answer_goes_through_a_scenario_run(tmp_path, roms, monkeypatch, capsys):
+    # the draft line of pt-kleiner-hack.yaml: inspect_map_import answers with a list of parts
+    text = """\
+game: CPUD
+edits:
+  - - inspect_map_import
+    - map: 5
+      source: {files: ["/k/export/zu-gross.nsbmd"]}
+      give: [{part: model, size: 65536, state: {kind: error, message: too big}, notes: []}]
+    - {expect: {path: 0.state.kind, equals: error}}
+"""
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(fake_answering_bridge(tmp_path)))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = load_scenario(write_yaml(tmp_path, text), {})
+    code = run_scenario(sc, roms / "_testkopien" / "proj", tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert 'Erwartung erfüllt: inspect_map_import 0.state.kind = "error"' in captured.err
+
+
+# --- `prepare:` makes files before the edits (the counter case of the small-hack scenarios) ---
+
+PREPARE_YAML = """\
+game: CPUD
+prepare:
+  - [make-oversize-nsbmd, {path: "${KOPIE}/export/zu-gross.nsbmd", bytes: 70000}]
+  - [make-oversize-nsbmd, {path: export/default.nsbmd}]
+edits: []
+"""
+
+
+def test_load_scenario_reads_prepare_steps(tmp_path):
+    sc = load_scenario(write_yaml(tmp_path, PREPARE_YAML), {"KOPIE": "/k"})
+    assert sc.prepare == [
+        ["make-oversize-nsbmd", {"path": "/k/export/zu-gross.nsbmd", "bytes": 70000}],
+        ["make-oversize-nsbmd", {"path": "export/default.nsbmd"}],
+    ]
+    assert load_scenario(write_yaml(tmp_path, "game: CPUD\nedits: []\n"), {}).prepare == []
+
+
+@pytest.mark.parametrize(
+    "prepare, message",
+    [
+        ("{a: 1}", "prepare"),  # not a list
+        ("[make-oversize-nsbmd]", "prepare"),  # not a step
+        ("[[make-oversize-nsbmd]]", "prepare"),  # no arguments
+        ("[[make-nothing, {path: x}]]", "make-nothing"),  # unknown step
+        ("[[make-oversize-nsbmd, {bytes: 70000}]]", "path"),
+        ("[[make-oversize-nsbmd, {path: ''}]]", "path"),
+        ("[[make-oversize-nsbmd, {path: 5}]]", "path"),
+        ("[[make-oversize-nsbmd, {path: x, extra: 1}]]", "extra"),
+        ("[[make-oversize-nsbmd, {path: x, bytes: 100}]]", "bytes"),  # not over the limit
+        ("[[make-oversize-nsbmd, {path: x, bytes: '70000'}]]", "bytes"),
+        ("[[make-oversize-nsbmd, {path: x, bytes: true}]]", "bytes"),
+        ("[[make-oversize-nsbmd, {path: '${t1.name}'}]]", "prepare"),  # a name an edit binds: not there yet
+        ("[[make-oversize-nsbmd, {path: '${sha1-of:/k/f}'}]]", "sha1-of"),
+    ],
+)
+def test_load_scenario_rejects_malformed_prepare_steps(tmp_path, prepare, message):
+    text = f"game: CPUD\nprepare: {prepare}\nedits: [[create_trainer, {{}}, t1]]\n"
+    with pytest.raises(ValueError, match=message):
+        load_scenario(write_yaml(tmp_path, text), {})
+
+
+def test_prepare_makes_its_files_before_the_first_bridge_session(tmp_path, roms, monkeypatch, capsys):
+    project = roms / "_testkopien" / "proj"
+    seen = tmp_path / "seen"
+    # the bridge records the size of the file at the time it is started
+    monkeypatch.setenv(
+        "G4_BRIDGE_BIN",
+        str(make_fake_bridge(tmp_path, f'wc -c < {project}/export/zu-gross.nsbmd >> {seen}\necho \'{{"command":"x","ok":true}}\'\n')),
+    )
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    sc = simple_scenario(
+        prepare=[["make-oversize-nsbmd", {"path": str(project / "export" / "zu-gross.nsbmd"), "bytes": 70000}],
+                 ["make-oversize-nsbmd", {"path": "export/relativ.nsbmd"}]],
+        play=[],
+    )
+    code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert seen.read_text().split() == ["70000"]
+    data = (project / "export" / "zu-gross.nsbmd").read_bytes()
+    assert len(data) == 70000 and data[:4] == b"BMD0" and data[4:8] == b"\xff\xfe\x02\x00"
+    assert len((project / "export" / "relativ.nsbmd").read_bytes()) > 0xF000  # relative to the copy, default size
+    assert "make-oversize-nsbmd" in captured.err
+
+
+def test_prepare_refuses_a_file_outside_the_project_copy(tmp_path, roms, monkeypatch, capsys):
+    marker = tmp_path / "called"
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, f"touch {marker}\n")))
+    project = roms / "_testkopien" / "proj"
+    for path in (str(roms / "outside" / "x.nsbmd"), "../x.nsbmd", str(roms / "_testkopien" / "proj" / ".." / "x.nsbmd")):
+        sc = simple_scenario(prepare=[["make-oversize-nsbmd", {"path": path}]])
+        code = run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves")
+        assert code == 1
+        assert "Projektordner" in capsys.readouterr().err
+    assert not marker.exists()
+    assert not (roms / "outside" / "x.nsbmd").exists() and not (roms / "_testkopien" / "x.nsbmd").exists()
+    # the project folder itself is no file, and a folder in the way is no file to replace
+    (project / "export").mkdir()
+    for path in (".", "export"):
+        sc = simple_scenario(prepare=[["make-oversize-nsbmd", {"path": path}]])
+        assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+        capsys.readouterr()
+    assert not marker.exists()
+
+
+def test_prepare_refuses_a_link_that_leads_out_of_the_project_copy(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, "exit 0\n")))
+    project = roms / "_testkopien" / "proj"
+    (project / "link").symlink_to(roms / "outside")
+    sc = simple_scenario(prepare=[["make-oversize-nsbmd", {"path": "link/x.nsbmd"}]])
+    assert run_scenario(sc, project, tmp_path / "out", tmp_path, tmp_path / "saves") == 1
+    assert "Projektordner" in capsys.readouterr().err
+    assert not (roms / "outside" / "x.nsbmd").exists()
+
+
+def test_a_scenario_without_prepare_writes_no_file(tmp_path, roms, monkeypatch, capsys):
+    monkeypatch.setenv("G4_BRIDGE_BIN", str(make_fake_bridge(tmp_path, "exit 0\n")))
+    monkeypatch.setattr(scenario, "_play", lambda *a, **k: (0, []))
+    project = roms / "_testkopien" / "proj"
+    before = sorted(p.name for p in project.iterdir())
+    assert run_scenario(simple_scenario(), project, tmp_path / "out", tmp_path, tmp_path / "saves") == 0
+    assert sorted(p.name for p in project.iterdir()) == before
+
+
+def test_the_scenarios_load_with_the_new_syntax_next_to_the_old(tmp_path):
+    text = """\
+game: CPUD
+prepare:
+  - [make-oversize-nsbmd, {path: "${KOPIE}/export/zu-gross.nsbmd"}]
+edits:
+  - [export_map_part, {map: 6, part: model, path: "${KOPIE}/export/karte6.nsbmd"}]
+  - - import_map_parts
+    - {map: 5, source: {files: ["${KOPIE}/export/zu-gross.nsbmd"]}, parts: [model]}
+    - {expect: {error: zu groß}}
+  - [dirty, {}, {expect: {path: length, equals: 0}}]
+build: out.nds
+check:
+  - [g4k, check-data, out.nds, --expect, "map:5:model_sha1=${sha1-of:${KOPIE}/export/karte6.nsbmd}"]
+"""
+    sc = load_scenario(write_yaml(tmp_path, text), {"KOPIE": "/k"})
+    assert sc.prepare and sc.edits[1][2] == {"expect": [{"error": "zu groß"}]}

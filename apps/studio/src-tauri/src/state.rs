@@ -1,7 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{ChecksReport, Group, IgnoreSet, Overlay, Runner, Snapshot, SnapshotCache};
 use g4_kernel::data::names::NameTables;
@@ -48,7 +47,6 @@ impl Session {
     /// as it was; its next use tries again (and reports the error there).
     pub fn after_write(&mut self) {
         let _ = self.refs.refresh(&self.store);
-        self.checks.store_changed();
     }
 
     /// Forgets the reference index after the files on disk may have changed behind the store
@@ -56,7 +54,6 @@ impl Session {
     /// sees members the store never loaded.
     pub fn disk_changed(&mut self) {
         self.refs = RefIndex::new();
-        self.checks.store_changed();
     }
 
     /// Notes a write to the project's files that does not go through the store (a script
@@ -73,8 +70,9 @@ impl Session {
 pub type ChecksProgress = (String, u32, u32);
 
 /// The checks of a session (spec 3b.4 §5): the last current report, whether a pass runs and
-/// how far it got, when the store last changed (for the debounced cheap run), the disk epoch,
-/// the ignore list and the cache of decoded text archives and script sources between runs.
+/// how far it got, the disk epoch, the ignore list and the cache of decoded text archives and
+/// script sources between runs. The automatic run after an edit is a full run the frontend
+/// asks for after a pause of its own (`useChecks`, rulings R4 and R12); nothing here waits.
 ///
 /// A report is current while the store has its change generation and the disk epoch is the
 /// one it began at: the generation counts the store's changes, the epoch the writes to the
@@ -83,7 +81,7 @@ pub type ChecksProgress = (String, u32, u32);
 pub struct ChecksState {
     /// The last report that was current when it finished; never one of an older generation.
     pub last: Option<ChecksReport>,
-    /// The disk epoch `last` was made at (see [`ChecksState::epoch`]).
+    /// The disk epoch `last` was made at (see `epoch`).
     last_epoch: u64,
     /// Rises with every write to the project's files outside the store
     /// ([`ChecksState::disk_written`]).
@@ -94,9 +92,6 @@ pub struct ChecksState {
     /// Set when a pass was discarded because the store changed during it (or a check it
     /// left out was switched on): run again.
     pub rerun: bool,
-    /// When the store last changed ([`ChecksState::store_changed`]): the automatic cheap run
-    /// waits until it has been quiet for a while ([`ChecksState::quiet_for`]).
-    pub debounce: Instant,
     /// Disabled checks and ignored findings (from `g4-checks.json`).
     pub ignore: IgnoreSet,
     /// Why `g4-checks.json` could not be read when the project opened (ruling R15): `ignore`
@@ -123,7 +118,6 @@ impl ChecksState {
             epoch: 0,
             running: Arc::new(AtomicBool::new(false)),
             rerun: false,
-            debounce: Instant::now(),
             ignore: IgnoreSet::default(),
             ignore_broken: None,
             progress: Arc::new(Mutex::new(None)),
@@ -150,7 +144,9 @@ impl ChecksState {
         })
     }
 
-    /// The disk epoch: how often the project's files were written outside the store.
+    /// The disk epoch: how often the project's files were written outside the store (the
+    /// tests watch it rise; a report holds it in `last_epoch`).
+    #[cfg(test)]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -164,16 +160,6 @@ impl ChecksState {
     /// How far the running pass got; `None` when none runs or it reported nothing yet.
     pub fn progress(&self) -> Option<ChecksProgress> {
         lock(&self.progress).clone()
-    }
-
-    /// Notes a change of the store: restarts the debounce.
-    pub fn store_changed(&mut self) {
-        self.debounce = Instant::now();
-    }
-
-    /// Whether the store has not changed for `quiet` (the debounce of the automatic run).
-    pub fn quiet_for(&self, quiet: Duration) -> bool {
-        self.debounce.elapsed() >= quiet
     }
 }
 
@@ -735,18 +721,6 @@ mod tests {
         assert_eq!(on.findings.iter().filter(|f| f.code == code).count(), 2);
         let kept = current().unwrap();
         assert_eq!((kept.findings, kept.skipped), (on.findings, on.skipped));
-    }
-
-    #[test]
-    fn a_write_restarts_the_debounce() {
-        let fixture = g4_kernel::test_support::synthetic_project();
-        let state = open_state(&fixture);
-        let mut guard = state.lock_session();
-        let session = guard.as_mut().unwrap();
-        session.checks.debounce = Instant::now() - Duration::from_secs(1);
-        assert!(session.checks.quiet_for(Duration::from_millis(300)));
-        session.after_write();
-        assert!(!session.checks.quiet_for(Duration::from_millis(300)));
     }
 
     #[test]

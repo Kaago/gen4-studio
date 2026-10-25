@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorText, isCmdError } from "../../api";
 import type { CheckProblemDto, FixPlanDto } from "../../api";
 import { findingText } from "../../checks/messages";
@@ -23,15 +23,15 @@ const UNSAVED_ARCHIVE = /^text archive (\d+) has unsaved changes/;
 
 /**
  * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ with „Speichern und
- * anlegen“ when creating a script meets an unsaved text archive (the compile rewrites text archives); else the kernel's reason with the way
- * out by hand.
+ * anlegen“ when creating a script meets an unsaved text archive (the compile rewrites text archives); else a German sentence with the way
+ * out by hand and the kernel's (English) reason as a detail in brackets.
  */
 function failure(e: unknown, plan: FixPlanDto | null): Phase {
   if (isCmdError(e) && e.code === "finding_stale") return { kind: "stale" };
   const why = errorText(e);
   const unsaved = UNSAVED_ARCHIVE.exec(why);
   if (unsaved && plan !== null) return { kind: "unsaved", archive: Number(unsaved[1]), plan };
-  return { kind: "failed", title: "Lässt sich nicht automatisch beheben", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Behebe den Befund von Hand.`, plan };
+  return { kind: "failed", title: "Lässt sich nicht automatisch beheben", text: `Das Studio kann diesen Befund nicht beheben (${why.replace(/[.!?]$/, "")}). Behebe ihn von Hand.`, plan };
 }
 
 /**
@@ -42,6 +42,18 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
 export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemDto; checks: ChecksApi; onClose: () => void }) {
   const fix = finding.fixes[0];
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  // Set once the dialog is left (a button, Escape, or its owner took it away): a save under way does not go on to the fix then.
+  const left = useRef(false);
+  useEffect(() => {
+    left.current = false;
+    return () => {
+      left.current = true;
+    };
+  }, []);
+  const leave = () => {
+    left.current = true;
+    onClose();
+  };
 
   useEffect(() => {
     if (!fix) return;
@@ -62,34 +74,36 @@ export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemD
     try {
       const result = await checks.applyFix(finding, fix.id);
       if (result.remaining) setPhase({ kind: "remaining", plan });
-      else onClose();
+      else leave();
     } catch (e) {
       setPhase(failure(e, plan));
     }
   };
   // The dialog is modal (a click on the title bar's „Speichern“ would only close it): it saves the project itself, then applies the fix. A
-  // save that failed says why in the app's message, and the fix meets the unsaved archive again.
+  // save that failed says why in the app's message, and the fix meets the unsaved archive again. A dialog left while it saved (Abbrechen,
+  // Escape) creates nothing: that could not be taken back.
   const saveAndApply = async (plan: FixPlanDto) => {
     setPhase({ kind: "applying", plan });
     await checks.save();
+    if (left.current) return;
     await apply(plan);
   };
 
-  const close: DialogAction = { label: "Schließen", onClick: onClose };
+  const close: DialogAction = { label: "Schließen", onClick: leave };
   const actions: DialogAction[] =
     phase.kind === "ready"
-      ? [{ label: "Abbrechen", onClick: onClose }, { label: fix.label, kind: "primary", onClick: () => void apply(phase.plan) }]
+      ? [{ label: "Abbrechen", onClick: leave }, { label: fix.label, kind: "primary", onClick: () => void apply(phase.plan) }]
       : phase.kind === "stale"
-        ? [close, { label: "Erneut prüfen", kind: "primary", onClick: () => (void checks.recheck(), onClose()) }]
+        ? [close, { label: "Erneut prüfen", kind: "primary", onClick: () => (void checks.recheck(), leave()) }]
         : phase.kind === "unsaved"
           ? [close, { label: "Speichern und anlegen", kind: "primary", onClick: () => void saveAndApply(phase.plan) }]
           : phase.kind === "loading" || phase.kind === "applying"
-            ? [{ label: "Abbrechen", onClick: onClose }]
+            ? [{ label: "Abbrechen", onClick: leave }]
             : [close];
   const plan = "plan" in phase ? phase.plan : null;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={finding.label} description={findingText(finding)} actions={actions}>
+    <Dialog open onOpenChange={(open) => !open && leave()} title={finding.label} description={findingText(finding)} actions={actions}>
       <div className={styles.body} data-fix={fix.id}>
         {phase.kind === "loading" && <p role="status">Lade Vorschau …</p>}
         {plan !== null && (

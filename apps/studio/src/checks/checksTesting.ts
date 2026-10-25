@@ -42,5 +42,6 @@ export function fakeChecks(): ChecksApi {
     planFix: vi.fn(async (): Promise<FixPlanDto> => ({ changes: [], irreversible: false })),
     applyFix: vi.fn(async (): Promise<FixResultDto> => ({ changed: [], remaining: false })),
     save: vi.fn(async () => {}),
+    nextReport: vi.fn(async (): Promise<readonly CheckProblemDto[] | null> => []),
   };
 }

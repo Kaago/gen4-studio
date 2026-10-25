@@ -82,13 +82,188 @@ pub enum Source {
     Map(u16),
 }
 
-/// Outcome of the checks of one part.
+/// What a part check can say: errors (the part cannot be imported), warnings and hints. The
+/// UI words each code in German from the message's `args`
+/// (`apps/studio/src/workbench/inspector/importParts.ts`, held against [`PartCode::ALL`] by a
+/// test of the studio).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PartCode {
+    /// Error, args: the reader's reason. Not an NSBMD container, or its model block unreadable.
+    ModelInvalid,
+    /// Error, args: the number of `MDL0` blocks (not 1).
+    ModelBlocks,
+    /// Error, args: the number of models in the `MDL0` block (not 1).
+    ModelCount,
+    /// Error, args: the model's bytes, the most the game holds.
+    ModelTooBig,
+    /// Warning, args: the model's bytes (not a multiple of 4).
+    ModelUnaligned,
+    /// Hint, args: the bytes of the embedded texture block that is removed.
+    ModelTextureRemoved,
+    /// Hint: a model without terrain next to it; the map's terrain stays.
+    ModelBdhcUnchanged,
+    /// Hint, args: how many names are missing, the map texture pack, the names.
+    ModelTexturesMissing,
+    /// Hint: the model's material names cannot be read, so they are not checked.
+    ModelTexturesUnreadable,
+    /// Hint: no map header shows the map, so the texture names are not checked.
+    ModelTexturesNoHeader,
+    /// Hint, args: why the map texture packs could not be found.
+    ModelTexturesUnchecked,
+    /// Error, args: the bytes, the bytes expected.
+    PermissionsSize,
+    /// Error, args: the bytes, the bytes of one building.
+    BuildingsSize,
+    /// Error: whole building records that the map codec cannot read.
+    BuildingsUnreadable,
+    /// Error: no `BDHC` magic.
+    BdhcMagic,
+    /// Error, args: the bytes, the bytes of the header.
+    BdhcShort,
+    /// Error, args: the bytes of the terrain data, the most the game holds.
+    BdhcTooBig,
+    /// Error, args: the bytes, the bytes its counters describe.
+    BdhcCounters,
+    /// Error: background sound on a Platinum project.
+    BgsFamily,
+    /// Error, args: the bytes (fewer than 4).
+    BgsShort,
+    /// Error, args: the signature found, the one expected (hex).
+    BgsSignature,
+    /// Error, args: the bytes, the bytes it declares.
+    BgsLength,
+    /// Error, args: the project's family (`Pt`, `Hgss`), the reader's reason.
+    WholeUnreadable,
+    /// Error, args: the reason the read map file is invalid.
+    WholeInvalid,
+    /// Warning, args: the bytes of the background sound a Platinum map drops.
+    WholeBgsDropped,
+    /// Hint, args: the family of the map file (`Pt`, `Hgss`); its buildings stay out.
+    WholeForeign,
+    /// Hint: an empty background sound block is added (a Platinum map on HeartGold/SoulSilver).
+    WholeBlankBgs,
+    /// Hint, args: the bytes after the buildings that are kept.
+    WholeBuildingsTail,
+    /// Error: more than one file for the same part.
+    PartDuplicate,
+}
+
+impl PartCode {
+    /// Every code, in the order above.
+    pub const ALL: [PartCode; 29] = [
+        PartCode::ModelInvalid,
+        PartCode::ModelBlocks,
+        PartCode::ModelCount,
+        PartCode::ModelTooBig,
+        PartCode::ModelUnaligned,
+        PartCode::ModelTextureRemoved,
+        PartCode::ModelBdhcUnchanged,
+        PartCode::ModelTexturesMissing,
+        PartCode::ModelTexturesUnreadable,
+        PartCode::ModelTexturesNoHeader,
+        PartCode::ModelTexturesUnchecked,
+        PartCode::PermissionsSize,
+        PartCode::BuildingsSize,
+        PartCode::BuildingsUnreadable,
+        PartCode::BdhcMagic,
+        PartCode::BdhcShort,
+        PartCode::BdhcTooBig,
+        PartCode::BdhcCounters,
+        PartCode::BgsFamily,
+        PartCode::BgsShort,
+        PartCode::BgsSignature,
+        PartCode::BgsLength,
+        PartCode::WholeUnreadable,
+        PartCode::WholeInvalid,
+        PartCode::WholeBgsDropped,
+        PartCode::WholeForeign,
+        PartCode::WholeBlankBgs,
+        PartCode::WholeBuildingsTail,
+        PartCode::PartDuplicate,
+    ];
+
+    /// The code as the UI gets it (`model.too-big`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PartCode::ModelInvalid => "model.invalid",
+            PartCode::ModelBlocks => "model.blocks",
+            PartCode::ModelCount => "model.count",
+            PartCode::ModelTooBig => "model.too-big",
+            PartCode::ModelUnaligned => "model.unaligned",
+            PartCode::ModelTextureRemoved => "model.texture-removed",
+            PartCode::ModelBdhcUnchanged => "model.bdhc-unchanged",
+            PartCode::ModelTexturesMissing => "model.textures-missing",
+            PartCode::ModelTexturesUnreadable => "model.textures-unreadable",
+            PartCode::ModelTexturesNoHeader => "model.textures-no-header",
+            PartCode::ModelTexturesUnchecked => "model.textures-unchecked",
+            PartCode::PermissionsSize => "permissions.size",
+            PartCode::BuildingsSize => "buildings.size",
+            PartCode::BuildingsUnreadable => "buildings.unreadable",
+            PartCode::BdhcMagic => "bdhc.magic",
+            PartCode::BdhcShort => "bdhc.short",
+            PartCode::BdhcTooBig => "bdhc.too-big",
+            PartCode::BdhcCounters => "bdhc.counters",
+            PartCode::BgsFamily => "bgs.family",
+            PartCode::BgsShort => "bgs.short",
+            PartCode::BgsSignature => "bgs.signature",
+            PartCode::BgsLength => "bgs.length",
+            PartCode::WholeUnreadable => "whole.unreadable",
+            PartCode::WholeInvalid => "whole.invalid",
+            PartCode::WholeBgsDropped => "whole.bgs-dropped",
+            PartCode::WholeForeign => "whole.foreign",
+            PartCode::WholeBlankBgs => "whole.blank-bgs",
+            PartCode::WholeBuildingsTail => "whole.buildings-tail",
+            PartCode::PartDuplicate => "part.duplicate",
+        }
+    }
+}
+
+impl serde::Serialize for PartCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+/// What a check of a part found: its `code` with the `args` the UI words it from, and the
+/// English `message` with the numbers (the UI's fallback for a code it does not know).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(tag = "kind", content = "message", rename_all = "lowercase")]
+pub struct PartMessage {
+    pub code: PartCode,
+    pub args: Vec<String>,
+    pub message: String,
+}
+
+impl PartMessage {
+    fn new(code: PartCode, args: &[&dyn std::fmt::Display], message: String) -> PartMessage {
+        PartMessage {
+            code,
+            args: args.iter().map(ToString::to_string).collect(),
+            message,
+        }
+    }
+
+    /// The same finding inside a whole map file: the message names the part it is about.
+    fn within(self, part: &str) -> PartMessage {
+        PartMessage {
+            message: format!("{part}: {}", self.message),
+            ..self
+        }
+    }
+}
+
+impl std::fmt::Display for PartMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Outcome of the checks of one part (`{"kind": "error", "code", "args", "message"}`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PartState {
     Ok,
-    Warning(String),
-    Error(String),
+    Warning(PartMessage),
+    Error(PartMessage),
 }
 
 /// One recognized part with its size (as it would be written) and the result of its checks.
@@ -100,7 +275,7 @@ pub struct PartReport {
     pub size: usize,
     pub state: PartState,
     /// Hints that never block the import (removed texture block, texture names).
-    pub notes: Vec<String>,
+    pub notes: Vec<PartMessage>,
 }
 
 /// What would be written for a part.
@@ -164,7 +339,11 @@ pub fn import(
             .ok_or_else(|| KernelError::Import(format!("{} is not in the source", part.label())))?;
         let p = prepared.swap_remove(index);
         if let PartState::Error(reason) = &p.report.state {
-            return Err(KernelError::Import(format!("{}: {reason}", part.label())));
+            return Err(KernelError::Import(format!(
+                "{}: {}",
+                part.label(),
+                reason.message
+            )));
         }
         chosen.push((part, p.payload));
     }
@@ -346,9 +525,11 @@ fn prepare(store: &mut Store, map: u16, source: &Source) -> Result<Vec<Prepared>
             _ => continue,
         };
         if p.report.part == Part::Model && !has_bdhc {
-            p.report
-                .notes
-                .push("terrain (BDHC) stays unchanged; check walking heights".into());
+            p.report.notes.push(PartMessage::new(
+                PartCode::ModelBdhcUnchanged,
+                &[],
+                "terrain (BDHC) stays unchanged; check walking heights".into(),
+            ));
         }
         if let Some(note) = texture_note(store, map, &model, &old_model) {
             p.report.notes.push(note);
@@ -365,9 +546,10 @@ fn mark_duplicates(prepared: &mut [Prepared]) {
         .map(|p| p.report.part)
         .collect();
     for p in prepared.iter_mut().filter(|p| dup.contains(&p.report.part)) {
-        p.report.state = PartState::Error(format!(
-            "more than one file for the {}",
-            p.report.part.label()
+        p.report.state = PartState::Error(PartMessage::new(
+            PartCode::PartDuplicate,
+            &[],
+            format!("more than one file for the {}", p.report.part.label()),
         ));
     }
 }
@@ -385,7 +567,7 @@ fn prepared(part: Part, size: usize, state: PartState, payload: Payload) -> Prep
     }
 }
 
-fn error(part: Part, size: usize, reason: String) -> Prepared {
+fn error(part: Part, size: usize, reason: PartMessage) -> Prepared {
     prepared(part, size, PartState::Error(reason), Payload::Nothing)
 }
 
@@ -407,7 +589,11 @@ fn check(part: Part, bytes: Vec<u8>, family: Family) -> Prepared {
                 error(
                     part,
                     size,
-                    format!("permissions are {size} bytes; expected exactly {PERMISSIONS_LEN}"),
+                    PartMessage::new(
+                        PartCode::PermissionsSize,
+                        &[&size, &PERMISSIONS_LEN],
+                        format!("permissions are {size} bytes; expected exactly {PERMISSIONS_LEN}"),
+                    ),
                 )
             }
         }
@@ -416,12 +602,24 @@ fn check(part: Part, bytes: Vec<u8>, family: Family) -> Prepared {
                 return error(
                     part,
                     size,
-                    format!("buildings are {size} bytes, not a multiple of {BUILDING_LEN}"),
+                    PartMessage::new(
+                        PartCode::BuildingsSize,
+                        &[&size, &BUILDING_LEN],
+                        format!("buildings are {size} bytes, not a multiple of {BUILDING_LEN}"),
+                    ),
                 );
             }
             match parse_buildings(&bytes) {
                 Some(_) => prepared(part, size, PartState::Ok, Payload::Bytes(bytes)),
-                None => error(part, size, "buildings cannot be read".into()),
+                None => error(
+                    part,
+                    size,
+                    PartMessage::new(
+                        PartCode::BuildingsUnreadable,
+                        &[],
+                        "buildings cannot be read".into(),
+                    ),
+                ),
             }
         }
         Part::Bdhc => match check_bdhc(&bytes) {
@@ -433,7 +631,11 @@ fn check(part: Part, bytes: Vec<u8>, family: Family) -> Prepared {
                 return error(
                     part,
                     size,
-                    "background sound exists only on HeartGold/SoulSilver".into(),
+                    PartMessage::new(
+                        PartCode::BgsFamily,
+                        &[],
+                        "background sound exists only on HeartGold/SoulSilver".into(),
+                    ),
                 );
             }
             match check_bgs(&bytes) {
@@ -445,24 +647,35 @@ fn check(part: Part, bytes: Vec<u8>, family: Family) -> Prepared {
     }
 }
 
+/// An unreadable NSBMD container or model block.
+fn invalid_model(e: impl std::fmt::Display) -> PartMessage {
+    PartMessage::new(
+        PartCode::ModelInvalid,
+        &[&e],
+        format!("not a valid NSBMD model: {e}"),
+    )
+}
+
 /// Model checks: container header, texture block removed, exactly one model, size limit,
 /// alignment. Returns the bytes to write, the state and notes.
-fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String> {
-    NsbmdHeader::read(bytes).map_err(|e| format!("not a valid NSBMD model: {e}"))?;
-    let model =
-        nsbmd_header::strip_tex0(bytes).map_err(|e| format!("not a valid NSBMD model: {e}"))?;
+fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<PartMessage>), PartMessage> {
+    NsbmdHeader::read(bytes).map_err(invalid_model)?;
+    let model = nsbmd_header::strip_tex0(bytes).map_err(invalid_model)?;
     let mut notes = Vec::new();
     if model.len() != bytes.len() {
-        notes.push(format!(
-            "embedded texture block removed ({} bytes)",
-            bytes.len() - model.len()
+        let removed = bytes.len() - model.len();
+        notes.push(PartMessage::new(
+            PartCode::ModelTextureRemoved,
+            &[&removed],
+            format!("embedded texture block removed ({removed} bytes)"),
         ));
     }
     check_model_bytes(&model)?;
     let state = if !model.len().is_multiple_of(4) {
-        PartState::Warning(format!(
-            "model length {} is not a multiple of 4",
-            model.len()
+        PartState::Warning(PartMessage::new(
+            PartCode::ModelUnaligned,
+            &[&model.len()],
+            format!("model length {} is not a multiple of 4", model.len()),
         ))
     } else {
         PartState::Ok
@@ -475,25 +688,34 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String
 /// container header (`BMD0`, byte-order mark `FFFE`, version 2, size field equal to the
 /// length, header 16, 1 or 2 blocks inside the file), exactly one `MDL0` block holding
 /// exactly one model, and at most `model.max_bytes`. The error is the reason.
-pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), String> {
-    let header = NsbmdHeader::read(model).map_err(|e| format!("not a valid NSBMD model: {e}"))?;
+pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), PartMessage> {
+    let header = NsbmdHeader::read(model).map_err(invalid_model)?;
     let blocks = header.blocks.iter().filter(|b| &b.tag == b"MDL0").count();
     if blocks != 1 {
-        return Err(format!(
-            "the container holds {blocks} model blocks (MDL0); the game needs exactly 1"
+        return Err(PartMessage::new(
+            PartCode::ModelBlocks,
+            &[&blocks],
+            format!("the container holds {blocks} model blocks (MDL0); the game needs exactly 1"),
         ));
     }
-    let count = model_count(model).map_err(|e| format!("model block cannot be read: {e}"))?;
+    let count = model_count(model)
+        .map_err(|e| invalid_model(format_args!("model block cannot be read: {e}")))?;
     if count != 1 {
-        return Err(format!(
-            "the model block holds {count} models; the game needs exactly 1"
+        return Err(PartMessage::new(
+            PartCode::ModelCount,
+            &[&count],
+            format!("the model block holds {count} models; the game needs exactly 1"),
         ));
     }
     let max = model_max_bytes();
     if model.len() > max {
-        return Err(format!(
-            "model is {} bytes; the game holds at most {max} ({max:#X})",
-            model.len()
+        return Err(PartMessage::new(
+            PartCode::ModelTooBig,
+            &[&model.len(), &max],
+            format!(
+                "model is {} bytes; the game holds at most {max} ({max:#X})",
+                model.len()
+            ),
         ));
     }
     Ok(())
@@ -501,14 +723,22 @@ pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), String> {
 
 /// Terrain checks: magic, counters match the length, payload (counted after the 16-byte
 /// header) within the game's buffer. Shared with the check `map.bdhc-size`.
-pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), PartMessage> {
     if bytes.get(0..4) != Some(b"BDHC".as_slice()) {
-        return Err("terrain does not start with BDHC".into());
+        return Err(PartMessage::new(
+            PartCode::BdhcMagic,
+            &[],
+            "terrain does not start with BDHC".into(),
+        ));
     }
     if bytes.len() < BDHC_HEADER_LEN {
-        return Err(format!(
-            "terrain is {} bytes, shorter than its {BDHC_HEADER_LEN}-byte header",
-            bytes.len()
+        return Err(PartMessage::new(
+            PartCode::BdhcShort,
+            &[&bytes.len(), &BDHC_HEADER_LEN],
+            format!(
+                "terrain is {} bytes, shorter than its {BDHC_HEADER_LEN}-byte header",
+                bytes.len()
+            ),
         ));
     }
     let count = |i: usize| usize::from(u16::from_le_bytes([bytes[4 + 2 * i], bytes[5 + 2 * i]]));
@@ -517,38 +747,52 @@ pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
         count(0) * 8 + count(1) * 12 + count(2) * 4 + count(3) * 8 + count(4) * 8 + count(5) * 2;
     let max = bdhc_max_bytes();
     if payload > max {
-        return Err(format!(
-            "terrain data is {payload} bytes; the game holds at most {max} ({max:#X})"
+        return Err(PartMessage::new(
+            PartCode::BdhcTooBig,
+            &[&payload, &max],
+            format!("terrain data is {payload} bytes; the game holds at most {max} ({max:#X})"),
         ));
     }
     if bytes.len() != BDHC_HEADER_LEN + payload {
-        return Err(format!(
-            "terrain is {} bytes but its counters describe {}",
-            bytes.len(),
-            BDHC_HEADER_LEN + payload
+        let described = BDHC_HEADER_LEN + payload;
+        return Err(PartMessage::new(
+            PartCode::BdhcCounters,
+            &[&bytes.len(), &described],
+            format!(
+                "terrain is {} bytes but its counters describe {described}",
+                bytes.len()
+            ),
         ));
     }
     Ok(())
 }
 
-fn check_bgs(bytes: &[u8]) -> Result<(), String> {
+fn check_bgs(bytes: &[u8]) -> Result<(), PartMessage> {
     if bytes.len() < 4 {
-        return Err(format!(
-            "background sound is {} bytes, shorter than 4",
-            bytes.len()
+        return Err(PartMessage::new(
+            PartCode::BgsShort,
+            &[&bytes.len()],
+            format!("background sound is {} bytes, shorter than 4", bytes.len()),
         ));
     }
     let signature = u16::from_le_bytes([bytes[0], bytes[1]]);
     if signature != BGS_SIGNATURE {
-        return Err(format!(
-            "background sound signature is {signature:#06x}; expected {BGS_SIGNATURE:#06x}"
+        let (found, expected) = (format!("{signature:#06x}"), format!("{BGS_SIGNATURE:#06x}"));
+        return Err(PartMessage::new(
+            PartCode::BgsSignature,
+            &[&found, &expected],
+            format!("background sound signature is {found}; expected {expected}"),
         ));
     }
     let declared = 4 + usize::from(u16::from_le_bytes([bytes[2], bytes[3]]));
     if declared != bytes.len() {
-        return Err(format!(
-            "background sound is {} bytes but declares {declared}",
-            bytes.len()
+        return Err(PartMessage::new(
+            PartCode::BgsLength,
+            &[&bytes.len(), &declared],
+            format!(
+                "background sound is {} bytes but declares {declared}",
+                bytes.len()
+            ),
         ));
     }
     Ok(())
@@ -569,6 +813,11 @@ fn family_name(family: Family) -> &'static str {
     }
 }
 
+/// The family as an argument of a [`PartMessage`] (`Pt`, `Hgss`, `Dp`).
+fn family_arg(family: Family) -> String {
+    format!("{family:?}")
+}
+
 fn check_whole(bytes: Vec<u8>, family: Family) -> Prepared {
     let size = bytes.len();
     let (map, src_family) = match MapFile::read(&bytes, family) {
@@ -579,16 +828,24 @@ fn check_whole(bytes: Vec<u8>, family: Family) -> Prepared {
                 return error(
                     Part::Whole,
                     size,
-                    format!("not a {} map file: {own}", family_name(family)),
+                    PartMessage::new(
+                        PartCode::WholeUnreadable,
+                        &[&family_arg(family), &own],
+                        format!("not a {} map file: {own}", family_name(family)),
+                    ),
                 );
             }
         },
     };
     let mut notes = Vec::new();
     let mut warning = None;
-    let fail = |reason: String| error(Part::Whole, size, reason);
+    let fail = |reason: PartMessage| error(Part::Whole, size, reason);
     if let Err(e) = map.validate() {
-        return fail(format!("map file is invalid: {e}"));
+        return fail(PartMessage::new(
+            PartCode::WholeInvalid,
+            &[&e],
+            format!("map file is invalid: {e}"),
+        ));
     }
     let model = match check_model(&map.model) {
         Ok((model, state, model_notes)) => {
@@ -598,32 +855,44 @@ fn check_whole(bytes: Vec<u8>, family: Family) -> Prepared {
             }
             model
         }
-        Err(reason) => return fail(format!("model: {reason}")),
+        Err(reason) => return fail(reason.within("model")),
     };
     if let Err(reason) = check_bdhc(&map.bdhc) {
-        return fail(format!("terrain: {reason}"));
+        return fail(reason.within("terrain"));
     }
     if src_family != family {
-        notes.push(format!(
-            "{} map file; its buildings are left out unless taken over",
-            family_name(src_family)
+        notes.push(PartMessage::new(
+            PartCode::WholeForeign,
+            &[&family_arg(src_family)],
+            format!(
+                "{} map file; its buildings are left out unless taken over",
+                family_name(src_family)
+            ),
         ));
         match src_family {
             Family::Hgss => {
                 let bgs_len = map.bgs.as_ref().map_or(0, Vec::len);
                 if bgs_len > BLANK_BGS.len() {
-                    warning = Some(format!(
-                        "background sound ({bgs_len} bytes) is dropped; Platinum has none"
+                    warning = Some(PartMessage::new(
+                        PartCode::WholeBgsDropped,
+                        &[&bgs_len],
+                        format!("background sound ({bgs_len} bytes) is dropped; Platinum has none"),
                     ));
                 }
             }
-            _ => notes.push("an empty background sound block is added".into()),
+            _ => notes.push(PartMessage::new(
+                PartCode::WholeBlankBgs,
+                &[],
+                "an empty background sound block is added".into(),
+            )),
         }
     }
     if !map.buildings_tail.is_empty() && src_family == family {
-        notes.push(format!(
-            "{} trailing bytes after the buildings are kept",
-            map.buildings_tail.len()
+        let tail = map.buildings_tail.len();
+        notes.push(PartMessage::new(
+            PartCode::WholeBuildingsTail,
+            &[&tail],
+            format!("{tail} trailing bytes after the buildings are kept"),
         ));
     }
     let mut map = map;
@@ -642,7 +911,12 @@ fn check_whole(bytes: Vec<u8>, family: Family) -> Prepared {
 /// Hint about texture and palette names of `model` that the map texture pack of map
 /// `map` lacks, leaving out names `old_model` already lacked. Never an error: vanilla maps
 /// lack names too (task0-3b4 §6).
-fn texture_note(store: &mut Store, map: u16, model: &[u8], old_model: &[u8]) -> Option<String> {
+fn texture_note(
+    store: &mut Store,
+    map: u16,
+    model: &[u8],
+    old_model: &[u8],
+) -> Option<PartMessage> {
     let names = |m: &[u8]| -> Option<(Vec<String>, Vec<String>)> {
         Some((
             material_texture_names(m).ok()?,
@@ -650,14 +924,28 @@ fn texture_note(store: &mut Store, map: u16, model: &[u8], old_model: &[u8]) -> 
         ))
     };
     let Some((tex, pal)) = names(model) else {
-        return Some("texture names not checked: materials cannot be read".into());
+        return Some(PartMessage::new(
+            PartCode::ModelTexturesUnreadable,
+            &[],
+            "texture names not checked: materials cannot be read".into(),
+        ));
     };
     let packs = match map_packs(store, map) {
         Ok(p) => p,
-        Err(e) => return Some(format!("texture names not checked: {e}")),
+        Err(e) => {
+            return Some(PartMessage::new(
+                PartCode::ModelTexturesUnchecked,
+                &[&e],
+                format!("texture names not checked: {e}"),
+            ));
+        }
     };
     if packs.is_empty() {
-        return Some("texture names not checked: no map header uses this map".into());
+        return Some(PartMessage::new(
+            PartCode::ModelTexturesNoHeader,
+            &[],
+            "texture names not checked: no map header uses this map".into(),
+        ));
     }
     let old = names(old_model);
     let mut first = None;
@@ -690,10 +978,11 @@ fn texture_note(store: &mut Store, map: u16, model: &[u8], old_model: &[u8]) -> 
         first.get_or_insert((pack, missing));
     }
     first.map(|(pack, missing)| {
-        format!(
-            "{} texture or palette names missing in map texture pack {pack}: {}",
-            missing.len(),
-            missing.join(", ")
+        let (count, names) = (missing.len(), missing.join(", "));
+        PartMessage::new(
+            PartCode::ModelTexturesMissing,
+            &[&count, &pack, &names],
+            format!("{count} texture or palette names missing in map texture pack {pack}: {names}"),
         )
     })
 }
@@ -802,7 +1091,7 @@ mod tests {
         for (path, want) in [(big, "at most 61440"), (two, "holds 2 models")] {
             let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
             match state_of(&r, Part::Model) {
-                PartState::Error(e) => assert!(e.contains(want), "{e}"),
+                PartState::Error(e) => assert!(e.message.contains(want), "{e}"),
                 s => panic!("{s:?}"),
             }
         }
@@ -821,7 +1110,7 @@ mod tests {
         let r = inspect(&mut f.store, 0, &Source::Files(vec![short])).unwrap();
         assert!(matches!(
             state_of(&r, Part::Permissions),
-            PartState::Error(e) if e.contains("2046")
+            PartState::Error(e) if e.message.contains("2046")
         ));
     }
 
@@ -848,7 +1137,7 @@ mod tests {
         ] {
             let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
             match &r[0].state {
-                PartState::Error(e) => assert!(e.contains(want), "{e}"),
+                PartState::Error(e) => assert!(e.message.contains(want), "{e}"),
                 s => panic!("{s:?}"),
             }
         }
@@ -867,7 +1156,7 @@ mod tests {
         assert!(
             r[0].notes
                 .iter()
-                .any(|n| n.contains("texture block removed"))
+                .any(|n| n.message.contains("texture block removed"))
         );
         import(&mut f.store, 0, &source, &[Part::Model], false).unwrap();
         assert_eq!(f.store.map(0).unwrap().model, model_plain());
@@ -896,7 +1185,7 @@ mod tests {
         let r = inspect(&mut f.store, 1, &source).unwrap();
         assert!(matches!(
             state_of(&r, Part::Whole),
-            PartState::Warning(w) if w.contains("background sound")
+            PartState::Warning(w) if w.message.contains("background sound")
         ));
         let target_buildings = f.store.map(1).unwrap().buildings.clone();
         let changed = import(&mut f.store, 1, &source, &[Part::Whole], false).unwrap();
@@ -984,5 +1273,199 @@ mod tests {
         // Map 2's permissions and buildings equal map 0's in the fixture: nothing changes.
         assert!(f.store.history().0.is_empty());
         assert!(export(&mut f.store, 0, Part::Bgs, &f.files.path().join("x.bgs")).is_err());
+    }
+
+    /// A Platinum map file with a valid model and terrain; `tail` bytes after its buildings.
+    fn pt_map(tail: &[u8]) -> Vec<u8> {
+        let mut m =
+            MapFile::read(&crate::test_support::synthetic_map_bytes(9), Family::Pt).unwrap();
+        m.model = model(&["m"]);
+        m.bdhc = bdhc(2);
+        m.buildings_tail = tail.to_vec();
+        m.write(Family::Pt)
+    }
+
+    /// A model block `extra` bytes longer than it needs to be (its size field says so).
+    fn padded_block(len: usize) -> Vec<u8> {
+        let mut block = mdl0_block(&["m"], &[], &[]);
+        block.resize(len, 0);
+        let size = block.len() as u32;
+        block[4..8].copy_from_slice(&size.to_le_bytes());
+        block
+    }
+
+    /// The code of what the checks of `part` say about `bytes`, and the codes of its hints.
+    fn codes_of(part: Part, bytes: Vec<u8>, family: Family) -> (Option<PartCode>, Vec<PartCode>) {
+        let p = check(part, bytes, family);
+        let state = match p.report.state {
+            PartState::Ok => None,
+            PartState::Warning(m) | PartState::Error(m) => Some(m.code),
+        };
+        (state, p.report.notes.iter().map(|n| n.code).collect())
+    }
+
+    #[test]
+    fn every_error_and_warning_of_a_part_carries_its_code() {
+        use PartCode::*;
+        let block = mdl0_block(&["m"], &[], &[]);
+        let unaligned = padded_block(block.len() + 1);
+        let mut tex0 = b"TEX0".to_vec();
+        tex0.extend_from_slice(&24u32.to_le_bytes());
+        tex0.resize(24, 1);
+        let mut huge = b"BDHC".to_vec();
+        huge.extend_from_slice(&0x1201u16.to_le_bytes());
+        huge.resize(16 + 0x1201 * 8, 0);
+        let mut lying = bdhc(3);
+        lying.push(0);
+        let mut two_models = MapFile::read(&pt_map(&[]), Family::Pt).unwrap();
+        two_models.model = model(&["a", "b"]);
+        let mut bad_terrain = MapFile::read(&pt_map(&[]), Family::Pt).unwrap();
+        bad_terrain.bdhc = b"NOPE".to_vec();
+        let (pt, hgss) = (Family::Pt, Family::Hgss);
+        let refusals: Vec<(Part, Vec<u8>, Family, PartCode)> = vec![
+            (Part::Model, b"nope".to_vec(), pt, ModelInvalid),
+            (Part::Model, model(&["a", "b"]), pt, ModelCount),
+            (
+                Part::Model,
+                bmd0(&[padded_block(model_max_bytes())]),
+                pt,
+                ModelTooBig,
+            ),
+            (Part::Model, bmd0(&[unaligned]), pt, ModelUnaligned),
+            (Part::Permissions, vec![0; 10], pt, PermissionsSize),
+            (Part::Buildings, vec![0; 47], pt, BuildingsSize),
+            (Part::Bdhc, b"NOPE".to_vec(), pt, BdhcMagic),
+            (Part::Bdhc, b"BDHC".to_vec(), pt, BdhcShort),
+            (Part::Bdhc, huge, pt, BdhcTooBig),
+            (Part::Bdhc, lying, pt, BdhcCounters),
+            (Part::Bgs, BLANK_BGS.to_vec(), pt, BgsFamily),
+            (Part::Bgs, vec![0x34, 0x12], hgss, BgsShort),
+            (Part::Bgs, vec![0, 0, 0, 0], hgss, BgsSignature),
+            (Part::Bgs, vec![0x34, 0x12, 5, 0], hgss, BgsLength),
+            (Part::Whole, vec![0; 8], pt, WholeUnreadable),
+            (Part::Whole, two_models.write(Family::Pt), pt, ModelCount),
+            (Part::Whole, bad_terrain.write(Family::Pt), pt, BdhcMagic),
+            (
+                Part::Whole,
+                hgss_map(vec![0x34, 0x12, 2, 0, 0xAA, 0xBB]),
+                pt,
+                WholeBgsDropped,
+            ),
+        ];
+        // The import keeps the first model block of a container; a stored map model with two
+        // is refused by the check `map.model-invalid`, which shares these rules.
+        let two_blocks = check_model_bytes(&bmd0(&[block.clone(), block.clone()])).unwrap_err();
+        assert_eq!(two_blocks.code, ModelBlocks);
+        let mut seen = HashSet::from([ModelBlocks]);
+        for (part, bytes, family, want) in refusals {
+            let (got, notes) = codes_of(part, bytes, family);
+            assert_eq!(got, Some(want), "{part:?}");
+            seen.insert(want);
+            seen.extend(notes);
+        }
+        // A model or terrain inside a whole map file keeps its code and names its part in the
+        // English message (the dialog puts the rest in brackets behind its own sentence).
+        let mut f = fixture();
+        let path = f.file("terrain.bin", &bad_terrain.write(Family::Pt));
+        let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
+        let PartState::Error(e) = state_of(&r, Part::Whole) else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, BdhcMagic);
+        assert_eq!(e.message, "terrain: terrain does not start with BDHC");
+        let path = f.file("two.bin", &two_models.write(Family::Pt));
+        let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
+        let PartState::Error(e) = state_of(&r, Part::Whole) else {
+            panic!("{r:?}");
+        };
+        assert_eq!(
+            (e.code, e.args.as_slice()),
+            (ModelCount, ["2".to_owned()].as_slice())
+        );
+        assert!(
+            e.message.starts_with("model: the model block holds 2"),
+            "{e}"
+        );
+
+        // The hints.
+        let hints: Vec<(Part, Vec<u8>, Family)> = vec![
+            (Part::Model, bmd0(&[tex0, block.clone()]), pt),
+            (Part::Whole, hgss_map(BLANK_BGS.to_vec()), pt),
+            (Part::Whole, pt_map(&[]), hgss),
+            (Part::Whole, pt_map(&[1, 2, 3]), pt),
+        ];
+        for (part, bytes, family) in hints {
+            let (state, notes) = codes_of(part, bytes, family);
+            assert_eq!(state, None, "{part:?}");
+            seen.extend(notes);
+        }
+        // Map 2 of the fixture is on no matrix, so no header shows it.
+        let model_file = f.file("m.nsbmd", &model(&["m"]));
+        let r = inspect(&mut f.store, 2, &Source::Files(vec![model_file])).unwrap();
+        let notes: Vec<PartCode> = r[0].notes.iter().map(|n| n.code).collect();
+        assert_eq!(notes, [ModelBdhcUnchanged, ModelTexturesNoHeader]);
+        seen.extend(notes);
+
+        // Two files for one part: both are refused.
+        let per = f.file("a.per", &[0u8; 2048]);
+        let mp = f.file("b.mp", &[0u8; 2048]);
+        let r = inspect(&mut f.store, 0, &Source::Files(vec![per, mp])).unwrap();
+        for report in &r {
+            let PartState::Error(e) = &report.state else {
+                panic!("{report:?}");
+            };
+            assert_eq!(e.code, PartDuplicate);
+        }
+        seen.insert(PartDuplicate);
+
+        // Not reached here: whole building records always read, a map file that reads is
+        // valid, and the texture hints need materials, packs and headers the fixture lacks.
+        let unreached = [
+            BuildingsUnreadable,
+            WholeInvalid,
+            ModelTexturesMissing,
+            ModelTexturesUnreadable,
+            ModelTexturesUnchecked,
+        ];
+        let mut all: HashSet<PartCode> = seen.clone();
+        all.extend(unreached);
+        assert_eq!(all, PartCode::ALL.into_iter().collect::<HashSet<_>>());
+        let names: HashSet<&str> = PartCode::ALL.iter().map(|c| c.as_str()).collect();
+        assert_eq!(names.len(), PartCode::ALL.len());
+    }
+
+    #[test]
+    fn a_part_state_reaches_the_ui_with_its_code_args_and_english_sentence() {
+        let (_, notes) = codes_of(Part::Whole, hgss_map(BLANK_BGS.to_vec()), Family::Pt);
+        assert_eq!(notes, [PartCode::WholeForeign]);
+        let p = check(Part::Permissions, vec![0; 10], Family::Pt);
+        assert_eq!(
+            serde_json::to_value(&p.report).unwrap(),
+            serde_json::json!({
+                "part": "permissions",
+                "file": null,
+                "size": 10,
+                "state": {
+                    "kind": "error",
+                    "code": "permissions.size",
+                    "args": ["10", "2048"],
+                    "message": "permissions are 10 bytes; expected exactly 2048",
+                },
+                "notes": [],
+            })
+        );
+        let p = check(Part::Whole, hgss_map(BLANK_BGS.to_vec()), Family::Pt);
+        assert_eq!(
+            serde_json::to_value(&p.report.notes).unwrap(),
+            serde_json::json!([{
+                "code": "whole.foreign",
+                "args": ["Hgss"],
+                "message": "HeartGold/SoulSilver map file; its buildings are left out unless taken over",
+            }])
+        );
+        assert_eq!(
+            serde_json::to_value(PartState::Ok).unwrap(),
+            serde_json::json!({ "kind": "ok" })
+        );
     }
 }

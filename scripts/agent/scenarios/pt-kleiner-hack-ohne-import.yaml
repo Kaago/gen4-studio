@@ -1,0 +1,317 @@
+# Platin DE, control of pt-kleiner-hack.yaml (3b overall gate, gate B): the same scenario without
+# the successful import_map_parts of map 6's model and collision, without `check:`, play up to
+# `shot weg`. It shows that the gate's way needs the imported collision: on map 5's collision
+# `walk-to 5 17` must end the run with exit 2 and "blockiert bei x 5, y 21", the last step line being
+#   {"step": "walk-to", "args": ["5", "17"], "ok": false, "error": "blockiert bei x 5, y 21"}
+# and the summary line "ok": false. Everything before it (edits, expectations, the refused oversize
+# import, arrival, gift, neighbour) runs as in pt-kleiner-hack.yaml, which describes the layout. A
+# test in scripts/g4emu/tests/test_scenario.py keeps both files in step.
+#
+# Placeholders as pt-kleiner-hack.yaml. On a fresh copy (from scripts/g4emu; in a worktree set
+# G4_ROMS_DIR, G4_BRIDGE_BIN and G4K_BIN, see docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/pt-kleiner-hack-ohne-import.yaml \
+#     --project ../../../Roms/_testkopien/pt-3b4b-kontrolle \
+#     --out ../../target/agent/gate-$(date +%F)/pt-kleiner-hack-ohne-import \
+#     --set NEUER_HEADER=593 --set KOPIE=$(cd ../../../Roms/_testkopien/pt-3b4b-kontrolle && pwd) \
+#     --set S_WILD=150 --set L_WILD=5 --set S_T1=25 --set L_T1=12 --set S_T2=133 --set L_T2=14 \
+#     --set S_GIFT=445
+game: CPUD
+prepare:
+  - [make-oversize-nsbmd, {path: export/zu-gross.nsbmd}]
+edits:
+  # (1) patch and scripts (adopting adds the script checks), then the vanilla findings as the
+  # baseline: nothing is left
+  - [apply_header_patch, {}]
+  - [adopt_scripts, {}]
+  - [accept_baseline, {}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+  # (2) the new place (1x1 from map 5, new header, new empty event file)
+  - - create_area
+    - spec:
+        name: Kleiner Hack
+        width: 1
+        height: 1
+        cells:                       # Route 201 (header 342): matrix 0 cell (3, 26) = map 5
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_KLEINHACK}
+    - area
+  # the stairs point at the new header, which has no warp 0 yet: one error
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=warp.dest-warp].length", equals: 1}
+        - {path: findings.length, equals: 1}
+  # the arrival, warp 0 back to the stairs: green
+  - [add_event, {eventFile: "${area.event_file}", kind: warp, x: 12, z: 21, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (3) export model and permissions of map 6 and check them; this control does NOT import them
+  - [export_map_part, {map: 6, part: model, path: "${KOPIE}/export/karte6.nsbmd"}]
+  - [export_map_part, {map: 6, part: permissions, path: "${KOPIE}/export/karte6.per"}]
+  - - inspect_map_import
+    - map: "${area.maps.0.2}"
+      source: {files: ["${KOPIE}/export/karte6.nsbmd", "${KOPIE}/export/karte6.per"]}
+    - expect:
+        - {path: length, equals: 2}
+        - {path: "[part=model].0.state.kind", equals: ok}
+        - {path: "[part=permissions].0.state.kind", equals: ok}
+  # counter case: a model over 0xF000 bytes is refused (the message names the limit 61440) ...
+  - - import_map_parts
+    - map: "${area.maps.0.2}"
+      source: {files: ["${KOPIE}/export/zu-gross.nsbmd"]}
+      parts: [model]
+    - {expect: {error: "61440"}}
+  # ... and the import check reports it as an error, too big
+  - - inspect_map_import
+    - map: "${area.maps.0.2}"
+      source: {files: ["${KOPIE}/export/zu-gross.nsbmd"]}
+    - expect:
+        - {path: 0.state.kind, equals: error}
+        - {path: 0.state.code, equals: model.too-big}
+  # the door rule on the arrival (in the gate after the import, which replaces the whole .per); the new
+  # map's permissions (here map 5's plus the door)
+  - [set_permission, {index: "${area.maps.0.2}", x: 12, y: 21, kind: 105, collision: 128}]
+  - [export_map_part, {map: "${area.maps.0.2}", part: permissions, path: "${KOPIE}/export/neu-mit-tuer.per"}]
+  # (4) a new encounter file, a new script file and a new text archive on the new header; every
+  # grass slot, rate 100, and every replacement list the game reads in grass (day, night, swarm,
+  # radar, the five dual-slot lists), so no slot gives a glitch Pokémon (encounter.empty-slot)
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [create_encounter_file, {}, enc]
+  - [new_script_file, {kind: script}, geber_datei]
+  - [create_text_archive, {}, archiv]
+  - - set_header
+    - id: "${area.header}"
+      header: {Pt: {$base: "${hdr.Pt}", wild_pokemon: "${enc}", script_file_id: "${geber_datei}", text_archive_id: "${archiv}"}}
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, field: rate, value: 100}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 0, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 1, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 2, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 2, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 3, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 3, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 4, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 4, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 5, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 5, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 6, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 6, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 7, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 7, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 8, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 8, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 9, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 9, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 10, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 10, field: level, value: "${L_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: grass, slot: 11, field: level, value: "${L_WILD}"}}}]
+  # the replacement lists: day and night replace slots 2 and 3 by the clock (the emulator's clock is
+  # not set), swarm 0 and 1, radar 4, 5, 10 and 11, the dual-slot lists 8 and 9
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: day, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: night, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: swarm, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: swarm, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 2, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: radar, slot: 3, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_ruby, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_ruby, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_sapphire, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_sapphire, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_emerald, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_emerald, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_firered, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_firered, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_leafgreen, slot: 0, field: species, value: "${S_WILD}"}}}]
+  - [data_edit, {kind: encounter, index: "${enc}", patch: {Encounter: {method: dual_leafgreen, slot: 1, field: species, value: "${S_WILD}"}}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (5) two trainers: without a party each is a finding, with one Pokémon none
+  - [create_trainer, {class: 9, name: Jens}, trainer1]
+  - [create_trainer, {class: 9, name: Mia}, trainer2]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=trainer.no-party].length", equals: 2}
+        - {path: findings.length, equals: 2}
+  - - data_edit
+    - kind: trainer
+      index: "${trainer1.id}"
+      patch: {TrainerParty: {party: [{iv_or_difficulty: 0, byte1: 0, level: "${L_T1}", species: "${S_T1}", form: 0, item: null, moves: null, ball_capsule: 0}]}}
+  - - data_edit
+    - kind: trainer
+      index: "${trainer2.id}"
+      patch: {TrainerParty: {party: [{iv_or_difficulty: 0, byte1: 0, level: "${L_T2}", species: "${S_T2}", form: 0, item: null, moves: null, ball_capsule: 0}]}}
+  # battle texts (before the battle ends on \r: the box waits)
+  - - set_trainer_texts
+    - trainer: "${trainer1.id}"
+      texts: [{kind: 0, text: 'Halt! Ich bin Jens!\r'}, {kind: 1, text: 'Du bist stark!'}, {kind: 2, text: 'Gut gekämpft.'}]
+  - - set_trainer_texts
+    - trainer: "${trainer2.id}"
+      texts: [{kind: 0, text: 'Ich bin Mia, kämpf mit mir!\r'}, {kind: 1, text: 'Oh nein!'}, {kind: 2, text: 'Weiter so.'}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (6) the new header's text archive: message 0 changed, one appended (index 1) with a line too wide
+  # for the text window (216 px); `wrap` breaks it
+  - [edit_text_archive, {index: "${archiv}", edit: {Set: {index: 0, text: 'Willkommen auf dem kleinen Hack!'}}}]
+  - [edit_text_archive, {index: "${archiv}", edit: Append}]
+  - [edit_text_archive, {index: "${archiv}", edit: {Set: {index: 1, text: 'Diese Zeile ist viel zu lang für das Textfenster des Spiels und muss umbrochen werden.'}}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=text.too-wide].length", equals: 1}
+        - {path: findings.length, equals: 1}
+        - {path: findings.0.code, equals: text.too-wide}
+      as: r_text
+  - [apply_fix, {finding: "${r_text.findings.0}", fix: wrap}, {expect: {path: remaining, equals: false}}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: findings.length, equals: 0}
+  # (7) the neighbour with script 3, which the new script file lacks: create_script makes it
+  - - add_event
+    - eventFile: "${area.event_file}"
+      kind: object
+      x: 14
+      z: 20
+      patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 3, trainer_type: 0, sight: 0}
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[code=event.script-missing].length", equals: 1}
+        - {path: findings.length, equals: 1}
+        - {path: findings.0.code, equals: event.script-missing}
+      as: r_script
+  - [apply_fix, {finding: "${r_script.findings.0}", fix: create_script}, {expect: {path: remaining, equals: false}}]
+  # (8) the trainers and the gift on the new place (graphics 20: hiker; movement 14 looks north,
+  # 15 south)
+  - - add_event
+    - eventFile: "${area.event_file}"
+      kind: object
+      x: 18
+      z: 23
+      patch: {graphics_id: 20, movement_type: 14, dir: 0, script: "${trainer1.id+2999}", trainer_type: 1, sight: 3}
+  - - add_event
+    - eventFile: "${area.event_file}"
+      kind: object
+      x: 22
+      z: 21
+      patch: {graphics_id: 20, movement_type: 15, dir: 1, script: "${trainer2.id+2999}", trainer_type: 1, sight: 3}
+  - - add_event
+    - eventFile: "${area.event_file}"
+      kind: object
+      x: 13
+      z: 20
+      patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 2, trainer_type: 0, sight: 0}
+  # a text literal needs a saved header that uses the script file (it goes to the header's archive);
+  # script 3 replaces the one create_script made: a Potion once by a flag, another text afterwards
+  - [save, {}]
+  - - save_script
+    - file: "${geber_datei}"
+      text: |
+        script Main #1:
+            End
+
+        script Geber #2:
+            LockAll
+            FacePlayer
+            GoToIfSet FLAG_UNUSED_0x0094, label_given
+            Message "Hier, nimm das."
+            WaitButton
+            CloseMessage
+            GivePokemon ${S_GIFT}, 100, 0, VAR_RESULT
+            SetFlag FLAG_UNUSED_0x0094
+            ReleaseAll
+            End
+
+        label_given:
+            ReleaseAll
+            End
+
+        script Nachbar #3:
+            LockAll
+            FacePlayer
+            GoToIfSet FLAG_UNUSED_0x0095, label_trank_gegeben
+            Message "Ein Trank für deinen Weg!"
+            WaitButton
+            CloseMessage
+            AddItem 17, 1, VAR_RESULT
+            SetFlag FLAG_UNUSED_0x0095
+            ReleaseAll
+            End
+
+        label_trank_gegeben:
+            Message "Schöner Weg, nicht?"
+            WaitButton
+            CloseMessage
+            ReleaseAll
+            End
+  # (9) nothing left (save and build follow from `build`)
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+        - {path: findings.length, equals: 0}
+build: out.nds
+play:
+  - continue
+  - expect-map 415
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  - shot ankunft
+  # the gift: face north, talk, through the text
+  - press up:8
+  - press a
+  - mash a 300
+  - shot geschenk
+  # the neighbour: a Potion once, then another text (B goes through a text and never talks again)
+  - walk right 1
+  - press up:8
+  - press a
+  - wait 90
+  - shot nachbar
+  - mash b 240
+  - press a
+  - wait 90
+  - shot nachbar_danach
+  - mash b 240
+  # the way north: without the import map 5's collision stops it, the run ends here with exit 2
+  - walk down 1
+  - walk-to 5 17
+  - where
+  - shot weg
