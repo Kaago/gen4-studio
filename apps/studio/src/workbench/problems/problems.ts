@@ -59,15 +59,24 @@ export function trainerOf(path: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** Structural equality of plain data (JSON values): the same keys with equal values, in any order; a missing key equals `undefined`. */
+function equalData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) if (!equalData(left[key], right[key])) return false;
+  return true;
+}
+
 /**
- * Whether two rows are the same: a finding by its code, subject and key (the kernel's wording may differ between runs, the finding does
- * not) and its fingerprint (the same spot with other content is another finding, which renders anew); any other row by its severity,
- * place and message.
+ * Whether two rows are the same: a finding by everything it shows (its code, subject, key and fingerprint name it; its sentence's
+ * numbers, label, fixes and targets render it, and they may change while it stays the same finding: „Beheben…“ appears once the scripts
+ * are adopted); any other row by its severity, place and message.
  */
 function sameRow(a: ProblemRow, b: ProblemRow): boolean {
-  if (isFinding(a) || isFinding(b)) {
-    return isFinding(a) && isFinding(b) && a.severity === b.severity && findingId(a) === findingId(b) && a.fingerprint === b.fingerprint;
-  }
+  if (isFinding(a) || isFinding(b)) return isFinding(a) && isFinding(b) && equalData(a, b);
   return a.severity === b.severity && a.file === b.file && a.line === b.line && a.col === b.col && a.message === b.message;
 }
 
