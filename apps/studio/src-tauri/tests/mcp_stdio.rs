@@ -381,11 +381,18 @@ fn run_bad(args: &[&str]) -> (Option<i32>, String) {
 
 #[test]
 fn bad_project_exits_before_serving() {
-    let (code, stderr) = run_bad(&[]);
-    assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("--project fehlt"), "{stderr}");
-
+    // Without --project `studio mcp` looks for the running app; none runs here.
     let missing = tempfile::tempdir().unwrap();
+    let (code, stderr) = run_bad(&["--app-data", missing.path().to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "Gen4 Studio läuft nicht oder „Lokale Agenten zulassen“ ist aus; kopflos mit \
+             --project <Ordner>"
+        ),
+        "{stderr}"
+    );
+
     let gone = missing.path().join("gone");
     let (code, stderr) = run_bad(&["--project", gone.to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");

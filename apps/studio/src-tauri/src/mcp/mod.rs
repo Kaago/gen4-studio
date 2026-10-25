@@ -4,7 +4,8 @@
 //! `studio mcp`, see [`main`]) and, in the running app, the agent settings ([`settings`]),
 //! the hub of connections, questions and events ([`hub`]), the state the toolbox then
 //! shares with the user ([`host`]) and the server over Streamable HTTP on `127.0.0.1`
-//! ([`http`]) with its discovery file ([`discovery`]).
+//! ([`http`]) with its discovery file ([`discovery`]); `studio mcp` without `--project`
+//! forwards stdio to that server ([`proxy`]).
 
 pub mod access;
 pub mod catalog;
@@ -12,6 +13,7 @@ pub mod discovery;
 pub mod host;
 pub mod http;
 pub mod hub;
+pub mod proxy;
 pub mod server;
 pub mod settings;
 pub mod tools;
@@ -38,13 +40,19 @@ const EXIT_USAGE: u8 = 2;
 #[derive(Parser)]
 #[command(
     name = "studio mcp",
-    about = "Serve the Gen 4 Studio tools for one project over MCP (stdio): read and edit, \
-             irreversible steps only with --allow-irreversible"
+    about = "Serve the Gen 4 Studio tools over MCP (stdio): without --project through the \
+             running app (\"Lokale Agenten zulassen\"), which decides what the agent may do; \
+             with --project headless for that project, read and edit, irreversible steps \
+             only with --allow-irreversible"
 )]
 struct Cli {
-    /// The project folder (with header.yaml).
+    /// The project folder (with header.yaml): serve it headless instead of through the app.
     #[arg(long, value_name = "DIR")]
     project: Option<PathBuf>,
+    /// The app data folder with the running app's mcp.json (default: G4_APP_DATA_DIR, else
+    /// the platform's folder of Gen 4 Studio).
+    #[arg(long = "app-data", value_name = "DIR", conflicts_with = "project")]
+    app_data: Option<PathBuf>,
     /// An extra folder for imports and exports (repeatable).
     #[arg(long = "allow-dir", value_name = "DIR")]
     allow_dir: Vec<PathBuf>,
@@ -77,8 +85,8 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         }
         Err(e) => return usage(&format!("ungültige Argumente\n{e}")),
     };
-    let Some(project) = cli.project else {
-        return usage("--project fehlt (die laufende App kommt mit 3h.3)");
+    let Some(project) = cli.project.clone() else {
+        return forward(&cli);
     };
     // From here on, fd 1 is stderr: whatever prints (the kernel, apicula, rotom) cannot
     // break the protocol, which writes to its own copy of stdout.
@@ -117,6 +125,54 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
     let served = runtime.block_on(Server::new(toolbox).serve(tokio::io::stdin(), protocol));
     runtime.shutdown_timeout(Duration::from_secs(1));
     match served {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("studio mcp: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The flag of a headless option given without `--project` (the app decides access).
+fn headless_flag(cli: &Cli) -> Option<&'static str> {
+    [
+        (cli.read_only, "--read-only"),
+        (cli.allow_irreversible, "--allow-irreversible"),
+        (cli.emulator.is_some(), "--emulator"),
+        (cli.expert, "--expert"),
+        (!cli.allow_dir.is_empty(), "--allow-dir"),
+    ]
+    .into_iter()
+    .find_map(|(given, flag)| given.then_some(flag))
+}
+
+/// `studio mcp` without `--project`: forwards stdio to the running app named by the
+/// discovery file in `--app-data` (else the app data folder); exit code 2 when no app runs.
+fn forward(cli: &Cli) -> ExitCode {
+    if let Some(flag) = headless_flag(cli) {
+        return usage(&format!("{flag} gilt nur kopflos mit --project"));
+    }
+    let Some(dir) = cli.app_data.clone().or_else(discovery::default_dir) else {
+        return usage(proxy::NOT_RUNNING);
+    };
+    let found = match proxy::locate(&dir) {
+        Ok(found) => found,
+        Err(e) => return usage(&e),
+    };
+    let protocol = match stdout::protect() {
+        Ok(protocol) => protocol,
+        Err(e) => return usage(&format!("stdout nicht umlenkbar: {e}")),
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => return usage(&format!("Laufzeit nicht startbar: {e}")),
+    };
+    let forwarded = runtime.block_on(proxy::run(found, tokio::io::stdin(), protocol));
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    match forwarded {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("studio mcp: {e}");
