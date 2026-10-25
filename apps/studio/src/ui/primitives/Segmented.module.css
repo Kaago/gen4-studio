@@ -7,6 +7,11 @@
   background: var(--g4-flaeche-deck);
 }
 
+/* `wrap`: an option that does not fit goes to the next row (rows keep the gap); without it the options would shrink below their labels. */
+.wrap {
+  flex-wrap: wrap;
+}
+
 .option {
   display: inline-flex;
   /* Fills the control height of the density but is never below the 24 px target; the group grows instead. */

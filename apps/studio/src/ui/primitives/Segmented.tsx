@@ -17,13 +17,15 @@ export type SegmentedProps<V extends string> = {
   size?: "m" | "s";
   /** Symbols only: each option needs an `icon`; its label stays the accessible name and shows as a tooltip. */
   iconOnly?: boolean;
+  /** Options that do not fit in one row go on to the next instead of squeezing into each other (many or long labels in a narrow dialog). */
+  wrap?: boolean;
 };
 
 /** Exactly one option is selected: pressing the active one again changes nothing. */
-export function Segmented<V extends string>({ options, value, onChange, ariaLabel, size = "m", iconOnly = false }: SegmentedProps<V>) {
+export function Segmented<V extends string>({ options, value, onChange, ariaLabel, size = "m", iconOnly = false, wrap = false }: SegmentedProps<V>) {
   return (
     <ToggleGroup<V>
-      className={`${styles.group} ${styles[size]}`}
+      className={`${styles.group} ${styles[size]}${wrap ? ` ${styles.wrap}` : ""}`}
       aria-label={ariaLabel}
       value={[value]}
       onValueChange={(next) => {
