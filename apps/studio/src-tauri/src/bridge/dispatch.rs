@@ -132,6 +132,10 @@ pub const COMMANDS: &[&str] = &[
     "set_check_enabled",
     "plan_fix",
     "apply_fix",
+    "inspect_rom",
+    "default_project_parent",
+    "check_project_dest",
+    "create_project",
 ];
 
 /// Import files must lie under the bridge's import roots; a map of the project needs nothing.
@@ -145,6 +149,12 @@ fn confine_source(roots: &Roots, source: Source) -> Result<Source, CmdError> {
         ),
         map => map,
     })
+}
+
+fn path_text(path: &std::path::Path) -> Result<String, CmdError> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display())))
 }
 
 fn parse<T: DeserializeOwned>(name: &str, args: Value) -> Result<T, DispatchError> {
@@ -558,6 +568,35 @@ pub fn dispatch(
             { finding: FindingArg, fix: FixId },
             |a| apply_fix_impl(state, &a.finding, a.fix)
         ),
+        "inspect_rom" => run!(json, "inspect_rom", args, { path: String }, |a| {
+            let rom = roots.read_path(&a.path)?;
+            inspect_rom_impl(&path_text(&rom)?)
+        }),
+        "default_project_parent" => run!(json, "default_project_parent", args, {}, |_a| {
+            // The bridge has no Documents folder and refuses the `_DSPRE_contents` ending.
+            Ok::<_, CmdError>(ProjectParentDto {
+                parent: path_text(roots.first())?,
+                dspre_suffix: false,
+            })
+        }),
+        "check_project_dest" => run!(
+            json, "check_project_dest", args,
+            { dest: String, rom_size: u64 },
+            |a| {
+                let dest = roots.check_new_project(&a.dest)?;
+                Ok::<_, CmdError>(check_project_dest_impl(&path_text(&dest)?, a.rom_size))
+            }
+        ),
+        "create_project" => run!(
+            json, "create_project", args,
+            { rom: String, dest: String, template: g4_kernel::start::Template },
+            |a| {
+                let rom = roots.read_path(&a.rom)?;
+                let dest = roots.check_new_project(&a.dest)?;
+                // No live progress over HTTP: the answer carries the time of each phase.
+                create_project_impl(&path_text(&rom)?, &path_text(&dest)?, a.template, &mut |_| {})
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -828,6 +867,16 @@ mod tests {
                 "apply_fix",
                 json!({ "finding": { "code": "text.too-wide", "subject": { "kind": "textArchive", "index": 433 },
                         "key": "message:1:line:1", "fingerprint": "00000000000000ff" }, "fix": "wrap" }),
+            ),
+            ("inspect_rom", json!({ "path": per_in })),
+            ("default_project_parent", json!({})),
+            (
+                "check_project_dest",
+                json!({ "dest": format!("{dir}/neu"), "romSize": 1000 }),
+            ),
+            (
+                "create_project",
+                json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original" }),
             ),
         ];
 
@@ -1285,5 +1334,146 @@ mod tests {
         for args in [Value::Null, json!({})] {
             call(&state, &roots, "list_headers", args);
         }
+    }
+
+    #[test]
+    fn inspect_rom_reads_a_rom_under_the_root() {
+        let (tmp, rom) = g4_kernel::test_support::synthetic_rom();
+        let roots = Roots::new(&[tmp.path().to_path_buf()]).unwrap();
+        let state = AppState::default();
+        let info = json_of(call(
+            &state,
+            &roots,
+            "inspect_rom",
+            json!({ "path": rom.to_str().unwrap() }),
+        ));
+        assert_eq!(info["game_code"], "CPUE", "{info}");
+        assert_eq!(info["support"]["kind"], "untested", "{info}");
+        // A ROM outside the roots is not read.
+        let other = tempfile::tempdir().unwrap();
+        let outside = other.path().join("x.nds");
+        std::fs::copy(&rom, &outside).unwrap();
+        match dispatch(
+            &state,
+            &roots,
+            "inspect_rom",
+            json!({ "path": outside.to_str().unwrap() }),
+        ) {
+            Err(DispatchError::Cmd(e)) => assert!(e.message.starts_with("Pfad liegt außerhalb")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_project_with_a_header_only_rom_fails_and_leaves_nothing() {
+        let (tmp, rom) = g4_kernel::test_support::synthetic_rom();
+        let roots = Roots::new(&[tmp.path().to_path_buf()]).unwrap();
+        let state = AppState::default();
+        let dest = tmp.path().join("neu");
+        // ds-rom cannot unpack a ROM that is only a header.
+        match dispatch(
+            &state,
+            &roots,
+            "create_project",
+            json!({ "rom": rom.to_str().unwrap(), "dest": dest.to_str().unwrap(),
+                    "template": "data_only" }),
+        ) {
+            Err(DispatchError::Cmd(e)) => assert_eq!(e.code, "error"),
+            other => panic!("{other:?}"),
+        }
+        assert!(!dest.exists());
+        assert!(!tmp.path().join(".neu.g4-new").exists());
+    }
+
+    #[test]
+    fn create_project_refuses_the_dspre_suffix() {
+        let (tmp, rom) = g4_kernel::test_support::synthetic_rom();
+        let roots = Roots::new(&[tmp.path().to_path_buf()]).unwrap();
+        let state = AppState::default();
+        let dest = tmp.path().join("Platin_DSPRE_contents");
+        for name in ["create_project", "check_project_dest"] {
+            let args = if name == "create_project" {
+                json!({ "rom": rom.to_str().unwrap(), "dest": dest.to_str().unwrap(),
+                        "template": "original" })
+            } else {
+                json!({ "dest": dest.to_str().unwrap(), "romSize": 1000 })
+            };
+            match dispatch(&state, &roots, name, args) {
+                Err(DispatchError::Cmd(e)) => {
+                    assert!(
+                        e.message
+                            .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                        "{name}: {}",
+                        e.message
+                    );
+                    assert!(e.message.contains("ohne die Endung"), "{}", e.message);
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn default_project_parent_is_the_first_root_without_suffix() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let got = json_of(call(&state, &roots, "default_project_parent", json!({})));
+        assert_eq!(
+            got,
+            json!({ "parent": fixture.dir.path().canonicalize().unwrap().to_str().unwrap(),
+                    "dspre_suffix": false })
+        );
+    }
+
+    #[test]
+    fn check_project_dest_answers_for_a_destination_under_the_root() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let dest = fixture.dir.path().join("neu");
+        let got = json_of(call(
+            &state,
+            &roots,
+            "check_project_dest",
+            json!({ "dest": dest.to_str().unwrap(), "romSize": 1000 }),
+        ));
+        assert_eq!(got["state"], "missing", "{got}");
+        assert_eq!(got["needed_bytes"], 2500, "{got}");
+        assert_eq!(got["ok"], true, "{got}");
+    }
+
+    /// Needs `G4_TEST_ROM` (a copy of a ROM, read only): creates a project from it under a
+    /// root, then opens it like the app does.
+    #[test]
+    fn project_start_bridge_creates_and_opens() {
+        let Some(nds) = std::env::var_os("G4_TEST_ROM").map(std::path::PathBuf::from) else {
+            eprintln!("skipped: G4_TEST_ROM not set");
+            return;
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let rom = tmp.path().join("copy.nds");
+        std::fs::copy(&nds, &rom).unwrap();
+        let code = String::from_utf8(std::fs::read(&rom).unwrap()[0x0C..0x10].to_vec()).unwrap();
+        let roots = Roots::new(&[tmp.path().to_path_buf()]).unwrap();
+        let state = AppState::default();
+        let dest = tmp.path().join("neu");
+        let created = json_of(call(
+            &state,
+            &roots,
+            "create_project",
+            json!({ "rom": rom.to_str().unwrap(), "dest": dest.to_str().unwrap(),
+                    "template": "original" }),
+        ));
+        assert_eq!(created["game_code"], code, "{created}");
+        assert_eq!(created["phases"].as_array().unwrap().len(), 4, "{created}");
+        let root = created["root"].as_str().unwrap().to_owned();
+        assert!(dest.join(".g4/base.json").is_file());
+        let opened = json_of(call(
+            &state,
+            &roots,
+            "open_project",
+            json!({ "path": root }),
+        ));
+        assert_eq!(opened["game_code"], code, "{opened}");
     }
 }

@@ -267,6 +267,8 @@ pub enum DestState {
     Empty,
     NotEmpty,
     NotADirectory,
+    /// The path cannot be inspected (anything but "not found").
+    Unreadable,
 }
 
 /// Whether a project can be created at a path.
@@ -284,7 +286,8 @@ pub struct DestCheck {
 /// must have room for 2.5 times the ROM.
 pub fn check_destination(dest: &Path, rom_size: u64) -> DestCheck {
     let state = match std::fs::metadata(dest) {
-        Err(_) => DestState::Missing,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DestState::Missing,
+        Err(_) => DestState::Unreadable,
         Ok(m) if !m.is_dir() => DestState::NotADirectory,
         Ok(_) => match std::fs::read_dir(dest).map(|mut entries| entries.next().is_none()) {
             Ok(true) => DestState::Empty,
@@ -398,6 +401,12 @@ pub(crate) fn create_project_with(
                 dest.display()
             )));
         }
+        DestState::Unreadable => {
+            return Err(KernelError::Refused(format!(
+                "cannot read destination {}",
+                dest.display()
+            )));
+        }
         DestState::Missing | DestState::Empty => {}
     }
     if let Some(free) = check.free_bytes.filter(|f| *f < check.needed_bytes) {
@@ -419,16 +428,11 @@ pub(crate) fn create_project_with(
     };
     std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     let staging = parent.join(format!(".{name}.g4-new"));
-    if staging.exists() {
-        // Left over from an earlier run that did not get to clean up; the name is ours.
-        if staging.is_dir() {
-            std::fs::remove_dir_all(&staging).map_err(io_at(&staging))?;
-        } else {
-            return Err(KernelError::Refused(format!(
-                "{} is in the way",
-                staging.display()
-            )));
-        }
+    if staging.symlink_metadata().is_ok() {
+        return Err(KernelError::Refused(format!(
+            "staging folder {} is in the way; remove it or choose another name",
+            staging.display()
+        )));
     }
     phases.push((Phase::Read, started.elapsed().as_millis()));
 
@@ -519,7 +523,8 @@ fn secure_area_sha1(file: &mut std::fs::File, path: &Path) -> Result<String, Ker
 /// After a build: writes the secure area CRC from the project's base mark back to `0x6C` of
 /// `rom` and recomputes the header CRC at `0x15E`, but only when the built secure area has
 /// the SHA-1 of the mark (it is unchanged, so the CRC still holds). Returns whether it wrote.
-/// A project without a mark (a DSPRE folder) is left alone.
+/// The ROM must also carry the game code of the mark. A project without a mark (a DSPRE
+/// folder) is left alone.
 pub fn restore_header_crcs(root: &Path, rom: &Path) -> Result<bool, KernelError> {
     let Some(mark) = read_base_mark(root) else {
         return Ok(false);
@@ -531,6 +536,13 @@ pub fn restore_header_crcs(root: &Path, rom: &Path) -> Result<bool, KernelError>
         .map_err(io_at(rom))?;
     let size = file.metadata().map_err(io_at(rom))?.len();
     if size < SECURE_START + SECURE_LEN as u64 {
+        return Ok(false);
+    }
+    let mut code = [0u8; 4];
+    file.seek(SeekFrom::Start(0x0C))
+        .and_then(|_| file.read_exact(&mut code))
+        .map_err(io_at(rom))?;
+    if code != mark.game_code.as_bytes() {
         return Ok(false);
     }
     if secure_area_sha1(&mut file, rom)? != mark.secure_area_sha1 {
@@ -752,7 +764,7 @@ mod create_tests {
     }
 
     #[test]
-    fn create_project_cleans_up_after_a_failed_check() {
+    fn create_project_cleans_up_after_a_failed_extraction_with_partial_output() {
         let (tmp, rom) = synthetic_rom();
         let dest = tmp.path().join("neu");
         // An extractor that leaves a folder without header.yaml.
@@ -765,6 +777,29 @@ mod create_tests {
         assert!(matches!(result, Err(KernelError::Build(_))));
         assert!(!dest.exists());
         assert!(!tmp.path().join(".neu.g4-new").exists());
+    }
+
+    #[test]
+    fn create_project_leaves_a_foreign_staging_folder_alone() {
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("neu");
+        let staging = tmp.path().join(".neu.g4-new");
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(staging.join("mine.txt"), "keep").unwrap();
+        let mut seen = Vec::new();
+        match create_fake(&rom, &dest, &mut seen) {
+            Err(KernelError::Refused(msg)) => {
+                assert!(msg.contains("staging folder"), "{msg}");
+                assert!(msg.contains("is in the way"), "{msg}");
+                assert!(msg.contains("remove it or choose another name"), "{msg}");
+            }
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(staging.join("mine.txt")).unwrap(),
+            "keep"
+        );
+        assert!(!dest.exists());
     }
 
     #[test]
@@ -815,6 +850,16 @@ mod create_tests {
         let c = check_destination(&full, size);
         assert_eq!(c.state, DestState::NotEmpty);
         assert!(!c.ok);
+    }
+
+    #[test]
+    fn check_destination_does_not_call_an_unreadable_path_missing() {
+        // Any metadata error other than "not found" (here: invalid input) is not `Missing`.
+        let c = check_destination(Path::new("x\0y"), 1000);
+        assert_eq!(c.state, DestState::Unreadable);
+        assert!(!c.ok);
+        let json = serde_json::to_string(&c.state).unwrap();
+        assert_eq!(json, "\"unreadable\"");
     }
 
     #[cfg(unix)]
@@ -882,6 +927,18 @@ mod create_tests {
         let bare = tempfile::tempdir().unwrap();
         assert!(!restore_header_crcs(bare.path(), &rom3).unwrap());
         assert_eq!(std::fs::read(&rom3).unwrap(), before);
+    }
+
+    #[test]
+    fn restore_header_crcs_needs_the_game_code_of_the_mark() {
+        let (_tmp, rom) = synthetic_rom();
+        let root = marked_root(&rom);
+        zero_crc(&rom);
+        // Same secure area, but another game: nothing is written.
+        with_game_code(&rom, "CPUD");
+        let before = std::fs::read(&rom).unwrap();
+        assert!(!restore_header_crcs(root.path(), &rom).unwrap());
+        assert_eq!(std::fs::read(&rom).unwrap(), before);
     }
 
     #[test]

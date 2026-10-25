@@ -9,7 +9,7 @@ Werkzeugordner des Projekts die Datei `.g4/base.json`. Ein Projekt, das ein ande
 
 ## Felder
 
-JSON, eingerückt, UTF-8, eine Zeile Ende.
+JSON, eingerückt, UTF-8, eine Zeilenschaltung am Ende.
 
 | Feld | Typ | Inhalt |
 |---|---|---|
@@ -40,7 +40,10 @@ JSON, eingerückt, UTF-8, eine Zeile Ende.
    wird `.g4/base.json` geschrieben und der Ordner nach `dest` umbenannt. Ein vorhandenes leeres
    `dest` wird dafür mit `remove_dir` entfernt (das verweigert alles Nichtleere).
 
-Bei einem Fehler löscht der Kernel nur den Ordner `.<Name>.g4-new`, nie das Ziel oder fremde Dateien.
+Bei einem Fehler löscht der Kernel nur den Ordner `.<Name>.g4-new`, den er selbst angelegt hat, nie
+das Ziel oder fremde Dateien. Existiert `.<Name>.g4-new` schon vor dem Start (Rest eines abgebrochenen
+Laufs oder Datei eines anderen), bricht `create_project` mit `Refused` ab („staging folder … is in the
+way; remove it or choose another name“) und lässt den Ordner unberührt.
 
 ## `base_roms.yaml`
 
@@ -60,9 +63,10 @@ Bytes `0x6C..0x6E` und `0x15E..0x160` ab; die Secure Area selbst (`0x4000..0x800
 `build()` ruft darum nach dem Schreiben der ROM `restore_header_crcs(projekt, rom)`:
 
 1. ohne Marke geschieht nichts (DSPRE-Ordner bleiben, wie sie waren);
-2. hat die gebaute Secure Area nicht den SHA-1 aus der Marke, bleibt `0000` stehen (die CRC gilt
+2. trägt die ROM nicht den Spielcode der Marke (`0x0C..0x10`), geschieht ebenfalls nichts;
+3. hat die gebaute Secure Area nicht den SHA-1 aus der Marke, bleibt `0000` stehen (die CRC gilt
    nur für diese Bytes);
-3. sonst wird `secure_area_crc` nach `0x6C` geschrieben und die Header-CRC bei `0x15E` neu
+4. sonst wird `secure_area_crc` nach `0x6C` geschrieben und die Header-CRC bei `0x15E` neu
    berechnet: CRC-16/MODBUS (Startwert `0xFFFF`, Polynom `0xA001` gespiegelt) über `0x000..0x15E`,
    Little Endian.
 
