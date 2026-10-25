@@ -197,3 +197,53 @@
   background: var(--g4-status-erfolg-flaeche);
   box-shadow: 0 0 0 var(--g4-raum-2) var(--g4-status-erfolg);
 }
+
+.info .dot {
+  background: var(--g4-status-info-flaeche);
+  box-shadow: 0 0 0 var(--g4-raum-2) var(--g4-status-info);
+}
+
+/* No result of the checks: an empty ring, no colour of a state. */
+.unchecked .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--g4-raum-2) var(--g4-scharnier-leise);
+}
+
+/* While the checks run, the dot turns into a ring that spins (it stands still for someone who asked for less motion). */
+.spinner {
+  width: var(--g4-raum-12);
+  height: var(--g4-raum-12);
+  flex: none;
+  box-sizing: border-box;
+  border: var(--g4-raum-2) solid var(--g4-scharnier-leise);
+  border-top-color: var(--g4-scharnier-text);
+  border-radius: var(--g4-radius-plakette);
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.zero {
+  color: var(--g4-scharnier-leise);
+}

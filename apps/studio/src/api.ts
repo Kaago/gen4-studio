@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
+import type { CheckFieldsDto } from "./api.checks";
 
 export interface ProjectInfo {
   root: string;
@@ -422,9 +423,11 @@ export interface AssetId {
  * and for an "error" of an undo or redo that could not restore that asset.
  * "partial": a wizard command failed after it had created members; they stay, the message names them.
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
+ * "finding_stale": `planFix` / `applyFix` on a finding that is no longer reported as it was sent (its subject changed); nothing
+ * was changed.
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -440,23 +443,32 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "tool_missing" ||
       o.code === "partial" ||
       o.code === "error" ||
-      o.code === "compile") &&
+      o.code === "compile" ||
+      o.code === "finding_stale") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
   );
 }
 
-/** A problem of the last save or build, or of one text (see `validateText`). Lines and columns are 1-based. */
-export interface ProblemDto {
-  severity: "error" | "warning";
-  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet. */
+/**
+ * A problem of the last save or build, of one text (see `validateText`), of a data document, or a finding of the project checks. Lines and
+ * columns are 1-based. A finding (`source` "check", see `CheckProblemDto`) also has the fields of `CheckFieldsDto` (the rows of the other
+ * sources have none of them), and only a finding can be an `info`.
+ */
+export interface ProblemDto extends Partial<CheckFieldsDto> {
+  severity: "error" | "warning" | "info";
+  /** Relative to the project root with forward slashes; empty for a text that belongs to no file yet, and for a finding outside a source. */
   file: string;
   line: number;
   col: number;
+  /** A finding: the kernel's English sentence; the UI words its own from `code` and `args` (`checks/messages.ts`). */
   message: string;
-  /** "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`. */
-  source: "compile" | "text" | "encounter" | "trainer";
+  /**
+   * "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`;
+   * "check": a finding of the project checks, see `ProblemsStore.replaceChecks`.
+   */
+  source: "compile" | "text" | "encounter" | "trainer" | "check";
 }
 
 export interface SaveReport {
@@ -804,5 +816,6 @@ export const listScriptFiles = () => invoke<ScriptFileDto[]>("list_script_files"
 /** Case-insensitive full text search over the script sources (a file number finds that file); at most `limit` hits. */
 export const searchScripts = (query: string, limit: number) => invoke<ScriptHitDto[]>("search_scripts", { query, limit });
 
+export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";

@@ -8,7 +8,7 @@ describe("asset labels", () => {
       Map: "Karte",
       Matrix: "Matrix",
       AreaData: "Area-Data",
-      Event: "Event-Datei",
+      Event: "Eventdatei",
       TextArchive: "Textarchiv",
       MapTexture: "Karten-Textur",
       BuildingTexture: "Gebäude-Textur",
@@ -41,6 +41,6 @@ describe("asset labels", () => {
 
   it("words the stale message without raw enum names", () => {
     expect(staleText({ kind: "Map", index: 0 })).toBe("Karte 0000 wurde außerhalb geändert.");
-    expect(staleText({ kind: "Event", index: 12 })).toBe("Event-Datei 0012 wurde außerhalb geändert.");
+    expect(staleText({ kind: "Event", index: 12 })).toBe("Eventdatei 0012 wurde außerhalb geändert.");
   });
 });

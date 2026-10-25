@@ -1,8 +1,11 @@
 //! What the data commands send and receive; `apps/studio/src/api.data.ts` mirrors every type.
 
+use std::collections::BTreeMap;
+
 use g4_formats::data::evolution::EvoEntry;
 use g4_formats::data::learnset::LearnEntry;
 use g4_formats::data::personal::Personal;
+use g4_kernel::checks::{MapCell, Subject};
 use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
 
@@ -538,31 +541,145 @@ pub enum TargetDto {
     Encounter { index: u16 },
 }
 
-/// Where a reference leads: the shapes of the frontend's `NavTarget` (`encounter` and
-/// `trainer` open the editors of 3b.3b).
+/// Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`),
+/// all of them (`api.data.ts` mirrors it and a type test keeps both equal). A warp is an
+/// `event` with `event_kind` `warp`; `header` is a header known to show the target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NavTargetDto {
     Header {
         id: u16,
     },
+    MatrixCell {
+        matrix: u16,
+        x: u8,
+        y: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        header: Option<u16>,
+    },
+    Area {
+        id: u16,
+    },
+    // Mirrors `NavTarget`; no backend answer leads to a building yet.
+    #[allow(dead_code)]
+    Building {
+        map: u16,
+        index: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        header: Option<u16>,
+    },
+    /// `event_kind`: `warp`, `object`, `coord` or `bg`.
     #[serde(rename_all = "camelCase")]
     Event {
         event_file: u16,
         event_kind: &'static str,
         index: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        header: Option<u16>,
+    },
+    /// A text archive, at one of its messages (none: the first).
+    TextArchive {
+        index: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<u16>,
+    },
+    /// A script file, at a 1-based line (none: where the cursor was).
+    Script {
+        file: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
     },
     Species {
         index: u16,
         #[serde(skip_serializing_if = "Option::is_none")]
         tab: Option<&'static str>,
     },
-    Encounter {
+    // Mirrors `NavTarget`; no backend answer leads to a move yet.
+    #[allow(dead_code)]
+    Move {
         index: u16,
+    },
+    /// An item by item id. Mirrors `NavTarget`; no backend answer leads to an item yet.
+    #[allow(dead_code)]
+    Item {
+        id: u16,
     },
     Trainer {
         index: u16,
     },
+    Encounter {
+        index: u16,
+    },
+}
+
+/// Where a finding about `subject` leads (spec 3b.4 §5): the spot its `key` names when the
+/// workbench opens one (`warp:2`, `sign:1` → that event, `message:12…` → that message,
+/// `line:7:…` → that script line, `cell:3,26` → that matrix cell), else the subject as a whole.
+/// A map leads to the first matrix cell that places it (`map_cells` of the report). `None`
+/// where the workbench has nothing to open: the project, an event file or a matrix without a
+/// spot, a map no matrix places.
+pub fn subject_to_nav(
+    subject: Subject,
+    key: &str,
+    map_cells: &BTreeMap<u16, MapCell>,
+) -> Option<NavTargetDto> {
+    let parts: Vec<&str> = key.split(':').collect();
+    // The number after `name` in the key ("message:12:line:2" → 12 for "message").
+    let number = |name: &str| -> Option<u32> {
+        let at = parts.iter().position(|p| *p == name)?;
+        parts.get(at + 1)?.parse().ok()
+    };
+    Some(match subject {
+        Subject::Header(id) => NavTargetDto::Header { id },
+        Subject::EventFile(event_file) => {
+            let event_kind = match *parts.first()? {
+                "warp" => "warp",
+                "object" => "object",
+                "sign" => "bg",
+                "trigger" => "coord",
+                _ => return None,
+            };
+            NavTargetDto::Event {
+                event_file,
+                event_kind,
+                index: parts.get(1)?.parse().ok()?,
+                header: None,
+            }
+        }
+        Subject::ScriptFile(file) => NavTargetDto::Script {
+            file,
+            line: number("line"),
+        },
+        Subject::TextArchive(index) => NavTargetDto::TextArchive {
+            index,
+            message: number("message").and_then(|m| u16::try_from(m).ok()),
+        },
+        Subject::Trainer(index) => NavTargetDto::Trainer { index },
+        Subject::Encounter(index) => NavTargetDto::Encounter { index },
+        Subject::Matrix(matrix) => {
+            let (x, y) = parts
+                .get(1)
+                .filter(|_| parts[0] == "cell")?
+                .split_once(',')?;
+            NavTargetDto::MatrixCell {
+                matrix,
+                x: x.parse().ok()?,
+                y: y.parse().ok()?,
+                header: None,
+            }
+        }
+        Subject::Map(map) => {
+            let cell = map_cells.get(&map)?;
+            NavTargetDto::MatrixCell {
+                matrix: cell.matrix,
+                x: cell.x,
+                y: cell.y,
+                header: cell.header,
+            }
+        }
+        Subject::AreaData(id) => NavTargetDto::Area { id },
+        Subject::Project => return None,
+    })
 }
 
 /// One reference: `field` (slot `slot`) of `source` points at the target. `label` says where

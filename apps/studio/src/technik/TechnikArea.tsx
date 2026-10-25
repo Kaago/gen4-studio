@@ -3,16 +3,18 @@ import type { ReactNode } from "react";
 import type { HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
+import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
+import type { ChecksApi } from "../checks/useChecks";
 import { EmulatorRow } from "../ui/frame/EmulatorRow";
 import { ListPane } from "../ui/frame/ListPane";
 import type { Depth } from "../ui/frame/shellState";
 import { ago, useNow } from "../ui/frame/timeAgo";
-import { Badge, Button, Dialog, EmptyState, ListRow, Notice, useRovingList } from "../ui/primitives";
+import { Badge, Button, Dialog, EmptyState, ListRow, Notice, Section, Switch, useRovingList } from "../ui/primitives";
 import type { BadgeKind, IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { ProblemsTable } from "../workbench/problems/ProblemsPanel";
-import { countsText } from "../workbench/problems/problems";
-import type { ProblemsStore } from "../workbench/problems/problems";
+import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice, checksPending } from "../workbench/problems/ProblemsPanel";
+import { countsText, isFinding } from "../workbench/problems/problems";
+import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import styles from "./TechnikArea.module.css";
 
@@ -28,6 +30,8 @@ export type TechnikAreaProps = {
   listOpen: boolean;
   onToggleList: () => void;
   problems: ProblemsStore;
+  /** The checks of the project: the same table as the Problems panel, „Ausgangslage übernehmen“ and a switch per check. Null: none. */
+  checks: ChecksApi | null;
   /** Tüfteln shows the problems' file paths. */
   depth: Depth;
   /** Follows a problem's link. */
@@ -161,7 +165,7 @@ function NoProject({ why, onOpenProject }: { why: string; onOpenProject: () => v
   return <EmptyState what="Kein Projekt geöffnet." why={why} action={{ label: "Projekt öffnen", onClick: onOpenProject }} />;
 }
 
-function BuildSurface({ project, problems, depth, goTo, busy, lastBuiltAt, lastRom, onBuild, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
+function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, onBuild, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   if (project === null) {
@@ -197,14 +201,100 @@ function BuildSurface({ project, problems, depth, goTo, busy, lastBuiltAt, lastR
         )}
       </dl>
       <h2 className={styles.heading}>Probleme</h2>
-      {rows.length === 0 ? (
+      {checks !== null && <Baseline checks={checks} rows={rows} />}
+      {rows.length === 0 && checks === null ? (
         <p className={styles.text}>Keine Probleme. Beim Speichern und Bauen landen Fehler und Warnungen hier.</p>
       ) : (
         <div className={styles.table}>
-          <ProblemsTable rows={rows} depth={depth} goTo={goTo} />
+          {checks !== null && <ChecksNotes checks={checks} />}
+          {rows.length === 0 ? (
+            <EmptyList checks={checks} />
+          ) : (
+            <>
+              {checks !== null && <UncheckedNotice checks={checks} />}
+              <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
+            </>
+          )}
+          {checks !== null && <ChecksFoot checks={checks} depth={depth} />}
         </div>
       )}
+      {checks !== null && <CheckSwitches checks={checks} />}
     </Surface>
+  );
+}
+
+/** The empty list of Prüfen und Bauen: the first run is under way, the checks have no result, or there are no problems. */
+function EmptyList({ checks }: { checks: ChecksApi | null }) {
+  const view = useSyncExternalStore(checks?.feed.subscribe ?? noSubscribe, checks?.feed.get ?? noView);
+  const pending = checksPending(view);
+  const text =
+    pending === "first"
+      ? "Prüft das Projekt … Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind."
+      : pending === "unchecked"
+        ? `Nicht geprüft. ${UNCHECKED_WHY}`
+        : "Keine Probleme. Die Prüfungen laufen nach jeder Änderung; beim Speichern und Bauen landen Fehler und Warnungen hier.";
+  return <p className={`${styles.text} ${styles.inset}`}>{text}</p>;
+}
+
+const noSubscribe = () => () => {};
+const noView = () => null;
+
+/**
+ * „Ausgangslage übernehmen…“ (spec 3b.4 §7): asks first, naming how many warnings and infos it ignores, then ignores every warning and
+ * info of the current state. Errors stay.
+ */
+function Baseline({ checks, rows }: { checks: ChecksApi; rows: readonly ProblemRow[] }) {
+  const [asking, setAsking] = useState(false);
+  const n = rows.filter((row) => isFinding(row) && row.severity !== "error").length;
+  return (
+    <div className={styles.actions}>
+      <Button kind="secondary" onClick={() => setAsking(true)}>
+        Ausgangslage übernehmen…
+      </Button>
+      <span className={styles.note}>Blendet alle Warnungen und Hinweise von jetzt aus; Fehler bleiben sichtbar.</span>
+      <Dialog
+        open={asking}
+        onOpenChange={setAsking}
+        title="Ausgangslage übernehmen?"
+        description={`${n} ${n === 1 ? "Warnung oder Hinweis wird" : "Warnungen und Hinweise werden"} ausgeblendet. Ändert sich eine Stelle, meldet sie sich wieder; unter „Wieder melden…“ holst du sie zurück.`}
+        actions={[
+          { label: "Abbrechen", onClick: () => setAsking(false) },
+          {
+            label: "Übernehmen",
+            kind: "primary",
+            onClick: () => {
+              setAsking(false);
+              void checks.acceptBaseline();
+            },
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/** A switch per check (folded until asked for); a check that reports errors cannot be switched off. */
+function CheckSwitches({ checks }: { checks: ChecksApi }) {
+  const [open, setOpen] = useState(false);
+  const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
+  return (
+    <div className={styles.switches}>
+      <Section title="Prüfungen ein- und ausschalten" open={open} onToggle={() => setOpen(!open)}>
+        <ul role="list" aria-label="Prüfungen ein- und ausschalten" className={styles.switchList}>
+          {CHECK_CODES.map((code) => {
+            const m = CHECK_MESSAGES[code]!;
+            const errors = m.severity === "error";
+            return (
+              <li key={code} className={styles.switchRow} data-check={code}>
+                <Switch label={m.title} checked={!view.disabled.includes(code)} disabled={errors} onChange={(on) => void checks.setEnabled(code, on)} />
+                <span className={styles.code}>{code}</span>
+                {errors && <span className={styles.note}>Fehler lassen sich nicht abschalten.</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+    </div>
   );
 }
 

@@ -42,6 +42,8 @@ export class SceneHost {
   events: EventsDto | null = null;
   /** The selected event, as the scene knows it (follows the `selectedEvent` prop). */
   selectedEvent: EventRef | null = null;
+  /** The events an error finding of the checks hits (follows the `faultyEvents` prop); their markers show the error colour. */
+  faulty: readonly EventRef[] = [];
   /** The buildings of the shown matrix (a child of `content`; null until a matrix is loaded). */
   buildings: BuildingLayer | null = null;
   /** The selected building, as the scene knows it (follows the `selectedMap`/`selectedBuilding` props). */

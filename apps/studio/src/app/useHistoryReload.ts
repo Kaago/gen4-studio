@@ -119,7 +119,7 @@ export function useHistoryReload({
     }
   }
 
-  /** Reloads what the restored assets affect (see `historyPlan`), nothing else. */
+  /** Reloads what the restored (or fixed, see `useChecks`) assets affect (see `historyPlan`), nothing else. */
   async function reloadAfterHistory(assets: AssetId[]) {
     const shown = scene.matrixRef.current;
     const plan = historyPlan(assets, {
@@ -160,5 +160,5 @@ export function useHistoryReload({
     return done;
   }
 
-  return { step };
+  return { step, reloadAfterHistory };
 }

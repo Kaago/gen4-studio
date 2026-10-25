@@ -16,16 +16,20 @@ use g4_formats::nsbmd_header::{
 use g4_formats::nsbtx::Nsbtx;
 
 use crate::error::{KernelError, io_at};
-use crate::project::{AssetId, AssetKind};
+use crate::project::{AssetId, AssetKind, Project};
 use crate::store::Store;
 
 /// Largest map model the game's buffer holds (`MAP_MODEL_FILE_SIZE`, both families,
-/// `docs/research/2026-10-23-3b4/task0-3b4.md` §3). Moves to `check_limits.yaml`
-/// (`model.max_bytes`) with phase 3b.4a.
-pub const MODEL_MAX_BYTES: usize = 0xF000;
+/// `docs/research/2026-10-23-3b4/task0-3b4.md` §3): `model.max_bytes` of `check_limits.yaml`.
+fn model_max_bytes() -> usize {
+    Project::limits().model.max_bytes.value
+}
+
 /// Largest terrain payload after the 16-byte BDHC header (`BDHC_BUFFER_SIZE`, both
-/// families). Moves to `check_limits.yaml` (`bdhc.max_bytes`) with phase 3b.4a.
-pub const BDHC_MAX_BYTES: usize = 0x9000;
+/// families): `bdhc.max_bytes` of `check_limits.yaml`.
+fn bdhc_max_bytes() -> usize {
+    Project::limits().bdhc.max_bytes.value
+}
 /// Size of the BDHC header: magic and six `u16` counters.
 const BDHC_HEADER_LEN: usize = 16;
 
@@ -454,18 +458,7 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String
             bytes.len() - model.len()
         ));
     }
-    let count = model_count(&model).map_err(|e| format!("model block cannot be read: {e}"))?;
-    if count != 1 {
-        return Err(format!(
-            "the model block holds {count} models; the game needs exactly 1"
-        ));
-    }
-    if model.len() > MODEL_MAX_BYTES {
-        return Err(format!(
-            "model is {} bytes; the game holds at most {MODEL_MAX_BYTES} (0xF000)",
-            model.len()
-        ));
-    }
+    check_model_bytes(&model)?;
     let state = if !model.len().is_multiple_of(4) {
         PartState::Warning(format!(
             "model length {} is not a multiple of 4",
@@ -477,8 +470,38 @@ fn check_model(bytes: &[u8]) -> Result<(Vec<u8>, PartState, Vec<String>), String
     Ok((model, state, notes))
 }
 
-/// Terrain checks: magic, counters match the length, payload within the game's buffer.
-fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
+/// The rules a map model must meet in the game, shared by the import (on the model without
+/// its texture block) and the check `map.model-invalid` (on the stored model): a valid
+/// container header (`BMD0`, byte-order mark `FFFE`, version 2, size field equal to the
+/// length, header 16, 1 or 2 blocks inside the file), exactly one `MDL0` block holding
+/// exactly one model, and at most `model.max_bytes`. The error is the reason.
+pub(crate) fn check_model_bytes(model: &[u8]) -> Result<(), String> {
+    let header = NsbmdHeader::read(model).map_err(|e| format!("not a valid NSBMD model: {e}"))?;
+    let blocks = header.blocks.iter().filter(|b| &b.tag == b"MDL0").count();
+    if blocks != 1 {
+        return Err(format!(
+            "the container holds {blocks} model blocks (MDL0); the game needs exactly 1"
+        ));
+    }
+    let count = model_count(model).map_err(|e| format!("model block cannot be read: {e}"))?;
+    if count != 1 {
+        return Err(format!(
+            "the model block holds {count} models; the game needs exactly 1"
+        ));
+    }
+    let max = model_max_bytes();
+    if model.len() > max {
+        return Err(format!(
+            "model is {} bytes; the game holds at most {max} ({max:#X})",
+            model.len()
+        ));
+    }
+    Ok(())
+}
+
+/// Terrain checks: magic, counters match the length, payload (counted after the 16-byte
+/// header) within the game's buffer. Shared with the check `map.bdhc-size`.
+pub(crate) fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
     if bytes.get(0..4) != Some(b"BDHC".as_slice()) {
         return Err("terrain does not start with BDHC".into());
     }
@@ -492,9 +515,10 @@ fn check_bdhc(bytes: &[u8]) -> Result<(), String> {
     // points, normals, constants, plates, strips, access list
     let payload =
         count(0) * 8 + count(1) * 12 + count(2) * 4 + count(3) * 8 + count(4) * 8 + count(5) * 2;
-    if payload > BDHC_MAX_BYTES {
+    let max = bdhc_max_bytes();
+    if payload > max {
         return Err(format!(
-            "terrain data is {payload} bytes; the game holds at most {BDHC_MAX_BYTES} (0x9000)"
+            "terrain data is {payload} bytes; the game holds at most {max} ({max:#X})"
         ));
     }
     if bytes.len() != BDHC_HEADER_LEN + payload {
@@ -769,7 +793,7 @@ mod tests {
     fn inspect_rejects_oversize_and_two_models() {
         let mut f = fixture();
         let mut block = mdl0_block(&["m"], &[], &[]);
-        block.resize(MODEL_MAX_BYTES, 0);
+        block.resize(model_max_bytes(), 0);
         let len = block.len() as u32;
         block[4..8].copy_from_slice(&len.to_le_bytes());
         let big = f.file("big.nsbmd", &bmd0(&[block]));

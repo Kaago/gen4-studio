@@ -40,4 +40,22 @@ describe("CheckList", () => {
     expect(rows[1]!.querySelector("svg")).not.toBeNull();
     expect(rows[1]!.querySelector("button")?.textContent).toBe("x");
   });
+
+  it("names_a_row_by_its_id_unless_its_data_attributes_say_otherwise", () => {
+    act(() =>
+      root.render(
+        <CheckList
+          rows={[
+            { id: "a", state: "ok", text: "Modell" },
+            { id: "warp.dest-warp|eventFile:411|warp:2", state: "error", text: "Tür", dataAttrs: { "data-check": "warp.dest-warp", "data-finding": "warp.dest-warp|eventFile:411|warp:2" } },
+          ]}
+        />,
+      ),
+    );
+    const rows = [...container.querySelectorAll("li")];
+    expect(rows.map((r) => [r.dataset.check, r.dataset.finding])).toEqual([
+      ["a", undefined],
+      ["warp.dest-warp", "warp.dest-warp|eventFile:411|warp:2"],
+    ]);
+  });
 });

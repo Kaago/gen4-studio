@@ -5,6 +5,7 @@ import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
 import type { DataArea } from "./data/dataModel";
+import { withHeaderHint } from "./workbench/navigation";
 import type { DataNav } from "./workbench/navigation";
 import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
@@ -44,7 +45,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
+import type { AssetId, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { paletteEntries } from "./app/paletteEntries";
@@ -56,6 +57,7 @@ import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
 import { useInspectorState } from "./app/useInspectorState";
@@ -82,7 +84,7 @@ const announce = (text: string) => (shown: Message | null): Message => (shown?.k
 /** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
 const LOCKED_AREAS: readonly AreaId[] = ["geschichten"];
 const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
-  geschichten: "Kommt mit Phase 3b.4",
+  geschichten: "Kommt mit Phase 3d",
 };
 
 /** The list column of each area with a deck. */
@@ -293,7 +295,21 @@ function AppBody() {
     // A failed load reported itself (an error message), which the announcement does not wipe.
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
-  const { step } = useHistoryReload({ bus, session, scene, pins });
+  const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
+  // A fix of the checks changed these assets: the scene and the editors read them again (an open script file too), then the dirty count
+  // (no `edited`: the fix asks for its run of the checks itself).
+  const onFixed = useStableCallback(async (changed: AssetId[]) => {
+    try {
+      await reloadAfterHistory(changed);
+      for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index);
+    } catch (e) {
+      session.fail(e);
+    }
+    await session.refreshDirty({ edited: false });
+  });
+  // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
+  // inspector).
+  const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
   // The undo history of every hinge, read once per change for all of them (a deck per area, each with its hinge).
   const [historyFeed] = useState(() => new HistoryFeed());
   useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);
@@ -471,6 +487,7 @@ function AppBody() {
     text: { target: textTarget },
     scripts: scripts.api,
     problems,
+    checks,
     dataStore,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
   });
@@ -654,8 +671,9 @@ function AppBody() {
         listOpen={shell.state.listOpen.technik}
         onToggleList={() => shell.setListOpen("technik", !shell.state.listOpen.technik)}
         problems={problems}
+        checks={checks}
         depth={shell.state.depth}
-        goTo={data.goTo}
+        goTo={(target) => data.goTo(withHeaderHint(target, scene.headers))}
         busy={session.busy}
         lastBuiltAt={session.lastBuiltAt}
         lastRom={session.lastRom}
@@ -697,6 +715,7 @@ function AppBody() {
       hinge={
         <HingeHost
           problems={problems}
+          checks={checks.feed}
           history={historyFeed}
           crumbs={trail}
           depth={shell.state.depth}

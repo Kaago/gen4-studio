@@ -1,6 +1,6 @@
 # Gen4 Studio: Roadmap
 
-Stand: 2026-10-24. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
+Stand: 2026-10-25. Spezifikation: [docs/superpowers/specs/2026-10-21-gen4-studio-design.md](superpowers/specs/2026-10-21-gen4-studio-design.md). Analyse: [docs/research/2026-10-20-dspre-und-suite-analyse.md](research/2026-10-20-dspre-und-suite-analyse.md).
 
 Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phase beginnt, bevor das Gate der vorherigen bestanden ist. Zeitangaben sind bewusst weggelassen; die Reihenfolge und die Gates sind die Zusage.
 
@@ -16,7 +16,7 @@ Jede Phase endet mit lauffähiger, testbarer Software und einem Gate. Keine Phas
 | 3b.2 | Scripts und Text: rotom, CodeMirror 6, chatot, Text-Editor (Gate bestanden, DSPRE und gepackte App auf Wunsch ausgelassen) | Ein Ereignis-Script und neue Texte komplett im Studio; `scripts/gate.sh` grün |
 | 3c | Doppeldeck: Design-System in der App (Tokens, Komponentenbibliothek, Rahmen aus Titelleiste, Atlas, Liste, Schau, Scharnier, Hand), Bereich Welt im neuen Raster; 3c.2 bringt Texte, Scripts, Technik, Assistenten (Gate vom Agenten bestanden; Blick, rotom-lsp und gepackte App beim Nutzer offen) | Der Screen „Welt bauen“ ist in der App wiedererkennbar, die Abnahmen 3a, 3b.1 und 3b.2 laufen über die Test-Umgebung erneut grün; `scripts/gate.sh` grün |
 | 3b.3 | Daten-Editoren in zwei Teilen: 3b.3a Codecs, Pokédex, Attacken, Gegenstände; 3b.3b Trainer, Begegnungen (3b.3a: Gate Teil A vom Agenten bestanden, Blick beim Nutzer offen; 3b.3b: Gate Teil B vom Agenten bestanden; Blick und DSPRE beim Nutzer offen) | Neue Trainer und Encounter komplett im Studio |
-| 3b.4 | Import und Prüfungen: Kartenimport, Projektprüfungen | Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt |
+| 3b.4 | Prüfungen und Import in zwei Teilen: 3b.4a Prüfen und Beheben; 3b.4b Import fertiger Kartenteile und Gesamtgate (3b.4a: Gate A vom Agenten bestanden, Blick beim Nutzer offen; 3b.4b Tasks 1–3 implementiert, Task 4 und Gate B offen) | 3b-Gesamtgate: Ein kleiner Hack (neue Route mit importierter Karte, zwei neue Trainer, neue Texte, ein Ereignis-Script) komplett im Studio gebaut und gespielt; die Prüfungen sind vorher rot und nachher grün |
 | 4 | Textprojekt und Build-Graph | Projekt in Git, inkrementeller Build, xdelta-Export, byte-identischer Rebuild eines unveränderten Projekts |
 | 5 | Plugin-Host | Ein First-Party-Editor und ein Beispiel-Plugin laufen über dieselbe API |
 | 6 | Kartenerstellung und Weltformat | Karte im Studio malen, zu NSBMD/BDHC bauen, spielen |
@@ -160,13 +160,32 @@ Gate (Roadmap-Gate 3b.3): Zwei neue Trainer und geänderte Encounter entstehen k
 
 Nicht in 3b.3: siehe die Tabelle „Später“ unter „Aus dem Design-System, später“.
 
-### Phase 3b.4: Import und Prüfungen
+### Phase 3b.4: Prüfungen und Import
 
-Lieferumfang:
-- Kartenimport: PDSMS `.pdsmap`/`.pdsts`, NSBMD-Dateien, OBJ über apicula-Pfad; Kollisionsimport.
-- Project Checks: kaputte Warps, Scripts ohne Ziel, Trainer ohne Party, Textlängen.
+Status: 3b.4a: Gate A vom Agenten bestanden (2026-10-25, (A1) bis (A6) über die Test-Umgebung: gated `vanilla_checks` auf allen drei Projekten, Zeitmessungen, `scripts/gate.sh`, das Szenario `pt-pruefungen.yaml` und der Browser-Teil auf frischen Kopien; sieben Befunde der Abnahme und die der Schlussprüfung in der Fix-Welle behoben, darunter der gesperrte Platzhalter-Trainer des „gesehen“-Slots als falscher Fehler, Script-Speichern ohne neue Prüfung, eine kaputte `g4-checks.json`, die das Projekt zuhielt, „Alles stimmig“ vor dem ersten Bericht und `matrix.header-elsewhere` als Fehler); beim Nutzer offen ist der Blick auf die rote Treppe (A6) 3. Ergebnisse in [docs/phase-3b4-gate.md](phase-3b4-gate.md), Teil A. 3b.4b: Tasks 1–3 implementiert (NSBMD-Kopfleser, `map_import`, Befehle, Dialoge „Teile importieren…“ und „Teile exportieren…“, auf `main`), Task 4 (Szenarien „kleiner Hack“) und Gate B offen.
 
-Gate (für Phase 3b insgesamt): Ein kleiner Hack (neue Route, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt.
+Spezifikation: [docs/superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md](superpowers/specs/2026-10-23-phase-3b4-import-checks-design.md). Plan 3b.4a: [docs/superpowers/plans/2026-10-24-phase-3b4a-checks.md](superpowers/plans/2026-10-24-phase-3b4a-checks.md). Plan 3b.4b: [docs/superpowers/plans/2026-10-24-phase-3b4b-import.md](superpowers/plans/2026-10-24-phase-3b4b-import.md). Recherche: [docs/research/2026-10-23-3b4/](research/2026-10-23-3b4/).
+
+Der Teil läuft in zwei Plänen mit je eigenem Gate. Prüfungen brauchen keinen Import, das Gesamtgate braucht beides.
+
+**3b.4a „Prüfen und Beheben“** (Gate A vom Agenten bestanden, Blick beim Nutzer offen):
+- Kernel-Modul `checks` mit 39 Prüfungen (Welt, Scripts, Texte, Daten), jede mit stabilem Code, deutscher Meldung mit Ausweg und Navigationsziel. Harte Regel: „Fehler“ nur bei 0 Treffern auf Platin DE, HeartGold DE und HeartGold US, gated bewiesen; Grenzen und Ausnahmen mit Quelle in `check_limits.yaml` (Dialogzeile 216 px aus pret statt rotoms 200 px, nur für Dialogarchive).
+- Snapshot unter dem Store-Lock (gemessen unter 5 ms), voller Lauf ohne Lock mit Fortschritt, Text- und Script-Prüfungen je Datei gecacht; der volle Lauf kommt beim Öffnen, auf „Erneut prüfen“ und 300 ms nach jeder Änderung (warm rund 250 bis 290 ms).
+- Vier Fixes mit Vorschau, einem Schritt im Verlauf und Nachprüfung: Umbrechen (`text.too-wide`), Nachricht anlegen (`script.message-missing`), Tauschen (`encounter.min-max`), Script anlegen (`event.script-missing`, nicht rückgängig); ein veralteter Befund wird abgelehnt („Befund ist nicht mehr aktuell“). Warp-Ziele und fehlende Trainer behebt man im Inspector.
+- Ausblenden von Warnungen und Hinweisen, „Ausgangslage übernehmen“ und Schalter je Prüfung in `g4-checks.json` im Projekt (Fingerprint je Stelle: ändert sie sich, meldet sich der Befund wieder); Fehler nie.
+- Oberfläche: Prüflicht mit drei Zählern und Fortschritt, Panel „Probleme“ mit Gruppen nach Bereich und Code und den Tasten „Öffnen“, „Beheben…“ (Fix-Dialog mit Vorher/Nachher), „Ausblenden“, Fuß „N ausgeblendet · Wieder melden…“ und „Erneut prüfen“; dieselbe Tabelle in Technik › Prüfen und Bauen; Inspector-Abschnitt „Prüfungen“; Fehlerfarbe an Warp-Markern; Markierungen in Explorer-, Trainer- und Begegnungslisten. Die Begegnungswarnungen aus 3b.3b sind jetzt Prüfungen (`encounter.*`).
+- Befehle `run_checks`, `checks_status`, `plan_fix`, `apply_fix`, `ignore_finding`, `unignore_finding`, `accept_baseline`, `set_check_enabled` in Tauri und Brücke; `g4k check --expect`; Erwartungen `{expect: {path, equals}}` an den Änderungen eines Szenarios; Szenario `pt-pruefungen.yaml`.
+
+Gate A: `vanilla_checks` gated grün (Soll je Code und Projekt, Fehler 0 überall); auf einer Kopie zählt `run_checks` vier absichtliche Fehler (Warp ohne Ziel-Warp, Figur mit fehlendem Script, Trainer-Event ohne Trainer, zu lange Zeile) je Code 1 und nach Fixes und Edits 0; Prüflicht, Panel, Fix-Dialog und „N ausgeblendet · Wieder melden“ im Browser-Modus über Rollen; `scripts/gate.sh` grün. Ablauf: [docs/phase-3b4-gate.md](phase-3b4-gate.md), Teil A.
+
+**3b.4b „Import und Gesamtgate“** (Tasks 1–3 implementiert, Task 4 und Gate B offen):
+- Import fertiger Binärteile in bestehende Karten über `edit_map` (ein Schritt im Verlauf): NSBMD (TEX0 wird entfernt, genau ein Modell, höchstens 0xF000 Byte), `.per`, `.bld`, `.bdhc`, `.bgs` (nur HGSS), ganze Map-`.bin` auch zwischen Platin und HGSS, „Teile aus Karte N übernehmen“; Export der Gegenstücke. PDSMS-Exporte gehen Karte für Karte über die Mehrfachauswahl desselben Stamms; `.pdsmap` wird nicht gelesen.
+- Dialog „Teile importieren…“ mit Prüfliste im Inspector der Karte und in der Palette, „Teile exportieren…“; `g4k check-data` prüft Modell und Kollision einer Karte im gebauten ROM.
+- Szenarien `pt-kleiner-hack.yaml` und `hg-kleiner-hack.yaml` als Fortsetzung der Szenarien von 3b.3b (Entwürfe liegen bereit).
+
+Gate B ist das Gate für Phase 3b insgesamt: Ein kleiner Hack (neue Route mit **importierter Karte**, zwei neue Trainer, neue Texte, ein Ereignis-Script) wird komplett im Studio gebaut und gespielt. Die Prüfungen sind dabei **vorher rot und nachher grün** (Befundzahlen je Code im Brücken-Batch), das Modell im ROM gleicht der exportierten Datei, und `g4emu` läuft den Weg, den nur die importierte Kollision freigibt. Ablauf: [docs/phase-3b4-gate.md](phase-3b4-gate.md), Teil B (folgt mit Plan 3b.4b, Task 4).
+
+Nicht in 3b.4 (Spezifikation §1, die Liste gilt wörtlich, damit der Umfang nicht wandert): kein OBJ- oder glTF-Import über apicula (apicula liest nur NSBMD, einen quelloffenen Weg von OBJ zu NSBMD gibt es außer DSPREs AGPL-Code nicht), kein Baking aus PDSMS-`.pdsts` und kein PDSMS-Ordnerimport über `.pdsmap`, kein NSBMD-Writer, kein PNG → NSBTX, keine BDHC-Erzeugung und Kollisionsableitung: alles Phase 6. Flags und Variablen, Geschichten und Story-Graph sowie das Löschen von Daten mit Referenzsperre: 3d (die Spezifikation 3b.3 hatte das Löschen 3b.4 zugeordnet). Prüfungen des Build-Graphs: Phase 4. Später: `script.rotom-all`, Flag- und Variablenbereiche, Typen der Script-Parameter und Script → Trainer/Item (`script.trainer-target`).
 
 ## Phase 3c: Doppeldeck
 
@@ -207,6 +226,7 @@ Gate: Beispiel-Plugin wird aus einem Ordner geladen, trägt Command, Dock und Bu
 
 Lieferumfang:
 - Tile-Malen (Tileset aus NSBTX, Smart-Drawing) und Baking zu NSBMD; BDHC-Erzeugung aus Höhenkarte; Kollisionsableitung.
+- Aus 3b.4 hierher verschoben (Spezifikation 3b.4 §1): OBJ- und glTF-Import, Baking aus PDSMS-`.pdsts` und PDSMS-Ordnerimport über `.pdsmap`, PNG → NSBTX. 3b.4b importiert nur fertige Binärteile (NSBMD, `.per`, `.bld`, `.bdhc`, `.bgs`, Map-`.bin`).
 - NSBMD/NSBTX-Writer in `g4-formats`, Round-Trip gegen apicula-Lesepfad und Vanilla.
 - Textuelles Weltformat: Karte als JSON (Tiles, Höhen, Gebäude, Kollision) plus glTF für Freiform-Geometrie; Compiler zu Kartendatei.
 - 2D-Top-Down-Modus für schnelles Arbeiten.
@@ -220,7 +240,7 @@ Das Design-System „Doppeldeck“ ([design-system/README.md](../design-system/R
 - Tiefe „Erzählen“ mit Rezepten und Live-Vorschau der Assistenten (nach 3b.3, als 3d).
 - Bereiche Pokémon und Gegenstände (seit 3b.3a offen, Trainer und Begegnungen seit 3b.3b; Läden später, siehe unten).
 - Hand-Höhe je Unterbereich (Spec 3b.3 §9; die Hand merkt ihre Höhe je Bereich, das wartet auf den Umbau des Decks).
-- Flags und Variablen sowie Geschichten und Story-Graph (3b.4).
+- Flags und Variablen sowie Geschichten und Story-Graph (3d; bis zur Spezifikation 3b.4 standen sie bei 3b.4, der Atlas-Eintrag „Geschichten“ sagt seit 3b.4a „Kommt mit Phase 3d“).
 - Prüfen und Bauen mit Build-Schritten, Spielmodus live (Live-Flags, bernsteinfarbenes Scharnier) und Veröffentlichen (Phase 4).
 - Plugins im Bereich Technik (Phase 5).
 - Gelände malen, Höhen-Overlay, Draufsicht-Kamera und Overlay-Muster (Phase 6).
@@ -236,7 +256,9 @@ Aus Phase 3b.3 (Spec 3b.3 §1, „Später“; die Tabelle gilt wörtlich, damit 
 | Kampfsprites von Pokémon und Trainern | 3d | verschlüsselte NCGR, Pt und HGSS verschieden (offen) |
 | Pokémon-Menüsymbole | 3b.3a, wenn Plan-Task 0 die Paletten-Tabelle bestätigt, sonst 3d | Kandidat: arm9 Pt DE 0xF07D8, HG DE 0xFFBC4, HG US 0xFFC10 (Muster gefunden, Bedeutung ungeprüft) |
 | arm9-Tabellen schreiben (Item-Tabelle, TM-Liste), Klassen-Geschlecht, Preisfaktor, Eye-Music, Trainername > 7 Zeichen | später | Schreiben in arm9 braucht Patch-Schutz; Offsets teils nur aus DSPRE |
-| Löschen von Daten, Projektprüfungen (Trainer ohne Party, leere Ersatz-Slots projektweit), Script → Trainer/Item | 3b.4 | Roadmap; Löschen ohne Script-Referenzen wäre ein leeres Versprechen |
+| Projektprüfungen (Trainer ohne Party, leere Ersatz-Slots projektweit) | 3b.4a (gekommen: `trainer.no-party`, `encounter.empty-slot` und die übrigen `encounter.*`) | Roadmap |
+| Löschen von Daten mit Referenzsperre | 3d | Spezifikation 3b.4 §1; Löschen ohne Script-Referenzen wäre ein leeres Versprechen |
+| Script → Trainer/Item (Referenzen aus Scripts prüfen) | später | Spezifikation 3b.4 §4 („später“: `script.trainer-target`); rotom prüft keine IDs |
 | Pokédex-Größe/-Gewicht, Wachstumstabellen, „Auf Original zurücksetzen“ | Phase 4 (Basis-ROM-Vergleich) | Zukan-Daten, Basis-ROM |
 | Diamant/Perl | kein Gate | kein Testprojekt; die Metadaten kennen die Pfade, der Editor sperrt DP mit Grund |
 

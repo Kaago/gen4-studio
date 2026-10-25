@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
+import { FindingMark } from "../checks/FindingMark";
+import type { MarkSeverity } from "../checks/FindingMark";
 import type { Depth } from "../ui/frame/shellState";
 import { ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
@@ -18,10 +20,26 @@ interface Props {
   /** Tüfteln writes the id and the code into every row; Bauen leaves them to the tooltip. */
   depth: Depth;
   onSelect: (h: HeaderSummary) => void;
+  /** The worst error or warning the checks found per header (`headerMarks`); none: no marks. */
+  marks?: ReadonlyMap<number, MarkSeverity>;
 }
 
 /** One row of the list. Memoised: a selection or search change renders the rows whose props changed, not all of them. */
-const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, tinker, onSelect }: { header: HeaderSummary; selected: boolean; marked: boolean; tinker: boolean; onSelect: (h: HeaderSummary) => void }) {
+const HeaderRow = memo(function HeaderRow({
+  header: h,
+  selected,
+  marked,
+  tinker,
+  mark,
+  onSelect,
+}: {
+  header: HeaderSummary;
+  selected: boolean;
+  marked: boolean;
+  tinker: boolean;
+  mark: MarkSeverity | undefined;
+  onSelect: (h: HeaderSummary) => void;
+}) {
   return (
     <ListRow
       label={h.location_name || h.internal_name}
@@ -32,6 +50,7 @@ const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, tinker,
       dataAttrs={{ "data-header-id": h.id }}
       trailing={
         <>
+          {mark && <FindingMark severity={mark} />}
           {marked && <ShownMark />}
           <span className={styles.matrixTag}>M{h.matrix_id}</span>
         </>
@@ -45,7 +64,7 @@ const HeaderRow = memo(function HeaderRow({ header: h, selected, marked, tinker,
  * reveal token or the callback change, not when the scene is hovered or a message arrives.
  * `onSelect` must keep its identity for that.
  */
-export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, onSelect }: Props) {
+export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, onSelect, marks }: Props) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterHeaders(headers, query), [headers, query]);
   // The host is always rendered, so the arrow keys work after a search and after switching modes.
@@ -83,7 +102,7 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
       </div>
       <div ref={list} role="listbox" aria-label="Header" className={styles.host}>
         {shown.map((h) => (
-          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depth === "tuefteln"} onSelect={onSelect} />
+          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depth === "tuefteln"} mark={marks?.get(h.id)} onSelect={onSelect} />
         ))}
       </div>
     </div>

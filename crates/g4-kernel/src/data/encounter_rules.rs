@@ -198,6 +198,18 @@ fn hgss_list_species(e: &HgssEncounters, list: &str, entry: usize) -> Option<u16
     }
 }
 
+/// Check code of an empty species where the game reads one: a HeartGold grass time column,
+/// or an empty replacement list entry over an occupied slot (a glitch Pokémon).
+pub const EMPTY_SLOT: &str = "encounter.empty-slot";
+/// Check code of a species at level 0.
+pub const LEVEL_ZERO: &str = "encounter.level-zero";
+/// Check code of a level above 100.
+pub const LEVEL_HIGH: &str = "encounter.level-high";
+/// Check code of a water slot whose min level is above its max (the game swaps them).
+pub const MIN_MAX: &str = "encounter.min-max";
+/// Check code of a Platinum rate above 255 (the game reads the low byte).
+pub const RATE_BYTE: &str = "encounter.rate-byte";
+
 /// A rule the file breaks; shown next to the slot (or the method for
 /// `slot: None`), never enforced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,6 +217,30 @@ pub struct RuleWarning {
     pub method: Method,
     pub slot: Option<usize>,
     pub text: String,
+    /// The check code ([`EMPTY_SLOT`], [`LEVEL_ZERO`], [`LEVEL_HIGH`], [`MIN_MAX`],
+    /// [`RATE_BYTE`]).
+    pub code: &'static str,
+    /// Names the spot within the file: `slot:<method>:<slot>` (with `:<column>` or
+    /// `:<list>:<entry>` for an empty slot), `rate:<method>` for a rate.
+    pub key: String,
+    /// The numbers of the text, by code: level-zero `[method, slot, species]`, level-high
+    /// `[method, slot, level]`, min-max `[method, slot, min, max]`, rate-byte
+    /// `[method, rate, low byte]`, empty-slot `[method, slot, column or list, entry]` (entry
+    /// empty for a HeartGold grass column). `method` is [`method_key`].
+    pub args: Vec<String>,
+}
+
+/// The stable name of `method` in keys and arguments (`grass`, `surf`, `rock_smash`,
+/// `old_rod`, `good_rod`, `super_rod`).
+pub fn method_key(method: Method) -> &'static str {
+    match method {
+        Method::Grass => "grass",
+        Method::Surf => "surf",
+        Method::RockSmash => "rock_smash",
+        Method::OldRod => "old_rod",
+        Method::GoodRod => "good_rod",
+        Method::SuperRod => "super_rod",
+    }
 }
 
 fn method_name(method: Method) -> &'static str {
@@ -359,10 +395,20 @@ pub fn warnings(enc: &Encounters, family: Family) -> Vec<RuleWarning> {
     };
     for (method, rate, slots) in &methods {
         let name = method_name(*method);
-        let warn = |slot: Option<usize>, text: String| RuleWarning {
-            method: *method,
-            slot,
-            text,
+        let mkey = method_key(*method);
+        let warn = |slot: Option<usize>, code: &'static str, text: String, args: Vec<String>| {
+            let key = match slot {
+                Some(i) => format!("slot:{mkey}:{i}"),
+                None => format!("rate:{mkey}"),
+            };
+            RuleWarning {
+                method: *method,
+                slot,
+                text,
+                code,
+                key,
+                args: [mkey.to_owned()].into_iter().chain(args).collect(),
+            }
         };
         if matches!(enc, Encounters::Pt(_)) && *rate > 0xFF {
             let low = rate & 0xFF;
@@ -371,7 +417,12 @@ pub fn warnings(enc: &Encounters, family: Family) -> Vec<RuleWarning> {
             } else {
                 format!("{name} rate {rate} acts like {low}")
             };
-            out.push(warn(None, text));
+            out.push(warn(
+                None,
+                RATE_BYTE,
+                text,
+                vec![rate.to_string(), low.to_string()],
+            ));
         }
         if effective_rate(*rate) == 0 {
             continue;
@@ -385,34 +436,44 @@ pub fn warnings(enc: &Encounters, family: Family) -> Vec<RuleWarning> {
             if species != 0 && lo == 0 {
                 out.push(warn(
                     Some(i),
+                    LEVEL_ZERO,
                     format!("{name} slot {i}: species {species} at level 0"),
+                    vec![i.to_string(), species.to_string()],
                 ));
             }
             if hi > 100 {
                 out.push(warn(
                     Some(i),
+                    LEVEL_HIGH,
                     format!("{name} slot {i}: level {hi} is above 100"),
+                    vec![i.to_string(), hi.to_string()],
                 ));
             }
             if s.min > s.max {
                 out.push(warn(
                     Some(i),
+                    MIN_MAX,
                     format!(
                         "{name} slot {i}: min level {} is above max level {}, the game swaps them",
                         s.min, s.max
                     ),
+                    vec![i.to_string(), s.min.to_string(), s.max.to_string()],
                 ));
             }
             if s.species.len() > 1 {
                 for &(when, sp) in &s.species {
                     if sp == 0 {
-                        out.push(warn(
+                        let mut w = warn(
                             Some(i),
+                            EMPTY_SLOT,
                             format!(
                                 "{name} slot {i}: the {when} species is empty: {} it gives a glitch Pokémon",
                                 column_hours(when)
                             ),
-                        ));
+                            vec![i.to_string(), when.to_owned(), String::new()],
+                        );
+                        w.key = format!("{}:{when}", w.key);
+                        out.push(w);
                     }
                 }
             }
@@ -430,6 +491,7 @@ pub fn warnings(enc: &Encounters, family: Family) -> Vec<RuleWarning> {
         }
         for &slot in r.slots {
             if slots.get(slot).is_some_and(RuleSlot::occupied) {
+                let mkey = method_key(r.method);
                 out.push(RuleWarning {
                     method: r.method,
                     slot: Some(slot),
@@ -440,6 +502,14 @@ pub fn warnings(enc: &Encounters, family: Family) -> Vec<RuleWarning> {
                         r.when,
                         method_name(r.method)
                     ),
+                    code: EMPTY_SLOT,
+                    key: format!("slot:{mkey}:{slot}:{}:{}", r.list, r.entry),
+                    args: vec![
+                        mkey.to_owned(),
+                        slot.to_string(),
+                        r.list.to_owned(),
+                        r.entry.to_string(),
+                    ],
                 });
             }
         }
@@ -779,6 +849,83 @@ mod tests {
         let mut new = pt();
         new.set_grass_rate(100);
         assert!(warnings(&Encounters::Pt(new), Family::Pt).is_empty());
+    }
+
+    #[test]
+    fn warnings_carry_their_check_code_key_and_args() {
+        let mut e = pt_full_grass();
+        e.set_grass(
+            4,
+            Slot {
+                level: 0,
+                species: 25,
+            },
+        );
+        e.set_grass(
+            5,
+            Slot {
+                level: 101,
+                species: 25,
+            },
+        );
+        e.set_swarm(1, 0);
+        e.set_surf_rate(10);
+        let mut s = e.surf(1);
+        s.set_species(54);
+        s.set_min(30);
+        s.set_max(20);
+        e.set_surf(1, s);
+        e.set_good_rod_rate(300);
+        let w = warnings(&Encounters::Pt(e), Family::Pt);
+        let got: Vec<(&str, &str, Vec<&str>)> = w
+            .iter()
+            .map(|w| {
+                (
+                    w.code,
+                    w.key.as_str(),
+                    w.args.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    "encounter.level-zero",
+                    "slot:grass:4",
+                    vec!["grass", "4", "25"]
+                ),
+                (
+                    "encounter.level-high",
+                    "slot:grass:5",
+                    vec!["grass", "5", "101"]
+                ),
+                (
+                    "encounter.min-max",
+                    "slot:surf:1",
+                    vec!["surf", "1", "30", "20"]
+                ),
+                (
+                    "encounter.rate-byte",
+                    "rate:good_rod",
+                    vec!["good_rod", "300", "44"]
+                ),
+                (
+                    "encounter.empty-slot",
+                    "slot:grass:1:swarm:1",
+                    vec!["grass", "1", "swarm", "1"]
+                ),
+            ]
+        );
+
+        // HeartGold: an empty time column is an empty slot too.
+        let mut h = hgss_full_grass();
+        h.set_grass_morning(3, 0);
+        let w = warnings(&Encounters::Hgss(h), Family::Hgss);
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].code, "encounter.empty-slot");
+        assert_eq!(w[0].key, "slot:grass:3:morning");
+        assert_eq!(w[0].args, ["grass", "3", "morning", ""]);
     }
 
     #[test]

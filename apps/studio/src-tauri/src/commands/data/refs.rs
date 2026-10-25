@@ -93,6 +93,7 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                     event_file: index,
                     event_kind: "object",
                     index: slot.unwrap_or(0),
+                    header: None,
                 },
             ),
             AssetKind::Personal => (

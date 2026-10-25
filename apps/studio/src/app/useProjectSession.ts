@@ -80,16 +80,22 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   const staleRefresh = useRef<() => Promise<void>>(async () => {});
 
-  const refreshDirty = useCallback(async () => {
+  /**
+   * Reads the unsaved edits again. Every write the app makes ends here, so it announces `edited`: the checks run again (all of them, 300 ms
+   * after the last edit). `edited: false` for a read that follows no write of its own whose checks run anyway: a project just opened (the
+   * checks run for it as it opens) and a fix (it asks for its run itself), so neither runs the checks twice.
+   */
+  const refreshDirty = useCallback(async ({ edited = true }: { edited?: boolean } = {}) => {
     try {
       const assets = await dirty();
       setDirtyCount(assets.length);
       setDirtyAssets((before) => (before.length === assets.length && before.every((a, i) => a.kind === assets[i]!.kind && a.index === assets[i]!.index) ? before : assets));
       setDirtyRevision((r) => r + 1);
+      if (edited) bus.emit({ topic: "edited" });
     } catch (e) {
       setMessage({ kind: "error", text: errorText(e) });
     }
-  }, []);
+  }, [bus]);
 
   // Stable so the memoised scene is not re-rendered by every hover-driven inspector update.
   const onEdited = useCallback(() => void refreshDirty(), [refreshDirty]);
@@ -195,7 +201,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
       await offerPatchRepair();
-      await refreshDirty();
+      // The checks run for the opened project by themselves (`useChecks`): this read is no edit.
+      await refreshDirty({ edited: false });
       return true;
     } catch (e) {
       fail(e);

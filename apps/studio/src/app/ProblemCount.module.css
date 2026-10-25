@@ -7,3 +7,8 @@
   color: var(--g4-status-warnung);
   font-weight: 600;
 }
+
+.infos {
+  color: var(--g4-status-info);
+  font-weight: 600;
+}

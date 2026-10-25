@@ -1,26 +1,29 @@
-import type { ProblemDto } from "../../api";
+import type { CheckProblemDto, ProblemDto } from "../../api";
+import type { NavTarget } from "../navigation";
 import { id4 } from "../terms";
 
 /**
  * Where a problem comes from: the last save or build (`compile`), a text archive (`text`), the language server of the shown document
- * (`live`), the rules an encounter file breaks (`encounter`) or a trainer's battle texts (`trainer`).
+ * (`live`), a trainer's battle texts (`trainer`), the project checks (`check`); `encounter` is the source a data document gives the rules
+ * of an encounter file, which the checks (`encounter.*`) report now.
  */
-export type ProblemSource = "compile" | "text" | "live" | "encounter" | "trainer";
+export type ProblemSource = ProblemDto["source"] | "live";
 
-export interface ProblemRow {
-  severity: "error" | "warning";
-  /** Relative to the project root with forward slashes. */
-  file: string;
-  line: number;
-  col: number;
-  message: string;
-  source: ProblemSource;
-}
+/** A row of the list: a `ProblemDto` with the source `live` besides; a finding of the checks keeps all its fields (see `isFinding`). */
+export type ProblemRow = Omit<ProblemDto, "source"> & { source: ProblemSource };
 
 export interface ProblemCounts {
   errors: number;
   warnings: number;
+  /** Only the checks report infos („Hinweise“). */
+  infos: number;
 }
+
+/** Whether `row` is a finding of the checks (source `check`, with its code, subject, key and fingerprint). */
+export const isFinding = (row: ProblemRow): row is CheckProblemDto => row.source === "check" && row.code !== undefined;
+
+/** What names a finding (`data-finding`): its code, subject and key, "warp.dest-warp|eventFile:411|warp:2". */
+export const findingId = (f: Pick<CheckProblemDto, "code" | "subject" | "key">): string => `${f.code}|${f.subject.kind}:${f.subject.index}|${f.key}`;
 
 const SCRIPT_PATH = /^expanded\/scripts\/(\d+)\.(rotom|json)$/;
 const TEXT_PATH = /^expanded\/textArchives\/(\d+)\.json$/;
@@ -56,29 +59,72 @@ export function trainerOf(path: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-const same = (a: readonly ProblemRow[], b: readonly ProblemRow[]) =>
-  a.length === b.length && a.every((p, i) => p.severity === b[i]!.severity && p.file === b[i]!.file && p.line === b[i]!.line && p.col === b[i]!.col && p.message === b[i]!.message);
+/** Structural equality of plain data (JSON values): the same keys with equal values, in any order; a missing key equals `undefined`. */
+function equalData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) if (!equalData(left[key], right[key])) return false;
+  return true;
+}
 
-/** "2 Fehler, 1 Warnung"; an empty string when there is neither. */
-export function countsText({ errors, warnings }: ProblemCounts): string {
+/**
+ * Whether two rows are the same: a finding by everything it shows (its code, subject, key and fingerprint name it; its sentence's
+ * numbers, label, fixes and targets render it, and they may change while it stays the same finding: „Beheben…“ appears once the scripts
+ * are adopted); any other row by its severity, place and message.
+ */
+function sameRow(a: ProblemRow, b: ProblemRow): boolean {
+  if (isFinding(a) || isFinding(b)) return isFinding(a) && isFinding(b) && equalData(a, b);
+  return a.severity === b.severity && a.file === b.file && a.line === b.line && a.col === b.col && a.message === b.message;
+}
+
+const same = (a: readonly ProblemRow[], b: readonly ProblemRow[]) => a.length === b.length && a.every((p, i) => sameRow(p, b[i]!));
+
+/** Errors first, then warnings, then infos. */
+const RANK: Record<ProblemRow["severity"], number> = { error: 0, warning: 1, info: 2 };
+
+/** "2 Fehler, 1 Warnung, 3 Hinweise"; an empty string when there is nothing. */
+export function countsText({ errors, warnings, infos }: ProblemCounts): string {
   const parts: string[] = [];
   if (errors > 0) parts.push(`${errors} Fehler`);
   if (warnings > 0) parts.push(`${warnings} ${warnings === 1 ? "Warnung" : "Warnungen"}`);
+  if (infos > 0) parts.push(`${infos} ${infos === 1 ? "Hinweis" : "Hinweise"}`);
   return parts.join(", ");
 }
 
 /**
+ * Where „Öffnen“ (or a click on a row's file) leads: a finding to its `target` (none: nowhere); any other row by its file, a script file at
+ * its line, a text archive, a trainer, an encounter file; null for any other file.
+ */
+export function problemTarget(row: ProblemRow): NavTarget | null {
+  if (isFinding(row)) return row.target ?? null;
+  const file = scriptFileOf(row.file);
+  if (file !== null) return { kind: "script", file, line: row.line };
+  const trainer = trainerOf(row.file);
+  if (trainer !== null) return { kind: "trainer", index: trainer };
+  const encounter = encounterFileOf(row.file);
+  if (encounter !== null) return { kind: "encounter", index: encounter };
+  const archive = textArchiveOf(row.file);
+  return archive === null ? null : { kind: "textArchive", index: archive };
+}
+
+/**
  * The problems of the project, by where they came from: the compile problems of each file, the warnings of each text
- * archive and the live diagnostics of the shown document. Each source is replaced as a whole, so a fixed problem goes
- * and the others stay. A live row with the same file, line and severity as a compile row is not listed or counted. Plain store for `useSyncExternalStore`: `list` and `counts` keep their identity until something changed.
+ * archive, the rows of each data member, the live diagnostics of the shown document and the findings of the checks. Each
+ * source is replaced as a whole, so a fixed problem goes and the others stay. A live row with the same file, line and
+ * severity as a compile row is not listed or counted. Plain store for `useSyncExternalStore`: `list` and `counts` keep
+ * their identity until something changed.
  */
 export class ProblemsStore {
   private readonly compile = new Map<string, ProblemRow[]>();
   private readonly text = new Map<number, ProblemRow[]>();
   private readonly data = new Map<string, ProblemRow[]>();
   private live: ProblemRow[] = [];
+  private checks: ProblemRow[] = [];
   private rows: readonly ProblemRow[] = [];
-  private count: ProblemCounts = { errors: 0, warnings: 0 };
+  private count: ProblemCounts = { errors: 0, warnings: 0, infos: 0 };
   private readonly listeners = new Set<() => void>();
 
   private static rows(problems: readonly Omit<ProblemDto, "source">[], source: ProblemSource): ProblemRow[] {
@@ -105,6 +151,17 @@ export class ProblemsStore {
       file,
       problems.map((p) => ({ severity: p.severity, file: p.file, line: p.line, col: p.col, message: p.message, source: p.source })),
     );
+  }
+
+  /**
+   * Replaces the findings of the checks as a whole (`useChecks` hands over what the last runs found, rows of source `check`): a finding that
+   * is gone goes, the same findings again change nothing.
+   */
+  replaceChecks(findings: readonly ProblemDto[]): void {
+    const next: ProblemRow[] = findings.map((f) => ({ ...f, source: "check" }));
+    if (same(this.checks, next)) return;
+    this.checks = next;
+    this.changed();
   }
 
   /** Replaces the live diagnostics (those of the shown document; none when no document is shown). */
@@ -147,15 +204,16 @@ export class ProblemsStore {
 
   /** Forgets everything (another project was opened). */
   clear(): void {
-    if (this.compile.size === 0 && this.text.size === 0 && this.data.size === 0 && this.live.length === 0) return;
+    if (this.compile.size === 0 && this.text.size === 0 && this.data.size === 0 && this.live.length === 0 && this.checks.length === 0) return;
     this.compile.clear();
     this.text.clear();
     this.data.clear();
     this.live = [];
+    this.checks = [];
     this.changed();
   }
 
-  /** Errors first, then by file and line; the same array until a source changed. */
+  /** Errors first, then warnings, then infos, each by file and line; the same array until a source changed. */
   list = (): readonly ProblemRow[] => this.rows;
 
   /** The same object until a source changed. */
@@ -179,11 +237,11 @@ export class ProblemsStore {
     // The language server and the compile find the same fault: one row, the compile's (whose source says "Compile").
     const known = new Set(compile.map((p) => `${p.file}\0${p.line}\0${p.severity}`));
     const live = this.live.filter((p) => !known.has(`${p.file}\0${p.line}\0${p.severity}`));
-    const all = [...compile, ...[...this.text.values()].flat(), ...[...this.data.values()].flat(), ...live];
-    all.sort((a, b) => Number(b.severity === "error") - Number(a.severity === "error") || a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col);
+    const all = [...compile, ...[...this.text.values()].flat(), ...[...this.data.values()].flat(), ...live, ...this.checks];
+    all.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.file.localeCompare(b.file) || a.line - b.line || a.col - b.col);
     this.rows = all;
-    const errors = all.filter((p) => p.severity === "error").length;
-    this.count = { errors, warnings: all.length - errors };
+    const count = (severity: ProblemRow["severity"]) => all.filter((p) => p.severity === severity).length;
+    this.count = { errors: count("error"), warnings: count("warning"), infos: count("info") };
     for (const listener of [...this.listeners]) listener();
   }
 }

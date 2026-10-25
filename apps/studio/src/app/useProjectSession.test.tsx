@@ -91,6 +91,25 @@ describe("useProjectSession with open scripts", () => {
     localStorage.removeItem("g4.emulatorPath");
   });
 
+  it("announces_every_write_it_counts_as_edited_so_the_checks_run_again", async () => {
+    events.length = 0;
+    await act(async () => session.refreshDirty());
+    expect(events).toEqual([{ topic: "edited" }]);
+    // A count that cannot be read announces nothing.
+    vi.mocked(dirty).mockRejectedValueOnce(new Error("gone"));
+    events.length = 0;
+    await act(async () => session.refreshDirty());
+    expect(events).toEqual([]);
+    // Opening a project is no edit: the checks run for it as it opens (once, not again after an edit's pause).
+    vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "Pt", language: "English", header_count: 0 });
+    await act(async () => void (await session.openProjectAt("/q", () => {})));
+    expect(events.filter((e) => e.topic === "edited")).toEqual([]);
+    expect(session.dirtyCount).toBe(0);
+    // Nor is the read after a fix, which asks for its run itself.
+    await act(async () => session.refreshDirty({ edited: false }));
+    expect(events).toEqual([]);
+  });
+
   it("keeps_the_list_of_dirty_assets_next_to_the_count_and_the_same_list_while_it_does_not_change", async () => {
     expect(session.dirtyAssets).toEqual([]);
     vi.mocked(dirty).mockResolvedValue([{ kind: "Event", index: 8 }]);

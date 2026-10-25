@@ -1,4 +1,6 @@
-import type { BgDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
+import type { ReactNode } from "react";
+import type { BgDto, CheckProblemDto, CoordDto, EventKind, ObjectDto, WarpDto } from "../api";
+import type { ChecksApi } from "../checks/useChecks";
 import type { Depth } from "../ui/frame/shellState";
 import { EmptyState } from "../ui/primitives";
 import { eventDetails, eventTitle } from "../world/events";
@@ -8,6 +10,7 @@ import { AreaEditor } from "./inspector/AreaEditor";
 import type { AreaEditorContext } from "./inspector/AreaEditor";
 import { BuildingEditor } from "./inspector/BuildingEditor";
 import type { BuildingEditorContext } from "./inspector/BuildingEditor";
+import { ChecksSection } from "./inspector/ChecksSection";
 import { EventEditor } from "./inspector/EventEditor";
 import type { EventEditorContext } from "./inspector/EventEditor";
 import styles from "./inspector/Editor.module.css";
@@ -54,6 +57,8 @@ export type InspectorModel =
       info: TileInfo;
     };
 
+const NO_FINDINGS: readonly CheckProblemDto[] = [];
+
 export function Inspector({
   model,
   headerEditor,
@@ -62,6 +67,8 @@ export function Inspector({
   buildingEditor,
   eventEditor,
   depth,
+  findings = NO_FINDINGS,
+  checks = null,
 }: {
   model: InspectorModel;
   headerEditor: HeaderEditorContext;
@@ -71,18 +78,35 @@ export function Inspector({
   eventEditor: EventEditorContext;
   /** Bauen, or Tüfteln: the section "Technisch" and the Dez | Hex switch of the number fields. */
   depth: Depth;
+  /** What the checks found at the record shown (`findingsFor`): the section „Prüfungen“ below its editor. */
+  findings?: readonly CheckProblemDto[];
+  checks?: ChecksApi | null;
 }) {
+  /**
+   * An editor with the section „Prüfungen“ below it while the checks found something at its record. The frame is always the same, so the
+   * editor is never mounted anew when findings come or go (it would lose its loaded record, the focus and an open picker).
+   */
+  const withChecks = (editor: ReactNode) => (
+    <div className={styles.withChecks}>
+      <div className={styles.editorPart}>{editor}</div>
+      {findings.length > 0 && (
+        <div className={styles.checksPart}>
+          <ChecksSection findings={findings} checks={checks} depth={depth} />
+        </div>
+      )}
+    </div>
+  );
   switch (model.kind) {
     case "header":
-      return <HeaderEditor key={model.id} id={model.id} context={headerEditor} depth={depth} />;
+      return withChecks(<HeaderEditor key={model.id} id={model.id} context={headerEditor} depth={depth} />);
     case "area":
-      return <AreaEditor key={model.id} id={model.id} context={areaEditor} depth={depth} />;
+      return withChecks(<AreaEditor key={model.id} id={model.id} context={areaEditor} depth={depth} />);
     case "building":
-      return <BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} depth={depth} />;
+      return withChecks(<BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} depth={depth} />);
     case "event":
-      return <EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} depth={depth} />;
+      return withChecks(<EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} depth={depth} />);
     case "matrixCell":
-      return <MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} depth={depth} />;
+      return withChecks(<MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} depth={depth} />);
     case "none":
       return (
         <div className={styles.panel}>

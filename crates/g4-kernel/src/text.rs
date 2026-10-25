@@ -8,7 +8,6 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chatot::format::{DIALOG_LINE_MAX_PX, default_glyph_widths, measure_line_width};
 use chatot::{BinarySource, Settings, TextSource, get_default_charmap};
 use serde::ser::{SerializeMap, SerializeStruct};
 use serde::{Serialize, Serializer};
@@ -43,6 +42,7 @@ pub struct TextArchiveDoc {
 pub enum Severity {
     Error,
     Warning,
+    Info,
 }
 
 /// A diagnostic for the Problems list. `line` is 1-based, `col` is 1-based in UTF-16 code
@@ -293,10 +293,10 @@ fn position(text: &str, at: usize) -> (u32, u32) {
     (line, col)
 }
 
-/// Dry run of the encoder plus the 200 px line check; warnings only.
+/// Dry run of the encoder; warnings only. Line width is not checked here: the `text.too-wide`
+/// check owns it (216 px, dialog archives only, see `checks`).
 pub fn validate(text: &str, file: &Path) -> Vec<Problem> {
-    let charmap = get_default_charmap();
-    let mut problems: Vec<Problem> = chatot::validate_message(Some(charmap), text)
+    chatot::validate_message(Some(get_default_charmap()), text)
         .into_iter()
         .map(|w| {
             let (line, col) = position(text, w.span.start);
@@ -308,21 +308,7 @@ pub fn validate(text: &str, file: &Path) -> Vec<Problem> {
                 message: w.error.to_string(),
             }
         })
-        .collect();
-    // An error here (unknown glyph, bad command) is already reported by the encoder dry run.
-    if let Ok((row, px)) = measure_line_width(text, charmap, default_glyph_widths())
-        && px > DIALOG_LINE_MAX_PX
-    {
-        problems.push(Problem {
-            severity: Severity::Warning,
-            file: file.to_path_buf(),
-            // `row` is the zero-based line of the message (split at hard breaks).
-            line: row as u32 + 1,
-            col: 1,
-            message: format!("Zeile zu lang für das Textfeld (über {DIALOG_LINE_MAX_PX} px)"),
-        });
-    }
-    problems
+        .collect()
 }
 
 fn tmp_path(root: &Path, name: &str) -> PathBuf {
@@ -702,7 +688,7 @@ mod tests {
     #[test]
     fn write_archive_reports_warnings_without_blocking() {
         let mut doc = TextArchiveDoc::from_member(&text_archive_bytes(&["Hi"]), "en_US").unwrap();
-        doc.messages[0].text = "W".repeat(60);
+        doc.messages[0].text = "[NOPE]".into();
         doc.messages.push(TextMessage {
             id: default_message_id(1),
             text: "[NOPE] \\q".into(),
@@ -721,11 +707,11 @@ mod tests {
 
     #[test]
     fn write_archive_warns_only_for_changed_messages() {
-        let long = "W".repeat(60);
+        let long = "[NOPE]".to_string();
         let root = tempfile::tempdir().unwrap();
         let json_path = root.path().join("0001.json");
         let member_path = root.path().join("0001");
-        // A vanilla member whose first message is already too long.
+        // A vanilla member whose first message already has an encoder problem.
         std::fs::write(&member_path, text_archive_bytes(&[&long, "Hi", "Ho"])).unwrap();
         let mut doc =
             TextArchiveDoc::from_member(&std::fs::read(&member_path).unwrap(), "en_US").unwrap();
@@ -741,15 +727,18 @@ mod tests {
             .map(|p| p.message.split(':').next().unwrap())
             .collect();
         assert_eq!(ids, ["msg_00001", "msg_00003"]);
-        // Saved again unchanged: nothing differs from the member any more.
+        // Saved again unchanged (as the editor reloads it: the encoder turned the unknown
+        // alias into a null code): nothing differs from the member any more.
+        let doc =
+            TextArchiveDoc::from_member(&std::fs::read(&member_path).unwrap(), "en_US").unwrap();
         let again = write_archive(root.path(), &json_path, &member_path, &doc).unwrap();
         assert!(again.is_empty(), "{again:?}");
     }
 
     #[test]
-    fn validate_reports_the_line_of_the_message_that_is_too_long() {
-        let text = format!("Hallo\\nDu\\r{}", "W".repeat(60));
-        let problems = validate(&text, Path::new("0001.json"));
+    fn validate_reports_the_line_of_an_encoder_problem() {
+        let text = "Hallo\\nDu\\r[NOPE]";
+        let problems = validate(text, Path::new("0001.json"));
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert_eq!((problems[0].line, problems[0].col), (3, 1));
     }
@@ -763,16 +752,28 @@ mod tests {
     }
 
     #[test]
-    fn validate_warns_on_long_line() {
-        let long = validate(&"W".repeat(60), Path::new("0001.json"));
-        assert_eq!(long.len(), 1);
-        assert_eq!(long[0].severity, Severity::Warning);
-        assert_eq!(long[0].file, Path::new("0001.json"));
-        assert_eq!(
-            long[0].message,
-            "Zeile zu lang für das Textfeld (über 200 px)"
-        );
+    fn validate_no_longer_warns_at_200_px() {
+        // The width check moved to the `text.too-wide` check (216 px, dialog archives only).
+        assert!(validate(&"W".repeat(60), Path::new("0001.json")).is_empty());
         assert!(validate("Hallo", Path::new("0001.json")).is_empty());
+        // Encoder problems are still reported.
+        let bad = validate("[NOPE]", Path::new("0001.json"));
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(bad[0].severity, Severity::Warning);
+        assert_eq!(bad[0].file, Path::new("0001.json"));
+    }
+
+    #[test]
+    fn severity_info_serialises_as_info() {
+        assert_eq!(serde_json::to_string(&Severity::Info).unwrap(), "\"info\"");
+        assert_eq!(
+            serde_json::to_string(&Severity::Error).unwrap(),
+            "\"error\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Severity::Warning).unwrap(),
+            "\"warning\""
+        );
     }
 
     #[test]

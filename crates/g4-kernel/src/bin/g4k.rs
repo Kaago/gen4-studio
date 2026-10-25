@@ -17,6 +17,9 @@ use g4_formats::game::{Family, Language};
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::narc::Narc;
 use g4_kernel::build::{build, extract_rom};
+use g4_kernel::checks::{
+    ChecksReport, Group, IgnoreSet, Registry, Runner, Severity, Snapshot, SnapshotCache, Subject,
+};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{ArchiveMap, AssetKind, Project};
 use g4_kernel::store::Store;
@@ -58,6 +61,21 @@ enum Command {
         /// the day column), `grassN_level` and in HeartGold `grassN_morning`, `grassN_night`.
         #[arg(long = "expect", required = true, value_parser = parse_expectation)]
         expect: Vec<Expectation>,
+    },
+    /// Run every project check on the saved project and print the findings, the ignored ones
+    /// and the checks that did not run. Honours the project's ignore file `g4-checks.json`
+    /// like the app: ignored findings are listed apart and counted as ignored, checks it
+    /// switches off do not run (errors are never left out). Exit 1 only when an expectation
+    /// fails; findings alone never fail.
+    Check {
+        project: PathBuf,
+        /// Print the whole report as JSON (expectation results then go to stderr).
+        #[arg(long)]
+        json: bool,
+        /// `CODE=N`: the project has exactly N findings of CODE that are not ignored, for
+        /// example `warp.dest-warp=1`.
+        #[arg(long = "expect", value_parser = parse_count)]
+        expect: Vec<CountExpectation>,
     },
 }
 
@@ -169,7 +187,125 @@ fn run(cli: Cli) -> Result<(), Failure> {
             Ok(())
         }
         Command::CheckData { rom, expect } => check_data(&rom, &expect),
+        Command::Check {
+            project,
+            json,
+            expect,
+        } => check(&project, json, &expect),
     }
+}
+
+/// One `--expect CODE=N` of `g4k check`.
+#[derive(Clone, Debug)]
+struct CountExpectation {
+    code: &'static str,
+    count: usize,
+}
+
+fn parse_count(text: &str) -> Result<CountExpectation, String> {
+    let (code, count) = text
+        .split_once('=')
+        .ok_or_else(|| format!("{text}: expected CODE=N"))?;
+    let code = Registry::get(code)
+        .ok_or_else(|| format!("{text}: unknown check code {code}"))?
+        .code();
+    let count = count
+        .parse()
+        .map_err(|_| format!("{text}: count {count} is not a number"))?;
+    Ok(CountExpectation { code, count })
+}
+
+/// "event file 0411": a subject in the kernel's words.
+fn subject_text(subject: Subject) -> String {
+    let (kind, n) = match subject {
+        Subject::Header(n) => ("header", n),
+        Subject::EventFile(n) => ("event file", n),
+        Subject::ScriptFile(n) => ("script file", n),
+        Subject::TextArchive(n) => ("text archive", n),
+        Subject::Trainer(n) => ("trainer", n),
+        Subject::Encounter(n) => ("encounter file", n),
+        Subject::Matrix(n) => ("matrix", n),
+        Subject::Map(n) => ("map", n),
+        Subject::AreaData(n) => ("area data", n),
+        Subject::Project => return "project".to_owned(),
+    };
+    format!("{kind} {n:04}")
+}
+
+/// `g4k check`: every group on the saved project (no store edits), with its ignore file.
+fn check(path: &Path, json: bool, expectations: &[CountExpectation]) -> Result<(), Failure> {
+    let project = Arc::new(Project::open(path)?);
+    let ignore = IgnoreSet::load(&project.root)?;
+    let overlay = Store::new(Arc::clone(&project)).snapshot_overlay();
+    let snap = Snapshot::build(Arc::clone(&project), overlay, SnapshotCache::default());
+    let report = Runner::run(&snap, Project::limits(), &ignore, &Group::ALL, |_, _, _| {});
+    if json {
+        let text = serde_json::to_string(&report).map_err(|e| Failure::Message(e.to_string()))?;
+        println!("{text}");
+    } else {
+        print_report(&report);
+    }
+
+    let mut failed = 0;
+    for e in expectations {
+        let found = report.findings.iter().filter(|f| f.code == e.code).count();
+        if found == e.count {
+            if json {
+                eprintln!("{}: {found}", e.code);
+            } else {
+                println!("{}: {found}", e.code);
+            }
+        } else {
+            eprintln!("{}: expected {}, found {found}", e.code, e.count);
+            failed += 1;
+        }
+    }
+    if failed > 0 {
+        return Err(Failure::Message(format!(
+            "{failed} of {} expectation(s) failed",
+            expectations.len()
+        )));
+    }
+    if !expectations.is_empty() && !json {
+        println!("{} expectation(s) met", expectations.len());
+    }
+    Ok(())
+}
+
+fn print_report(report: &ChecksReport) {
+    for f in &report.findings {
+        let severity = match f.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "info",
+        };
+        println!(
+            "{severity} {} {} {}: {}",
+            f.code,
+            subject_text(f.subject),
+            f.key,
+            f.message
+        );
+    }
+    for (code, why) in &report.skipped {
+        println!("skipped {code}: {why}");
+    }
+    let count = |severity| {
+        report
+            .findings
+            .iter()
+            .filter(|f| f.severity == severity)
+            .count()
+    };
+    println!(
+        "{} finding(s): {} error(s), {} warning(s), {} info(s); {} ignored; {} ms",
+        report.findings.len(),
+        count(Severity::Error),
+        count(Severity::Warning),
+        count(Severity::Info),
+        report.ignored.len(),
+        report.ran_ms
+    );
 }
 
 fn info(path: &PathBuf) -> Result<(), KernelError> {

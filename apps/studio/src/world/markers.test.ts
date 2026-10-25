@@ -2,8 +2,9 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EventsDto } from "../api";
 import { applyTheme } from "../ui/tokens/theme";
+import { szene } from "../ui/tokens/tokens";
 import { selectionColor } from "./colors";
-import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, moveMarker, pickMarker, recolorMarkerOutline, selectMarker } from "./markers";
+import { MARKER_Y, applySprite, buildMarkers, disposeMarkers, markFaulty, moveMarker, pickMarker, recolorMarkerOutline, selectMarker } from "./markers";
 
 const matrix = { index: 0, name: "m", width: 2, height: 1, maps: [1, 2] };
 
@@ -308,5 +309,57 @@ describe("object sprites", () => {
     // The geometry every sprite shares is not freed either: the other marker sets use it.
     expect(boxes.mock.contexts.includes(sprite.geometry)).toBe(false);
     boxes.mockRestore();
+  });
+});
+
+describe("markFaulty", () => {
+  /** The colour each warp is drawn in, per mesh (the flat marker and the beacon). */
+  const warpColors = (set: ReturnType<typeof buildMarkers>) =>
+    [...set.entries]
+      .filter(([, entry]) => entry.kind === "warp")
+      .map(([mesh, entry]) =>
+        entry.data.map((_, i) => {
+          const instance = new THREE.Color();
+          (mesh as THREE.InstancedMesh).getColorAt(i, instance);
+          // What the shader draws: the material's colour times the instance's.
+          return instance.multiply((mesh as THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.color).getHex();
+        }),
+      );
+
+  /** Two warps on the matrix (the second one of `events` lies outside it). */
+  const twoWarps = (): EventsDto => ({
+    ...events(),
+    warps: [
+      { index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 },
+      { index: 1, x: 20, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 },
+    ],
+  });
+
+  it("draws_a_warp_an_error_finding_hits_in_the_error_colour_of_the_scene_and_the_others_as_warps", () => {
+    const set = buildMarkers(matrix, twoWarps());
+    expect(warpColors(set)).toEqual([
+      [szene.ereignis.warp, szene.ereignis.warp],
+      [szene.ereignis.warp, szene.ereignis.warp],
+    ]);
+    markFaulty(set, [{ kind: "warp", index: 1 }]);
+    expect(warpColors(set)).toEqual([
+      [szene.ereignis.warp, szene.status.fehler],
+      [szene.ereignis.warp, szene.status.fehler],
+    ]);
+    // The finding is fixed: the warp is a warp again.
+    markFaulty(set, []);
+    expect(warpColors(set)).toEqual([
+      [szene.ereignis.warp, szene.ereignis.warp],
+      [szene.ereignis.warp, szene.ereignis.warp],
+    ]);
+    disposeMarkers(set);
+  });
+
+  it("leaves_the_other_markers_and_a_warp_without_a_marker_alone", () => {
+    // Warp 1 lies outside the matrix and has no marker.
+    const set = buildMarkers(matrix, events());
+    expect(() => markFaulty(set, [{ kind: "warp", index: 1 }, { kind: "object", index: 0 }])).not.toThrow();
+    expect(warpColors(set).flat().every((c) => c === szene.ereignis.warp)).toBe(true);
+    disposeMarkers(set);
   });
 });

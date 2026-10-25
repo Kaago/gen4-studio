@@ -117,6 +117,15 @@ describe("WorldExplorer", () => {
     expect(expectedColor.style.background).not.toBe("");
   });
 
+  it("marks a header that a check found an error or warning at, in the tree and in the list", () => {
+    render(props({ selected: 1, marks: new Map([[1, "error"], [2, "warning"]]) }));
+    expect(row(1)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
+    expect(row(2)?.querySelector("[data-finding-mark]")?.getAttribute("aria-label")).toBe("Warnung gefunden");
+    expect(row(0)?.querySelector("[data-finding-mark]")).toBeNull();
+    click(button("Liste"));
+    expect(row(1)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
+  });
+
   it("names each place for screen readers without running the count into the name", () => {
     render(props());
     expect(places().map((p) => p.getAttribute("aria-label"))).toEqual(["Zweiblattdorf, 3 Header", "Route 201, 1 Header", "Ohne Ortsnamen, 1 Header"]);

@@ -1746,14 +1746,11 @@ fn search_sees_a_saved_edit_but_not_an_unsaved_one() {
 fn text_archive_save_reports_warnings_and_is_stale_after_an_external_change() {
     let s = common::synthetic_project();
     let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
-    st.edit_text_archive(433, "wide", |d| d.messages[1].text = "W".repeat(60))
+    st.edit_text_archive(433, "wide", |d| d.messages[1].text = "W [NOPE]".into())
         .unwrap();
     let report = st.save().unwrap();
     assert_eq!(report.written, vec![text_id(433)]);
-    assert!(
-        !report.problems.is_empty(),
-        "a line wider than 200 px warns"
-    );
+    assert!(!report.problems.is_empty(), "an encoder problem warns");
     assert!(
         report
             .problems

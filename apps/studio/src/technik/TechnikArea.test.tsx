@@ -7,7 +7,9 @@ import type { HeaderPatchDto } from "../api";
 import { applyHeaderPatch, dirty, headerPatchStatus, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
-import { ProblemsStore } from "../workbench/problems/problems";
+import { fakeChecks, finding } from "../checks/checksTesting";
+import type { ChecksApi } from "../checks/useChecks";
+import { ProblemsStore, findingId } from "../workbench/problems/problems";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
 
@@ -27,6 +29,7 @@ describe("TechnikArea", () => {
   let container: HTMLElement;
   let root: Root;
   let problems: ProblemsStore;
+  let checks: ChecksApi;
   let tools: ToolStatusStore;
   const handlers = { onBuild: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}) };
 
@@ -36,6 +39,7 @@ describe("TechnikArea", () => {
     document.body.append(container);
     root = createRoot(container);
     problems = new ProblemsStore();
+    checks = fakeChecks();
     tools = createToolStatus();
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patch());
     vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
@@ -55,6 +59,7 @@ describe("TechnikArea", () => {
         project="/p"
         listOpen
         problems={problems}
+        checks={checks}
         depth="bauen"
         busy={false}
         canRun
@@ -141,8 +146,72 @@ describe("TechnikArea", () => {
     expect(surface()?.textContent).toContain("Im Browser-Modus wird nur gebaut");
   });
 
+  it("pruefen_und_bauen_shows_the_findings_in_the_same_table_as_the_problems_panel", async () => {
+    const never = finding("warp.never-fires", "info", { key: "warp:5", args: ["5", "8", "4", "0x00", "0x00"] });
+    problems.replaceChecks([finding("warp.dest-warp", "error", { args: ["2", "414", "5", "411", "3"] }), never]);
+    await render();
+    const groups = [...surface()!.querySelectorAll<HTMLElement>("[role=group][data-check]")].map((g) => g.dataset.check);
+    expect(groups).toEqual(["warp.dest-warp", "warp.never-fires"]);
+    expect(surface()?.textContent).toContain("Die Tür führt zu Warp 5 in Header 0414");
+    await click(button("Ausblenden", surface()!.querySelector(`[data-finding="${findingId(never)}"]`)!));
+    expect(checks.ignore).toHaveBeenCalledWith(never);
+    await click(button("Erneut prüfen"));
+    expect(checks.recheck).toHaveBeenCalledOnce();
+  });
+
+  it("ausgangslage_uebernehmen_asks_with_the_number_first", async () => {
+    problems.replaceChecks([
+      finding("warp.dest-warp", "error"),
+      finding("warp.never-fires", "info", { key: "warp:5" }),
+      finding("event.trigger-empty", "warning", { key: "trigger:0" }),
+      finding("event.same-spot", "warning", { key: "object:3" }),
+    ]);
+    await render();
+    await click(button("Ausgangslage übernehmen…"));
+    const asked = dialog()!;
+    expect(asked.querySelector("h2")?.textContent).toBe("Ausgangslage übernehmen?");
+    expect(asked.textContent).toContain("3 Warnungen und Hinweise werden ausgeblendet");
+    await click(button("Abbrechen", asked));
+    expect(dialog()).toBeNull();
+    expect(checks.acceptBaseline).not.toHaveBeenCalled();
+    await click(button("Ausgangslage übernehmen…"));
+    await click(button("Übernehmen", dialog()!));
+    expect(checks.acceptBaseline).toHaveBeenCalledOnce();
+    expect(dialog()).toBeNull();
+  });
+
+  it("switches_a_check_off_and_on_and_never_one_that_reports_errors", async () => {
+    await render();
+    await click(button("Prüfungen ein- und ausschalten"));
+    const list = surface()!.querySelector<HTMLElement>("[role=list][aria-label='Prüfungen ein- und ausschalten']")!;
+    const toggle = (code: string) => list.querySelector<HTMLElement>(`[data-check="${code}"] [role=switch]`)!;
+    expect(list.querySelectorAll("[data-check]")).toHaveLength(39);
+    expect(toggle("encounter.empty-slot").getAttribute("aria-checked")).toBe("true");
+    await click(toggle("encounter.empty-slot"));
+    expect(checks.setEnabled).toHaveBeenCalledWith("encounter.empty-slot", false);
+    await act(async () => checks.feed.update({ disabled: ["encounter.empty-slot"] }));
+    expect(toggle("encounter.empty-slot").getAttribute("aria-checked")).toBe("false");
+    await click(toggle("encounter.empty-slot"));
+    expect(checks.setEnabled).toHaveBeenLastCalledWith("encounter.empty-slot", true);
+    // Errors cannot be switched off (`warp.dest-warp` is one).
+    const dest = toggle("warp.dest-warp");
+    expect(dest.getAttribute("aria-disabled") === "true" || dest.hasAttribute("data-disabled")).toBe(true);
+    expect(list.querySelector('[data-check="warp.dest-warp"]')?.textContent).toContain("Fehler lassen sich nicht abschalten");
+    // A header of another matrix is an error too (ruling R16).
+    const elsewhere = toggle("matrix.header-elsewhere");
+    expect(elsewhere.getAttribute("aria-disabled") === "true" || elsewhere.hasAttribute("data-disabled")).toBe(true);
+  });
+
   it("pruefen_und_bauen_says_when_there_are_no_problems", async () => {
     await render();
+    // Before the first report: checking, or not checked; never „Keine Probleme“.
+    await act(async () => checks.feed.update({ running: true }));
+    expect(surface()?.textContent).toContain("Prüft das Projekt …");
+    expect(surface()?.textContent).not.toContain("Keine Probleme");
+    await act(async () => checks.feed.update({ running: false }));
+    expect(surface()?.textContent).toContain("Nicht geprüft.");
+    expect(surface()?.textContent).not.toContain("Keine Probleme");
+    await act(async () => checks.feed.update({ reported: true }));
     expect(surface()?.querySelector("table")).toBeNull();
     expect(surface()?.textContent).toContain("Keine Probleme");
   });

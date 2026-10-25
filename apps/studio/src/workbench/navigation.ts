@@ -27,6 +27,16 @@ export type NavTarget =
   /** An encounter file in the Begegnungen of the Pokémon area. */
   | { kind: "encounter"; index: number };
 
+/**
+ * An event target that names no header (a finding of the checks, whose subject is the event file) with the first header that reads its
+ * file, so a link to it shows that place first; any other target, one with a header and one no header reads, as it is.
+ */
+export function withHeaderHint(target: NavTarget, headers: readonly Pick<HeaderSummary, "id" | "event_file_id">[]): NavTarget {
+  if (target.kind !== "event" || typeof target.header === "number") return target;
+  const header = headers.find((h) => h.event_file_id === target.eventFile);
+  return header ? { ...target, header: header.id } : target;
+}
+
 /** The part of a data area a link opens, and the member it selects there. */
 export interface DataNav {
   sub: "pokedex" | "trainer" | "encounters" | "moves" | "items";

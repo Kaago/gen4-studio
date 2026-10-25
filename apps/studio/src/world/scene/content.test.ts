@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getObjectSprite } from "../../api";
+import { szene } from "../../ui/tokens/tokens";
 import type { EventsDto, MatrixDto, SpriteDto, TileBehavior } from "../../api";
 import { MAP_SIZE, MODEL_SCALE } from "../layout";
 import { resetSprites } from "../sprites";
@@ -28,6 +29,7 @@ function handle(partial: Partial<SceneHost> = {}): SceneHost {
     markers: null,
     events: null,
     selectedEvent: null,
+    faulty: [],
     queueRender: vi.fn(),
     ...partial,
   } as unknown as SceneHost;
@@ -169,6 +171,22 @@ describe("setMarkers", () => {
     const h = handle({ selectedEvent: { file: 1, kind: "warp", index: 0 } });
     setMarkers(h, events, true);
     expect(h.markers?.selected).toMatchObject({ kind: "warp", index: 0 });
+  });
+
+  it("draws the warps of its file that an error finding hits in the error colour, also after a refetch", () => {
+    const warpColor = (h: SceneHost) => {
+      const [mesh] = [...h.markers!.entries].find(([, e]) => e.kind === "warp")!;
+      const c = new THREE.Color();
+      (mesh as THREE.InstancedMesh).getColorAt(0, c);
+      return c.getHex();
+    };
+    const h = handle({ faulty: [{ file: 1, kind: "warp", index: 0 }] });
+    setMarkers(h, events, true);
+    expect(warpColor(h)).toBe(szene.status.fehler);
+    // Another file's finding is not this warp's.
+    const other = handle({ faulty: [{ file: 2, kind: "warp", index: 0 }] });
+    setMarkers(other, events, true);
+    expect(warpColor(other)).toBe(szene.ereignis.warp);
   });
 
   it("builds no markers without a matrix", () => {

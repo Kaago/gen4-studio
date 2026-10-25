@@ -2,10 +2,22 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { WarpDto } from "../api";
+import { useEffect, useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CheckProblemDto, WarpDto } from "../api";
+import { fakeChecks, finding } from "../checks/checksTesting";
 import { Inspector } from "./Inspector";
 import type { InspectorModel } from "./Inspector";
+
+// The editors as stand-ins that count their mounts and keep a value in state: what a remount would lose (the loaded record, focus, a picker).
+const editors = vi.hoisted(() => ({ mounts: 0 }));
+vi.mock("./inspector/EventEditor", () => ({
+  EventEditor: () => {
+    const [kept] = useState(() => ++editors.mounts);
+    useEffect(() => {}, []);
+    return <div data-editor={kept}>Warp-Editor</div>;
+  },
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,5 +62,54 @@ describe("Inspector read-only views", () => {
     expect(text()).toContain("Nur Ansicht");
     expect(text()).toContain("Typ 0x5E WARP_STAIRS_EAST");
     expect(text()).toContain("Matrix-Position x 40, z 36 · Kollision 0x01");
+  });
+});
+
+describe("Inspector with findings of the checks", () => {
+  let container: HTMLElement;
+  let root: Root;
+  beforeEach(() => {
+    editors.mounts = 0;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  const model: InspectorModel = { kind: "event", eventFile: 394, eventKind: "warp", index: 0 };
+  const dest = finding("warp.dest-warp", "error", { key: "warp:0", args: ["0", "414", "99", "393", "2"], target: { kind: "event", eventFile: 394, eventKind: "warp", index: 0 } });
+  const show = (findings: CheckProblemDto[]) =>
+    act(() =>
+      root.render(
+        <Inspector
+          model={model}
+          headerEditor={undefined as never}
+          matrixEditor={undefined as never}
+          areaEditor={undefined as never}
+          buildingEditor={undefined as never}
+          eventEditor={undefined as never}
+          depth="bauen"
+          findings={findings}
+          checks={fakeChecks()}
+        />,
+      ),
+    );
+
+  it("keeps_its_editor_when_the_records_findings_come_and_go", () => {
+    show([]);
+    const editor = container.querySelector("[data-editor]");
+    expect(editor?.getAttribute("data-editor")).toBe("1");
+    expect(container.textContent).not.toContain("Prüfungen");
+    // A bad value makes a finding: the section comes, the editor stays the same element with the same state.
+    show([dest]);
+    expect(container.textContent).toContain("Prüfungen");
+    expect(container.querySelector("[data-editor]")).toBe(editor);
+    // The fix makes it go: still the same editor.
+    show([]);
+    expect(container.textContent).not.toContain("Prüfungen");
+    expect(container.querySelector("[data-editor]")).toBe(editor);
+    expect(editors.mounts).toBe(1);
   });
 });

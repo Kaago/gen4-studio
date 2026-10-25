@@ -1,4 +1,4 @@
-import type { AssetId, ProblemDto } from "./api";
+import type { AssetId, EventKind, ProblemDto } from "./api";
 import { invoke } from "./platform/transport";
 import type { HexFieldSpan } from "./ui/primitives/HexBlock";
 
@@ -428,13 +428,20 @@ export type TargetDto =
 /** The tabs of the Pokédex hand a reference can open. */
 export type SpeciesTab = "values" | "abilities" | "learnset" | "evolution" | "machines" | "raw";
 
-/** Where a reference leads: shapes of the frontend's `NavTarget`. */
+/** Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`), all of them (a type test keeps both equal). */
 export type NavTargetDto =
   | { kind: "header"; id: number }
-  | { kind: "event"; eventFile: number; eventKind: "object"; index: number }
+  | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null }
+  | { kind: "area"; id: number }
+  | { kind: "building"; map: number; index: number; header?: number | null }
+  | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null }
+  | { kind: "textArchive"; index: number; message?: number }
+  | { kind: "script"; file: number; line?: number }
   | { kind: "species"; index: number; tab?: SpeciesTab }
-  | { kind: "encounter"; index: number }
-  | { kind: "trainer"; index: number };
+  | { kind: "move"; index: number }
+  | { kind: "item"; id: number }
+  | { kind: "trainer"; index: number }
+  | { kind: "encounter"; index: number };
 
 /**
  * One reference: `field` (entry `slot`) of `source` points at the target; `label` says where in German ("Staravia, Lernset Platz 4"),

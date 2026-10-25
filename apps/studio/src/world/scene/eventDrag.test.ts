@@ -19,6 +19,7 @@ vi.mock("../markers", async (importOriginal) => ({
   buildMarkers: vi.fn(() => ({ group: { visible: true } })),
   disposeMarkers: vi.fn(),
   selectMarker: vi.fn(),
+  markFaulty: vi.fn(),
 }));
 
 const matrix: MatrixDto = { index: 0, name: "m", width: 4, height: 4, maps: [], headers: null, altitudes: null };
@@ -30,6 +31,7 @@ function setup(options: { locked?: string | null; select?: EventRef | null; pain
   const events = { event_file_id: 1, locked: options.locked ?? null } as EventsDto;
   const h = {
     selectedEvent: options.select === undefined ? selected : options.select,
+    faulty: [],
     events,
     markers: set,
     matrix: options.matrix ?? options.altitudes ? { ...matrix, altitudes: options.altitudes } : matrix,

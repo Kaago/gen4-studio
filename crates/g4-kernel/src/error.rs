@@ -57,6 +57,11 @@ pub enum KernelError {
     /// the user as it is.
     #[error("{0}")]
     Refused(String),
+    /// A fix was asked for a finding the checks no longer report as it was sent (its subject
+    /// changed since it was found, or it is gone); nothing was changed. Not [`KernelError::Stale`],
+    /// which is a file that changed on disk.
+    #[error("finding is no longer current")]
+    FindingStale,
     /// A command failed after it had written something that stays (a member file, a compiled
     /// script); the text says what was written and what failed.
     #[error("{0}")]

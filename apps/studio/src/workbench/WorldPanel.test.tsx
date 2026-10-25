@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { WorldPanel } from "./panels";
 import { WorkbenchProviders } from "./WorkbenchContext";
+import { ProblemsStore } from "./problems/problems";
 import type { WorkbenchData } from "./WorkbenchContext";
 
 // The scene needs WebGL; the panel around it is under test.
@@ -59,6 +60,7 @@ describe("WorldPanel", () => {
       tool: "select",
       eventFileId: 3,
       eventLock: null,
+      problems: new ProblemsStore(),
       onSelect,
       onShowPermissions,
       onShowEvents,

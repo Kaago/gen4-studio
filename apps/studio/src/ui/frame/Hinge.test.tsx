@@ -21,7 +21,7 @@ describe("Hinge", () => {
   const base = (over: Partial<HingeProps> = {}): HingeProps => ({
     crumbs: [{ label: "Zweiblattdorf" }, { label: "Zweiblattdorf", tech: "0414" }],
     depth: "bauen",
-    problems: { errors: 0, warnings: 0 },
+    problems: { errors: 0, warnings: 0, infos: 0 },
     history: { undo: [], redo: [] },
     playing: false,
     canPlay: true,
@@ -107,16 +107,69 @@ describe("Hinge", () => {
   });
 
   it("says_what_the_problem_light_counts_and_Alles_stimmig_at_zero", () => {
-    show(base({ problems: { errors: 2, warnings: 1 } }));
+    show(base({ problems: { errors: 2, warnings: 1, infos: 0 } }));
     expect(button(/2 Fehler, 1 Warnung/)).toBeDefined();
-    show(base({ problems: { errors: 0, warnings: 3 } }));
+    show(base({ problems: { errors: 0, warnings: 3, infos: 0 } }));
     expect(button(/3 Warnungen/)).toBeDefined();
     show(base());
     expect(button("Alles stimmig")).toBeDefined();
+    expect(button("Alles stimmig")!.querySelector("[data-count]")).toBeNull();
+  });
+
+  it("says_Nicht_geprueft_instead_of_Alles_stimmig_while_the_checks_have_no_result", () => {
+    // No report arrived and none runs (the first run failed or answered without one): nothing is known, the light is no green.
+    show(base({ unchecked: true }));
+    const light = button("Nicht geprüft")!;
+    expect(light.getAttribute("data-light")).toBe("unchecked");
+    expect(light.textContent).toBe("Nicht geprüft");
+    expect(button("Alles stimmig")).toBeUndefined();
+    // Problems of a save or a build are known all the same: counted, and the label says the checks did not run.
+    show(base({ unchecked: true, problems: { errors: 1, warnings: 0, infos: 0 } }));
+    expect(button("1 Fehler, nicht geprüft")!.getAttribute("data-light")).toBe("error");
+    // A running pass says how far it got.
+    show(base({ unchecked: true, checking: "Prüft …" }));
+    expect(button("Prüft …")).toBeDefined();
+  });
+
+  it("shows_three_counters_with_symbols_and_names_them_in_words", () => {
+    show(base({ problems: { errors: 2, warnings: 1, infos: 3 } }));
+    const light = button("2 Fehler, 1 Warnung, 3 Hinweise")!;
+    expect(light.getAttribute("data-light")).toBe("error");
+    const counters = [...light.querySelectorAll<HTMLElement>("[data-count]")];
+    expect(counters.map((c) => [c.dataset.count, c.textContent])).toEqual([
+      ["error", "2"],
+      ["warning", "1"],
+      ["info", "3"],
+    ]);
+    // Never colour alone: every counter carries its symbol.
+    for (const c of counters) expect(c.querySelector("svg")).not.toBeNull();
+    show(base({ problems: { errors: 0, warnings: 0, infos: 1 } }));
+    expect(button("1 Hinweis")!.getAttribute("data-light")).toBe("info");
+    show(base({ problems: { errors: 0, warnings: 2, infos: 1 } }));
+    expect(button("2 Warnungen, 1 Hinweis")!.getAttribute("data-light")).toBe("warning");
+    show(base());
+    expect(button("Alles stimmig")!.getAttribute("data-light")).toBe("sound");
+  });
+
+  it("turns_a_spinner_and_says_the_progress_while_a_pass_runs", () => {
+    show(base({ problems: { errors: 1, warnings: 0, infos: 0 }, checking: "Prüft … Texte 312/724" }));
+    const light = button(/^Prüft … Texte 312\/724/)!;
+    expect(light.getAttribute("aria-label")).toBe("Prüft … Texte 312/724, 1 Fehler");
+    expect(light.hasAttribute("data-running")).toBe(true);
+    expect(light.textContent).toContain("Prüft … Texte 312/724");
+    expect(light.querySelector("[data-count=error]")?.textContent).toBe("1");
+    show(base({ checking: "Prüft …" }));
+    expect(button("Prüft …")).toBeDefined();
+    show(base({ checking: null }));
+    expect(button("Alles stimmig")!.hasAttribute("data-running")).toBe(false);
+    // The spinner turns, but stands still for someone who asked for less motion.
+    const css = readCss("./Hinge.module.css", import.meta.url);
+    expect(ruleBody(css, ".spinner")).toMatch(/animation:[^;]*\bspin\b/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.spinner\s*\{[^}]*animation:\s*none/);
   });
 
   it("opens_the_problems_when_the_light_is_clicked", () => {
-    const props = base({ problems: { errors: 1, warnings: 0 } });
+    const props = base({ problems: { errors: 1, warnings: 0, infos: 0 } });
     show(props);
     act(() => button(/1 Fehler/)!.click());
     expect(props.onProblems).toHaveBeenCalledOnce();

@@ -1,0 +1,102 @@
+# Platin DE, gate 3b.4a part A (scenario part, through the bridge, no game): the project checks red
+# on four deliberate errors and green again after fixes and edits. Every `run_checks` is a full run
+# (all groups) whose answer the third element `{expect: …}` checks; a missed expectation ends the
+# scenario with exit 2 and names path, Soll and Ist.
+#
+# (0) Scripts adopted first (`create_script` needs them, and adopting adds the script findings), then
+#     the vanilla warnings and hints taken as the baseline: errors 0, warnings 0.
+# (1) warp.dest-warp: warp 0 of event file 394 (the bedroom stairs, header 415) leads to warp 99 of
+#     header 414, whose event file 393 has 2 warps.
+# (2) event.script-missing: header 22 (event file 21, no scripted events) gets a new script file,
+#     which holds only script 1; a figure there calls script 950.
+# (3) event.trainer-missing: object 6 of event file 390 (Twinleaf Town, header 411) gets script 3999
+#     and trainer type 1; script 3000-4999 battles as trainer n - 3000 + 1 = 1000, Platin has 928.
+# (4) text.too-wide: message 3 of text archive 558 (the bedroom's dialog archive) becomes one line of
+#     60 characters, wider than the 216 px of the text window.
+# (5) Back to green: the stairs' target warp restored; `apply_fix create_script` (script 950 in the
+#     new file, written at once, no undo step); object 6's script and trainer type restored (the check
+#     reads the script: a trainer script battles when talked to, whatever the trainer type); `apply_fix
+#     wrap` on the long line. Then errors 0, warnings 0, infos 0.
+# `apply_fix` takes the finding as `run_checks` answered it; findings come in catalogue order
+# (warp.*, event.trainer-missing, ..., event.script-missing, ..., text.*), so the run before each
+# fix binds its answer (`as:`) and expects the code at the index the fix uses.
+#
+# No placeholders. Names an edit binds come from the bridge's answers: treppe, zweiblatt (the
+# originals), neue_datei, hdr22, r_script, r_text.
+# Example (from scripts/g4emu; the copy lives directly under Roms/_testkopien; in a worktree set
+# G4_ROMS_DIR, G4_BRIDGE_BIN and G4K_BIN, see docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/pt-pruefungen.yaml \
+#     --project ../../../Roms/_testkopien/pt-3b4a --out ../../target/agent/gate-$(date +%F)/pt-pruefungen
+game: CPUD
+edits:
+  # (0) adopt, keep the originals, accept the baseline
+  - [adopt_scripts, {}]
+  - [get_events, {eventFileId: 394}, treppe]
+  - [get_events, {eventFileId: 390}, zweiblatt]
+  - [accept_baseline, {}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+  # (1) the stairs lead to warp 99 of header 414
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_warp_id: 99}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: "findings[code=warp.dest-warp].length", equals: 1}
+        - {path: "findings[severity=error].length", equals: 1}
+  # (2) a new script file on header 22, a figure there with script 950
+  - [new_script_file, {kind: script}, neue_datei]
+  - [get_header, {id: 22}, hdr22]
+  - [set_header, {id: 22, header: {Pt: {$base: "${hdr22.Pt}", script_file_id: "${neue_datei}"}}}]
+  - [add_event, {eventFile: 21, kind: object, x: 4, z: 6, patch: {script: 950}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: "findings[code=event.script-missing].length", equals: 1}
+        - {path: "findings[severity=error].length", equals: 2}
+  # (3) object 6 of Twinleaf Town battles as trainer 1000, which does not exist
+  - [update_event, {eventFile: 390, kind: object, index: 6, patch: {script: 3999, trainer_type: 1}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: "findings[code=event.trainer-missing].length", equals: 1}
+        - {path: "findings[severity=error].length", equals: 3}
+  # (4) a 60-character line in the bedroom's dialog archive
+  - [edit_text_archive, {index: 558, edit: {Set: {index: 3, text: "Diese Zeile hat sechzig Zeichen und passt nicht ins Fenster."}}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: "findings[code=text.too-wide].length", equals: 1}
+        - {path: "findings[severity=warning].length", equals: 1}
+        - {path: "findings[severity=error].length", equals: 3}
+  # (5) back to green
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_warp_id: "${treppe.warps.0.dest_warp_id}"}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: findings.length, equals: 3}
+        - {path: findings.1.code, equals: event.script-missing}
+      as: r_script
+  - [apply_fix, {finding: "${r_script.findings.1}", fix: create_script}, {expect: {path: remaining, equals: false}}]
+  - - update_event
+    - eventFile: 390
+      kind: object
+      index: 6
+      patch: {script: "${zweiblatt.objects.6.script}", trainer_type: "${zweiblatt.objects.6.trainer_type}"}
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: findings.length, equals: 1}
+        - {path: findings.0.code, equals: text.too-wide}
+      as: r_text
+  - [apply_fix, {finding: "${r_text.findings.0}", fix: wrap}, {expect: {path: remaining, equals: false}}]
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+        - {path: "findings[severity=warning].length", equals: 0}
+        - {path: "findings[severity=info].length", equals: 0}

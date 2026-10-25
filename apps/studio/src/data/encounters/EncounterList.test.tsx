@@ -5,6 +5,8 @@ import { createEncounterFile, dataList } from "../../api";
 import type { EditEvent } from "../../bus/editBus";
 import { readShellState } from "../../ui/frame/shellState";
 import { typeInto } from "../../ui/primitives/testUtils";
+import { finding } from "../../checks/checksTesting";
+import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { encounterHarness, wireApi } from "./encounterTesting";
@@ -54,6 +56,19 @@ describe("EncounterList", () => {
     expect(ohne.querySelector('[data-encounter="0"]')?.textContent).toContain("Begegnungen 0000");
     expect(ohne.querySelector('[data-encounter="182"]')).not.toBeNull();
     expect(h.list().textContent).toContain("4 Begegnungsdateien");
+  });
+
+  it("marks_a_file_that_a_check_found_an_error_or_warning_in", async () => {
+    const problems = new ProblemsStore();
+    problems.replaceChecks([
+      finding("encounter.level-zero", "warning", { subject: { kind: "encounter", index: 141 }, key: "slot:grass:0" }),
+      finding("encounter.min-max", "info", { subject: { kind: "encounter", index: 140 }, key: "slot:surf:0" }),
+    ]);
+    await h.open(140, "bauen", { problems });
+    expect(file(141)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("warning");
+    expect(file(140)?.querySelector("[data-finding-mark]")).toBeNull();
+    await act(async () => problems.replaceChecks([]));
+    expect(file(141)?.querySelector("[data-finding-mark]")).toBeNull();
   });
 
   it("selects_a_file_and_names_it_by_its_place_in_the_breadcrumb", async () => {

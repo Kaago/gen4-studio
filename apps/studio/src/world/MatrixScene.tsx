@@ -15,7 +15,7 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useEventSelection, useEventVisibility, usePermissionVisibility } from "./scene/useSceneProps";
+import { useBuildingSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
 
 interface Props {
   matrix: MatrixDto;
@@ -72,6 +72,8 @@ interface Props {
   onEventMoved: (eventFile: number) => void;
   /** The shown event file's lock state, reported whenever its events were read (null: not locked, or none shown). */
   onEventsLocked: (lock: EventLock | null) => void;
+  /** The events an error finding of the checks hits; their markers show the error colour. Keeps its identity while it does not change. */
+  faultyEvents: readonly EventRef[];
 }
 
 function MatrixScene({
@@ -99,6 +101,7 @@ function MatrixScene({
   onSelectEvent,
   onEventMoved,
   onEventsLocked,
+  faultyEvents,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
@@ -133,6 +136,7 @@ function MatrixScene({
   useBuildingSelection(refs, selectedMap, selectedBuilding);
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);
+  useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);
   useEventVisibility(refs, showEvents);

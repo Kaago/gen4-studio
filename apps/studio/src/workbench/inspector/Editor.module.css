@@ -65,3 +65,28 @@
   max-width: 100%;
   flex: 1 1 calc(var(--g4-raum-16) * 8);
 }
+
+/* An editor with the section „Prüfungen“ below it: the editor scrolls, the findings keep their place at the foot. */
+.withChecks {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.editorPart {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.checksPart {
+  max-height: 40%;
+  flex: none;
+  overflow-y: auto;
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}

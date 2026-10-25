@@ -91,6 +91,12 @@
    "$value": "#3152DE"
   }
  },
+ "status": {
+  "fehler": {
+   "$type": "color",
+   "$value": "#DE3142"
+  }
+ },
  "ds": {
   "grund": {
    "$type": "color",

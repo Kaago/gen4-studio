@@ -1,0 +1,145 @@
+# Limits and exceptions of the project checks (module `checks`), each with its source and whether
+# it was verified against the games' code. See docs/formats/check_limits.md.
+#
+# value/verified/source per entry; a pair or a per-family value names its own fields.
+# Hex values are written as the game and the research notes write them.
+#
+# Sources: docs/research/2026-10-23-3b4/task0-3b4.md (pret/pokeplatinum
+# be36a9db3d2390a5009adc087c7aef550ce335e7, pret/pokeheartgold 6988158691eb6178cff697cda0428045ddcba5fb),
+# checks-report.md.
+
+# Width of the field text window in pixels (27 tiles of 8 px, printed from x 0). Both families.
+dialog_line_px:
+  value: 216
+  verified: true
+  source: "pokeplatinum be36a9d src/field_message.c:30 Window_Add(..., 2, 19, 27, 4, ...), print from x 0 (line 64); pokeheartgold 6988158 src/dialog_box.c:12-15 DIALOG_BOX_W 27, line 31, print from x 0 (line 58); task0-3b4.md section 1"
+
+# Lines the text window shows before a page break (the window is 4 tiles high: 2 lines of 16 px;
+# chatot word_wrap puts \r on the second line for the same reason).
+dialog_lines_max:
+  value: 2
+  verified: false
+  source: "window height 4 tiles (same Window_Add as dialog_line_px); the 16 px line pitch is not looked up in pret; checks-report.md text.three-lines"
+
+warp:
+  # A warp whose target header is 0x0FFF and whose target warp is 256 (0x100) takes its destination
+  # from the save game (elevators): not a broken reference. Only the pair counts.
+  dynamic:
+    header: 0x0FFF
+    warp: 256
+    verified: true
+    source: "pokeplatinum src/overlay005/field_control.c:1009-1013 Field_MapConnection (destWarpID == 0x100 asserts destHeaderID == 0xfff and uses the FieldOverworldState special location; generated/map_headers.txt:596 MAP_HEADER_DYNAMIC); pokeheartgold src/field/field_control.c:919-921; vanilla: Pt 6, HG DE/US 9 warps, all exactly (0x0FFF, 256); task0-3b4.md section 2"
+
+trainer:
+  # Trainer 0 is the dummy of the trainer tables: no party, class 0, no event uses it.
+  dummy:
+    value: 0
+    verified: false
+    source: "measured on Platin DE, HeartGold DE and HeartGold US: trainer 0 has party_count 0, class 0 and no event user; task0-3b4.md section 4"
+  # The trainer ID of the sight script slot: its entry in the battle script is the "seen" code,
+  # so it is never a real trainer. create_trainer (3b.3b) writes a locked placeholder there
+  # (properties 0, no party) before the next trainer. The trainer checks skip a trainer of that
+  # shape at this ID (a hack's own trainer there is checked); asset.unreadable ignores its lock.
+  sight_slot:
+    pt: 929
+    hgss: 740
+    verified: true
+    source: "metadata/trainer_scripts.yaml seen_script - 2999 (Pt 3928, HGSS 3739: pret pokeplatinum be36a9d trainer_encounter.c SCRIPT_ID(SINGLE_BATTLES, MAX_TRAINERS), pokeheartgold 6988158 std_trainer_approach); docs/formats/trainer_scripts.md; create_trainer placeholder (3b.3b)"
+
+event_file:
+  # Event file 0 is used by the dummy headers (60 on Platin DE) with different script files.
+  shared:
+    value: 0
+    verified: false
+    source: "measured: 60 dummy headers share event file 0 on Platin DE; spec 2026-10-23-phase-3b4-import-checks-design.md (vanilla measurements); checks-report.md event.shared-file"
+
+script:
+  # A script number of 0 on an object event means no script (decoration): 202 on Platin DE.
+  decoration:
+    value: 0
+    verified: false
+    source: "measured: 202 vanilla objects with script 0 on Platin DE; checks-report.md event.trigger-empty and its list of unverified assumptions"
+  # The script commands whose argument `arg` (0-based) is a message number of the text archive
+  # of the header that runs the script (script.message-missing). Derived from the bundled command
+  # databases: every command with a parameter named `text_slot` or typed `msg_id`, without the
+  # commands that name their own archive (MessageFromBank*, *FromArchive, MsgBoxExtern), the TV
+  # commands (their message comes from a TV archive) and the menu entries (AddMenuEntryImm,
+  # MenuItemAdd, HGSS ScrCmd_066; a menu can read the global menu archive). A command is matched
+  # through rotom's database, so its legacy (DSPRE) name and ScrCmd_* alias count as well.
+  # A number of 0x4000 and above is a variable (flex and Var parameters), not a message.
+  message_params:
+    dp:
+      - { command: MessageInstant, arg: 0 }
+      - { command: Message, arg: 0 }
+      - { command: MessageVar, arg: 0 }
+      - { command: MessageNoSkip, arg: 0 }
+      - { command: MessageSynchronized, arg: 0 }
+      - { command: DrawSignpostInstantMessage, arg: 0 }
+      - { command: DrawSignpostScrollingMessage, arg: 0 }
+      - { command: MessageUnown, arg: 0 }
+    pt:
+      - { command: MessageInstant, arg: 0 }
+      - { command: Message, arg: 0 }
+      - { command: MessageVar, arg: 0 }
+      - { command: MessageNoSkip, arg: 0 }
+      - { command: MessageSynchronized, arg: 0 }
+      - { command: DrawSignpostInstantMessage, arg: 0 }
+      - { command: DrawSignpostScrollingMessage, arg: 0 }
+      - { command: MessageUnown, arg: 0 }
+      - { command: ShowMapSign, arg: 0 }
+      - { command: ShowArrowSign, arg: 0 }
+      - { command: ShowLandmarkSign, arg: 0 }
+      - { command: ShowScrollingSign, arg: 0 }
+      - { command: NPCMessage, arg: 0 }
+      - { command: EventMessage, arg: 0 }
+      - { command: PokemonCryAndMessage, arg: 1 }
+    hgss:
+      - { command: NonNPCMsg, arg: 0 }
+      - { command: NPCMsg, arg: 0 }
+      - { command: NonNPCMsgVar, arg: 0 }
+      - { command: NPCMsgVar, arg: 0 }
+      - { command: ScrCmd_048, arg: 0 }
+      - { command: DirectionSignpost, arg: 0 }
+      - { command: TrainerTips, arg: 0 }
+      - { command: ScrCmd_527, arg: 0 }
+      - { command: SimpleNPCMsg, arg: 0 }
+      - { command: TrainerTipsEx, arg: 1 }
+      - { command: DirectionSignpostEx, arg: 2 }
+    verified: false
+    source: "derived from metadata/scrcmd/{diamond_pearl,platinum,hgss}_v2.json (DS-Pokemon-Rom-Editor/scrcmd-database revision 33, the database rotom v0.7.0 fb11503 reads; Pt and HGSS synced from pret/pokeplatinum c248fb3 and pret/pokeheartgold 9d8b759): parameter name text_slot or type msg_id, rule of task0-3b4.md section 4 (Pt 15 commands; HGSS 11 here, task0 counted 12)"
+
+encounter:
+  # Header value for no wild encounters: Platin 0xFFFF, HGSS 0xFF.
+  none:
+    pt: 0xFFFF
+    hgss: 0xFF
+    verified: false
+    source: "measured: vanilla headers use these values for no encounters; DSPRE avalonia ProjectIndex treats them as none; checks-report.md header.wild-dangling"
+
+matrix:
+  # A header cell of 0 means no header (header 0 uses matrix 0); other values name a header.
+  header_none:
+    value: 0
+    verified: false
+    source: "measured: all matrix.header-elsewhere hits on the three vanilla projects are cells with 0 (Pt matrix 240, HG matrix 212); that the game reads 0 as no header is not looked up in pret; task0-3b4.md section 4"
+
+model:
+  # Largest map model the game's buffer holds (both families).
+  max_bytes:
+    value: 0xF000
+    verified: true
+    source: "pokeplatinum src/overlay005/loaded_map_buffers.c:11 MAP_MODEL_FILE_SIZE 0xF000; pokeheartgold asm/overlay_01_021FAC44.s:146-147 ov01_02209B70 .space 4 * 0xF000, lines 27-28; largest vanilla model Pt 60556 B, HG 61420 B; task0-3b4.md section 3"
+
+bdhc:
+  # Largest terrain payload, counted after the 16-byte BDHC header (both families).
+  max_bytes:
+    value: 0x9000
+    verified: true
+    source: "pokeplatinum include/constants/field/bdhc.h:4 BDHC_BUFFER_SIZE 0x9000, assert src/overlay005/bdhc.c:282 (payload without the header); pokeheartgold asm/overlay_01_021FB04C.s:105-109 (cmp against 9 << 12), asm/overlay_01_021FAC44.s:44-47; vanilla: length = 16 + payload; task0-3b4.md section 3"
+
+permissions:
+  # Size of the permissions section (32 x 32 cells, type and collision byte each).
+  bytes:
+    value: 2048
+    verified: true
+    source: "g4-formats map reader (PERMISSIONS_LEN), docs/formats/map.md; DSPRE Collisions.toByteArray; import-report.md"

@@ -4,7 +4,7 @@ const KIND_LABELS: Record<AssetKind, string> = {
   Map: "Karte",
   Matrix: "Matrix",
   AreaData: "Area-Data",
-  Event: "Event-Datei",
+  Event: "Eventdatei",
   TextArchive: "Textarchiv",
   MapTexture: "Karten-Textur",
   BuildingTexture: "Gebäude-Textur",

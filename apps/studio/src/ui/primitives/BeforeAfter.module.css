@@ -1,0 +1,80 @@
+.frame {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--g4-raum-8);
+}
+
+.side {
+  min-width: 0;
+  overflow: hidden;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+}
+
+.head {
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.lines {
+  max-height: calc(var(--g4-raum-64) * 4);
+  margin: 0;
+  padding: var(--g4-raum-4) 0;
+  overflow: auto;
+  list-style: none;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+}
+
+/* A line is never wrapped (a line break must show as one): it is as wide as its text, at least the column, and the column scrolls
+   sideways; the changed surface reaches across. */
+.line {
+  display: flex;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  /* An empty line keeps its height. */
+  min-height: 1lh;
+  gap: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-8);
+  white-space: pre;
+}
+
+/* The sign column: − for a line that went, + for one that came, empty for the others. */
+.line::before {
+  width: 1ch;
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  content: "";
+}
+
+.changed {
+  background: var(--g4-auswahl-flaeche);
+}
+
+.removed::before {
+  content: "−";
+}
+
+.added::before {
+  content: "+";
+}
+
+.text {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

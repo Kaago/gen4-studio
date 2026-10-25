@@ -23,7 +23,7 @@
 //! sources. A member that does not decode (a locked member of the wrong length) contributes
 //! nothing.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 
 use g4_formats::data::encounter::{DualSlot, Encounters, Method};
@@ -33,11 +33,11 @@ use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
 use g4_formats::data::trainer::{Party, PartyMon, TrainerProps};
 use g4_formats::game::Family;
-use g4_formats::narc::Narc;
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
-use crate::error::{KernelError, io_at};
+use crate::disk::Disk;
+use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::{Loaded, Store};
 
@@ -295,7 +295,7 @@ const MAX_READERS: usize = 8;
 /// one after the other is what takes the time).
 fn collect_refs(
     store: &Store,
-    disk: &Disk,
+    disk: &Disk<&Project>,
     ids: &[AssetId],
 ) -> Result<Vec<(AssetId, Vec<Ref>)>, KernelError> {
     let family = store.project().family;
@@ -346,62 +346,8 @@ fn collect_refs(
     Ok(out)
 }
 
-/// Reads members from the disk without the store and without unpacking anything: the
-/// unpacked member when the archive's folder exists, else the member of the packed archive
-/// (read once when the reader is opened).
-struct Disk<'p> {
-    project: &'p Project,
-    /// Per kind whose folder does not exist: its packed archive.
-    packed: HashMap<AssetKind, Narc>,
-}
-
-impl<'p> Disk<'p> {
-    /// A reader for members of `kinds` (and the header table, which is no archive). A
-    /// trainer party is read with its properties, so those come along.
-    fn open(project: &'p Project, kinds: &[AssetKind]) -> Result<Disk<'p>, KernelError> {
-        let mut packed = HashMap::new();
-        let with_props = kinds
-            .contains(&AssetKind::TrainerParty)
-            .then_some(AssetKind::TrainerProperties);
-        for kind in kinds.iter().copied().chain(with_props) {
-            let archive = project.has_archive(kind) && kind != AssetKind::HeaderTable;
-            if archive && !packed.contains_key(&kind) && !project.unpacked_dir(kind).is_dir() {
-                packed.insert(kind, project.read_packed(kind)?);
-            }
-        }
-        Ok(Disk { project, packed })
-    }
-
-    /// Members of the archive of `kind`; 0 when the game has no such archive.
-    fn count(&self, kind: AssetKind) -> Result<usize, KernelError> {
-        if !self.project.has_archive(kind) {
-            return Ok(0);
-        }
-        match self.packed.get(&kind) {
-            Some(narc) => Ok(narc.members.len()),
-            None => self.project.member_count(kind),
-        }
-    }
-
-    /// The bytes of member `index` of `kind`; `None` when there is no such member.
-    fn member(&self, kind: AssetKind, index: u16) -> Result<Option<Vec<u8>>, KernelError> {
-        if !self.project.has_archive(kind) {
-            return Ok(None);
-        }
-        if let Some(narc) = self.packed.get(&kind) {
-            return Ok(narc.members.get(usize::from(index)).cloned());
-        }
-        let path = self.project.member_path(kind, index);
-        match std::fs::read(&path) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(io_at(&path)(e)),
-        }
-    }
-}
-
 /// The references of source `id` as it is on disk. A value that does not decode has none.
-fn disk_refs(disk: &Disk, id: AssetId, family: Family) -> Result<Vec<Ref>, KernelError> {
+fn disk_refs(disk: &Disk<&Project>, id: AssetId, family: Family) -> Result<Vec<Ref>, KernelError> {
     match id.kind {
         AssetKind::TrainerProperties => Ok(trainer_props(disk, id.index)?
             .map(|props| props_refs(id, &props))
@@ -414,7 +360,11 @@ fn disk_refs(disk: &Disk, id: AssetId, family: Family) -> Result<Vec<Ref>, Kerne
 }
 
 /// The value of `id` as it is on disk; `None` when it is missing or does not decode.
-fn disk_value(disk: &Disk, id: AssetId, family: Family) -> Result<Option<Loaded>, KernelError> {
+fn disk_value(
+    disk: &Disk<&Project>,
+    id: AssetId,
+    family: Family,
+) -> Result<Option<Loaded>, KernelError> {
     if id.kind == AssetKind::HeaderTable {
         return match disk.project.read_headers() {
             Ok(headers) => Ok(Some(Loaded::HeaderTable(headers))),
@@ -651,7 +601,7 @@ fn loaded_trainer_refs(store: &Store, id: AssetId) -> Option<Vec<Ref>> {
 }
 
 /// Trainer properties `index` from the disk; `None` when missing or of the wrong length.
-fn trainer_props(disk: &Disk, index: u16) -> Result<Option<TrainerProps>, KernelError> {
+fn trainer_props(disk: &Disk<&Project>, index: u16) -> Result<Option<TrainerProps>, KernelError> {
     Ok(disk
         .member(AssetKind::TrainerProperties, index)?
         .and_then(|bytes| TrainerProps::read(&bytes).ok()))
@@ -672,7 +622,7 @@ fn push_props(out: &mut Refs, class: u8, items: [u16; 4]) {
 
 /// The references of trainer party `id`, read with the format and count of its
 /// properties; none when either does not decode.
-fn party_refs(disk: &Disk, id: AssetId, family: Family) -> Result<Vec<Ref>, KernelError> {
+fn party_refs(disk: &Disk<&Project>, id: AssetId, family: Family) -> Result<Vec<Ref>, KernelError> {
     let Some(props) = trainer_props(disk, id.index)? else {
         return Ok(Vec::new());
     };

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { selectMarker } from "../markers";
+import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import type { SceneRefs } from "./types";
 
@@ -23,6 +23,20 @@ export function useEventSelection(refs: SceneRefs, selectedEvent: EventRef | nul
     if (h.markers) selectMarker(h.markers, selectedEvent && selectedEvent.file === h.events?.event_file_id ? selectedEvent : null);
     h.render();
   }, [selectedEvent]);
+}
+
+/** The events an error finding hits (of any file; the scene picks those of the file it shows) take the error colour. */
+export function useFaultyEvents(refs: SceneRefs, faulty: readonly EventRef[]) {
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h) return;
+    h.faulty = faulty;
+    if (h.markers && h.events) {
+      const file = h.events.event_file_id;
+      markFaulty(h.markers, faulty.filter((ref) => ref.file === file));
+      h.render();
+    }
+  }, [faulty]);
 }
 
 /** Shows or hides the permission overlay. */

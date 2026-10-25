@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { encounterProblemFile, trainerProblemFile } from "../../api";
-import type { ProblemDto } from "../../api";
-import { ProblemsStore, countsText, encounterFileOf, scriptFileOf, scriptPath, textArchiveOf, trainerOf } from "./problems";
+import type { CheckProblemDto, ProblemDto } from "../../api";
+import { finding } from "../../checks/checksTesting";
+import { ProblemsStore, countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, scriptPath, textArchiveOf, trainerOf } from "./problems";
 
 const problem = (file: string, line: number, message: string, severity: ProblemDto["severity"] = "error", source: ProblemDto["source"] = "compile"): ProblemDto => ({
   severity,
@@ -27,11 +28,11 @@ describe("ProblemsStore", () => {
 
   it("counts_errors_and_warnings_over_all_sources", () => {
     const store = new ProblemsStore();
-    expect(store.counts()).toEqual({ errors: 0, warnings: 0 });
+    expect(store.counts()).toEqual({ errors: 0, warnings: 0, infos: 0 });
     store.replaceForFile(A, [problem(A, 1, "e"), problem(A, 2, "w", "warning")]);
     store.replaceText(199, [problem("expanded/textArchives/0199.json", 1, "t", "warning", "text")]);
     store.replaceLive([{ severity: "error", file: B, line: 4, col: 2, message: "live" }]);
-    expect(store.counts()).toEqual({ errors: 2, warnings: 2 });
+    expect(store.counts()).toEqual({ errors: 2, warnings: 2, infos: 0 });
     expect(countsText(store.counts())).toBe("2 Fehler, 2 Warnungen");
   });
 
@@ -98,11 +99,11 @@ describe("ProblemsStore", () => {
       [4, "live", "error"],
       [3, "live", "warning"],
     ]);
-    expect(store.counts()).toEqual({ errors: 2, warnings: 1 });
+    expect(store.counts()).toEqual({ errors: 2, warnings: 1, infos: 0 });
     // Once the compile row is gone (fixed), the live row shows again.
     store.replaceForFile(A, []);
     expect(store.list().map((p) => p.line)).toEqual([3, 4, 3]);
-    expect(store.counts()).toEqual({ errors: 2, warnings: 1 });
+    expect(store.counts()).toEqual({ errors: 2, warnings: 1, infos: 0 });
   });
 
   it("apply_report_groups_by_file_and_archive_and_clears_the_named_ones", () => {
@@ -123,7 +124,7 @@ describe("ProblemsStore", () => {
     store.replaceText(5, [problem("expanded/textArchives/0005.json", 1, "text warning", "warning", "text")]);
     store.applyBuildReport([problem(B, 4, "fresh warning", "warning")]);
     expect(store.list().map((p) => p.message)).toEqual(["kept warning", "fresh warning", "text warning"]);
-    expect(store.counts()).toEqual({ errors: 0, warnings: 3 });
+    expect(store.counts()).toEqual({ errors: 0, warnings: 3, infos: 0 });
   });
 
   it("replace_data_replaces_one_members_rows_and_never_piles_them_up", () => {
@@ -135,7 +136,7 @@ describe("ProblemsStore", () => {
     // Every read of the member replaces its rows (data_get, then after data_edit).
     store.replaceData(E, [problem(E, 3, "grass slot 2", "warning", "encounter")]);
     expect(store.list().map((p) => `${p.source}:${p.file}:${p.line}`)).toEqual(["encounter:encounters/0012:3", "trainer:trainers/0928:1"]);
-    expect(store.counts()).toEqual({ errors: 0, warnings: 2 });
+    expect(store.counts()).toEqual({ errors: 0, warnings: 2, infos: 0 });
     store.replaceData(E, []);
     expect(store.list().map((p) => p.message)).toEqual(["trainer 928"]);
     expect(encounterFileOf(E)).toBe(12);
@@ -148,9 +149,101 @@ describe("ProblemsStore", () => {
     store.replaceData("trainers/0001", [problem("trainers/0001", 1, "t", "warning", "trainer")]);
     store.replaceForFile(A, [problem(A, 1, "c")]);
     store.replaceLive([{ severity: "error", file: A, line: 1, col: 1, message: "l" }]);
+    store.replaceChecks([finding("warp.dest-warp")]);
     store.clear();
     expect(store.list()).toEqual([]);
-    expect(store.counts()).toEqual({ errors: 0, warnings: 0 });
+    expect(store.counts()).toEqual({ errors: 0, warnings: 0, infos: 0 });
+  });
+
+  it("replace_checks_replaces_the_findings_as_a_whole_and_counts_infos", () => {
+    const store = new ProblemsStore();
+    store.replaceForFile(A, [problem(A, 1, "c")]);
+    const dest = finding("warp.dest-warp", "error");
+    const wide = finding("text.too-wide", "warning", { subject: { kind: "textArchive", index: 433 }, key: "message:1:line:1" });
+    const never = finding("warp.never-fires", "info", { key: "warp:5" });
+    store.replaceChecks([dest, wide, never]);
+    expect(store.counts()).toEqual({ errors: 2, warnings: 1, infos: 1 });
+    expect(countsText(store.counts())).toBe("2 Fehler, 1 Warnung, 1 Hinweis");
+    // Errors, then warnings, then infos (each by file: a finding outside a source has none); every finding keeps its fields and says where it came from.
+    expect(store.list().map((p) => [p.severity, p.source, p.code ?? null])).toEqual([
+      ["error", "check", "warp.dest-warp"],
+      ["error", "compile", null],
+      ["warning", "check", "text.too-wide"],
+      ["info", "check", "warp.never-fires"],
+    ]);
+    // The next run's findings replace all of them; the other sources stay.
+    store.replaceChecks([never]);
+    expect(store.list().map((p) => p.code ?? p.message)).toEqual(["c", "warp.never-fires"]);
+    store.replaceChecks([]);
+    expect(store.list().map((p) => p.message)).toEqual(["c"]);
+  });
+
+  it("the_same_findings_again_keep_the_snapshot_and_a_changed_one_replaces_it", () => {
+    const store = new ProblemsStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.replaceChecks([finding("warp.dest-warp")]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    const first = store.list();
+    // The same finding with the same content (a copy, as the next run answers it): nothing changed.
+    store.replaceChecks([finding("warp.dest-warp")]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.list()).toBe(first);
+    // Another spot of the same subject, or the same spot with other content (its fingerprint), is another finding.
+    store.replaceChecks([finding("warp.dest-warp", "error", { key: "warp:3" })]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    store.replaceChecks([finding("warp.dest-warp", "error", { key: "warp:3", fingerprint: "00000000000000b2" })]);
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("a_finding_whose_shown_content_changed_replaces_its_row", () => {
+    // Same code, subject, key and fingerprint, but the sentence's numbers, the fixes, the label or where it leads changed: the row
+    // renders anew (a „Beheben…“ appears once the scripts are adopted, „hat nur 4 Warps“ becomes „hat nur 5 Warps“).
+    const store = new ProblemsStore();
+    const base = finding("event.script-missing", "error", { args: ["object", "0", "950", "1124", "1"] });
+    store.replaceChecks([base]);
+    const changes: Partial<CheckProblemDto>[] = [
+      { args: ["object", "0", "950", "1124", "2"] },
+      { fixes: [{ id: "create_script", label: "Script anlegen", irreversible: true }] },
+      { label: "Eventdatei 0021 · Figur 0" },
+      { target: { kind: "event", eventFile: 21, eventKind: "object", index: 0 } },
+      { also: [{ kind: "header", id: 22 }] },
+      { message: "Object 0 calls script 950, but script file 1124 has scripts up to 2." },
+    ];
+    for (const change of changes) {
+      const before = store.list();
+      store.replaceChecks([{ ...base, ...change }]);
+      expect(store.list(), JSON.stringify(change)).not.toBe(before);
+      expect(store.list()[0]).toMatchObject(change);
+      store.replaceChecks([base]);
+    }
+    // Field order does not count: the same content in another order is the same row.
+    const before = store.list();
+    store.replaceChecks([Object.fromEntries(Object.entries(base).reverse()) as CheckProblemDto]);
+    expect(store.list()).toBe(before);
+  });
+
+  it("names_a_finding_by_code_subject_and_key_and_tells_it_from_other_rows", () => {
+    const f = finding("warp.dest-warp");
+    expect(findingId(f)).toBe("warp.dest-warp|eventFile:411|warp:2");
+    expect(isFinding(f)).toBe(true);
+    expect(isFinding(problem(A, 1, "c"))).toBe(false);
+  });
+});
+
+describe("problemTarget", () => {
+  it("leads_a_finding_to_its_target_and_one_without_nowhere", () => {
+    const target = { kind: "event", eventFile: 411, eventKind: "warp", index: 2 } as const;
+    expect(problemTarget(finding("warp.dest-warp", "error", { target }))).toEqual(target);
+    expect(problemTarget(finding("asset.unreadable", "error", { subject: { kind: "project", index: 0 }, key: "unreadable:personal_data" }))).toBeNull();
+  });
+
+  it("leads_a_script_text_trainer_or_encounter_row_by_its_path", () => {
+    expect(problemTarget(problem("expanded/scripts/0042.rotom", 7, "x"))).toEqual({ kind: "script", file: 42, line: 7 });
+    expect(problemTarget(problem("expanded/textArchives/0199.json", 1, "x", "warning", "text"))).toEqual({ kind: "textArchive", index: 199 });
+    expect(problemTarget(problem("trainers/0012", 1, "x", "warning", "trainer"))).toEqual({ kind: "trainer", index: 12 });
+    expect(problemTarget(problem("encounters/0012", 1, "x", "warning", "encounter"))).toEqual({ kind: "encounter", index: 12 });
+    expect(problemTarget(problem("rotom.toml", 1, "x"))).toBeNull();
   });
 });
 
@@ -167,9 +260,11 @@ describe("problem paths", () => {
   });
 
   it("writes_the_status_text_in_german", () => {
-    expect(countsText({ errors: 1, warnings: 0 })).toBe("1 Fehler");
-    expect(countsText({ errors: 0, warnings: 1 })).toBe("1 Warnung");
-    expect(countsText({ errors: 2, warnings: 1 })).toBe("2 Fehler, 1 Warnung");
-    expect(countsText({ errors: 0, warnings: 0 })).toBe("");
+    expect(countsText({ errors: 1, warnings: 0, infos: 0 })).toBe("1 Fehler");
+    expect(countsText({ errors: 0, warnings: 1, infos: 0 })).toBe("1 Warnung");
+    expect(countsText({ errors: 2, warnings: 1, infos: 0 })).toBe("2 Fehler, 1 Warnung");
+    expect(countsText({ errors: 2, warnings: 1, infos: 3 })).toBe("2 Fehler, 1 Warnung, 3 Hinweise");
+    expect(countsText({ errors: 0, warnings: 0, infos: 1 })).toBe("1 Hinweis");
+    expect(countsText({ errors: 0, warnings: 0, infos: 0 })).toBe("");
   });
 });

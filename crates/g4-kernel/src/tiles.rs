@@ -1,6 +1,8 @@
 //! Tile behaviour names of the permission `kind` byte, from the pret decompilation enums (pokeplatinum for
 //! Diamond / Pearl / Platinum, pokeheartgold for HeartGold / SoulSilver).
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use g4_formats::game::Family;
@@ -29,12 +31,20 @@ pub fn tile_behaviors(family: Family) -> Result<Vec<TileBehavior>, KernelError> 
     serde_yaml::from_str(yaml).map_err(|e| KernelError::InvalidProject(format!("{file}: {e}")))
 }
 
-/// The behaviour `family` names for `value`, if any.
+/// The behaviour `family` names for `value`, if any. The tables are parsed once per process
+/// (the checks ask once per warp).
 pub fn tile_behavior(family: Family, value: u8) -> Option<TileBehavior> {
-    tile_behaviors(family)
-        .ok()?
-        .into_iter()
+    static PT: OnceLock<Vec<TileBehavior>> = OnceLock::new();
+    static HGSS: OnceLock<Vec<TileBehavior>> = OnceLock::new();
+    let cell = match family {
+        Family::Dp | Family::Pt => &PT,
+        Family::Hgss => &HGSS,
+    };
+    // The files are embedded and parsed by the tests, so they cannot fail for a user.
+    cell.get_or_init(|| tile_behaviors(family).unwrap_or_default())
+        .iter()
         .find(|b| b.value == value)
+        .cloned()
 }
 
 /// The behaviour of a door tile (the same value in every family).

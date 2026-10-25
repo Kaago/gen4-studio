@@ -41,6 +41,8 @@ pub fn create_trainer_impl(
         name,
     );
     session.after_write();
+    // The members and the battle script are written at once, past the store.
+    session.files_written();
     Ok(report?)
 }
 

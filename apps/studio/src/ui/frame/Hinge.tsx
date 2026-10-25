@@ -16,6 +16,13 @@ export type HingeProps = {
   depth: Depth;
   onDepth: (depth: Depth) => void;
   problems: ProblemCounts;
+  /** While a pass of the checks runs: how far it got („Prüft … Texte 312/724“); the light turns. Null or absent: none runs. */
+  checking?: string | null;
+  /**
+   * The checks have no result for the open project and none runs (the first run failed or answered without a report): the light says
+   * „Nicht geprüft“ where it would say „Alles stimmig“, since nothing is known.
+   */
+  unchecked?: boolean;
   /** Brings the problems list to the front. */
   onProblems: () => void;
   history: HistoryDto;
@@ -43,15 +50,26 @@ const DEPTHS = [
   { value: "tuefteln", label: "Tüfteln", icon: "tinker" },
 ] as const;
 
+/** The light's colour: the worst the checks and the other problems found, or sound; unchecked: nothing is known (no green). */
+type LightKind = "error" | "warning" | "info" | "sound" | "unchecked";
+
+/** The three counters of the light, each with its symbol (never colour alone). */
+const COUNTERS = [
+  { key: "errors", icon: "error" },
+  { key: "warnings", icon: "warning" },
+  { key: "infos", icon: "info" },
+] as const;
+
 /** Whether a press started on a control (a crumb, a button, the depth switch): it is theirs, not the start of a drag. */
 const onControl = (target: EventTarget | null) => target instanceof Element && target.closest("button, [role='group']") !== null && target.closest("[data-hinge-grip]") === null;
 
 /**
  * The 44 px bar between the view and the hand: where you are (breadcrumb), how deep you work, whether the project is sound
- * (problem light), what you did (history, redo) and "Hier spielen". Dragging it (or its grip) sets the height of the hand; a double
+ * (problem light: errors, warnings and infos counted apart, a spinner with the progress while the checks run), what you did (history, redo)
+ * and "Hier spielen". Dragging it (or its grip) sets the height of the hand; a double
  * click on the grip collapses the hand to the bar. It holds no state of its own beyond the drag; everything comes in as props.
  */
-export function Hinge({ crumbs, depth, onDepth, problems, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, onDragHeight, onToggleCollapse, wizard }: HingeProps) {
+export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, onDragHeight, onToggleCollapse, wizard }: HingeProps) {
   const drag = useRef<{ pointer: number; startY: number; startHeight: number; captured: Element } | null>(null);
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -85,7 +103,10 @@ export function Hinge({ crumbs, depth, onDepth, problems, onProblems, history, o
       ? [{ label: "Noch nichts zurückzunehmen", disabled: true, onSelect: () => {} }]
       : recent.map((label, i) => ({ label: label === "" ? "Änderung" : label, onSelect: () => onUndoTo(i + 1) }));
   const counts = countsText(problems);
-  const lightKind = problems.errors > 0 ? styles.error : problems.warnings > 0 ? styles.warning : styles.sound;
+  const kind: LightKind = problems.errors > 0 ? "error" : problems.warnings > 0 ? "warning" : problems.infos > 0 ? "info" : unchecked ? "unchecked" : "sound";
+  const running = checking !== undefined && checking !== null;
+  const calm = unchecked ? "Nicht geprüft" : "Alles stimmig";
+  const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? `${counts}, nicht geprüft` : counts;
 
   // The hand holds the wizard's step: it does not collapse under it.
   const toggleCollapse = wizard === true ? undefined : onToggleCollapse;
@@ -153,9 +174,21 @@ export function Hinge({ crumbs, depth, onDepth, problems, onProblems, history, o
             <Segmented options={DEPTHS} value={depth} onChange={onDepth} ariaLabel="Tiefe" />
           </div>
           <div className={styles.right}>
-            <button type="button" className={`${styles.light} ${lightKind}`} onClick={onProblems}>
-              <span className={styles.dot} aria-hidden="true" />
-              {counts === "" ? "Alles stimmig" : counts}
+            <button type="button" className={`${styles.light} ${styles[kind]}`} data-light={kind} data-running={running ? "" : undefined} aria-label={lightLabel} onClick={onProblems}>
+              <span className={running ? styles.spinner : styles.dot} aria-hidden="true" />
+              {running && <span className={styles.progress}>{checking}</span>}
+              {counts === "" ? (
+                !running && calm
+              ) : (
+                <>
+                  {COUNTERS.map(({ key, icon }) => (
+                    <span key={key} className={problems[key] === 0 ? `${styles.count} ${styles.zero}` : styles.count} data-count={icon}>
+                      <Icon name={icon} weight="fill" />
+                      {problems[key]}
+                    </span>
+                  ))}
+                </>
+              )}
             </button>
             <Menu
               label={`Verlauf, ${undoSteps} ${undoSteps === 1 ? "Schritt" : "Schritte"}`}

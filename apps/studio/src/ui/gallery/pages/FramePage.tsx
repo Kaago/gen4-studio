@@ -26,7 +26,7 @@ function WizardHinge() {
         crumbs={[]}
         depth="bauen"
         onDepth={noop}
-        problems={{ errors: 0, warnings: 0 }}
+        problems={{ errors: 0, warnings: 0, infos: 0 }}
         onProblems={noop}
         history={{ undo: [], redo: [] }}
         onUndoTo={noop}
@@ -63,6 +63,31 @@ function WizardHinge() {
   );
 }
 
+/** The hinge in its usual mode, to show the light: three counters, or the spinner with the progress of the checks. */
+function LightHinge({ problems, checking = null, unchecked = false }: { problems: { errors: number; warnings: number; infos: number }; checking?: string | null; unchecked?: boolean }) {
+  return (
+    <div className={styles.hingeFrame}>
+      <Hinge
+        crumbs={[{ label: "Zweiblattdorf" }]}
+        depth="bauen"
+        onDepth={noop}
+        problems={problems}
+        checking={checking}
+        unchecked={unchecked}
+        onProblems={noop}
+        history={{ undo: [], redo: [] }}
+        onUndoTo={noop}
+        onRedo={noop}
+        onPlay={noop}
+        playing={false}
+        canPlay
+        onDragHeight={noop}
+        onToggleCollapse={noop}
+      />
+    </div>
+  );
+}
+
 const PALETTE_ITEMS: PickerItem[] = [
   { id: "cmd-open", label: "Projekt öffnen", icon: "open", shortcut: "⌘O", group: "Befehle" },
   { id: "cmd-save", label: "Speichern", icon: "save", shortcut: "⌘S", group: "Befehle", disabled: true, description: "Erst ein Projekt öffnen" },
@@ -78,7 +103,7 @@ const TAB_ITEMS: TabItem[] = [
   { id: "c", label: "Probleme", count: 3 },
 ];
 
-/** The frame's own parts on the primitives: the hinge in wizard mode, the start cards, the palette and tabs. */
+/** The frame's own parts on the primitives: the hinge in wizard mode and its problem light, the start cards, the palette and tabs. */
 export function FramePage() {
   const [palette, setPalette] = useState(false);
   const [ran, setRan] = useState("Noch nichts ausgeführt.");
@@ -92,6 +117,18 @@ export function FramePage() {
         <h2 className={styles.blockTitle}>Scharnier im Assistenten-Modus</h2>
         <p className={styles.note}>Der Assistent zeigt seine Schritte im Scharnier; Weiter, Zurück und Abbrechen stehen rechts.</p>
         <WizardHinge />
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Prüflicht</h2>
+        <p className={styles.note}>
+          Drei Zähler mit Symbol (Fehler, Warnungen, Hinweise), der Punkt in der Farbe des Schlimmsten; während einer Prüfung dreht sich ein Ring und sagt, wie weit sie ist. Ohne Ergebnis der Prüfungen ein
+          leerer Ring und „Nicht geprüft“, nie „Alles stimmig“.
+        </p>
+        <LightHinge problems={{ errors: 2, warnings: 1, infos: 3 }} />
+        <LightHinge problems={{ errors: 0, warnings: 0, infos: 10 }} checking="Prüft … Texte 312/724" />
+        <LightHinge problems={{ errors: 0, warnings: 0, infos: 0 }} />
+        <LightHinge problems={{ errors: 0, warnings: 0, infos: 0 }} unchecked />
       </section>
 
       <section className={styles.block}>

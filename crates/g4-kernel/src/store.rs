@@ -1692,6 +1692,19 @@ impl Store {
         reloaded
     }
 
+    /// Whether `reason`, the lock of loaded asset `id`, comes from its bytes (a length its
+    /// codec rejects, a value that would not be written back byte for byte, see [`decode`])
+    /// rather than from a deliberate lock: [`Store::lock`] or the placeholder trainer of the
+    /// sight script slot ([`PLACEHOLDER_REASON`]). A lock the bytes cause keeps its own
+    /// reason (it names the asset), so the reasons tell them apart.
+    fn locked_by_bytes(&self, id: AssetId, reason: &str) -> bool {
+        let deliberate = self.locks.get(&id).is_some_and(|r| r == reason)
+            || (id.kind == AssetKind::Trainer
+                && Some(id.index) == self.placeholder_trainer
+                && reason == PLACEHOLDER_REASON);
+        !deliberate
+    }
+
     /// The trainer ID of the sight script slot, whose trainer (if it exists) is the locked
     /// placeholder; `None` where it is not known (Diamond/Pearl).
     pub fn placeholder_trainer(&self) -> Option<u16> {
@@ -1902,6 +1915,56 @@ impl Store {
     /// Number of assets the store holds (loaded from disk or created).
     pub fn loaded_count(&self) -> usize {
         self.assets.len()
+    }
+
+    /// What the checks' snapshot needs from the store, the only part of a check run done under
+    /// the store lock (budget 5 ms, see [`crate::checks::snapshot`]): the change generation,
+    /// the bytes of every loaded asset whose value changed and differs from what was last
+    /// read from or written to disk, the documents of the changed text archives (cloned, not
+    /// serialized), the text generations, and the lock reason of every loaded asset its bytes
+    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding. Nothing is read
+    /// from disk; everything else the snapshot reads there. An asset whose value cannot be
+    /// serialized is named in `unwritable` instead.
+    pub fn snapshot_overlay(&self) -> crate::checks::Overlay {
+        let family = self.project.family;
+        let mut overlay = crate::checks::Overlay {
+            generation: self.change_generation,
+            ..Default::default()
+        };
+        for (&id, asset) in &self.assets {
+            if let Some(reason) = &asset.locked {
+                // Never edited: its value is the bytes it was read with.
+                if self.locked_by_bytes(id, reason) {
+                    overlay.locked.push((id, reason.clone()));
+                }
+                continue;
+            }
+            if !self.changed_at.contains_key(&id) {
+                continue;
+            }
+            if let Loaded::TextArchive(doc) = &asset.current {
+                overlay.text_docs.push((id.index, doc.clone()));
+                continue;
+            }
+            match asset.current.to_bytes(family) {
+                // Saved since its last change: the disk holds the same.
+                Ok(bytes) if asset.saved_bytes.as_deref() == Some(bytes.as_slice()) => {}
+                Ok(bytes) => overlay.assets.push((id, bytes)),
+                Err(e) => overlay.unwritable.push((id, e.to_string())),
+            }
+        }
+        overlay.text_generations = self
+            .text_generations
+            .iter()
+            .map(|(&index, &generation)| (index, generation))
+            .collect();
+        let order = |id: &AssetId| (id.kind.slot(), id.index);
+        overlay.assets.sort_by_key(|(id, _)| order(id));
+        overlay.locked.sort_by_key(|(id, _)| order(id));
+        overlay.unwritable.sort_by_key(|(id, _)| order(id));
+        overlay.text_docs.sort_by_key(|(index, _)| *index);
+        overlay.text_generations.sort_unstable();
+        overlay
     }
 
     /// The store's value of `id` (unsaved edits included) if it is loaded; loads nothing.

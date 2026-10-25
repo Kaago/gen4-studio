@@ -161,6 +161,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
       doc.savedText = sent;
       latest.current.problems.applyReport(dto.problems, { files: [scriptPath(file, doc.kind)] });
       for (const archive of dto.touched_archives) latest.current.bus.emit({ topic: "textData", archive });
+      // The checks read the sources from the disk: they look again.
+      latest.current.bus.emit({ topic: "edited" });
       bump();
     })().finally(() => saving.delete(file));
     saving.set(file, job);
@@ -182,6 +184,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     const docs = latest.current.documents;
     // rotom wrote its config: a running server (none yet, normally) reads the project state again.
     latest.current.bus.emit({ topic: "lspFilesChanged", changes: [{ path: "rotom.toml", type: 1 }] });
+    // The checks read the new sources (the message check runs from now on).
+    latest.current.bus.emit({ topic: "edited" });
     try {
       const next = await scriptsStatus();
       if (latest.current.documents === docs) setStatus(next);
@@ -199,6 +203,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
         const doc = docs.get(file);
         if (doc && lf(doc.text) !== doc.savedText) await save(file);
         const n = await addScript(file);
+        // Written: the checks look again.
+        latest.current.bus.emit({ topic: "edited" });
         // The source on disk has the new script now: show it, with the cursor at its end.
         const source = await readScript(file);
         if (latest.current.documents !== docs) return null;
@@ -258,6 +264,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     if (shown !== project) return;
     problems.applyReport(dto.problems, { files: [scriptPath(file, "levelScript")] });
     for (const archive of dto.touched_archives) bus.emit({ topic: "textData", archive });
+    bus.emit({ topic: "edited" });
     const open = docs.get(file);
     // A document with unsaved text keeps it: the editor's own save decides then.
     if (open && open.kind === "levelScript" && lf(open.text) === open.savedText) {

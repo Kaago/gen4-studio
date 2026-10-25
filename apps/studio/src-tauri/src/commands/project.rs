@@ -24,8 +24,13 @@ pub struct ProjectInfo {
     pub header_count: usize,
 }
 
+/// Opens the project at `path` in a fresh session, with its ignore file `g4-checks.json` read.
+/// A broken one does not keep the project closed (ruling R15): nothing is ignored, the checks'
+/// reports name the file, and it is never written until it reads again (see
+/// `commands::checks`).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
+    let (ignore, ignore_broken) = super::checks::load_ignore(&project.root);
     // Only the header table: location names are cosmetic and must not gate opening.
     let header_count = project.header_count().map_err(CmdError::from)?;
     let info = ProjectInfo {
@@ -35,7 +40,10 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
         language: format!("{:?}", project.language),
         header_count,
     };
-    let old = lock(state)?.replace(Session::new(Arc::new(project)));
+    let mut session = Session::new(Arc::new(project));
+    session.checks.ignore = ignore;
+    session.checks.ignore_broken = ignore_broken;
+    let old = lock(state)?.replace(session);
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -250,6 +258,7 @@ fn build_dto(
                 col: 1,
                 message,
                 source: "text",
+                check: None,
             };
             for &index in &report.touched_archives {
                 let id = AssetId {

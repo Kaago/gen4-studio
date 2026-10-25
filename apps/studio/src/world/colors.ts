@@ -53,6 +53,9 @@ export function selectionColor(theme: "hell" | "dunkel"): string {
   return hexOf(theme === "dunkel" ? szene.auswahl.kern : szene.auswahl.halo);
 }
 
+/** A marker an error finding of the checks hits (`szene/status/fehler`, the same in both themes). */
+export const FAULT_COLOR = hexOf(szene.status.fehler);
+
 /** Wireframe box of a building whose model is missing (amber, like the class `vorsprung`). */
 export const FALLBACK_BOX = terrainColor("vorsprung");
 

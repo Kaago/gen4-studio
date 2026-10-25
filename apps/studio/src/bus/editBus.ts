@@ -33,6 +33,11 @@ export type EditEvent =
   | { topic: "lspFilesChanged"; changes: { path: string; type: 1 | 2 }[] }
   /** The header list scrolls to the selection (a link led to a header). */
   | { topic: "headerReveal" }
+  /**
+   * The app wrote to the project (after every write it counts the unsaved edits again, see `useProjectSession.refreshDirty`; a script save
+   * says so itself, see `useScripts`): the checks run again, all of them, 300 ms after the last one (`useChecks`, ruling R12).
+   */
+  | { topic: "edited" }
   /** A data member (species, move, item, …) may have changed behind the data areas (see `data/dataBus.ts`). */
   | DataChangedEvent;
 

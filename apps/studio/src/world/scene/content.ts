@@ -3,7 +3,7 @@ import type { EventsDto, MatrixDto, TileBehavior } from "../../api";
 import { BuildingLayer } from "../buildingLayer";
 import { permissionColor } from "../colors";
 import { MAP_SIZE, MODEL_SCALE, cellOrigin, cellY } from "../layout";
-import { applySprite, buildMarkers, disposeMarkers, selectMarker } from "../markers";
+import { applySprite, buildMarkers, disposeMarkers, markFaulty, selectMarker } from "../markers";
 import type { MarkerSet } from "../markers";
 import { cloneModel, disposeTree } from "../sceneUtil";
 import { peekSprite, spriteTexture } from "../sprites";
@@ -106,7 +106,7 @@ export function buildContent(matrix: MatrixDto, loaded: Map<number, Loaded>, nam
   return { content, overlay, tiles, bases, buildings };
 }
 
-/** Replaces the scene's markers (`events` null: show none); the selected event keeps its outline. */
+/** Replaces the scene's markers (`events` null: show none); the selected event keeps its outline, a faulty one its error colour. */
 export function setMarkers(h: SceneHost, events: EventsDto | null, visible: boolean) {
   if (h.markers) {
     h.scene.remove(h.markers.group);
@@ -119,6 +119,7 @@ export function setMarkers(h: SceneHost, events: EventsDto | null, visible: bool
   h.markers.group.visible = visible;
   const selected = h.selectedEvent;
   if (selected && selected.file === events.event_file_id) selectMarker(h.markers, selected);
+  markFaulty(h.markers, h.faulty.filter((ref) => ref.file === events.event_file_id));
   h.scene.add(h.markers.group);
   loadSprites(h, h.markers, events);
 }
