@@ -15,22 +15,22 @@ type Phase =
   | { kind: "applying"; plan: FixPlanDto }
   | { kind: "remaining"; plan: FixPlanDto }
   | { kind: "stale" }
+  /** Creating the script met an unsaved text archive: „Speichern und anlegen“ saves the project, then applies the fix again. */
+  | { kind: "unsaved"; archive: number; plan: FixPlanDto }
   | { kind: "failed"; title: string; text: string; plan: FixPlanDto | null };
 
 const UNSAVED_ARCHIVE = /^text archive (\d+) has unsaved changes/;
 
 /**
- * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ when creating a script
- * meets an unsaved text archive (the compile rewrites text archives); else the kernel's reason with the way out by hand.
+ * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ with „Speichern und
+ * anlegen“ when creating a script meets an unsaved text archive (the compile rewrites text archives); else the kernel's reason with the way
+ * out by hand.
  */
 function failure(e: unknown, plan: FixPlanDto | null): Phase {
   if (isCmdError(e) && e.code === "finding_stale") return { kind: "stale" };
   const why = errorText(e);
   const unsaved = UNSAVED_ARCHIVE.exec(why);
-  if (unsaved) {
-    const text = `${TERMS.textArchive.label} ${id4(Number(unsaved[1]))} hat ungespeicherte Änderungen. Speichere zuerst, dann lege das Script an: es wird kompiliert, und das schreibt Textarchive.`;
-    return { kind: "failed", title: "Erst speichern", text, plan };
-  }
+  if (unsaved && plan !== null) return { kind: "unsaved", archive: Number(unsaved[1]), plan };
   return { kind: "failed", title: "Lässt sich nicht automatisch beheben", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Behebe den Befund von Hand.`, plan };
 }
 
@@ -67,6 +67,13 @@ export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemD
       setPhase(failure(e, plan));
     }
   };
+  // The dialog is modal (a click on the title bar's „Speichern“ would only close it): it saves the project itself, then applies the fix. A
+  // save that failed says why in the app's message, and the fix meets the unsaved archive again.
+  const saveAndApply = async (plan: FixPlanDto) => {
+    setPhase({ kind: "applying", plan });
+    await checks.save();
+    await apply(plan);
+  };
 
   const close: DialogAction = { label: "Schließen", onClick: onClose };
   const actions: DialogAction[] =
@@ -74,9 +81,11 @@ export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemD
       ? [{ label: "Abbrechen", onClick: onClose }, { label: fix.label, kind: "primary", onClick: () => void apply(phase.plan) }]
       : phase.kind === "stale"
         ? [close, { label: "Erneut prüfen", kind: "primary", onClick: () => (void checks.recheck(), onClose()) }]
-        : phase.kind === "loading" || phase.kind === "applying"
-          ? [{ label: "Abbrechen", onClick: onClose }]
-          : [close];
+        : phase.kind === "unsaved"
+          ? [close, { label: "Speichern und anlegen", kind: "primary", onClick: () => void saveAndApply(phase.plan) }]
+          : phase.kind === "loading" || phase.kind === "applying"
+            ? [{ label: "Abbrechen", onClick: onClose }]
+            : [close];
   const plan = "plan" in phase ? phase.plan : null;
 
   return (
@@ -104,6 +113,11 @@ export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemD
         {phase.kind === "stale" && (
           <Notice kind="error" title="Befund ist nicht mehr aktuell">
             Die Stelle hat sich seit der Prüfung geändert, es wurde nichts geschrieben. Prüfe erneut und behebe den Befund dann.
+          </Notice>
+        )}
+        {phase.kind === "unsaved" && (
+          <Notice kind="error" title="Erst speichern">
+            {`${TERMS.textArchive.label} ${id4(phase.archive)} hat ungespeicherte Änderungen. Das Script wird kompiliert, und das schreibt Textarchive: „Speichern und anlegen“ speichert das Projekt und legt das Script dann an.`}
           </Notice>
         )}
         {phase.kind === "failed" && (

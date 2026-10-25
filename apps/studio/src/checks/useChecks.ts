@@ -99,6 +99,11 @@ export interface ChecksApi {
   planFix: (finding: CheckProblemDto, fix: FixId) => Promise<FixPlanDto>;
   /** Applies `fix`, reloads what it changed (`onFixed`) and checks everything again; rejects as the command does. */
   applyFix: (finding: CheckProblemDto, fix: FixId) => Promise<FixResultDto>;
+  /**
+   * Saves the project as „Speichern“ in the title bar does (`onSave`), for the fix dialog's „Speichern und anlegen“; a failure is reported
+   * there (the app's message), not here.
+   */
+  save: () => Promise<void>;
 }
 
 export interface UseChecksParams {
@@ -111,6 +116,8 @@ export interface UseChecksParams {
   onError: (e: unknown) => void;
   /** A fix changed these assets: the editors and the scene read them again. */
   onFixed?: (changed: AssetId[]) => void | Promise<void>;
+  /** „Speichern“ of the title bar (see `ChecksApi.save`). */
+  onSave?: () => Promise<void>;
 }
 
 /**
@@ -240,6 +247,9 @@ export function useChecks(params: UseChecksParams): ChecksApi {
           }
         }
         return result;
+      },
+      save: async () => {
+        await latest.current.onSave?.();
       },
     };
     return { api, request, poll };

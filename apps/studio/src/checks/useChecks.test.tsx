@@ -44,9 +44,10 @@ describe("useChecks", () => {
   let api: ChecksApi;
   const onError = vi.fn();
   const onFixed = vi.fn(async () => {});
+  const onSave = vi.fn(async () => {});
 
   function Probe({ info }: { info: ProjectInfo | null }) {
-    api = useChecks({ bus, problems, project: info, onError, onFixed });
+    api = useChecks({ bus, problems, project: info, onError, onFixed, onSave });
     return null;
   }
   const render = (info: ProjectInfo | null) => act(async () => root.render(<Probe info={info} />));
@@ -59,6 +60,7 @@ describe("useChecks", () => {
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [], running: false }));
     onError.mockReset();
     onFixed.mockClear();
+    onSave.mockClear();
     bus = createEditBus();
     problems = new ProblemsStore();
     container = document.createElement("div");
@@ -224,6 +226,13 @@ describe("useChecks", () => {
     expect(onFixed).toHaveBeenCalledWith([{ kind: "TextArchive", index: 433 }]);
     expect(runChecks).toHaveBeenLastCalledWith("all");
     expect(codes()).toEqual([]);
+  });
+
+  it("save_saves_the_project_as_the_title_bar_does", async () => {
+    vi.mocked(runChecks).mockResolvedValue(report());
+    await render(project("/p"));
+    await act(async () => api.save());
+    expect(onSave).toHaveBeenCalledOnce();
   });
 
   it("reports_a_failed_run_and_forgets_everything_without_a_project", async () => {

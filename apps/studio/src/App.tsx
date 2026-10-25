@@ -309,7 +309,7 @@ function AppBody() {
   });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
-  const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed });
+  const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
   // The undo history of every hinge, read once per change for all of them (a deck per area, each with its hinge).
   const [historyFeed] = useState(() => new HistoryFeed());
   useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);

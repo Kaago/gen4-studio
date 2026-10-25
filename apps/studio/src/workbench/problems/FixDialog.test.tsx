@@ -108,8 +108,32 @@ describe("FixDialog", () => {
     await click(button("Script anlegen"));
     const alert = dialog().querySelector("[role=alert]")!;
     expect(alert.textContent).toContain("Erst speichern");
-    expect(alert.textContent).toContain("Textarchiv 0554 hat ungespeicherte Änderungen. Speichere zuerst, dann lege das Script an");
+    expect(alert.textContent).toContain("Textarchiv 0554 hat ungespeicherte Änderungen");
+    expect(alert.textContent).toContain("„Speichern und anlegen“");
     expect(button("Script anlegen")).toBeUndefined();
+    // The way on: save the project, then create the script, without leaving the dialog (a click on the title bar would close it).
+    expect(button("Schließen")).toBeDefined();
+    vi.mocked(checks.applyFix).mockReset().mockResolvedValue({ changed: [{ kind: "Script", index: 5 }], remaining: false });
+    await click(button("Speichern und anlegen"));
+    expect(checks.save).toHaveBeenCalledOnce();
+    expect(vi.mocked(checks.save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(checks.applyFix).mock.invocationCallOrder[0]!);
+    expect(checks.applyFix).toHaveBeenCalledWith(missing, "create_script");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("stays_on_erst_speichern_when_the_save_left_the_archive_unsaved", async () => {
+    vi.mocked(checks.planFix).mockResolvedValue({ changes: [{ asset: { kind: "Script", index: 5 }, label: "Scriptdatei 0005", before: "", after: "script script_7 #7:\n\tEnd" }], irreversible: true });
+    const unsaved = { code: "error", message: "text archive 0554 has unsaved changes; save it first (creating a script compiles the scripts, which rewrites text archives)", asset: null };
+    vi.mocked(checks.applyFix).mockRejectedValue(unsaved);
+    await show(missing);
+    await click(button("Script anlegen"));
+    // The save failed (the app says why): the script is asked for again and refused again, nothing more.
+    await click(button("Speichern und anlegen"));
+    expect(checks.save).toHaveBeenCalledOnce();
+    expect(checks.applyFix).toHaveBeenCalledTimes(2);
+    expect(dialog().querySelector("[role=alert]")!.textContent).toContain("Erst speichern");
+    expect(button("Speichern und anlegen")).toBeDefined();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("says_why_a_preview_cannot_be_made", async () => {
