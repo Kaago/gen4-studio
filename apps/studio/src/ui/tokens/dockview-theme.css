@@ -57,4 +57,6 @@
 .dockview-theme-g4 .dv-resize-container-with-titlebar > .dv-grid-view { border-radius: 0 0 var(--g4-radius-fenster) var(--g4-radius-fenster); overflow: hidden; }
 /* Reitermenü: schwebt wie die Menüs der App (`flaeche/blatt`, Kante `linie/standard`, `radius/taste`). */
 .dockview-theme-g4 .dv-context-menu { border-color: var(--g4-linie-standard); border-radius: var(--g4-radius-taste); }
+/* Wechselt die Ablage-Markierung beim Ziehen den Behälter (Gitter ↔ schwebende Gruppe), blendet sie kurz aus, statt vom alten Ort herüberzugleiten (wie Dockviews eigene Themen). */
+.dockview-theme-g4 .dv-drop-target-container .dv-drop-target-anchor.dv-drop-target-anchor-container-changed { opacity: 0; transition: none; }
 /* Das Scharnier ist kein Dockview-Panel, sondern die Leiste über dem Dock. */

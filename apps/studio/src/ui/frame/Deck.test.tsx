@@ -354,6 +354,12 @@ describe("Deck", () => {
     expect(theme).toMatch(/\.dockview-theme-g4 \.dv-resize-container \{[^}]*--dv-group-view-background-color: var\(--g4-flaeche-blatt\)/);
   });
 
+  it("hides_a_drop_anchor_that_changes_its_container_as_dockviews_own_themes_do", () => {
+    // Without the rule the drop anchor of a drag that moves between the grid and a floating group glides over from where it was.
+    const theme = readFileSync("src/ui/tokens/dockview-theme.css", "utf8");
+    expect(theme).toContain(".dockview-theme-g4 .dv-drop-target-container .dv-drop-target-anchor.dv-drop-target-anchor-container-changed { opacity: 0; transition: none; }");
+  });
+
   it("resets_to_the_arrangement_without_rebuilding_the_panels_and_remembers_it", async () => {
     await mount();
     const world = api().getPanel("world");
