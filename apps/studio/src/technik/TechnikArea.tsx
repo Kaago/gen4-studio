@@ -12,7 +12,7 @@ import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, Dialog, EmptyState, ListRow, Notice, Section, Switch, useRovingList } from "../ui/primitives";
 import type { BadgeKind, IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { ChecksFoot, ChecksNotes, ProblemsTable } from "../workbench/problems/ProblemsPanel";
+import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice, checksPending } from "../workbench/problems/ProblemsPanel";
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
@@ -208,9 +208,12 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
         <div className={styles.table}>
           {checks !== null && <ChecksNotes checks={checks} />}
           {rows.length === 0 ? (
-            <p className={`${styles.text} ${styles.inset}`}>Keine Probleme. Die Prüfungen laufen nach jeder Änderung; beim Speichern und Bauen landen Fehler und Warnungen hier.</p>
+            <EmptyList checks={checks} />
           ) : (
-            <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
+            <>
+              {checks !== null && <UncheckedNotice checks={checks} />}
+              <ProblemsTable rows={rows} depth={depth} goTo={goTo} checks={checks} />
+            </>
           )}
           {checks !== null && <ChecksFoot checks={checks} depth={depth} />}
         </div>
@@ -219,6 +222,22 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
     </Surface>
   );
 }
+
+/** The empty list of Prüfen und Bauen: the first run is under way, the checks have no result, or there are no problems. */
+function EmptyList({ checks }: { checks: ChecksApi | null }) {
+  const view = useSyncExternalStore(checks?.feed.subscribe ?? noSubscribe, checks?.feed.get ?? noView);
+  const pending = checksPending(view);
+  const text =
+    pending === "first"
+      ? "Prüft das Projekt … Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind."
+      : pending === "unchecked"
+        ? `Nicht geprüft. ${UNCHECKED_WHY}`
+        : "Keine Probleme. Die Prüfungen laufen nach jeder Änderung; beim Speichern und Bauen landen Fehler und Warnungen hier.";
+  return <p className={`${styles.text} ${styles.inset}`}>{text}</p>;
+}
+
+const noSubscribe = () => () => {};
+const noView = () => null;
 
 /**
  * „Ausgangslage übernehmen…“ (spec 3b.4 §7): asks first, naming how many warnings and infos it ignores, then ignores every warning and

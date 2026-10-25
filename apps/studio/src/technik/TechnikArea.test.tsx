@@ -201,6 +201,14 @@ describe("TechnikArea", () => {
 
   it("pruefen_und_bauen_says_when_there_are_no_problems", async () => {
     await render();
+    // Before the first report: checking, or not checked; never „Keine Probleme“.
+    await act(async () => checks.feed.update({ running: true }));
+    expect(surface()?.textContent).toContain("Prüft das Projekt …");
+    expect(surface()?.textContent).not.toContain("Keine Probleme");
+    await act(async () => checks.feed.update({ running: false }));
+    expect(surface()?.textContent).toContain("Nicht geprüft.");
+    expect(surface()?.textContent).not.toContain("Keine Probleme");
+    await act(async () => checks.feed.update({ reported: true }));
     expect(surface()?.querySelector("table")).toBeNull();
     expect(surface()?.textContent).toContain("Keine Probleme");
   });

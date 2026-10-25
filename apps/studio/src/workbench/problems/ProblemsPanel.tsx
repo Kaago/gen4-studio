@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 import type { CheckProblemDto } from "../../api";
 import { AREA_LABELS, CHECK_CODES, areaOf, checkTitle, findingText, progressText, skippedText } from "../../checks/messages";
 import type { CheckArea } from "../../checks/messages";
-import type { ChecksApi } from "../../checks/useChecks";
+import { notChecked } from "../../checks/useChecks";
+import type { ChecksApi, ChecksView } from "../../checks/useChecks";
 import { problemText } from "../../data/trainer/trainerModel";
 import type { Depth } from "../../ui/frame/shellState";
-import { Badge, Button, CheckList, EmptyState, Icon, PanelHead, Reference, Section } from "../../ui/primitives";
+import { Badge, Button, CheckList, EmptyState, Icon, Notice, PanelHead, Reference, Section } from "../../ui/primitives";
 import type { Area, CheckRow } from "../../ui/primitives";
 import { useSectionFolds } from "../inspector/foldState";
 import { TERMS, id4 } from "../terms";
@@ -220,6 +221,34 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
   );
 }
 
+/** Why an empty list says nothing while the checks have no result, and the way out (the foot's „Erneut prüfen“). */
+export const UNCHECKED_WHY = "Die Prüfungen haben für dieses Projekt noch kein Ergebnis. Starte sie mit „Erneut prüfen“.";
+
+/**
+ * Beside problems of a save or a build, while the checks have no result and none runs: a note says so (`data-unchecked`), so the list does
+ * not read as all there is. Nothing otherwise.
+ */
+export function UncheckedNotice({ checks }: { checks: ChecksApi }) {
+  const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
+  if (!notChecked(view)) return null;
+  return (
+    <div className={styles.notes} data-unchecked="">
+      <Notice kind="info" title="Nicht geprüft">
+        {UNCHECKED_WHY}
+      </Notice>
+    </div>
+  );
+}
+
+/**
+ * What the list says while the checks have told nothing: the first run is under way (null view: no checks, nothing to say), or no report
+ * arrived and none runs.
+ */
+export function checksPending(view: ChecksView | null): "first" | "unchecked" | null {
+  if (view === null || view.reported) return null;
+  return view.running ? "first" : notChecked(view) ? "unchecked" : null;
+}
+
 /** The checks that did not run, or left part of their work undone, as hint lines beside the findings. */
 export function ChecksNotes({ checks }: { checks: ChecksApi }) {
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
@@ -290,14 +319,17 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   const view = useSyncExternalStore(checks?.feed.subscribe ?? noSubscribe, checks?.feed.get ?? noView);
   // Before the first report of a project the list is empty because nothing is known yet, not because all is well.
-  const checking = view !== null && view.running && !view.reported;
+  const pending = checksPending(view);
   return (
     <section className={styles.panel} aria-label="Probleme">
       <PanelHead title="Probleme" subtitle={countsText(counts)} />
       <div className={styles.body}>
         {checks !== null && <ChecksNotes checks={checks} />}
-        {rows.length === 0 && checking ? (
+        {rows.length > 0 && checks !== null && <UncheckedNotice checks={checks} />}
+        {rows.length === 0 && pending === "first" ? (
           <EmptyState what="Prüft das Projekt …" why="Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind." />
+        ) : rows.length === 0 && pending === "unchecked" ? (
+          <EmptyState what="Nicht geprüft." why={UNCHECKED_WHY} />
         ) : rows.length === 0 ? (
           <EmptyState what={`Keine ${TERMS.problem.plural}.`} why="Beim Speichern eines Scripts oder Texts landen Fehler hier." />
         ) : (

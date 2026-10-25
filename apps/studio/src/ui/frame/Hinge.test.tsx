@@ -116,6 +116,21 @@ describe("Hinge", () => {
     expect(button("Alles stimmig")!.querySelector("[data-count]")).toBeNull();
   });
 
+  it("says_Nicht_geprueft_instead_of_Alles_stimmig_while_the_checks_have_no_result", () => {
+    // No report arrived and none runs (the first run failed or answered without one): nothing is known, the light is no green.
+    show(base({ unchecked: true }));
+    const light = button("Nicht geprüft")!;
+    expect(light.getAttribute("data-light")).toBe("unchecked");
+    expect(light.textContent).toBe("Nicht geprüft");
+    expect(button("Alles stimmig")).toBeUndefined();
+    // Problems of a save or a build are known all the same: counted, and the label says the checks did not run.
+    show(base({ unchecked: true, problems: { errors: 1, warnings: 0, infos: 0 } }));
+    expect(button("1 Fehler, nicht geprüft")!.getAttribute("data-light")).toBe("error");
+    // A running pass says how far it got.
+    show(base({ unchecked: true, checking: "Prüft …" }));
+    expect(button("Prüft …")).toBeDefined();
+  });
+
   it("shows_three_counters_with_symbols_and_names_them_in_words", () => {
     show(base({ problems: { errors: 2, warnings: 1, infos: 3 } }));
     const light = button("2 Fehler, 1 Warnung, 3 Hinweise")!;

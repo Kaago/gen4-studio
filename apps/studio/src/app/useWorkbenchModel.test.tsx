@@ -90,6 +90,8 @@ const text = { target: null };
 const scripts = { status: null, documents: new ScriptDocuments(), active: null, revision: 0, open: noop, save: noop, close: noop, adopt: noop, add: noop, onChange: noop } as unknown as ScriptsApi;
 const problems = new ProblemsStore();
 const checks = fakeChecks();
+// A report of the checks arrived (else the problems panel says „Nicht geprüft“).
+checks.feed.update({ reported: true });
 const dataStore = new DataStore();
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 

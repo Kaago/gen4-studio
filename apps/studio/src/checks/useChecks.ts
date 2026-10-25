@@ -28,6 +28,12 @@ export interface ChecksView {
 
 const NOTHING: ChecksView = { reported: false, ignored: [], skipped: [], disabled: [], running: false, progress: null };
 
+/**
+ * No report of the open project arrived and none runs (the first run failed, or answered without a report): the findings say nothing, so
+ * nothing may read as sound („Nicht geprüft“ with „Erneut prüfen“ instead of „Alles stimmig“ or „Keine Probleme“).
+ */
+export const notChecked = (view: ChecksView): boolean => !view.reported && !view.running;
+
 /** The `ChecksView` for `useSyncExternalStore`: the same object until something in it changed. */
 export class ChecksFeed {
   private view: ChecksView = NOTHING;

@@ -18,6 +18,11 @@ export type HingeProps = {
   problems: ProblemCounts;
   /** While a pass of the checks runs: how far it got („Prüft … Texte 312/724“); the light turns. Null or absent: none runs. */
   checking?: string | null;
+  /**
+   * The checks have no result for the open project and none runs (the first run failed or answered without a report): the light says
+   * „Nicht geprüft“ where it would say „Alles stimmig“, since nothing is known.
+   */
+  unchecked?: boolean;
   /** Brings the problems list to the front. */
   onProblems: () => void;
   history: HistoryDto;
@@ -45,8 +50,8 @@ const DEPTHS = [
   { value: "tuefteln", label: "Tüfteln", icon: "tinker" },
 ] as const;
 
-/** The light's colour: the worst the checks and the other problems found, or sound. */
-type LightKind = "error" | "warning" | "info" | "sound";
+/** The light's colour: the worst the checks and the other problems found, or sound; unchecked: nothing is known (no green). */
+type LightKind = "error" | "warning" | "info" | "sound" | "unchecked";
 
 /** The three counters of the light, each with its symbol (never colour alone). */
 const COUNTERS = [
@@ -64,7 +69,7 @@ const onControl = (target: EventTarget | null) => target instanceof Element && t
  * and "Hier spielen". Dragging it (or its grip) sets the height of the hand; a double
  * click on the grip collapses the hand to the bar. It holds no state of its own beyond the drag; everything comes in as props.
  */
-export function Hinge({ crumbs, depth, onDepth, problems, checking, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, onDragHeight, onToggleCollapse, wizard }: HingeProps) {
+export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, onDragHeight, onToggleCollapse, wizard }: HingeProps) {
   const drag = useRef<{ pointer: number; startY: number; startHeight: number; captured: Element } | null>(null);
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -98,9 +103,10 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, onProblems, 
       ? [{ label: "Noch nichts zurückzunehmen", disabled: true, onSelect: () => {} }]
       : recent.map((label, i) => ({ label: label === "" ? "Änderung" : label, onSelect: () => onUndoTo(i + 1) }));
   const counts = countsText(problems);
-  const kind: LightKind = problems.errors > 0 ? "error" : problems.warnings > 0 ? "warning" : problems.infos > 0 ? "info" : "sound";
+  const kind: LightKind = problems.errors > 0 ? "error" : problems.warnings > 0 ? "warning" : problems.infos > 0 ? "info" : unchecked ? "unchecked" : "sound";
   const running = checking !== undefined && checking !== null;
-  const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? "Alles stimmig" : counts;
+  const calm = unchecked ? "Nicht geprüft" : "Alles stimmig";
+  const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? `${counts}, nicht geprüft` : counts;
 
   // The hand holds the wizard's step: it does not collapse under it.
   const toggleCollapse = wizard === true ? undefined : onToggleCollapse;
@@ -172,7 +178,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, onProblems, 
               <span className={running ? styles.spinner : styles.dot} aria-hidden="true" />
               {running && <span className={styles.progress}>{checking}</span>}
               {counts === "" ? (
-                !running && "Alles stimmig"
+                !running && calm
               ) : (
                 <>
                   {COUNTERS.map(({ key, icon }) => (

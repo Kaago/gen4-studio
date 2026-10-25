@@ -48,6 +48,7 @@ describe("ProblemsPanel", () => {
   const fileButton = (row: HTMLElement) => cells(row)[1]!.querySelector<HTMLButtonElement>("button")!;
 
   it("says_there_are_no_problems_in_a_head_and_an_empty_state", () => {
+    act(() => checks.feed.update({ reported: true }));
     expect(container.querySelector("h2")?.textContent).toBe("Probleme");
     expect(container.textContent).toContain("Keine Probleme.");
     expect(container.textContent).toContain("Beim Speichern eines Scripts oder Texts landen Fehler hier.");
@@ -230,6 +231,20 @@ describe("ProblemsPanel with findings of the checks", () => {
     expect(list.querySelectorAll("[data-finding]")).toHaveLength(12);
     await click(button("Wieder melden", list.querySelector(`[data-finding="${findingId(ignored[3]!)}"]`)!));
     expect(checks.unignore).toHaveBeenCalledWith(ignored[3]);
+  });
+
+  it("says_not_checked_with_a_way_out_while_no_report_arrived_and_none_runs", async () => {
+    // The first run failed or answered without a report: an empty list is no „Keine Probleme.“
+    expect(container.textContent).toContain("Nicht geprüft.");
+    expect(container.textContent).toContain("Erneut prüfen");
+    expect(container.textContent).not.toContain("Keine Probleme.");
+    await click(button("Erneut prüfen"));
+    expect(checks.recheck).toHaveBeenCalledOnce();
+    // Problems of a save are listed; a note says the checks have no result.
+    act(() => store.replaceForFile("expanded/scripts/0042.rotom", [problem("expanded/scripts/0042.rotom", 7, "unbekannter Befehl")]));
+    expect(container.querySelector("[data-unchecked]")?.textContent).toContain("Nicht geprüft");
+    act(() => checks.feed.update({ reported: true }));
+    expect(container.querySelector("[data-unchecked]")).toBeNull();
   });
 
   it("says_it_is_checking_instead_of_no_problems_before_the_first_report", () => {

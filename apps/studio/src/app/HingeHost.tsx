@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { progressText } from "../checks/messages";
+import { notChecked } from "../checks/useChecks";
 import type { ChecksFeed } from "../checks/useChecks";
 import { Hinge } from "../ui/frame/Hinge";
 import type { HingeProps } from "../ui/frame/Hinge";
@@ -7,7 +8,7 @@ import type { ProblemsStore } from "../workbench/problems/problems";
 import { germanHistory } from "./historyLabel";
 import type { HistoryFeed } from "./useHistory";
 
-export type HingeHostProps = Omit<HingeProps, "problems" | "history" | "checking"> & {
+export type HingeHostProps = Omit<HingeProps, "problems" | "history" | "checking" | "unchecked"> & {
   problems: ProblemsStore;
   /** The undo history as App reads it once for every hinge (`useHistoryReader`). */
   history: HistoryFeed;
@@ -26,5 +27,5 @@ export function HingeHost({ problems, history, checks, ...rest }: HingeHostProps
   const view = useSyncExternalStore(checks.subscribe, checks.get);
   const read = useSyncExternalStore(history.subscribe, history.get);
   const labels = useMemo(() => germanHistory(read), [read]);
-  return <Hinge {...rest} problems={counts} checking={view.running ? progressText(view.progress) : null} history={labels} />;
+  return <Hinge {...rest} problems={counts} checking={view.running ? progressText(view.progress) : null} unchecked={notChecked(view)} history={labels} />;
 }
