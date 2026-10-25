@@ -88,3 +88,47 @@ Befunde von 3e.2 (in der Teilphase behoben bzw. weitergegeben):
 3. In Bauen nennt der Inspector die Matrix eines Raums „Weltkarte 0126“ (auch Räume haben eine eigene Matrix); bis 3f.1 das Feld nach Tüfteln wandert, bleibt das Wort.
 4. Brotkrume und Inspector-Kopf nennen einen Raum noch „Raum 0412“ statt „Haus 1“: weitergegeben an 3e.3 (Inspector-Kopf, Wurzel der Szene mit dem Namen aus dem Weltmodell).
 5. Technik › Prüfen und Bauen teilt die Tabelle mit „Probleme“ und spricht in Bauen deshalb auch Bauen-Wörter.
+
+## Teil 3e.3: Hierarchie und Inspector
+
+Lieferumfang (Roadmap): die Liste „Welt“ mit zwei Abschnitten und Teiler: oben „Orte“ (der Weltbaum aus 3e.2, einklappbar zu einer Ortszeile mit Picker), unten „In dieser Szene“ (`role="tree"`: Gebiet bzw. Raum, Karten mit Gebäuden, Figuren, Türen mit Ziel, Auslöser, Schilder, Scripts; Suche; Enter auf einer Tür folgt ihr; „Zurück“ und „Vor“); „An diesem Ort“ und die Ausgangsliste des Header-Editors sind dorthin gewandert (im Header-Editor eine Zeile „4 Türen“ als Link); der Inspector zeigt nur das Gewählte mit Kopf (Typ-Wort, Titel, Kennung, Plaketten, Menü „Aktionen“); die Hover-Ansichten stehen in der Statusleiste; Baustein `Splitter` (auch unter dem Teiler der Hand); das Weltmodell liegt in den Werkbank-Daten und benennt Kopf, Brotkrume und Türziele; Layout `v10`; Design-System „Hierarchie“, „Baumzeile“, „Inspector-Kopf“, „Teiler“; Galerie „Rahmen“ › „Inspector-Kopf“ und „Hierarchie“.
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (3.1) Figur wählen, ändern, ⌘Z, ⌘S | Figur in „In dieser Szene“ (`[data-event="object:N"]`) anklicken: Inspector-Kopf „Figur“, Zeile `aria-selected`; „Blickrichtung“ ändern, ⌘Z, erneut ändern, ⌘S; `call.sh get_events` und `dirty` als Gegenprobe | Agent |
+| (3.2) Tür folgen, Zurück | Tür wählen, Enter: die Szene des Ziels; „Zurück“ zeigt die vorige Szene, „Vor“ wird frei | Agent |
+| (3.3) Suche | „In dieser Szene suchen“ filtert, Escape leert | Agent |
+| (3.4) Orte einklappen | „Orte einklappen“: eine Zeile mit dem gezeigten Ort, der Picker „Ort oder Raum wählen“ wechselt die Szene; `g4.shell.v1` `placesFolded` | Agent |
+| (3.5) Türen-Zeile | Gebiet wählen: im Inspector „N Türen“; Klick öffnet die Gruppe „Türen“ und setzt den Fokus darauf | Agent |
+| (3.6) Kopfmenü der Karte | Karte in „Karten“ wählen: Menü „Aktionen“ mit „Teile importieren…“, „Teile exportieren…“, „Duplizieren“; der Import-Dialog öffnet | Agent |
+| (3.7) Tastatur im Baum | Pfeile, Rechts/Links öffnen und schließen, Enter wählt | Agent |
+| (3.8) Hover in der Statusleiste | Maus über einem Marker und einer Kachel: Text in der Mitte der Statusleiste, der Inspector bleibt beim Gewählten | Agent |
+| (3.9) DOM-Scan Bauen | Rezept „DOM-Scan Bauen“ mit beiden Abschnitten der Liste, Gebiet, Figur und Karte gewählt | Agent |
+| (3.10) Kompakt 1100 × 720 | beide Abschnitte mindestens 96 px, Teiler „Höhe der Orte“ mit der Tastatur | Agent + Blick |
+| (3.11) Layout-Schlüssel | nach `localStorage.clear()` nur `g4.layout.v10.*` | Agent |
+| (3.12) Galerie | `?gallery`, „Rahmen“: Inspector-Kopf (Figur ungespeichert, Gebiet, Header in Tüfteln, Tür gesperrt, Karte mit Menü), Hierarchie mit Beispielszene, Teiler waagrecht und senkrecht | Agent + Blick |
+
+### Ergebnis 3e.3
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-25 | 3e-pt | (3.1) | bestanden: Zweiblattdorf › „Objekt 3 · ID 3“ in der Hierarchie gewählt, Kopf „Figur / Objekt 3 · ID 3 / Objekt 3 · Eventdatei 0390“; „Blickrichtung“ Links → Rechts: Plakette „Ungespeichert“, „1 Änderung nicht gespeichert“; ⌘Z: „Alles gespeichert“; erneut geändert (Oben), ⌘S: `get_events` 390 `objects[3].dir` 2 → 0, `dirty` leer | Nach ⌘Z springt die Auswahl von der Figur auf das Gebiet zurück: so seit 3b.4b (`pinAfterHistory` lässt ein Event los, weil Undo die Indizes verschieben kann), kein Befund von 3e.3 |
+| 2026-10-25 | 3e-pt | (3.2) | bestanden: „Warp 0 → Haus 1“, Enter: Szene „Haus 1“ (Kopf „Raum / Haus 1 / Zweiblattdorf · T01R0101“, Brotkrume „Zweiblattdorf › Haus 1“); „Zurück“: Zweiblattdorf, „Vor“ frei | Nach „Zurück“ fiel der Fokus auf `body` (Befund 1) |
+| 2026-10-25 | 3e-pt | (3.3) | bestanden: „Haus 2“ lässt Wurzel, „Türen 1“ und „Warp 1 → Haus 2“ übrig; Escape leert, 25 Zeilen wieder da | – |
+| 2026-10-25 | 3e-pt | (3.4) | bestanden: eingeklappt eine Zeile „Zweiblattdorf“, „In dieser Szene“ 727 px hoch, `placesFolded: true`; Picker „Ort oder Raum wählen“, Suche „Jubelstadt“, Wahl „Pokémarkt“: Zeile „Jubelstadt › Pokémarkt“, Szene „Pokémarkt“ (0004), Picker zu | Der Fokus erreicht das Suchfeld des Pickers erst nach der Einblende-Zeit; sehr schnelles Tippen direkt nach dem Klick landet im Suchfeld der Szene (Agent tippt schneller als ein Mensch) |
+| 2026-10-25 | 3e-pt | (3.5) | bestanden: Gebiet Zweiblattdorf, Zeile „4 Türen“; „Türen“ vorher zugeklappt, Klick öffnet sie und fokussiert `[data-scene-group=warp]` | – |
+| 2026-10-25 | 3e-pt | (3.6) | bestanden: „Karte 0000 · Zelle 3, 27“ mit Gebäude 1 bis 3 darunter; Kopf „Karte“, „Aktionen“: Teile importieren…, Teile exportieren…, Duplizieren; „Teile in Karte 0000 importieren“ öffnet | Kennung in Bauen „Weltkarte 0000 · M0000 H0411“ (Befund 2) |
+| 2026-10-25 | 3e-pt | (3.7) | bestanden: Pfeil runter zweimal von der Wurzel auf „Karte 0000“, Rechts öffnet (Gebäude sichtbar), Enter wählt die Karte | – |
+| 2026-10-25 | 3e-pt | (3.8) | bestanden: Marker „Objekt 5 · ID 5“ und Kachel „Karte 0190 · Kachel x 9, y 13 · …“ in der Mitte der Statusleiste; Inspector bleibt „Raum / Pokémarkt“ | In Bauen stand „Typ 0x00 NONE“ (Befund 3) |
+| 2026-10-25 | 3e-pt | (3.9) | bestanden: Orte, In dieser Szene, Scharnier, Hand, Statusleiste ohne Treffer, Schau nur der Reiter „Raster“ (Gebiet, Figur, Karte gewählt) | – |
+| 2026-10-25 | 3e-pt | (3.10) | Agent bestanden: Kompakt 1100 × 720, „Orte“ 314 px, „In dieser Szene“ 306 px, Pfeil runter 314 → 330 (`worldListSplit` 0,525); Blick beim Nutzer offen | – |
+| 2026-10-25 | 3e-pt | (3.11) | bestanden: `g4.layout.v10.welt.schau`, `g4.layout.v10.welt.hand`; die Hand hat die Reiter Inspector, Script, Probleme | – |
+| 2026-10-25 | – | (3.12) | Agent: Test `shows_the_inspector_head_and_the_scene_hierarchy` (`FramePage.test.tsx`); Blick beim Nutzer offen | – |
+| 2026-10-25 | 3e-hgd | (2.6) erneut | bestanden: die Türen von Neuborkia nennen den in `g4-world.json` vergebenen Namen („Warp 0 → Haus von Mama“) | – |
+
+Befunde von 3e.3 (in der Teilphase behoben):
+
+1. Fokus nach „Zurück“/„Vor“: der Sprung lief über den Weg eines Header-Links, der den Fokus auf die Liste legt; seit `d82e0e8` bleibt er auf der Taste (wird sie gesperrt, auf der anderen). Nachgeprüft: „Zurück“ aus „Haus 1“ → Zweiblattdorf, Fokus auf „Vor“.
+2. Kopf einer Karte in Bauen: seit `d82e0e8` Titel „Karte 0000“, Kennung „Zelle 3, 27 · Zweiblattdorf“ (nachgeprüft); die Kürzel M/H nur in Tüfteln.
+3. Kachel-Hover in Bauen ohne Typ-Nummer und ROM-Namen: „Kachel x 24, y 30 · Karte 0174 · blockiert“ (`d82e0e8`, nachgeprüft).
+4. Aus den Reviews: Kopf, Brotkrume und Türziele benennen Orte wie der Weltbaum (das Weltmodell liegt seit `7912e74` in den Werkbank-Daten); die Brotkrume nennt einen Raum mit Klarnamen (Befund 4 aus 3e.2 erledigt).
