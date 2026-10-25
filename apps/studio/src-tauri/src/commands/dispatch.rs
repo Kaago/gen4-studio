@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::roots::Roots;
+use crate::bridge::roots::Roots;
 use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;

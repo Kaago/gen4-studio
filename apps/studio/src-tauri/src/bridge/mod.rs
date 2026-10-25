@@ -4,6 +4,6 @@
 //! two ways to run it: an HTTP server and a batch runner.
 
 pub mod batch;
-pub mod dispatch;
+pub use crate::commands::dispatch;
 pub mod http;
 pub mod roots;

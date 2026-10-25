@@ -4,6 +4,8 @@ mod area;
 mod buildings;
 mod checks;
 mod data;
+#[cfg(feature = "dev-bridge")]
+pub mod dispatch;
 mod events;
 mod headers;
 mod map_import;
