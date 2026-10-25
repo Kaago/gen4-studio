@@ -2161,6 +2161,74 @@ impl Store {
         }
     }
 
+    /// The number of steps on the undo stack: a mark for [`Store::squash_since`] and
+    /// [`Store::rollback_to`] to name the state before a batch of edits.
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// Merges the steps recorded since `mark` (an earlier [`Store::undo_depth`]) into one
+    /// step labelled `label`, so a batch of edits is undone and redone at once. The merged
+    /// step has one part per asset, in the order the steps first touched them, from the
+    /// bytes before the first of its parts to the bytes after the last. A part that ends
+    /// where it began falls away. The step is a barrier when any merged step was one, with
+    /// the reason of the first; without parts and without a barrier nothing is recorded. A
+    /// `mark` at or past the end of the stack does nothing. The redo stack is untouched
+    /// (the first recorded step of the batch has already cleared it).
+    pub fn squash_since(&mut self, mark: usize, label: &str) {
+        if mark >= self.undo.len() {
+            return;
+        }
+        let mut barrier = None;
+        let mut parts: Vec<Part> = Vec::new();
+        for step in self.undo.split_off(mark) {
+            if barrier.is_none() {
+                barrier = step.barrier;
+            }
+            for part in step.parts {
+                match parts.iter_mut().find(|p| p.asset == part.asset) {
+                    Some(merged) => merged.after = part.after,
+                    None => parts.push(part),
+                }
+            }
+        }
+        parts.retain(|p| p.before != p.after);
+        if parts.is_empty() && barrier.is_none() {
+            return;
+        }
+        self.undo.push(Changeset {
+            parts,
+            label: label.to_owned(),
+            barrier,
+        });
+    }
+
+    /// Reverts the steps above `mark` (an earlier [`Store::undo_depth`]), the newest first,
+    /// as [`Store::undo`] does, and drops them: they are not put on the redo stack, so a
+    /// failed batch leaves no trace to redo. The redo stack stays as it was only when the
+    /// batch recorded nothing (the first recorded step cleared it). Stops at a barrier,
+    /// which and what lies behind it stay. Returns the number of steps reverted; every
+    /// restored asset is reported through `changes_since`, as with undo. A part that cannot
+    /// be restored is an error naming its asset (see `restore_parts`); the steps reverted
+    /// before stay reverted and the failing step stays on the undo stack.
+    pub fn rollback_to(&mut self, mark: usize) -> Result<usize, KernelError> {
+        let mut reverted = 0;
+        while self.undo.len() > mark {
+            if self.undo.last().is_some_and(|c| c.barrier.is_some()) {
+                break;
+            }
+            let Some(change) = self.undo.pop() else {
+                break;
+            };
+            if let Err(e) = self.restore_parts(&change, |p| &p.before) {
+                self.undo.push(change);
+                return Err(e);
+            }
+            reverted += 1;
+        }
+        Ok(reverted)
+    }
+
     /// Damages part `part` of the changeset `undo()` reverts next, so that neither of its
     /// sides decodes. For tests of a failing undo; does nothing without such a part.
     #[cfg(feature = "test-support")]
@@ -2781,6 +2849,209 @@ mod tests {
             st.reload_from_disk(ARCHIVE).unwrap();
             assert_eq!(st.history(), (owned(&["B"]), vec![]));
             assert!(matches!(st.undo(), Err(KernelError::Refused(_))));
+        }
+
+        const EVENT: AssetId = AssetId {
+            kind: AssetKind::Event,
+            index: 0,
+        };
+
+        fn text(st: &mut Store) -> String {
+            st.text_archive(433).unwrap().messages[1].text.clone()
+        }
+
+        fn warps(st: &mut Store) -> usize {
+            st.event(0).unwrap().warp_events.len()
+        }
+
+        fn add_warp(st: &mut Store, label: &str) {
+            st.edit_event(0, label, |e| {
+                e.warp_events.push(WarpEvent {
+                    x: 0,
+                    z: 0,
+                    dest_header_id: 0,
+                    dest_warp_id: 0,
+                    height: 0,
+                });
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        #[test]
+        fn squash_merges_steps_into_one_undo() {
+            let (_s, mut st) = store();
+            let warps_before = warps(&mut st);
+            st.edit_text_archive(433, "before", |d| d.messages[1].text = "Null".into())
+                .unwrap();
+            let mark = st.undo_depth();
+            assert_eq!(mark, 1);
+            st.edit_text_archive(433, "a1", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            add_warp(&mut st, "b");
+            st.edit_text_archive(433, "a2", |d| d.messages[1].text = "Zwei".into())
+                .unwrap();
+            st.squash_since(mark, "batch");
+            assert_eq!(st.undo_depth(), 2);
+            let (undo, redo) = st.history();
+            assert_eq!(undo, ["before", "batch"]);
+            assert!(redo.is_empty());
+            // One undo restores A and B to the state before the first edit of the batch,
+            // listing each asset once in the order of its first touch.
+            assert_eq!(st.undo().unwrap(), [ARCHIVE, EVENT]);
+            assert_eq!(text(&mut st), "Null");
+            assert_eq!(warps(&mut st), warps_before);
+            assert_eq!(st.redo().unwrap(), [ARCHIVE, EVENT]);
+            assert_eq!(text(&mut st), "Zwei");
+            assert_eq!(warps(&mut st), warps_before + 1);
+        }
+
+        #[test]
+        fn squash_drops_parts_that_end_where_they_began() {
+            let (_s, mut st) = store();
+            let mark = st.undo_depth();
+            st.edit_text_archive(433, "a1", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            st.edit_text_archive(433, "a2", |d| d.messages[1].text = "Twinleaf Town".into())
+                .unwrap();
+            assert_eq!(st.undo_depth(), 2);
+            st.squash_since(mark, "batch");
+            assert_eq!(st.undo_depth(), 0);
+            assert_eq!(st.history(), (vec![], vec![]));
+            // Only the unchanged part falls away, the other one stays.
+            st.edit_text_archive(433, "a1", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            add_warp(&mut st, "b");
+            st.edit_text_archive(433, "a2", |d| d.messages[1].text = "Twinleaf Town".into())
+                .unwrap();
+            st.squash_since(0, "batch");
+            assert_eq!(st.undo_depth(), 1);
+            assert_eq!(st.undo().unwrap(), [EVENT]);
+        }
+
+        #[test]
+        fn squash_does_nothing_at_or_past_the_end() {
+            let (_s, mut st) = store();
+            st.edit_text_archive(433, "a", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            add_warp(&mut st, "b");
+            st.squash_since(2, "x");
+            st.squash_since(7, "x");
+            assert_eq!(st.history().0, ["a", "b"]);
+        }
+
+        #[test]
+        fn squash_keeps_a_barrier() {
+            const REASON: &str = "Zwei lässt sich nicht rückgängig machen";
+            let (_s, mut st) = store();
+            let mark = st.undo_depth();
+            st.edit_text_archive(433, "a", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            st.barrier_transaction("barrier", REASON, |tx| {
+                tx.edit_text_archive(433, |d| d.messages[1].text = "Zwei".into())
+            })
+            .unwrap();
+            st.edit_text_archive(433, "c", |d| d.messages[1].text = "Drei".into())
+                .unwrap();
+            st.squash_since(mark, "batch");
+            assert_eq!(st.history().0, ["batch"]);
+            let err = st.undo().unwrap_err();
+            assert!(
+                matches!(&err, KernelError::Refused(r) if r == REASON),
+                "{err}"
+            );
+            assert_eq!(text(&mut st), "Drei");
+            assert_eq!(st.undo_depth(), 1);
+        }
+
+        #[test]
+        fn squash_keeps_a_barrier_without_parts() {
+            let (_s, mut st) = store();
+            st.barrier_transaction("barrier", "why", |_| Ok(()))
+                .unwrap();
+            assert_eq!(st.undo_depth(), 1);
+            st.squash_since(0, "batch");
+            assert_eq!(st.history().0, ["batch"]);
+            assert!(matches!(st.undo(), Err(KernelError::Refused(r)) if r == "why"));
+        }
+
+        #[test]
+        fn rollback_restores_without_redo() {
+            let (_s, mut st) = store();
+            st.edit_text_archive(433, "keep", |d| d.messages[1].text = "Null".into())
+                .unwrap();
+            let history = st.history();
+            let warps_before = warps(&mut st);
+            let mark = st.undo_depth();
+            let generation = st.change_generation();
+            st.edit_text_archive(433, "a1", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            add_warp(&mut st, "b");
+            st.edit_text_archive(433, "a2", |d| d.messages[1].text = "Zwei".into())
+                .unwrap();
+            assert_eq!(st.rollback_to(mark).unwrap(), 3);
+            assert_eq!(text(&mut st), "Null");
+            assert_eq!(warps(&mut st), warps_before);
+            assert_eq!(st.history(), history);
+            assert!(st.redo().unwrap().is_empty());
+            assert!(!st.is_dirty(EVENT));
+            // The caller can see which assets to reload.
+            let (_, changed) = st.changes_since(generation);
+            assert_eq!(changed, [EVENT, ARCHIVE]);
+            // Nothing above the mark: nothing to do.
+            assert_eq!(st.rollback_to(mark).unwrap(), 0);
+            assert_eq!(st.rollback_to(99).unwrap(), 0);
+        }
+
+        #[test]
+        fn rollback_keeps_the_redo_stack_when_nothing_was_recorded() {
+            let (_s, mut st) = store();
+            st.edit_text_archive(433, "a", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            st.undo().unwrap();
+            let history = st.history();
+            let mark = st.undo_depth();
+            assert_eq!(st.rollback_to(mark).unwrap(), 0);
+            assert_eq!(st.history(), history);
+            assert_eq!(st.redo().unwrap(), [ARCHIVE]);
+        }
+
+        #[test]
+        fn rollback_stops_at_a_barrier() {
+            let (_s, mut st) = store();
+            let mark = st.undo_depth();
+            st.edit_text_archive(433, "a", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            st.barrier_transaction("barrier", "why", |tx| {
+                tx.edit_text_archive(433, |d| d.messages[1].text = "Zwei".into())
+            })
+            .unwrap();
+            st.edit_text_archive(433, "c", |d| d.messages[1].text = "Drei".into())
+                .unwrap();
+            // Only the step after the barrier is reverted; the barrier and what is behind
+            // it stay.
+            assert_eq!(st.rollback_to(mark).unwrap(), 1);
+            assert_eq!(text(&mut st), "Zwei");
+            assert_eq!(st.history().0, ["a", "barrier"]);
+            assert!(st.history().1.is_empty());
+            assert_eq!(st.rollback_to(mark).unwrap(), 0);
+            assert_eq!(text(&mut st), "Zwei");
+        }
+
+        #[test]
+        fn rollback_stops_at_a_part_that_does_not_restore() {
+            let (_s, mut st) = store();
+            let mark = st.undo_depth();
+            st.edit_text_archive(433, "a", |d| d.messages[1].text = "Eins".into())
+                .unwrap();
+            st.edit_text_archive(433, "b", |d| d.messages[1].text = "Zwei".into())
+                .unwrap();
+            st.corrupt_undo_part(0);
+            let err = st.rollback_to(mark).unwrap_err();
+            assert!(matches!(err, KernelError::Restore { asset, .. } if asset == ARCHIVE));
+            // The failing step stays, nothing is on the redo stack.
+            assert_eq!(st.history(), (vec!["a".into(), "b".into()], vec![]));
+            assert_eq!(text(&mut st), "Zwei");
         }
 
         #[test]
