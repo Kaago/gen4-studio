@@ -48,6 +48,7 @@ import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { AssetId, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
+import { afterMapImport } from "./app/mapImport";
 import { paletteEntries } from "./app/paletteEntries";
 import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
@@ -468,13 +469,11 @@ function AppBody() {
   const built = useRef<Set<DeckArea>>(new Set());
   if (isDeckArea(area)) built.current.add(area);
 
+  // After an import the map's pictures go, the scene refetches that map and its model, and the dirty count catches up.
+  const onMapImported = useStableCallback((map: number) =>
+    afterMapImport(map, { bus, invalidate: (m) => thumbnails.invalidate(m), refreshDirty: () => session.refreshDirty() }),
+  );
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
-  // After an import the map's pictures go, the scene reloads that map's model and the dirty count catches up.
-  const onMapImported = useStableCallback(async (map: number) => {
-    thumbnails.invalidate(map);
-    bus.emit({ topic: "mapModelReload", map });
-    await session.refreshDirty();
-  });
   const { data, live } = useWorkbenchModel({
     bus,
     session,
