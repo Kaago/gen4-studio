@@ -51,7 +51,10 @@ pub struct Overlay {
     /// The store's bytes of every loaded asset, except text archives, whose value changed and
     /// differs from the disk.
     pub assets: Vec<(AssetId, Vec<u8>)>,
-    /// Every loaded asset that is locked, with the reason; its value is the disk's.
+    /// Every loaded asset its bytes lock (a length its codec rejects, a value that would not
+    /// be written back byte for byte), with the reason; its value is the disk's. Deliberate
+    /// locks ([`crate::store::Store::lock`], the placeholder trainer of the sight script
+    /// slot) are not listed: they are no finding.
     pub locked: Vec<(AssetId, String)>,
     /// The documents of the loaded text archives that changed.
     pub text_docs: Vec<(u16, TextArchiveDoc)>,

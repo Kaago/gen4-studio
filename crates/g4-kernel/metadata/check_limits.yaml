@@ -36,6 +36,15 @@ trainer:
     value: 0
     verified: false
     source: "measured on Platin DE, HeartGold DE and HeartGold US: trainer 0 has party_count 0, class 0 and no event user; task0-3b4.md section 4"
+  # The trainer ID of the sight script slot: its entry in the battle script is the "seen" code,
+  # so it is never a real trainer. create_trainer (3b.3b) writes a locked placeholder there
+  # (properties 0, no party) before the next trainer. The trainer checks skip a trainer of that
+  # shape at this ID (a hack's own trainer there is checked); asset.unreadable ignores its lock.
+  sight_slot:
+    pt: 929
+    hgss: 740
+    verified: true
+    source: "metadata/trainer_scripts.yaml seen_script - 2999 (Pt 3928, HGSS 3739: pret pokeplatinum be36a9d trainer_encounter.c SCRIPT_ID(SINGLE_BATTLES, MAX_TRAINERS), pokeheartgold 6988158 std_trainer_approach); docs/formats/trainer_scripts.md; create_trainer placeholder (3b.3b)"
 
 event_file:
   # Event file 0 is used by the dummy headers (60 on Platin DE) with different script files.

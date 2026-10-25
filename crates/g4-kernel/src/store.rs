@@ -1692,6 +1692,19 @@ impl Store {
         reloaded
     }
 
+    /// Whether `reason`, the lock of loaded asset `id`, comes from its bytes (a length its
+    /// codec rejects, a value that would not be written back byte for byte, see [`decode`])
+    /// rather than from a deliberate lock: [`Store::lock`] or the placeholder trainer of the
+    /// sight script slot ([`PLACEHOLDER_REASON`]). A lock the bytes cause keeps its own
+    /// reason (it names the asset), so the reasons tell them apart.
+    fn locked_by_bytes(&self, id: AssetId, reason: &str) -> bool {
+        let deliberate = self.locks.get(&id).is_some_and(|r| r == reason)
+            || (id.kind == AssetKind::Trainer
+                && Some(id.index) == self.placeholder_trainer
+                && reason == PLACEHOLDER_REASON);
+        !deliberate
+    }
+
     /// The trainer ID of the sight script slot, whose trainer (if it exists) is the locked
     /// placeholder; `None` where it is not known (Diamond/Pearl).
     pub fn placeholder_trainer(&self) -> Option<u16> {
@@ -1908,9 +1921,10 @@ impl Store {
     /// the store lock (budget 5 ms, see [`crate::checks::snapshot`]): the change generation,
     /// the bytes of every loaded asset whose value changed and differs from what was last
     /// read from or written to disk, the documents of the changed text archives (cloned, not
-    /// serialized), the text generations, and the lock reason of every loaded locked asset.
-    /// Nothing is read from disk; everything else the snapshot reads there. An asset whose
-    /// value cannot be serialized is named in `unwritable` instead.
+    /// serialized), the text generations, and the lock reason of every loaded asset its bytes
+    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding. Nothing is read
+    /// from disk; everything else the snapshot reads there. An asset whose value cannot be
+    /// serialized is named in `unwritable` instead.
     pub fn snapshot_overlay(&self) -> crate::checks::Overlay {
         let family = self.project.family;
         let mut overlay = crate::checks::Overlay {
@@ -1920,7 +1934,9 @@ impl Store {
         for (&id, asset) in &self.assets {
             if let Some(reason) = &asset.locked {
                 // Never edited: its value is the bytes it was read with.
-                overlay.locked.push((id, reason.clone()));
+                if self.locked_by_bytes(id, reason) {
+                    overlay.locked.push((id, reason.clone()));
+                }
                 continue;
             }
             if !self.changed_at.contains_key(&id) {

@@ -47,10 +47,34 @@ pub struct WarpLimits {
     pub dynamic: DynamicWarp,
 }
 
+/// The trainer ID of the sight script slot per family (none for Diamond/Pearl).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SightSlot {
+    pub pt: u16,
+    pub hgss: u16,
+    pub verified: bool,
+    pub source: String,
+}
+
+impl SightSlot {
+    /// The slot of `family`; `None` for Diamond/Pearl, whose battle script is not known.
+    pub fn of(&self, family: Family) -> Option<u16> {
+        match family {
+            Family::Dp => None,
+            Family::Pt => Some(self.pt),
+            Family::Hgss => Some(self.hgss),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrainerLimits {
     pub dummy: Limit<u16>,
+    /// The trainer ID of the sight script slot, never a real trainer (the placeholder of
+    /// `create_trainer`); the trainer checks skip it.
+    pub sight_slot: SightSlot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -179,6 +203,11 @@ impl Limits {
                 source: &self.warp.dynamic.source,
             },
             row("trainer.dummy", &self.trainer.dummy),
+            LimitEntry {
+                key: "trainer.sight_slot",
+                verified: self.trainer.sight_slot.verified,
+                source: &self.trainer.sight_slot.source,
+            },
             row("event_file.shared", &self.event_file.shared),
             row("script.decoration", &self.script.decoration),
             LimitEntry {
@@ -221,6 +250,19 @@ mod tests {
         assert_eq!(l.dialog_lines_max.value, 2);
         assert_eq!((l.warp.dynamic.header, l.warp.dynamic.warp), (0x0FFF, 256));
         assert_eq!(l.trainer.dummy.value, 0);
+        // The sight slot is the one `create_trainer` keeps for its placeholder.
+        assert_eq!(
+            (l.trainer.sight_slot.pt, l.trainer.sight_slot.hgss),
+            (929, 740)
+        );
+        for family in [Family::Pt, Family::Hgss] {
+            assert_eq!(
+                l.trainer.sight_slot.of(family),
+                crate::scripts::trainer_script_meta(family).map(|m| m.seen_id()),
+                "{family:?}"
+            );
+        }
+        assert_eq!(l.trainer.sight_slot.of(Family::Dp), None);
         assert_eq!(l.event_file.shared.value, 0);
         assert_eq!(l.script.decoration.value, 0);
         assert_eq!((l.encounter.none.pt, l.encounter.none.hgss), (0xFFFF, 0xFF));
@@ -238,7 +280,7 @@ mod tests {
 
         // Every entry names its source.
         let entries = l.entries();
-        assert_eq!(entries.len(), 12);
+        assert_eq!(entries.len(), 13);
         // The message commands per family (task0 section 4: Pt 15).
         let params = &l.script.message_params;
         assert_eq!(params.of(Family::Pt).len(), 15);

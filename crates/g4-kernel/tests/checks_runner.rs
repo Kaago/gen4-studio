@@ -15,7 +15,7 @@ use g4_kernel::checks::{
 };
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
-use g4_kernel::store::{AssetId, MapHeader, Store, WarpEvent};
+use g4_kernel::store::{AssetId, MapHeader, PLACEHOLDER_REASON, Store, WarpEvent};
 
 fn id(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
@@ -329,6 +329,50 @@ fn the_catalogue_reads_the_store_overlay_and_the_disk() {
     for f in &report.findings {
         assert!(!f.message.is_empty() && !f.args.is_empty(), "{f:?}");
     }
+}
+
+#[test]
+fn a_deliberate_lock_is_no_unreadable_asset() {
+    let (_s, project, mut st) = synthetic();
+    // Trainer 1 locked as `create_trainer` locks its placeholder (`Store::lock`), and an
+    // item locked by its bytes (a member of the wrong length).
+    let trainer = id(AssetKind::Trainer, 1);
+    st.lock(trainer, PLACEHOLDER_REASON).unwrap();
+    st.trainer(1).unwrap();
+    assert_eq!(st.locked(trainer), Some(PLACEHOLDER_REASON));
+    let item = id(AssetKind::Item, common::LONG_ITEM);
+    let _ = st.item(common::LONG_ITEM);
+    assert!(st.locked(item).is_some());
+
+    // Only the lock the bytes cause reaches the snapshot.
+    let overlay = st.snapshot_overlay();
+    let locked: Vec<AssetId> = overlay.locked.iter().map(|(id, _)| *id).collect();
+    assert_eq!(locked, [item]);
+
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    let unreadable: Vec<(Subject, &str)> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == "asset.unreadable")
+        .map(|f| (f.subject, f.key.as_str()))
+        .collect();
+    let key = format!("locked:item:{}", common::LONG_ITEM);
+    assert_eq!(unreadable, [(Subject::Project, key.as_str())]);
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| f.subject != Subject::Trainer(1)),
+        "{:?}",
+        report.findings
+    );
 }
 
 #[test]

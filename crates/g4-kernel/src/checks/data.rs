@@ -21,9 +21,34 @@ fn idx(n: usize) -> u16 {
     u16::try_from(n).unwrap_or(u16::MAX)
 }
 
-/// Every readable trainer with its index.
-fn trainers(src: &dyn Source) -> impl Iterator<Item = (u16, &TrainerDoc)> {
-    (0..src.count(AssetKind::Trainer)).filter_map(move |t| Some((idx(t), src.trainer(idx(t))?)))
+/// Every readable trainer with its index, without the placeholder of the sight script slot:
+/// the trainer at `trainer.sight_slot` (`check_limits.yaml`), whose battle script entry is
+/// the "seen" code, when it has the shape `create_trainer` writes there (see
+/// [`placeholder_shaped`]). It is never battled, so no trainer check reports it. A hack's own
+/// trainer at that ID (any other shape) is checked as every trainer, as the store keeps it
+/// editable.
+fn trainers<'a>(
+    src: &'a dyn Source,
+    limits: &Limits,
+) -> impl Iterator<Item = (u16, &'a TrainerDoc)> {
+    let sight = limits.trainer.sight_slot.of(src.family());
+    (0..src.count(AssetKind::Trainer))
+        .filter_map(move |t| Some((idx(t), src.trainer(idx(t))?)))
+        .filter(move |&(t, doc)| Some(t) != sight || !placeholder_shaped(doc))
+}
+
+/// Whether `doc` is the placeholder of the sight script slot as `create_trainer` writes it:
+/// properties all zero and no party (the store's test on the bytes, decoded).
+fn placeholder_shaped(doc: &TrainerDoc) -> bool {
+    doc.class == 0
+        && !doc.format.moves
+        && !doc.format.items
+        && doc.flags_rest == 0
+        && doc.unknown == 0
+        && doc.items == [0; 4]
+        && doc.ai == 0
+        && doc.battle_type == 0
+        && doc.party.is_empty()
 }
 
 /// The event files whose objects battle as each trainer (scripts 3000–6999), counting only
@@ -49,7 +74,8 @@ fn trainer_users(src: &dyn Source) -> BTreeMap<u16, BTreeSet<u16>> {
 
 /// `trainer.no-party` (error when an event battles as the trainer, else warning): a trainer
 /// with no Pokémon. The game does not crash: the battle runs against an invisible Pokémon at
-/// level 0 and is won at once (task0-3b4.md §5). Trainer 0 (`trainer.dummy`) is exempt.
+/// level 0 and is won at once (task0-3b4.md §5). Trainer 0 (`trainer.dummy`) is exempt, and
+/// the placeholder of the sight script slot is no trainer (see [`trainers`]).
 /// Users are objects with scripts 3000–6999 in event files a header uses; trainers that only
 /// battle from a script are not counted. Subject: trainer; key and field `party`. Args:
 /// `[trainer, number of event files using it]`. Also: those event files. Fingerprint: the
@@ -68,7 +94,7 @@ impl SourceCheck for TrainerNoParty {
     ) -> Result<(), Skipped> {
         let users = trainer_users(src);
         let dummy = limits.trainer.dummy.value;
-        for (t, doc) in trainers(src) {
+        for (t, doc) in trainers(src, limits) {
             if t == dummy || !doc.party.is_empty() {
                 continue;
             }
@@ -115,8 +141,13 @@ impl SourceCheck for TrainerEmptySpecies {
     const CODE: &'static str = "trainer.empty-species";
     const SEVERITY: Severity = Severity::Error;
 
-    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
-        for (t, doc) in trainers(src) {
+    fn check(
+        &self,
+        src: &dyn Source,
+        limits: &Limits,
+        out: &mut Vec<Finding>,
+    ) -> Result<(), Skipped> {
+        for (t, doc) in trainers(src, limits) {
             for (k, mon) in doc.party.iter().enumerate() {
                 if mon.species() != 0 {
                     continue;
@@ -164,7 +195,12 @@ impl SourceCheck for TrainerIdRange {
     const CODE: &'static str = "trainer.id-range";
     const SEVERITY: Severity = Severity::Error;
 
-    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
+    fn check(
+        &self,
+        src: &dyn Source,
+        limits: &Limits,
+        out: &mut Vec<Finding>,
+    ) -> Result<(), Skipped> {
         let (Some(species), Some(classes)) =
             (src.bank_len("species"), src.bank_len("trainer_classes"))
         else {
@@ -174,7 +210,7 @@ impl SourceCheck for TrainerIdRange {
         };
         let items = Some(src.item_count()).filter(|&n| n > 0);
         let moves = Some(src.count(AssetKind::Move)).filter(|&n| n > 0);
-        for (t, doc) in trainers(src) {
+        for (t, doc) in trainers(src, limits) {
             let mut checks = vec![IdValue {
                 key: "class".into(),
                 slot: String::new(),
@@ -279,8 +315,13 @@ impl SourceCheck for TrainerNoMoves {
     const CODE: &'static str = "trainer.no-moves";
     const SEVERITY: Severity = Severity::Warning;
 
-    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
-        for (t, doc) in trainers(src) {
+    fn check(
+        &self,
+        src: &dyn Source,
+        limits: &Limits,
+        out: &mut Vec<Finding>,
+    ) -> Result<(), Skipped> {
+        for (t, doc) in trainers(src, limits) {
             if !doc.format.moves {
                 continue;
             }
@@ -320,8 +361,13 @@ impl SourceCheck for TrainerDoubleOne {
     const CODE: &'static str = "trainer.double-one";
     const SEVERITY: Severity = Severity::Warning;
 
-    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
-        for (t, doc) in trainers(src) {
+    fn check(
+        &self,
+        src: &dyn Source,
+        limits: &Limits,
+        out: &mut Vec<Finding>,
+    ) -> Result<(), Skipped> {
+        for (t, doc) in trainers(src, limits) {
             if doc.battle_type != DOUBLE_BATTLE || doc.party.len() != 1 {
                 continue;
             }
@@ -456,6 +502,7 @@ mod tests {
 
     use g4_formats::data::encounter::{Encounters, PtEncounters, Slot};
     use g4_formats::data::record::RawRecord;
+    use g4_formats::game::Family;
 
     use super::*;
     use crate::checks::fake::{Fake, mon, object, trainer};
@@ -511,6 +558,52 @@ mod tests {
             .clone_from(&crate::checks::fake::pt_header(0, 1));
         let found = f.run(&TrainerNoParty);
         assert_eq!(found[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn the_sight_slot_placeholder_is_no_trainer() {
+        // The ID of the sight script slot (Pt 929, HGSS 740) holds the locked placeholder
+        // `create_trainer` writes there: properties all zero, no party. No trainer check
+        // reports it; its neighbours are reported as any trainer.
+        let mut placeholder = trainer(Vec::new());
+        placeholder.class = 0;
+        for (family, slot) in [(Family::Pt, 929usize), (Family::Hgss, 740)] {
+            let mut f = Fake::pt();
+            f.family = family;
+            f.trainers = (0..=slot + 1).map(|_| None).collect();
+            f.trainers[slot - 1] = Some(trainer(Vec::new()));
+            f.trainers[slot] = Some(placeholder.clone());
+            f.trainers[slot + 1] = Some(trainer(vec![mon(0)]));
+            let below = Subject::Trainer(idx(slot - 1));
+            let above = Subject::Trainer(idx(slot + 1));
+            let at = Subject::Trainer(idx(slot));
+            assert_eq!(
+                keys(&f.run(&TrainerNoParty)),
+                [(below, "party")],
+                "{family:?}"
+            );
+            assert_eq!(
+                keys(&f.run(&TrainerEmptySpecies)),
+                [(above, "slot:0")],
+                "{family:?}"
+            );
+            // A hack's own trainer at that ID (with a class) is checked as every trainer.
+            f.trainers[slot] = Some(trainer(Vec::new()));
+            assert_eq!(
+                keys(&f.run(&TrainerNoParty)),
+                [(below, "party"), (at, "party")],
+                "{family:?}"
+            );
+        }
+        // Diamond/Pearl has no known sight slot: trainer 929 is a trainer.
+        let mut f = Fake::pt();
+        f.family = Family::Dp;
+        f.trainers = (0..=929).map(|_| None).collect();
+        f.trainers[929] = Some(placeholder);
+        assert_eq!(
+            keys(&f.run(&TrainerNoParty)),
+            [(Subject::Trainer(929), "party")]
+        );
     }
 
     #[test]

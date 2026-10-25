@@ -441,3 +441,87 @@ fn vanilla_script_checks_after_adopt() {
     assert_eq!(found.len(), 1, "{found:?}");
     println!("{which:?}: probe found: {}", found[0].message);
 }
+
+/// The checks on a copy of the vanilla project after creating trainers past the sight slot
+/// (3b.3b: Platin 928, placeholder 929, 930; HeartGold 738, 739, placeholder 740, 741) with
+/// every trainer loaded through the store, as the trainer list does, and the snapshot built
+/// from the store's overlay: the locked placeholder is no `asset.unreadable` and no
+/// `trainer.no-party`, the new trainers without Pokémon are each a `trainer.no-party`
+/// warning, and there is no error.
+#[cfg(feature = "test-support")]
+#[test]
+fn vanilla_checks_skip_the_sight_slot_placeholder() {
+    use g4_formats::game::Family;
+    use g4_kernel::checks::Subject;
+    use g4_kernel::data::names::NameTables;
+    use g4_kernel::data::trainer_create::{PLACEHOLDER_REASON, create_trainer};
+    use g4_kernel::project::{AssetId, AssetKind};
+    use g4_kernel::scripts;
+    use g4_kernel::store::Store;
+
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let which = Vanilla::of(&project);
+    let (created, seen): (&[u16], u16) = match project.family {
+        Family::Pt => (&[928, 930], 929),
+        Family::Hgss => (&[738, 739, 741], 740),
+        Family::Dp => unreachable!("no Diamond/Pearl vanilla project"),
+    };
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(Arc::clone(&project));
+    let mut names = NameTables::new();
+    for (&id, name) in created.iter().zip(["Jens", "Mia", "Lars"]) {
+        let report = create_trainer(&project, &mut store, &mut names, 2, name).unwrap();
+        assert_eq!(report.id, id);
+    }
+    store.save().unwrap();
+
+    // The trainer list loads every trainer (`commands/data/trainer.rs`); the placeholder is
+    // then locked in the store.
+    let count = store.member_count(AssetKind::Trainer).unwrap();
+    assert_eq!(count, usize::from(*created.last().unwrap()) + 1);
+    for index in 0..count as u16 {
+        store.trainer(index).unwrap();
+    }
+    let placeholder = AssetId {
+        kind: AssetKind::Trainer,
+        index: seen,
+    };
+    assert_eq!(store.locked(placeholder), Some(PLACEHOLDER_REASON));
+
+    let snap = Snapshot::build(
+        Arc::clone(&project),
+        store.snapshot_overlay(),
+        SnapshotCache::default(),
+    );
+    let (report, _) = run(&snap, &Group::ALL);
+    let errors: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .map(|f| (f.code, f.subject, f.key.clone(), f.message.clone()))
+        .collect();
+    assert!(errors.is_empty(), "{which:?}: errors: {errors:?}");
+    let on_placeholder: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.subject == Subject::Trainer(seen))
+        .map(|f| (f.code, f.key.clone()))
+        .collect();
+    assert!(on_placeholder.is_empty(), "{which:?}: {on_placeholder:?}");
+    assert_eq!(counts(&report.findings).get("asset.unreadable"), None);
+    let no_party: Vec<Subject> = report
+        .findings
+        .iter()
+        .filter(|f| f.code == "trainer.no-party")
+        .map(|f| f.subject)
+        .collect();
+    let expected: Vec<Subject> = created.iter().map(|&t| Subject::Trainer(t)).collect();
+    assert_eq!(no_party, expected, "{which:?}");
+    println!(
+        "{which:?}: {} findings after creating {created:?}, placeholder {seen} quiet",
+        report.findings.len()
+    );
+}
