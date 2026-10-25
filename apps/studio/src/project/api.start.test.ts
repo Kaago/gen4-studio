@@ -68,6 +68,7 @@ describe("api.start", () => {
     await expect(createProject("/roms/pt.nds", "/p/neu", "original", onProgress)).resolves.toBe(created);
     expect(invoke.mock.calls).toEqual([["create_project", { rom: "/roms/pt.nds", dest: "/p/neu", template: "original" }]]);
     expect(onProgress.mock.calls.map(([p]) => p)).toEqual([
+      { phase: "read", done: 0, total: 0 },
       { phase: "read", done: 1, total: 1 },
       { phase: "extract", done: 1, total: 1 },
       { phase: "template", done: 1, total: 1 },
@@ -75,11 +76,24 @@ describe("api.start", () => {
     ]);
   });
 
-  it("createProject_rejects_without_reporting_progress_when_the_command_fails", async () => {
+  it("createProject_outside_tauri_reports_the_first_phase_running_while_the_bridge_works", async () => {
+    // Without a channel the bridge answers only at the end (seconds): until then the first phase runs, so the wizard
+    // does not show every phase as waiting while the work goes on.
+    inTauri.mockReturnValue(false);
+    let answer: (value: Created) => void = () => {};
+    invoke.mockReturnValue(new Promise<Created>((resolve) => (answer = resolve)));
+    const onProgress = vi.fn();
+    const pending = createProject("/roms/pt.nds", "/p/neu", "original", onProgress);
+    expect(onProgress.mock.calls.map(([p]) => p)).toEqual([{ phase: "read", done: 0, total: 0 }]);
+    answer(created);
+    await expect(pending).resolves.toBe(created);
+  });
+
+  it("createProject_reports_only_the_start_when_the_command_fails", async () => {
     inTauri.mockReturnValue(false);
     invoke.mockRejectedValue({ code: "error", message: "destination is not empty", asset: null });
     const onProgress = vi.fn();
     await expect(createProject("/r.nds", "/d", "original", onProgress)).rejects.toMatchObject({ message: "destination is not empty" });
-    expect(onProgress).not.toHaveBeenCalled();
+    expect(onProgress.mock.calls.map(([p]) => p)).toEqual([{ phase: "read", done: 0, total: 0 }]);
   });
 });

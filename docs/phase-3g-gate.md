@@ -27,7 +27,7 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 - **Zusammenfassung:** der Satz „Legt „…“ aus … mit der Vorlage … an, in …. Die ROM bleibt unverändert.“ und die Liste „Ablauf“ (`[aria-label=Ablauf]`, Zeilen Lesen, Entpacken, Vorlage anwenden, Prüfen mit `[data-phase=open|running|done|failed]`), Taste „Anlegen“.
 - **Ergebnis:** „Projekt angelegt“, der Pfad, „Basis-ROM SHA-1 …“, „Öffnen“ und „Schließen“.
 
-Der Ablauf des Anlegens: In der Brücke gibt es keinen Live-Fortschritt; die Antwort von `create_project` trägt `phases: [{phase, ms}]`, die Oberfläche hakt danach alle Phasen ab. In Tauri meldet ein Kanal jede Phase, wenn sie beginnt. Das Entpacken dauert im Debug-Build rund 1 s (Platin, gemessen am 25.10.2026; Bauen danach 0,2 s Platin bzw. 3,7 s HeartGold); die ganze Anlage ist nicht eigens gemessen. Ein Projekt ist etwa 135 MB groß.
+Der Ablauf des Anlegens: In der Brücke gibt es keinen Live-Fortschritt; die Antwort von `create_project` trägt `phases: [{phase, ms}]`. Die Oberfläche zeigt bis zur Antwort „Lesen läuft“ (die übrigen Zeilen „wartet“), danach kommt sofort das Ergebnis (seit der Abnahme; vorher standen alle vier Zeilen bis zur Antwort auf „wartet“). In Tauri meldet ein Kanal jede Phase, wenn sie beginnt. Das Entpacken dauert im Debug-Build rund 1 s (Platin, gemessen am 25.10.2026; Bauen danach 0,2 s Platin bzw. 3,7 s HeartGold); die ganze Anlage ist nicht eigens gemessen. Ein Projekt ist etwa 135 MB groß.
 
 ### Vorbereitung
 
@@ -57,7 +57,7 @@ Stehen gelassen für den Blick des Nutzers: `Roms/_testkopien/3g-gate-a/Gate Pla
 ### Bekannte Grenzen
 
 - Im Browser kennt die Seite den Pfad einer abgelegten Datei nicht. Eine Datei ohne Pfad öffnet den Assistenten im Schritt ROM mit dem Hinweis „Im Browser-Modus kennt die Seite den Pfad der Datei nicht. Gib ihn ein.“; ein Pfad kommt nur aus `text/uri-list` (`file://…`) oder `text/plain` (absoluter Pfad auf `.nds`).
-- Im Browser-Modus gibt es keinen Live-Fortschritt beim Anlegen; die Phasen werden nach der Antwort abgehakt.
+- Im Browser-Modus gibt es keinen Live-Fortschritt beim Anlegen: bis zur Antwort steht „Lesen läuft“, auch wenn die Brücke schon entpackt; danach ersetzt das Ergebnis die Liste.
 - Die Brücke legt nur unter `_testkopien` oder `G4_IMPORT_ROOT` an und lehnt `_DSPRE_contents` ab; das ist ein Weg für Agenten-Tests, in der App ist der Schalter „Endung _DSPRE_contents“ frei.
 - Eine verschlüsselte ROM erkennt `inspect_rom` nicht eigens; `create_project` meldet den Fehler von `extract_rom` („encrypted ROMs are not supported“).
 - „Bekannte Basis-ROM“ heißt nur: SHA-1 und Spielcode stehen in `metadata/base_roms.yaml` (Testprojekt). Ein Abgleich mit No-Intro ist nicht gemacht.

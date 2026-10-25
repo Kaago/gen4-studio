@@ -77,11 +77,12 @@ export const checkProjectDest = (dest: string, romSize: number) => invoke<DestCh
 
 /**
  * Unpacks the ROM into a new project at `dest` (missing or an empty folder); `onProgress` is called as each phase starts.
- * Takes seconds. Through the dev bridge (no channel) there are no progress events: the call runs without them and `onProgress`
- * gets each phase once, done, from the answer.
+ * Takes seconds. Through the dev bridge (no channel) there are no live progress events: `onProgress` gets the first phase
+ * running before the call (the work starts with reading the ROM), then each phase once, done, from the answer.
  */
 export async function createProject(rom: string, dest: string, template: Template, onProgress: (progress: CreateProgress) => void): Promise<Created> {
   if (!inTauri()) {
+    onProgress({ phase: "read", done: 0, total: 0 });
     const created = await invoke<Created>("create_project", { rom, dest, template });
     for (const { phase } of created.phases) onProgress({ phase, done: 1, total: 1 });
     return created;
