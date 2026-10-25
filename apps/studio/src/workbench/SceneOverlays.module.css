@@ -11,10 +11,11 @@
   pointer-events: none;
 }
 
-/* Anchor top: the toolbar in one row with the layer bar. */
+/* Anchor top: the toolbar in one row with the layer bar; in a narrow view it wraps under it, the lines packed at the top. */
 .overlays[data-anchor="top"] {
   flex-direction: row;
   flex-wrap: wrap;
+  align-content: flex-start;
 }
 
 .overlays > * {

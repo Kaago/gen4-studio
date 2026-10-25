@@ -13,9 +13,10 @@
   flex: 1 1 0;
 }
 
-/* The strip of a wizard's step under the dock; the dock above it shrinks. */
+/* The strip of a wizard's step under the dock, as high as the old hand (`HAND_DEFAULT`); the dock above it shrinks. */
 .wizard {
   position: relative;
+  height: 286px;
   min-height: 0;
   flex: none;
   border-top: 1px solid var(--g4-linie-leise);

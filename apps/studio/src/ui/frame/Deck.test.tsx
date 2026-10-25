@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import type { DockviewApi, DockviewGroupPanel, IDockviewPanelProps } from "dockview-react";
 import { act } from "react";
 import type { FunctionComponent } from "react";
@@ -12,6 +13,9 @@ import { Deck, resetLayout } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
 import type { ShellApi } from "./ShellContext";
 import { HAND_DEFAULT } from "./shellState";
+
+/** The deck's stylesheet as written (jsdom applies no CSS Modules), read from the package root vitest runs in. */
+const deckCss = readFileSync("src/ui/frame/Deck.module.css", "utf8");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no ResizeObserver; dockview watches its container with one.
@@ -241,6 +245,37 @@ describe("Deck", () => {
     expect(overlay(groupOf("script"), "content", "center")).toBe(false);
   });
 
+  it("keeps_the_view_docked_on_a_shift_click_on_its_tab_or_its_header", async () => {
+    await mount();
+    // dockview floats a tab, or a whole group from its empty header, on Shift+pointerdown without asking onWillDragPanel.
+    const shiftDown = (target: Element) => {
+      const event = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, shiftKey: true, button: 0 });
+      act(() => void target.dispatchEvent(event));
+      return event.defaultPrevented;
+    };
+    shiftDown(tab("3D"));
+    shiftDown(tab("Raster"));
+    shiftDown(groupOf("world").element.querySelector(".dv-void-container")!);
+    expect(api().getPanel("world")!.api.location.type).toBe("grid");
+    expect(api().getPanel("matrix")!.api.location.type).toBe("grid");
+    expect(api().groups.filter((g) => g.api.location.type === "floating")).toHaveLength(0);
+    // The inspector still floats that way (dockview's own gesture).
+    shiftDown(tab("Inspector"));
+    expect(api().getPanel("inspector")!.api.location.type).toBe("floating");
+  });
+
+  it("brings_a_floating_view_back_with_the_reset_of_the_arrangement", async () => {
+    // A view that floats all the same (an older build let Shift+click do it) is not stuck: the reset docks it again.
+    await mount();
+    const world = api().getPanel("world");
+    act(() => api().addFloatingGroup(groupOf("world")));
+    expect(world!.api.location.type).toBe("floating");
+    await choose("Inspector", "Anordnung zurücksetzen");
+    expect(world!.api.location.type).toBe("grid");
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect(api().activePanel?.id).toBe("world");
+  });
+
   it("maximizes_and_restores_on_a_tab_double_click", async () => {
     await mount();
     const twice = (title: string) => act(async () => void tab(title).querySelector("span")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
@@ -339,7 +374,9 @@ describe("Deck", () => {
     expect(strip().hidden).toBe(true);
     await render("welt", true);
     expect(strip().hidden).toBe(false);
-    expect(strip().style.height).toBe(`${HAND_DEFAULT}px`);
+    // Its height is the stylesheet's, the default height of the old hand.
+    expect(strip().getAttribute("style")).toBeNull();
+    expect(deckCss).toMatch(new RegExp(`\\.wizard \\{[^}]*height: ${HAND_DEFAULT}px`));
     // Under the dock, which stays as it is (the view can still be used).
     expect(Boolean(dock().compareDocumentPosition(strip()) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(dock().hidden).toBe(false);

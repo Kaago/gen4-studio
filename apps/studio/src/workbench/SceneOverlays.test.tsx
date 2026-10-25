@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -11,6 +12,9 @@ import type { WorkbenchData } from "./WorkbenchContext";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const KEY = "g4.shell.v1";
+
+/** The overlays' stylesheet as written (jsdom lays nothing out and applies no CSS Modules), read from the package root vitest runs in. */
+const overlaysCss = readFileSync("src/workbench/SceneOverlays.module.css", "utf8");
 
 describe("SceneOverlays", () => {
   let container: HTMLElement;
@@ -88,6 +92,22 @@ describe("SceneOverlays", () => {
       const h = this.hasAttribute("data-scene-overlays") ? height : 0;
       return { top: 0, bottom: h, height: h, left: 0, right: 600, width: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
     });
+
+  it("keeps_a_flat_toolbar_that_wraps_under_the_layer_bar_at_the_top_of_a_narrow_view", () => {
+    // 1100 × 720 with the inspector beside the view: a view about 460 px wide and low, so the toolbar lies flat beside the layer bar and
+    // wraps to a second line. jsdom lays nothing out; the row is the anchor's, and its stylesheet packs the lines at the top (with the gap)
+    // instead of spreading them over the view's height.
+    viewHeight(300);
+    show();
+    expect(overlays().getAttribute("data-anchor")).toBe("top");
+    const top = /\.overlays\[data-anchor="top"\] \{([^}]*)\}/.exec(overlaysCss)?.[1] ?? "";
+    expect(top).toContain("flex-wrap: wrap");
+    expect(top).toContain("align-content: flex-start");
+    // The upright column (anchor left) is not a wrapping row.
+    const column = /\.overlays \{([^}]*)\}/.exec(overlaysCss)?.[1] ?? "";
+    expect(column).toContain("flex-direction: column");
+    expect(column).not.toContain("flex-wrap");
+  });
 
   it("lays_the_toolbar_flat_on_top_in_a_low_view_and_keeps_the_anchor", () => {
     viewHeight(300);

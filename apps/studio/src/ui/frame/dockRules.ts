@@ -31,11 +31,32 @@ export function keepViewGroupInPlace(event: GroupDragEvent): void {
   if (isSchauGroup(event.group)) event.nativeEvent.preventDefault();
 }
 
-/** `onWillShowOverlay`: nothing drops into the view group as a tab (its tabs, its header, its middle); a split beside it is fine. */
+/**
+ * `onWillShowOverlay`: nothing drops into the view group as a tab (its tabs, its header, its middle); a split beside it is fine. And a view
+ * panel or the view group drops nowhere: a touch or pen drag does not ask `onWillDragPanel` first, so its drop is refused here.
+ */
 export function keepViewGroupClosed(event: DockviewWillShowOverlayLocationEvent): void {
+  const data = event.getData?.();
+  if (data) {
+    const dragged = data.panelId !== null ? isSchauPanel(data.panelId) : event.api.groups.some((g) => g.id === data.groupId && isSchauGroup(g));
+    if (dragged) {
+      event.preventDefault();
+      return;
+    }
+  }
   const group = event.group;
   if (!group || !isSchauGroup(group)) return;
   if (event.kind === "tab" || event.kind === "header_space" || event.position === "center") event.preventDefault();
+}
+
+/** Runs `change` without the dock announcing the panels it moves (closed here, opened there); what it says afterwards is said. */
+function quietly(api: DockviewApi, change: () => void) {
+  api.updateOptions({ announcements: false });
+  try {
+    change();
+  } finally {
+    api.updateOptions({ announcements: undefined });
+  }
 }
 
 /** Gives a group the width limits of the step that placed it (the inspector beside the view keeps between 280 and 480 px). */
@@ -78,6 +99,11 @@ function build(api: DockviewApi, area: DeckArea, steps: ArrangementStep[]) {
 function rearrange(api: DockviewApi, steps: ArrangementStep[]) {
   const panel = (id: PanelId) => api.getPanel(id) as IDockviewPanel;
   const home = panel(steps[0]!.id).group;
+  // The view group floats (it must not, but an old gesture may have let it): it goes back into the grid first, beside any docked group.
+  if (home.api.location.type !== "grid") {
+    const docked = api.groups.find((g) => g !== home && g.api.location.type === "grid");
+    if (docked) home.api.moveTo({ group: docked, position: "left" });
+  }
   steps.forEach((step, index) => {
     if (index > 0) panel(step.id).api.moveTo({ group: home, position: "center", index });
   });
@@ -104,22 +130,23 @@ function rearrange(api: DockviewApi, steps: ArrangementStep[]) {
 export function applyArrangement(api: DockviewApi, area: DeckArea, arrangement: Arrangement): void {
   const steps = arrangementSteps(area, arrangement);
   if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
-  api.updateOptions({ announcements: false });
-  try {
+  quietly(api, () => {
     const complete = api.panels.length === steps.length && steps.every((step) => api.getPanel(step.id) !== undefined);
-    if (complete) rearrange(api, steps);
+    // Moving needs the view group in the grid (or a grid group to put it beside); without, the dock is built again.
+    const anchor = api.getPanel(steps[0]!.id);
+    const placeable = anchor !== undefined && (anchor.api.location.type === "grid" || api.groups.some((g) => g !== anchor.group && g.api.location.type === "grid"));
+    if (complete && placeable) rearrange(api, steps);
     else build(api, area, steps);
     // The panels that open a group, last first, so the first one (the view's) ends up the active panel.
     const openers = steps.filter((step) => step.position?.direction !== "within").reverse();
     for (const step of openers) api.getPanel(step.id)?.api.setActive();
-  } finally {
-    api.updateOptions({ announcements: undefined });
-  }
+  });
 }
 
 /**
- * Lets the panel `id` float at the right edge of the view, inspector-sized; false for a view panel (it stays docked), a panel the dock does
- * not have and one that floats already. A maximized group is restored first (the floating group would show above it otherwise).
+ * Lets the panel `id` float at the right edge of the view, inspector-sized, anchored there (it keeps to the right edge when the dock
+ * resizes, and the view widens into the place the panel left); false for a view panel (it stays docked), a panel the dock does not have
+ * and one that floats already. A maximized group is restored first (the floating group would show above it otherwise).
  */
 export function floatPanel(api: DockviewApi, id: PanelId | string): boolean {
   const panel = api.getPanel(id);
@@ -128,9 +155,8 @@ export function floatPanel(api: DockviewApi, id: PanelId | string): boolean {
   const view = api.groups.find((g) => g.api.location.type === "grid" && isSchauGroup(g));
   // The group api measures where the group is in the dock (dockview has it, its typing does not).
   const box = view ? (view.api as { boundingBox?: Box }).boundingBox : undefined;
-  const right = box ? box.left + box.width : api.width;
   const top = box ? box.top : 0;
-  api.addFloatingGroup(panel, { x: Math.max(0, right - FLOAT_WIDTH - FLOAT_INSET), y: top + FLOAT_INSET, width: FLOAT_WIDTH, height: FLOAT_HEIGHT });
+  api.addFloatingGroup(panel, { position: { right: FLOAT_INSET, top: top + FLOAT_INSET }, width: FLOAT_WIDTH, height: FLOAT_HEIGHT });
   return true;
 }
 
@@ -161,19 +187,21 @@ export function dockPanel(api: DockviewApi, area: DeckArea, id: PanelId | string
   const mate = mates.map(docked).find((p) => p !== undefined);
   if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
   const reference = docked(step?.position?.referencePanel) ?? api.panels.find((p) => isSchauPanel(p.id));
-  if (mate) {
-    panel.api.moveTo({ group: mate.group, position: "center" });
-  } else if (!step?.position || !reference) {
-    // No place in the arrangement (or nothing docked to put it beside): right of everything.
-    panel.api.moveTo({ group: api.addGroup({ direction: "right" }), position: "center" });
-  } else {
-    const direction = step.position.direction === "within" ? "below" : step.position.direction;
-    // Beside the view to the left or right means in full height: a group at that edge of the whole dock, not of the view's column.
-    const group = direction === "right" || direction === "left" ? api.addGroup({ direction }) : api.addGroup({ referenceGroup: reference.group, direction });
-    panel.api.moveTo({ group, position: "center" });
-    size(panel.group, step);
-    limit(panel.group, step);
-  }
+  quietly(api, () => {
+    if (mate) {
+      panel.api.moveTo({ group: mate.group, position: "center" });
+    } else if (!step?.position || !reference) {
+      // No place in the arrangement (or nothing docked to put it beside): right of everything.
+      panel.api.moveTo({ group: api.addGroup({ direction: "right" }), position: "center" });
+    } else {
+      const direction = step.position.direction === "within" ? "below" : step.position.direction;
+      // Beside the view to the left or right means in full height: a group at that edge of the whole dock, not of the view's column.
+      const group = direction === "right" || direction === "left" ? api.addGroup({ direction }) : api.addGroup({ referenceGroup: reference.group, direction });
+      panel.api.moveTo({ group, position: "center" });
+      size(panel.group, step);
+      limit(panel.group, step);
+    }
+  });
   // The panel moved out of its floating group (which closes), so dockview has no change of place to announce.
   announce(api, messages.groupDocked!(panel.title ?? panel.id));
   return true;

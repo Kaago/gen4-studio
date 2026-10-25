@@ -1,5 +1,5 @@
 import { memo, useMemo, useSyncExternalStore } from "react";
-import type { FunctionComponent, KeyboardEvent, MutableRefObject, ReactNode } from "react";
+import type { FunctionComponent, KeyboardEvent, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { DockviewDefaultTab, DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewGroupPanel, DockviewReadyEvent, GetTabContextMenuItemsParams, IDockviewPanelHeaderProps, IDockviewPanelProps, SerializedDockview } from "dockview-react";
 import { AREA_PANELS, DEFAULT_ARRANGEMENT, arrangementSteps, dropLayout, isSaneLayout, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "../../workbench/layout";
@@ -8,7 +8,6 @@ import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { messages } from "./dockMessages";
 import { tabMenuItems } from "./dockMenu";
 import { applyArrangement, dockPanel, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace } from "./dockRules";
-import { HAND_DEFAULT } from "./shellState";
 import styles from "./Deck.module.css";
 
 /** The panels of a dock by id. A module-level constant of the caller: dockview would remount every panel if this object changed. */
@@ -182,19 +181,30 @@ function openTabMenu(event: KeyboardEvent<HTMLElement>) {
 }
 
 /**
+ * Shift+pointerdown on a tab floats it, on a group's empty header the whole group: dockview does that itself, without asking
+ * `onWillDragPanel`. On the view group's header (its tabs and its empty part) it is cancelled before dockview sees it (dockview leaves an
+ * event alone whose default is prevented): the view stays docked. Elsewhere the gesture stays dockview's.
+ */
+function keepViewDocked(event: PointerEvent<HTMLElement>) {
+  if (!event.shiftKey) return;
+  const header = (event.target as HTMLElement).closest(".dv-tabs-and-actions-container");
+  if (header && event.currentTarget.contains(header) && header.closest('[data-dock-group-kind="schau"]')) event.preventDefault();
+}
+
+/**
  * The deck of an area: the hinge on top, then the area's one dock (its own dockview with its own layout key): the view group in the middle,
  * the edit panels beside or below it as the arrangement puts them; every group shows its tabs, a panel can be dragged, floated, maximized.
  * Every area with a deck has its own `Deck` (the shell keeps them all mounted). While a wizard is open (world only), its step shows in a
- * strip under the dock, which stays mounted and shrinks.
+ * strip under the dock (as high as the old hand, `HAND_DEFAULT`), which stays mounted and shrinks.
  */
 export function Deck({ area, components, dockRef, hinge, wizard }: DeckProps) {
   return (
     <div className={styles.deck}>
       {hinge}
-      <div className={styles.dock} id={`dock-${area}`} data-dock={area} onKeyDown={openTabMenu}>
+      <div className={styles.dock} id={`dock-${area}`} data-dock={area} onKeyDown={openTabMenu} onPointerDownCapture={keepViewDocked}>
         <DeckDock key={area} area={area} components={components} apiRef={dockRef} />
       </div>
-      {wizard !== undefined && <div className={styles.wizard} data-wizard-hand="" hidden={!wizard} style={{ height: HAND_DEFAULT } /* dyn */} />}
+      {wizard !== undefined && <div className={styles.wizard} data-wizard-hand="" hidden={!wizard} />}
     </div>
   );
 }

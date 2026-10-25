@@ -41,14 +41,18 @@ const floating = (api: DockviewApi) => api.groups.filter((g) => g.api.location.t
 describe("dock rules", () => {
   let element: HTMLElement;
   let dock: DockviewComponent;
+  /** What the dock said (its announcements go here instead of its live region). */
+  let said: string[];
   const api = () => dock.api;
 
   beforeEach(() => {
     localStorage.clear();
     element = document.createElement("div");
     document.body.append(element);
+    said = [];
     dock = new DockviewComponent(element, {
       createComponent: () => ({ element: document.createElement("div"), init: () => {} }),
+      announcer: (event) => void said.push(event.message),
     });
     dock.layout(1200, 800);
   });
@@ -115,10 +119,23 @@ describe("dock rules", () => {
     expect(floatPanel(api(), "inspector")).toBe(false);
   });
 
+  it("anchors_a_floating_panel_to_the_right_edge_of_the_view", () => {
+    build();
+    const float = vi.spyOn(api(), "addFloatingGroup");
+    floatPanel(api(), "inspector");
+    // Anchored right (not at a left measured while the inspector still stood beside the view), so it stays there when the dock resizes.
+    // (jsdom has no layout, so the box dockview clamps it to is not looked at.)
+    expect(float).toHaveBeenCalledWith(api().getPanel("inspector"), { position: { right: 16, top: 16 }, width: 340, height: 480 });
+    expect(api().toJSON().floatingGroups?.[0]?.position).toHaveProperty("right");
+  });
+
   it("docks_a_floating_panel_where_the_arrangement_puts_it", () => {
     build();
     floatPanel(api(), "inspector");
+    said = [];
     expect(dockPanel(api(), "welt", "inspector")).toBe(true);
+    // Said once, without the closing and opening of the move.
+    expect(said).toEqual(["Inspector angedockt"]);
     // Werkbank: right of the view, in full height, with its limits again.
     expect(grid(api())).toEqual(WERKBANK);
     expect(fullHeight(api(), "inspector")).toBe(true);
@@ -184,5 +201,34 @@ describe("dock rules", () => {
     expect(overlay(view, "content", "bottom")).toBe(false);
     expect(overlay(edit, "tab", "center")).toBe(false);
     expect(overlay(edit, "content", "center")).toBe(false);
+  });
+
+  it("refuses_every_drop_of_a_view_panel_or_the_view_group_whichever_drag_brought_it", () => {
+    // A touch or pen drag does not ask onWillDragPanel; its drop overlays are refused instead.
+    build();
+    const edit = api().getPanel("script")!.group;
+    const view = api().getPanel("world")!.group;
+    const overlay = (data: { panelId: string | null; groupId: string } | undefined, position = "right") => {
+      const event = { group: edit, kind: "content", position, api: api(), getData: () => data, preventDefault: vi.fn() };
+      keepViewGroupClosed(event as unknown as DockviewWillShowOverlayLocationEvent);
+      return event.preventDefault.mock.calls.length > 0;
+    };
+    expect(overlay({ panelId: "world", groupId: view.id })).toBe(true);
+    expect(overlay({ panelId: null, groupId: view.id })).toBe(true);
+    expect(overlay({ panelId: "inspector", groupId: api().getPanel("inspector")!.group.id })).toBe(false);
+    expect(overlay(undefined)).toBe(false);
+  });
+
+  it("brings_a_floating_view_group_back_into_the_grid_when_it_rebuilds", () => {
+    build();
+    const world = api().getPanel("world");
+    // What a Shift+click on the view's header did before the deck stopped it.
+    api().addFloatingGroup(world!.group);
+    expect(world!.api.location.type).toBe("floating");
+    build();
+    expect(floating(api())).toEqual([]);
+    expect(grid(api())).toEqual(WERKBANK);
+    expect(api().getPanel("world")).toBe(world);
+    expect(api().activePanel?.id).toBe("world");
   });
 });
