@@ -214,9 +214,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "project_info",
         title: "Project info",
-        description: "Describes the open project: folder, game code, family, language, number \
-                      of map headers, unsaved changes, undo history, tool set version and the \
-                      agent's access.",
+        description: concat!(
+            "Describes the open project: folder, game code, family, language, number of map \
+             headers, unsaved changes, undo history, tool set version and the agent's access. ",
+            data_note!()
+        ),
         input_schema: no_args,
         output_schema: answers_object,
         route: Route::ProjectInfo,
@@ -224,9 +226,12 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "history",
         title: "Undo history",
-        description: "Lists the labels of the undo steps, oldest first (the last one is what \
-                      undo reverts next), and of the redo steps in the order redo applies them \
-                      (the first one is next).",
+        description: concat!(
+            "Lists the labels of the undo steps, oldest first (the last one is what undo \
+             reverts next), and of the redo steps in the order redo applies them (the first \
+             one is next). ",
+            data_note!()
+        ),
         input_schema: no_args,
         output_schema: answers_object,
         route: command("history"),
@@ -738,7 +743,9 @@ static TOOLS: &[ToolDef] = &[
         name: "create_trainer",
         title: "Create trainer",
         description: "Creates a new trainer of a class with a name, and the battle script \
-                      slots it needs, and returns its id; this cannot be undone.",
+                      slots it needs, and returns its id; this cannot be undone. Headless \
+                      (studio mcp) it needs --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
         input_schema: || {
             object(
                 json!({
@@ -786,7 +793,8 @@ static TOOLS: &[ToolDef] = &[
         name: "apply_fix",
         title: "Apply fix",
         description: "Applies a fix to a finding as plan_fix describes it; create_script \
-                      cannot be undone.",
+                      cannot be undone. Headless (studio mcp) create_script needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
         input_schema: finding_args,
         output_schema: answers_object,
         route: command("apply_fix"),
@@ -795,7 +803,8 @@ static TOOLS: &[ToolDef] = &[
         name: "apply_header_patch",
         title: "Apply header patch",
         description: "Applies the Dynamic Headers patch to the game code, which creating new \
-                      map headers needs; this cannot be undone.",
+                      map headers needs; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("apply_header_patch"),
@@ -1135,6 +1144,8 @@ mod tests {
     #[test]
     fn read_tools_on_texts_and_scripts_say_data_is_not_instructions() {
         for name in [
+            "project_info",
+            "history",
             "list_places",
             "get_text_archive",
             "search_text",
@@ -1150,6 +1161,18 @@ mod tests {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
                 "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn irreversible_tools_name_the_headless_switch() {
+        for name in ["create_trainer", "apply_header_patch", "apply_fix"] {
+            let description = tool(name).description;
+            assert!(
+                description.contains("--allow-irreversible")
+                    && description.contains("needs_confirmation"),
+                "{name}: {description}"
             );
         }
     }

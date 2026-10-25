@@ -134,7 +134,10 @@ static TEMPLATES: [ResourceDef; 2] = [
 /// Commands a batch refuses before it runs anything. Undo and redo move the undo stack below
 /// the batch's mark; reloading, accepting the disk and the header patch forget history; the
 /// saves, compiles, script files and the build write to disk, where a rollback does not reach,
-/// and reload the text archives a compile touched (which forgets their history).
+/// and reload the text archives a compile touched (which forgets their history); the check
+/// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`
+/// and a map part export writes a file. `apply_fix` with `create_script` is refused too (see
+/// [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
     "redo",
@@ -149,7 +152,21 @@ const NOT_IN_BATCH: &[&str] = &[
     "add_script",
     "adopt_scripts",
     "build_rom",
+    "accept_baseline",
+    "ignore_finding",
+    "unignore_finding",
+    "set_check_enabled",
+    "export_map_part",
 ];
+
+/// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
+/// commands of [`NOT_IN_BATCH`], and `apply_fix` with `create_script`, which writes and
+/// compiles a script file and reloads text archives like `new_script_file`.
+fn not_in_batch(command: &str, args: &Value) -> bool {
+    NOT_IN_BATCH.contains(&command)
+        || (command == "apply_fix"
+            && args.get("fix").and_then(Value::as_str) == Some("create_script"))
+}
 
 /// Runs call `index` of a batch (the toolbox's own `run`; tests wrap it).
 type Runner<'a> = dyn FnMut(&Toolbox, usize, Prepared) -> Result<Value, ToolError> + 'a;
@@ -417,8 +434,8 @@ impl Toolbox {
     }
 
     /// One call of a batch, `{tool, arguments}`, checked like a call of its own, and whether
-    /// it changes the project; `g4_batch` (also through `g4_call`) and the commands of
-    /// [`NOT_IN_BATCH`] are refused.
+    /// it changes the project; `g4_batch` (also through `g4_call`) and what [`not_in_batch`]
+    /// names are refused.
     fn prepare_in_batch(&self, tool: &str, call: &Value) -> Result<(Prepared, bool), ToolError> {
         let Some(fields) = call.as_object() else {
             return Err(ToolError::error(
@@ -444,11 +461,11 @@ impl Toolbox {
             .ok_or_else(|| ToolError::error(format!("Unbekanntes Tool: {tool}")))?;
         let args = fields.get("arguments").cloned().unwrap_or(Value::Null);
         let prepared = self.prepare(def, args)?;
-        if let Prepared::Command { command, .. } = &prepared {
+        if let Prepared::Command { command, args } = &prepared {
             if command == "g4_batch" {
                 return Err(ToolError::error(NO_NESTED_BATCH));
             }
-            if NOT_IN_BATCH.contains(&command.as_str()) {
+            if not_in_batch(command, args) {
                 return Err(ToolError::error(format!(
                     "{command} geht nicht in g4_batch"
                 )));
@@ -1056,6 +1073,11 @@ mod tests {
             "add_script",
             "adopt_scripts",
             "build_rom",
+            "accept_baseline",
+            "ignore_finding",
+            "unignore_finding",
+            "set_check_enabled",
+            "export_map_part",
         ] {
             let message = refused(json!({ "tool": "g4_call",
                 "arguments": { "command": command, "args": { "kind": "Map", "index": 0 } } }));
@@ -1065,6 +1087,40 @@ mod tests {
             );
         }
         assert_eq!(data(&toolbox, "species", 1), species);
+        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+    }
+
+    #[test]
+    fn batch_refuses_create_script_fix() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let finding = json!({ "code": "x", "subject": { "Script": 0 }, "key": "k",
+                              "fingerprint": "f" });
+        let fix = |fix: &str| json!({ "finding": finding, "fix": fix });
+        // apply_fix with create_script writes a script file, as the curated tool and through
+        // g4_call; the call is refused before anything runs.
+        for call in [
+            json!({ "tool": "apply_fix", "arguments": fix("create_script") }),
+            json!({ "tool": "g4_call",
+                    "arguments": { "command": "apply_fix", "args": fix("create_script") } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls })));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("apply_fix geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Another fix stays in the store and may go in a batch.
+        let call = json!({ "tool": "apply_fix", "arguments": fix("wrap") });
+        assert!(toolbox.prepare_in_batch("apply_fix", &call).is_ok());
+        let call = json!({ "tool": "g4_call",
+                           "arguments": { "command": "apply_fix", "args": fix("wrap") } });
+        assert!(toolbox.prepare_in_batch("g4_call", &call).is_ok());
+        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
         assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
         // An empty batch is refused too.
         let (code, _, _) = failed(toolbox.call("g4_batch", json!({ "calls": [] })));

@@ -324,6 +324,30 @@ fn bad_project_exits_before_serving() {
     assert!(stderr.contains("--bogus"), "{stderr}");
 }
 
+/// A project path that is not UTF-8 reaches the policy as a path: no panic, the folder is
+/// reported missing like any other.
+#[cfg(unix)]
+#[test]
+fn non_utf8_project_does_not_panic() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    let mut project = dir.path().as_os_str().to_owned().into_vec();
+    project.extend_from_slice(b"/kein-\xff-projekt");
+    let output = Command::new(STUDIO)
+        .arg("mcp")
+        .arg("--project")
+        .arg(OsString::from_vec(project))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("Ordner nicht lesbar"), "{stderr}");
+    assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
+}
+
 /// The Python SDK (3h.2) initializes with protocol version 2025-11-25: one line in, one
 /// line of JSON out that agrees on that version. With the stray line printed, the first line
 /// on stdout is still the answer (the rmcp client would skip a line that is not JSON).

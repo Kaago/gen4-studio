@@ -46,13 +46,17 @@ pub struct UserPolicy {
     allowed: Vec<PathBuf>,
     /// The one emulator `run_rom` may start, canonical.
     emulator: Option<PathBuf>,
+    /// `G4_ROMS_DIR`, canonical: no path into an original is read or written.
+    roms: Option<PathBuf>,
 }
 
 impl UserPolicy {
     /// Canonicalizes `project` (which needs a `header.yaml`), the `allowed` folders and the
     /// `emulator`. When `G4_ROMS_DIR` is set, a project or folder inside it is refused unless
-    /// it is a copy under `_testkopien` (outside `_testkopien/_saves`), so an agent never gets
-    /// at the originals while the project is developed.
+    /// it is a copy under `_testkopien` (outside `_testkopien/_saves`), and so is a project or
+    /// folder that holds `G4_ROMS_DIR`; each path a command reads or writes is held to the same
+    /// rule, so an agent never gets at the originals while the project is developed. A
+    /// `G4_ROMS_DIR` that cannot be resolved is refused (fail closed).
     pub fn new(
         project: &Path,
         allowed: &[PathBuf],
@@ -70,10 +74,23 @@ impl UserPolicy {
         emulator: Option<&Path>,
         roms: Option<&Path>,
     ) -> Result<UserPolicy, String> {
-        let roms = roms.and_then(|dir| dir.canonicalize().ok());
+        let roms = roms
+            .map(|dir| {
+                dir.canonicalize().map_err(|e| {
+                    format!(
+                        "{ROMS_DIR_VAR} ist gesetzt, aber nicht lesbar: {}: {e}",
+                        dir.display()
+                    )
+                })
+            })
+            .transpose()?;
         let guard = |dir: &Path| match &roms {
             Some(roms) if is_original(dir, roms) => Err(format!(
                 "Originale sind gesperrt, nur Kopien unter {COPIES_DIR}: {}",
+                dir.display()
+            )),
+            Some(roms) if roms.starts_with(dir) => Err(format!(
+                "Originale sind gesperrt, der Ordner enthält {ROMS_DIR_VAR}: {}",
                 dir.display()
             )),
             _ => Ok(()),
@@ -104,6 +121,7 @@ impl UserPolicy {
             project: project_dir,
             allowed,
             emulator,
+            roms,
         })
     }
 
@@ -148,16 +166,27 @@ impl UserPolicy {
         Some(full)
     }
 
-    /// Whether `canonical` lies under the build folder or an allowed folder.
+    /// Whether `canonical` lies under the build folder or an allowed folder, and not in an
+    /// original.
     fn may_write(&self, canonical: &Path) -> bool {
-        canonical.starts_with(self.build_dir())
-            || self.allowed.iter().any(|dir| canonical.starts_with(dir))
+        (canonical.starts_with(self.build_dir())
+            || self.allowed.iter().any(|dir| canonical.starts_with(dir)))
+            && !self.in_original(canonical)
     }
 
-    /// Whether `canonical` lies under the project or an allowed folder.
+    /// Whether `canonical` lies under the project or an allowed folder, and not in an
+    /// original.
     fn may_read(&self, canonical: &Path) -> bool {
-        canonical.starts_with(&self.project)
-            || self.allowed.iter().any(|dir| canonical.starts_with(dir))
+        (canonical.starts_with(&self.project)
+            || self.allowed.iter().any(|dir| canonical.starts_with(dir)))
+            && !self.in_original(canonical)
+    }
+
+    /// Whether `canonical` lies in an original under `G4_ROMS_DIR` (see [`is_original`]).
+    fn in_original(&self, canonical: &Path) -> bool {
+        self.roms
+            .as_deref()
+            .is_some_and(|roms| is_original(canonical, roms))
     }
 
     /// Canonicalizes `path`. When it cannot be (it does not exist), the refusal says
@@ -277,8 +306,8 @@ fn canonical_dir(dir: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// Whether `dir` lies inside `roms` (canonical) but not in a copy: under
-/// `<roms>/_testkopien`, and then not under its `_saves`.
+/// Whether `dir` (a folder or a file) lies inside `roms` (canonical) but not in a copy:
+/// under `<roms>/_testkopien`, and then not under its `_saves`.
 fn is_original(dir: &Path, roms: &Path) -> bool {
     let Ok(rest) = dir.strip_prefix(roms) else {
         return false;
@@ -539,5 +568,78 @@ mod tests {
         assert!(open(&original, None).is_ok());
         let elsewhere = project();
         assert!(open(elsewhere.path(), Some(roms.path())).is_ok());
+    }
+
+    #[test]
+    fn refuses_an_allowed_folder_holding_the_originals() {
+        let outer = tempfile::tempdir().unwrap();
+        let roms = outer.path().join("Roms");
+        fs::create_dir_all(roms.join("X_DSPRE_contents")).unwrap();
+        let elsewhere = project();
+        // The folder above G4_ROMS_DIR, and G4_ROMS_DIR itself, hold the originals.
+        for dir in [outer.path(), roms.as_path()] {
+            let err = UserPolicy::new_with_roms(
+                elsewhere.path(),
+                &[dir.to_path_buf()],
+                None,
+                Some(&roms),
+            )
+            .err()
+            .unwrap();
+            assert!(err.starts_with("Originale sind gesperrt"), "{err}");
+        }
+        // So does a project folder above them.
+        fs::write(outer.path().join("header.yaml"), "title: x\n").unwrap();
+        let err = UserPolicy::new_with_roms(outer.path(), &[], None, Some(&roms))
+            .err()
+            .unwrap();
+        assert!(err.starts_with("Originale sind gesperrt"), "{err}");
+    }
+
+    #[test]
+    fn refuses_a_path_into_an_original_through_an_allowed_folder() {
+        let roms = tempfile::tempdir().unwrap();
+        let copies = roms.path().join("_testkopien");
+        let copy = copies.join("k");
+        let saves = copies.join("_saves");
+        fs::create_dir_all(&copy).unwrap();
+        fs::create_dir_all(&saves).unwrap();
+        fs::write(copy.join("header.yaml"), "title: x\n").unwrap();
+        fs::write(copy.join("in.per"), [0u8; 4]).unwrap();
+        fs::write(saves.join("s.sav"), [0u8; 4]).unwrap();
+        // The copies folder is allowed, but its saves are not a copy.
+        let p = UserPolicy::new_with_roms(
+            &copy,
+            std::slice::from_ref(&copies),
+            None,
+            Some(roms.path()),
+        )
+        .unwrap();
+        let save = saves.join("s.sav");
+        let save = save.to_str().unwrap();
+        assert!(outside(p.read_path(save).unwrap_err()), "{save}");
+        assert!(outside(p.write_path(save).unwrap_err()), "{save}");
+        let fresh = saves.join("neu.per");
+        let fresh = fresh.to_str().unwrap();
+        assert!(outside(p.check_output(fresh).unwrap_err()), "{fresh}");
+        // The copy itself is readable through the allowed folder and as the project.
+        let inside = copy.join("in.per");
+        assert!(p.read_path(inside.to_str().unwrap()).is_ok());
+        assert!(p.read_path("in.per").is_ok());
+        assert!(p.write_path(copies.join("x.per").to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn refuses_an_unresolvable_g4_roms_dir() {
+        let dir = project();
+        let missing = dir.path().join("keine-roms");
+        let err = UserPolicy::new_with_roms(dir.path(), &[], None, Some(&missing))
+            .err()
+            .unwrap();
+        assert!(
+            err.starts_with("G4_ROMS_DIR ist gesetzt, aber nicht lesbar: "),
+            "{err}"
+        );
+        assert!(err.contains("keine-roms"), "{err}");
     }
 }

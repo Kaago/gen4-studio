@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod server;
 pub mod tools;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -43,9 +44,10 @@ struct Cli {
     expert: bool,
 }
 
-/// Runs `studio mcp` with the process arguments `args` (`studio`, `mcp`, options…). Exit
-/// code 2 with a message on stderr when nothing could be served.
-pub fn main(args: Vec<String>) -> ExitCode {
+/// Runs `studio mcp` with the process arguments `args` (`studio`, `mcp`, options…), as the
+/// operating system gives them (a path need not be UTF-8). Exit code 2 with a message on
+/// stderr when nothing could be served.
+pub fn main(args: Vec<OsString>) -> ExitCode {
     // `mcp` stands in for the program name, clap's own name for it is "studio mcp".
     let cli = match Cli::try_parse_from(args.into_iter().skip(1)) {
         Ok(cli) => cli,
