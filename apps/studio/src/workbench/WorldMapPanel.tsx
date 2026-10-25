@@ -398,8 +398,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     [region, goTo],
   );
   const grid = useMemo(
-    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} />,
-    [region, headers, areaDataId, marked, colorOf, onCellClick, cache],
+    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} depth={depth} />,
+    [region, headers, areaDataId, marked, colorOf, onCellClick, cache, depth],
   );
 
   // The place of the selected header is open; the user opens and closes the others.

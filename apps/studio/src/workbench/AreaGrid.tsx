@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
@@ -28,6 +29,8 @@ export interface AreaGridProps {
   colorOf?: (header: number | null) => string | null;
   /** The depth Tüfteln: every filled cell writes its map, header and altitude as three lines of raw values. */
   tinker?: boolean;
+  /** The words of the tooltips (Bauen: "Nummer", Tüfteln: "Header"), for a grid that shows pictures in both depths; default: `tinker`. */
+  depth?: Depth;
 }
 
 interface CellProps {
@@ -44,19 +47,21 @@ interface CellProps {
   hasHeaders: boolean;
   cache: ThumbnailCache;
   tinker: boolean;
+  /** The tooltip says "Header" (Tüfteln), else "Nummer". */
+  techWords: boolean;
   onClick?: AreaGridProps["onCellClick"];
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
-const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, tinker, onClick, onDoubleClick }: CellProps) {
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, tinker, techWords, onClick, onDoubleClick }: CellProps) {
   const button = useRef<HTMLButtonElement>(null);
   const visible = useVisible(button, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
   const picture = useThumbnail(cache, map, area, visible);
   const parts = [`x ${x}, y ${y}`];
   if (map !== null) parts.push(`Karte ${id4(map)}`);
-  if (header !== null) parts.push(`Header ${id4(header)}`);
+  if (header !== null) parts.push(`${techWords ? "Header" : "Nummer"} ${id4(header)}`);
   if (altitude !== null) parts.push(`Höhe ${altitude}`);
   const failure = map !== null && picture === null ? cache.failure(map, area) : null;
   if (failure) parts.push(`Bild fehlgeschlagen: ${failure}`);
@@ -104,7 +109,8 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
 });
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
-export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf, tinker = false }: AreaGridProps) {
+export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf, tinker = false, depth }: AreaGridProps) {
+  const techWords = depth === undefined ? tinker : depth === "tuefteln";
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
   const columns = matrix.width + (onExtend ? 1 : 0);
@@ -146,6 +152,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           hasHeaders={matrix.headers != null}
           cache={cache}
           tinker={tinker}
+          techWords={techWords}
           onClick={onCellClick}
           onDoubleClick={onCellDoubleClick}
         />,

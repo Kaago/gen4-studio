@@ -102,11 +102,20 @@ describe("AreaGrid", () => {
   });
 
   it("titles_cells_with_their_parts_and_dashes_empty_ones", () => {
-    show();
+    show({ tinker: true });
     expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Header 0416 · Höhe 0");
     expect(cell(2, 1)?.getAttribute("title")).toBe("x 2, y 1 · Karte 0524 · Header 0000 · Höhe 2");
     expect(cell(2, 0)?.getAttribute("title")).toBe("x 2, y 0 · Höhe 0");
     expect(cell(2, 0)?.textContent).toBe("—");
+  });
+
+  it("names_the_header_of_a_cell_by_its_number_in_bauen_also_for_a_grid_that_shows_pictures_in_tuefteln", () => {
+    // Bauen speaks of no header (the world map's tooltips included); the world map draws pictures in both depths and says so by `depth`.
+    show();
+    expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Nummer 0416 · Höhe 0");
+    show({ depth: "tuefteln" });
+    expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Header 0416 · Höhe 0");
+    expect(cell(1, 0)?.textContent).not.toContain("0416\n");
   });
 
   it("shows_map_and_header_ids_only_at_size_64", () => {
