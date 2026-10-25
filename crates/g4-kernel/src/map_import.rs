@@ -1363,8 +1363,16 @@ mod tests {
             seen.insert(want);
             seen.extend(notes);
         }
-        // A model inside a whole map file says so in the English fallback.
+        // A model or terrain inside a whole map file keeps its code and names its part in the
+        // English message (the dialog puts the rest in brackets behind its own sentence).
         let mut f = fixture();
+        let path = f.file("terrain.bin", &bad_terrain.write(Family::Pt));
+        let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
+        let PartState::Error(e) = state_of(&r, Part::Whole) else {
+            panic!("{r:?}");
+        };
+        assert_eq!(e.code, BdhcMagic);
+        assert_eq!(e.message, "terrain: terrain does not start with BDHC");
         let path = f.file("two.bin", &two_models.write(Family::Pt));
         let r = inspect(&mut f.store, 0, &Source::Files(vec![path])).unwrap();
         let PartState::Error(e) = state_of(&r, Part::Whole) else {

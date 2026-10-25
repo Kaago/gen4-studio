@@ -69,12 +69,29 @@ export const isForeignWhole = (r: PartReport) => r.part === "whole" && r.notes.s
 /** "1 Teil" / "3 Teile". */
 export const partsWord = (n: number) => `${n} ${n === 1 ? "Teil" : "Teile"}`;
 
+/**
+ * A broken model or terrain inside a whole map file: the kernel gives the code of the model or terrain check (its English message starts
+ * with „model: “ or „terrain: “), whose own way out names a model or terrain file. The way out here is another map file; the kernel's reason
+ * is the detail in brackets.
+ */
+const WHOLE_INNER: readonly [prefix: string, lead: string, kernel: string][] = [
+  ["model.", "Das Modell in der Kartendatei ist ungültig", "model: "],
+  ["bdhc.", "Das Terrain in der Kartendatei ist beschädigt", "terrain: "],
+];
+
 /** How a part shows in the check list: an otherwise fine part with 0 bytes (no buildings, an empty BGS) is a hint, not a ready part. */
 export function partView(r: PartReport): {
   state: CheckState;
   message: string | null;
 } {
   if (r.state.kind === "ok") return r.size === 0 ? { state: "info", message: "Leer, wird nicht übernommen" } : { state: "ok", message: null };
+  const { code, message } = r.state;
+  const inner = r.part === "whole" && r.state.kind === "error" ? WHOLE_INNER.find(([prefix]) => code.startsWith(prefix)) : undefined;
+  if (inner) {
+    const [, lead, kernel] = inner;
+    const why = (message.startsWith(kernel) ? message.slice(kernel.length) : message).replace(/[.!?]$/, "");
+    return { state: "error", message: `${lead} (${why}). Wähle eine andere Kartendatei.` };
+  }
   return { state: r.state.kind, message: partText(r.state) };
 }
 
