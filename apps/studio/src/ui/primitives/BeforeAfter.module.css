@@ -32,14 +32,18 @@
   font: var(--g4-font-code-s);
 }
 
+/* A line is never wrapped (a line break must show as one): it is as wide as its text, at least the column, and the column scrolls
+   sideways; the changed surface reaches across. */
 .line {
   display: flex;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
   /* An empty line keeps its height. */
   min-height: 1lh;
   gap: var(--g4-raum-4);
   padding: 0 var(--g4-raum-8);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
 }
 
 /* The sign column: − for a line that went, + for one that came, empty for the others. */

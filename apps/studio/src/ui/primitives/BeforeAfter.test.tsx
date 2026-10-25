@@ -51,6 +51,17 @@ describe("BeforeAfter", () => {
     expect(container.querySelector("[role=group][aria-label='Vorher und Nachher']")).not.toBeNull();
   });
 
+  it("never_wraps_a_line_so_a_line_break_shows_as_one_and_the_column_scrolls_sideways", () => {
+    // A 60-character text line in a 215 px column: one line that scrolls, not four rows that look like four lines.
+    const css = readCss("./BeforeAfter.module.css", import.meta.url);
+    expect(ruleBody(css, ".line")).toMatch(/white-space:\s*pre;/);
+    expect(ruleBody(css, ".line")).not.toMatch(/overflow-wrap|word-break/);
+    // As wide as its longest line, at least the column: the changed surface reaches across while scrolling.
+    expect(ruleBody(css, ".line")).toMatch(/width:\s*max-content/);
+    expect(ruleBody(css, ".line")).toMatch(/min-width:\s*100%/);
+    expect(ruleBody(css, ".lines")).toMatch(/overflow:\s*auto/);
+  });
+
   it("highlights_changed_lines_in_the_selection_surface", () => {
     const css = readCss("./BeforeAfter.module.css", import.meta.url);
     expect(ruleBody(css, ".changed")).toMatch(/background:\s*var\(--g4-auswahl-flaeche\)/);
