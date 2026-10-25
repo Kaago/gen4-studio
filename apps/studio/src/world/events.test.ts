@@ -35,7 +35,8 @@ describe("event texts", () => {
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
-    expect(eventTitle("warp", warp, "bauen", "T01R0201")).toBe("Warp 0 → Ort 0414 (T01R0201)");
+    // Bauen gets the name the world tree gives the destination, and writes it alone.
+    expect(eventTitle("warp", warp, "bauen", "Haus 2")).toBe("Warp 0 → Haus 2");
     expect(eventTitle("warp", warp, "bauen")).toBe("Warp 0 → Ort 0414");
   });
 

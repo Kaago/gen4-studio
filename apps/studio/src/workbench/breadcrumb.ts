@@ -42,11 +42,18 @@ export interface CrumbInput {
 const EVENT_WORD: Record<EventKind, string> = { warp: "Warp", object: "Objekt", coord: "Trigger", bg: "Hintergrund-Event" };
 
 /** The heading of the pinned event as the inspector writes it (`eventTitle`) once its data is known, else the short form. */
-function eventLabel(pinned: { eventFile: number; eventKind: EventKind; index: number }, headers: HeaderSummary[], events: EventsDto | null | undefined, depth: Depth): string {
+function eventLabel(
+  pinned: { eventFile: number; eventKind: EventKind; index: number },
+  headers: HeaderSummary[],
+  events: EventsDto | null | undefined,
+  depth: Depth,
+  identify?: (header: HeaderSummary) => HeaderIdentity,
+): string {
   const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
   if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
   const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
-  return eventTitle(pinned.eventKind, data, depth, destination?.internal_name);
+  const destName = destination === undefined ? undefined : depth === "tuefteln" ? destination.internal_name : identify?.(destination).name;
+  return eventTitle(pinned.eventKind, data, depth, destName);
 }
 
 /** At most three crumbs: place › header (Gebiet or the room's name, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
@@ -63,7 +70,7 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, event
   crumbs.push({ label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
-      crumbs.push({ label: eventLabel(pinned, headers, events, depth), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
+      crumbs.push({ label: eventLabel(pinned, headers, events, depth, identify ?? ((h) => headerIdentity(places, h))), tech: `Eventdatei ${id4(pinned.eventFile)}`, onClick: link({ kind: "event", eventFile: pinned.eventFile, eventKind: pinned.eventKind, index: pinned.index }) });
       break;
     case "building":
       crumbs.push({ label: `Gebäude ${pinned.index + 1}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });

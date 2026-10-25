@@ -393,6 +393,7 @@ export function InspectorPanel() {
       }}
       eventEditor={{
         headers: d.headers,
+        identify,
         dirty: d.dirtyAssets,
         family: d.info?.family ?? null,
         revision: eventRevision,

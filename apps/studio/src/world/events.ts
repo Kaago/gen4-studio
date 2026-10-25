@@ -39,12 +39,16 @@ export function markerPosition(x: number, z: number, matrix: MatrixDto): { wx: n
 
 const id4 = (n: number) => String(n).padStart(4, "0");
 
-/** Headline of an event in the inspector, e.g. "Warp 0 → Header 0414 (T01R0201)"; Bauen: "Warp 0 → Ort 0414 (T01R0201)". */
+/**
+ * Headline of an event in the inspector. A door: Tüfteln "Warp 0 → Header 0414 (T01R0201)" with `destName` the internal name;
+ * Bauen "Warp 0 → Haus 2" with `destName` the name the world tree gives the destination, without one "Warp 0 → Ort 0414".
+ */
 export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destName?: string): string {
   switch (kind) {
     case "warp": {
       const w = data as WarpDto;
       const dest = `${termFor("header", depth)} ${id4(w.dest_header_id)}`;
+      if (depth !== "tuefteln") return `Warp ${w.index} → ${destName || dest}`;
       return `Warp ${w.index} → ${destName ? `${dest} (${destName})` : dest}`;
     }
     case "object": {

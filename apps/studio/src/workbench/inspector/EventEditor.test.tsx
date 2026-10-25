@@ -231,9 +231,19 @@ describe("EventEditor scripts", () => {
       const goTo = vi.fn();
       withWarp(1);
       await show(context({ goTo }), "warp", 0);
-      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Ort 0001 (H1)");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Ort 0001");
       await click(button("H10001 · H1"));
       expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
+    });
+
+    it("names_the_destination_in_the_head_as_the_world_tree_does_in_building", async () => {
+      // The row in „In dieser Szene“ says „Warp 0 → Haus 1“: the head says the same, not the code of the header.
+      withWarp(1);
+      const identify = (h: HeaderSummary) => ({ kind: "room" as const, name: h.id === 1 ? "Haus 1" : `Raum ${h.id}`, place: "Zweiblattdorf" });
+      await show(context({ identify }), "warp", 0);
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Haus 1");
+      await show(context({ identify }), "warp", 0, "tuefteln");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
     });
 
     it("picks_another_destination_header_in_the_picker_by_number", async () => {
@@ -304,6 +314,12 @@ describe("EventEditor scripts", () => {
       expect(trainerChip()?.getAttribute("data-trainer")).toBe("356");
       await click(trainerChip()!);
       expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 356 });
+    });
+
+    it("names_a_trainer_figure_in_the_head_as_the_scene_hierarchy_does", async () => {
+      withObject({ script: 3927, trainer_type: 1, sight: 3 });
+      await show(context({ trainers }), "object", 0);
+      expect(container.querySelector("h2")?.textContent).toBe("Objekt 0 · Wanderer Jens");
     });
 
     it("says_kein_Trainer_for_a_script_outside_3000_to_4999", async () => {

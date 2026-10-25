@@ -18,11 +18,14 @@ import { destinationSpec, referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 import { TrainerField } from "./TrainerField";
-import { trainerOfScript, trainerPatch } from "../trainerScript";
+import { scriptTrainerLabel, trainerOfScript, trainerPatch } from "../trainerScript";
+import type { HeaderIdentity } from "../headerIdentity";
 
 /** What the event editor needs from App besides the event's file, class and index. */
 export interface EventEditorContext {
   headers: HeaderSummary[];
+  /** What the world tree calls a header (`WorkbenchWorld.identify`): Bauen names a door's destination with it in the head. */
+  identify?: (header: HeaderSummary) => HeaderIdentity;
   /** The assets with unsaved changes: the head says "Ungespeichert" while the event file is one. */
   dirty: readonly AssetId[];
   /** Game family of the project ("Dp", "Pt", "Hgss"): decides which fields exist. */
@@ -60,7 +63,7 @@ export interface EventEditorContext {
  * its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
-  const { headers, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
+  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -127,12 +130,17 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const destinationField = destinationSpec(depth);
   const destination = warp ? referenceFor(destinationField, warp.dest_header_id, headers) : null;
   const destinationTarget = destination?.target ?? null;
+  // The head says what the scene hierarchy says: a door's destination by the world tree's name (Tüfteln: number and code), a trainer
+  // figure by its trainer ("Objekt 0 · Wanderer Jens").
+  const destName = destHeader === undefined ? undefined : depth === "tuefteln" ? destHeader.internal_name : identify?.(destHeader).name;
+  const trainer = kind === "object" ? scriptTrainerLabel(trainers, (event as ObjectDto).script) : null;
+  const headTitle = trainer !== null ? `Objekt ${index} · ${trainer}` : eventTitle(kind, event, depth, destName);
 
   return (
     <div className={styles.panel}>
       <InspectorHead
         kind={EVENT_INSPECTOR_KIND[kind]}
-        title={eventTitle(kind, event, depth, destHeader?.internal_name)}
+        title={headTitle}
         ident={ident}
         unsaved={isDirty(dirty, "Event", file)}
         locked={readOnly}

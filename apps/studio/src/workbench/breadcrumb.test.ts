@@ -37,9 +37,11 @@ describe("crumbsFor", () => {
     ]);
   });
 
-  it("names_the_destination_header_in_the_title_of_a_warp_like_the_event_editor", () => {
-    const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }) });
-    expect(crumbs[2]?.label).toBe("Warp 1 → Ort 0000 (H0)");
+  it("names_the_destination_of_a_warp_like_the_event_editor_and_the_world_tree", () => {
+    // Bauen: the name the world tree gives the destination (here from the places: header 0 is the area of its place); Tüfteln: number and code.
+    const pinned = { kind: "event", eventFile: 514, eventKind: "warp", index: 1 } as const;
+    expect(pin(pinned, 414, { events: eventsOf(514, { warps: [warp] }) })[2]?.label).toBe("Warp 1 → Zweiblattdorf");
+    expect(pin(pinned, 414, { events: eventsOf(514, { warps: [warp] }), depth: "tuefteln" })[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
   });
 
   it("falls_back_to_the_short_words_while_the_data_of_the_event_is_missing", () => {
