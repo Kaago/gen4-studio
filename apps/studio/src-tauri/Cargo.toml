@@ -15,7 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 # Dev-only HTTP bridge (`studio-bridge`) that lets an agent drive the UI in a browser.
-dev-bridge = ["dep:tiny_http", "dep:clap"]
+dev-bridge = ["dep:tiny_http"]
 
 [[bin]]
 name = "studio-bridge"
@@ -33,9 +33,15 @@ g4-formats = { path = "../../../crates/g4-formats" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiny_http = { version = "0.12", optional = true }
-clap = { version = "4", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive"] }
+# `studio mcp`: the editor's tools for coding agents over stdio (Model Context Protocol).
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "fs"] }
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
 g4-kernel = { path = "../../../crates/g4-kernel", features = ["test-support"] }
 g4-formats = { path = "../../../crates/g4-formats", features = ["test-support"] }
+rmcp = { version = "=3.7.0", default-features = false, features = ["client", "transport-child-process"] }
+tokio = { version = "1", features = ["process", "time", "io-util"] }
