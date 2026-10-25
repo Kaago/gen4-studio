@@ -71,3 +71,29 @@
 .indented {
   padding-left: var(--g4-raum-24);
 }
+
+/* The place label of a room of another place: a dot in the place's colour (set inline as the only dynamic value) and its name in grey. */
+.placeLabel {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* The menu of a selected room or of a world map, at the end of its row. */
+.actions {
+  display: inline-flex;
+  align-items: center;
+}

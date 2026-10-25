@@ -44,6 +44,8 @@ import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
+import { useWorldActions } from "./RoomActions";
+import { useWorldModel } from "./useWorldModel";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
@@ -53,7 +55,7 @@ const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 /** The explorer: no dock panel but the shell's list column; whether it is folded is the shell's state of the world area. */
 export function ExplorerPane() {
   const d = useWorkbench();
-  const { state, setListOpen } = useShell();
+  const { state, setListOpen, setWorldSort } = useShell();
   const listOpen = state.listOpen.welt;
   const onToggleList = useStableCallback(() => setListOpen("welt", !listOpen));
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
@@ -64,11 +66,23 @@ export function ExplorerPane() {
   // A header the checks found an error or warning at (its own, or of its event file) is marked.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const marks = useMemo(() => headerMarks(rows, d.headers), [rows, d.headers]);
+  // The world model: the cells of the world maps are read again whenever matrix data moved; the project file once per project.
+  const matrixRevision = useBusRevision(d.bus, "matrixData");
+  const { world, meta, setMeta } = useWorldModel({
+    info: d.info,
+    headers: d.headers,
+    matrices: d.matrices,
+    links: d.warpLinks,
+    loaded: d.matricesLoaded,
+    revision: matrixRevision,
+    onError: d.onError,
+  });
+  const { onRename, onOwner } = useWorldActions(meta, setMeta);
   return (
     <WorldExplorer
       info={d.info}
       headers={d.headers}
-      matrices={d.matrices}
+      world={world}
       matricesLoaded={d.matricesLoaded}
       matricesFailed={d.matricesFailed}
       selected={d.selected}
@@ -82,6 +96,10 @@ export function ExplorerPane() {
       listOpen={listOpen}
       onToggleList={onToggleList}
       marks={marks}
+      sort={state.worldSort}
+      onSort={setWorldSort}
+      onRename={onRename}
+      onOwner={onOwner}
     />
   );
 }

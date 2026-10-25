@@ -2,11 +2,12 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
-import type { Depth } from "../ui/frame/shellState";
+import type { Depth, ListSort } from "../ui/frame/shellState";
 import { ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
 import { ShownMark } from "./ShownMark";
 import { TERMS, id4, techLabel } from "./terms";
+import { sortHeaders } from "./worldSort";
 import styles from "./WorldExplorer.module.css";
 
 interface Props {
@@ -17,8 +18,9 @@ interface Props {
   shownMatrix: number | null;
   /** Bumped by every link to a header: the list scrolls to the selection again, also when it was selected already. */
   revealToken: number;
-  /** Tüfteln writes the id and the code into every row; Bauen leaves them to the tooltip. */
+  /** Tüfteln writes the id, the code and the matrix into every row; Bauen leaves the number and the code to the tooltip. */
   depth: Depth;
+  sort: ListSort;
   onSelect: (h: HeaderSummary) => void;
   /** The worst error or warning the checks found per header (`headerMarks`); none: no marks. */
   marks?: ReadonlyMap<number, MarkSeverity>;
@@ -40,20 +42,28 @@ const HeaderRow = memo(function HeaderRow({
   mark: MarkSeverity | undefined;
   onSelect: (h: HeaderSummary) => void;
 }) {
+  const name = h.location_name || h.internal_name;
   return (
     <ListRow
-      label={h.location_name || h.internal_name}
+      label={name}
       tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
       selected={selected}
       onSelect={() => onSelect(h)}
-      title={`${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`}
+      // Building speaks of the game: the number and the code, no technical words.
+      title={
+        tinker
+          ? `${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`
+          : `${name} · Nummer ${id4(h.id)} · ${h.internal_name}`
+      }
       dataAttrs={{ "data-header-id": h.id }}
       trailing={
-        <>
-          {mark && <FindingMark severity={mark} />}
-          {marked && <ShownMark />}
-          <span className={styles.matrixTag}>M{h.matrix_id}</span>
-        </>
+        mark || marked || tinker ? (
+          <>
+            {mark && <FindingMark severity={mark} />}
+            {marked && <ShownMark />}
+            {tinker && <span className={styles.matrixTag}>M{h.matrix_id}</span>}
+          </>
+        ) : undefined
       }
     />
   );
@@ -64,9 +74,10 @@ const HeaderRow = memo(function HeaderRow({
  * reveal token or the callback change, not when the scene is hovered or a message arrives.
  * `onSelect` must keep its identity for that.
  */
-export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, onSelect, marks }: Props) {
+export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, sort, onSelect, marks }: Props) {
   const [query, setQuery] = useState("");
-  const shown = useMemo(() => filterHeaders(headers, query), [headers, query]);
+  const sorted = useMemo(() => sortHeaders(headers, sort), [headers, sort]);
+  const shown = useMemo(() => filterHeaders(sorted, query), [sorted, query]);
   // The host is always rendered, so the arrow keys work after a search and after switching modes.
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
@@ -95,7 +106,7 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
       <div className={styles.top}>
         {info && (
           <p className={styles.caption}>
-            {info.header_count} {TERMS.header.plural}
+            {info.header_count} {depth === "tuefteln" ? TERMS.header.plural : info.header_count === 1 ? TERMS.place.label : TERMS.place.plural}
           </p>
         )}
         <TextField type="search" label="Header suchen" placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />

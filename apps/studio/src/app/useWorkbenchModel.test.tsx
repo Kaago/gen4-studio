@@ -31,7 +31,11 @@ vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
     useMatrixSelection: () => (reads.selection++, real.useMatrixSelection()),
   };
 });
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  getMatrix: vi.fn(),
+  worldMetaGet: vi.fn(async () => ({ meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} }, broken: null })),
+}));
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -228,15 +232,17 @@ describe("workbench model", () => {
     await show({ hover: null, message: null, showEvents: false });
     expect(reads.data).toBe(1);
     expect(bodies.rows).toBe(0);
-    // The explorer shows nothing of the warps: a new warp list reaches the panel, not the places.
+    // The rooms hang on their entrances: a new warp list builds the world again.
     await show({ hover: null, message: null, links: [] });
     expect(reads.data).toBe(2);
-    expect(bodies.rows).toBe(0);
+    expect(bodies.rows).toBeGreaterThan(0);
+    bodies.rows = 0;
     // Control: the explorer does render (and read the headers' names) for a new matrix overview.
     await show({ hover: null, message: null, matrices: [...summaries] });
     expect(reads.data).toBe(3);
     expect(bodies.rows).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Ort 0");
+    // Its one header is a room without an entrance.
+    expect(container.textContent).toContain("1 Raum");
   });
 
   it("does not render the matrix tab for a hover or a message", async () => {

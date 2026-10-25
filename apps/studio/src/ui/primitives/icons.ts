@@ -48,6 +48,7 @@ import {
   Question,
   Rows,
   Signpost,
+  SortAscending,
   Stack,
   Sun,
   TextAa,
@@ -120,6 +121,7 @@ export const icons = {
   patch: Bandaids,
   tools: Toolbox,
   density: Rows,
+  sort: SortAscending,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;
