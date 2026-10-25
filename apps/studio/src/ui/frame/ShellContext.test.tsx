@@ -80,6 +80,15 @@ describe("ShellProvider theme and density", () => {
     expect(shell.density).toBe("komfort");
   });
 
+  it("reads_and_writes_world_sort_in_the_shell_state", () => {
+    expect(shell.state.worldSort).toEqual({ tree: "game", list: "id" });
+    act(() => shell.setWorldSort({ tree: "name" }));
+    expect(shell.state.worldSort).toEqual({ tree: "name", list: "id" });
+    act(() => shell.setWorldSort({ list: "code" }));
+    expect(shell.state.worldSort).toEqual({ tree: "name", list: "code" });
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).worldSort).toEqual({ tree: "name", list: "code" });
+  });
+
   it("remembers_the_toolbar_anchor", () => {
     expect(shell.state.toolbar).toBe("left");
     act(() => shell.setToolbar("bottom"));

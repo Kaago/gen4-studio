@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
 import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
-import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor } from "./shellState";
+import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor, WorldSort } from "./shellState";
 
 export interface ShellApi {
   state: ShellState;
@@ -18,6 +18,8 @@ export interface ShellApi {
   setSelected: (key: DataSelectKey, index: number | null) => void;
   /** Puts the toolbar of the 3D view at an anchor (remembered). */
   setToolbar: (anchor: ToolbarAnchor) => void;
+  /** Sets how the world tree and/or the header list are sorted (remembered); a part left out stays. */
+  setWorldSort: (sort: Partial<WorldSort>) => void;
   /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -89,6 +91,14 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     [],
   );
   const setToolbar = useCallback((toolbar: ToolbarAnchor) => setState((s) => (s.toolbar === toolbar ? s : { ...s, toolbar })), []);
+  const setWorldSort = useCallback(
+    (sort: Partial<WorldSort>) =>
+      setState((s) => {
+        const worldSort = { tree: sort.tree ?? s.worldSort.tree, list: sort.list ?? s.worldSort.list };
+        return worldSort.tree === s.worldSort.tree && worldSort.list === s.worldSort.list ? s : { ...s, worldSort };
+      }),
+    [],
+  );
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
   const setTheme = useCallback((t: Theme) => {
@@ -115,6 +125,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setPokemonSub,
       setSelected,
       setToolbar,
+      setWorldSort,
       tool,
       setTool,
       pendingTrainer,
@@ -129,7 +140,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

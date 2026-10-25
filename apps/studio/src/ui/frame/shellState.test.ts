@@ -92,6 +92,20 @@ describe("shell state", () => {
     expect(read.selected).toEqual({});
   });
 
+  it("reads_and_writes_world_sort_in_the_shell_state", () => {
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "recent", list: "code" } }));
+    expect(readShellState().worldSort).toEqual({ tree: "recent", list: "code" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "name" } }));
+    expect(readShellState().worldSort).toEqual({ tree: "name", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "alphabet", list: 3 } }));
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: "name" }));
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    writeShellState({ ...readShellState(), worldSort: { tree: "name", list: "name" } });
+    expect(readShellState().worldSort).toEqual({ tree: "name", list: "name" });
+  });
+
   it("reads_the_toolbar_anchor_and_falls_back_to_left", () => {
     expect(readShellState().toolbar).toBe("left");
     for (const anchor of ["left", "top", "bottom"] as const) {

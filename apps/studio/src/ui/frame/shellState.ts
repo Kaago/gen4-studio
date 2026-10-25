@@ -1,6 +1,6 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
 // of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows, the selection of each data
-// part and the anchor of the toolbar in the 3D view. Plain module (no React); `ShellContext` holds the live copy. A state written
+// part, the anchor of the toolbar in the 3D view and how the world tree and the header list are sorted. Plain module (no React); `ShellContext` holds the live copy. A state written
 // before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
@@ -12,6 +12,17 @@ export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemo
 /** Where the toolbar floats in the 3D view: upright at the left edge, flat at the top (beside the layer bar), or flat at the bottom middle. */
 export type ToolbarAnchor = "left" | "top" | "bottom";
 const TOOLBAR_ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];
+
+/** How the world tree orders its areas (and, by name, its rooms): game order (first header id), by name, or the areas chosen last first. */
+export type TreeSort = "game" | "name" | "recent";
+const TREE_SORTS: readonly TreeSort[] = ["game", "name", "recent"];
+/** How the header list orders its rows: by number, by the name it shows, or by code. */
+export type ListSort = "id" | "name" | "code";
+const LIST_SORTS: readonly ListSort[] = ["id", "name", "code"];
+export interface WorldSort {
+  tree: TreeSort;
+  list: ListSort;
+}
 
 /** The parts of the Pokémon area, in the order of their keys ⌘1 to ⌘4. */
 export type PokemonSub = "pokedex" | "trainer" | "encounters" | "moves";
@@ -57,6 +68,8 @@ export interface ShellState {
   selected: DataSelection;
   /** The anchor the toolbar was put at; a low view may show it elsewhere (`shownAnchor`), this stays. */
   toolbar: ToolbarAnchor;
+  /** The sort of the world tree and of the header list. */
+  worldSort: WorldSort;
 }
 
 /** A hand height inside 200..560; anything that is not a number gets the default. */
@@ -92,6 +105,11 @@ function readSelection(stored: unknown): DataSelection {
   return selection;
 }
 
+function readWorldSort(stored: unknown): WorldSort {
+  const record = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  return { tree: TREE_SORTS.find((t) => t === record.tree) ?? "game", list: LIST_SORTS.find((l) => l === record.list) ?? "id" };
+}
+
 function stored(): unknown {
   try {
     const raw = localStorage.getItem(KEY);
@@ -115,6 +133,7 @@ export function readShellState(): ShellState {
     sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
     selected: readSelection(s.selected),
     toolbar: TOOLBAR_ANCHORS.find((a) => a === s.toolbar) ?? "left",
+    worldSort: readWorldSort(s.worldSort),
   };
 }
 
