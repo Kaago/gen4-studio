@@ -18,7 +18,7 @@ interface Props {
   shownMatrix: number | null;
   /** Bumped by every link to a header: the list scrolls to the selection again, also when it was selected already. */
   revealToken: number;
-  /** Tüfteln writes the id, the code and the matrix into every row; Bauen leaves the number and the code to the tooltip. */
+  /** Both depths write the number and the code into every row; Tüfteln adds the matrix and speaks of headers. */
   depth: Depth;
   sort: ListSort;
   onSelect: (h: HeaderSummary) => void;
@@ -46,7 +46,8 @@ const HeaderRow = memo(function HeaderRow({
   return (
     <ListRow
       label={name}
-      tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
+      // The number and the code tell the rows of one place apart (eight rooms of Zweiblattdorf all read "Zweiblattdorf").
+      tech={`${id4(h.id)} · ${h.internal_name}`}
       selected={selected}
       onSelect={() => onSelect(h)}
       // Building speaks of the game: the number and the code, no technical words.
@@ -109,9 +110,9 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
             {info.header_count} {depth === "tuefteln" ? TERMS.header.plural : info.header_count === 1 ? TERMS.place.label : TERMS.place.plural}
           </p>
         )}
-        <TextField type="search" label="Header suchen" placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={depth === "tuefteln" ? "Header suchen" : "Orte suchen"} placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
       </div>
-      <div ref={list} role="listbox" aria-label="Header" className={styles.host}>
+      <div ref={list} role="listbox" aria-label={depth === "tuefteln" ? TERMS.header.plural : TERMS.place.plural} className={styles.host}>
         {shown.map((h) => (
           <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depth === "tuefteln"} mark={marks?.get(h.id)} onSelect={onSelect} />
         ))}

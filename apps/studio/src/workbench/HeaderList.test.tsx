@@ -83,18 +83,29 @@ describe("HeaderList", () => {
     expect(reads() - before).toBe(headers.filter((h) => h.matrix_id === 2).length * perRow);
   });
 
-  it("leaves_the_id_and_the_internal_name_to_the_tooltip_in_bauen", () => {
+  it("shows_the_number_and_the_code_as_the_grey_part_in_bauen_so_rows_of_one_place_differ", () => {
+    // Eight rooms of one place all read "Zweiblattdorf": the number and the code tell them apart (Bauen speaks of a number, not a header).
     const { headers } = countedHeaders(2);
     act(() => root.render(<HeaderList {...props(headers)} />));
     const row = container.querySelector<HTMLElement>('[data-header-id="1"]')!;
-    expect(row.textContent).toBe("Ort 1");
+    expect(row.textContent).toBe("Ort 10001 · H1");
     expect(row.getAttribute("title")).toBe("Ort 1 · Nummer 0001 · H1");
+  });
+
+  it("names_its_search_and_list_without_header_in_bauen", () => {
+    const { headers } = countedHeaders(2);
+    act(() => root.render(<HeaderList {...props(headers)} />));
+    expect(container.querySelector('input[aria-label="Orte suchen"]')).not.toBeNull();
+    expect(container.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Orte");
+    act(() => root.render(<HeaderList {...props(headers, { depth: "tuefteln" })} />));
+    expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
+    expect(container.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Header");
   });
 
   it("shows_no_matrix_tag_in_building", () => {
     const { headers } = countedHeaders(3);
     act(() => root.render(<HeaderList {...props(headers, { info: { root: "/p", game_code: "CPUE", family: "Pt", language: "de", header_count: 3 }, shownMatrix: 1 })} />));
-    expect(container.textContent).not.toMatch(/Header|Matrix|Raster|M1/);
+    expect(container.textContent).not.toMatch(/Header|Matrix|Raster|M1\b/);
     expect([...container.querySelectorAll("[title]")].map((e) => e.getAttribute("title")).join(" ")).not.toMatch(/Header|Matrix|Raster/);
     expect(container.textContent).toContain("3 Orte");
     act(() => root.render(<HeaderList {...props(headers, { depth: "tuefteln" })} />));
