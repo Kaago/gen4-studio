@@ -197,6 +197,9 @@ describe("TechnikArea", () => {
     const dest = toggle("warp.dest-warp");
     expect(dest.getAttribute("aria-disabled") === "true" || dest.hasAttribute("data-disabled")).toBe(true);
     expect(list.querySelector('[data-check="warp.dest-warp"]')?.textContent).toContain("Fehler lassen sich nicht abschalten");
+    // A header of another matrix is an error too (ruling R16).
+    const elsewhere = toggle("matrix.header-elsewhere");
+    expect(elsewhere.getAttribute("aria-disabled") === "true" || elsewhere.hasAttribute("data-disabled")).toBe(true);
   });
 
   it("pruefen_und_bauen_says_when_there_are_no_problems", async () => {

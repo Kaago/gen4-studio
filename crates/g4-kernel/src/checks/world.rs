@@ -929,9 +929,10 @@ impl SourceCheck for MatrixHeaderRange {
     }
 }
 
-/// `matrix.header-elsewhere` (warning): a header cell with a map names a header whose
-/// `matrix_id` is another matrix, so its events do not appear there. Header cell 0
-/// (`matrix.header_none`) means no header and is exempt; cells without a map are skipped.
+/// `matrix.header-elsewhere` (error, ruling R16; 0 on the three vanilla projects with the
+/// exemption): a header cell with a map names a header whose `matrix_id` is another matrix,
+/// so its events do not appear there. Header cell 0 (`matrix.header_none`) means no header
+/// and is exempt; cells without a map are skipped.
 /// Subject: matrix; key `cell:<x>,<y>`; field `headers`. Args:
 /// `[matrix, x, y, header, the header's matrix]`. Also: the header and its matrix.
 /// Fingerprint: the header and its matrix.
@@ -939,7 +940,7 @@ pub(crate) struct MatrixHeaderElsewhere;
 
 impl SourceCheck for MatrixHeaderElsewhere {
     const CODE: &'static str = "matrix.header-elsewhere";
-    const SEVERITY: Severity = Severity::Warning;
+    const SEVERITY: Severity = Severity::Error;
 
     fn check(
         &self,
@@ -1581,7 +1582,8 @@ mod tests {
         ];
         let found = f.run(&MatrixHeaderElsewhere);
         assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:1,0")]);
-        assert_eq!(found[0].severity, Severity::Warning);
+        // An error (ruling R16): 0 on the three vanilla projects with header cell 0 exempt.
+        assert_eq!(found[0].severity, Severity::Error);
         assert_eq!(args(&found[0]), ["0", "1", "0", "1", "1"]);
         assert_eq!(found[0].also, [Subject::Header(1), Subject::Matrix(1)]);
     }

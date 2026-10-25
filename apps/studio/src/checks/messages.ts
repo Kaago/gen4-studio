@@ -104,7 +104,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
   },
   "matrix.header-elsewhere": {
     group: "cheap",
-    severity: "warning",
+    severity: "error",
     title: "Header einer anderen Matrix",
     text: "Die Zelle nennt Header {3:id}, der Matrix {4} nutzt; seine Events erscheinen hier nicht. Wähle einen Header dieser Matrix oder ändere die Matrix des Headers.",
   },
