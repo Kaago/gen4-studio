@@ -100,6 +100,24 @@ describe("useF6Ring", () => {
     expect(f6Targets(document, "welt")).toEqual([$("nav"), $("#welt-list"), $("#hinge"), groupEl("1"), groupEl("2"), groupEl("3"), groupEl("4"), $("footer")]);
   });
 
+  it("stops_at_the_wizard_strip_before_the_status_line_while_it_shows", () => {
+    // The strip under the dock holds the wizard's step; hidden (no wizard open) it is no stop.
+    const strip = document.createElement("div");
+    strip.setAttribute("data-wizard-hand", "");
+    strip.hidden = true;
+    strip.innerHTML = '<div role="dialog" data-wizard="" tabindex="-1"><button id="choice">Vorlage</button></div>';
+    $("#dock-welt").after(strip);
+    expect(f6Targets(document, "welt")).not.toContain(strip);
+    strip.hidden = false;
+    expect(f6Targets(document, "welt").slice(-3)).toEqual([groupEl("4"), strip, $("footer")]);
+    // F6 from the last group reaches the step's first control, the next F6 the status line.
+    $("#fix").focus();
+    f6();
+    expect(focused()).toBe($("#choice"));
+    f6();
+    expect(focused()).toBe($("#density"));
+  });
+
   it("puts_the_floating_groups_after_the_docked_ones", () => {
     // A floating group earlier in the document than a docked one still comes last.
     $("#dock-welt").prepend($(".dv-floating-overlay-host"));

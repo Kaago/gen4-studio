@@ -314,3 +314,110 @@
   grid-template-columns: repeat(3, 1fr);
   gap: var(--g4-raum-8);
 }
+
+/*
+ * Dock tabs and a floating group as pictures of the component: dockview's own classes inside the dock theme (`dockview-theme-g4`), so its
+ * tokens style them as in the app. A stage keeps the floating group (dockview places it absolutely, high up) inside its own layer.
+ */
+.dockDemos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-24);
+}
+
+.dockDemo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+/* A docked group: flat, no radius, no shadow; its edge a 1-px line. */
+.dockGroup {
+  width: 320px;
+  height: 120px;
+  border: 1px solid var(--g4-linie-leise);
+}
+
+.dockGroupContent {
+  padding: var(--g4-raum-8);
+}
+
+/* The tab menu shown open, in the flow instead of at the pointer. */
+.dockMenu {
+  width: 220px;
+  margin: 0;
+  list-style: none;
+}
+
+.floatStage {
+  position: relative;
+  width: 560px;
+  height: 340px;
+  isolation: isolate;
+  border: 1px solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-schau);
+}
+
+.floatStage .dockGroup {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Where „Schweben lassen“ puts the group: at the right edge of the view, 16 px in (the app's group is 340 × 480). */
+.floatGroup {
+  top: var(--g4-raum-16);
+  right: var(--g4-raum-16);
+  width: 300px;
+  height: 260px;
+}
+
+/* The two arrangements as small plans: groups as flat boxes with 1-px lines, the view tinted. */
+.arrangement {
+  display: grid;
+  width: 280px;
+  height: 180px;
+  border: 1px solid var(--g4-linie-leise);
+  background: var(--g4-linie-leise);
+  gap: 1px;
+}
+
+.arrangementWerkbank {
+  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-rows: minmax(0, 1fr) 56px;
+  grid-template-areas:
+    "schau side"
+    "below side";
+}
+
+.arrangementDoppeldeck {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 64px;
+  grid-template-areas:
+    "schau"
+    "below";
+}
+
+.arrangementCell {
+  min-width: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-6);
+  overflow: hidden;
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.arrangementCell[data-cell="schau"] {
+  grid-area: schau;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+}
+
+.arrangementCell[data-cell="side"] {
+  grid-area: side;
+}
+
+.arrangementCell[data-cell="below"] {
+  grid-area: below;
+}

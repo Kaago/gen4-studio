@@ -132,3 +132,27 @@ Befunde von 3e.3 (in der Teilphase behoben):
 2. Kopf einer Karte in Bauen: seit `d82e0e8` Titel „Karte 0000“, Kennung „Zelle 3, 27 · Zweiblattdorf“ (nachgeprüft); die Kürzel M/H nur in Tüfteln.
 3. Kachel-Hover in Bauen ohne Typ-Nummer und ROM-Namen: „Kachel x 24, y 30 · Karte 0174 · blockiert“ (`d82e0e8`, nachgeprüft).
 4. Aus den Reviews: Kopf, Brotkrume und Türziele benennen Orte wie der Weltbaum (das Weltmodell liegt seit `7912e74` in den Werkbank-Daten); die Brotkrume nennt einen Raum mit Klarnamen (Befund 4 aus 3e.2 erledigt).
+
+## Tabelle „vorher → jetzt“
+
+Die älteren Gate-Dateien ([3a](phase-3a-gate.md), [3b.1](phase-3b1-gate.md), [3b.2](phase-3b2-gate.md), [3b.3](phase-3b3-gate.md), [3b.4](phase-3b4-gate.md), [3c](phase-3c-gate.md)) bleiben wörtlich, wie sie abgenommen wurden. Wer sie nach 3e erneut fährt, liest ihre Formulierungen über diese Tabelle (Stand nach 3e.4; „Bauen“ ist die Standard-Tiefe, Tüfteln zeigt die Fachwörter weiter).
+
+| Vorher (Gate-Datei) | Jetzt (nach 3e) | Seit |
+|---|---|---|
+| Werkzeuge in der Hand, Reiter „Werkzeuge“ (3c (A), 3b.3, 3b.4) | schwebende Leiste `[role=toolbar][aria-label=Werkzeugleiste]` in der 3D-Ansicht, `data-tool` bleibt; Buchstaben nur bei sichtbarem 3D | 3e.1 |
+| Scharnier zwischen Schau und Hand, Griff des Scharniers (3c) | Scharnier `[role=toolbar][aria-label=Scharnier]` über dem Dock, ohne Griff; die Höhen ändert man an den Trennlinien des Docks | 3e.1, 3e.4 |
+| `document.getElementById("dock-welt-hand")` (3c (C) „Script hebt die Hand auf 400 px“) | die Gruppe mit dem Reiter „Script“: `document.querySelector('[data-dock-panel="script"]').closest('[data-dock-group]').getBoundingClientRect().height` ≥ 400 | 3e.4 |
+| „Hand auf die Standardhöhe (Doppelklick auf den Griff …)“ (3c) | Palette „Layout zurücksetzen“ (baut die gemerkte Anordnung neu) | 3e.4 |
+| `data-dock="schau"` / `data-dock="hand"`, Teiler `[data-splitter=hand]` | ein Dock je Bereich `div[data-dock="welt"]#dock-welt`; Gruppen `[data-dock-group]`, die Schau-Gruppe mit `data-dock-group-kind="schau"`; Panels `[data-dock-panel="<id>"]` | 3e.4 |
+| Layout-Schlüssel `g4.layout.v8.welt.schau` / `….hand` (3c (F)) | `g4.layout.v11.welt` (ein Schlüssel je Bereich), dazu `g4.layout.v11.welt.arrangement` | 3e.4 |
+| Liste „Orte“, Baum „Orte und Header“, Zeile „Ort › Header“ | Liste „Welt“ mit den Abschnitten „Orte“ (Baum `[role=tree][aria-label=Orte]`: Weltkarte › Gebiet › Räume) und „In dieser Szene“; `data-place-key` und `data-header-id` bleiben | 3e.2, 3e.3 |
+| „An diesem Ort“ (Reiter der Hand, Listbox „Events und Gebäude an diesem Ort“) (3b.3, 3b.4, 3c) | Abschnitt „In dieser Szene“ der Liste (`[role=tree][aria-label="In dieser Szene"]`, Gruppen `[data-scene-group=maps|object|warp|coord|bg|scripts]`); `data-event` und `data-building` bleiben | 3e.3 |
+| Header-Editor, Abschnitt „Eingänge / Ausgänge“ mit „Zum Ziel“, „Raum hier anbinden…“, „Warp hinzufügen“ (3a, 3b.1) | Inspector „Gebiet“/„Raum“ mit der Zeile „N Türen, M ohne Ziel“ (öffnet „Türen“ in „In dieser Szene“); Ziel folgen: Enter oder Doppelklick auf die Tür in „In dieser Szene“; „Raum hier anbinden…“ im Menü „Aktionen“ des Inspector-Kopfs und im „+“ der Szene; eine Tür setzt das Werkzeug „Tür“ (T) oder „+“ › „Tür“ | 3e.3 |
+| Taste „Teile importieren…“ / „Teile exportieren…“ / „Duplizieren“ am Feld „Karte“ im Inspector einer Rasterzelle (3b.4) | Menü „Aktionen“ im Kopf des Inspectors „Karte“ (Karte in „In dieser Szene“ › „Karten“ oder Zelle im Reiter „Raster“ wählen); die Palette „Teile in die Karte importieren…“ bleibt | 3e.3 |
+| Taste „Löschen“ im Editor von Figur, Tür, Auslöser, Schild, Gebäude (3b.1, 3b.3) | Menü „Aktionen“ › „Löschen“ (Entf) im Inspector-Kopf | 3e.3 |
+| Inspector „Nur Ansicht“ beim Hover über Kachel oder Marker (3c) | der Inspector bleibt beim Gewählten; der Hover steht in der Mitte der Statusleiste („Kachel x 9, y 13 · Karte 0190 · begehbar“, „Objekt 5 · ID 5“) | 3e.3 |
+| Statusleiste „Zweiblattdorf, Raster 0“ (3c) | „Zweiblattdorf“ (Bauen nennt kein Raster) | 3e.2 |
+| „Raster 0000“, „Header 0342“ als Wörter in Bauen (3a, 3b.1, 3b.4) | Bauen: „Weltkarte“, „Gebiet“/„Raum“/„Ort“, „Nummer 0342“; Tüfteln wie vorher. Der Reiter „Raster“ heißt bis 3f.1 so | 3e.2 |
+| Inspector einer Rasterzelle, Titel „Zelle 3, 27“, Feld „Karte“ | Bauen: Kopf „Karte“, Titel „Karte 0000“, Kennung „Zelle 3, 27 · Zweiblattdorf“; Tüfteln wie vorher | 3e.3 |
+| Feld „Zielheader“ einer Tür (Bauen) | „Ziel“ (Tüfteln: „Zielheader“) | 3e.2 |
+| Brotkrume „Ort › Header 0412“ | „Zweiblattdorf › Haus 1 0412“ (Klarname des Raums aus dem Weltbaum) | 3e.3 |

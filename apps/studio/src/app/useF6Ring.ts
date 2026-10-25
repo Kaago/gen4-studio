@@ -32,8 +32,8 @@ function activeContent(group: HTMLElement): HTMLElement | null {
 
 /**
  * The stops of the F6 round in the shown area `area`, in their order: the atlas, the area's open list, the hinge, every dock group that
- * shows (the docked ones in the order of the grid, which is the order they read in, then the floating ones), a surface that covers the
- * areas (Start, Technik, Einstellungen), the status line. Parts of hidden areas, a folded list and groups a maximized group hides are left out.
+ * shows (the docked ones in the order of the grid, which is the order they read in, then the floating ones), the wizard's step under the
+ * dock while a wizard is open, a surface that covers the areas (Start, Technik, Einstellungen), the status line. Parts of hidden areas, a folded list and groups a maximized group hides are left out.
  */
 export function f6Targets(root: Document, area: AreaId): HTMLElement[] {
   const stops: (HTMLElement | null)[] = [root.querySelector<HTMLElement>('nav[aria-label="Bereiche"]')];
@@ -47,6 +47,8 @@ export function f6Targets(root: Document, area: AreaId): HTMLElement[] {
     const groups = [...deck.querySelectorAll<HTMLElement>(`#dock-${area} [data-dock-group]`)].filter(shown);
     const floating = (g: HTMLElement) => g.closest(".dv-floating-overlay-host") !== null;
     stops.push(...groups.filter((g) => !floating(g)), ...groups.filter(floating));
+    // The strip under the dock with a wizard's step (hidden while none is open).
+    stops.push(deck.querySelector<HTMLElement>("[data-wizard-hand]"));
   }
   stops.push(firstShown(root, "main:not([data-area])"));
   const status = root.querySelector<HTMLElement>("[data-status-line]");

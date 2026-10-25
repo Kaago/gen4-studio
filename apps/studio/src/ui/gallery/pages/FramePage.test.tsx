@@ -53,6 +53,49 @@ describe("FramePage", () => {
     expect(order).toEqual(["scharnier", "welt", "schau", "hand"]);
   });
 
+  it("shows_the_dock_tabs_and_a_floating_group", () => {
+    const frame = (name: string) => container.querySelector<HTMLElement>(`[data-frame="${name}"]`)!;
+    const tabs = (group: Element) => [...group.querySelectorAll<HTMLElement>(".dv-tab")];
+    const menu = (root: Element, id: string) =>
+      [...root.querySelectorAll<HTMLElement>(`[data-tab-menu="${id}"] > li`)].map((li) =>
+        li.classList.contains("dv-context-menu-separator") ? "—" : `${li.textContent}${li.getAttribute("aria-disabled") === "true" ? " (gesperrt)" : ""}`,
+      );
+
+    // The tabs in dockview's classes inside the dock theme: one visible tab per group, the view group has the focus.
+    const docked = frame("dock-reiter");
+    expect(docked.classList.contains("dockview-theme-g4")).toBe(true);
+    const view = docked.querySelector('[data-dock-group="schau"]')!;
+    const below = docked.querySelector('[data-dock-group="unten"]')!;
+    expect(view.classList.contains("dv-active-group")).toBe(true);
+    expect(below.classList.contains("dv-inactive-group")).toBe(true);
+    expect(tabs(view).map((t) => t.textContent)).toEqual(["3D", "Raster", "Weltkarte"]);
+    expect(tabs(view).map((t) => t.classList.contains("dv-active-tab"))).toEqual([true, false, false]);
+    // The unsaved dot on the script's tab, and no close button anywhere.
+    expect(below.querySelector('[data-dock-tab="script"] [role="img"][aria-label="ungespeichert"]')).not.toBeNull();
+    expect(docked.querySelector(".dv-default-tab-action")).toBeNull();
+    // The menus come from the app's own `tabMenuItems`: a view tab only maximizes, a docked one also floats and resets.
+    expect(menu(docked, "world")).toEqual(["Maximieren"]);
+    expect(menu(docked, "script")).toEqual(["Maximieren", "Schweben lassen", "—", "Anordnung zurücksetzen"]);
+
+    // The floating group: dockview's floating container with the title bar as its grip, the inspector's tab and head in it.
+    const floating = frame("schwebende-gruppe");
+    const group = floating.querySelector(".dv-resize-container.dv-resize-container-with-titlebar")!;
+    expect(group.firstElementChild?.classList.contains("dv-floating-titlebar")).toBe(true);
+    expect(tabs(group).map((t) => t.textContent)).toEqual(["Inspector"]);
+    expect(group.querySelector('header[data-inspector-kind="figure"]')).not.toBeNull();
+    // The view stays docked under it; the floating panel's menu cannot maximize or float again, but docks back.
+    expect(floating.querySelector('[data-dock-group="schau"]')?.closest(".dv-resize-container")).toBeNull();
+    expect(menu(floating, "inspector")).toEqual(["Maximieren (gesperrt)", "Schweben lassen (gesperrt)", "Zurück ins Dock", "—", "Anordnung zurücksetzen"]);
+
+    // The arrangements, and the hinge's „Schau maximieren“, pressed while the view fills the dock.
+    expect([...frame("anordnung").querySelectorAll("[data-arrangement]")].map((a) => a.getAttribute("data-arrangement"))).toEqual(["werkbank", "doppeldeck"]);
+    const maximize = frame("scharnier-oben").querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
+    expect(maximize.getAttribute("aria-pressed")).toBe("false");
+    act(() => maximize.click());
+    expect(maximize.getAttribute("aria-pressed")).toBe("true");
+    expect(frame("scharnier-oben").querySelector<HTMLElement>('[data-dock-group="hand"]')!.hidden).toBe(true);
+  });
+
   it("shows_the_splitter_horizontally_and_vertically_and_sizes_the_first_part", () => {
     const frame = (name: string) => container.querySelector<HTMLElement>(`[data-frame="${name}"]`)!;
     const horizontal = frame("teiler-waagrecht").querySelector<HTMLElement>('[role="separator"]')!;

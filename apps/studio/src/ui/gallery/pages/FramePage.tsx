@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import type { IDockviewPanel } from "dockview-react";
 import type { EventsDto, HeaderSummary, MatrixDto } from "../../../api";
 import { InspectorHead } from "../../../workbench/inspector/InspectorHead";
 import type { InspectorHeadProps } from "../../../workbench/inspector/InspectorHead";
@@ -7,6 +9,8 @@ import { SceneHierarchy } from "../../../workbench/SceneHierarchy";
 import type { SceneRef } from "../../../workbench/sceneModel";
 import { TOOLS } from "../../../workbench/tools";
 import { WizardBar } from "../../../workbench/wizards/WizardBar";
+import deckStyles from "../../frame/Deck.module.css";
+import { tabMenuItems } from "../../frame/dockMenu";
 import { FloatingToolbar } from "../../frame/FloatingToolbar";
 import { Hinge } from "../../frame/Hinge";
 import { Palette } from "../../frame/Palette";
@@ -95,6 +99,7 @@ function LightHinge({ problems, checking = null, unchecked = false }: { problems
 
 /** The hinge on top of an area's dock, here with a view group and an edit group below it (dockview's sash sizes them in the app). */
 function HingeOnTop() {
+  const [maximized, setMaximized] = useState(false);
   return (
     <div className={styles.deckFrame} data-frame="scharnier-oben">
       <Hinge
@@ -109,15 +114,154 @@ function HingeOnTop() {
         onPlay={noop}
         playing={false}
         canPlay
+        maximized={maximized}
+        onMaximize={() => setMaximized((m) => !m)}
       />
       <div className={styles.deckDock} data-dock="welt">
         <div className={styles.deckView} data-dock-group="schau" data-dock-group-kind="schau">
           <span className={styles.note}>Schau</span>
         </div>
-        <div className={styles.deckHand} data-dock-group="hand">
+        <div className={styles.deckHand} data-dock-group="hand" hidden={maximized}>
           <span className={styles.note}>Hand</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A tab of a dock group: its id (the panel), its title, whether it carries the unsaved dot. */
+type DemoTab = { id: string; title: string; unsaved?: boolean };
+
+/**
+ * A dock group as dockview builds it, with its classes (the theme styles them as in the app): the tab strip with the deck's own tab inside
+ * each tab (`Deck.module.css`: the title, then the unsaved dot), the visible tab first-class, then the content. `focused`: the group has
+ * the focus (dockview's active group), so its visible tab is on `flaeche/schau`.
+ */
+function DockGroupDemo({ name, tabs, visible, focused, className, children }: { name: string; tabs: DemoTab[]; visible: string; focused: boolean; className?: string; children?: ReactNode }) {
+  return (
+    <div className={`dv-groupview ${focused ? "dv-active-group" : "dv-inactive-group"} ${className ?? ""}`} data-dock-group={name}>
+      <div className="dv-tabs-and-actions-container">
+        <div className="dv-tabs-container dv-horizontal" role="tablist" aria-label={`Reiter ${name}`}>
+          {tabs.map((tab) => (
+            <div key={tab.id} className={`dv-tab ${tab.id === visible ? "dv-active-tab" : "dv-inactive-tab"}`} role="tab" aria-selected={tab.id === visible} tabIndex={tab.id === visible ? 0 : -1}>
+              <span className={deckStyles.tab} data-dock-tab={tab.id}>
+                <div className="dv-default-tab">
+                  <div className="dv-default-tab-content">{tab.title}</div>
+                </div>
+                {tab.unsaved && <span className={deckStyles.dot} role="img" aria-label="ungespeichert" />}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className={`dv-content-container ${styles.dockGroupContent}`}>{children}</div>
+    </div>
+  );
+}
+
+/** A panel as the tab menu sees it: docked in the grid or floating, not maximized. */
+const demoPanel = (id: string, location: "grid" | "floating") =>
+  ({ id, api: { isMaximized: () => false, location: { type: location }, maximize: noop, exitMaximized: noop } }) as unknown as IDockviewPanel;
+
+/** The tab menu of `panel` as the app builds it (`tabMenuItems`), shown open: dockview's menu classes, a disabled line dimmed. */
+function TabMenuDemo({ title, panel }: { title: string; panel: IDockviewPanel }) {
+  const items = tabMenuItems({ panel }, { float: noop, dock: noop, reset: noop });
+  return (
+    <ul className={`dv-context-menu ${styles.dockMenu}`} aria-label={`Reitermenü ${title}`} data-tab-menu={panel.id}>
+      {items.map((item, i) =>
+        item === "separator" ? (
+          <li key={`separator-${i}`} className="dv-context-menu-separator" aria-hidden="true" />
+        ) : (
+          <li key={item.label} className={item.disabled ? "dv-context-menu-item dv-context-menu-item--disabled" : "dv-context-menu-item"} aria-disabled={item.disabled || undefined}>
+            {item.label}
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
+
+const VIEW_TABS: DemoTab[] = [
+  { id: "world", title: "3D" },
+  { id: "matrix", title: "Raster" },
+  { id: "worldmap", title: "Weltkarte" },
+];
+const BELOW_TABS: DemoTab[] = [
+  { id: "script", title: "Script", unsaved: true },
+  { id: "problems", title: "Probleme" },
+];
+
+/** The dock tabs in their states: the view group with the focus (3D visible, the others at rest), the group below with the unsaved script; each with its open tab menu. */
+function DockTabs() {
+  return (
+    <div className={`dockview-theme-g4 ${styles.dockDemos}`} data-frame="dock-reiter">
+      <div className={styles.dockDemo}>
+        <DockGroupDemo name="schau" tabs={VIEW_TABS} visible="world" focused className={styles.dockGroup}>
+          <span className={styles.note}>Aktiv: der sichtbare Reiter der Gruppe mit Fokus. Ruhe: Raster, Weltkarte.</span>
+        </DockGroupDemo>
+        <TabMenuDemo title="3D" panel={demoPanel("world", "grid")} />
+      </div>
+      <div className={styles.dockDemo}>
+        <DockGroupDemo name="unten" tabs={BELOW_TABS} visible="script" focused={false} className={styles.dockGroup}>
+          <span className={styles.note}>Sichtbar in einer Gruppe ohne Fokus, mit dem Punkt „ungespeichert“.</span>
+        </DockGroupDemo>
+        <TabMenuDemo title="Script" panel={demoPanel("script", "grid")} />
+      </div>
+    </div>
+  );
+}
+
+/** The inspector floating at the right edge of the view: the title bar is the grip, the group a sheet with a window's corners and shadow. */
+function FloatingGroupDemo() {
+  return (
+    <div className={`dockview-theme-g4 ${styles.dockDemos}`} data-frame="schwebende-gruppe">
+      <div className={styles.floatStage}>
+        <DockGroupDemo name="schau" tabs={VIEW_TABS} visible="world" focused={false} className={styles.dockGroup}>
+          <span className={styles.note}>Die Schau bleibt angedockt und nimmt die Breite, die der Inspector frei gab.</span>
+        </DockGroupDemo>
+        <div className={`dv-resize-container dv-resize-container-with-titlebar ${styles.floatGroup}`}>
+          <div className="dv-floating-titlebar" aria-hidden="true" />
+          <div className="dv-grid-view">
+            <DockGroupDemo name="schwebend" tabs={[{ id: "inspector", title: "Inspector" }]} visible="inspector" focused>
+              <InspectorHead kind="figure" title="Objekt 2 · ID 2" ident="Objekt 2 · Eventdatei 0390" actions={[{ label: "Löschen", detail: <Kbd keys="Entf" />, onSelect: noop }]} depth="bauen" />
+            </DockGroupDemo>
+          </div>
+        </div>
+      </div>
+      <TabMenuDemo title="Inspector" panel={demoPanel("inspector", "floating")} />
+    </div>
+  );
+}
+
+/** The two arrangements as plans: where the groups lie in Werkbank and Doppeldeck. */
+function Arrangements() {
+  return (
+    <div className={styles.dockDemos} data-frame="anordnung">
+      <figure className={styles.dockDemo} data-arrangement="werkbank">
+        <div className={`${styles.arrangement} ${styles.arrangementWerkbank}`}>
+          <span className={styles.arrangementCell} data-cell="schau">
+            Schau: 3D, Raster, Weltkarte
+          </span>
+          <span className={styles.arrangementCell} data-cell="side">
+            Inspector 340, volle Höhe
+          </span>
+          <span className={styles.arrangementCell} data-cell="below">
+            Script, Probleme 240
+          </span>
+        </div>
+        <figcaption className={styles.note}>Werkbank: der Standard der Welt</figcaption>
+      </figure>
+      <figure className={styles.dockDemo} data-arrangement="doppeldeck">
+        <div className={`${styles.arrangement} ${styles.arrangementDoppeldeck}`}>
+          <span className={styles.arrangementCell} data-cell="schau">
+            Schau
+          </span>
+          <span className={styles.arrangementCell} data-cell="below">
+            Bearbeiten 286 (Welt: Inspector, Script, Probleme)
+          </span>
+        </div>
+        <figcaption className={styles.note}>Doppeldeck: Texte, Pokémon, Gegenstände; in der Welt wählbar</figcaption>
+      </figure>
     </div>
   );
 }
@@ -291,7 +435,7 @@ const TAB_ITEMS: TabItem[] = [
   { id: "c", label: "Probleme", count: 3 },
 ];
 
-/** The frame's own parts on the primitives: the hinge on top of the view with its splitter, the floating toolbar, the hinge in wizard mode and its problem light, the start cards, the palette and tabs. */
+/** The frame's own parts on the primitives: the hinge on top of the dock, the dock tabs, a floating group and the arrangements, the floating toolbar, the hinge in wizard mode and its problem light, the start cards, the palette and tabs. */
 export function FramePage() {
   const [palette, setPalette] = useState(false);
   const [ran, setRan] = useState("Noch nichts ausgeführt.");
@@ -304,8 +448,8 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Scharnier oben</h2>
         <p className={styles.note}>
-          Das Scharnier steht über dem Dock des Bereichs, 44 px, ohne Griff und nicht ziehbar. Im Dock liegen die Schau und die Gruppen zum Bearbeiten; ihre Größe ändert der Teiler zwischen den
-          Gruppen.
+          Das Scharnier steht über dem Dock des Bereichs, 44 px, ohne Griff und nicht ziehbar, als sein Kopf. Im Dock liegen die Schau und die Gruppen zum Bearbeiten; ihre Größe ändern Dockviews
+          Sashes zwischen den Gruppen. „Schau maximieren“ ist gedrückt, solange die Schau das Dock füllt.
         </p>
         <ShellProvider>
           <HingeOnTop />
@@ -313,9 +457,33 @@ export function FramePage() {
       </section>
 
       <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Dock-Reiter</h2>
+        <p className={styles.note}>
+          Jede Gruppe zeigt ihre Reiter, `dichte/reiter` hoch. Der sichtbare Reiter trägt die 2-px-Kobaltkante, in der Gruppe mit Fokus auf `flaeche/schau`; ein Punkt sagt „ungespeichert“, ein Schließen gibt es
+          nicht. Doppelklick maximiert die Gruppe. Das Menü (Rechtsklick, Umschalt+F10) eines Schau-Reiters hat nur „Maximieren“.
+        </p>
+        <DockTabs />
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Schwebende Gruppe</h2>
+        <p className={styles.note}>
+          Ein schwebendes Panel ist ein Blatt mit Rand, `radius/fenster` und `schatten/schwebend`; die Titelleiste ist der Griff. „Schweben lassen“ legt es an den rechten Rand der Schau, „Zurück ins
+          Dock“ an seinen Platz der Anordnung. Die Schau selbst schwebt nie.
+        </p>
+        <FloatingGroupDemo />
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Anordnung</h2>
+        <p className={styles.note}>Die zwei Vorlagen eines Docks, über die Palette „Anordnung: Werkbank“ und „Anordnung: Doppeldeck“; „Layout zurücksetzen“ baut die gewählte neu.</p>
+        <Arrangements />
+      </section>
+
+      <section className={styles.block}>
         <h2 className={styles.blockTitle}>Teiler waagrecht und senkrecht</h2>
         <p className={styles.note}>
-          Derselbe Teiler (8 px, Linie `linie/leise`) zwischen zwei Teilen: Ziehen beginnt nach 4 px, die Pfeiltasten (±16 px) ändern die Größe des ersten Teils in der Richtung, in der er wächst, Pos1 und
+          Derselbe Teiler (8 px, Linie `linie/leise`) zwischen zwei Teilen, in der App zwischen „Orte“ und „In dieser Szene“: Ziehen beginnt nach 4 px, die Pfeiltasten (±16 px) ändern die Größe des ersten Teils in der Richtung, in der er wächst, Pos1 und
           Ende setzen Höchst- und Mindestwert. Waagrecht wächst der obere Teil nach unten, senkrecht der linke nach rechts.
         </p>
         <div className={styles.toolbarViews}>
