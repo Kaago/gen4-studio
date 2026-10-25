@@ -39,3 +39,16 @@ export function suggestRoomName(header: Pick<HeaderSummary, "internal_name">, pl
   if (placeName !== "" && placeName !== areaPlaceName) return { name: placeName, numbered: false };
   return { name: `Raum ${ordinal}`, numbered: true };
 }
+
+/**
+ * `suggestRoomName` for the rooms of one area in their order, each with its place name (empty: none): the ordinal counts up only
+ * for the rooms named "Raum" and a number.
+ */
+export function suggestRoomNames(rooms: readonly { header: Pick<HeaderSummary, "internal_name">; placeName: string }[], areaPlaceName: string): string[] {
+  let ordinal = 0;
+  return rooms.map(({ header, placeName }) => {
+    const { name, numbered } = suggestRoomName(header, placeName, areaPlaceName, ordinal + 1);
+    if (numbered) ordinal += 1;
+    return name;
+  });
+}

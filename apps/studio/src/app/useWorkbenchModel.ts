@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { HeaderSummary } from "../api";
+import { useBusEvent } from "../bus/useBusEvent";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
@@ -8,7 +9,10 @@ import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import type { TextTarget } from "../workbench/text/textModel";
-import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
+import { headerIdentity } from "../workbench/headerIdentity";
+import { buildPlaces } from "../workbench/places";
+import { useWorldModel } from "../workbench/useWorldModel";
+import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive, WorkbenchWorld } from "../workbench/WorkbenchContext";
 import type { Overview } from "./useOverview";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
@@ -74,7 +78,7 @@ interface WorkbenchModelParams {
  * What App hands the workbench, in two parts. `data` is everything that changes rarely; its
  * identity changes only when one of its fields does, so the panels reading only it are not
  * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
- * it selects, the message), where a panel subscribes to the piece it renders.
+ * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
 export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
@@ -154,6 +158,24 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     () => (cellMatrix !== undefined && cellX !== undefined && cellY !== undefined ? { matrix: cellMatrix, x: cellX, y: cellY } : null),
     [cellMatrix, cellX, cellY],
   );
-  const live = useShallowStable<WorkbenchLive>({ inspector, matrixSelection, message: session.message });
+
+  // The world model, built once for the workbench: the cells of the world maps are read again whenever matrix data moved (which
+  // renders App only when they changed), the project file once per project. Until it is read, the places name the headers.
+  const worldModel = useWorldModel({
+    info: session.info,
+    headers: scene.headers,
+    matrices: overview.matrices,
+    links: overview.links,
+    loaded: overview.loaded,
+    revision: 0,
+    onError: session.fail,
+  });
+  useBusEvent(bus, "matrixData", worldModel.reread);
+  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices), [scene.headers, overview.matrices]);
+  const { names } = worldModel;
+  const identify = useCallback((header: HeaderSummary) => headerIdentity(places, header, names), [places, names]);
+  const shownWorld = useMemo<WorkbenchWorld>(() => ({ ...worldModel, identify }), [worldModel, identify]);
+
+  const live = useShallowStable<WorkbenchLive>({ inspector, matrixSelection, message: session.message, world: shownWorld });
   return { data, live };
 }

@@ -1,6 +1,6 @@
 import { type HeaderSummary, MATRIX_EMPTY, type MatrixDto, type MatrixSummary, type WarpLink, type WorldMeta } from "../api";
 import { UNNAMED_KEY, UNNAMED_PLACE } from "./places";
-import { suggestRoomName } from "./roomNames";
+import { suggestRoomNames } from "./roomNames";
 
 export { roomName } from "./roomNames";
 
@@ -78,7 +78,8 @@ interface Draft {
 
 type Filter = WorldMap["filter"];
 
-const placeNameOf = (h: HeaderSummary): string => (h.location_index === NO_PLACE_INDEX ? "" : h.location_name.trim());
+/** The place name of a header; empty for no place (location index 0). */
+export const placeNameOf = (h: HeaderSummary): string => (h.location_index === NO_PLACE_INDEX ? "" : h.location_name.trim());
 const placeKeyOf = (h: HeaderSummary): string => placeNameOf(h) || UNNAMED_KEY;
 
 /** Filled cells per header of one matrix with a header section (landscape and unknown headers left out). */
@@ -240,11 +241,13 @@ export function buildWorld({ family, headers, matrices, links, cells, meta }: Wo
   const sharing = new Map<number, number>();
   for (const h of sorted) sharing.set(h.matrix_id, (sharing.get(h.matrix_id) ?? 0) + 1);
   const roomsOf = (list: HeaderSummary[], areaPlaceName: string, manual: (id: number) => boolean): Room[] => {
-    let ordinal = 0;
-    return list.map((header) => {
+    const suggestions = suggestRoomNames(
+      list.map((header) => ({ header, placeName: placeNameOf(header) })),
+      areaPlaceName,
+    );
+    return list.map((header, i) => {
       const placeName = placeNameOf(header);
-      const { name: suggested, numbered } = suggestRoomName(header, placeName, areaPlaceName, ordinal + 1);
-      if (numbered) ordinal += 1;
+      const suggested = suggestions[i]!;
       return {
         header,
         name: meta.roomNames[String(header.id)]?.trim() || suggested,
@@ -379,4 +382,29 @@ const samePlace = (d: Draft, room: HeaderSummary) => room.location_index !== NO_
 function ownerFromMeta(value: string | undefined, byKey: ReadonlyMap<string, Draft>, ofHeader: ReadonlyMap<number, Draft>): Draft | undefined {
   if (value === undefined) return undefined;
   return byKey.get(value) ?? (/^\d+$/.test(value) ? ofHeader.get(Number(value)) : undefined);
+}
+
+/** What the world model says a header is: an area (a section of one), a room, or one of the others; and how it is called. */
+export interface WorldName {
+  kind: "area" | "room" | "other";
+  /** The area's name, the room's name (the project file's, else the suggested one), else the header's place or code. */
+  name: string;
+  /** The header's place name ("Ohne Ortsnamen" for none). */
+  placeName: string;
+}
+
+export type WorldNames = ReadonlyMap<number, WorldName>;
+
+/** Header id to what the world tree calls it: the breadcrumb, the inspector head and the door under the pointer say the same. */
+export function worldNames(world: World): WorldNames {
+  const names = new Map<number, WorldName>();
+  const placeName = (h: HeaderSummary) => placeNameOf(h) || UNNAMED_PLACE;
+  const areas = [...world.worldMaps.flatMap((w) => w.areas), ...world.moreAreas];
+  for (const area of areas) {
+    for (const h of area.headers) names.set(h.id, { kind: "area", name: area.name, placeName: placeName(h) });
+    for (const room of area.rooms) names.set(room.header.id, { kind: "room", name: room.name, placeName: room.placeName });
+  }
+  for (const room of world.unconnected) names.set(room.header.id, { kind: "room", name: room.name, placeName: room.placeName });
+  for (const h of world.other) names.set(h.id, { kind: "other", name: placeNameOf(h) || h.internal_name, placeName: placeName(h) });
+  return names;
 }

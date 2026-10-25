@@ -10,7 +10,7 @@ import { createEditBus } from "../bus/editBus";
 import { DataStore } from "../data/dataStore";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { ContextTab } from "./panels";
-import { WorkbenchProviders } from "./WorkbenchContext";
+import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getEvents: vi.fn() }));
@@ -71,7 +71,7 @@ describe("the hand's panels on the workbench context", () => {
     await act(async () =>
       root.render(
         <ShellProvider>
-          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
+          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world: NO_WORLD }}>
             {ui}
           </WorkbenchProviders>
         </ShellProvider>,

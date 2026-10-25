@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -111,6 +111,7 @@ vi.mock("./api", async (importOriginal) => ({
   memberCounts: vi.fn(),
   dirty: vi.fn(),
   getMatrix: vi.fn(),
+  worldMetaGet: vi.fn(),
   getAreaData: vi.fn(),
   listMatrices: vi.fn(),
   listWarps: vi.fn(),
@@ -188,6 +189,7 @@ describe("App wiring", () => {
     vi.mocked(undo).mockResolvedValue([]);
     vi.mocked(redo).mockResolvedValue([]);
     vi.mocked(getMatrix).mockImplementation(async (index) => matrixOf(index));
+    vi.mocked(worldMetaGet).mockResolvedValue({ meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} }, broken: null });
     vi.mocked(getAreaData).mockResolvedValue(areaData);
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
@@ -872,15 +874,15 @@ describe("App wiring", () => {
     it("shows_place_header_and_the_pinned_event_in_the_breadcrumb", async () => {
       expect(hinge().querySelector("nav")?.textContent).toContain("Kein Ort gewählt");
       await select(listed[1]);
-      // The overview does not know the matrix here, so the header counts as a room: „Raum 1“ (its code suggests no name), the id grey.
-      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Raum 1 0001");
+      // The overview does not know the matrix here, so the world tree lists the header among the others: a „Ort“, the id grey.
+      expect(hinge().querySelector("nav")?.textContent).toBe("Ort 1›Ort 0001");
       vi.mocked(getEvents).mockResolvedValue({ event_file_id: 101, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 0, local_id: 5 } as never] });
       await act(async () => data().goTo({ kind: "event", eventFile: 101, eventKind: "object", index: 0, header: 1 }));
       // The title is the inspector's heading once the events of the file are read.
       expect(getEvents).toHaveBeenCalledWith(101);
       expect(hinge().querySelector("nav")?.textContent).toContain("Objekt 0 · ID 5");
       // A crumb leads where it says.
-      await act(async () => hingeButton(/^Raum 1 0001/)!.click());
+      await act(async () => hingeButton(/^Ort 0001/)!.click());
       expect(hinge().querySelector("nav")?.textContent).not.toContain("Objekt");
     });
 

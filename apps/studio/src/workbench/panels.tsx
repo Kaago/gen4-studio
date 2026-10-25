@@ -24,7 +24,6 @@ import { withHeaderHint } from "./navigation";
 import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
-import { buildPlaces } from "./places";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { SceneOverlays } from "./SceneOverlays";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
@@ -44,9 +43,8 @@ import { WorldExplorer } from "./WorldExplorer";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
+import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
-import { useWorldModel } from "./useWorldModel";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
@@ -67,17 +65,8 @@ export function ExplorerPane() {
   // A header the checks found an error or warning at (its own, or of its event file) is marked.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const marks = useMemo(() => headerMarks(rows, d.headers), [rows, d.headers]);
-  // The world model: the cells of the world maps are read again whenever matrix data moved; the project file once per project.
-  const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { world, meta, setMeta } = useWorldModel({
-    info: d.info,
-    headers: d.headers,
-    matrices: d.matrices,
-    links: d.warpLinks,
-    loaded: d.matricesLoaded,
-    revision: matrixRevision,
-    onError: d.onError,
-  });
+  // The world model, built once for the workbench (see `WorkbenchWorld`).
+  const { world, meta, setMeta } = useWorld();
   const { onRename, onOwner } = useWorldActions(meta, setMeta);
   return (
     <WorldExplorer
@@ -128,6 +117,16 @@ export function WorldPanel() {
   const first = d.headers[0];
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const faultyEvents = useFaultyEvents(rows);
+  // The door under the pointer names where it leads as the world tree does.
+  const { identify } = useWorld();
+  const { headers } = d;
+  const destName = useCallback(
+    (id: number) => {
+      const header = headers.find((h) => h.id === id);
+      return header && identify(header).name;
+    },
+    [headers, identify],
+  );
   if (!d.matrix) {
     return (
       <div className={styles.empty}>
@@ -147,7 +146,7 @@ export function WorldPanel() {
         showPermissions={d.showPermissions}
         eventFileId={d.eventFileId}
         showEvents={d.showEvents}
-        headers={d.headers}
+        destName={destName}
         paintEnabled={d.paintEnabled}
         tool={d.tool}
         onTileClick={d.onTileClick}
@@ -298,8 +297,8 @@ export function InspectorPanel() {
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
-  // The places name the header in the head: an area or a room, and the room's name.
-  const places = useMemo(() => buildPlaces(d.headers, d.matrices), [d.headers, d.matrices]);
+  // The head names the header as the world tree does: an area, a room or another header, and its name.
+  const { identify } = useWorld();
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -327,7 +326,7 @@ export function InspectorPanel() {
       checks={d.checks}
       headerEditor={{
         headers: d.headers,
-        places,
+        identify,
         counts: d.memberCounts,
         revision: headerRevision,
         onChanged: d.onHeaderChanged,

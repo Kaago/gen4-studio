@@ -37,7 +37,7 @@ export type InspectorModel =
       eventKind: EventKind;
       index: number;
       data: WarpDto | ObjectDto | CoordDto | BgDto;
-      /** Warps: location name (or internal name) of the destination header. */
+      /** Warps: the name of the destination header as the world tree calls it (undefined: unknown header). */
       destName?: string;
     }
   /** The tile under the pointer (a hover, like the marker). */

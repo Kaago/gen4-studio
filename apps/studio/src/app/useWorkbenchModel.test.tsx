@@ -142,7 +142,10 @@ function Model({ pin = pinned, hover: _hover, message, showEvents = true, depth 
 describe("workbench model", () => {
   let container: HTMLElement;
   let root: Root;
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The model reads the cells of the matrices for the world model (the panels' tests give the counting matrix instead).
+    const { getMatrix } = await import("../api");
+    vi.mocked(getMatrix).mockResolvedValue({ ...matrix });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);

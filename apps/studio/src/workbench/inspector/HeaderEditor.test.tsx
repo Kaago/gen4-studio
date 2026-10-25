@@ -7,6 +7,7 @@ import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } 
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
+import { headerIdentity } from "../headerIdentity";
 import { buildPlaces } from "../places";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
@@ -66,7 +67,7 @@ describe("HeaderEditor scripts", () => {
   const onLevelScriptSaved = vi.fn();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
-    places: buildPlaces([summary, house], matrices),
+    identify: (h) => headerIdentity(buildPlaces([summary, house], matrices), h),
     counts: { Script: 800 },
     revision: 0,
     onChanged,
@@ -137,6 +138,21 @@ describe("HeaderEditor scripts", () => {
     await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="tuefteln" />));
     await flush();
     expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Header", "Haus 1", "Header 0412 · T01R0101"]);
+  });
+
+  it("calls_the_header_what_the_world_tree_calls_it", async () => {
+    const eyebrow = () => container.querySelector("header[data-inspector-kind] [data-eyebrow]")?.textContent;
+    // A room renamed in the project file, and a header the world tree lists under „Sonstige“.
+    const names = { 412: { kind: "room", name: "Omas Haus", place: "Zweiblattdorf" }, 411: { kind: "other", name: "Zweiblattdorf", place: "Zweiblattdorf" } } as const;
+    const identify = (h: HeaderSummary) => names[h.id as 411 | 412];
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], identify })} depth="bauen" />));
+    await flush();
+    expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Raum", "Omas Haus"]);
+    await show(context({ identify }));
+    expect(container.querySelector("header[data-inspector-kind]")?.getAttribute("data-inspector-kind")).toBe("place");
+    expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Ort", "Zweiblattdorf"]);
+    await show(context({ identify }), "tuefteln");
+    expect(eyebrow()).toBe("Header");
   });
 
   it("binds_a_room_here_from_the_head_menu", async () => {

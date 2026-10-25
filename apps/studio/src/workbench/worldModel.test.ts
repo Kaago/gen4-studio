@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink, WorldMeta } from "../api";
-import { UNNAMED_KEY } from "./places";
-import { type Area, type World, type WorldInput, buildWorld } from "./worldModel";
+import { UNNAMED_KEY, UNNAMED_PLACE } from "./places";
+import { type Area, type World, type WorldInput, buildWorld, worldNames } from "./worldModel";
 
 interface HeaderSpec {
   name: string;
@@ -380,5 +380,21 @@ describe("buildWorld", () => {
       ...world.other.map((h) => h.id),
     ].sort((a, b) => a - b);
     expect(ids).toEqual(ptHeaders.map((h) => h.id));
+  });
+});
+
+describe("worldNames", () => {
+  it("names_every_header_as_the_world_tree_does", () => {
+    const names = worldNames(buildWorld(ptInput({ meta: { ...emptyMeta(), roomNames: { "4": "Omas Haus" } } })));
+    expect(names.size).toBe(ptHeaders.length);
+    // An area by its name, also one with its own map that has no header section (the places would call it a room).
+    expect(names.get(1)).toEqual({ kind: "area", name: "Zweiblattdorf", placeName: "Zweiblattdorf" });
+    expect(names.get(9)).toEqual({ kind: "area", name: "Kampfzone", placeName: "Kampfzone" });
+    // A room by the name of the project file, else the one its code suggests.
+    expect(names.get(4)).toEqual({ kind: "room", name: "Omas Haus", placeName: "Zweiblattdorf" });
+    expect(names.get(7)).toEqual({ kind: "room", name: "Haus 2", placeName: "Zweiblattdorf" });
+    // The others by their place, else their code.
+    expect(names.get(14)).toEqual({ kind: "other", name: "Zweiblattdorf", placeName: "Zweiblattdorf" });
+    expect(names.get(0)).toEqual({ kind: "other", name: "EVERYWHERE", placeName: UNNAMED_PLACE });
   });
 });

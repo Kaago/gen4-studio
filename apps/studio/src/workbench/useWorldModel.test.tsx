@@ -102,6 +102,33 @@ describe("useWorldModel", () => {
     expect(worldMetaGet).toHaveBeenCalledTimes(1);
   });
 
+  it("rereads_the_cells_on_request_and_keeps_the_world_while_they_are_the_same", async () => {
+    let renders = 0;
+    function Counting() {
+      renders++;
+      model = useWorldModel({ info, headers, matrices, links, loaded: true, revision: 0, onError });
+      return null;
+    }
+    act(() => root.render(<Counting />));
+    await flush();
+    const before = model.world;
+    const names = model.names;
+    expect(names?.get(3)).toEqual({ kind: "room", name: "Haus 1", placeName: "Zweiblattdorf" });
+    const rendered = renders;
+    // The same cells: nothing renders, the world and its names stay.
+    await act(async () => model.reread());
+    await flush();
+    expect(getMatrix).toHaveBeenCalledTimes(4);
+    expect(renders).toBe(rendered);
+    expect(model.world).toBe(before);
+    // Other cells: a new world.
+    vi.mocked(getMatrix).mockImplementation(async (index) => (index === 0 ? cells(0, [2, 2]) : cells(5, [])));
+    await act(async () => model.reread());
+    await flush();
+    expect(model.world).not.toBe(before);
+    expect(model.world?.moreAreas.map((a) => a.name)).toEqual(["Route 201"]);
+  });
+
   it("writes_the_project_file_and_builds_the_world_with_the_new_names", async () => {
     act(() => root.render(<Probe />));
     await flush();

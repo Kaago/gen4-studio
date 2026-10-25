@@ -45,6 +45,7 @@ describe("InspectorHead", () => {
       map: "Karte",
       area: "Gebiet",
       room: "Raum",
+      place: "Ort",
       look: "Aussehen",
     };
     const symbols = new Set<string>();
@@ -70,6 +71,8 @@ describe("InspectorHead", () => {
     show({ kind: "area", title: "Zweiblattdorf", ident: "Header 0411 · T01", depth: "tuefteln" });
     expect(eyebrow()?.textContent).toBe("Header");
     show({ kind: "room", title: "Haus 1", depth: "tuefteln" });
+    expect(eyebrow()?.textContent).toBe("Header");
+    show({ kind: "place", title: "Zweiblattdorf", depth: "tuefteln" });
     expect(eyebrow()?.textContent).toBe("Header");
     show({ kind: "look", title: "Area-Data 0007", depth: "tuefteln" });
     expect(eyebrow()?.textContent).toBe("Area-Data");

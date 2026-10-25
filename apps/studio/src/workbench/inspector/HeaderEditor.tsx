@@ -3,9 +3,8 @@ import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import { Button, Section } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
-import { headerIdentity } from "../headerIdentity";
+import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
-import type { Place } from "../places";
 import { TERMS, id4, termFor } from "../terms";
 import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
@@ -26,8 +25,8 @@ import { TechnicalSection } from "./TechnicalSection";
 /** What the header editor needs from App besides the header id. */
 export interface HeaderEditorContext {
   headers: HeaderSummary[];
-  /** The places of the headers: whether the header is an area or a room, and the room's name (`headerIdentity`). */
-  places: Place[];
+  /** What a header is and how it is called, as the world tree says (`WorkbenchWorld.identify`): the head's kind and title. */
+  identify: (header: HeaderSummary) => HeaderIdentity;
   counts: MemberCounts;
   /** Changes whenever the header table was changed behind the editor's back (undo, redo, reload). */
   revision: number;
@@ -66,11 +65,11 @@ const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, places, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
+  const { headers, identify, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
-  // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: a hover mounts a new one.
+  // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: selecting another header mounts a new one.
   const folds = useSectionFolds();
   const foldKey = (section: HeaderSectionId) => `header:${section}`;
   const callbacks = useRef({ onChanged, onError });
@@ -117,8 +116,8 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   };
 
   const summary = headers.find((h) => h.id === id);
-  // The head: an area by its place, a room by its name; Bauen gives the place and the code as the ident, Tüfteln the header's number.
-  const identity = summary ? headerIdentity(places, summary) : null;
+  // The head: an area by its name, a room by its name; Bauen gives the place and the code as the ident, Tüfteln the header's number.
+  const identity = summary ? identify(summary) : null;
   const headerId = `${termFor("header", depth)} ${id4(id)}`;
   const code = summary ? ` · ${summary.internal_name}` : "";
   const ident = depth === "tuefteln" ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
@@ -161,7 +160,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   return (
     <div className={styles.panel}>
       <InspectorHead
-        kind={identity?.kind ?? "room"}
+        kind={identity === null ? "room" : identity.kind === "other" ? "place" : identity.kind}
         title={identity?.name ?? headerId}
         ident={ident}
         actions={summary ? [{ label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) }] : undefined}

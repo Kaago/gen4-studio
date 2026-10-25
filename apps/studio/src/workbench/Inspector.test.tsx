@@ -4,12 +4,14 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CheckProblemDto, WarpDto } from "../api";
+import type { CheckProblemDto, HeaderSummary, WarpDto } from "../api";
 import { fakeChecks, finding } from "../checks/checksTesting";
 import type { Depth } from "../ui/frame/shellState";
 import { visibleWords } from "../ui/visibleText";
 import { useInspectorState } from "../app/useInspectorState";
 import type { InspectorState } from "../app/useInspectorState";
+import { headerIdentity } from "./headerIdentity";
+import { buildPlaces } from "./places";
 import { Inspector } from "./Inspector";
 import type { InspectorModel, SceneHover } from "./Inspector";
 
@@ -21,6 +23,14 @@ vi.mock("./inspector/EventEditor", () => ({
     useEffect(() => {}, []);
     return <div data-editor={kept}>Warp-Editor</div>;
   },
+}));
+
+// The header and the area data editor are the real ones; their reads never answer, so they show their head and what they show while loading.
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  getHeader: vi.fn(() => new Promise(() => {})),
+  getEvents: vi.fn(() => new Promise(() => {})),
+  getAreaData: vi.fn(() => new Promise(() => {})),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,6 +101,41 @@ describe("Inspector and the scene's hover", () => {
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {
+    const town: HeaderSummary = { id: 411, internal_name: "T01", location_index: 2, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 7, event_file_id: 9, text_archive_id: 0, script_file_id: 0, level_script_id: 0 };
+    const headerEditor = {
+      headers: [town],
+      identify: (h: HeaderSummary) => headerIdentity(buildPlaces([town], [{ index: 0, name: "m0", width: 2, height: 2, has_headers: true, has_altitudes: false, filled: 4 }]), h),
+      counts: {},
+      revision: 0,
+      onChanged: vi.fn(),
+      goTo: vi.fn(),
+      eventRevision: 0,
+      onOpenWizard: vi.fn(),
+      onAddWarp: vi.fn(),
+      info: null,
+      scriptsAdopted: true,
+      scriptsRevision: 0,
+      onOpenScript: vi.fn(),
+      onLevelScriptSaved: vi.fn(),
+      isCurrentProject: () => true,
+      onCountsChanged: vi.fn(),
+      onError: vi.fn(),
+    };
+    const areaEditor = { counts: {}, dirty: [], revision: 0, onChanged: vi.fn(), onError: vi.fn() };
+    const render = (model: InspectorModel) =>
+      act(() =>
+        root.render(<Inspector model={model} headerEditor={headerEditor} matrixEditor={undefined as never} areaEditor={areaEditor} buildingEditor={undefined as never} eventEditor={undefined as never} depth="bauen" />),
+      );
+    // The editors of an area and of its look, with their heads, while the pointer is anywhere.
+    render({ kind: "header", id: 411 });
+    expect(container.querySelector("[data-eyebrow]")?.textContent).toBe("Gebiet");
+    expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zweiblattdorf · T01");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    render({ kind: "area", id: 7 });
+    expect(container.querySelector("[data-eyebrow]")?.textContent).toBe("Aussehen");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // And the empty state.
     show();
     act(() => pins!.setHover(tile));
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);

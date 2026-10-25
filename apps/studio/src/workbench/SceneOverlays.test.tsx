@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { SceneOverlays } from "./SceneOverlays";
-import { WorkbenchProviders } from "./WorkbenchContext";
+import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import type { WorkbenchData } from "./WorkbenchContext";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,7 +37,7 @@ describe("SceneOverlays", () => {
     act(() =>
       root.render(
         <ShellProvider>
-          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
+          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world: NO_WORLD }}>
             <SceneOverlays layers={layers} />
           </WorkbenchProviders>
         </ShellProvider>,

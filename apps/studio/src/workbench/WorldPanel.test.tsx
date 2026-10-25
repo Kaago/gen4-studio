@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto } from "../api";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorldPanel } from "./panels";
-import { WorkbenchProviders } from "./WorkbenchContext";
+import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import { ProblemsStore } from "./problems/problems";
-import type { WorkbenchData } from "./WorkbenchContext";
+import type { WorkbenchData, WorkbenchWorld } from "./WorkbenchContext";
 
 // The scene needs WebGL; the panel around it is under test.
 const sceneProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
@@ -51,7 +51,7 @@ describe("WorldPanel", () => {
     container.remove();
   });
 
-  const show = (over: Partial<WorkbenchData> = {}) => {
+  const show = (over: Partial<WorkbenchData> = {}, world: WorkbenchWorld = NO_WORLD) => {
     const data = {
       headers: [header(3), header(4)],
       matrix: null,
@@ -70,7 +70,7 @@ describe("WorldPanel", () => {
     act(() =>
       root.render(
         <ShellProvider>
-          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
+          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world }}>
             <WorldPanel />
           </WorkbenchProviders>
         </ShellProvider>,
@@ -86,6 +86,15 @@ describe("WorldPanel", () => {
     expect(container.querySelector("[data-testid=scene]")).toBeNull();
     act(() => button("Ersten Ort zeigen").click());
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
+  });
+
+  it("names_the_door_target_for_the_status_line_as_the_world_tree_does", () => {
+    const world: WorkbenchWorld = { ...NO_WORLD, identify: (h) => ({ kind: "room", name: h.id === 4 ? "Haus des Rivalen" : "Haus 1", place: "Zweiblattdorf" }) };
+    show({ matrix }, world);
+    const destName = sceneProps.current?.destName as (id: number) => string | undefined;
+    expect(destName(4)).toBe("Haus des Rivalen");
+    // A door to a header that does not exist leads to no name.
+    expect(destName(999)).toBeUndefined();
   });
 
   it("offers_no_first_place_when_the_project_has_no_header", () => {

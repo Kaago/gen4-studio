@@ -6,11 +6,14 @@ import { id4, termFor } from "../workbench/terms";
 import { eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 
-/** The marker under the pointer: a door with where it leads ("Tür 2 → Haus des Rivalen"), any other event by its title. */
+/**
+ * The marker under the pointer: a door with where it leads, named as the world tree names it ("Tür 1 → Haus des Rivalen", with the
+ * number the inspector's title gives the warp), any other event by its title.
+ */
 function markerSummary(hover: Extract<SceneHover, { kind: "eventHover" }>, depth: Depth): string {
   if (hover.eventKind !== "warp") return eventTitle(hover.eventKind, hover.data, depth);
   const dest = hover.destName || `${termFor("header", depth)} ${id4((hover.data as WarpDto).dest_header_id)}`;
-  return `${KIND_SINGULAR.warp} ${hover.index + 1} → ${dest}`;
+  return `${KIND_SINGULAR.warp} ${hover.index} → ${dest}`;
 }
 
 /**

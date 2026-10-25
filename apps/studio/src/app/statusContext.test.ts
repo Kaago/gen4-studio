@@ -32,12 +32,13 @@ describe("statusContext", () => {
     const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
     // The hover wins over the selection ...
     expect(statusContext(cell, tile, header(), "bauen")).toBe("Karte 0187 · Kachel x 8, y 4 · Typ 0x03 · begehbar");
-    expect(statusContext(cell, door("Haus des Rivalen"), header(), "bauen")).toBe("Tür 2 → Haus des Rivalen");
-    expect(statusContext(cell, door(), header(), "bauen")).toBe("Tür 2 → Ort 0414");
-    expect(statusContext(cell, door(), header(), "tuefteln")).toBe("Tür 2 → Header 0414");
+    // A door has the number the inspector's title gives it („Warp 1 → …“).
+    expect(statusContext(cell, door("Haus des Rivalen"), header(), "bauen")).toBe("Tür 1 → Haus des Rivalen");
+    expect(statusContext(cell, door(), header(), "bauen")).toBe("Tür 1 → Ort 0414");
+    expect(statusContext(cell, door(), header(), "tuefteln")).toBe("Tür 1 → Header 0414");
     expect(statusContext(cell, figure, header(), "bauen")).toBe("Objekt 2 · ID 7");
     // ... also without a selected header, and says no technical word in building.
-    expect(statusContext({ kind: "none" }, door(), undefined, "bauen")).toBe("Tür 2 → Ort 0414");
+    expect(statusContext({ kind: "none" }, door(), undefined, "bauen")).toBe("Tür 1 → Ort 0414");
     // ... and when the pointer leaves, the place is back.
     expect(statusContext(cell, null, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
   });

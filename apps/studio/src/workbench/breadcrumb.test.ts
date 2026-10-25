@@ -87,6 +87,17 @@ describe("crumbsFor", () => {
     expect(pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }), depth: "tuefteln" })[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
   });
 
+  it("names_the_header_as_the_world_tree_does_when_it_is_given", () => {
+    const named = (kind: "area" | "room" | "other", name: string) => () => ({ kind, name, place: "Zweiblattdorf" });
+    const crumb = (identify: ReturnType<typeof named>, depth: Depth = "bauen") => crumbsFor({ places, headers, selected: 414, pinned: { kind: "header", id: 414 }, depth, identify })[1];
+    // A room renamed in the project file.
+    expect(crumb(named("room", "Omas Haus"))).toMatchObject({ label: "Omas Haus", tech: "0414" });
+    // An area with its own map (the places would call it a room), and a header that is neither.
+    expect(crumb(named("area", "Zweiblattdorf"))).toMatchObject({ label: "Gebiet", tech: "0414" });
+    expect(crumb(named("other", "Zweiblattdorf"))).toMatchObject({ label: "Ort", tech: "0414" });
+    expect(crumb(named("room", "Omas Haus"), "tuefteln")).toMatchObject({ label: "Header", tech: "0414" });
+  });
+
   it("names_a_header_of_an_unnamed_place_a_room_and_gives_its_id", () => {
     const crumbs = pin({ kind: "header", id: 9 }, 9);
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([

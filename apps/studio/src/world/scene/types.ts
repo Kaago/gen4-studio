@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { EventsDto, HeaderSummary, MapDto } from "../../api";
+import type { EventsDto, MapDto } from "../../api";
 import type { Message } from "../../app/message";
 import type { Tool } from "../../ui/frame/shellState";
 import type { InspectorModel } from "../../workbench/Inspector";
@@ -68,7 +68,8 @@ export interface SceneRefs {
   showEvents: RefObject<boolean>;
   /** Like the area data, the event file belongs to the header and is read when a matrix loads. */
   eventFile: RefObject<number | null>;
-  headers: RefObject<HeaderSummary[]>;
+  /** The name of the header a door leads to, as the world tree calls it (undefined: unknown header). */
+  destName: RefObject<(headerId: number) => string | undefined>;
   /** Like the area data, the one the buildings are textured with is read when models are requested. */
   area: RefObject<number>;
 }

@@ -5,10 +5,10 @@ import type { IconName, MenuEntry } from "../../ui/primitives";
 import styles from "./InspectorHead.module.css";
 
 /** What the inspector shows, as the head names it. */
-export type InspectorKind = "figure" | "door" | "trigger" | "sign" | "building" | "map" | "area" | "room" | "look";
+export type InspectorKind = "figure" | "door" | "trigger" | "sign" | "building" | "map" | "area" | "room" | "place" | "look";
 
 /**
- * The word of each kind in the eyebrow and its symbol. Bauen speaks of the game; Tüfteln says "Header" for an area or a room and
+ * The word of each kind in the eyebrow and its symbol. Bauen speaks of the game; Tüfteln says "Header" for an area, a room or a place and
  * "Area-Data" for the look (`tinker`), the other words are the same in both depths.
  */
 const KINDS: Record<InspectorKind, { word: string; tinker?: string; icon: IconName }> = {
@@ -20,6 +20,8 @@ const KINDS: Record<InspectorKind, { word: string; tinker?: string; icon: IconNa
   map: { word: "Karte", icon: "map" },
   area: { word: "Gebiet", tinker: "Header", icon: "outside" },
   room: { word: "Raum", tinker: "Header", icon: "room" },
+  /** A header that is neither an area nor a room in the world tree (the landscape, a header without maps). */
+  place: { word: "Ort", tinker: "Header", icon: "place" },
   look: { word: "Aussehen", tinker: "Area-Data", icon: "look" },
 };
 

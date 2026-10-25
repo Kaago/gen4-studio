@@ -541,8 +541,8 @@ function AppBody() {
   const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo, shell.state.depth],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth, identify: live.world.identify }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo, shell.state.depth, live.world.identify],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
