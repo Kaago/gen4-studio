@@ -21,6 +21,8 @@ const plan: RegionPlan = {
   dropped_warps: [[7, 1]],
   removed_objects: 3,
   removed_triggers: 1,
+  starter_species: 387,
+  starter_level: 5,
   already_empty: false,
 };
 

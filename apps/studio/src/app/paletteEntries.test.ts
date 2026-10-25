@@ -64,6 +64,7 @@ describe("paletteEntries", () => {
       "Hier spielen",
       "Gebiet anlegen…",
       "Raum anlegen…",
+      "Welt leeren…",
       "Teile in die Karte importieren…",
       "Liste ein/aus",
       "Layout zurücksetzen",
@@ -80,7 +81,8 @@ describe("paletteEntries", () => {
       "Bereich Technik",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Teile in die Karte importieren…"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…"]);
+    expect(entries.find((e) => e.label === "Welt leeren…")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Gebiet anlegen…")?.description).toBe("Erst ein Projekt öffnen");
     for (const e of entries) expect(e.id).toMatch(/^cmd-/);
   });
@@ -191,6 +193,10 @@ describe("paletteEntries", () => {
     expect(byId("cmd-list", { commands: { ...commands, hasList: false } })).toMatchObject({ disabled: true, description: "Dieser Bereich hat keine Liste" });
     expect(byId("cmd-layout")?.description).toContain("Welt");
     expect(byId("cmd-layout", { commands: { ...commands, deck: "texte" } })?.description).toContain("Texte");
+  });
+
+  it("offers_to_clear_the_world_with_a_project", () => {
+    expect(byId("cmd-clearWorld")).toMatchObject({ label: "Welt leeren…", icon: "world", disabled: false, description: "Leere Region mit Startstadt", run: { kind: "command", command: "clearWorld" } });
   });
 
   it("offers_the_import_of_parts_only_for_a_chosen_cell_with_a_map", () => {

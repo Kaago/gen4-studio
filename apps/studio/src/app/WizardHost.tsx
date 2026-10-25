@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { HeaderSummary, MatrixSummary, MemberCounts, WarpLink } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, ScriptsStatusDto, WarpLink } from "../api";
+import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
 import { buildPlaces } from "../workbench/places";
 import { NewAreaWizard } from "../workbench/wizards/NewAreaWizard";
 import { NewRoomWizard } from "../workbench/wizards/NewRoomWizard";
@@ -28,6 +29,16 @@ interface Props {
   onError: (e: unknown) => void;
   /** "Hier spielen" on a wizard's result (after it showed what it made): save, build, run. */
   onPlay: () => void;
+  /** The project's script status (null: not read yet); "Welt leeren" needs adopted scripts. */
+  scripts: ScriptsStatusDto | null;
+  /** Adopts the project's scripts (the wizard "Welt leeren" offers it). */
+  onAdoptScripts: (onProgress: (progress: AdoptProgressDto) => void) => Promise<AdoptReportDto>;
+  /** Unsaved edits of the store and the open scripts; "Welt leeren" needs none. */
+  unsaved: number;
+  /** Saves everything ("Welt leeren" offers it; a wizard locks ⌘S). */
+  onSave: () => Promise<void>;
+  /** "Welt leeren" went in: the world is read again as after ⌘Z. */
+  onRegionApplied: (report: RegionReport) => Promise<void>;
 }
 
 /** The source matrix: the request's, else the selected header's (and then that header's cells are selected). */
@@ -40,7 +51,8 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * The open wizard. Its frame puts the step bar into the world's hinge and the step into the world's hand (portals into the deck's
  * slots); the host lives beside the workbench, not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
-export function WizardHost({ wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+export function WizardHost(props: Props) {
+  const { wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
   const { request, close, created } = wizards;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
@@ -83,6 +95,20 @@ export function WizardHost({ wizards, headers, matrices, matricesLoaded, matrice
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
+          onPlay={onPlay}
+        />
+      );
+    case "clearWorld":
+      return (
+        <ClearWorldWizard
+          scripts={props.scripts}
+          onAdopt={props.onAdoptScripts}
+          unsaved={props.unsaved}
+          onSave={props.onSave}
+          onApplied={props.onRegionApplied}
+          onClose={close}
+          // The town is a header of matrix 0 (the recipe looks for it there).
+          onShow={(report) => created({ matrix: 0, header: report.plan.start_header, announcement: clearedAnnouncement(report) })}
           onPlay={onPlay}
         />
       );

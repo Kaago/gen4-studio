@@ -36,6 +36,8 @@ Liest nur (auch ungespeicherte Änderungen des Stores) und liefert `RegionPlan`:
 - **Rand-Zellen** (`border_cells`): jede Zelle von Matrix 0 mit Karte (≠ `0xFFFF`) außerhalb der Stadt.
 - **Wegfallende Warps** (`dropped_warps`): Warps behaltener Eventdateien in einen nicht behaltenen
   Header.
+- **Starter** (`starter_species`, `starter_level`): das Pokémon, das das Start-Script gibt (aus dem
+  Rezept), damit der Assistent es nennen kann.
 - `already_empty`: jede Zelle mit Karte trägt den Header der Stadt, die Zellen außerhalb teilen eine
   Karte, die Stadt hat keine Figuren. Das sieht nur Matrix 0 und die Figuren der Stadt an, nicht die
   Header.

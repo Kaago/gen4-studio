@@ -37,10 +37,14 @@ const CHECK_DELAY_MS = 200;
 /** How the summary and the start's view name a template. */
 export const TEMPLATE_NAMES: Record<Template, string> = { original: "Original", data_only: "Nur Daten", empty_region: "Leere Region" };
 
-type Card = { id: Template | "empty_region"; title: string; text?: string; later?: string };
+type Card = { id: Template; title: string; text: string };
 const CARDS: Card[] = [
   { id: "original", title: TEMPLATE_NAMES.original, text: "Das Spiel, wie es ist." },
-  { id: "empty_region", title: "Leere Region mit Startstadt", later: "Kommt mit 3g.2" },
+  {
+    id: "empty_region",
+    title: "Leere Region mit Startstadt",
+    text: "Nur die Startstadt mit Spielerhaus bleibt, der Rest ist eine leere Region. Ein Start-Script gibt dir deinen ersten Partner.",
+  },
   { id: "data_only", title: TEMPLATE_NAMES.data_only, text: "Für Balancing: Werte, Lernsets, Trainer. Startet im Bereich Pokémon." },
 ];
 
@@ -151,17 +155,16 @@ function RomCard({ info }: { info: RomInfo }) {
   );
 }
 
-/** The template cards: a radio group, the arrows move the choice past the locked card. */
+/** The template cards: a radio group, the arrows move the choice and wrap. */
 function TemplateCards({ value, untested, onChange }: { value: Template; untested: boolean; onChange: (t: Template) => void }) {
   const headingId = useId();
   const group = useRef<HTMLDivElement>(null);
-  const choosable = CARDS.filter((c): c is Card & { id: Template } => c.later === undefined);
   function onKey(e: KeyboardEvent<HTMLDivElement>) {
     const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
     if (step === 0) return;
     e.preventDefault();
-    const at = choosable.findIndex((c) => c.id === value);
-    const next = choosable[(at + step + choosable.length) % choosable.length].id;
+    const at = CARDS.findIndex((c) => c.id === value);
+    const next = CARDS[(at + step + CARDS.length) % CARDS.length].id;
     onChange(next);
     group.current?.querySelector<HTMLElement>(`[data-template="${next}"]`)?.focus();
   }
@@ -172,7 +175,6 @@ function TemplateCards({ value, untested, onChange }: { value: Template; unteste
       </h3>
       <div ref={group} role="radiogroup" aria-labelledby={headingId} className={styles.cards} onKeyDown={onKey}>
         {CARDS.map((card) => {
-          const locked = card.later !== undefined;
           const chosen = card.id === value;
           return (
             <button
@@ -180,25 +182,21 @@ function TemplateCards({ value, untested, onChange }: { value: Template; unteste
               type="button"
               role="radio"
               aria-checked={chosen}
-              aria-disabled={locked || undefined}
               tabIndex={chosen ? 0 : -1}
               data-template={card.id}
               className={styles.card}
-              onClick={() => {
-                if (card.later === undefined) onChange(card.id as Template);
-              }}
+              onClick={() => onChange(card.id)}
             >
               <span className={styles.cardHead}>
                 <span className={styles.mark} aria-hidden="true">
-                  <Icon name={locked ? "lock" : chosen ? "success" : "unsaved"} weight={chosen ? "fill" : "regular"} />
+                  <Icon name={chosen ? "success" : "unsaved"} weight={chosen ? "fill" : "regular"} />
                 </span>
                 <span className={styles.cardTitle}>{card.title}</span>
               </span>
-              {card.text && <span className={styles.cardText}>{card.text}</span>}
-              {(locked || untested) && (
+              <span className={styles.cardText}>{card.text}</span>
+              {untested && (
                 <span className={styles.badges}>
-                  {locked && <Badge kind="locked">{card.later}</Badge>}
-                  {untested && <Badge kind="warning">Nicht geprüft</Badge>}
+                  <Badge kind="warning">Nicht geprüft</Badge>
                 </span>
               )}
             </button>
@@ -339,7 +337,9 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
 
   const game = rom ? `${gameName(rom)} (${languageName(rom.language)})` : "";
   const ready = releasable(rom) && dest !== null && destOk;
-  const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an, in ${dest}. Die ROM bleibt unverändert.` : undefined;
+  // The empty region needs rotom's sources: creating the project adopts the scripts first.
+  const adopts = template === "empty_region" ? " Scripts werden übernommen." : "";
+  const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an, in ${dest}.${adopts} Die ROM bleibt unverändert.` : undefined;
 
   // Something already lies at the project's own path: a question of the name. Anything else (space, a refusal) is the folder's.
   const taken = current?.result?.state === "not_empty" || current?.result?.state === "not_a_directory";

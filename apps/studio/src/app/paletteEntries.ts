@@ -20,6 +20,7 @@ export type PaletteCommand =
   | "play"
   | "area"
   | "room"
+  | "clearWorld"
   | "list"
   | "layout"
   | "theme"
@@ -108,6 +109,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "play", label: "Hier spielen", icon: "play", shortcut: inApp ? "⌘R" : undefined, locked: project },
     { command: "area", label: "Gebiet anlegen…", icon: "plus", locked: hasProject ? null : NO_PROJECT },
     { command: "room", label: "Raum anlegen…", icon: "room", locked: hasProject ? null : NO_PROJECT },
+    { command: "clearWorld", label: "Welt leeren…", icon: "world", description: "Leere Region mit Startstadt", locked: hasProject ? null : NO_PROJECT },
     {
       command: "importParts",
       label: "Teile in die Karte importieren…",

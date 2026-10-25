@@ -203,9 +203,18 @@ fn plan_keeps_the_town_and_its_rooms() {
     // Room 3's back door (event file 3, warp 1) leads into the emptied town 4.
     assert_eq!(plan.dropped_warps, vec![(3, 1)]);
     assert_eq!((plan.removed_objects, plan.removed_triggers), (2, 1));
+    // The recipe's starter, for the wizard to name it.
+    assert_eq!((plan.starter_species, plan.starter_level), (387, 5));
     assert!(!plan.already_empty);
     let json = serde_json::to_value(&plan).unwrap();
     assert_eq!(json["start_header"], 1);
+    assert_eq!(
+        (
+            json["starter_species"].clone(),
+            json["starter_level"].clone()
+        ),
+        (serde_json::json!(387), serde_json::json!(5))
+    );
     assert_eq!(json["dropped_warps"], serde_json::json!([[3, 1]]));
     assert_eq!(json["already_empty"], false);
 }

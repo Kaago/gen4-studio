@@ -44,7 +44,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, ScriptFileDto } from "./api";
+import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -307,16 +307,24 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
-  // A fix of the checks changed these assets: the scene and the editors read them again (an open script file too), then the dirty count
-  // (no `edited`: the fix asks for its run of the checks itself).
-  const onFixed = useStableCallback(async (changed: AssetId[]) => {
+  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count.
+  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean) => {
     try {
       await reloadAfterHistory(changed);
       for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index);
     } catch (e) {
       session.fail(e);
     }
-    await session.refreshDirty({ edited: false });
+    await session.refreshDirty({ edited });
+  });
+  // A fix of the checks changed these assets (no `edited`: the fix asks for its run of the checks itself).
+  const onFixed = useStableCallback((changed: AssetId[]) => reloadChanged(changed, false));
+  // „Welt leeren“ went in: the new members are counted, then the world is read again as after ⌘Z (header table, matrix 0, event files,
+  // maps, the town's scripts and texts); the checks run on the edit.
+  const onRegionApplied = useStableCallback(async (report: RegionReport) => {
+    await session.onCountsChanged();
+    scene.noteHistoryMoved();
+    await reloadChanged(report.changed, true);
   });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
@@ -634,6 +642,7 @@ function AppBody() {
         break;
       case "area":
       case "room":
+      case "clearWorld":
         if (session.info) wizards.open({ kind: run.command });
         break;
       case "list":
@@ -724,6 +733,9 @@ function AppBody() {
         tools={toolStatus}
         onHeaderPatch={onHeaderPatch}
         onHeaderPatchRepaired={session.patchRepaired}
+        onClearWorld={() => {
+          if (session.info) wizards.open({ kind: "clearWorld" });
+        }}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -853,6 +865,11 @@ function AppBody() {
         onHeaderPatchRepaired={session.patchRepaired}
         onError={session.fail}
         onPlay={() => void onPlay()}
+        scripts={scripts.api.status}
+        onAdoptScripts={scripts.api.adopt}
+        unsaved={session.dirtyCount + scripts.dirtyCount}
+        onSave={session.onSave}
+        onRegionApplied={onRegionApplied}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       {importMap !== null && (

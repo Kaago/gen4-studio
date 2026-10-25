@@ -48,7 +48,7 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
               Scripteditor ab.
             </p>
             {phase.kind === "running" ? (
-              <Progress progress={phase.progress} total={fileCount} />
+              <AdoptProgress progress={phase.progress} total={fileCount} />
             ) : (
               <div>
                 <Button kind="primary" onClick={() => void start()}>
@@ -64,7 +64,8 @@ export function AdoptBox({ fileCount, adopt, onClose }: AdoptBoxProps) {
   );
 }
 
-function Progress({ progress, total }: { progress: AdoptProgressDto | null; total: number }) {
+/** The bar of a running adoption and "done / total Scriptdateien" (`total` until the first progress names it); the wizard "Welt leeren" shows it too. */
+export function AdoptProgress({ progress, total }: { progress: AdoptProgressDto | null; total: number }) {
   const max = Math.max(progress?.total ?? total, 1);
   const done = progress?.done ?? 0;
   const share = Math.min(done / max, 1) * 100;

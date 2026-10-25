@@ -177,6 +177,10 @@ pub struct RegionPlan {
     pub removed_objects: usize,
     /// Triggers (coord events) of the town's event file, removed.
     pub removed_triggers: usize,
+    /// Species the start script gives (the recipe's starter).
+    pub starter_species: u16,
+    /// Level of that Pokémon.
+    pub starter_level: u8,
     /// The world already looks like the recipe's result: every cell of matrix 0 with a map
     /// carries the town's header, the cells outside the town share one map, and the town has
     /// no figures.
@@ -330,6 +334,8 @@ pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
         dropped_warps,
         removed_objects,
         removed_triggers,
+        starter_species: recipe.starter_species,
+        starter_level: recipe.starter_level,
         already_empty,
     })
 }

@@ -35,6 +35,10 @@ export interface RegionPlan {
   removed_objects: number;
   /** Triggers (coord events) of the town's event file, removed. */
   removed_triggers: number;
+  /** Species the start script gives (the recipe's starter). */
+  starter_species: number;
+  /** Level of that Pokémon. */
+  starter_level: number;
   /** The world already looks like the recipe's result; `applyEmptyRegion` refuses then. */
   already_empty: boolean;
 }

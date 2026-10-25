@@ -102,15 +102,6 @@
   box-shadow: inset 0 0 0 var(--g4-strich-standard) var(--g4-auswahl-kante);
 }
 
-/* A card that is not open yet: quiet, with a dashed edge and the lock. */
-.card[aria-disabled="true"] {
-  border-style: dashed;
-  border-color: var(--g4-linie-standard);
-  background: transparent;
-  color: var(--g4-text-deaktiviert);
-  cursor: default;
-}
-
 .cardHead {
   display: flex;
   align-items: center;
@@ -126,10 +117,6 @@
 
 .card[aria-checked="true"] .mark {
   color: var(--g4-auswahl-kante);
-}
-
-.card[aria-disabled="true"] .mark {
-  color: inherit;
 }
 
 .cardTitle {

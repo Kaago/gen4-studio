@@ -121,8 +121,7 @@ describe("NewProjectWizard", () => {
     expect(card("original")?.getAttribute("aria-checked")).toBe("true");
     expect(card("original")?.textContent).toContain("Das Spiel, wie es ist.");
     expect(card("data_only")?.textContent).toContain("Für Balancing: Werte, Lernsets, Trainer. Startet im Bereich Pokémon.");
-    expect(card("empty_region")?.getAttribute("aria-disabled")).toBe("true");
-    expect(card("empty_region")?.textContent).toContain("Kommt mit 3g.2");
+    expect(card("empty_region")?.textContent).toContain("Nur die Startstadt mit Spielerhaus bleibt, der Rest ist eine leere Region. Ein Start-Script gibt dir deinen ersten Partner.");
     // A ROM the editor knows needs no warning on the cards.
     expect(text()).not.toContain("Nicht geprüft");
     await next();
@@ -162,9 +161,6 @@ describe("NewProjectWizard", () => {
     await click(card("data_only"));
     expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
     expect(card("original")?.getAttribute("aria-checked")).toBe("false");
-    // The locked card cannot be chosen.
-    await click(card("empty_region"));
-    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
     await next();
     await settle();
     expect(container.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
@@ -269,19 +265,23 @@ describe("NewProjectWizard", () => {
     expect(button("Weiter")?.disabled).toBe(false);
   });
 
-  it("the_arrow_keys_move_the_template_choice_past_the_locked_card_and_wrap", async () => {
+  it("the_arrow_keys_move_the_template_choice_and_wrap", async () => {
     await show();
     await type(field("ROM-Datei"), "/roms/pt.nds");
     await next();
     await act(async () => card("original")!.focus());
     pressKey(card("original")!, "ArrowRight");
     await flush();
-    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("empty_region")?.getAttribute("aria-checked")).toBe("true");
     expect(card("original")?.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement).toBe(card("empty_region"));
+    // Only the chosen card is a tab stop.
+    expect(card("empty_region")?.tabIndex).toBe(0);
+    expect(card("original")?.tabIndex).toBe(-1);
+    pressKey(card("empty_region")!, "ArrowDown");
+    await flush();
+    expect(card("data_only")?.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(card("data_only"));
-    // Only the chosen card is a tab stop; the locked one never is.
-    expect(card("data_only")?.tabIndex).toBe(0);
-    expect(card("empty_region")?.tabIndex).toBe(-1);
     pressKey(card("data_only")!, "ArrowDown");
     await flush();
     expect(card("original")?.getAttribute("aria-checked")).toBe("true");
@@ -292,8 +292,26 @@ describe("NewProjectWizard", () => {
     expect(document.activeElement).toBe(card("data_only"));
     pressKey(card("data_only")!, "ArrowUp");
     await flush();
-    expect(card("original")?.getAttribute("aria-checked")).toBe("true");
-    expect(card("empty_region")?.getAttribute("aria-checked")).toBe("false");
+    expect(card("empty_region")?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("empty_region_card_is_selectable", async () => {
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    expect(card("empty_region")?.getAttribute("aria-disabled")).toBeNull();
+    expect(card("empty_region")?.textContent).not.toContain("Kommt mit");
+    await click(card("empty_region"));
+    expect(card("empty_region")?.getAttribute("aria-checked")).toBe("true");
+    expect(card("original")?.getAttribute("aria-checked")).toBe("false");
+    await next();
+    await settle();
+    await next();
+    expect(text()).toContain("Legt „Neues Platin“ aus Platin (Deutsch) mit der Vorlage Leere Region an, in /roms/_testkopien/Neues Platin. Scripts werden übernommen. Die ROM bleibt unverändert.");
+    await click(button("Anlegen"));
+    await flush();
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "empty_region", expect.any(Function));
+    expect(text()).toContain("Projekt angelegt");
   });
 
   it("a_picked_folder_clears_the_error_of_the_default_folder", async () => {

@@ -1,0 +1,10 @@
+/* The notice that asks for the adopted scripts: its sentence, then the bar of a running adoption. */
+.adopt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.adopt > p {
+  margin: 0;
+}
