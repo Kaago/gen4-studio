@@ -46,10 +46,12 @@
 }
 
 /* The sign column: − for a line that went, + for one that came, empty for the others. It holds the line's left inset and stays at the
-   column's left edge while the column scrolls sideways: an opaque gutter in the line's surface that the text passes under. */
+   column's left edge while the column scrolls sideways: an opaque gutter in the line's surface that the text passes under. Its 1ch is the
+   sign's alone (the app's reset makes every ::before border-box). */
 .line::before {
   position: sticky;
   left: 0;
+  box-sizing: content-box;
   width: 1ch;
   flex: none;
   padding: 0 var(--g4-raum-4) 0 var(--g4-raum-8);

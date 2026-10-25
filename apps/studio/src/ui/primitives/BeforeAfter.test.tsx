@@ -69,6 +69,8 @@ describe("BeforeAfter", () => {
     expect(sign).toMatch(/position:\s*sticky;/);
     expect(sign).toMatch(/left:\s*0;/);
     expect(sign).toMatch(/background:\s*var\(--g4-flaeche-blatt\)/);
+    // The app's reset makes every ::before border-box: the sign keeps its 1ch beside the inset and the gap, else it sits on the text.
+    expect(sign).toMatch(/box-sizing:\s*content-box;/);
     expect(ruleBody(css, ".changed::before")).toMatch(/background:\s*var\(--g4-auswahl-flaeche\)/);
   });
 
