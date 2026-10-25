@@ -27,7 +27,7 @@ _FILE_HASH_OPEN = "${sha1-of:"
 _SHA1_OF = re.compile(r"\$\{sha1-of:((?:[^{}]|\$\{[^{}]*\})+)\}")
 _TOKEN = re.compile(_SHA1_OF.pattern + "|" + _PLACEHOLDER.pattern)  # one pass: group 1 is a hash's path, 2-4 a name
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_HEADER_STEPS = ("continue", "new-game", "where", "expect-map", "walk-until-blocked")  # the steps that make up the header sequence
+_HEADER_STEPS = ("continue", "new-game", "where", "expect-map", "walk-until-blocked", "expect-at")  # the steps that make up the header sequence
 _INT = re.compile(r"-?\d+")
 BASE_KEY = "$base"  # in an edit's arguments: {"$base": "${hdr.Pt}", "field": value} = hdr.Pt with field replaced
 # one part of an expectation path: a key, a list index or `length`, then any number of filters `[key=value]`
@@ -511,7 +511,7 @@ def g4k_command(repo: Path) -> list[str]:
 
 def _play(rom: Path, save: Path | None, out: Path, steps: list[str], core: Path | None) -> tuple[int, list[dict]]:
     """Run `g4emu run` in a child process (without `--save` when `save` is None); returns its exit
-    code and the parsed step lines."""
+    code and the parsed step lines, which are kept in `<out>/play.jsonl` as well."""
     cmd = [sys.executable, "-m", "g4emu.cli", "run", "--rom", str(rom)]
     if save is not None:
         cmd += ["--save", str(save)]
@@ -519,6 +519,7 @@ def _play(rom: Path, save: Path | None, out: Path, steps: list[str], core: Path 
     if core is not None:
         cmd += ["--core", str(core)]
     result = subprocess.run(cmd + steps, stdout=subprocess.PIPE, text=True)
+    (Path(out) / "play.jsonl").write_text(result.stdout, encoding="utf-8")  # step lines, auditable later
     lines: list[dict] = []
     for text in result.stdout.splitlines():
         print(text, flush=True)

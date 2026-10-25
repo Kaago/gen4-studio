@@ -1524,7 +1524,22 @@ def test_the_empty_region_scenarios_start_a_new_game(name, town):
     assert {"path": "plan.start_header", "equals": town} in sc.edits[1][2]["expect"]
     assert {"path": "groups.length", "equals": 3} in sc.edits[2][2]["expect"]
     assert sc.play[0] == "new-game"
-    assert "walk-until-blocked" in sc.play
+    # the walk to the border is pinned: the step right after it checks where it stopped
+    at = sc.play.index("walk-until-blocked")
+    assert sc.play[at + 3] == "expect-at"
     play = " ".join(sc.play)
     for shot in ("zimmer", "ankunft", "start-script", "team", "rand"):
         assert f"shot {shot}" in play
+
+
+def test_play_keeps_the_step_lines_under_out(tmp_path, monkeypatch):
+    class Done:
+        stdout = '{"step": "walk-until-blocked", "ok": true, "steps": 22}\nnoise\n{"step": "expect-at", "ok": true}\n'
+        returncode = 0
+
+    monkeypatch.setattr(scenario.subprocess, "run", lambda cmd, **k: Done())
+    out = tmp_path / "out"
+    out.mkdir()
+    code, lines = scenario._play(tmp_path / "out.nds", None, out, ["new-game"], None)
+    assert code == 0 and len(lines) == 2
+    assert (out / "play.jsonl").read_text(encoding="utf-8") == Done.stdout

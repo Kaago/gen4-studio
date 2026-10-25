@@ -470,3 +470,42 @@ def test_walk_until_blocked_rejects_bad_arguments(fake_emu, cpud, tmp_path):
     fake_emu.attach(cpud, Location(411, -1, 110, 870))
     with pytest.raises(ValueError, match="sideways"):
         run_step(fake_emu, cpud, Step("walk-until-blocked", ["sideways", "5"]), tmp_path)
+
+
+def test_walk_until_blocked_fails_when_blocked_at_once(fake_emu, cpud, tmp_path):
+    # an open menu or text box blocks the first tile too: that must not read as a wall
+    fake_emu.attach(cpud, Location(411, -1, 110, 870), facing="up")
+    fake_emu.blocked = {(110, 869)}
+    with pytest.raises(StepFailed, match=r"blockiert sofort \(0 Schritte\) bei x 110, y 870"):
+        run_step(fake_emu, cpud, Step("walk-until-blocked", ["up", "40"]), tmp_path)
+
+
+def test_walk_until_blocked_needs_at_least_one_tile():
+    with pytest.raises(ValueError, match="walk-until-blocked: N muss mindestens 1 sein"):
+        parse_steps(["walk-until-blocked", "up", "0"])
+    with pytest.raises(ValueError, match="sideways"):
+        parse_steps(["walk-until-blocked", "sideways", "5"])
+    with pytest.raises(ValueError, match="keine ganze Zahl"):
+        parse_steps(["walk-until-blocked", "up", "viele"])
+
+
+def test_expect_at_checks_the_position(fake_emu, cpud, tmp_path):
+    assert parse_steps(["walk-until-blocked", "up", "40", "expect-at", "110", "864", "where"]) == [
+        Step("walk-until-blocked", ["up", "40"]),
+        Step("expect-at", ["110", "864"]),
+        Step("where", []),
+    ]
+    fake_emu.attach(cpud, Location(411, -1, 110, 870), facing="up")
+    fake_emu.blocked = {(110, 863)}
+    run_step(fake_emu, cpud, Step("walk-until-blocked", ["up", "40"]), tmp_path)
+    out = run_step(fake_emu, cpud, Step("expect-at", ["110", "864"]), tmp_path)
+    assert out["ok"] and (out["header"], out["x"], out["y"]) == (411, 110, 864)
+    with pytest.raises(StepFailed, match="x 110, y 864 statt x 111, y 864"):
+        run_step(fake_emu, cpud, Step("expect-at", ["111", "864"]), tmp_path)
+    with pytest.raises(StepFailed, match="x 110, y 864 statt x 110, y 865"):
+        run_step(fake_emu, cpud, Step("expect-at", ["110", "865"]), tmp_path)
+
+
+def test_expect_at_without_location_fails(fake_emu, cpud, tmp_path):
+    with pytest.raises(StepFailed, match="kein gültiger Ort"):
+        run_step(fake_emu, cpud, Step("expect-at", ["1", "2"]), tmp_path)

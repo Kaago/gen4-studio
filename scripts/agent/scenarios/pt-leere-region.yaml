@@ -57,6 +57,7 @@ play:
   - wait 60
   - walk left 4              # x 112: an open column up to the town's top row
   - walk-until-blocked up 40 # 22 tiles, blocked at y 864: above lies the border map
+  - expect-at 112 864         # pinned: the stop is the town's top row, not an open menu
   - where
   - expect-map 411
   - shot rand

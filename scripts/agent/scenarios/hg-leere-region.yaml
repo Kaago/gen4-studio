@@ -55,6 +55,7 @@ play:
   - wait 60
   - walk down 2              # y 399: an open row to the town's west edge
   - walk-until-blocked left 40 # 23 tiles, blocked at x 672: west lies the border map
+  - expect-at 672 399         # pinned: the stop is the town's west edge, not an open menu
   - where
   - expect-map 60
   - shot rand

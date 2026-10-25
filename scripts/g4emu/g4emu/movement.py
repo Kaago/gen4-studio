@@ -169,7 +169,8 @@ def walk_until_blocked(emu: Emu, game: Game, direction: str, tiles: int) -> tupl
     """Walk single tiles until one is blocked: (the location there, tiles walked before).
 
     Fails when all `tiles` tiles go or the header changes (a warp or a map border was crossed),
-    so a pass proves a wall within `tiles` tiles on the same map.
+    so a pass proves a wall within `tiles` tiles on the same map. It fails too when the very first
+    tile is blocked: an open menu, a text box or a script lock stop the character the same way.
     """
     if direction not in DIRECTIONS:
         raise ValueError(f"Unbekannte Richtung: {direction}")
@@ -178,6 +179,10 @@ def walk_until_blocked(emu: Emu, game: Game, direction: str, tiles: int) -> tupl
     for taken in range(tiles):
         loc, moved = _one_tile(emu, game, direction, loc)
         if moved is None:
+            if taken == 0:
+                raise StepFailed(
+                    f"blockiert sofort (0 Schritte) bei x {loc.x}, y {loc.y}: Menü oder Text offen?"
+                )
             return _settle(emu, game, loc), taken
         if moved.header != header:
             raise StepFailed(f"Header {moved.header} statt {header} nach {taken + 1} Schritten")
