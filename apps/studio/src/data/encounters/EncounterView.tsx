@@ -167,7 +167,7 @@ function Users({ doc }: { doc: EncounterDoc }) {
     <section className={styles.section} aria-label="Verwendet von">
       <h3 className={styles.sectionTitle}>{n === 0 ? "Von keinem Ort verwendet" : `Verwendet von ${n} ${n === 1 ? "Ort" : "Orten"}`}</h3>
       {n === 0 ? (
-        <p className={styles.note}>Binde die Datei im Header-Editor an (Feld „Begegnungen“), dann gilt sie dort.</p>
+        <p className={styles.note}>Binde die Datei im Inspector eines Gebiets oder Raums an (Feld „Begegnungen“), dann gilt sie dort.</p>
       ) : (
         <ul className={styles.users}>
           {doc.users.map((u) => (
