@@ -459,7 +459,7 @@ target/debug/studio mcp --help
 
 Schalter: `--project <DIR>` (Pflicht in 3h.1), `--allow-dir <DIR>` (wiederholbar), `--expert` (`g4_call`, `g4_commands`). In 3h.1 ist der Zugang fest `{write: false, irreversible: false}`: `tools/list` zeigt nur die lesenden Werkzeuge und `g4_batch`; die Schalter `--read-only` und `--allow-irreversible` kommen mit 3h.2. Rückgabe 0, 1 (Fehler im Protokoll) oder 2 (nichts bedient: falsche Argumente, Projekt nicht lesbar, Original gesperrt; Meldung auf stderr). stdout gehört dem Protokoll: unter Unix lenkt der Server fd 1 auf stderr um (`libc::fcntl` mit `F_DUPFD_CLOEXEC`, `dup2`) und schreibt das Protokoll auf die Kopie; unter Windows gibt es das nicht. In Debug-Builds druckt `G4_MCP_TEST_NOISE=1` eine Zeile auf stdout (landet auf stderr), damit Tests den Schutz beweisen können.
 
-**Originale in der Entwicklung:** Ist `G4_ROMS_DIR` gesetzt, lehnt `UserPolicy` ein Projekt (und jeden `--allow-dir`-Ordner) ab, das darunter liegt, aber nicht unter `$G4_ROMS_DIR/_testkopien` (oder `_testkopien/_saves`): Rückgabe 2, „Originale sind gesperrt, nur Kopien unter _testkopien“. Die Namenssperre `*_DSPRE_contents` der Brücke gilt für Nutzer nicht (3g legt Nutzerprojekte so an). Also immer auf eine Kopie zeigen:
+**Originale in der Entwicklung:** Ist `G4_ROMS_DIR` gesetzt, lehnt `UserPolicy` ein Projekt (und jeden `--allow-dir`-Ordner) ab, das unter `$G4_ROMS_DIR` liegt, aber nicht unter `$G4_ROMS_DIR/_testkopien`, dazu alles unter `_testkopien/_saves`: Rückgabe 2, „Originale sind gesperrt, nur Kopien unter _testkopien“. Ebenso abgelehnt ist ein `--allow-dir`-Ordner (oder Projekt), der die Originale enthält, also `$G4_ROMS_DIR` selbst oder ein Ordner darüber („Originale sind gesperrt, der Ordner enthält G4_ROMS_DIR“). Jeder Pfad, den ein Befehl liest oder schreibt, wird zusätzlich einzeln gegen dieselbe Regel geprüft. Lässt sich `G4_ROMS_DIR` nicht auflösen (Ordner fehlt), startet `studio mcp` nicht: „G4_ROMS_DIR ist gesetzt, aber nicht lesbar: …“, Rückgabe 2. Die Namenssperre `*_DSPRE_contents` der Brücke gilt für Nutzer nicht (3g legt Nutzerprojekte so an). Also immer auf eine Kopie zeigen:
 
 ```sh
 cp -R "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$G4_ROMS_DIR/_testkopien/<name>"   # Ziel darf nicht existieren
@@ -468,7 +468,7 @@ cp -R "$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" "$G4_ROMS
 **Tests:**
 
 ```sh
-cargo test -p studio --all-features                     # Bibliothek (340 in 3h.1) und tests/mcp_stdio.rs (11)
+cargo test -p studio --all-features                     # Bibliothek (345 in 3h.1) und tests/mcp_stdio.rs (11 plus 1 gated)
 cargo test -p studio --test mcp_stdio                   # nur der Client-Test über stdio, rund 1 s
 G4_TEST_PROJECT="$G4_ROMS_DIR/<Projekt>_DSPRE_contents" \
   cargo test -p studio --test mcp_stdio vanilla          # gated: Header, Prüfungen, Texte auf vanilla_copy(), rund 80 s
