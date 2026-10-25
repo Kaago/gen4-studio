@@ -27,6 +27,7 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { toolStatus } from "./app/toolStatus";
+import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
@@ -57,6 +58,7 @@ import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { AgentQuestion } from "./app/AgentQuestion";
 import { useAgents } from "./app/useAgents";
 import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
@@ -860,6 +862,7 @@ function AppBody() {
                   density={shell.density}
                   onToggleDensity={shell.toggleDensity}
                   build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+                  agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
                 />
               }
             />
@@ -888,6 +891,7 @@ function AppBody() {
         onRegionApplied={onRegionApplied}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
       {importMap !== null && (
         <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
       )}

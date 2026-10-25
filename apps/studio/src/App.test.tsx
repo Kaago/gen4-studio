@@ -7,8 +7,9 @@ import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, agentSettings } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
+import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
 import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
@@ -1873,6 +1874,33 @@ describe("App wiring", () => {
       await flush();
       expect(memberCounts).toHaveBeenCalledTimes(2);
       expect(log).toEqual(["matrixData@1", "getMatrix@1", "matrixData@2", "getMatrix@2"]);
+    });
+
+    it("shows_the_connected_agent_in_the_status_line_and_answers_its_question", async () => {
+      const hub = (question: AgentStatus["question"]): AgentStatus => ({
+        enabled: true,
+        expert: false,
+        read_only: false,
+        port: 49152,
+        bridge: false,
+        connections: [{ id: 1, client: "Claude Code", since_ms: 0 }],
+        question,
+      });
+      let current = hub({ id: 7, kind: "connect", client: "Claude Code", project: "/p", what: null });
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === "agent_status" ? current : undefined));
+      await inTheApp();
+      await emit({ kind: "status", seq: 1 });
+      await flush();
+      expect(container.querySelector("footer [data-agent-status]")?.textContent).toBe("Agent verbunden: Claude Code");
+      expect(document.querySelector("[data-agent-question]")?.textContent).toBe("„Claude Code“ möchte auf das Projekt „p“ zugreifen.");
+      current = hub(null);
+      const read = [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Lesen")!;
+      await act(async () => read.click());
+      await flush();
+      expect(invoke).toHaveBeenCalledWith("agent_answer", { question: 7, answer: "read" });
+      // The answer reads the status again: the question is gone, the agent stays connected.
+      expect(document.querySelector("[data-agent-question]")).toBeNull();
+      expect(statusLine()).toContain("Agent verbunden: Claude Code");
     });
 
     it("reads_nothing_for_an_agent_change_without_a_project", async () => {

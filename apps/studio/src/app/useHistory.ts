@@ -6,11 +6,15 @@ import type { EditBus } from "../bus/editBus";
 export const HISTORY_DEBOUNCE_MS = 100;
 const NO_HISTORY: HistoryDto = { undo: [], redo: [] };
 
-const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((label, i) => label === b[i]);
+const same = (a: readonly (string | null)[], b: readonly (string | null)[]) => a.length === b.length && a.every((label, i) => label === b[i]);
+/** The same steps by the same hands: an agent's step with the user's label is another history. */
+const sameHistory = (a: HistoryDto, b: HistoryDto) =>
+  same(a.undo, b.undo) && same(a.redo, b.redo) && same(a.undo_agents ?? [], b.undo_agents ?? []) && same(a.redo_agents ?? [], b.redo_agents ?? []);
 
 /**
- * The undo and redo labels as last read, for every hinge to show: one reader (`useHistoryReader`) writes them, any number of hinges
- * read them (`useSyncExternalStore`). Writing the same labels again keeps the object, so nobody renders for nothing.
+ * The undo and redo labels (and who made each step) as last read, for every hinge to show: one reader (`useHistoryReader`) writes
+ * them, any number of hinges read them (`useSyncExternalStore`). Writing the same labels and agents again keeps the object, so nobody
+ * renders for nothing.
  */
 export class HistoryFeed {
   private shown: HistoryDto = NO_HISTORY;
@@ -19,7 +23,7 @@ export class HistoryFeed {
   get = (): HistoryDto => this.shown;
 
   set(next: HistoryDto): void {
-    if (same(this.shown.undo, next.undo) && same(this.shown.redo, next.redo)) return;
+    if (sameHistory(this.shown, next)) return;
     this.shown = next.undo.length === 0 && next.redo.length === 0 ? NO_HISTORY : next;
     for (const listener of [...this.listeners]) listener();
   }

@@ -34,6 +34,14 @@ describe("StatusLine", () => {
     vi.useRealTimers();
   });
 
+  it("puts_the_agent_item_right_before_the_build_state", () => {
+    show(props({ agent: <span data-probe="">Agent verbunden: Claude Code</span> }));
+    const probe = container.querySelector("[data-probe]")!;
+    expect(probe.nextElementSibling?.textContent).toBe("Noch nicht gebaut");
+    show(props());
+    expect(container.querySelector("[data-probe]")).toBeNull();
+  });
+
   it("names_the_browser_mode_and_a_missing_bridge_and_stays_silent_in_the_app", () => {
     show(props({ bridge: "ok" }));
     expect(container.textContent).toContain("Browser-Modus (Brücke)");

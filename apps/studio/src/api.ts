@@ -505,6 +505,9 @@ export const redo = () => invoke<AssetId[]>("redo");
 export interface HistoryDto {
   undo: string[];
   redo: string[];
+  /** Who made each step, aligned with `undo` and `redo`: the agent's client name („Claude Code“), `null` for the user's own steps. */
+  undo_agents?: (string | null)[];
+  redo_agents?: (string | null)[];
 }
 export const history = () => invoke<HistoryDto>("history");
 export const dirty = () => invoke<AssetId[]>("dirty");

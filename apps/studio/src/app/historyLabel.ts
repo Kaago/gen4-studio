@@ -50,4 +50,5 @@ export function historyLabel(label: string): string {
   return label !== "" && !DEVELOPER_STRING.test(label) ? label : "Änderung";
 }
 
-export const germanHistory = (history: HistoryDto): HistoryDto => ({ undo: history.undo.map(historyLabel), redo: history.redo.map(historyLabel) });
+/** Translates both lists; the agents of the steps (`undo_agents`, `redo_agents`) stay aligned with them. */
+export const germanHistory = (history: HistoryDto): HistoryDto => ({ ...history, undo: history.undo.map(historyLabel), redo: history.redo.map(historyLabel) });

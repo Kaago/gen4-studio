@@ -1,0 +1,14 @@
+/* The menu's trigger at the height and size of the status line's other items (the bar is 28 px). */
+.item {
+  display: inline-flex;
+  color: var(--g4-text-primaer);
+}
+
+.item > button {
+  min-height: 24px;
+  font: var(--g4-font-text-xs);
+}
+
+.item > button svg {
+  font-size: var(--g4-schrift-groesse-xs);
+}
