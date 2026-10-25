@@ -328,9 +328,13 @@ pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
     launch_emulator(Path::new(emulator), Path::new(rom)).map_err(CmdError::from)
 }
 
+/// Opening waits for a running agent call (the agent turn), so it runs on a blocking worker,
+/// off the main thread.
 #[tauri::command]
-pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, CmdError> {
-    open_project_impl(&state, &path)
+pub async fn open_project(app: tauri::AppHandle, path: String) -> Result<ProjectInfo, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || open_project_impl(&app.state::<AppState>(), &path))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 #[tauri::command]

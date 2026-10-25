@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::errors::CmdError;
 use crate::mcp::hub::{AgentPoll, AgentSettingsDto, AgentStatus, GrantView, setup_line};
@@ -95,9 +95,15 @@ pub fn agent_settings(state: State<AppState>) -> Result<AgentSettingsDto, CmdErr
     agent_settings_impl(&state)
 }
 
+/// Starting or stopping the MCP server binds a port and writes files, so it runs on a
+/// blocking worker, off the main thread.
 #[tauri::command]
-pub fn agent_set_enabled(state: State<AppState>, on: bool) -> Result<(), CmdError> {
-    agent_set_enabled_impl(&state, on)
+pub async fn agent_set_enabled(app: tauri::AppHandle, on: bool) -> Result<(), CmdError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        agent_set_enabled_impl(&app.state::<AppState>(), on)
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 #[tauri::command]

@@ -2,12 +2,15 @@
 //! commands an agent may run ([`access`]), the curated tools it sees ([`catalog`]), the
 //! toolbox that runs them ([`tools`]), the server over stdio ([`server`], started by
 //! `studio mcp`, see [`main`]) and, in the running app, the agent settings ([`settings`]),
-//! the hub of connections, questions and events ([`hub`]) and the state the toolbox then
-//! shares with the user ([`host`]).
+//! the hub of connections, questions and events ([`hub`]), the state the toolbox then
+//! shares with the user ([`host`]) and the server over Streamable HTTP on `127.0.0.1`
+//! ([`http`]) with its discovery file ([`discovery`]).
 
 pub mod access;
 pub mod catalog;
+pub mod discovery;
 pub mod host;
+pub mod http;
 pub mod hub;
 pub mod server;
 pub mod settings;

@@ -16,6 +16,7 @@ use tiny_http::{Header, Request, Response, Server};
 use super::dispatch::{COMMANDS, DispatchError, Reply, dispatch};
 use super::roots::Roots;
 use crate::errors::CmdError;
+use crate::mcp::http::same_secret;
 use crate::state::AppState;
 
 /// Name of the header that carries the shared secret.
@@ -134,12 +135,6 @@ fn header<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
         .iter()
         .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name))
         .map(|h| h.value.as_str())
-}
-
-/// Equality that does not stop at the first differing byte.
-fn same_secret(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn is_json(content_type: &str) -> bool {

@@ -10,6 +10,13 @@ pub trait StateSource: Send + Sync + 'static {
     fn state(&self) -> &AppState;
 }
 
+/// The app: Tauri manages the state.
+impl<R: tauri::Runtime> StateSource for tauri::AppHandle<R> {
+    fn state(&self) -> &AppState {
+        tauri::Manager::state::<AppState>(self).inner()
+    }
+}
+
 /// The dev bridge (and the tests) hold the state in an `Arc`.
 impl StateSource for Arc<AppState> {
     fn state(&self) -> &AppState {
