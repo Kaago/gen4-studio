@@ -1519,6 +1519,7 @@ dependencies = [
  "clap",
  "ds-rom",
  "g4-formats",
+ "g4-xdelta",
  "libc",
  "png",
  "predicates",

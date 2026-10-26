@@ -10,6 +10,7 @@ test-support = ["dep:tempfile", "g4-formats/test-support"]
 
 [dependencies]
 g4-formats = { path = "../g4-formats" }
+g4-xdelta = { path = "../g4-xdelta" }
 uxie = "0.9"
 chatot = "0.8"
 ds-rom = { git = "https://github.com/AetiasHax/ds-rom", rev = "8a9c1512fa5781d9ea53e660f5310e9ab137c53d" }

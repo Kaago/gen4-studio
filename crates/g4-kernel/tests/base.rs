@@ -157,3 +157,104 @@ fn base_rom_header_table_equals_the_vanilla_project() {
         headers.len()
     );
 }
+
+/// Applies `patch` to `nds` with the xdelta3 CLI, if it is in the PATH, and checks the
+/// result's SHA-1; returns whether the cross-check ran.
+fn xdelta3_applies(nds: &std::path::Path, patch: &std::path::Path, target_sha1: &str) -> bool {
+    let out = patch.with_extension("xdelta3-cli.nds");
+    let status = match std::process::Command::new("xdelta3")
+        .arg("-d")
+        .arg("-f")
+        .arg("-s")
+        .arg(nds)
+        .arg(patch)
+        .arg(&out)
+        .status()
+    {
+        Ok(status) => status,
+        Err(e) => {
+            eprintln!("xdelta3 cross-check skipped: {e}");
+            return false;
+        }
+    };
+    assert!(status.success(), "xdelta3 -d failed: {status}");
+    assert_eq!(inspect_rom(&out).unwrap().sha1, target_sha1);
+    std::fs::remove_file(&out).unwrap();
+    true
+}
+
+/// A patch after one map byte stays below 1 KiB, after map, script and text below 16 KiB;
+/// both are written in under a second and apply with our decoder and with xdelta3.
+#[test]
+fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
+    use g4_kernel::patch::{build_and_create, default_targets};
+    use g4_kernel::project::AssetKind;
+    use g4_kernel::text::TextArchiveDoc;
+
+    let Some((_orig, nds)) = vanilla_with_base() else {
+        return;
+    };
+    let Some((_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let (_, mark) = assign_base(&copy, &nds).unwrap();
+    let base = BaseRom::open(&nds, Some(&mark.sha1)).unwrap();
+    let project = Project::open(&copy).unwrap();
+    let targets = default_targets(&project);
+
+    // Map: one permission byte of map 3, as Gutachten B `edit_map`.
+    project.ensure_unpacked(AssetKind::Map).unwrap();
+    let map = project.member_path(AssetKind::Map, 3);
+    let mut bytes = std::fs::read(&map).unwrap();
+    bytes[0x20] ^= 0x80;
+    std::fs::write(&map, bytes).unwrap();
+    let (build, map_report) = build_and_create(&project, &base, None).unwrap();
+    assert_eq!(build.rom, targets.rom);
+    assert_eq!(map_report.patch, targets.patch);
+    assert_eq!(map_report.base_sha1, mark.sha1);
+    assert_ne!(map_report.target_sha1, mark.sha1);
+    assert_eq!(
+        inspect_rom(&targets.rom).unwrap().sha1,
+        map_report.target_sha1
+    );
+    assert!(map_report.notes.is_file());
+    let crossed_map = xdelta3_applies(&nds, &map_report.patch, &map_report.target_sha1);
+
+    // Text: message 0 of archive 0 gets " Studio", as Gutachten B `edit_text`.
+    project.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    let member = std::fs::read(project.member_path(AssetKind::TextArchive, 0)).unwrap();
+    let mut doc = TextArchiveDoc::from_member(&member, project.language.locale_key()).unwrap();
+    doc.messages[0].text.push_str(" Studio");
+    let dir = project.expanded_dir(AssetKind::TextArchive);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000.json"), doc.to_json()).unwrap();
+    // Script: two bytes appended to script file 0.
+    project.ensure_unpacked(AssetKind::Script).unwrap();
+    let script = project.member_path(AssetKind::Script, 0);
+    let mut bytes = std::fs::read(&script).unwrap();
+    bytes.extend_from_slice(&[0x02, 0x00]);
+    std::fs::write(&script, bytes).unwrap();
+    let (_, all_report) = build_and_create(&project, &base, None).unwrap();
+    assert_ne!(all_report.target_sha1, map_report.target_sha1);
+    let crossed_all = xdelta3_applies(&nds, &all_report.patch, &all_report.target_sha1);
+
+    eprintln!(
+        "patch-sizes {} map={} all={} encode_ms={}/{} verify_ms={}/{}",
+        base.game_code(),
+        map_report.size,
+        all_report.size,
+        map_report.encode_ms,
+        all_report.encode_ms,
+        map_report.verify_ms,
+        all_report.verify_ms
+    );
+    eprintln!("xdelta3 cross-check: map={crossed_map} all={crossed_all}");
+    assert!(map_report.size <= 1024, "map patch {} B", map_report.size);
+    assert!(
+        all_report.size <= 16384,
+        "map+script+text patch {} B",
+        all_report.size
+    );
+    assert!(map_report.encode_ms <= 1000, "{} ms", map_report.encode_ms);
+    assert!(all_report.encode_ms <= 1000, "{} ms", all_report.encode_ms);
+}
