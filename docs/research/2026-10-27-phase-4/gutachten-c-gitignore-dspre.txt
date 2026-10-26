@@ -1,0 +1,30 @@
+# Gen4 Studio: Vorlage für einen DSPRE-Ordner in Git (Stand Gutachten C, Phase 4)
+# Das Repository enthält Spieldaten: nur lokal oder privat, nie öffentlich.
+
+# Gebaute ROMs und Patches
+*.nds
+*.srl
+*.xdelta
+*.ips
+/build/
+
+# Emulator: Spielstände und Savestates (melonDS legt .sav neben die ROM, DeSmuME .dsv)
+*.sav
+*.dsv
+*.ml[0-9]
+*.mln
+*.state
+
+# Studio: Zwischenstände, Caches, Sicherungen (.g4/base.json und .g4/preview.png bleiben)
+/.g4/tmp/
+/.g4/models/
+/.g4/backup/
+/.g4/build/
+/.g4/cache/
+
+# rotom: Cache (die Quirks in .rotom/status/compile-state.json bleiben versioniert)
+/.rotom/cache/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db

@@ -1,0 +1,11 @@
+[package]
+name = "proto-b-x3"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+xdelta3 = "0.1.5"

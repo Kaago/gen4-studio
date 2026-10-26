@@ -1,0 +1,20 @@
+# Prototyp Gutachten A (Phase 4.3). Nicht Teil des Workspace: zum Bauen in einen leeren Ordner
+# als Cargo.toml kopieren, src/main.rs = gutachten-a-proto.rs, Pfade anpassen; CFLAGS=-D_POSIX_C_SOURCE=200809L
+# (wie .cargo/config.toml), DYLD_LIBRARY_PATH=<target>/release für libnitroarc_ffi.dylib.
+# Aufruf: proto-a <dspre-ordner (Kopie!)> <out-dir> [abschnitt]; schreibt expanded/ und .rotom/ in die Kopie.
+[package]
+name = "proto-a"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+g4-kernel = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-kernel" }
+g4-formats = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-formats" }
+uxie = "0.9"
+serde_json = "1"
+sha1 = "0.10"
+
+[profile.release]
+debug = false
