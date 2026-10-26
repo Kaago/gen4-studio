@@ -484,6 +484,87 @@ mod tests {
         assert!(p.iter().all(|c| c.abs_diff(90) <= 3), "{p:?}");
     }
 
+    /// A baseline JPEG of `w` × `h` (multiples of 8) in one CMYK colour, built by hand: the
+    /// `image` crate encodes no CMYK. Four components without subsampling or an Adobe
+    /// marker (which decoders read as CMYK), DC only: a DC quantizer of 8 makes the
+    /// quantized DC of a flat block its sample minus 128.
+    fn cmyk_jpeg(w: u16, h: u16, cmyk: [u8; 4]) -> Vec<u8> {
+        let mut out = vec![0xFF, 0xD8];
+        // DQT: table 0, 8 for DC, 1 for the rest.
+        out.extend([0xFF, 0xDB, 0, 67, 0x00, 8]);
+        out.extend([1; 63]);
+        // SOF0: 8 bit, h × w, four components 1..=4, sampling 1 × 1, table 0.
+        out.extend([0xFF, 0xC0, 0, 20, 8]);
+        out.extend(h.to_be_bytes());
+        out.extend(w.to_be_bytes());
+        out.push(4);
+        for id in 1..=4 {
+            out.extend([id, 0x11, 0]);
+        }
+        // DHT: DC table 0, categories 0..=11 with codes of 4 bits (code = category).
+        out.extend([0xFF, 0xC4, 0, 31, 0x00, 0, 0, 0, 12]);
+        out.extend([0; 12]);
+        out.extend(0..12u8);
+        // DHT: AC table 0, only end of block, code `0`.
+        out.extend([0xFF, 0xC4, 0, 20, 0x10, 1]);
+        out.extend([0; 15]);
+        out.push(0x00);
+        // SOS: the four components, tables 0/0, full spectrum.
+        out.extend([0xFF, 0xDA, 0, 14, 4]);
+        for id in 1..=4 {
+            out.extend([id, 0x00]);
+        }
+        out.extend([0, 63, 0]);
+        // Entropy data: per block the DC difference (category, then its bits) and EOB.
+        let mut bits: Vec<bool> = Vec::new();
+        let mut put = |value: u32, len: u32| {
+            for i in (0..len).rev() {
+                bits.push(value >> i & 1 == 1);
+            }
+        };
+        let blocks = usize::from(w / 8) * usize::from(h / 8);
+        for block in 0..blocks {
+            for sample in cmyk {
+                // Each component predicts from its own last DC: only the first block differs.
+                let diff = if block == 0 {
+                    i32::from(sample) - 128
+                } else {
+                    0
+                };
+                let category = 32 - diff.unsigned_abs().leading_zeros();
+                put(category, 4);
+                let raw = if diff < 0 { diff - 1 } else { diff };
+                put(raw as u32 & ((1 << category) - 1), category);
+                put(0, 1);
+            }
+        }
+        while !bits.len().is_multiple_of(8) {
+            bits.push(true);
+        }
+        for byte in bits.chunks(8) {
+            let byte = byte.iter().fold(0u8, |acc, &bit| acc << 1 | u8::from(bit));
+            out.push(byte);
+            if byte == 0xFF {
+                out.push(0x00);
+            }
+        }
+        out.extend([0xFF, 0xD9]);
+        out
+    }
+
+    #[test]
+    fn fits_cmyk_jpeg() {
+        // Stored as Adobe writes CMYK (inverted), so a decoder shows about (c, m, y) · k / 255.
+        let jpeg = cmyk_jpeg(32, 24, [200, 100, 40, 255]);
+        assert_eq!(image::guess_format(&jpeg).unwrap(), ImageFormat::Jpeg);
+        let out = decode(&fit_preview(&jpeg).unwrap());
+        let first = out.get_pixel(0, 0).0;
+        assert!(out.pixels().all(|p| p.0 == first), "flat colour");
+        for (got, want) in first.iter().zip([200, 100, 40]) {
+            assert!(got.abs_diff(want) <= 4, "{first:?}");
+        }
+    }
+
     #[test]
     fn fits_palette_png() {
         // An indexed PNG with a transparent palette entry (tRNS): the opaque half keeps its
