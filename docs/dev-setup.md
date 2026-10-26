@@ -121,8 +121,26 @@ Befehle aus der Wurzel des Repositorys, mit `export PATH="/opt/homebrew/opt/rust
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --check
+cargo deny --locked check licenses advisories
 cd apps/studio && pnpm test && pnpm build
 ```
+
+### cargo-deny (Lizenzen und Advisories)
+
+`cargo deny` prüft den Abhängigkeitsbaum mit allen Features gegen `deny.toml` in der Repo-Wurzel: Lizenzen nur aus der
+Freigabeliste, keine offene RustSec-Meldung (Schwachstelle, unmaintained, yanked). Installieren, einmal je Rechner (landet
+in `~/.cargo/bin`):
+
+```sh
+export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+cargo install --locked cargo-deny@0.20.2
+```
+
+Der erste Lauf lädt die RustSec-Datenbank nach `~/.cargo/advisory-dbs`, jeder weitere holt sie neu; eine neue Meldung kann das
+Gate also ohne Änderung am Repo rot machen. Dann zuerst `cargo update -p <crate>@<Version>` (semver-verträglich) oder ein
+verträgliches Update des direkten Elternteils versuchen; erst wenn keins den Fix bringt, eine Ausnahme je RUSTSEC-ID unter
+`[advisories] ignore` mit Grund (Crate und Version, Kette, warum kein Update geht, warum es hinnehmbar ist). Pauschale
+Schalter wie `unmaintained = "none"` gibt es nicht.
 
 `--all-features` ist nötig, sobald `g4-kernel` allein getestet wird: die Integrationstests `store`, `cli`, `project`, `build`
 und `headers` sowie der Vanilla-Test in `export` sind mit `#![cfg(feature = "test-support")]` bzw.
@@ -471,22 +489,23 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
-4. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
-5. `pnpm test` in `apps/studio`
-6. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
-7. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
-8. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
-9. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
-10. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
-11. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
-12. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
+3. `cargo deny (licenses, advisories)`: `cargo deny --locked check licenses advisories` mit `deny.toml` (siehe „cargo-deny (Lizenzen und Advisories)“ unter „Tests“); fehlt `cargo-deny`, bricht das Skript mit der Zeile "FAILED (cargo-deny fehlt)" und dem Installationsbefehl ab
+4. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
+5. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
+6. `pnpm test` in `apps/studio`
+7. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
+8. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
+9. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
+10. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
+11. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
+12. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+13. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
 
 ```sh
 scripts/gate.sh
 ```
 
-Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell), braucht also keinen `export PATH`. Variablen, alle optional:
+Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell) und hängt `~/.cargo/bin` (dort liegt `cargo-deny`) hinten an den `PATH`, braucht also keinen `export PATH`. Variablen, alle optional:
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
