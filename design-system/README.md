@@ -97,42 +97,33 @@ Symbole: Phosphor Icons (MIT), Stil „regular“ für Oberfläche, „fill“ f
 
 ## Marke
 
-Die Marke von Gen4 Studio ist das Doppeldeck selbst: zwei Bildschirme übereinander, dazwischen das Scharnier, die eine Signatur des Systems (Prinzip 2). Oben die Schau (was der Spieler sieht), unten die Hand (was man anfasst). Sie ist das App-Symbol (Dock, Finder, „Über Gen4 Studio“); eine Ziffer „4“ trägt sie nicht, Name und Generation stehen daneben.
+Die Marke von Gen4 Studio ist das Doppeldeck selbst, auf das Nötigste gebracht: zwei Bildschirme übereinander, dazwischen das Scharnier als Kobaltlinie, die eine Signatur des Systems (Prinzip 2). Unten, auf der Hand, ein Kobaltquadrat: die Auswahl, „das bist du gerade“. Flache Farben, fünf Formen, keine Kontur, kein Schatten, keine Textur. Sie ist das App-Symbol (Dock, Finder, „Über Gen4 Studio“); eine Ziffer „4“ trägt sie nicht, Name und Generation stehen daneben.
 
 ![Marke von Gen4 Studio](marke/gen4-studio-marke-1024.png)
 
-Konstruktion im Raster 1024 × 1024 (alle Maße in Pixeln; innerhalb des Körpers liegt alles außer den Radien im 8-px-Raster der Marke, 8 px sind eine Kachel):
+Konstruktion im Raster 1024 × 1024 (Maße in Pixeln):
 
-| Teil | Maß | Token |
+| Form | Maß | Token |
 |---|---|---|
-| Körper | 824 × 824 bei 100/100 (100 px Rand rundum, Raster der macOS-App-Symbole), Radius 184; kein Schatten | Kante `linie/stark`, Fläche `scharnier/grund` |
-| Innenkante | 8 px, als Ring um die Fläche (Fläche 808 × 808 bei 108/108, Radius 176) | `linie/stark` |
-| Bildschirme | je 560 × 296, Radius 24, bei x 232 (132 px vom Körperrand), oben bei y 184, unten bei y 544 (je 84 px zum Körperrand) | – |
-| Scharnier | Streifen 64 px zwischen den Bildschirmen (y 480 bis 544), darin mittig die Kante 560 × 32 bei y 496 | `akzent/grund` |
-| Schau (oben) | Fläche des Bildschirms; drei Grasstufen nach rechts steigend (ab x 160, 296, 432 im Bildschirm, Oberkanten 200, 136, 72), jede mit einer hellen Lippe von einer Kachel (8 px); links davor Wasser (160 breit, Oberkante 216) | `szene/ds/grund`, `szene/gelaende/hohes-gras`, `bereich/welt-punkt`, `szene/gelaende/wasser` |
-| Hand (unten) | Fläche des Bildschirms; 4 × 3 Kacheln je 72 × 72, Abstand 16, Radius 8, mittig (112 px links und rechts, 24 px oben und unten); gewählt ist Spalte 3, Zeile 2 | `flaeche/blatt`, `linie/standard`, gewählt `auswahl/kante` |
+| Körper | 824 × 824 bei 100/100 (100 px Rand rundum, Raster der macOS-App-Symbole), Radius 184; kein Schatten | `scharnier/grund` |
+| Bildschirme | je 584 × 252 bei x 220, oben bei y 220, unten bei y 552; 120 px vom Körperrand rundum, der Block aus beiden Bildschirmen ist quadratisch; Radius 64 = 184 − 120, konzentrisch zum Körper | `szene/ds/grund` |
+| Scharnier | Linie 584 × 32 bei y 496, mittig auf 512 im Abstand 80 zwischen den Bildschirmen (24 px Körper darüber und darunter), runde Enden (Radius 16) | `akzent/grund` |
+| Auswahl | Quadrat 96 × 96 im unteren Bildschirm, links, oben und unten je 78 px vom Bildschirmrand (bei 298/630), Radius 24 | `akzent/grund` |
 
-Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5). Kobalt ist der einzige Akzent; die Lippen der Stufen sind darum kein Bernstein (`gelaende/vorsprung`), sondern ein helleres Grün, und einen eigenen Weg hat die Landschaft nicht (die Szene kennt kein Token dafür):
+Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5):
 
 | Token | Wert | Rolle |
 |---|---|---|
 | `scharnier/grund` (Dunkel) | `#42527B` | Körper: das Gehäuse in der Farbe des Scharniers |
-| `linie/stark` (Dunkel) | `#848CA5` | Innenkante, Kontur auf dunklem Dock |
-| `akzent/grund` (Dunkel) | `#6384F7` | Scharnier-Kante, der einzige Akzent („das bist du gerade“) |
-| `auswahl/kante` (Dunkel) | `#6384F7` | die gewählte Kachel |
-| `flaeche/blatt` (Dunkel) | `#394252` | unterer Bildschirm |
-| `linie/standard` (Dunkel) | `#4A5263` | Kacheln |
-| `szene/ds/grund` | `#182131` | oberer Bildschirm (Himmel) |
-| `szene/gelaende/hohes-gras` | `#009C73` | Grasstufen |
-| `bereich/welt-punkt` (Dunkel) | `#52C684` | Lippen der Stufen: helles Moos, die Farbe des Bereichs Welt |
-| `szene/gelaende/wasser` | `#0073B5` | Wasser |
+| `szene/ds/grund` | `#182131` | beide Bildschirme, der Grund des DS-Bildschirms |
+| `akzent/grund` (Dunkel) | `#6384F7` | Scharnier und Auswahl, der einzige Akzent |
 
-Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht, die Fläche des Scharniers heißt `scharnier/grund`. Jede Fläche im SVG trägt ihr Token im `id` der Gruppe (`token-scharnier-grund`, `token-szene-gelaende-wasser` …); nach einer Token-Änderung `python3 design-system/scripts/marke.py` laufen lassen und die Symbole neu erzeugen (`docs/release.md`, Abschnitt „App-Symbol“).
+Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht, die Fläche des Scharniers heißt `scharnier/grund`. Jede Farbe im SVG trägt ihr Token im `id` der Gruppe (`token-scharnier-grund`, `token-szene-ds-grund`, `token-akzent-grund`); nach einer Token-Änderung `python3 design-system/scripts/marke.py` laufen lassen und die Symbole neu erzeugen (`docs/release.md`, Abschnitt „App-Symbol“).
 
-- **Schutzraum:** um den Körper ein Viertel des Scharniers frei, 16 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite (103 px bei 824).
-- **Hell und Dunkel:** ein Symbol für beide (Tauri 2 kennt nur eins). Auf hellem Dock und Finder steht der Körper durch seinen Kontrast, auf dunklem durch die Innenkante `linie/stark`. Die Ecken außerhalb des Körpers sind durchsichtig; dieselbe Datei taugt daher ohne Änderung für Flächen der App (Galerie, späterer Über-Dialog).
-- **Kleine Größen:** bei 32 px bleiben Körper, die zwei Bildschirme, die Kobaltkante und die gewählte Kachel erkennbar, bei 16 px Körper, die zwei Bildschirme und die Kante als heller Streifen; Stufen, Wasser und Kacheln verschwimmen gewollt. Darum ist die Kante 32 px dick (eine Pixelzeile bei 32 px). Kein eigenes Kleinsymbol: `tauri icon` skaliert aus 1024.
-- **Dateien:** `marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, ohne eingebettete Bilder) und `marke/gen4-studio-marke-1024.png` (1024 × 1024, RGBA, sRGB). Beide schreibt `scripts/marke.py` aus einer Geometrie, nur mit der Standardbibliothek (eigener Rasterizer mit 4 × 4-Supersampling an den Rundungen, PNG über `zlib`); gleicher Lauf, gleiche Bytes. Tests: `python3 -m unittest design-system/scripts/test_marke.py` (Maß und Farbtyp des PNG, Farben als Token auf dem RGB555-Raster, Maße und 8-px-Raster, Landschaft und Palette, Determinismus).
+- **Schutzraum:** um den Körper ein Viertel des Scharnier-Abstands frei, 20 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite (103 px bei 824).
+- **Hell und Dunkel:** ein Symbol für beide (Tauri 2 kennt nur eins). Der Körper in Platin 700 steht auf hellem Dock und Finder als dunkle Form und auf dunklem Dock als hellere; eine Kontur braucht er darum nicht. Die Ecken außerhalb des Körpers sind durchsichtig; dieselbe Datei taugt ohne Änderung für Flächen der App (Galerie, späterer Über-Dialog).
+- **Kleine Größen:** bei 32 px bleiben Körper, die zwei Bildschirme, die Kobaltlinie und die Auswahl erkennbar, bei 16 px Körper, zwei dunkle Flächen, die Linie als heller Streifen und die Auswahl als Kobaltpunkt. Die Linie ist 32 px dick (eine Pixelzeile bei 32 px), die Auswahl 96 px (drei Pixel bei 32, anderthalb bei 16). Kein eigenes Kleinsymbol: `tauri icon` skaliert aus 1024.
+- **Dateien:** `marke/gen4-studio-marke.svg` (Quelle, fünf `<rect>` in drei Gruppen, ohne eingebettete Bilder) und `marke/gen4-studio-marke-1024.png` (1024 × 1024, RGBA, sRGB). Beide schreibt `scripts/marke.py` aus einer Geometrie, nur mit der Standardbibliothek (eigener Rasterizer mit 4 × 4-Supersampling an den Rundungen, PNG über `zlib`); gleicher Lauf, gleiche Bytes. Tests: `python3 -m unittest design-system/scripts/test_marke.py` (Maß und Farbtyp des PNG, Farben als Token auf dem RGB555-Raster, Palette und Zahl der Formen, Maße und Konzentrik, SVG gleich Geometrie, Determinismus).
 - **OpenPencil:** Brett „Marke“ auf der Seite „Grundlagen“ der `.fig` (Konstruktion mit Maßlinien, die Marke in 1024, 128, 32 und 16 px, auf Hell und auf Dunkel, Schutzraum).
 
 ## Komponenten (Seite „Komponenten“)

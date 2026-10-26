@@ -69,11 +69,12 @@ class MarkeTest(unittest.TestCase):
         self.assertEqual(self.png[:8], b"\x89PNG\r\n\x1a\n")
         ihdr, rows = png_rows(self.png)
         self.assertEqual(ihdr[:4], (1024, 1024, 8, 6))
-        # Ecke frei (Alpha 0), Mitte der Scharnier-Kante deckend in Kobalt.
+        # Ecke frei (Alpha 0), Mitte des Scharniers deckend in Kobalt, Mitte des oberen Bildschirms deckend.
         self.assertEqual(pixel(rows, 0, 0)[-2:], "00")
-        fill, (edge,) = self.layers["token-akzent-grund"]
-        cx, cy = edge["x"] + edge["width"] // 2, edge["y"] + edge["height"] // 2
-        self.assertEqual(pixel(rows, cx, cy), fill.upper() + "FF")
+        kobalt, (hinge, _) = self.layers["token-akzent-grund"]
+        self.assertEqual(pixel(rows, 512, 512), kobalt.upper() + "FF")
+        screen, _ = self.layers["token-szene-ds-grund"]
+        self.assertEqual(pixel(rows, 512, 346), screen.upper() + "FF")
 
     def test_colours_are_tokens_on_rgb555(self):
         tokens = marke.load_tokens()
@@ -86,51 +87,29 @@ class MarkeTest(unittest.TestCase):
                 v = int(fill[i:i + 2], 16) >> 3
                 self.assertEqual(int(fill[i:i + 2], 16), (v << 3) | (v >> 2), gid)
 
-    def test_geometry(self):
-        _, (rim,) = self.layers["token-linie-stark"]
-        self.assertEqual(rim, {"x": 100, "y": 100, "width": 824, "height": 824, "rx": 184})
-        _, rects = self.layers["token-scharnier-grund"]
-        self.assertEqual(rects[0], {"x": 108, "y": 108, "width": 808, "height": 808, "rx": 176})
-        _, (top, *_) = self.layers["token-szene-ds-grund"]
-        _, (bottom, *_) = self.layers["token-flaeche-blatt"]
-        for screen in (top, bottom):
-            self.assertEqual((screen["width"], screen["height"], screen["rx"]), (560, 296, 24))
-            self.assertEqual(screen["x"], 100 + 132)
-        self.assertEqual(top["y"], 100 + 84)
-        self.assertEqual(bottom["y"] + bottom["height"], 924 - 84)
-        _, (edge,) = self.layers["token-akzent-grund"]
-        self.assertEqual((edge["x"], edge["width"], edge["height"]), (232, 560, 32))
-        gap_top, gap_bottom = top["y"] + top["height"], bottom["y"]
-        self.assertEqual(gap_bottom - gap_top, 64)
-        self.assertEqual(edge["y"] - gap_top, gap_bottom - (edge["y"] + edge["height"]))
-        _, tiles = self.layers["token-linie-standard"]
-        _, (chosen,) = self.layers["token-auswahl-kante"]
-        self.assertEqual(len(tiles) + 1, 12)
-        self.assertEqual(len({t["x"] for t in tiles + [chosen]}), 4)
-        self.assertEqual(len({t["y"] for t in tiles + [chosen]}), 3)
-        # Innerhalb des Körpers liegt jede Form (auch die Pfade der Schau) im 8-px-Raster der Marke.
-        for token, x, y, w, h, _ in marke.shapes()[2:]:
-            for v in (x, y, w, h):
-                self.assertEqual(v % 8, 0, (token, x, y, w, h))
+    def test_palette(self):
+        # Drei Farben, Kobalt als einziger Akzent; fünf Formen.
+        self.assertEqual([t for t, *_ in marke.shapes()],
+                         ["scharnier/grund", "szene/ds/grund", "szene/ds/grund", "akzent/grund", "akzent/grund"])
 
-    def test_landscape(self):
-        by = {}
-        for token, x, y, w, h, radii in marke.shapes():
-            by.setdefault(token, []).append((x, y, w, h, radii))
-        # Grasstufen: nach rechts steigend, alle bis an den rechten und unteren Bildschirmrand (792, 480).
-        steps = by["szene/gelaende/hohes-gras"]
-        self.assertEqual([(x, y) for x, y, *_ in steps], [(392, 384), (528, 320), (664, 256)])
-        for x, y, w, h, radii in steps:
-            self.assertEqual((x + w, y + h, radii), (792, 480, (0, 0, 24, 0)))
-        # Lippen: eine Kachel (8 px) hoch auf jeder Stufe, bis zur nächsten Stufe.
-        lips = by["bereich/welt-punkt"]
-        self.assertEqual([(x, y, w, h) for x, y, w, h, _ in lips], [(392, 384, 136, 8), (528, 320, 136, 8), (664, 256, 128, 8)])
-        # Wasser links vor der ersten Stufe, unten links gerundet wie der Bildschirm.
-        self.assertEqual(by["szene/gelaende/wasser"], [(232, 400, 160, 80, (0, 0, 0, 24))])
-        # Kobalt ist der einzige Akzent: keine weiteren Farben als diese.
-        self.assertEqual(set(by), {"linie/stark", "scharnier/grund", "szene/ds/grund", "szene/gelaende/hohes-gras",
-                                   "bereich/welt-punkt", "szene/gelaende/wasser", "akzent/grund", "flaeche/blatt",
-                                   "linie/standard", "auswahl/kante"})
+    def test_geometry(self):
+        body, top, low, hinge, cursor = [tuple(v) for _, *v in marke.shapes()]
+        self.assertEqual(body, (100, 100, 824, 824, (184,) * 4))
+        # Bildschirme: 584 × 252, 120 vom Körperrand rundum, Radius konzentrisch zum Körper (184 − 120).
+        self.assertEqual(top, (220, 220, 584, 252, (64,) * 4))
+        self.assertEqual(low, (220, 552, 584, 252, (64,) * 4))
+        self.assertEqual(924 - (low[1] + low[3]), top[1] - 100)
+        # Scharnier: Kobaltlinie 584 × 32 mit runden Enden, mittig auf 512 im Abstand 80 zwischen den Bildschirmen.
+        self.assertEqual(hinge, (220, 496, 584, 32, (16,) * 4))
+        self.assertEqual(low[1] - (top[1] + top[3]), 80)
+        # Auswahl: Quadrat 96 im unteren Bildschirm, links, oben und unten gleich weit (78) vom Rand.
+        self.assertEqual(cursor, (298, 630, 96, 96, (24,) * 4))
+        self.assertEqual(cursor[0] - low[0], cursor[1] - low[1])
+        self.assertEqual(cursor[1] - low[1], low[1] + low[3] - cursor[1] - cursor[3])
+        # Das SVG zeichnet genau diese Formen.
+        svg_rects = [r for _, (_, rects) in self.layers.items() for r in rects]
+        self.assertEqual([(r["x"], r["y"], r["width"], r["height"], (r["rx"],) * 4) for r in svg_rects],
+                         [body, top, low, hinge, cursor])
 
     def test_deterministic(self):
         with tempfile.TemporaryDirectory() as other:

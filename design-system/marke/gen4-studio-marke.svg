@@ -1,47 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
 <title>Gen4 Studio</title>
-<g id="token-linie-stark" fill="#848CA5">
+<g id="token-scharnier-grund" fill="#42527B">
 <rect x="100" y="100" width="824" height="824" rx="184"/>
 </g>
-<g id="token-scharnier-grund" fill="#42527B">
-<rect x="108" y="108" width="808" height="808" rx="176"/>
-</g>
 <g id="token-szene-ds-grund" fill="#182131">
-<rect x="232" y="184" width="560" height="296" rx="24"/>
-</g>
-<g id="token-szene-gelaende-hohes-gras" fill="#009C73">
-<path d="M392 384 H792 V456 A24 24 0 0 1 768 480 H392 V384 Z"/>
-<path d="M528 320 H792 V456 A24 24 0 0 1 768 480 H528 V320 Z"/>
-<path d="M664 256 H792 V456 A24 24 0 0 1 768 480 H664 V256 Z"/>
-</g>
-<g id="token-bereich-welt-punkt" fill="#52C684">
-<rect x="392" y="384" width="136" height="8"/>
-<rect x="528" y="320" width="136" height="8"/>
-<rect x="664" y="256" width="128" height="8"/>
-</g>
-<g id="token-szene-gelaende-wasser" fill="#0073B5">
-<path d="M232 400 H392 V480 H256 A24 24 0 0 1 232 456 V400 Z"/>
+<rect x="220" y="220" width="584" height="252" rx="64"/>
+<rect x="220" y="552" width="584" height="252" rx="64"/>
 </g>
 <g id="token-akzent-grund" fill="#6384F7">
-<rect x="232" y="496" width="560" height="32"/>
-</g>
-<g id="token-flaeche-blatt" fill="#394252">
-<rect x="232" y="544" width="560" height="296" rx="24"/>
-</g>
-<g id="token-linie-standard" fill="#4A5263">
-<rect x="344" y="568" width="72" height="72" rx="8"/>
-<rect x="432" y="568" width="72" height="72" rx="8"/>
-<rect x="520" y="568" width="72" height="72" rx="8"/>
-<rect x="608" y="568" width="72" height="72" rx="8"/>
-<rect x="344" y="656" width="72" height="72" rx="8"/>
-<rect x="432" y="656" width="72" height="72" rx="8"/>
-<rect x="608" y="656" width="72" height="72" rx="8"/>
-<rect x="344" y="744" width="72" height="72" rx="8"/>
-<rect x="432" y="744" width="72" height="72" rx="8"/>
-<rect x="520" y="744" width="72" height="72" rx="8"/>
-<rect x="608" y="744" width="72" height="72" rx="8"/>
-</g>
-<g id="token-auswahl-kante" fill="#6384F7">
-<rect x="520" y="656" width="72" height="72" rx="8"/>
+<rect x="220" y="496" width="584" height="32" rx="16"/>
+<rect x="298" y="630" width="96" height="96" rx="24"/>
 </g>
 </svg>

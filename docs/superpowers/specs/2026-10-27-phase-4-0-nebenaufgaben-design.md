@@ -27,18 +27,17 @@ Zwei Posten:
 
 ### 2.1 Konstruktion
 
-Die Marke ist das Doppeldeck selbst: zwei Bildschirme übereinander mit dem Scharnier dazwischen, der einen Signatur des Systems (Prinzip 2). Oben die Schau (was der Spieler sieht), unten die Hand (was man anfasst).
+Die Marke ist das Doppeldeck selbst, klar und minimalistisch: zwei Bildschirme übereinander mit dem Scharnier dazwischen, der einen Signatur des Systems (Prinzip 2). Oben die Schau (was der Spieler sieht), unten die Hand (was man anfasst). Flache Farben, fünf Formen, keine Kontur, keine Landschaft, kein Raster, keine Textur (Wunsch des Nutzers: „Clean und Minimalistic Vector Design“).
 
-- **Raster:** 1024 × 1024. Körper ein abgerundetes Quadrat 824 × 824, mittig (100 px Rand rundum, das Raster der macOS-App-Symbole), Eckradius 184. Kein Schatten in der Quelle; Finder und Dock zeichnen das Symbol wie es ist.
-- **Körper:** Fläche `scharnier/flaeche` (dunkles Platin), eine 8-px-Innenkante `linie/stark` des dunklen Themas für die Kontur auf dunklem Dock.
-- **Zwei Bildschirme:** je 560 × 300 (breiter als 4 : 3, damit zwei Bildschirme und das Scharnier in den Körper passen), Eckradius 24 (`radius/bildschirm` skaliert), 132 px vom Körperrand links und rechts, 84 px oben und unten. Dazwischen das Scharnier: ein 56 px hoher Streifen mit einer 16 px dicken Kante in `akzent/grund` (Kobalt) über die volle Bildschirmbreite. Das Kobalt ist der einzige Akzent der Marke („das bist du gerade“).
-- **Oberer Bildschirm (Schau):** Fläche `szene/ds/grund`; darauf eine stilisierte Landschaft aus drei Pixel-Stufen in den Geländefarben der Szene (Gras, Weg, Wasser), 8-px-Raster der Marke = 1 Kachel. Keine Nintendo-Grafik, keine Figur.
-- **Unterer Bildschirm (Hand):** Fläche `flaeche/blatt` des dunklen Themas mit einem 4 × 3-Raster aus Kacheln (Kante `linie/standard`), eine Kachel gewählt in `auswahl/kante` (Kobalt); das Raster der Weltkarte.
+- **Raster:** 1024 × 1024. Körper ein abgerundetes Quadrat 824 × 824, mittig (100 px Rand rundum, das Raster der macOS-App-Symbole), Eckradius 184, Fläche `scharnier/grund` des dunklen Themas (Platin 700; ein Token `scharnier/flaeche` gibt es nicht). Kein Schatten in der Quelle; Finder und Dock zeichnen das Symbol wie es ist.
+- **Zwei Bildschirme:** je 584 × 252 in `szene/ds/grund`, 120 px vom Körperrand rundum (der Block aus beiden ist quadratisch), Eckradius 64 = 184 − 120, konzentrisch zum Körper.
+- **Scharnier:** im Abstand von 80 px zwischen den Bildschirmen eine Linie 584 × 32 in `akzent/grund` (Kobalt), mittig auf 512, mit runden Enden.
+- **Auswahl:** auf dem unteren Bildschirm ein Quadrat 96 × 96 in `akzent/grund`, Radius 24, links, oben und unten gleich weit (78 px) vom Rand. Scharnier und Auswahl sind der einzige Akzent („das bist du gerade“).
 - **„4“:** keine Ziffer in der Marke. Name und Generation stehen daneben (Fenstertitel, Über-Dialog), nicht im Symbol; eine Ziffer wäre ab 32 px Brei.
-- **Farben:** nur Token-Werte, alle auf dem RGB555-Raster (Prinzip 5). Die Quelle nennt je Fläche das Token im `id` des SVG-Elements (`token-scharnier-flaeche` …), damit eine Token-Änderung nachziehbar bleibt.
-- **Kleine Größen:** Bei 16 und 32 px bleiben Körper, zwei helle Flächen und die Kobaltkante erkennbar; Landschaft und Raster verschwimmen gewollt. Kein eigenes Kleinsymbol (YAGNI; `tauri icon` skaliert aus 1024).
-- **Schutzraum:** Um den Körper ein Viertel des Scharniers frei, 14 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite.
-- **Hell und Dunkel:** Ein Symbol für beide. Der dunkle Körper steht auf hellem Dock und Finder durch seinen Kontrast, auf dunklem Dock durch die Innenkante `linie/stark`. Für Flächen der App (Galerie, späterer Über-Dialog) gibt es dieselbe Marke ohne Hintergrund-Ecken; die README zeigt beide Lagen nebeneinander.
+- **Farben:** drei Token-Werte, alle auf dem RGB555-Raster (Prinzip 5). Die Quelle nennt je Farbe das Token im `id` der SVG-Gruppe (`token-scharnier-grund`, `token-szene-ds-grund`, `token-akzent-grund`), damit eine Token-Änderung nachziehbar bleibt.
+- **Kleine Größen:** Bei 32 px bleiben Körper, zwei dunkle Flächen, die Kobaltlinie und die Auswahl erkennbar, bei 16 px die Linie als heller Streifen und die Auswahl als Punkt. Kein eigenes Kleinsymbol (YAGNI; `tauri icon` skaliert aus 1024).
+- **Schutzraum:** Um den Körper ein Viertel des Scharnier-Abstands frei, 20 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite.
+- **Hell und Dunkel:** Ein Symbol für beide. Der Körper in Platin 700 steht auf hellem Dock und Finder als dunkle Form, auf dunklem Dock als hellere; eine Kontur braucht er nicht. Die Ecken außerhalb des Körpers sind durchsichtig, dieselbe Datei dient auf Flächen der App (Galerie, späterer Über-Dialog).
 
 Diese Maße sind der Ausgangspunkt; der Entwurf in OpenPencil darf sie anpassen, die README hält die endgültigen fest.
 
