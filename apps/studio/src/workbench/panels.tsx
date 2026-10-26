@@ -25,6 +25,7 @@ import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { SceneOverlays } from "./SceneOverlays";
+import { useSceneScope } from "./sceneScope";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import { isFinding } from "./problems/problems";
@@ -190,7 +191,7 @@ export function WorldPanel() {
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const faultyEvents = useFaultyEvents(rows);
   // The door under the pointer names where it leads as the world tree does.
-  const { identify } = useWorld();
+  const { identify, world } = useWorld();
   const { headers } = d;
   const destName = useCallback(
     (id: number) => {
@@ -199,7 +200,9 @@ export function WorldPanel() {
     },
     [headers, identify],
   );
-  if (!d.matrix) {
+  // The scene loads the selected header's area and the ring around it, and frames the area.
+  const scope = useSceneScope(d.matrix, headers.find((h) => h.id === d.selected) ?? null, world);
+  if (!scope.matrix) {
     return (
       <div className={styles.empty}>
         <EmptyState
@@ -213,7 +216,8 @@ export function WorldPanel() {
   return (
     <div className={styles.stage}>
       <MatrixScene
-        matrix={d.matrix}
+        matrix={scope.matrix}
+        focus={scope.focus}
         areaDataId={d.areaDataId}
         showPermissions={d.showPermissions}
         eventFileId={d.eventFileId}

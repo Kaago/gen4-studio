@@ -97,6 +97,17 @@ describe("WorldPanel", () => {
     expect(destName(999)).toBeUndefined();
   });
 
+  it("hands_the_scene_the_area_of_the_selected_header_and_its_ring", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 4, height: 1, maps: [1, 2, 3, 4], headers: [3, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    expect(sceneProps.current?.matrix).toEqual({ ...route, maps: [1, 2, null, null] });
+    expect(sceneProps.current?.focus).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    // Nothing selected: the whole matrix, framed by the scene itself.
+    show({ matrix: route, selected: null });
+    expect(sceneProps.current?.matrix).toBe(route);
+    expect(sceneProps.current?.focus).toBeNull();
+  });
+
   it("offers_no_first_place_when_the_project_has_no_header", () => {
     show({ headers: [] });
     expect(container.textContent).toContain("Noch kein Ort gewählt.");

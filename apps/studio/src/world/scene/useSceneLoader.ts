@@ -2,12 +2,13 @@ import { useEffect } from "react";
 import { errorText, getMap, getMapModelGlb, mapModelTextureStatus } from "../../api";
 import type { MatrixDto, TextureIssue, TileBehavior } from "../../api";
 import type { Message } from "../../app/message";
+import type { CellRect } from "../../workbench/sceneScope";
 import { fetchCurrent } from "../../reload";
-import { MAP_SIZE } from "../layout";
 import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
 import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
+import { frameCells } from "./camera";
 import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
 import type { SceneHost } from "./SceneHost";
@@ -16,12 +17,14 @@ import type { Loaded, ReportEvents, SceneRefs } from "./types";
 
 /**
  * Fetches the maps (and the event file, and the tile names) of `matrix` and puts the overlay,
- * buildings and markers into the scene once all are there. Resolves true when the scene was
- * built, false when this load was superseded (`stale`) meanwhile.
+ * buildings and markers into the scene once all are there; the camera then frames the cells
+ * `focus`. Resolves true when the scene was built, false when this load was superseded (`stale`)
+ * meanwhile.
  */
 async function showMaps(
   h: SceneHost,
   matrix: MatrixDto,
+  focus: CellRect,
   refs: SceneRefs,
   history: { readonly current: number },
   stale: () => boolean,
@@ -81,13 +84,7 @@ async function showMaps(
   setMarkers(h, fetchedEvents.events, refs.showEvents.current);
   reportEvents(fetchedEvents);
 
-  const w = matrix.width * MAP_SIZE;
-  const d = matrix.height * MAP_SIZE;
-  const span = Math.max(w, d);
-  h.controls.target.set(w / 2, 0, d / 2);
-  h.camera.position.set(w / 2, span * 0.9, d / 2 + span * 0.7);
-  h.controls.update();
-  h.render();
+  frameCells(h, focus, matrix);
   h.refreshHover?.();
   reportBuildings(h, refs);
   onSceneBuilt();
@@ -156,6 +153,8 @@ export async function loadModels(h: SceneHost, matrix: MatrixDto, area: number, 
 /** What the loader needs besides the refs; `onSceneBuilt` and `clearEventStatus` are called while a full load runs. */
 export interface SceneLoaderParams {
   matrix: MatrixDto;
+  /** The cells the camera frames after a full load (it belongs to `matrix`); a reload of the models alone leaves the camera. */
+  focus: CellRect;
   areaDataId: number;
   modelsToken: number;
   /** Bumped by every undo and redo (see `MatrixScene`'s `history` prop). */
@@ -174,7 +173,7 @@ export interface SceneLoaderParams {
  * The same matrix with another area data (or `modelsToken`) reloads only the models. Every run
  * supersedes the one before it: that one's pending work is dropped when it comes back.
  */
-export function useSceneLoader({ matrix, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus, onSceneBuilt }: SceneLoaderParams) {
+export function useSceneLoader({ matrix, focus, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus, onSceneBuilt }: SceneLoaderParams) {
   useEffect(() => {
     const h = refs.handle.current;
     if (!h) return;
@@ -198,7 +197,7 @@ export function useSceneLoader({ matrix, areaDataId, modelsToken, history, refs,
         // The building models are textured by the area data too: they show boxes until reloaded.
         h.buildings?.resetModels();
         h.render();
-      } else if (!(await showMaps(h, matrix, refs, history, stale, reportEvents, onSceneBuilt))) {
+      } else if (!(await showMaps(h, matrix, focus, refs, history, stale, reportEvents, onSceneBuilt))) {
         return;
       }
       await loadModels(h, matrix, area, stale, report);

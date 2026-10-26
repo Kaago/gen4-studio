@@ -1,8 +1,9 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { MatrixDto } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
 import type { InspectorModel } from "../workbench/Inspector";
+import { type CellRect, filledRect } from "../workbench/sceneScope";
 import type { EditBus } from "../bus/editBus";
 import { useBusQueue, useBusRevision } from "../bus/useBusEvent";
 import type { BuildingRef } from "./buildingLayer";
@@ -18,7 +19,10 @@ import styles from "./MatrixScene.module.css";
 import { useBuildingSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
 
 interface Props {
+  /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
   matrix: MatrixDto;
+  /** The cells the camera frames when `matrix` was loaded; it belongs to `matrix`. Null: the filled cells (the whole matrix when none is). */
+  focus: CellRect | null;
   /**
    * Area data of the shown header; selects the map texture set for every map of the matrix. It
    * belongs to `matrix` (App changes both in one update when another header is shown). Changed
@@ -79,6 +83,7 @@ interface Props {
 
 function MatrixScene({
   matrix,
+  focus,
   areaDataId,
   bus,
   showPermissions,
@@ -130,10 +135,12 @@ function MatrixScene({
     refs.callbacks.current.onEventsLocked(events?.locked ? { file: events.event_file_id, reason: events.locked } : null);
   };
 
+  const frame = useMemo(() => focus ?? filledRect(matrix) ?? { x: 0, y: 0, width: matrix.width, height: matrix.height }, [focus, matrix]);
+
   // The hooks run their effects in this order, which is the order the effects always had.
   useSceneSetup(host, refs, reportEvents);
   useSceneTheme(refs);
-  useSceneLoader({ matrix, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
+  useSceneLoader({ matrix, focus: frame, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
   useMapRefresh(refs, mapRefresh);
   useMapModelRefresh(refs, mapModelRefresh);
   useBuildingSelection(refs, selectedMap, selectedBuilding);
