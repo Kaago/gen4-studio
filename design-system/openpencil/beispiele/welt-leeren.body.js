@@ -24,15 +24,14 @@
   ];
   // Spalte der Hand: Überschrift 13/600, Sätze Primärtext (parts.column / parts.heading / parts.text)
   const Spalte = (children, o = {}) => <Frame flex="col" gap={8} px={16} py={12} grow={1} h="fill" strokeWeights={o.first ? undefined : { top: 0, right: 0, bottom: 0, left: 1 }} stroke={o.first ? undefined : v('linie/leise')}>{children}</Frame>;
-  // Hinweis mit Aktionsknopf (Notice mit actions): Warnung, Satz, Fortschrittsbalken eines laufenden Übernehmens, Knopf rechts
+  // Hinweis mit Aktionsknopf (Notice mit actions): Warnung, Satz, Fortschrittsbalken eines laufenden Übernehmens, Knopf unter dem Satz (wie Notice.tsx: actions im Body)
   const Bar = (n, total) => <Frame flex="col" gap={4} w="fill">
     <Frame w="fill" h={8} rounded={4} bg={v('flaeche/deck')}><Frame w={Math.max(4, Math.round(n / total * 360))} h={8} rounded={4} bg={v('akzent/grund')} /></Frame>
     {T(n + ' / ' + total + ' Scriptdateien', { s: 12, c: 'text/sekundaer' })}
   </Frame>;
   const Hinweis = (text, action, extra) => <Frame flex="row" items="start" gap={8} px={12} py={8} w="fill" rounded={6} bg={v('status/warnung-flaeche')}>
     {I('ph:warning-fill', 18, 'w')}
-    <Frame flex="col" gap={8} grow={1}>{T(text)}{extra}</Frame>
-    {action && Btn({ label: action, art: 'Sekundär', small: true })}
+    <Frame flex="col" gap={8} grow={1}>{T(text, { width: 270 })}{extra}{action && Btn({ label: action, art: 'Sekundär', small: true })}</Frame>
   </Frame>;
   const links = Spalte([
     T('Bleibt', { w: 600 }),
