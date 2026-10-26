@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use g4_kernel::build::{build, extract_rom, pack_dir, prepare};
+use g4_kernel::build::{BUILD_DIR, build, clear_cache, extract_rom, pack_dir, prepare};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
@@ -322,6 +322,32 @@ fn pack_error_writes_no_archive() {
         std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(),
         map_before
     );
+}
+
+#[test]
+fn clear_cache_removes_the_build_folder_and_keeps_g4() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let build_dir = s.dir.path().join(BUILD_DIR);
+    std::fs::create_dir_all(build_dir.join("blz")).unwrap();
+    std::fs::write(build_dir.join("x"), b"cache").unwrap();
+    std::fs::write(build_dir.join("blz/arm9-0.blz"), b"blz").unwrap();
+    std::fs::write(s.dir.path().join(".g4/base.json"), b"{}").unwrap();
+    clear_cache(&p).unwrap();
+    let left: Vec<String> = std::fs::read_dir(s.dir.path().join(".g4"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, vec!["base.json".to_owned()]);
+}
+
+#[test]
+fn clear_cache_without_folder_is_ok() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert!(!s.dir.path().join(BUILD_DIR).exists());
+    clear_cache(&p).unwrap();
+    assert!(!s.dir.path().join(BUILD_DIR).exists());
 }
 
 #[test]

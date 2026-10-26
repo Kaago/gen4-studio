@@ -1,15 +1,42 @@
 //! Build pipeline: packs unpacked asset folders back into NARCs, builds the `.nds` with
-//! ds-rom, and extracts a `.nds` into a new ds-rom project folder.
+//! ds-rom (the compressed ARM9 and overlays from the BLZ cache under [`BUILD_DIR`]), and
+//! extracts a `.nds` into a new ds-rom project folder.
 
 use std::path::{Path, PathBuf};
 
-use ds_rom::rom::{Rom, RomLoadOptions, RomSaveError, raw};
+use ds_rom::rom::{Rom, RomSaveError, raw};
 use g4_formats::narc::Narc;
 
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::text::{self, Problem, Severity};
+
+mod blz;
+mod salt;
+
+pub use blz::{BlzCount, BlzReport};
+
+/// The build's cache below the project root: the BLZ cache (`blz/`) and the build state.
+/// Everything in it may be deleted; the next build then runs fully.
+pub const BUILD_DIR: &str = ".g4/build";
+
+/// Deletes [`BUILD_DIR`] ("Neu bauen (ohne Cache)"). A missing folder is not an error.
+pub fn clear_cache(project: &Project) -> Result<(), KernelError> {
+    let dir = project.root.join(BUILD_DIR);
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_at(&dir)(e)),
+    }
+}
+
+/// The ROM loader of [`build_prepared`] (ds-rom without compression, ARM9 and overlays from
+/// the BLZ cache), for the gated tests that compare it with ds-rom's own `Rom::load`.
+#[cfg(feature = "test-support")]
+pub fn load_rom(project: &Project) -> Result<(Rom<'static>, BlzReport), KernelError> {
+    blz::load_rom(project)
+}
 
 /// What `build` did: the asset kinds whose unpacked folder was packed (with their member
 /// count; archives whose bytes did not change are counted but not rewritten), the ROM, the
@@ -207,15 +234,9 @@ pub fn build_prepared(
         write_if_changed(&project.root.join(packed_path), bytes, &tmp_dir)?;
     }
 
-    // Same options as the reference `dsrom build` (no ARM7 BIOS, compression as configured).
-    let rom = Rom::load(project.root.join("config.yaml"), RomLoadOptions::default()).map_err(
-        |e| match e {
-            RomSaveError::BlowfishKeyNeeded => KernelError::Build(
-                "the ROM's ARM9 is encrypted; encrypted projects are not supported".to_owned(),
-            ),
-            e => build_err(e),
-        },
-    )?;
+    // The same ROM as the reference `dsrom build` (no ARM7 BIOS, compression as configured),
+    // with the compressed ARM9 and overlays from the BLZ cache.
+    let (rom, _blz) = blz::load_rom(project)?;
     let raw_rom = rom.build(None).map_err(build_err)?;
     raw_rom.save(out_rom).map_err(build_err)?;
     // ds-rom writes 0000 as the secure area CRC; a project from `create_project` knows it.

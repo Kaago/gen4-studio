@@ -4,8 +4,10 @@
 //! reports errors cannot be switched off, and an entry a hand-written file has for either is
 //! not honoured. "Ausgangslage übernehmen" ignores every warning and info of a report at once.
 //!
-//! The file lives in the project root, not in `.g4/` (a cache that may be deleted), so the
-//! baseline moves with the project. It is written whole and atomically on every change.
+//! The file lives in the project root because it is project content, like the sources: the
+//! top level of `.g4/` is versioned project metadata too (`base.json`, `preview.png`), but its
+//! folders `cache/`, `tmp/`, `build/`, `backup/` and `models/` are local and may be deleted.
+//! It is written whole and atomically on every change.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
