@@ -38,11 +38,23 @@ fi
 test "$(otool -D "$DYLIB" | tail -1)" = "@rpath/libnitroarc_ffi.dylib"
 
 # The bundle carries the brand icon: same hash as icons/icon.icns, and not the create-tauri-app default.
+# The file name comes from CFBundleIconFile in Info.plist (with or without the .icns extension).
 OLD_DEFAULT_ICNS=3dc10493b7de48a61de58f768f8a5708d3a44a068c148cedf0502b9b9b71ba5d
+ICON_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null || true)
+if [ -z "$ICON_NAME" ]; then
+  echo "Info.plist has no CFBundleIconFile: $APP/Contents/Info.plist" >&2
+  exit 1
+fi
+case "$ICON_NAME" in *.icns) ;; *) ICON_NAME="$ICON_NAME.icns" ;; esac
+ICON_FILE="$APP/Contents/Resources/$ICON_NAME"
+if [ ! -f "$ICON_FILE" ]; then
+  echo "bundle icon missing: $ICON_FILE (CFBundleIconFile)" >&2
+  exit 1
+fi
 WANT=$(shasum -a 256 apps/studio/src-tauri/icons/icon.icns | cut -d' ' -f1)
-HAVE=$(shasum -a 256 "$APP/Contents/Resources/icon.icns" | cut -d' ' -f1)
+HAVE=$(shasum -a 256 "$ICON_FILE" | cut -d' ' -f1)
 if [ "$HAVE" != "$WANT" ]; then
-  echo "bundle icon.icns differs from apps/studio/src-tauri/icons/icon.icns" >&2
+  echo "bundle $ICON_NAME differs from apps/studio/src-tauri/icons/icon.icns" >&2
   exit 1
 fi
 if [ "$WANT" = "$OLD_DEFAULT_ICNS" ]; then

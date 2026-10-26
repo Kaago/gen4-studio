@@ -109,10 +109,10 @@ Konstruktion im Raster 1024 × 1024 (alle Maße in Pixeln; innerhalb des Körper
 | Innenkante | 8 px, als Ring um die Fläche (Fläche 808 × 808 bei 108/108, Radius 176) | `linie/stark` |
 | Bildschirme | je 560 × 296, Radius 24, bei x 232 (132 px vom Körperrand), oben bei y 184, unten bei y 544 (je 84 px zum Körperrand) | – |
 | Scharnier | Streifen 64 px zwischen den Bildschirmen (y 480 bis 544), darin mittig die Kante 560 × 32 bei y 496 | `akzent/grund` |
-| Schau (oben) | Fläche des Bildschirms; drei Grasstufen nach rechts steigend (ab x 160, 296, 432 im Bildschirm, Oberkanten 200, 136, 72), jede mit einer Lippe von einer Kachel (8 px); links davor Wasser (160 breit, Oberkante 216) | `szene/ds/grund`, `szene/gelaende/hohes-gras`, `szene/gelaende/vorsprung`, `szene/gelaende/wasser` |
+| Schau (oben) | Fläche des Bildschirms; drei Grasstufen nach rechts steigend (ab x 160, 296, 432 im Bildschirm, Oberkanten 200, 136, 72), jede mit einer hellen Lippe von einer Kachel (8 px); links davor Wasser (160 breit, Oberkante 216) | `szene/ds/grund`, `szene/gelaende/hohes-gras`, `bereich/welt-punkt`, `szene/gelaende/wasser` |
 | Hand (unten) | Fläche des Bildschirms; 4 × 3 Kacheln je 72 × 72, Abstand 16, Radius 8, mittig (112 px links und rechts, 24 px oben und unten); gewählt ist Spalte 3, Zeile 2 | `flaeche/blatt`, `linie/standard`, gewählt `auswahl/kante` |
 
-Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5):
+Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5). Kobalt ist der einzige Akzent; die Lippen der Stufen sind darum kein Bernstein (`gelaende/vorsprung`), sondern ein helleres Grün, und einen eigenen Weg hat die Landschaft nicht (die Szene kennt kein Token dafür):
 
 | Token | Wert | Rolle |
 |---|---|---|
@@ -124,7 +124,7 @@ Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5):
 | `linie/standard` (Dunkel) | `#4A5263` | Kacheln |
 | `szene/ds/grund` | `#182131` | oberer Bildschirm (Himmel) |
 | `szene/gelaende/hohes-gras` | `#009C73` | Grasstufen |
-| `szene/gelaende/vorsprung` | `#E79C00` | Lippen der Stufen (Vorsprünge) |
+| `bereich/welt-punkt` (Dunkel) | `#52C684` | Lippen der Stufen: helles Moos, die Farbe des Bereichs Welt |
 | `szene/gelaende/wasser` | `#0073B5` | Wasser |
 
 Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht, die Fläche des Scharniers heißt `scharnier/grund`. Jede Fläche im SVG trägt ihr Token im `id` der Gruppe (`token-scharnier-grund`, `token-szene-gelaende-wasser` …); nach einer Token-Änderung `python3 design-system/scripts/marke.py` laufen lassen und die Symbole neu erzeugen (`docs/release.md`, Abschnitt „App-Symbol“).
@@ -132,7 +132,7 @@ Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht
 - **Schutzraum:** um den Körper ein Viertel des Scharniers frei, 16 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite (103 px bei 824).
 - **Hell und Dunkel:** ein Symbol für beide (Tauri 2 kennt nur eins). Auf hellem Dock und Finder steht der Körper durch seinen Kontrast, auf dunklem durch die Innenkante `linie/stark`. Die Ecken außerhalb des Körpers sind durchsichtig; dieselbe Datei taugt daher ohne Änderung für Flächen der App (Galerie, späterer Über-Dialog).
 - **Kleine Größen:** bei 32 px bleiben Körper, die zwei Bildschirme, die Kobaltkante und die gewählte Kachel erkennbar, bei 16 px Körper, die zwei Bildschirme und die Kante als heller Streifen; Stufen, Wasser und Kacheln verschwimmen gewollt. Darum ist die Kante 32 px dick (eine Pixelzeile bei 32 px). Kein eigenes Kleinsymbol: `tauri icon` skaliert aus 1024.
-- **Dateien:** `marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, ohne eingebettete Bilder) und `marke/gen4-studio-marke-1024.png` (1024 × 1024, RGBA, sRGB). Beide schreibt `scripts/marke.py` aus einer Geometrie, nur mit der Standardbibliothek (eigener Rasterizer mit 4 × 4-Supersampling an den Rundungen, PNG über `zlib`); gleicher Lauf, gleiche Bytes. Tests: `python3 -m unittest design-system/scripts/test_marke.py` (Maß und Farbtyp des PNG, Farben als Token auf dem RGB555-Raster, Maße, Determinismus).
+- **Dateien:** `marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, ohne eingebettete Bilder) und `marke/gen4-studio-marke-1024.png` (1024 × 1024, RGBA, sRGB). Beide schreibt `scripts/marke.py` aus einer Geometrie, nur mit der Standardbibliothek (eigener Rasterizer mit 4 × 4-Supersampling an den Rundungen, PNG über `zlib`); gleicher Lauf, gleiche Bytes. Tests: `python3 -m unittest design-system/scripts/test_marke.py` (Maß und Farbtyp des PNG, Farben als Token auf dem RGB555-Raster, Maße und 8-px-Raster, Landschaft und Palette, Determinismus).
 - **OpenPencil:** Brett „Marke“ auf der Seite „Grundlagen“ der `.fig` (Konstruktion mit Maßlinien, die Marke in 1024, 128, 32 und 16 px, auf Hell und auf Dunkel, Schutzraum).
 
 ## Komponenten (Seite „Komponenten“)

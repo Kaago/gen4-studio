@@ -108,13 +108,29 @@ class MarkeTest(unittest.TestCase):
         self.assertEqual(len(tiles) + 1, 12)
         self.assertEqual(len({t["x"] for t in tiles + [chosen]}), 4)
         self.assertEqual(len({t["y"] for t in tiles + [chosen]}), 3)
-        # Innerhalb des Körpers alles außer den Radien im 8-px-Raster der Marke.
-        for gid, (_, rects) in self.layers.items():
-            if gid in ("token-linie-stark", "token-scharnier-grund"):
-                continue
-            for rect in rects:
-                for key in ("x", "y", "width", "height"):
-                    self.assertEqual(rect[key] % 8, 0, (gid, rect))
+        # Innerhalb des Körpers liegt jede Form (auch die Pfade der Schau) im 8-px-Raster der Marke.
+        for token, x, y, w, h, _ in marke.shapes()[2:]:
+            for v in (x, y, w, h):
+                self.assertEqual(v % 8, 0, (token, x, y, w, h))
+
+    def test_landscape(self):
+        by = {}
+        for token, x, y, w, h, radii in marke.shapes():
+            by.setdefault(token, []).append((x, y, w, h, radii))
+        # Grasstufen: nach rechts steigend, alle bis an den rechten und unteren Bildschirmrand (792, 480).
+        steps = by["szene/gelaende/hohes-gras"]
+        self.assertEqual([(x, y) for x, y, *_ in steps], [(392, 384), (528, 320), (664, 256)])
+        for x, y, w, h, radii in steps:
+            self.assertEqual((x + w, y + h, radii), (792, 480, (0, 0, 24, 0)))
+        # Lippen: eine Kachel (8 px) hoch auf jeder Stufe, bis zur nächsten Stufe.
+        lips = by["bereich/welt-punkt"]
+        self.assertEqual([(x, y, w, h) for x, y, w, h, _ in lips], [(392, 384, 136, 8), (528, 320, 136, 8), (664, 256, 128, 8)])
+        # Wasser links vor der ersten Stufe, unten links gerundet wie der Bildschirm.
+        self.assertEqual(by["szene/gelaende/wasser"], [(232, 400, 160, 80, (0, 0, 0, 24))])
+        # Kobalt ist der einzige Akzent: keine weiteren Farben als diese.
+        self.assertEqual(set(by), {"linie/stark", "scharnier/grund", "szene/ds/grund", "szene/gelaende/hohes-gras",
+                                   "bereich/welt-punkt", "szene/gelaende/wasser", "akzent/grund", "flaeche/blatt",
+                                   "linie/standard", "auswahl/kante"})
 
     def test_deterministic(self):
         with tempfile.TemporaryDirectory() as other:

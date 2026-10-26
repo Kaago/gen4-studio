@@ -56,7 +56,7 @@ pnpm tauri icon ../../design-system/marke/gen4-studio-marke-1024.png
 `tauri icon` legt dabei auch `64x64.png`, `android/` und `ios/` an. Sie werden nicht eingecheckt (gelöscht), weil
 `tauri.conf.json` sie nicht nennt; die Windows-Store-Logos (`Square*Logo.png`, `StoreLogo.png`) bleiben eingecheckt
 wie bisher. Unter `tauri dev` zeigt das Dock `icons/icon.png`, im Bundle kommt `icons/icon.icns` nach
-`Contents/Resources/icon.icns`; der Über-Dialog nimmt das Bundle-Symbol.
+`Contents/Resources/` (Name in `CFBundleIconFile`); der Über-Dialog nimmt das Bundle-Symbol.
 
 ## Prüfbefehle
 
@@ -67,8 +67,9 @@ wie bisher. Unter `tauri dev` zeigt das Dock `icons/icon.png`, im Bundle kommt `
 - `Contents/Frameworks/libnitroarc_ffi.dylib` existiert und hat den Install-Namen `@rpath/libnitroarc_ffi.dylib`.
 - Das Studio-Binary hat den rpath `@executable_path/../Frameworks` und lädt die dylib über `@rpath/...`;
   kein absoluter Pfad in `target/` ist eingebunden.
-- `Contents/Resources/icon.icns` hat denselben SHA-256 wie `apps/studio/src-tauri/icons/icon.icns`, und dieser ist
-  nicht der Hash des alten Standardsymbols von create-tauri-app (Konstante `OLD_DEFAULT_ICNS` im Skript).
+- Das Symbol des Bundles (`Contents/Resources/<CFBundleIconFile>` aus `Info.plist`, `.icns` ergänzt, wenn es fehlt) existiert
+  und hat denselben SHA-256 wie `apps/studio/src-tauri/icons/icon.icns`, und dieser ist nicht der Hash des alten
+  Standardsymbols von create-tauri-app (Konstante `OLD_DEFAULT_ICNS` im Skript).
 
 Zusätzlich von Hand:
 

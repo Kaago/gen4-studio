@@ -22,6 +22,7 @@ SCREEN_W, SCREEN_H, SCREEN_R, GAP, EDGE = 560, 296, 24, 64, 32
 SCREEN_X = (SIZE - SCREEN_W) // 2
 STEPS = [(160, 200), (296, 136), (432, 72)]  # Schau: Grasstufen (x, Oberkante) im Bildschirm, nach rechts steigend
 WATER = 216                                  # Oberkante des Wassers links vor der ersten Stufe
+LIP = "bereich/welt-punkt"                   # Lippe jeder Stufe: helles Moos, kein zweiter Akzent
 TILE, TILE_GAP, TILE_R, CHOSEN = 72, 16, 8, (2, 1)  # Hand: 4 × 3 Kacheln, gewählt Spalte 2, Zeile 1
 
 
@@ -36,7 +37,7 @@ def shapes():
     for sx, st in STEPS:
         s.append(("szene/gelaende/hohes-gras", x0 + sx, top + st, SCREEN_W - sx, SCREEN_H - st, (0, 0, r, 0)))
     for (sx, st), nx in zip(STEPS, [n for n, _ in STEPS[1:]] + [SCREEN_W]):
-        s.append(("szene/gelaende/vorsprung", x0 + sx, top + st, nx - sx, 8, (0,) * 4))
+        s.append((LIP, x0 + sx, top + st, nx - sx, 8, (0,) * 4))
     s.append(("szene/gelaende/wasser", x0, top + WATER, STEPS[0][0], SCREEN_H - WATER, (0, 0, 0, r)))
     s.append(("akzent/grund", x0, SIZE // 2 - EDGE // 2, SCREEN_W, EDGE, (0,) * 4))
     s.append(("flaeche/blatt", x0, low, SCREEN_W, SCREEN_H, (r,) * 4))
