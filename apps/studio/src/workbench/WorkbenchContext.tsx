@@ -117,6 +117,8 @@ export interface WorkbenchData {
   selectedEvent: EventRef | null;
   /** A click in the scene chose an event marker (null: none). */
   onSelectEvent: (ref: EventRef | null) => void;
+  /** A click on the ground of the scene chose the map in cell (`x`, `y`) of matrix `matrix`; it is pinned. */
+  onSelectCell: (matrix: number, cell: { x: number; y: number }) => void;
   /** A drag moved an event and the move is written. */
   onEventMoved: (eventFile: number) => void;
   /** The lock state of the shown event file (null: not locked, or none shown); the scene reports it. */

@@ -53,6 +53,11 @@ export class SceneHost {
   buildings: BuildingLayer | null = null;
   /** The selected building, as the scene knows it (follows the `selectedMap`/`selectedBuilding` props). */
   selection: BuildingRef | null = null;
+  /** The selected matrix cell, as the scene knows it (follows the `selectedCell` prop); `cellFrame` outlines it. */
+  selectedCell: { x: number; y: number } | null = null;
+  /** Holds the frame around the selected cell (see `showCellFrame`); it outlives the content of a matrix. */
+  readonly cellFrame = new THREE.Group();
+  private frame: THREE.LineLoop | null = null;
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null = null;
   /** A render is already queued for the next animation frame. */
@@ -75,6 +80,7 @@ export class SceneHost {
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 8000);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.scene.add(this.content);
+    this.scene.add(this.cellFrame);
 
     const resize = () => {
       const w = Math.max(el.clientWidth, 1);
@@ -102,6 +108,17 @@ export class SceneHost {
     this.renderer.setClearColor(hex);
   }
 
+  /** Puts `frame` around the selected cell (null: none) in place of the frame before it, which is freed. It does not render. */
+  setCellFrame(frame: THREE.LineLoop | null) {
+    if (this.frame) {
+      this.cellFrame.remove(this.frame);
+      this.frame.geometry.dispose();
+      (this.frame.material as THREE.Material).dispose();
+    }
+    this.frame = frame;
+    if (frame) this.cellFrame.add(frame);
+  }
+
   /** Renders on the next animation frame; bursts of arriving models cost one render. */
   queueRender() {
     if (this.renderQueued) return;
@@ -114,10 +131,11 @@ export class SceneHost {
 
   /**
    * Frees everything the scene holds, in this order: the markers, the buildings (their templates),
-   * the resize observer and the controls, the content (terrain models, overlay), the renderer.
+   * the resize observer and the controls, the content (terrain models, overlay), the renderer. The cell frame goes first.
    */
   dispose() {
     this.disposed = true;
+    this.setCellFrame(null);
     if (this.markers) disposeMarkers(this.markers);
     this.buildings?.dispose();
     this.observer.disconnect();

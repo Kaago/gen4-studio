@@ -75,6 +75,38 @@ describe("attachCanvasClicks by tool", () => {
     expect(setPermission).not.toHaveBeenCalled();
   });
 
+  it("selects_the_cell_under_a_ground_click_with_the_select_tool", () => {
+    const { callbacks, click } = setup("select");
+    click();
+    expect(callbacks.onSelectCell).toHaveBeenCalledOnce();
+    expect(callbacks.onSelectCell).toHaveBeenCalledWith({ col: 1, row: 2 });
+    expect(setPermission).not.toHaveBeenCalled();
+  });
+
+  it("prefers_a_marker_or_a_building_to_the_cell", () => {
+    const marker = setup("select", { marker: true });
+    marker.click();
+    const building = setup("select", { building: true });
+    building.click();
+    expect(marker.callbacks.onSelectEvent).toHaveBeenCalledOnce();
+    expect(building.callbacks.onSelectBuilding).toHaveBeenCalledOnce();
+    expect(marker.callbacks.onSelectCell).not.toHaveBeenCalled();
+    expect(building.callbacks.onSelectCell).not.toHaveBeenCalled();
+  });
+
+  it("ignores_a_ground_click_without_a_loaded_map", () => {
+    const { callbacks, click } = setup("select", { picked: false });
+    click();
+    expect(callbacks.onSelectCell).not.toHaveBeenCalled();
+  });
+
+  it("does_not_select_a_cell_with_the_paint_tool", () => {
+    const { callbacks, click } = setup("paint");
+    click();
+    expect(callbacks.onSelectCell).not.toHaveBeenCalled();
+    expect(setPermission).toHaveBeenCalledOnce();
+  });
+
   it("paint_sets_collision_on_the_tile_and_shift_clears_it", async () => {
     const { callbacks, click } = setup("paint");
     click();

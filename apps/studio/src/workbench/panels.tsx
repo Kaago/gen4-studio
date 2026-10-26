@@ -202,6 +202,20 @@ export function WorldPanel() {
   );
   // The scene loads the selected header's area and the ring around it, and frames the area.
   const scope = useSceneScope(d.matrix, headers.find((h) => h.id === d.selected) ?? null, world);
+  // The pinned cell is framed while it belongs to the shown matrix; a click on the ground pins the cell under it.
+  const cellSelection = useMatrixSelection();
+  const shownMatrix = d.matrix?.index ?? null;
+  const selectedCell = useMemo(
+    () => (cellSelection && cellSelection.matrix === shownMatrix ? { x: cellSelection.x, y: cellSelection.y } : null),
+    [cellSelection, shownMatrix],
+  );
+  const { onSelectCell: selectCell } = d;
+  const onSelectCell = useCallback(
+    (cell: { x: number; y: number }) => {
+      if (shownMatrix !== null) selectCell(shownMatrix, cell);
+    },
+    [selectCell, shownMatrix],
+  );
   if (!scope.matrix) {
     return (
       <div className={styles.empty}>
@@ -239,6 +253,8 @@ export function WorldPanel() {
         onBuildingMoved={d.onBuildingMoved}
         selectedEvent={d.selectedEvent}
         onSelectEvent={d.onSelectEvent}
+        selectedCell={selectedCell}
+        onSelectCell={onSelectCell}
         onEventMoved={d.onEventMoved}
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}

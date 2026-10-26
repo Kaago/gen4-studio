@@ -8,6 +8,7 @@ import { MODEL_CONCURRENCY, limitConcurrency, textureNote } from "../load";
 import { disposeTree, parseGlb } from "../sceneUtil";
 import { reportBuildings } from "./buildingReport";
 import { buildingModelJob } from "./buildingModels";
+import { showCellFrame } from "./cellFrame";
 import { frameCells } from "./camera";
 import { addModel, buildContent, removeMapModel, removeModels, setMarkers } from "./content";
 import { fetchEvents } from "./eventFetch";
@@ -81,6 +82,8 @@ async function showMaps(
   h.names = names;
   overlay.visible = refs.showPermissions.current;
   h.scene.add(content);
+  // The selected cell is framed at its height in this matrix.
+  showCellFrame(h);
   setMarkers(h, fetchedEvents.events, refs.showEvents.current);
   reportEvents(fetchedEvents);
 

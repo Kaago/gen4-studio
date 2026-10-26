@@ -25,7 +25,7 @@ export const TOOLS: ToolSpec[] = [
     key: "V",
     icon: "select",
     group: 0,
-    hint: "Wählt Marker und Gebäude in der Szene. Ziehen verschiebt das Gewählte. Malt nie.",
+    hint: "Wählt Marker, Gebäude und Karten in der Szene. Ziehen verschiebt das Gewählte. Malt nie.",
     statusHints: [
       { keys: "Klick", does: "wählt" },
       { keys: "Ziehen", does: "verschiebt" },

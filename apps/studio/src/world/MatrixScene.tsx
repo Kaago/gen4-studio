@@ -16,7 +16,7 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
 
 interface Props {
   /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
@@ -73,6 +73,10 @@ interface Props {
   selectedEvent: EventRef | null;
   /** A click on an event marker (or null for none). The owner decides what to select and passes it back. */
   onSelectEvent: (ref: EventRef | null) => void;
+  /** The selected cell of `matrix` (null: none); the scene frames it. Keeps its identity while the same cell is selected. */
+  selectedCell: { x: number; y: number } | null;
+  /** A click with the select tool on a loaded map (neither marker nor building). The owner decides what to select and passes it back. */
+  onSelectCell: (cell: { x: number; y: number }) => void;
   /** An event was moved by dragging and the move is written. */
   onEventMoved: (eventFile: number) => void;
   /** The shown event file's lock state, reported whenever its events were read (null: not locked, or none shown). */
@@ -105,6 +109,8 @@ function MatrixScene({
   onBuildingMoved,
   selectedEvent,
   onSelectEvent,
+  selectedCell,
+  onSelectCell,
   onEventMoved,
   onEventsLocked,
   faultyEvents,
@@ -126,7 +132,7 @@ function MatrixScene({
     eventFileId,
     destName,
     areaDataId,
-    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked },
+    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onSelectCell: ({ col, row }) => onSelectCell({ x: col, y: row }), onEventMoved, onEventsLocked },
   });
   /** Shows (and reports upwards) what reading an event file gave: the note over the scene and its lock state. */
   const reportEvents: ReportEvents = (fetched) => {
@@ -146,6 +152,7 @@ function MatrixScene({
   useBuildingSelection(refs, selectedMap, selectedBuilding);
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);
+  useCellSelection(refs, matrix, selectedCell);
   useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);

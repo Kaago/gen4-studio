@@ -8,8 +8,9 @@ import type { SceneRefs } from "./types";
 
 /**
  * What a click (pointer barely moved) does, by tool: `select` selects the event marker, else the building under the cursor,
- * and otherwise does nothing (it never paints); `paint` does the same selecting first and else sets collision on the tile
- * under the cursor; the adding tools (figure, door, trigger, sign, building) report the tile under it and select nothing.
+ * else the matrix cell of the loaded map under it, and on empty ground does nothing (it never paints); `paint` selects a
+ * marker or building the same way (never a cell) and else sets collision on the tile under the cursor; the adding tools
+ * (figure, door, trigger, sign, building) report the tile under it and select nothing.
  * Dragging still orbits. Starts listening on the canvas; the returned function stops it.
  */
 export function attachCanvasClicks(h: SceneHost, picker: Picker, refs: SceneRefs): () => void {
@@ -64,7 +65,9 @@ export function attachCanvasClicks(h: SceneHost, picker: Picker, refs: SceneRefs
     if (!start || e.button !== 0 || !isClick(start, { x: e.clientX, y: e.clientY })) return;
     const cb = refs.callbacks.current;
     if (cb.tool === "select") {
-      select(e);
+      if (select(e)) return;
+      const picked = picker.pickTile(e.clientX, e.clientY);
+      if (picked) cb.onSelectCell({ col: picked.col, row: picked.row });
     } else if (cb.tool === "paint") {
       if (!select(e)) paint(e);
     } else if (cb.paintEnabled) {
