@@ -3,7 +3,8 @@ import { DockviewComponent } from "dockview-react";
 import type { DockviewApi, DockviewGroupPanel, DockviewWillShowOverlayLocationEvent, GroupDragEvent, TabDragEvent } from "dockview-react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckArea } from "../../workbench/layout";
-import { applyArrangement, dockPanel, floatPanel, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace, toggleSchauMaximized } from "./dockRules";
+import type { Depth } from "./shellState";
+import { applyArrangement, dockPanel, floatPanel, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace, syncDepthPanels, toggleSchauMaximized } from "./dockRules";
 
 // jsdom has no ResizeObserver; dockview watches its container with one.
 globalThis.ResizeObserver = class {
@@ -60,7 +61,7 @@ describe("dock rules", () => {
     dock.dispose();
     element.remove();
   });
-  const build = (area: DeckArea = "welt", arrangement: "werkbank" | "doppeldeck" = "werkbank") => applyArrangement(api(), area, arrangement);
+  const build = (area: DeckArea = "welt", arrangement: "werkbank" | "doppeldeck" = "werkbank", depth: Depth = "tuefteln") => applyArrangement(api(), area, arrangement, depth);
 
   it("builds_the_werkbank_with_3d_in_front_and_the_inspector_limited_to_280_to_480", () => {
     build();
@@ -89,6 +90,70 @@ describe("dock rules", () => {
     expect(grid(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
     // The limits of the inspector beside the view do not follow it into the edit group below.
     expect(api().getPanel("inspector")!.group.maximumWidth).not.toBe(480);
+  });
+
+  it("removes_the_raster_on_bauen_and_shows_3d_when_it_was_in_front", () => {
+    build();
+    const world = api().getPanel("world");
+    api().getPanel("matrix")!.api.setActive();
+    expect(api().getPanel("matrix")!.api.isVisible).toBe(true);
+    said = [];
+    syncDepthPanels(api(), "welt", "bauen");
+    expect(api().getPanel("matrix")).toBeUndefined();
+    expect(grid(api())).toEqual([
+      [
+        ["world", "worldmap"],
+        ["script", "problems"],
+      ],
+      ["inspector"],
+    ]);
+    // 3D shows, not an empty view or the Weltkarte; the panels stay what they were, and nothing is said about the Raster leaving.
+    expect(api().getPanel("world")).toBe(world);
+    expect(api().getPanel("world")!.api.isVisible).toBe(true);
+    expect(said).toEqual([]);
+    // With the Weltkarte in front it stays in front; once gone, nothing more is removed.
+    build("welt", "werkbank");
+    api().getPanel("worldmap")!.api.setActive();
+    syncDepthPanels(api(), "welt", "bauen");
+    expect(api().getPanel("worldmap")!.api.isVisible).toBe(true);
+    syncDepthPanels(api(), "welt", "bauen");
+    expect(api().panels.map((p) => p.id).sort()).toEqual(["inspector", "problems", "script", "world", "worldmap"]);
+    // The other areas have nothing to remove.
+    dock.clear();
+    build("texte", "doppeldeck");
+    syncDepthPanels(api(), "texte", "bauen");
+    expect(grid(api())).toEqual([["textView"], ["textEdit", "problems"]]);
+  });
+
+  it("adds_the_raster_as_an_inactive_tab_beside_3d_on_tuefteln", () => {
+    build("welt", "werkbank", "bauen");
+    expect(api().getPanel("matrix")).toBeUndefined();
+    api().getPanel("worldmap")!.api.setActive();
+    said = [];
+    syncDepthPanels(api(), "welt", "tuefteln");
+    // Back beside 3D, as the second tab, with its title; not in front (the Weltkarte stays), and the view group stays active.
+    expect(grid(api())).toEqual(WERKBANK);
+    const matrix = api().getPanel("matrix")!;
+    expect(matrix.title).toBe("Raster");
+    expect(matrix.api.isVisible).toBe(false);
+    expect(api().getPanel("worldmap")!.api.isVisible).toBe(true);
+    expect(said).toEqual([]);
+    // Already there: nothing changes.
+    syncDepthPanels(api(), "welt", "tuefteln");
+    expect(api().getPanel("matrix")).toBe(matrix);
+    expect(grid(api())).toEqual(WERKBANK);
+    // Built in Bauen, an arrangement in Tüfteln brings the Raster back without building the dock anew.
+    syncDepthPanels(api(), "welt", "bauen");
+    const world = api().getPanel("world");
+    build("welt", "doppeldeck", "tuefteln");
+    expect(grid(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
+    expect(api().getPanel("world")).toBe(world);
+    expect(api().activePanel?.id).toBe("world");
+    // And an arrangement in Bauen leaves it out again, keeping the panels.
+    build("welt", "werkbank", "bauen");
+    expect(api().getPanel("matrix")).toBeUndefined();
+    expect(api().getPanel("world")).toBe(world);
+    expect(api().activePanel?.id).toBe("world");
   });
 
   it("builds_the_other_areas_with_the_view_above_the_edit_group", () => {

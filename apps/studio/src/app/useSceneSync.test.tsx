@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { createEditBus } from "../bus/editBus";
 import { useSceneSync } from "./useSceneSync";
 import type { AreaDocks, SceneSync } from "./useSceneSync";
@@ -45,6 +46,8 @@ describe("useSceneSync goTo", () => {
   const dock = { current: { getPanel, hasMaximizedGroup: () => maximized, exitMaximizedGroup } };
   const docks = { welt: dock } as unknown as AreaDocks;
   const setArea = vi.fn();
+  const setPinned = vi.fn();
+  let depth: Depth | undefined;
 
   function Probe() {
     scene = useSceneSync({
@@ -52,19 +55,21 @@ describe("useSceneSync goTo", () => {
       setMessage: vi.fn(),
       fail: vi.fn(),
       refreshDirty: async () => {},
-      setPinned: vi.fn(),
+      setPinned,
       docks,
       setArea,
       onOpenText: vi.fn(),
       onOpenScript: vi.fn(),
       onOpenData: vi.fn(),
+      depth,
     });
     return null;
   }
 
   beforeEach(async () => {
-    for (const fn of [focusHeaders, focusScript, getPanel, setArea, exitMaximizedGroup]) fn.mockClear();
+    for (const fn of [focusHeaders, focusScript, getPanel, setArea, setPinned, exitMaximizedGroup]) fn.mockClear();
     maximized = false;
+    depth = undefined;
     container = document.createElement("div");
     root = createRoot(container);
     act(() => root.render(<Probe />));
@@ -84,6 +89,16 @@ describe("useSceneSync goTo", () => {
     expect(setArea).toHaveBeenCalledWith("welt");
     expect(getPanel).not.toHaveBeenCalled();
     expect(focusHeaders).not.toHaveBeenCalled();
+  });
+
+  it("shows_the_world_for_a_cell_in_bauen_without_changing_a_tab", async () => {
+    depth = "bauen";
+    act(() => root.render(<Probe />));
+    await act(async () => void (await scene.goTo({ kind: "matrixCell", matrix: 1, x: 0, y: 0 })));
+    expect(setPinned).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 1, x: 0, y: 0 });
+    expect(setArea).toHaveBeenCalledWith("welt");
+    // No tab of the dock is looked for (Bauen has no Raster).
+    expect(getPanel).not.toHaveBeenCalled();
   });
 
   it("focuses_a_panel_in_the_one_dock_and_ends_a_maximization_that_hides_it", async () => {

@@ -233,6 +233,7 @@ function AppBody() {
     onOpenText: openTextLink,
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
+    depth: shell.state.depth,
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
@@ -683,13 +684,13 @@ function AppBody() {
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
       case "arrangeWerkbank":
-        resetLayout("welt", docks.welt, "werkbank");
+        resetLayout("welt", docks.welt, "werkbank", shell.state.depth);
         break;
       case "arrangeDoppeldeck":
-        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck");
+        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", shell.state.depth);
         break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck));
+        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), shell.state.depth);
         break;
       case "maximize":
         if (docks[paletteDeck].current) toggleSchauMaximized(docks[paletteDeck].current);
@@ -799,6 +800,7 @@ function AppBody() {
   const deckOf = (target: DeckArea, trail: Crumb[]) => (
     <Deck
       area={target}
+      depth={shell.state.depth}
       wizard={target === "welt" ? showsWizard : undefined}
       components={DECK_COMPONENTS[target]}
       dockRef={docks[target]}

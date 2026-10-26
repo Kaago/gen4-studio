@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { AREAS } from "../ui/frame/shellState";
-import { AREA_PANELS, DECK_AREAS, DEFAULT_ARRANGEMENT, arrangementKey, arrangementSteps, dropOldLayouts, isDeckArea, isSaneLayout, isSchauPanel, layoutKey, loadArrangement, loadLayout, saveArrangement, saveLayout } from "./layout";
+import { AREA_PANELS, DECK_AREAS, DEFAULT_ARRANGEMENT, arrangementKey, arrangementSteps, dropOldLayouts, isDeckArea, isSaneLayout, isSchauPanel, layoutKey, loadArrangement, loadLayout, panelsFor, saveArrangement, saveLayout } from "./layout";
 import type { ArrangementStep } from "./layout";
 
 describe("deck layout persistence", () => {
@@ -91,10 +91,13 @@ describe("deck layout persistence", () => {
       const ids = AREA_PANELS[area].map((p) => p.id as string);
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids.includes("headers")).toBe(false);
-      // Every arrangement of the area places exactly the area's panels, each once.
+      // Every arrangement of the area places exactly the area's panels of the depth, each once.
       for (const arrangement of ["werkbank", "doppeldeck"] as const) {
-        expect(arrangementSteps(area, arrangement).map((st) => st.id).sort()).toEqual([...ids].sort());
+        for (const depth of ["bauen", "tuefteln"] as const) {
+          expect(arrangementSteps(area, arrangement, depth).map((st) => st.id).sort()).toEqual(panelsFor(area, depth).map((p) => p.id as string).sort());
+        }
       }
+      expect(panelsFor(area, "tuefteln")).toEqual(AREA_PANELS[area]);
     }
     expect(AREA_PANELS.welt.map((p) => p.title)).toEqual(["3D", "Raster", "Weltkarte", "Inspector", "Script", "Probleme"]);
     expect(AREA_PANELS.texte.map((p) => p.title)).toEqual(["Vorschau", "Nachrichten", "Probleme"]);
@@ -108,7 +111,7 @@ describe("deck layout persistence", () => {
     const step = (steps: ArrangementStep[], id: string) => steps.find((st) => st.id === id);
 
     it("builds_the_werkbank_with_the_inspector_right_at_340_and_script_below_at_240", () => {
-      const steps = arrangementSteps("welt", "werkbank");
+      const steps = arrangementSteps("welt", "werkbank", "tuefteln");
       expect(steps.map((st) => st.id)).toEqual(["world", "matrix", "worldmap", "inspector", "script", "problems"]);
       expect(steps[0]).toEqual({ id: "world" });
       expect(step(steps, "matrix")?.position).toEqual({ referencePanel: "world", direction: "within" });
@@ -125,37 +128,61 @@ describe("deck layout persistence", () => {
     });
 
     it("builds_the_doppeldeck_with_the_edit_group_below_at_286", () => {
-      const world = arrangementSteps("welt", "doppeldeck");
+      const world = arrangementSteps("welt", "doppeldeck", "tuefteln");
       expect(world.map((st) => st.id)).toEqual(["world", "matrix", "worldmap", "inspector", "script", "problems"]);
       expect(step(world, "inspector")).toEqual({ id: "inspector", position: { referencePanel: "world", direction: "below" }, height: 286 });
       expect(step(world, "script")?.position).toEqual({ referencePanel: "inspector", direction: "within" });
       expect(step(world, "problems")?.position).toEqual({ referencePanel: "inspector", direction: "within" });
-      const texte = arrangementSteps("texte", "doppeldeck");
+      const texte = arrangementSteps("texte", "doppeldeck", "tuefteln");
       expect(texte).toEqual([
         { id: "textView" },
         { id: "textEdit", position: { referencePanel: "textView", direction: "below" }, height: 286 },
         { id: "problems", position: { referencePanel: "textEdit", direction: "within" } },
       ]);
-      expect(arrangementSteps("pokemon", "doppeldeck")).toEqual([{ id: "pokemonView" }, { id: "pokemonEdit", position: { referencePanel: "pokemonView", direction: "below" }, height: 286 }]);
-      expect(arrangementSteps("gegenstaende", "doppeldeck")).toEqual([{ id: "itemView" }, { id: "itemEdit", position: { referencePanel: "itemView", direction: "below" }, height: 286 }]);
+      expect(arrangementSteps("pokemon", "doppeldeck", "tuefteln")).toEqual([{ id: "pokemonView" }, { id: "pokemonEdit", position: { referencePanel: "pokemonView", direction: "below" }, height: 286 }]);
+      expect(arrangementSteps("gegenstaende", "doppeldeck", "tuefteln")).toEqual([{ id: "itemView" }, { id: "itemEdit", position: { referencePanel: "itemView", direction: "below" }, height: 286 }]);
     });
 
     it("refers_only_to_panels_an_earlier_step_added", () => {
       for (const area of DECK_AREAS) {
         for (const arrangement of ["werkbank", "doppeldeck"] as const) {
-          const placed = new Set<string>();
-          for (const st of arrangementSteps(area, arrangement)) {
-            if (st.position) expect(placed.has(st.position.referencePanel)).toBe(true);
-            else expect(placed.size).toBe(0);
-            placed.add(st.id);
+          for (const depth of ["bauen", "tuefteln"] as const) {
+            const placed = new Set<string>();
+            for (const st of arrangementSteps(area, arrangement, depth)) {
+              if (st.position) expect(placed.has(st.position.referencePanel)).toBe(true);
+              else expect(placed.size).toBe(0);
+              placed.add(st.id);
+            }
           }
         }
       }
     });
 
+    it("leaves_the_raster_out_of_both_world_arrangements_in_bauen", () => {
+      expect(AREA_PANELS.welt.filter((p) => p.tinkerOnly).map((p) => p.id)).toEqual(["matrix"]);
+      expect(panelsFor("welt", "bauen").map((p) => p.id)).toEqual(["world", "worldmap", "inspector", "script", "problems"]);
+      for (const arrangement of ["werkbank", "doppeldeck"] as const) {
+        const bauen = arrangementSteps("welt", arrangement, "bauen");
+        const tuefteln = arrangementSteps("welt", arrangement, "tuefteln");
+        expect(bauen.map((st) => st.id)).toEqual(["world", "worldmap", "inspector", "script", "problems"]);
+        // The other steps are the same as in Tüfteln.
+        expect(bauen).toEqual(tuefteln.filter((st) => st.id !== "matrix"));
+      }
+      // The other areas have no panel only for Tüfteln.
+      for (const area of ["texte", "pokemon", "gegenstaende"] as const) expect(arrangementSteps(area, "doppeldeck", "bauen")).toEqual(arrangementSteps(area, "doppeldeck", "tuefteln"));
+    });
+
+    it("keeps_the_raster_in_the_view_group_in_tuefteln", () => {
+      for (const arrangement of ["werkbank", "doppeldeck"] as const) {
+        const steps = arrangementSteps("welt", arrangement, "tuefteln");
+        expect(steps.slice(0, 3).map((st) => st.id)).toEqual(["world", "matrix", "worldmap"]);
+        expect(step(steps, "matrix")).toEqual({ id: "matrix", position: { referencePanel: "world", direction: "within" } });
+      }
+    });
+
     it("gives_the_areas_without_a_choice_one_plan_whatever_is_asked", () => {
-      expect(arrangementSteps("texte", "werkbank")).toEqual(arrangementSteps("texte", "doppeldeck"));
-      expect(arrangementSteps("pokemon", "werkbank")).toEqual(arrangementSteps("pokemon", "doppeldeck"));
+      expect(arrangementSteps("texte", "werkbank", "tuefteln")).toEqual(arrangementSteps("texte", "doppeldeck", "tuefteln"));
+      expect(arrangementSteps("pokemon", "werkbank", "tuefteln")).toEqual(arrangementSteps("pokemon", "doppeldeck", "tuefteln"));
     });
   });
 
@@ -219,6 +246,19 @@ describe("deck layout persistence", () => {
       expect(isSaneLayout({ ...layout([leaf("matrix", "worldmap"), leaf("inspector", "script", "problems")], ids), floatingGroups: [floating("world")] }, all)).toBe(false);
       expect(isSaneLayout({ ...layout([leaf("world", "worldmap"), leaf("script", "problems")], ids), floatingGroups: [floating("inspector", "matrix")] }, all)).toBe(false);
       expect(isSaneLayout({ ...base, floatingGroups: [null, { data: {} }, floating("textView")] }, all)).toBe(false);
+    });
+
+    it("accepts_a_stored_layout_with_or_without_the_raster", () => {
+      const all = AREA_PANELS.welt;
+      const withRaster = layout([leaf("world", "matrix", "worldmap"), leaf("inspector", "script", "problems")], ["world", "matrix", "worldmap", "inspector", "script", "problems"]);
+      const withoutRaster = layout([leaf("world", "worldmap"), leaf("inspector", "script", "problems")], ["world", "worldmap", "inspector", "script", "problems"]);
+      expect(isSaneLayout(withRaster, all)).toBe(true);
+      expect(isSaneLayout(withoutRaster, all)).toBe(true);
+      // Only the Raster may be missing: without 3D or the inspector the layout is of another panel set.
+      expect(isSaneLayout(layout([leaf("matrix", "worldmap"), leaf("inspector", "script", "problems")], ["matrix", "worldmap", "inspector", "script", "problems"]), all)).toBe(false);
+      expect(isSaneLayout(layout([leaf("world", "worldmap"), leaf("script", "problems")], ["world", "worldmap", "script", "problems"]), all)).toBe(false);
+      // The list of a depth is checked the same way.
+      expect(isSaneLayout(withoutRaster, panelsFor("welt", "bauen"))).toBe(true);
     });
 
     it("rejects_a_layout_with_a_missing_or_an_unknown_panel_or_no_panels_at_all", () => {
