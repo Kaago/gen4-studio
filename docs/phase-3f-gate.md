@@ -2,7 +2,7 @@
 
 Stand: 2026-10-26. Phase 3f „Weltmodell“ baut das Weltmodell in Teilphasen aus: 3f.1 Raster nach Tüfteln, 3f.2 Eigene Orte, 3f.3 Leichter Patch, optional 3f.4 Nahtlos und Abspalten. Jede Teilphase hat unten ihren Teil mit eigener Ergebnistabelle; am Ende steht das Gesamtgate aus [docs/ROADMAP.md](ROADMAP.md) („Phase 3f: Weltmodell“, Absatz „Gate:“).
 
-Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md), [3f.2](superpowers/plans/2026-10-26-phase-3f2-eigene-orte.md), [3f.3](superpowers/plans/2026-10-26-phase-3f3-leichter-patch.md).
+Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md), [3f.2](superpowers/plans/2026-10-26-phase-3f2-eigene-orte.md), [3f.3](superpowers/plans/2026-10-26-phase-3f3-leichter-patch.md), [3f.4](superpowers/plans/2026-10-26-phase-3f4-nahtlos-abspalten.md).
 
 Wer was prüft: Die Spalte „Wer“ sagt **Agent** (Test-Umgebung aus [docs/agent-gate.md](agent-gate.md): Browser-Fenster mit `studio-bridge`, `call.sh`), **Agent + Blick** (der Agent prüft und beschreibt Ort und Zahlen, der Nutzer bestätigt kurz am Bild) oder **Hand** (der Nutzer).
 
@@ -154,5 +154,33 @@ Roadmap, Absatz „Gate:“: Auf Kopien von Platin DE und HeartGold DE entsteht 
 | 2026-10-26 | 3f-gate-hgd | (G.3) | bestanden: `hg-neuheim` exit 0 (Ort 235 „Neuheim“), Header 64 → 540; Bild `target/agent/gate-2026-10-26/hg-neuheim/einblendung.png`: Einblendung „Neuheim“ oben links über Route-29-Gelände, unten das Menü des Touchscreens. HeartGold zeigt also einen Ortsnamen hinter den Vanilla-Plätzen | – |
 | – | – | (G.4) | beim Nutzer offen: der Spielstand liegt vor dem ersten Pokémon und ohne Bälle; Fangen über `g4emu` ist nicht vorgesehen | – |
 | – | – | (G.5) | beim Nutzer offen (DSPRE, Kopien `3f3-pt`, `3f3-hgd` gespeichert) | – |
-| 2026-10-26 | 3f-gt-pt, 3f-gt-hgd, 3f-gt-hgu | (G.6) | siehe unten | – |
+| 2026-10-26 | 3f-gt-pt, 3f-gt-hgd, 3f-gt-hgu | (G.6) | bestanden: `G4_TEST_PROJECT=<Kopie> cargo test --workspace --all-features -- --test-threads 1` auf `ab1eb37` je Kopie alle 34 Testprogramme ok (102 „test result: ok“, 0 Fehlschläge), darin `vanilla_checks` (3 Tests, SOLL 0 für die neuen Codes, alle Fehler-Codes 0) und `dynamic_headers` (`vanilla_project_takes_the_patch`); Log `target/agent/gated-3f.log` | Vorher (nach 3f.2) `vanilla_checks` auf `3f-pt`, `3f-hgd`, `3f-hgu` einzeln: je 3 ok |
 | 2026-10-26 | 3f-pt, 3f-hgd | (G.7) | bestanden: Zweiblattdorf vorher kalt 7523 ms, warm 2851/2481 ms (852 Anfragen, 176 Modelle) → nachher (`f6f958e`) kalt 471 ms, warm 570 ms (45–55 Anfragen, 6 Modelle; nach 3f.1 warm 347/510 ms); Neuborkia vorher kalt 9856, warm 3854 ms (1058 Anfragen, 204 Modelle) → nachher warm 596 ms (55 Anfragen, 6 Modelle) | Die Brücke läuft als Debug-Build; Zeiten im Browser-Fenster, das verborgen lief |
+
+Was beim Nutzer bleibt (Gesamtgate): (G.3) die Bilder der Einblendung (`target/agent/gate-2026-10-26/pt-neuheim/einblendung.png`, `…/hg-neuheim/einblendung.png`, dazu `…/pt-neuer-ort/einblendung.png` aus 3f.2); (G.4) ein im neuen Gebiet gefangenes Pokémon zeigt den Fundort „Neuheim“; (G.5) DSPRE öffnet `3f3-pt` bzw. `3f3-hgd` und zeigt den Patch und „Neuheim“; `scripts/gate.sh` auf main.
+
+## Teil 3f.4: Nahtlos und Abspalten
+
+Lieferumfang (Roadmap, optional): `create_area` mit Ziel „bestehende Weltkarte“ (der Assistent wählt freie Zellen, der Ortsname wechselt ohne Warp), `split_room` für geteilte Räume (bis zu 33 Räume auf einer Karte; bis dahin Plakette „Geteilt“). Begonnen, weil der Agent-Teil des Pflicht-Gates 3f.1 bis 3f.3 grün ist (offen beim Nutzer sind nur Hand- und Blick-Punkte). Zielzellen dürfen leer oder Landschaft (Header 0) sein; die Plakette „Geteilt mit N Räumen“ steht im Inspector-Kopf und im Baum; „Für diesen Raum abspalten…“ nur für Räume auf einer Karte ohne Gebietsabschnitt.
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (4.1) Lage im Assistenten | Schritt „Anordnung“: „Wo liegt das Gebiet?“ mit „Eigene Karte (über Türen verbunden)“ und „Auf der Weltkarte Sinnoh (nahtlos begehbar)“, Gitter „Weltkarte, 30 Zeilen, 30 Spalten“; Klick auf eine Gebietszelle tut nichts, Klick auf Landschaft wählt; Zusammenfassung nennt Lage und ersetzte Landschaft | Agent |
+| (4.2) Nahtlos im Spiel | Szenario `pt-nahtlos.yaml`: „Neuweg“ in der Landschaftszelle (4, 27) östlich von Zweiblattdorf, `g4emu` läuft ohne Tür hinüber, die Einblendung wechselt zu „Neuweg“ | Agent + Blick |
+| (4.3) Plakette „Geteilt“ | Pokémon-Center Jubelstadt (0006, Matrix 116, 17 Header): Baumzeile mit Symbol „geteilt“, Inspector-Kopf „Geteilt mit 16 Räumen“ | Agent |
+| (4.4) Abspalten | „Aktionen“ › „Für diesen Raum abspalten…“, Dialog „Raum abspalten?“ mit Plakette „Nicht rückgängig“, „Abspalten“: Header 0006 auf neuer Matrix mit eigener Kartenkopie, die anderen 16 bleiben auf Matrix 116 | Agent |
+| (4.5) Nur ein Ort | eine Kollisionsänderung an der Kopie lässt die Karte der anderen Pokémon-Center unverändert | Agent |
+
+### Ergebnis 3f.4
+
+Stand: bis `9494656`, Test-Umgebung 1470/1471 (neu gestartet), Kopien `3f4-pt` (Browser), `3f4-pt3` (Szenario; `3f4-pt` und `3f4-pt2` aus früheren Läufen des Szenarios mit anderem Weg).
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-26 | 3f4-pt | (4.1) | bestanden: Quelle Sinnoh Zelle 3,26 (Karte 0005); „Wo liegt das Gebiet?“, Gitter „Weltkarte, 30 Zeilen, 30 Spalten“; Klick auf 4,24 (Gebiet) ohne Wirkung, 6,24 (Landschaft) gewählt, „Weiter“ frei; Zusammenfassung „Legt das Gebiet „Neues Gebiet“ mit 1 × 1 Karten an. Liegt auf der Weltkarte Sinnoh bei x 6, y 24 (nahtlos begehbar); ersetzt 1 Landschaftskarte. …“, kein „Raster/Matrix/Header“ (abgebrochen) | Vorgewählte Quelle war die Matrix des gewählten Raums; die Quelle muss man dann auf „Sinnoh“ stellen |
+| 2026-10-26 | 3f4-pt3 | (4.2) | bestanden: `pt-nahtlos` exit 0 (`headers.814` = 593, 0 Fehler), Header 415 → 414 → 411 → 593 beim Laufen über x 128 (kein Warp); Bild `target/agent/gate-2026-10-26/pt-nahtlos/einblendung.png`: Einblendung „Neuweg“ oben links, rechts das Gelände der neuen Karte | Weil Zweiblattdorf nach Osten von Bäumen umgeben ist, öffnet das Szenario die Zeile 15 auf beiden Karten (je 6 Kacheln); neben Route 201 gibt es keine freie oder Landschaftszelle mit begehbarem Rand (Begründung im Szenario). Die Roadmap nennt Route 201; geprüft ist dasselbe Verhalten neben Zweiblattdorf |
+| 2026-10-26 | 3f4-pt | (4.3) | bestanden: Baumzeile „Pokémon-Center“ mit Symbol „geteilt“ (Titel „Geteilt mit 16 Räumen“), Kopf „Raum · Pokémon-Center · Jubelstadt · C01PC0101 · Geteilt mit 16 Räumen“ | – |
+| 2026-10-26 | 3f4-pt | (4.4) | bestanden: Dialog „Raum abspalten? Nicht rückgängig. Der Raum „Pokémon-Center“ bekommt eine eigene Kopie seiner Karte. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopie lässt sich nicht zurücknehmen.“; „Abspalten“: Toast „Raum „Pokémon-Center“ abgespalten“, Verlauf `["Raum „Pokémon-Center“ abgespalten"]`, Header 0006 auf Matrix 0289 „m_pc01_ (6)“ mit Karte 0667, Header 0036 weiter auf 0116; die Plakette ist danach weg | – |
+| 2026-10-26 | 3f4-pt | (4.5) | bestanden: `set_permission` auf Karte 0667 Kachel (5, 5) → `[0, 128]`; Karte 0191 (alle anderen Pokémon-Center) Kachel (5, 5) weiter `[128, 128]`, Prüfsumme der Kollision unverändert | – |
+
+Befunde der Abschlussprüfung von 3f.4 (behoben in `9494656`): der Dialog konnte „0 Karten“ sagen, solange die Übersicht fehlte (jetzt ohne Zahl, wenn sie nicht sicher ist); „Abspalten“ erschien auch für Räume auf einer Weltkarte, die der Kernel ablehnt; ein Fehler beim Nachladen nach dem Abspalten ging verloren. `split_room` ist kein kuratiertes MCP-Werkzeug (über `g4_call`, `docs/mcp.md`).
