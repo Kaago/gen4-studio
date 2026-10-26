@@ -1,0 +1,48 @@
+# Platin DE, Gate 3f.2 („Eigene Orte“): ein neuer Ortsname im ROM. `create_place` hängt „Neuheim“ an die
+# Ortsnamen-Bank (Archiv 433, Index 126 auf einer unveränderten Kopie) und hängt nur den Außen-Header von
+# Zweiblattdorf (411) um, in einem Undo-Schritt; die Räume (Häuser) behalten „Zweiblattdorf“. Beim Verlassen
+# des Spielerhauses wechselt der Ortsname, das Spiel blendet „Neuheim“ ein (Bild `einblendung`, Agent + Blick).
+# Die Prüfungen bleiben ohne Fehler (auch die neuen `place.*`).
+#
+# Der Weg: der Spielstand CPUD-zimmer steht im Zimmer (415, x 7, y 4); im Wohnzimmer (414) spricht die
+# Mutter, an der Tür hält sie den Spieler noch einmal an (B geht durch ihre Texte).
+#
+# Beispiel (aus scripts/g4emu; die Kopie liegt direkt unter Roms/_testkopien; im Worktree G4_ROMS_DIR,
+# G4_BRIDGE_BIN und G4K_BIN setzen, siehe docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/pt-neuer-ort.yaml \
+#     --project $R/_testkopien/3f2e-pt --out ../../target/agent/gate-$(date +%F)/pt-neuer-ort
+game: CPUD
+edits:
+  - - place_slots
+    - {}
+    - expect:
+        - {path: bank, equals: 433}
+        - {path: count, equals: 126}
+  - - create_place
+    - {name: Neuheim, headers: [411]}
+    - expect:
+        - {path: index, equals: 126}
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+build: out.nds
+play:
+  - continue                 # CPUD-zimmer: 415 at x 7, y 4
+  - expect-map 415
+  - walk-to 8 4              # the stairs
+  - walk right 1
+  - expect-map 414           # arrival on the stairs at x 10, y 3
+  - wait 150
+  - mash b 600               # the mother's text
+  - walk down 2              # off the stairs first (a step west from them warps back up)
+  - walk-to 6 10             # the door mat
+  - press down:8             # the mother stops the player at the door with a text
+  - wait 60
+  - mash b 400
+  - press down:8
+  - expect-map 411           # outside, x 116, y 885
+  - wait 160
+  - shot einblendung         # the banner „Neuheim“ at the top left
+  - where
