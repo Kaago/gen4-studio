@@ -170,8 +170,9 @@ fn candidate(
 /// Finds the ROM with the SHA-1 of `mark`: the explicit path (another SHA-1 there is refused
 /// with [`other_rom`]), the remembered entry (unchanged size and mtime: no hash), the sibling
 /// `.nds` of `root`, the `.nds` files in `dir` (by name, only those of the mark's size are
-/// hashed). `Ok(None)`: none of them is the ROM. Errors: the explicit path cannot be read, or
-/// `dir` cannot be listed.
+/// hashed). `Ok(None)`: none of them is the ROM; a `dir` that cannot be listed and an entry
+/// of it that cannot be read count as no candidate, never as an error. Errors: only the
+/// explicit path cannot be read.
 pub fn locate(mark: &BaseMark, search: &Search<'_>) -> Result<Option<Located>, KernelError> {
     if let Some(path) = search.explicit {
         let meta = std::fs::metadata(path).map_err(io_at(path))?;
@@ -206,10 +207,12 @@ pub fn locate(mark: &BaseMark, search: &Search<'_>) -> Result<Option<Located>, K
     {
         return Ok(Some(found));
     }
-    if let Some(dir) = search.dir {
+    // A folder that cannot be listed (a misconfigured `G4_BASE_ROM_DIR`) holds no candidate,
+    // like an entry that cannot be read.
+    if let Some(entries) = search.dir.and_then(|dir| std::fs::read_dir(dir).ok()) {
         let mut paths = Vec::new();
-        for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
-            let path = entry.map_err(io_at(dir))?.path();
+        for entry in entries.flatten() {
+            let path = entry.path();
             if path
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("nds"))
@@ -764,6 +767,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(none, None);
+    }
+
+    #[test]
+    fn locate_treats_a_missing_dir_as_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sha = write_rom(&tmp.path().join("a.nds"), 1);
+        // A misconfigured `G4_BASE_ROM_DIR`: a folder that is not there, or a file.
+        for dir in [tmp.path().join("gibt-es-nicht"), tmp.path().join("a.nds")] {
+            let found = locate(
+                &mark(&sha),
+                &Search {
+                    dir: Some(&dir),
+                    ..Search::default()
+                },
+            );
+            assert!(matches!(found, Ok(None)), "{dir:?}: {found:?}");
+        }
     }
 
     #[test]
