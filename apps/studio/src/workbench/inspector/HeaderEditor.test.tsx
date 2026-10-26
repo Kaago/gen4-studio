@@ -59,13 +59,14 @@ const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [
 const matrices: MatrixSummary[] = [
   { index: 2, name: "m2", width: 30, height: 30, has_headers: true, has_altitudes: true, filled: 600 },
   { index: 3, name: "m3", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
+  { index: 4, name: "m4", width: 2, height: 2, has_headers: false, has_altitudes: false, filled: 3 },
 ];
 const house: HeaderSummary = { ...summary, id: 412, internal_name: "T01R0101", matrix_id: 3 };
 /** The world with the house as a room that shares its map with `shared` other rooms. */
-const houseWorld = (shared: number): World => ({
+const houseWorld = (shared: number, matrix_id = 3): World => ({
   worldMaps: [],
   moreAreas: [],
-  unconnected: [{ header: house, name: "Haus 1", suggested: "Haus 1", placeKey: "Zweiblattdorf", placeName: "Zweiblattdorf", manual: false, shared }],
+  unconnected: [{ header: { ...house, matrix_id }, name: "Haus 1", suggested: "Haus 1", placeKey: "Zweiblattdorf", placeName: "Zweiblattdorf", manual: false, shared }],
   other: [],
   areaOf: new Map(),
   roomCount: 1,
@@ -269,6 +270,32 @@ describe("HeaderEditor scripts", () => {
       // The project is read again as after a wizard, the room shown with the message.
       expect(onRoomSplit).toHaveBeenCalledWith({ matrix: 700, header: 412, announcement: "Raum „Haus 1“ abgespalten" });
       expect(dialog()).toBeNull();
+    });
+  });
+
+  describe("splitting by the matrix", () => {
+    const showHouse = async (world: World) => {
+      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth="bauen" />));
+      await flush();
+    };
+    const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+
+    it("offers_split_only_on_a_matrix_without_a_header_section", async () => {
+      // A matrix with a header section (a world map), and a matrix the project does not list: the badge stays, the action goes.
+      for (const matrixId of [2, 99]) {
+        await act(async () => root.render(null));
+        await showHouse(houseWorld(3, matrixId));
+        expect(container.querySelector("header[data-inspector-kind] [data-shared]")?.textContent).toBe("Geteilt mit 3 Räumen");
+        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+      }
+    });
+
+    it("names_no_number_of_maps_when_the_matrix_has_several_cells", async () => {
+      await showHouse(houseWorld(3, 4));
+      chooseAction(container, "Für diesen Raum abspalten…");
+      await flush();
+      expect(dialog()?.textContent).toContain("Der Raum „Haus 1“ bekommt eigene Kopien seiner Karten. Danach");
+      expect(dialog()?.textContent).not.toMatch(/\d Karten|0 Karten/);
     });
   });
 

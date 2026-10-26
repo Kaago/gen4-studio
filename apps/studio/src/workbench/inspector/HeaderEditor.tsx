@@ -24,7 +24,8 @@ import { InspectorHead } from "./InspectorHead";
 import { PlacePicker } from "../places/PlacePicker";
 import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
-import { SHARED_HINT, SplitRoomDialog, sharedText } from "./SplitRoomDialog";
+import { SplitRoomDialog } from "./SplitRoomDialog";
+import { SHARED_HINT, sharedText } from "../sharedRooms";
 import { ADOPT_HINT } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 
@@ -168,6 +169,9 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   // A room whose maps other rooms use too: the head says so, and the room can get copies of its own.
   const room = summary && world ? roomOf(world, id) : undefined;
   const sharedRoom = room !== undefined && room.shared > 0 ? room : undefined;
+  // Only a room on a matrix without a header section can be split (the kernel refuses a world map); an unknown matrix offers nothing.
+  const roomMatrix = room ? matrices.find((m) => m.index === room.header.matrix_id) : undefined;
+  const canSplit = sharedRoom !== undefined && roomMatrix?.has_headers === false;
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -231,7 +235,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
                 { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
                 { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
-                ...(sharedRoom ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
+                ...(canSplit ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
               ]
             : undefined
         }
@@ -289,7 +293,8 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           open={splitting}
           header={id}
           name={room.name}
-          maps={matrices.find((m) => m.index === room.header.matrix_id)?.filled ?? 0}
+          // One filled cell is one map; with more cells the number of distinct maps is not known (the text names none).
+          maps={roomMatrix?.filled === 1 ? 1 : null}
           onClose={() => setSplitting(false)}
           onSplit={(report) => onRoomSplit({ matrix: report.matrix, header: id, announcement: `Raum „${room.name}“ abgespalten` })}
           onError={onError}

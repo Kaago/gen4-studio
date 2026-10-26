@@ -9,7 +9,7 @@ import type { IconName } from "../ui/primitives";
 import { showsMatrix } from "./headers";
 import { placeColor } from "./places";
 import { ADOPT_HINT } from "./inspector/scriptNav";
-import { sharedText } from "./inspector/SplitRoomDialog";
+import { sharedText } from "./sharedRooms";
 import { RoomActions, WorldMapActions } from "./RoomActions";
 import type { AreaChoice, RenameTarget } from "./RoomActions";
 import { ShownMark } from "./ShownMark";

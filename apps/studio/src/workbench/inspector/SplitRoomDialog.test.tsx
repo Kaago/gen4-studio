@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { splitRoom } from "../../api";
-import { SplitRoomDialog, sharedText } from "./SplitRoomDialog";
+import { sharedText } from "../sharedRooms";
+import { SplitRoomDialog } from "./SplitRoomDialog";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -35,7 +36,7 @@ describe("SplitRoomDialog", () => {
 
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
   const button = (text: string) => [...(dialog()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text);
-  const show = async (maps = 2, open = true) => {
+  const show = async (maps: number | null = 2, open = true) => {
     await act(async () => root.render(<SplitRoomDialog open={open} header={412} name="Haus 1" maps={maps} onClose={onClose} onSplit={onSplit} onError={onError} />));
     await flush();
   };
@@ -52,6 +53,11 @@ describe("SplitRoomDialog", () => {
     await show(1);
     expect(dialog()?.textContent).toContain(
       "Der Raum „Haus 1“ bekommt eine eigene Kopie seiner Karte. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopie lässt sich nicht zurücknehmen.",
+    );
+    // Not known: the sentence names no number.
+    await show(null);
+    expect(dialog()?.textContent).toContain(
+      "Der Raum „Haus 1“ bekommt eigene Kopien seiner Karten. Danach ändern Änderungen an ihm keinen anderen Raum mehr. Die Kopien lassen sich nicht zurücknehmen.",
     );
     // Closed: nothing shows.
     await show(2, false);
@@ -80,6 +86,16 @@ describe("SplitRoomDialog", () => {
     await act(async () => button("Abbrechen")!.click());
     expect(onClose).toHaveBeenCalled();
     expect(splitRoom).not.toHaveBeenCalled();
+  });
+
+  it("reports_a_failing_follow_up_instead_of_losing_it", async () => {
+    onSplit.mockRejectedValue("Das Projekt ließ sich nicht neu lesen.");
+    await show();
+    await act(async () => button("Abspalten")!.click());
+    await flush();
+    expect(splitRoom).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("Das Projekt ließ sich nicht neu lesen.");
   });
 
   it("names_the_number_of_rooms_shared_with", () => {

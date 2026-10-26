@@ -4,17 +4,9 @@ import type { SplitReport } from "../../api";
 import { Badge, Dialog } from "../../ui/primitives";
 import styles from "./SplitRoomDialog.module.css";
 
-/** „Geteilt mit 17 Räumen“: the badge of a room whose maps `shared` other rooms use too. */
-export function sharedText(shared: number): string {
-  return `Geteilt mit ${shared} ${shared === 1 ? "Raum" : "Räumen"}`;
-}
-
-/** What the badge „Geteilt“ explains on hover. */
-export const SHARED_HINT = "Diese Karten gehören auch anderen Räumen. Was du hier änderst, ändert sie alle.";
-
-/** What splitting does to the room `name` with `maps` maps, and that the copies stay. */
-function splitText(name: string, maps: number): string {
-  const copies = maps === 1 ? "eine eigene Kopie seiner Karte" : `eigene Kopien seiner ${maps} Karten`;
+/** What splitting does to the room `name` with `maps` maps (null: not known, so no number), and that the copies stay. */
+function splitText(name: string, maps: number | null): string {
+  const copies = maps === null ? "eigene Kopien seiner Karten" : maps === 1 ? "eine eigene Kopie seiner Karte" : `eigene Kopien seiner ${maps} Karten`;
   const stay = maps === 1 ? "Die Kopie lässt sich nicht zurücknehmen." : "Die Kopien lassen sich nicht zurücknehmen.";
   return `Der Raum „${name}“ bekommt ${copies}. Danach ändern Änderungen an ihm keinen anderen Raum mehr. ${stay}`;
 }
@@ -25,8 +17,8 @@ export interface SplitRoomDialogProps {
   header: number;
   /** The room's name, as the world tree calls it (also the label of the undo step). */
   name: string;
-  /** How many maps the room has (each gets a copy). */
-  maps: number;
+  /** How many maps the room has (each gets a copy); null when that is not known: the text names no number. */
+  maps: number | null;
   onClose: () => void;
   /** The room has copies of its maps on a matrix of its own (`report`); the dialog has closed. */
   onSplit: (report: SplitReport) => void | Promise<void>;
@@ -54,7 +46,11 @@ function SplitForm({ header, name, maps, onClose, onSplit, onError }: SplitRoomD
       return;
     }
     onClose();
-    await onSplit(report);
+    try {
+      await onSplit(report);
+    } catch (e) {
+      onError(e);
+    }
   }
   const leave = () => {
     if (!working) onClose();
