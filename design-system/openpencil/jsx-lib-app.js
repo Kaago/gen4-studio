@@ -265,3 +265,32 @@ const InspectorHead = ({ word, icon, title, ident, badges = [], menu = true }) =
   {badges.length > 0 && <Frame name="Zustände" flex="row" gap={4}>{badges.map(([l, a]) => Badge(l, a))}</Frame>}
   {menu && <Frame name="Aktionen" flex="row" items="center" justify="center" px={8} h={DI.steuer} rounded={6}>{I('ph:dots-three', DI.symbol, 'p')}</Frame>}
 </Frame>;
+// ===== Agenten (Phase 3h.3, 26.10.2026): lokale Agenten über MCP =====
+// Nur Zusätze. Quellen: einstellungen/AgentsSettings.tsx und .module.css, ui/frame/AgentStatus.tsx, app/AgentQuestion.tsx, ui/primitives/{Menu,Dialog}.module.css,
+// ui/frame/Hinge.tsx (Verlaufsmenü). Vorlagen: beispiele/agenten-*.body.js.
+// Menü (Menu-Primitive): blatt, Rand linie/standard, radius/taste, schatten/schwebend; Einträge dichte/steuer hoch, 0 12 innen. Eintrag
+// { label, icon, detail (rechts, sekundär), check (true/false: Eintrag einer Wahl, die Haken-Spalte hält ihren Platz), hi (unter dem Zeiger), off } oder '-'
+const MenuX = ({ x, y, w = 260, items }) => <Frame name="Menü" position="absolute" x={x} y={y} w={w} flex="col" p={4} rounded={6} bg={v('flaeche/blatt')} stroke={v('linie/standard')} strokeWidth={1} shadow={SCHATTEN}>{items.map((it) => it === '-' ? <Frame name="Trenner" flex="col" w="fill" py={4}><Frame w="fill" h={1} bg={v('linie/leise')} /></Frame> : <Frame name={it.label} flex="row" items="center" gap={8} px={12} h={DI.steuer} w="fill" rounded={4} bg={it.hi ? v('auswahl/flaeche') : undefined}>{it.check !== undefined && <Frame w={DI.symbol} h={DI.symbol} flex="row" items="center" justify="center">{it.check && I('ph:check', DI.symbol, it.hi ? 'at' : 'p')}</Frame>}{it.icon && I(it.icon, DI.symbol, it.off ? 'd' : it.hi ? 'at' : 'p')}{T(it.label, { c: it.off ? 'text/deaktiviert' : it.hi ? 'akzent/text' : 'text/primaer', grow: 1, one: true })}{it.detail && <Frame flex="row" pl={12}>{T(it.detail, { c: it.off ? 'text/deaktiviert' : it.hi ? 'akzent/text' : 'text/sekundaer', one: true })}</Frame>}</Frame>)}</Frame>;
+// Agenten-Zeile der Statusleiste (AgentStatus): Taste 24 hoch, text/xs, Symbol agent (ph:robot); open: Menü offen (Fläche wie :hover)
+const AgentItem = (text, open) => <Frame name="Agent verbunden" flex="row" items="center" gap={6} px={8} h={24} rounded={6} bg={open ? v('flaeche/deck') : undefined}>{I('ph:robot', 12, 'p')}{T(text, { s: 12 })}</Frame>;
+// Statusleiste mit der Agenten-Zeile rechts vor dem Bauen-Stand (agent: Text, agentOpen: Menü offen); sonst wie Statusbar
+const StatusbarAgent = ({ tool, keys = [], info, problems = '101 Warnungen, 10 Hinweise', build = 'Noch nicht gebaut', agent, agentOpen } = {}) => (
+  <Frame name="Statusleiste" flex="row" items="center" gap={16} px={12} h={28} w="fill" bg={v('flaeche/gehaeuse')} strokeWeights={{ top: 1, right: 0, bottom: 0, left: 0 }} stroke={v('linie/leise')}>
+    <Frame flex="row" items="center" gap={6}>{tool && T(tool, { s: 12, w: 600 })}{keys.map(([k, a], idx) => <Frame flex="row" items="center" gap={4}>{(tool || idx > 0) && T('·', { s: 12, c: 'text/sekundaer' })}{Kbd(k)}{T(a, { s: 12, c: 'text/sekundaer' })}</Frame>)}</Frame>
+    {info ? T(info, { s: 12, c: 'text/sekundaer', grow: 1, one: true }) : <Frame grow={1} />}
+    {problems && T(problems, { s: 12, w: 600, c: 'status/warnung' })}
+    {agent && AgentItem(agent, agentOpen)}
+    {T(build, { s: 12, c: 'text/sekundaer' })}
+    {T('Komfort', { s: 12, w: 600 })}
+  </Frame>
+);
+// Dialog (Dialog-Primitive): 480 breit, 20 innen, Abstand 12, blatt, Rand linie/standard, radius/fenster, schatten/schwebend; Titel text/l,
+// Text text/s sekundär, Tasten rechts (gap 8), Kreuz oben rechts (dichte/steuer). actions: [{ label, art }]
+const DialogX = ({ title, text, actions = [], w = 480 }) => <Frame name="Dialog" flex="col" gap={12} p={20} w={w} rounded={12} bg={v('flaeche/blatt')} stroke={v('linie/standard')} strokeWidth={1} shadow={SCHATTEN}>
+  <Frame name="Schließen" position="absolute" x={w - 8 - DI.steuer} y={8} w={DI.steuer} h={DI.steuer} rounded={6} flex="row" items="center" justify="center">{I('ph:x', DI.symbol, 's')}</Frame>
+  {T(title, { s: 18, w: 600, width: w - 72 })}
+  {T(text, { c: 'text/sekundaer', width: w - 40 })}
+  <Frame name="Tasten" flex="row" justify="end" gap={8} w="fill">{actions.map((a) => Btn(a))}</Frame>
+</Frame>;
+// Ein Screen mit Dialog: das Fenster, darüber die Abdunklung flaeche/ueberlagerung über das ganze Fenster, der Dialog in der Mitte
+const MitDialog = (name, win, dialog) => <Frame name={name} w={1440} h={900} rounded={10} overflow="hidden">{win}<Frame name="Abdunklung" position="absolute" x={0} y={0} w={1440} h={900} flex="row" items="center" justify="center" bg={v('flaeche/ueberlagerung')}>{dialog}</Frame></Frame>;
