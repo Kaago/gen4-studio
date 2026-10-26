@@ -157,8 +157,22 @@ describe("WorldPanel", () => {
     expect(button("Neues Gebäude")).toBeUndefined();
     expect(button("Hinzufügen")).toBeUndefined();
     expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
-    // Only the two layer toggles are left in the layer bar.
-    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+    // Only the two layer toggles and the top-down switch are left in the layer bar.
+    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse", "Draufsicht"]);
+  });
+
+  it("switches_the_scene_to_the_top_down_view_and_remembers_it", () => {
+    localStorage.clear();
+    try {
+      show({ matrix });
+      expect(sceneProps.current?.topDown).toBe(false);
+      act(() => button("Draufsicht").click());
+      expect(sceneProps.current?.topDown).toBe(true);
+      expect(button("Draufsicht").getAttribute("aria-pressed")).toBe("true");
+      expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).topDown).toBe(true);
+    } finally {
+      localStorage.clear();
+    }
   });
 
   it("floats_the_toolbar_over_the_scene_with_the_tool_of_the_workbench", () => {

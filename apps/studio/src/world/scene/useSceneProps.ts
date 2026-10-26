@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { MatrixDto } from "../../api";
+import type { CellRect } from "../../workbench/sceneScope";
 import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
 import { showCellFrame } from "./cellFrame";
@@ -54,6 +55,13 @@ export function useFaultyEvents(refs: SceneRefs, faulty: readonly EventRef[]) {
       h.render();
     }
   }, [faulty]);
+}
+
+/** Switches the camera between the slanted view and the top-down view; switching on frames `focus` of `matrix`, switching off brings back the slanted view as it was left. */
+export function useTopDown(refs: SceneRefs, topDown: boolean, matrix: MatrixDto, focus: CellRect) {
+  useEffect(() => {
+    refs.handle.current?.setTopDown(topDown, focus, matrix);
+  }, [topDown]);
 }
 
 /** Shows or hides the permission overlay. */

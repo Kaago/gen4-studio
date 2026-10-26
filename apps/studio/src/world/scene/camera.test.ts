@@ -1,12 +1,17 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { MatrixDto } from "../../api";
-import { frameCells } from "./camera";
+import type { CellRect } from "../../workbench/sceneScope";
+import { frameCells, topDownFrame } from "./camera";
 import type { SceneHost } from "./SceneHost";
 
 /** The parts of a scene host the camera touches; counts the control updates and the renders. */
 const fakeHost = () => ({
   camera: new THREE.PerspectiveCamera(50, 1, 0.5, 8000),
+  get slanted() {
+    return this.camera;
+  },
+  topDown: false,
   controls: {
     target: new THREE.Vector3(),
     updates: 0,
@@ -47,5 +52,38 @@ describe("frameCells", () => {
     // The projection follows the new far plane.
     expect(host.camera.projectionMatrix.equals(before)).toBe(false);
     expect(host.controls.target.toArray()).toEqual([1600, 0, 16]);
+  });
+});
+
+describe("topDownFrame", () => {
+  /** The extent of a frame in scene units: width, depth, and the ratio of the two. */
+  const extent = (f: { left: number; right: number; top: number; bottom: number }) => {
+    const w = f.right - f.left;
+    const d = f.top - f.bottom;
+    return { w, d, ratio: w / d };
+  };
+
+  it("fits_the_focus_into_the_top_down_view_for_wide_and_tall_panels", () => {
+    // A row of three cells (96 x 32 tiles) and a column of three (32 x 96), each in a wide (2:1) and a tall (1:2) panel.
+    const row: CellRect = { x: 1, y: 2, width: 3, height: 1 };
+    const column: CellRect = { x: 1, y: 2, width: 1, height: 3 };
+    for (const [focus, w, d] of [
+      [row, 96, 32],
+      [column, 32, 96],
+    ] as const) {
+      for (const aspect of [2, 0.5]) {
+        const f = topDownFrame(focus, aspect);
+        const e = extent(f);
+        // The view has the panel's shape (no distortion), holds the whole focus, and is tight on one side (a small margin only).
+        expect(e.ratio).toBeCloseTo(aspect);
+        expect(e.w).toBeGreaterThanOrEqual(w);
+        expect(e.d).toBeGreaterThanOrEqual(d);
+        expect(Math.min(e.w / w, e.d / d)).toBeLessThanOrEqual(1.15);
+        // Symmetric around the camera, which stands over the middle of the focus.
+        expect(f.left).toBeCloseTo(-f.right);
+        expect(f.bottom).toBeCloseTo(-f.top);
+        expect(f.target.toArray()).toEqual([32 + w / 2, 0, 64 + d / 2]);
+      }
+    }
   });
 });

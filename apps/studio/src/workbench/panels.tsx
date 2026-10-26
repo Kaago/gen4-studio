@@ -192,6 +192,8 @@ export function WorldPanel() {
   const faultyEvents = useFaultyEvents(rows);
   // The door under the pointer names where it leads as the world tree does.
   const { identify, world } = useWorld();
+  // The scene is memoised: the shell changing elsewhere renders this panel, not the scene.
+  const topDown = useShell().state.topDown;
   const { headers } = d;
   const destName = useCallback(
     (id: number) => {
@@ -232,6 +234,7 @@ export function WorldPanel() {
       <MatrixScene
         matrix={scope.matrix}
         focus={scope.focus}
+        topDown={topDown}
         areaDataId={d.areaDataId}
         showPermissions={d.showPermissions}
         eventFileId={d.eventFileId}

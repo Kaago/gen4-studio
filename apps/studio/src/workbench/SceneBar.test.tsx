@@ -23,7 +23,7 @@ describe("SceneBar", () => {
   });
 
   const show = (props: Partial<SceneBarProps> = {}) =>
-    act(() => root.render(<SceneBar showPermissions showEvents={false} onShowPermissions={() => {}} onShowEvents={() => {}} {...props} />));
+    act(() => root.render(<SceneBar showPermissions showEvents={false} topDown={false} onShowPermissions={() => {}} onShowEvents={() => {}} onTopDown={() => {}} {...props} />));
   const toggle = (name: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
 
   it("is_a_toolbar_with_one_toggle_per_layer_that_reports_its_state", () => {
@@ -31,6 +31,20 @@ describe("SceneBar", () => {
     expect(container.querySelector("[role=toolbar]")?.getAttribute("aria-label")).toBe("Ebenen der Schau");
     expect(toggle("Gelände").getAttribute("aria-pressed")).toBe("true");
     expect(toggle("Ereignisse").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("toggles_the_top_down_view_with_aria_pressed", () => {
+    const onTopDown = vi.fn();
+    show({ onTopDown });
+    expect(toggle("Draufsicht").getAttribute("aria-pressed")).toBe("false");
+    // A group of its own beside the layers.
+    expect(toggle("Draufsicht").parentElement).not.toBe(toggle("Gelände").parentElement);
+    act(() => toggle("Draufsicht").click());
+    expect(onTopDown).toHaveBeenCalledWith(true);
+    show({ topDown: true, onTopDown });
+    expect(toggle("Draufsicht").getAttribute("aria-pressed")).toBe("true");
+    act(() => toggle("Draufsicht").click());
+    expect(onTopDown).toHaveBeenLastCalledWith(false);
   });
 
   it("says_no_raster_matrix_or_header_in_building", () => {

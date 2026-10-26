@@ -17,6 +17,8 @@ export interface ShellApi {
   setSelected: (key: DataSelectKey, index: number | null) => void;
   /** Puts the toolbar of the 3D view at an anchor (remembered). */
   setToolbar: (anchor: ToolbarAnchor) => void;
+  /** Switches the 3D view between slanted and straight down (remembered). */
+  setTopDown: (on: boolean) => void;
   /** Sets how the world tree and/or the header list are sorted (remembered); a part left out stays. */
   setWorldSort: (sort: Partial<WorldSort>) => void;
   /** The share of the list „Welt“ the places take (remembered, clamped to 0.2..0.8). */
@@ -92,6 +94,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     [],
   );
   const setToolbar = useCallback((toolbar: ToolbarAnchor) => setState((s) => (s.toolbar === toolbar ? s : { ...s, toolbar })), []);
+  const setTopDown = useCallback((topDown: boolean) => setState((s) => (s.topDown === topDown ? s : { ...s, topDown })), []);
   const setWorldSort = useCallback(
     (sort: Partial<WorldSort>) =>
       setState((s) => {
@@ -129,6 +132,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setPokemonSub,
       setSelected,
       setToolbar,
+      setTopDown,
       setWorldSort,
       setWorldListSplit,
       setPlacesFolded,
@@ -146,7 +150,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setDepth, setPokemonSub, setSelected, setToolbar, setTopDown, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

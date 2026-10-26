@@ -16,13 +16,15 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
 
 interface Props {
   /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
   matrix: MatrixDto;
   /** The cells the camera frames when `matrix` was loaded; it belongs to `matrix`. Null: the filled cells (the whole matrix when none is). */
   focus: CellRect | null;
+  /** The camera looks straight down (orthographic, no turning) instead of slanted; a switch frames the focus. */
+  topDown: boolean;
   /**
    * Area data of the shown header; selects the map texture set for every map of the matrix. It
    * belongs to `matrix` (App changes both in one update when another header is shown). Changed
@@ -88,6 +90,7 @@ interface Props {
 function MatrixScene({
   matrix,
   focus,
+  topDown,
   areaDataId,
   bus,
   showPermissions,
@@ -147,6 +150,7 @@ function MatrixScene({
   useSceneSetup(host, refs, reportEvents);
   useSceneTheme(refs);
   useSceneLoader({ matrix, focus: frame, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
+  useTopDown(refs, topDown, matrix, frame);
   useMapRefresh(refs, mapRefresh);
   useMapModelRefresh(refs, mapModelRefresh);
   useBuildingSelection(refs, selectedMap, selectedBuilding);
