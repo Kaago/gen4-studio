@@ -12,17 +12,24 @@ const SENTENCES: Record<string, string> = {
 
 const CODE = /\bpreview\.(format|too_large|unreadable)\b/;
 
-/** The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`): German already, they keep their text. */
-const GERMAN = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente)/;
+/**
+ * The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`) and the transport's („Brücke nicht erreichbar“,
+ * `platform/transport.ts`): German already, they keep their text.
+ */
+const GERMAN = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente|Brücke|Kein Tauri)/;
 
 /** Any other failure of a write: the kernel's or the system's own text is English and names no way out („Permission denied (os error 13)“). */
 const OTHER = "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst.";
 
-/** The toast text of a failed `project_preview_set`: the sentence of its code, the bridge's German refusal, else a German sentence. */
+/**
+ * The toast text of a failed preview write: the sentence of its code, the bridge's German refusal, the German sentence of an `Error` the app
+ * throws itself (no map at the chosen cell, a lost WebGL context), else a German sentence that says what to check.
+ */
 export function previewErrorText(e: unknown): string {
   const text = errorText(e);
   const code = CODE.exec(text)?.[0];
   if (code !== undefined && SENTENCES[code]) return SENTENCES[code];
+  if (e instanceof Error) return e.message;
   return GERMAN.test(text) ? text : OTHER;
 }
 

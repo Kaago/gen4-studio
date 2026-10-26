@@ -32,9 +32,17 @@ describe("previewMessages", () => {
     expect(previewErrorText(refused("/Users/du/Spiele/pt: project folder not found"))).toBe(sentence);
     expect(previewErrorText(refused("Permission denied (os error 13)"))).toBe(sentence);
     expect(previewErrorText("bridge down")).toBe(sentence);
-    for (const own of ["Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png", "Pfad ist kein gültiger Text: /x", "Ungültige Argumente für project_preview_set: y"]) {
+    for (const own of [
+      "Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png",
+      "Pfad ist kein gültiger Text: /x",
+      "Ungültige Argumente für project_preview_set: y",
+      "Brücke nicht erreichbar",
+      "Kein Tauri und keine Brücke",
+    ]) {
       expect(previewErrorText(refused(own))).toBe(own);
     }
+    // The app's own failures (an Error it throws: no map at the chosen cell, a lost WebGL context) say their German sentence.
+    expect(previewErrorText(new Error("An dieser Stelle liegt keine Karte."))).toBe("An dieser Stelle liegt keine Karte.");
   });
 
   it("change_preview_says_a_failed_write_in_german", async () => {
