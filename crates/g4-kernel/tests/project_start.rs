@@ -162,7 +162,7 @@ fn project_start_empty_region_from_the_rom() {
         create_project(&nds, &dest, Template::EmptyRegion, &mut |p| seen.push(p)).unwrap();
     assert_eq!(created.template, Template::EmptyRegion);
     let mark = read_base_mark(&dest).expect("base mark");
-    assert_eq!(mark.template, Template::EmptyRegion);
+    assert_eq!(mark.template, Some(Template::EmptyRegion));
     let text = std::fs::read_to_string(dest.join(".g4/base.json")).unwrap();
     assert!(text.contains("\"empty_region\""), "{text}");
     // The template phase counts up to its total: adopting, then the recipe.

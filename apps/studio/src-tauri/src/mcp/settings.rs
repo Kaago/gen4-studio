@@ -275,15 +275,16 @@ mod tests {
         }
         // With a base mark the key carries `<sha1>/<created>`.
         let mark = g4_kernel::start::BaseMark {
-            version: 1,
-            origin: "extracted".into(),
+            version: g4_kernel::start::BASE_MARK_VERSION,
+            origin: g4_kernel::start::ORIGIN_EXTRACTED.into(),
             sha1: "abc".into(),
             game_code: "CPUE".into(),
             title: "POKEMON PL".into(),
             revision: 0,
             size: 1,
-            template: g4_kernel::start::Template::Original,
+            template: Some(g4_kernel::start::Template::Original),
             created: "2026-10-25T14:50:00Z".into(),
+            assigned: None,
             studio_version: "0.1.0".into(),
             secure_area_crc: 0,
             secure_area_sha1: String::new(),
