@@ -102,10 +102,36 @@ describe("WorldPanel", () => {
     show({ matrix: route, selected: 3 });
     expect(sceneProps.current?.matrix).toEqual({ ...route, maps: [1, 2, null, null] });
     expect(sceneProps.current?.focus).toEqual({ x: 0, y: 0, width: 1, height: 1 });
-    // Nothing selected: the whole matrix, framed by the scene itself.
-    show({ matrix: route, selected: null });
-    expect(sceneProps.current?.matrix).toBe(route);
+    // Nothing selected (a matrix shown for no header): the whole matrix, framed by the scene itself.
+    const unselected = { ...route };
+    show({ matrix: unselected, selected: null });
+    expect(sceneProps.current?.matrix).toBe(unselected);
     expect(sceneProps.current?.focus).toBeNull();
+  });
+
+  it("keeps_the_scene_scope_while_a_newly_selected_header_waits_for_its_matrix", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 6, height: 1, maps: [1, 2, 3, 4, 5, 6], headers: [3, 0, 0, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    const before = { matrix: sceneProps.current?.matrix, focus: sceneProps.current?.focus };
+    expect(before.focus).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    // Another header is selected, its matrix is still being fetched: the scene keeps what it shows.
+    show({ matrix: route, selected: 4 });
+    expect(sceneProps.current?.matrix).toBe(before.matrix);
+    expect(sceneProps.current?.focus).toBe(before.focus);
+    // A header of another matrix, pending as well: still the same.
+    show({ matrix: route, selected: 99, headers: [header(3), header(4), { ...header(99), matrix_id: 7 }] });
+    expect(sceneProps.current?.matrix).toBe(before.matrix);
+    expect(sceneProps.current?.focus).toBe(before.focus);
+  });
+
+  it("takes_the_new_scope_when_the_matrix_of_the_selected_header_arrives", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 6, height: 1, maps: [1, 2, 3, 4, 5, 6], headers: [3, 0, 0, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    show({ matrix: route, selected: 4 });
+    const fetched = { ...route, maps: [...route.maps] };
+    show({ matrix: fetched, selected: 4 });
+    expect(sceneProps.current?.matrix).toEqual({ ...route, maps: [null, null, null, null, 5, 6] });
+    expect(sceneProps.current?.focus).toEqual({ x: 5, y: 0, width: 1, height: 1 });
   });
 
   it("offers_no_first_place_when_the_project_has_no_header", () => {

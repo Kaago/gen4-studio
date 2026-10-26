@@ -98,8 +98,10 @@ describe("sceneScope", () => {
   });
 
   it("loads_and_frames_both_islands_of_an_area", () => {
-    const scope = sceneScope(matrix, [8, 9])!;
-    expect(cellsOf(scope.cells)).toEqual([...block(1, 3, 1, 1), ...block(1, 5, 2, 3), ...block(4, 5, 4, 4)].sort((a, b) => a[1] - b[1] || a[0] - b[0]));
+    // Header 8 also holds the cells of header 9: one header, two islands.
+    const islands: MatrixDto = { ...matrix, headers: HEADERS.map((h) => (h === 9 ? 8 : h)) };
+    const scope = sceneScope(islands, [8])!;
+    expect(cellsOf(scope.cells)).toEqual([...block(1, 3, 1, 1), ...block(1, 5, 2, 3), ...block(4, 5, 4, 4)]);
     expect(scope.focus).toEqual({ x: 2, y: 2, width: 4, height: 3 });
   });
 
@@ -195,14 +197,27 @@ describe("useSceneScope", () => {
     const grown = { ...matrix, maps: [...matrix.maps] };
     show(grown, header(7), world());
     expect(last().matrix).not.toBe(first.matrix);
-    // Before the world is read, the selected header alone.
-    show(matrix, header(9), null);
+    // Another header selected, its matrix not yet fetched: the scope stays.
+    const kept = last();
+    show(grown, header(9), world());
+    expect(last()).toBe(kept);
+    // Its matrix arrives (a new object): the header counts now; before the world is read, the header alone.
+    const fetched = { ...matrix, maps: [...matrix.maps] };
+    show(fetched, header(9), null);
     expect(last().focus).toEqual({ x: 5, y: 3, width: 1, height: 2 });
     // No scope: the matrix itself, and no focus.
-    show(matrix, null, world());
-    expect(last()).toEqual({ matrix, focus: null });
-    expect(last().matrix).toBe(matrix);
+    const none = { ...matrix };
+    show(none, null, world());
+    expect(last()).toEqual({ matrix: none, focus: null });
+    expect(last().matrix).toBe(none);
     show(null, header(7), world());
     expect(last()).toEqual({ matrix: null, focus: null });
+  });
+
+  it("takes_the_area_of_the_shown_header_once_the_world_is_read", () => {
+    show(matrix, header(8), null);
+    expect(last().focus).toEqual({ x: 2, y: 2, width: 1, height: 1 });
+    show(matrix, header(8), world());
+    expect(last().focus).toEqual({ x: 1, y: 1, width: 2, height: 2 });
   });
 });

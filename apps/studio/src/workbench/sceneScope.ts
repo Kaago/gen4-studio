@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Area, World } from "./worldModel";
 
@@ -17,6 +17,9 @@ export interface SceneScope {
   /** The cells of the area itself, without the ring of neighbours. */
   focus: CellRect;
 }
+
+/** A matrix cell holds a map (an index past the maps holds none). */
+const isFilled = (map: number | null | undefined): boolean => map !== null && map !== undefined;
 
 /** The smallest rectangle around the cells `indices` of a matrix `width` columns wide; null for none. */
 function boundingRect(indices: Iterable<number>, width: number): CellRect | null {
@@ -47,7 +50,7 @@ export function sceneScope(matrix: MatrixDto, areaHeaders: readonly number[] | n
   const { width, height } = matrix;
   const area: number[] = [];
   headers.forEach((id, i) => {
-    if (wanted.has(id) && matrix.maps[i] !== null && matrix.maps[i] !== undefined) area.push(i);
+    if (wanted.has(id) && isFilled(matrix.maps[i])) area.push(i);
   });
   const focus = boundingRect(area, width);
   if (!focus) return null;
@@ -70,7 +73,7 @@ export function scopedMatrix(matrix: MatrixDto, scope: SceneScope | null): Matri
 
 /** The rectangle around the filled cells of `matrix`; null when none is filled. */
 export function filledRect(matrix: MatrixDto): CellRect | null {
-  return boundingRect(matrix.maps.flatMap((m, i) => (m === null ? [] : [i])), matrix.width);
+  return boundingRect(matrix.maps.flatMap((m, i) => (isFilled(m) ? [i] : [])), matrix.width);
 }
 
 function findArea(world: World, key: string): Area | undefined {
@@ -97,9 +100,17 @@ export function areaHeadersOf(world: World | null, header: HeaderSummary | null)
  * The matrix the scene loads for the selected `header` (its area and the ring around it, see `sceneScope`) and the cells its camera
  * frames (null: the scene frames the filled cells). The same objects while the matrix object and the area's headers stay the same,
  * so a reload of the models alone does not load the maps again.
+ *
+ * The header counts from the render the matrix object arrives in: a selection changes first and its matrix (a new object, even on
+ * the same matrix) follows when fetched, so the scene keeps its scope meanwhile and loads once, with the new matrix. A failed
+ * fetch keeps the scope too, as the scene keeps its matrix.
  */
 export function useSceneScope(matrix: MatrixDto | null, header: HeaderSummary | null, world: World | null): { matrix: MatrixDto | null; focus: CellRect | null } {
-  const key = areaHeadersOf(world, header)?.join(",") ?? "";
+  const [shown, setShown] = useState({ matrix, header });
+  // Adjusted while rendering (React's pattern for state derived from props): the header that was selected when this matrix arrived.
+  if (shown.matrix !== matrix) setShown({ matrix, header });
+  const scopeHeader = shown.matrix === matrix ? shown.header : header;
+  const key = areaHeadersOf(world, scopeHeader)?.join(",") ?? "";
   return useMemo(() => {
     if (!matrix) return { matrix: null, focus: null };
     const scope = sceneScope(matrix, key === "" ? null : key.split(",").map(Number));
