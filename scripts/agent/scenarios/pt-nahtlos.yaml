@@ -1,0 +1,81 @@
+# Platin DE, Gate 3f.4 („Nahtlos“): ein neues Gebiet „Neuweg“ (neuer Ort, neuer Header aus der Vorlage Route 201,
+# Patch im selben Aufruf) liegt auf der Weltkarte Sinnoh in der Landschaftszelle (4, 27) direkt östlich von
+# Zweiblattdorf (3, 27), ohne Tür (`create_area` mit `target`, ersetzt eine Landschaftskarte). Die Karte ist eine
+# Kopie von Zweiblattdorf (Karte 0, ohne Gebäude). Weil Zweiblattdorf nach Osten ganz von Bäumen umgeben ist, öffnet
+# das Szenario einen Pfad (Zeile 15: auf Karte 0 die Spalten 26–31, auf der neuen Karte die Spalten 0–5 begehbar),
+# wie ein Mapper ihn malen würde. Im Spiel läuft der Spieler aus dem Haus nach Osten hinüber, der Ortsname wechselt
+# ohne Warp: Einblendung „Neuweg“ (Bild `einblendung`, Agent + Blick).
+#
+# Warum nicht neben Route 201: um Route 201 liegt keine freie Zelle; die Landschaftszellen nördlich (3, 25) und
+# (4, 25) und südlich (4, 27) grenzen an bewaldete Ränder, und der Weg dorthin führt durch das hohe Gras von
+# Route 201, in dem das Spiel zu Beginn den Spieler aufhält. Östlich von Zweiblattdorf liegt dieselbe
+# Landschaftszelle (4, 27), direkt vom Spielerhaus aus erreichbar.
+#
+# Beispiel (aus scripts/g4emu; im Worktree G4_ROMS_DIR, G4_BRIDGE_BIN und G4K_BIN setzen, siehe docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/pt-nahtlos.yaml --project $R/_testkopien/3f4-pt3 \
+#     --out ../../target/agent/gate-$(date +%F)/pt-nahtlos
+game: CPUD
+edits:
+  - - create_area
+    - spec:
+        name: Neuweg
+        width: 1
+        height: 1
+        cells:
+          - {x: 0, y: 0, source_map: 0, clear_buildings: true}
+        with_headers: true
+        header:
+          id: 593
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: null}
+          allow_patch: true
+          place: {New: Neuweg}
+        target: {matrix: 0, x: 4, y: 27}
+    - area
+  - - get_matrix
+    - {index: 0}
+    - expect:
+        - {path: "headers.814", equals: 593}
+  - [set_permission, {index: 0, x: 26, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: 0, x: 27, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: 0, x: 28, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: 0, x: 29, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: 0, x: 30, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: 0, x: 31, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 0, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 1, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 2, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 3, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 4, y: 15, kind: 0, collision: 0}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 5, y: 15, kind: 0, collision: 0}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+build: out.nds
+play:
+  - continue                 # CPUD-zimmer: 415 at x 7, y 4
+  - expect-map 415
+  - walk-to 8 4
+  - walk right 1
+  - expect-map 414
+  - wait 150
+  - mash b 600
+  - walk down 2
+  - walk-to 6 10
+  - press down:8
+  - wait 60
+  - mash b 400
+  - press down:8
+  - expect-map 411           # outside, x 116, y 885
+  - wait 160
+  - walk down 1              # off the door mat (the house door is north)
+  - walk right 5             # x 121
+  - walk up 8                # row 15 of Zweiblattdorf (y 879), the opened path
+  - walk right 7             # over the east edge (x 128) into Neuweg, no door
+  - expect-map ${area.header}
+  - wait 20                  # the banner shows right away while walking and slides off after about 3 s
+  - shot einblendung         # the banner „Neuweg“
+  - where
