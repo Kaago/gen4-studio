@@ -582,14 +582,21 @@ function AppBody() {
   const places = useMemo(() => buildPlaces(scene.headers, overview.matrices, overview.links), [scene.headers, overview.matrices, overview.links]);
   const pinnedMatrix = pins.pinned.kind === "matrixCell" ? pins.pinned.matrix : null;
   const matrixName = pinnedMatrix === null ? undefined : overview.matrices.find((m) => m.index === pinnedMatrix)?.name;
+  // The map of the pinned cell, which Bauen names the cell by: null for an empty cell, undefined when the matrix is not the shown one.
+  const cellMap = useMemo(() => {
+    const { pinned } = pins;
+    const shown = scene.matrix;
+    if (pinned.kind !== "matrixCell" || shown === null || shown.index !== pinned.matrix || pinned.x >= shown.width) return undefined;
+    return shown.maps[pinned.y * shown.width + pinned.x] ?? null;
+  }, [pins.pinned, scene.matrix]);
   // A pinned event is titled like the inspector heading: the events of its file come from the same hook the inspector's exits use,
   // read again when events moved (a failed read is the inspector's to report; the crumb keeps its short words).
   const pinnedEventFile = pins.pinned.kind === "event" ? pins.pinned.eventFile : null;
   const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth, identify: live.world.identify }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, pinnedEvents, data.goTo, shell.state.depth, live.world.identify],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth, identify: live.world.identify }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, shell.state.depth, live.world.identify],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
@@ -725,7 +732,7 @@ function AppBody() {
           const { matrix, x, y } = pins.pinned;
           getMatrix(matrix).then((m) => {
             const map = x < m.width ? (m.maps[y * m.width + x] ?? null) : null;
-            if (map === null) session.setMessage({ kind: "info", text: "Die gewählte Zelle hat keine Karte." });
+            if (map === null) session.setMessage({ kind: "info", text: "An dieser Stelle liegt keine Karte." });
             else setImportMap(map);
           }, session.fail);
         }
@@ -739,7 +746,7 @@ function AppBody() {
   });
 
   const { info } = session;
-  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth);
+  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth, cellMap);
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <ProjectStart

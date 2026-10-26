@@ -28,6 +28,8 @@ export interface CrumbInput {
   pinned: InspectorModel;
   /** The name of the matrix a pinned cell belongs to, shown grey next to the cell. */
   matrixName?: string;
+  /** The map of the pinned cell (Bauen names the cell by it): null for an empty cell, missing when the matrix is not at hand. */
+  cellMap?: number | null;
   /** The events of the pinned event's file (what `useEvents` reads for the inspector): the crumb then has the inspector's heading. Null or missing: the short words. */
   events?: EventsDto | null;
   /** Makes the crumbs links: each one leads where its label says. */
@@ -57,7 +59,7 @@ function eventLabel(
 }
 
 /** At most three crumbs: place › header (Gebiet or the room's name, Tüfteln: Header, with its id) › selection (event, building, matrix cell or area data). */
-export function crumbsFor({ places, headers, selected, pinned, matrixName, events, goTo, depth, identify }: CrumbInput): Crumb[] {
+export function crumbsFor({ places, headers, selected, pinned, matrixName, cellMap, events, goTo, depth, identify }: CrumbInput): Crumb[] {
   const header = selected === null ? undefined : headers.find((h) => h.id === selected);
   if (header === undefined) return [{ label: headers.length === 0 ? "Kein Projekt" : "Kein Ort gewählt" }];
   const link = (target: NavTarget) => (goTo ? () => goTo(target) : undefined);
@@ -76,7 +78,12 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, event
       crumbs.push({ label: `Gebäude ${pinned.index + 1}`, onClick: link({ kind: "building", map: pinned.map, index: pinned.index }) });
       break;
     case "matrixCell":
-      crumbs.push({ label: `Zelle ${pinned.x}, ${pinned.y}`, tech: matrixName, onClick: link({ kind: "matrixCell", matrix: pinned.matrix, x: pinned.x, y: pinned.y }) });
+      crumbs.push({
+        ...(depth === "tuefteln"
+          ? { label: `Zelle ${pinned.x}, ${pinned.y}`, tech: matrixName }
+          : { label: cellMap === null ? "Leere Zelle" : cellMap === undefined ? `Karte (${pinned.x}, ${pinned.y})` : `Karte ${id4(cellMap)}`, tech: `Zelle ${pinned.x}, ${pinned.y}` }),
+        onClick: link({ kind: "matrixCell", matrix: pinned.matrix, x: pinned.x, y: pinned.y }),
+      });
       break;
     case "area":
       crumbs.push({ label: `Area-Data ${id4(pinned.id)}`, onClick: link({ kind: "area", id: pinned.id }) });

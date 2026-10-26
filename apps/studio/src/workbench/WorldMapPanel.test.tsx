@@ -134,6 +134,14 @@ describe("WorldMapPanel", () => {
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
   });
 
+  it("labels_the_grids_in_user_words_in_bauen_and_keeps_raster_in_tuefteln", async () => {
+    const label = () => container.querySelector("[role=group]")?.getAttribute("aria-label");
+    await show(context());
+    expect(label()).toBe("Weltkarte, 1 Zeilen, 2 Spalten");
+    await show(context({ depth: "tuefteln" }));
+    expect(label()).toBe("Raster 0, 1 Zeilen, 2 Spalten");
+  });
+
   it("keeps_the_technical_words_in_tinkering", async () => {
     await show(context({ depth: "tuefteln" }));
     expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Header · 0000");
@@ -467,6 +475,13 @@ describe("WorldMapPanel", () => {
     expect([...container.querySelectorAll("[data-extend]")].map((e) => e.getAttribute("data-extend")).sort()).toEqual(["0,1", "1,0"]);
     expect(container.querySelector("[data-world-viewport]")).toBeNull();
     expect(container.querySelector("[data-place-key]")).toBeNull();
+  });
+
+  it("labels_the_room_plan_raster_in_tuefteln", async () => {
+    serveMatrices();
+    await show(worldContext({ selected: 4, depth: "tuefteln" }));
+    expect(viewOf()).toBe("plan");
+    expect(container.querySelector("[role=group]")?.getAttribute("aria-label")).toMatch(/^Raster \d+, 1 Zeilen, 1 Spalten$/);
   });
 
   it("selects_the_map_on_a_click_in_the_room_plan", async () => {

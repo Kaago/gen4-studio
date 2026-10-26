@@ -96,7 +96,7 @@ export interface PaletteSource {
 const NO_PROJECT = "Erst ein Projekt öffnen";
 const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
-const NO_CELL = "Erst eine Rasterzelle mit Karte wählen";
+const NO_CELL = "Erst eine Karte wählen (in 3D auf den Boden klicken)";
 const WIZARD_OPEN = "Erst den Assistenten abschließen oder abbrechen";
 const WORLD_ONLY = "Nur in der Welt";
 const NO_VIEW = "Dieser Bereich hat keine Schau";
@@ -131,7 +131,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
       label: "Teile in die Karte importieren…",
       icon: "plus",
       area: "welt",
-      description: "In die Karte der gewählten Rasterzelle",
+      description: "In die gewählte Karte",
       locked: project ?? (cellChosen ? null : NO_CELL),
     },
     { command: "list", label: "Liste ein/aus", icon: "list", locked: hasList ? null : NO_LIST },

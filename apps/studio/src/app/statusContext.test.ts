@@ -12,11 +12,21 @@ describe("statusContext", () => {
 
   it("says_no_raster_matrix_or_header_in_building", () => {
     expect(statusContext({ kind: "header", id: 3 }, null, header(), "bauen")).toBe("Zweiblattdorf");
-    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
+  });
+
+  it("says_place_and_map_with_its_cell_in_bauen", () => {
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "bauen", 412)).toBe("Zweiblattdorf, Karte 0412 (3, 27)");
+    // The map is not known: the cell alone.
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "bauen")).toBe("Zweiblattdorf, Karte (3, 27)");
+  });
+
+  it("says_an_empty_cell_in_bauen", () => {
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "bauen", null)).toBe("Zweiblattdorf, leere Zelle (3, 27)");
   });
 
   it("keeps_the_technical_words_in_tinkering", () => {
     expect(statusContext({ kind: "header", id: 3 }, null, header(), "tuefteln")).toBe("Zweiblattdorf, Raster 0");
+    expect(statusContext({ kind: "matrixCell", matrix: 0, x: 3, y: 27 }, null, header(), "tuefteln", 412)).toBe("Zweiblattdorf, Raster 0, Zelle 3, 27");
   });
 
   it("falls_back_to_the_internal_name_and_adds_the_cell", () => {
@@ -41,7 +51,7 @@ describe("statusContext", () => {
     // ... also without a selected header, and says no technical word in building.
     expect(statusContext({ kind: "none" }, door(), undefined, "bauen")).toBe("Tür 1 → Ort 0414");
     // ... and when the pointer leaves, the place is back.
-    expect(statusContext(cell, null, header(), "bauen")).toBe("Zweiblattdorf, Zelle 3, 27");
+    expect(statusContext(cell, null, header(), "bauen", 412)).toBe("Zweiblattdorf, Karte 0412 (3, 27)");
   });
 });
 

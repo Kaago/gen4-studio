@@ -57,15 +57,27 @@ const labels = (rows: SceneRow[]) => rows.map((r) => `${"  ".repeat(r.depth)}${r
 const find = (rows: SceneRow[], label: string) => rows.find((r) => r.label === label)!;
 
 describe("sceneRows", () => {
+  it("names_map_rows_by_map_and_cell_in_bauen", () => {
+    const rows = (depth: "bauen" | "tuefteln") => sceneRows(input({ depth }), ALL_OPEN, "").filter((r) => r.kind === "map");
+    expect(rows("bauen").map((r) => [r.label, r.tech])).toEqual([
+      ["Karte 0006", "0, 0"],
+      ["Karte 0007", "1, 0"],
+    ]);
+    expect(rows("tuefteln").map((r) => [r.label, r.tech])).toEqual([
+      ["Karte 0006 · Zelle 0, 0", undefined],
+      ["Karte 0007 · Zelle 1, 0", undefined],
+    ]);
+  });
+
   it("lists_the_header_then_maps_figures_doors_triggers_signs_and_scripts", () => {
     const rows = sceneRows(input(), ALL_OPEN, "");
     expect(labels(rows)).toEqual([
       "Jubelstadt",
       "  Karten",
-      "    Karte 0006 · Zelle 0, 0",
+      "    Karte 0006",
       "      Gebäude 1 · Modell 12",
       "      Gebäude 2 · Modell 13",
-      "    Karte 0007 · Zelle 1, 0",
+      "    Karte 0007",
       "  Figuren",
       "    Objekt 0 · Teenager Sebastian",
       "    Objekt 1 · ID 2",
@@ -89,9 +101,9 @@ describe("sceneRows", () => {
       ["scripts", 2],
     ]);
     expect(rows[0]).toMatchObject({ kind: "header", icon: "outside", ref: { kind: "header", id: 3 }, expanded: true });
-    expect(find(rows, "Karte 0006 · Zelle 0, 0")).toMatchObject({ kind: "map", ref: { kind: "matrixCell", matrix: 0, x: 0, y: 0 }, expanded: true });
+    expect(find(rows, "Karte 0006")).toMatchObject({ kind: "map", ref: { kind: "matrixCell", matrix: 0, x: 0, y: 0 }, expanded: true });
     // A map without buildings is a leaf.
-    expect(find(rows, "Karte 0007 · Zelle 1, 0").expanded).toBeUndefined();
+    expect(find(rows, "Karte 0007").expanded).toBeUndefined();
     expect(find(rows, "Objekt 1 · ID 2")).toMatchObject({ kind: "event", icon: "figure", tech: "x 11, z 21", ref: { kind: "event", file: 7, eventKind: "object", index: 1 } });
     expect(find(rows, "Level-Script 0043")).toMatchObject({ kind: "script", ref: { kind: "script", file: 43, level: true } });
     expect(find(rows, "Scriptdatei 0042").ref).toEqual({ kind: "script", file: 42, level: false });
@@ -135,7 +147,7 @@ describe("sceneRows", () => {
 
   it("puts_the_buildings_under_their_map", () => {
     const rows = sceneRows(input(), ALL_OPEN, "");
-    const at = rows.findIndex((r) => r.label === "Karte 0006 · Zelle 0, 0");
+    const at = rows.findIndex((r) => r.label === "Karte 0006");
     expect(rows.slice(at + 1, at + 3)).toMatchObject([
       { kind: "building", depth: 3, ref: { kind: "building", map: 6, index: 0 } },
       { kind: "building", depth: 3, ref: { kind: "building", map: 6, index: 1 } },
@@ -145,10 +157,10 @@ describe("sceneRows", () => {
     // A map in two cells carries its buildings once, under the first.
     const twice = sceneRows(input({ matrix: { ...matrix, maps: [6, 6, null, 8] } }), new Set([...SCENE_OPEN, "map:0,0", "map:1,0"]), "");
     expect(twice.filter((r) => r.kind === "building")).toHaveLength(2);
-    expect(twice.find((r) => r.label === "Karte 0006 · Zelle 1, 0")?.expanded).toBeUndefined();
+    expect(twice.filter((r) => r.kind === "map")[1]?.expanded).toBeUndefined();
     // A room's matrix has no header section: every filled cell is the room's.
     const room = sceneRows(input({ header: house, matrix: { index: 200, name: "", width: 1, height: 1, maps: [55], headers: null }, buildings: [{ map: 55, models: [4] }] }), new Set([...SCENE_OPEN, "map:0,0"]), "");
-    expect(labels(room).slice(0, 4)).toEqual([labels(room)[0], "  Karten", "    Karte 0055 · Zelle 0, 0", "      Gebäude 1 · Modell 4"]);
+    expect(labels(room).slice(0, 4)).toEqual([labels(room)[0], "  Karten", "    Karte 0055", "      Gebäude 1 · Modell 4"]);
     expect(room[0]!.icon).toBe("room");
   });
 
@@ -167,7 +179,7 @@ describe("sceneRows", () => {
     expect(labels(sceneRows(input(), closed, "sebastian"))).toEqual(["Jubelstadt", "  Figuren", "    Objekt 0 · Teenager Sebastian"]);
     // By ident: the position, the model, the number.
     expect(labels(sceneRows(input(), closed, "x 11"))).toEqual(["Jubelstadt", "  Figuren", "    Objekt 1 · ID 2"]);
-    expect(labels(sceneRows(input(), closed, "modell 13"))).toEqual(["Jubelstadt", "  Karten", "    Karte 0006 · Zelle 0, 0", "      Gebäude 2 · Modell 13"]);
+    expect(labels(sceneRows(input(), closed, "modell 13"))).toEqual(["Jubelstadt", "  Karten", "    Karte 0006", "      Gebäude 2 · Modell 13"]);
     expect(labels(sceneRows(input(), closed, "0043"))).toEqual(["Jubelstadt", "  Scripts", "    Level-Script 0043"]);
     // The target of a door, and the group by its word.
     expect(labels(sceneRows(input(), closed, "unbekannt"))).toEqual(["Jubelstadt", "  Türen", "    Warp 1"]);

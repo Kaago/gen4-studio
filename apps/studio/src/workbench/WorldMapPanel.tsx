@@ -572,6 +572,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           extendable={world ? extendable : undefined}
           window={half?.rect}
           foreign={half?.foreign}
+          label={depth === "bauen" ? `Weltkarte, ${region.height} Zeilen, ${region.width} Spalten` : undefined}
           cache={cache}
           depth={depth}
         />
@@ -651,7 +652,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
               onCellClick={onPlanClick}
               onExtend={onPlanExtend}
               extendable={planExtendable}
-              label={`Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten`}
+              label={depth === "bauen" ? `Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten` : undefined}
               cache={cache}
               depth={depth}
             />

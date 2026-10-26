@@ -178,7 +178,7 @@ export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: s
           ref: { kind: "building" as const, map, index },
         }));
         return {
-          row: { key: `map:${x},${y}`, kind: "map", label: `Karte ${id4(map)} · Zelle ${x}, ${y}`, icon: "map", ref: { kind: "matrixCell", matrix: matrix.index, x, y } },
+          row: { key: `map:${x},${y}`, kind: "map", ...(tinker ? { label: `Karte ${id4(map)} · Zelle ${x}, ${y}` } : { label: `Karte ${id4(map)}`, tech: `${x}, ${y}` }), icon: "map", ref: { kind: "matrixCell", matrix: matrix.index, x, y } },
           ...(children.length > 0 ? { children } : {}),
         };
       }),
