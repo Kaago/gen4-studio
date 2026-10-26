@@ -3,7 +3,8 @@
 //!
 //! Without a `path` both commands work on the open project; with one they touch only the two
 //! preview files under `<path>/.g4/`, without opening the project or changing the app's state.
-//! The PNG travels as base64, so the answer is the same JSON in the app, the bridge and MCP.
+//! The PNG travels as base64, so the answer is the same JSON in the app and the bridge; MCP
+//! moves it out of the JSON into an image content block (`mcp::server`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -99,26 +99,25 @@ fn answers_array() -> Value {
     answer(json!({ "type": "array" }))
 }
 
-/// The answer of the project preview tools (`PreviewDto`).
+/// The answer of the project preview tools (`PreviewDto` without `png`): the picture itself
+/// comes as an image content block (`crate::mcp::server`), not in the JSON.
 fn answers_preview() -> Value {
     answer(json!({
         "type": "object",
+        "description": "the picture (PNG, 256×192) comes as an image content block \
+                        (mimeType image/png) beside this, none without one",
         "properties": {
             "source": {
                 "type": ["string", "null"],
                 "enum": ["eigen", "standard", null],
-                "description": "which picture png is, null without one",
-            },
-            "png": {
-                "type": ["string", "null"],
-                "description": "base64 of the PNG, 256×192",
+                "description": "which picture the image block is, null without one",
             },
             "standardMap": {
                 "type": ["object", "null"],
                 "description": "the start town: header, map and areaDataId",
             },
         },
-        "required": ["source", "png", "standardMap"],
+        "required": ["source", "standardMap"],
     }))
 }
 
@@ -507,10 +506,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "project_preview_get",
         title: "Project preview",
-        description: "Read the project's preview picture (256×192 PNG, base64) for the start \
-                      list: source is eigen (the own picture), standard (the start town's map \
-                      the app renders) or null without one. standardMap names the start \
-                      town's header, map and area data, null when the game has none.",
+        description: "Read the project's preview picture for the start list, as an image \
+                      content block (PNG, 256×192; none without a picture): source is eigen \
+                      (the own picture), standard (the start town's map the app renders) or \
+                      null without one. standardMap names the start town's header, map and \
+                      area data, null when the game has none.",
         input_schema: no_args,
         output_schema: answers_preview,
         route: command("project_preview_get"),

@@ -106,7 +106,7 @@ Ohne `path` gilt das offene Projekt (Fehler ohne offenes Projekt). Mit `path` li
 Höchstens eins von `png` (Base64, beliebiges Maß, wird eingepasst) und `file` (Pfad zu PNG oder JPEG); keins von beiden entfernt das Bild des Slots. `slot` ist `"eigen"`, wenn er fehlt. Die Antwort ist der Stand nach dem Schreiben.
 
 - **Brücke:** `path` und `file` laufen durch die Wurzelprüfung (`path_text`), wie `inspect_rom`.
-- **MCP:** Werkzeuge `project_preview_get` und `project_preview_set` im Katalog (`catalog.rs`, Route `Command`), ohne `path` im Schema (der Server ist an ein Projekt gebunden; ein `path` wird abgelehnt). `file` muss im Projekt liegen oder unter den freigegebenen Wurzeln. Zugriffstabelle `access.rs`: `project_preview_get` `Read`, `project_preview_set` `Irreversible("Vorschaubild ändern")` (es gibt kein Undo; die Freigabe des Nutzers entscheidet wie bei den anderen nicht rückgängigen Befehlen).
+- **MCP:** Werkzeuge `project_preview_get` und `project_preview_set` im Katalog (`catalog.rs`, Route `Command`), ohne `path` im Schema (der Server ist an ein Projekt gebunden; ein `path` wird abgelehnt). `file` muss im Projekt liegen oder unter den freigegebenen Wurzeln. Zugriffstabelle `access.rs`: `project_preview_get` `Read`, `project_preview_set` `Irreversible("Vorschaubild ändern")` (es gibt kein Undo; die Freigabe des Nutzers entscheidet wie bei den anderen nicht rückgängigen Befehlen). MCP trägt das Bild als Bild-Inhaltsblock (`image/png`, Base64) statt als Base64 im JSON; `source` und `standardMap` bleiben strukturierter Inhalt und kurzer Text (Nachtrag nach dem Gesamt-Review: Base64 im Textblock kostete den Agenten um 100 000 Token je Aufruf).
 - `docs/mcp.md` nennt die zwei Werkzeuge.
 
 ### 3.4 Wann das Standardbild entsteht
