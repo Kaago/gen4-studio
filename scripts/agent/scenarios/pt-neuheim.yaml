@@ -1,0 +1,92 @@
+# Platin DE, Gesamtgate 3f („Weltmodell“): ein Gebiet mit dem neuen Ort „Neuheim“ in einem Aufruf, wie es der
+# Assistent „Gebiet anlegen“ in Bauen schickt: `create_area` mit neuem Header (interner Name automatisch), neuem
+# Ort und `allow_patch` (der Patch „Dynamic Headers“ wird im selben Aufruf angewendet). Danach wird das Gebiet um
+# eine Karte erweitert (`extend_area`, wie das „+“ im Raumplan), in die neue Karte werden Modell und Kollision
+# von Karte 5 importiert (wie „Teile importieren…“) und eine Höhe gesetzt (wie das Feld „Höhe“ im Inspector).
+# Zum Begehen führt die Treppe des Spielerzimmers ins neue Gebiet (Warp 0 von Eventdatei 394), dort führt ein
+# Warp zurück. Im Spiel erscheint beim Betreten die Einblendung „Neuheim“ (Bild `einblendung`, Agent + Blick),
+# der Spieler läuft nach Osten über die zweite Karte (Bild `osten`).
+#
+# Die Bedienung in Bauen (ohne den Reiter „Raster“, ohne Technik, mit einer ungespeicherten Header-Änderung, deren
+# Undo nach dem Patch noch geht) prüft docs/phase-3f-gate.md im Browser; dieses Szenario hält den Weg ins Spiel
+# wiederholbar fest (jede Änderung des Szenarios wird sofort gespeichert).
+#
+# Platzhalter: KOPIE = absoluter Pfad der Kopie (die Exporte liegen unter ${KOPIE}/export/).
+# Beispiel (aus scripts/g4emu; im Worktree G4_ROMS_DIR, G4_BRIDGE_BIN und G4K_BIN setzen, siehe docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/pt-neuheim.yaml --project $R/_testkopien/3f-gate-pt \
+#     --out ../../target/agent/gate-$(date +%F)/pt-neuheim --set KOPIE=$R/_testkopien/3f-gate-pt
+game: CPUD
+edits:
+  - - header_patch_status
+    - {}
+    - expect:
+        - {path: applied, equals: false}
+  # (1) das Gebiet: Route 201 (Vorlage 342, Matrix 0 Zellen (3, 26) und (4, 26) = Karten 5 und 6), neuer Ort,
+  # neuer Header mit automatischem Namen, Patch im selben Aufruf
+  - - create_area
+    - spec:
+        name: Neuheim
+        width: 2
+        height: 1
+        cells:
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 6, clear_buildings: false}
+        with_headers: true
+        header:
+          id: 593
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: null}
+          allow_patch: true
+          place: {New: Neuheim}
+    - area
+  - - header_patch_status
+    - {}
+    - expect:
+        - {path: applied, equals: true}
+  - - get_header
+    - {id: "${area.header}"}
+    - expect:
+        - {path: Pt.location_name, equals: 126}
+  # (2) eine Karte mehr rechts (Kopie von Karte 6), im Gebiet
+  - - extend_area
+    - spec: {matrix: "${area.matrix}", x: 2, y: 0, source_map: 6, clear_buildings: false, header_cell: "${area.header}"}
+    - ext
+  # (3) Modell und Kollision von Karte 5 in die neue Karte (Zelle 2, 0)
+  - [get_matrix, {index: "${area.matrix}"}, m]
+  - [export_map_part, {map: 5, part: model, path: "${KOPIE}/export/karte5.nsbmd"}]
+  - [export_map_part, {map: 5, part: permissions, path: "${KOPIE}/export/karte5.per"}]
+  - - import_map_parts
+    - map: "${m.maps.2}"
+      source: {files: ["${KOPIE}/export/karte5.nsbmd", "${KOPIE}/export/karte5.per"]}
+      parts: [model, permissions]
+  # (4) die Höhe der neuen Karte (legt den Höhenabschnitt an)
+  - [set_matrix_cell, {index: "${area.matrix}", x: 2, y: 0, map: null, header: null, altitude: 1}]
+  - - get_matrix
+    - {index: "${area.matrix}"}
+    - expect:
+        - {path: width, equals: 3}
+        - {path: altitudes.2, equals: 1}
+  # (5) der Weg hinein und zurück
+  - [update_event, {eventFile: 394, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
+  - [add_event, {eventFile: "${area.event_file}", kind: warp, x: 12, z: 21, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 12, y: 21, kind: 105, collision: 128}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+build: out.nds
+play:
+  - continue                 # CPUD-zimmer: 415 at x 7, y 4
+  - expect-map 415
+  - walk-to 8 4              # the stairs, now into Neuheim
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 160
+  - shot einblendung         # the banner „Neuheim“
+  - where
+  - walk down 1
+  - walk right 30            # east over the first map into the second
+  - where
+  - shot osten
