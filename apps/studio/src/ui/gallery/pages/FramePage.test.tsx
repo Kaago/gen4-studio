@@ -84,7 +84,10 @@ describe("FramePage", () => {
     expect(below.querySelector('[data-dock-tab="script"] [role="img"][aria-label="ungespeichert"]')).not.toBeNull();
     expect(docked.querySelector(".dv-default-tab-action")).toBeNull();
     // The menus come from the app's own `tabMenuItems`: a view tab only maximizes, a docked one also floats and resets.
-    expect(menu(docked, "world")).toEqual(["Maximieren"]);
+    expect(menu(docked, "world")).toEqual(["Maximieren", "—", "Als Vorschaubild"]);
+    // „Als Vorschaubild“ on the world map, locked without a chosen map, with its reason as the tooltip.
+    expect(menu(docked, "worldmap")).toEqual(["Maximieren", "—", "Als Vorschaubild (gesperrt)"]);
+    expect(docked.querySelector('[data-tab-menu="worldmap"] [aria-disabled="true"]')?.getAttribute("title")).toBe("Erst eine Karte wählen");
     expect(menu(docked, "script")).toEqual(["Maximieren", "Schweben lassen", "—", "Anordnung zurücksetzen"]);
 
     // The floating group: dockview's floating container with the title bar as its grip, the inspector's tab and head in it.

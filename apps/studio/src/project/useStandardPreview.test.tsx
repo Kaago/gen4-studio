@@ -25,11 +25,14 @@ describe("useStandardPreview", () => {
   /** The idle callbacks asked for and not yet run. */
   let idle: (() => void)[] = [];
 
-  function Probe({ project }: { project: object | null }) {
+  /** A project as App has it once opened (a new object per opening). */
+  const opened = (root = "/p/pt") => ({ root });
+
+  function Probe({ project }: { project: { root: string } | null }) {
     useStandardPreview(project, render, same);
     return null;
   }
-  const show = (project: object | null) => act(async () => root.render(<Probe project={project} />));
+  const show = (project: { root: string } | null) => act(async () => root.render(<Probe project={project} />));
   /** The computer is calm: the idle callbacks run, and what they started settles. */
   const calm = () =>
     act(async () => {
@@ -61,21 +64,23 @@ describe("useStandardPreview", () => {
   it("waits_for_a_calm_moment_then_writes_the_start_towns_map_picture_as_the_standard_slot", async () => {
     const heard: PreviewDto[] = [];
     const stop = previewWritten.subscribe((dto) => heard.push(dto));
-    await show({});
+    await show(opened());
     expect(projectPreviewGet).not.toHaveBeenCalled();
     await calm();
     stop();
-    expect(projectPreviewGet).toHaveBeenCalledWith();
+    // Read and written by the project's folder: a job of one project never touches another one's slot.
+    expect(projectPreviewGet).toHaveBeenCalledWith("/p/pt");
+    expect(projectPreviewGet).not.toHaveBeenCalledWith();
     expect(render).toHaveBeenCalledWith(3, 7);
     expect(same).toHaveBeenCalledWith("NEU", "GESPEICHERT");
-    expect(projectPreviewSet).toHaveBeenCalledWith({ slot: "standard", png: "NEU" });
+    expect(projectPreviewSet).toHaveBeenCalledWith({ path: "/p/pt", slot: "standard", png: "NEU" });
     // The open preview (Technik) hears of the new picture.
     expect(heard).toEqual([stored("standard", "NEU")]);
   });
 
   it("writes_nothing_when_the_picture_is_the_stored_one", async () => {
     render.mockResolvedValue("GESPEICHERT");
-    await show({});
+    await show(opened());
     await calm();
     expect(render).toHaveBeenCalledOnce();
     expect(projectPreviewSet).not.toHaveBeenCalled();
@@ -86,9 +91,9 @@ describe("useStandardPreview", () => {
     for (const source of ["eigen", null] as const) {
       vi.mocked(projectPreviewGet).mockResolvedValue(stored(source));
       vi.mocked(projectPreviewSet).mockClear();
-      await show({});
+      await show(opened());
       await calm();
-      expect(projectPreviewSet).toHaveBeenCalledWith({ slot: "standard", png: "NEU" });
+      expect(projectPreviewSet).toHaveBeenCalledWith({ path: "/p/pt", slot: "standard", png: "NEU" });
     }
     expect(same).not.toHaveBeenCalled();
   });
@@ -96,7 +101,7 @@ describe("useStandardPreview", () => {
   it("writes_nothing_without_a_start_town", async () => {
     // No recipe (Diamant, Perl): no standard picture, no message.
     vi.mocked(projectPreviewGet).mockResolvedValue(stored(null, null, null));
-    await show({});
+    await show(opened());
     await calm();
     expect(render).not.toHaveBeenCalled();
     expect(projectPreviewSet).not.toHaveBeenCalled();
@@ -106,47 +111,64 @@ describe("useStandardPreview", () => {
   it("stays_silent_when_reading_drawing_or_writing_fails", async () => {
     // A rejection that escaped would fail this test run as an unhandled error. apicula missing: the drawing fails.
     render.mockRejectedValueOnce({ code: "tool_missing", message: "apicula fehlt", asset: null });
-    await show({});
+    await show(opened());
     await calm();
     expect(projectPreviewSet).not.toHaveBeenCalled();
     // The write is refused.
     vi.mocked(projectPreviewSet).mockRejectedValueOnce(new Error("disk full"));
-    await show({});
+    await show(opened());
     await calm();
     expect(projectPreviewSet).toHaveBeenCalledOnce();
     // The read fails.
     vi.mocked(projectPreviewGet).mockRejectedValueOnce(new Error("bridge down"));
-    await show({});
+    await show(opened());
     await calm();
     // The comparison throws.
     same.mockRejectedValueOnce(new Error("no canvas"));
-    await show({});
+    await show(opened());
     await calm();
     expect(same).toHaveBeenCalledTimes(2);
     expect(projectPreviewSet).toHaveBeenCalledOnce();
     expect(listToasts()).toEqual([]);
   });
 
+  it("writes_nothing_when_another_project_was_opened_while_drawing", async () => {
+    // The kernel switched to project B while A's town was drawn: asked by A's folder, it no longer names a start town (A is not open), so
+    // the picture (drawn from B's models) is dropped; A's slot keeps its picture and B's is never touched.
+    vi.mocked(projectPreviewGet).mockResolvedValueOnce(stored("standard")).mockResolvedValueOnce(stored("standard", "GESPEICHERT", null));
+    await show(opened());
+    await calm();
+    expect(render).toHaveBeenCalledOnce();
+    expect(projectPreviewGet).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(projectPreviewGet).mock.calls).toEqual([["/p/pt"], ["/p/pt"]]);
+    expect(projectPreviewSet).not.toHaveBeenCalled();
+    // The same when the open project names another start town by then.
+    vi.mocked(projectPreviewGet).mockResolvedValueOnce(stored("standard")).mockResolvedValueOnce(stored("standard", "GESPEICHERT", { header: 1, map: 9, areaDataId: 2 }));
+    await show(opened());
+    await calm();
+    expect(projectPreviewSet).not.toHaveBeenCalled();
+  });
+
   it("runs_once_per_opened_project", async () => {
-    const project = {};
+    const project = opened();
     await show(project);
     await calm();
     await show(project);
     await calm();
-    expect(projectPreviewGet).toHaveBeenCalledOnce();
+    expect(render).toHaveBeenCalledOnce();
     // Closed: nothing. Opened again (a new project object, also for the same folder): once more.
     await show(null);
     await calm();
-    expect(projectPreviewGet).toHaveBeenCalledOnce();
-    await show({});
+    expect(render).toHaveBeenCalledOnce();
+    await show(opened());
     await calm();
-    expect(projectPreviewGet).toHaveBeenCalledTimes(2);
+    expect(render).toHaveBeenCalledTimes(2);
   });
 
   it("drops_the_wait_when_the_project_goes_before_the_calm_moment", async () => {
     const cancel = vi.fn();
     vi.stubGlobal("cancelIdleCallback", cancel);
-    await show({});
+    await show(opened());
     await show(null);
     expect(cancel).toHaveBeenCalled();
     await calm();
@@ -157,11 +179,11 @@ describe("useStandardPreview", () => {
     vi.stubGlobal("requestIdleCallback", undefined);
     vi.useFakeTimers();
     try {
-      await show({});
+      await show(opened());
       await act(async () => void vi.advanceTimersByTime(1999));
       expect(projectPreviewGet).not.toHaveBeenCalled();
       await act(async () => void vi.advanceTimersByTime(1));
-      expect(projectPreviewGet).toHaveBeenCalledOnce();
+      expect(projectPreviewGet).toHaveBeenCalledWith("/p/pt");
     } finally {
       vi.useRealTimers();
     }

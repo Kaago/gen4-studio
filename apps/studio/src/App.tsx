@@ -710,8 +710,8 @@ function AppBody() {
   const previewFrom3d = useStableCallback(async () => {
     if (!session.info) return;
     if (!activeScene.shown()) {
-      // The 3D tab behind another one of its group comes to the front; its picture is taken once the view has its size again.
-      docks.welt.current?.getPanel("world")?.api.setActive();
+      // The 3D view comes to the front (a maximized group that hides it is restored); its picture is taken once it has its size again.
+      if (docks.welt.current) uncover(docks.welt.current, "world");
       await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     }
     const host = activeScene.get();

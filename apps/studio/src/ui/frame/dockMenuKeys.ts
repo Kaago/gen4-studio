@@ -1,12 +1,14 @@
 /**
- * Makes a dock's tab menu (dockview's `.dv-context-menu`, built for the mouse) work with the keyboard, as a menu does: it takes the focus on
- * its first item that is not locked; Arrow down and up walk the items (round), Home and End jump to the ends, Enter or Space runs the item.
+ * Makes a dock's tab menu (dockview's `.dv-context-menu`, built for the mouse) work with the keyboard, as a menu does (ARIA menu pattern): it
+ * takes the focus on its first item that is not locked; Arrow down and up walk all items (round), the locked ones too, so a screen reader
+ * reads them and their reason; Home and End jump to the ends; Enter or Space runs the item, never a locked one (the menu then stays open).
  * Escape stays dockview's (a window listener closes the menu); `back` gives the focus back to where the menu was opened, also after an item ran.
  */
 export function workMenuByKeyboard(menu: HTMLElement, back: () => void): void {
-  const items = () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter((item) => item.getAttribute("aria-disabled") !== "true");
-  for (const item of menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) item.tabIndex = -1;
-  items()[0]?.focus();
+  const items = () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  const locked = (item: HTMLElement | undefined) => item?.getAttribute("aria-disabled") === "true";
+  for (const item of items()) item.tabIndex = -1;
+  items().find((item) => !locked(item))?.focus();
   menu.addEventListener("keydown", (event) => {
     const list = items();
     const at = list.indexOf(document.activeElement as HTMLElement);
@@ -26,6 +28,7 @@ export function workMenuByKeyboard(menu: HTMLElement, back: () => void): void {
         break;
       case "Enter":
       case " ":
+        if (locked(list[at])) break;
         list[at]?.click();
         back();
         break;

@@ -92,6 +92,14 @@ describe("samePicture", () => {
     expect(await samePicture("UElD", "UEle")).toBe(false);
   });
 
+  it("is_not_the_same_when_decoding_fails", async () => {
+    // A picture the browser cannot read (or text that is no base64) counts as different too: the standard picture is then written anew.
+    vi.stubGlobal("createImageBitmap", async () => Promise.reject(new DOMException("broken", "InvalidStateError")));
+    expect(await samePicture("UElD", "UEle")).toBe(false);
+    vi.stubGlobal("createImageBitmap", async () => ({ width: 1, height: 1, close() {} }));
+    expect(await samePicture("UElD", "kein base64!")).toBe(false);
+  });
+
   it("compares_the_colours_of_the_pixels_and_not_the_encoding_or_alpha", async () => {
     // The kernel stores RGB8, the canvas gives RGBA: the same colours in another encoding are the same picture.
     const pixels: Record<string, number[]> = {

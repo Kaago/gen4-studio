@@ -44,23 +44,32 @@ export type DeckProps = {
 /** What the tab menu's „Als Vorschaubild“ does for a view panel, and why it is locked (null: it is not). */
 export type DeckPreview = { set: (panelId: string) => void; locked: (panelId: string) => string | null };
 
+/** Numbers the hidden reasons of locked lines (their ids). */
+let reasons = 0;
+
 /**
- * A locked line that says why (`hint`) as its tooltip. dockview builds a line from a label without a title, so this one is built here as
- * dockview builds its locked lines (same classes and roles: the keyboard passes it by, a click does nothing).
+ * A locked line that says why (`hint`): as its tooltip for the mouse, and for a screen reader as its description, a hidden text that follows
+ * it in the menu (`aria-describedby`). dockview builds a line from a label without either, so this one is built here as dockview builds its
+ * locked lines (same classes and roles: the keyboard reaches it, Enter does nothing, a click does nothing).
  */
-function lockedLine(label: string, hint: string): HTMLElement {
+function lockedLine(label: string, hint: string): HTMLElement[] {
+  const reason = document.createElement("span");
+  reason.id = `dock-menu-reason-${++reasons}`;
+  reason.hidden = true;
+  reason.textContent = hint;
   const el = document.createElement("div");
   el.className = "dv-context-menu-item dv-context-menu-item--disabled";
   el.setAttribute("role", "menuitem");
   el.setAttribute("aria-disabled", "true");
+  el.setAttribute("aria-describedby", reason.id);
   el.title = hint;
   el.textContent = label;
-  return el;
+  return [el, reason];
 }
 
-/** The tab menu's items as dockview takes them: a locked line with a reason as an element of its own. */
+/** The tab menu's items as dockview takes them: a locked line with a reason as elements of its own (the line and its hidden reason). */
 const dockviewItems = (items: TabMenuItem[]): (TabMenuItem | { element: HTMLElement })[] =>
-  items.map((item) => (item !== "separator" && item.disabled && item.hint !== undefined ? { element: lockedLine(item.label, item.hint) } : item));
+  items.flatMap((item): (TabMenuItem | { element: HTMLElement })[] => (item !== "separator" && item.disabled && item.hint !== undefined ? lockedLine(item.label, item.hint).map((element) => ({ element })) : [item]));
 
 /**
  * Panels cannot be closed (there is no way to bring one back), only moved. A double click maximizes the tab's group or restores it (only a

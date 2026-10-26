@@ -96,11 +96,17 @@ async function pixelsOf(png: string): Promise<{ width: number; height: number; d
 /**
  * Whether two PNGs (base64) show the same picture: the same text, or the same size and colours. The kernel stores what it gets anew as RGB
  * (`fit_preview`), so a freshly drawn picture never has the stored one's text; the colours compare, alpha does not (the kernel drops it).
- * Where pictures cannot be decoded they count as different.
+ * Pictures that cannot be decoded here (no decoder, a refused picture, text that is no base64) count as different; it never rejects.
  */
 export async function samePicture(a: string, b: string): Promise<boolean> {
   if (a === b) return true;
-  const [pa, pb] = await Promise.all([pixelsOf(a), pixelsOf(b)]);
+  let pa: Awaited<ReturnType<typeof pixelsOf>>;
+  let pb: Awaited<ReturnType<typeof pixelsOf>>;
+  try {
+    [pa, pb] = await Promise.all([pixelsOf(a), pixelsOf(b)]);
+  } catch {
+    return false;
+  }
   if (pa === null || pb === null || pa.width !== pb.width || pa.height !== pb.height || pa.data.length !== pb.data.length) return false;
   for (let i = 0; i < pa.data.length; i += 4) {
     if (pa.data[i] !== pb.data[i] || pa.data[i + 1] !== pb.data[i + 1] || pa.data[i + 2] !== pb.data[i + 2]) return false;
