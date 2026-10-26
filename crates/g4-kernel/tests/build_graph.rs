@@ -201,6 +201,52 @@ fn mark_stale_wakes_rotom() {
     assert_eq!(rotom.done, 1);
 }
 
+#[test]
+fn a_deleted_script_member_runs_rotom() {
+    let (_s, p) = project();
+    scripts::write_source(
+        &p,
+        0,
+        &ScriptSource::Rotom("script Main #1:\n    Message 2\n    End\n".into()),
+    )
+    .unwrap();
+    prepare_for_build(&p, &out(&p)).unwrap();
+    let member = p.member_path(AssetKind::Script, 0);
+    let compiled = std::fs::read(&member).unwrap();
+    std::fs::remove_file(&member).unwrap();
+    let again = prepare_for_build(&p, &out(&p)).unwrap();
+    let rotom = row(&again.steps, "rotom");
+    assert_eq!(
+        (rotom.status, rotom.reason),
+        (StepStatus::Full, Some("removed"))
+    );
+    assert_eq!(again.compiled, [0]);
+    assert_eq!(std::fs::read(&member).unwrap(), compiled);
+}
+
+#[test]
+fn a_source_in_a_subfolder_wakes_rotom() {
+    let (_s, p) = project();
+    let sub = p.expanded_dir(AssetKind::Script).join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let include = sub.join("notes.s");
+    std::fs::write(&include, "; one\n").unwrap();
+    prepare_for_build(&p, &out(&p)).unwrap();
+    let entry = &BuildState::load(&p.root).steps["rotom"];
+    assert!(
+        entry.inputs.contains_key("expanded/scripts/sub/notes.s"),
+        "{:?}",
+        entry.inputs.keys().collect::<Vec<_>>()
+    );
+    let skipped = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(row(&skipped.steps, "rotom").status, StepStatus::Skipped);
+
+    std::thread::sleep(Duration::from_millis(20));
+    std::fs::write(&include, "; two\n").unwrap();
+    let again = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(row(&again.steps, "rotom").status, StepStatus::Incremental);
+}
+
 fn mtime(path: &Path) -> std::time::SystemTime {
     std::fs::metadata(path).unwrap().modified().unwrap()
 }

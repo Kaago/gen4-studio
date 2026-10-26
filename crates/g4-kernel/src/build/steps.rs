@@ -29,6 +29,11 @@ fn relative(project: &Project, path: &Path) -> PathBuf {
         .to_path_buf()
 }
 
+/// rotom's compile state, which a run rewrites.
+fn compile_state() -> PathBuf {
+    Path::new(scripts::STATUS_DIR).join("compile-state.json")
+}
+
 /// The archive number of a member `NNNN` or a JSON `NNNN.json`.
 fn archive_number(path: &Path) -> Option<u16> {
     let name = path.file_name()?.to_str()?;
@@ -42,9 +47,10 @@ fn has_error(problems: &[Problem]) -> bool {
     problems.iter().any(|p| p.severity == Severity::Error)
 }
 
-/// `scripts::compile`, gated by the sources, rotom's compile state (which `mark_stale`
-/// changes), its configuration and command database, and the header table (`arm9.bin`, or
-/// `unpacked/dynamicHeaders/` once the Dynamic Headers patch is applied). rotom's compile
+/// `scripts::compile`, gated by the sources (`expanded/scripts/` recursively, as rotom
+/// collects them, and the include roots of `rotom.toml`), rotom's compile state (which
+/// `mark_stale` changes), its configuration and command database, and the header table
+/// (`arm9.bin`, or `unpacked/dynamicHeaders/` once the Dynamic Headers patch is applied). rotom's compile
 /// state still decides what compiles; the gate only decides whether rotom runs at all.
 /// Problems with an error fail the step (`Compile`); the report is in [`RotomStep::report`].
 #[derive(Default)]
@@ -63,14 +69,18 @@ impl Step for RotomStep {
     }
 
     fn inputs(&self, p: &Project) -> Result<Vec<PathBuf>, KernelError> {
-        Ok(vec![
-            relative(p, &p.expanded_dir(AssetKind::Script)),
+        let mut inputs = vec![
             PathBuf::from(scripts::ROTOM_TOML),
-            Path::new(scripts::STATUS_DIR).join("compile-state.json"),
+            compile_state(),
             PathBuf::from(scripts::DATABASE_DIR),
             PathBuf::from("arm9/arm9.bin"),
             relative(p, &p.unpacked_dir(AssetKind::DynamicHeaders)),
-        ])
+        ];
+        files_below(p, &p.expanded_dir(AssetKind::Script), &mut inputs)?;
+        for root in scripts::include_roots(p) {
+            files_below(p, &root, &mut inputs)?;
+        }
+        Ok(inputs)
     }
 
     fn outputs(&self, p: &Project) -> Result<Vec<PathBuf>, KernelError> {
@@ -85,6 +95,7 @@ impl Step for RotomStep {
         let run = StepRun {
             done: report.compiled.len() as u32,
             total: total as u32,
+            wrote: vec![compile_state()],
             ..StepRun::default()
         };
         let failed = has_error(&report.problems).then(|| report.problems.clone());
@@ -129,6 +140,8 @@ impl Step for ChatotStep {
     }
 
     fn run(&self, p: &Project, dirty: &Dirty) -> Result<StepRun, KernelError> {
+        let members = p.unpacked_dir(AssetKind::TextArchive);
+        let unpacked_before = members.is_dir();
         let (encoded, problems) = if dirty.full.is_some() {
             text::encode_stale(p)?
         } else {
@@ -138,9 +151,28 @@ impl Step for ChatotStep {
             text::encode_archives(p, &archives)?
         };
         let total = numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json"))?.len();
+        // The JSON and member of every encoded archive; all members when this run unpacked
+        // the folder.
+        let mut wrote: Vec<PathBuf> = encoded
+            .iter()
+            .flat_map(|&n| {
+                [
+                    relative(
+                        p,
+                        &p.expanded_dir(AssetKind::TextArchive)
+                            .join(format!("{n:04}.json")),
+                    ),
+                    relative(p, &p.member_path(AssetKind::TextArchive, n)),
+                ]
+            })
+            .collect();
+        if !unpacked_before && members.is_dir() {
+            wrote.push(relative(p, &members));
+        }
         let run = StepRun {
             done: encoded.len() as u32,
             total: total as u32,
+            wrote,
             ..StepRun::default()
         };
         let failed = has_error(&problems).then(|| problems.clone());

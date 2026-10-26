@@ -8,9 +8,12 @@
 //! - **not at all** ([`StepStatus::Skipped`]) when no input differs from the entry;
 //! - **incrementally** otherwise, with the changed, added and removed inputs in [`Dirty`].
 //!
-//! A step gets its entry only after it succeeded, fingerprinted after its run (a step may
-//! write its own inputs, rotom its compile state). A failing step loses its old entry, so the
-//! next build runs it fully. Steps run in order and each is decided right before it runs,
+//! A step gets its entry only after it succeeded. Its inputs are fingerprinted as they were
+//! before the run (what the step consumed), except those it wrote itself ([`StepRun::wrote`],
+//! rotom's compile state, chatot's members), which are fingerprinted after it; an input
+//! someone else changes while the step runs is therefore seen as changed by the next build.
+//! Outputs are fingerprinted after the run. A failing step loses its old entry, so the next
+//! build runs it fully. Steps run in order and each is decided right before it runs,
 //! so it sees what the steps before it wrote; a step that writes only changed bytes keeps
 //! the steps after it skipped (early cutoff).
 
@@ -74,13 +77,14 @@ impl Dirty {
 }
 
 /// What a step did: its counters, or with `rows` (the ROM step only) the report rows that
-/// replace its own.
+/// replace its own, and the inputs it wrote itself (project-relative files or folders).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepRun {
     pub done: u32,
     pub total: u32,
     pub cached: u32,
     pub rows: Vec<StepReport>,
+    pub wrote: Vec<PathBuf>,
 }
 
 /// One row of the build report. A skipped step has no counters.
@@ -157,14 +161,24 @@ fn capture_all(
 enum Decision {
     /// Nothing differs; `Some` refreshes the entry (new `stat`s, or racy ones verified).
     Skip(Option<StepRecord>),
-    Run(Dirty),
+    /// Runs; with the inputs' fingerprints taken while deciding (incremental only).
+    Run(Dirty, Option<Scan>),
+}
+
+/// Fingerprints of a step's inputs and the time they were taken.
+struct Scan {
+    at: i128,
+    inputs: BTreeMap<String, Fp>,
 }
 
 fn full(reason: &'static str) -> Decision {
-    Decision::Run(Dirty {
-        full: Some(reason),
-        ..Dirty::default()
-    })
+    Decision::Run(
+        Dirty {
+            full: Some(reason),
+            ..Dirty::default()
+        },
+        None,
+    )
 }
 
 fn decide(
@@ -186,7 +200,13 @@ fn decide(
     let mut refresh = false;
 
     let mut outputs = BTreeMap::new();
-    for file in expand(root, &step.outputs(project)?)? {
+    let listed = expand(root, &step.outputs(project)?)?;
+    // A recorded output gone from its folder (or a recorded output path no longer listed,
+    // the ROM's previous path) is missing.
+    if entry.outputs.keys().any(|file| !listed.contains(file)) {
+        return Ok(full(REMOVED));
+    }
+    for file in listed {
         let recorded = entry.outputs.get(&file);
         let (seen, fp) = fingerprint::compare(&root.join(&file), recorded, scan, now)?;
         let Some(fp) = fp else {
@@ -224,7 +244,7 @@ fn decide(
             .map(PathBuf::from),
     );
     if dirty.paths().next().is_some() {
-        return Ok(Decision::Run(dirty));
+        return Ok(Decision::Run(dirty, Some(Scan { at: now, inputs })));
     }
     Ok(Decision::Skip(refresh.then(|| StepRecord {
         salt: salt.to_owned(),
@@ -235,20 +255,48 @@ fn decide(
     })))
 }
 
-/// The entry of a step that just succeeded: its inputs and outputs fingerprinted now.
+/// The inputs' fingerprints before a run, `scan` when deciding took them already.
+fn scan_inputs(
+    project: &Project,
+    step: &dyn Step,
+    scan: Option<Scan>,
+) -> Result<Scan, KernelError> {
+    if let Some(scan) = scan {
+        return Ok(scan);
+    }
+    let at = fingerprint::now_ns();
+    let files = expand(&project.root, &step.inputs(project)?)?;
+    Ok(Scan {
+        at,
+        inputs: capture_all(&project.root, &files, at)?,
+    })
+}
+
+/// The entry of a step that just succeeded: its inputs as `before` the run, except those
+/// the step wrote (`run.wrote`, fingerprinted now, as long as they are still inputs), and
+/// its outputs fingerprinted now. The entry keeps the earlier scan time, so the racy rule
+/// covers everything taken since.
 fn record(
     project: &Project,
     step: &dyn Step,
     salt: String,
     ms: u64,
+    before: Scan,
+    run: &StepRun,
 ) -> Result<StepRecord, KernelError> {
     let root = &project.root;
-    let scan = fingerprint::now_ns();
+    let now = fingerprint::now_ns();
+    let wrote = expand(root, &run.wrote)?;
+    let mut inputs = before.inputs;
+    inputs.retain(|file, _| !wrote.contains(file));
+    let current = expand(root, &step.inputs(project)?)?;
+    let written: BTreeSet<String> = wrote.intersection(&current).cloned().collect();
+    inputs.extend(capture_all(root, &written, now)?);
     Ok(StepRecord {
         salt,
-        scanned_at_ns: scan,
-        inputs: capture_all(root, &expand(root, &step.inputs(project)?)?, scan)?,
-        outputs: capture_all(root, &expand(root, &step.outputs(project)?)?, scan)?,
+        scanned_at_ns: before.at,
+        inputs,
+        outputs: capture_all(root, &expand(root, &step.outputs(project)?)?, now)?,
         ms,
     })
 }
@@ -283,14 +331,15 @@ pub(crate) fn run_steps_and(
         let id = step.id();
         let salt = step.salt();
         let outcome = decide(project, *step, &salt, state.steps.get(&id)).and_then(|decision| {
-            let dirty = match decision {
+            let (dirty, scan) = match decision {
                 Decision::Skip(refresh) => return Ok((None, refresh)),
-                Decision::Run(dirty) => dirty,
+                Decision::Run(dirty, scan) => (dirty, scan),
             };
+            let before = scan_inputs(project, *step, scan)?;
             let run_at = Instant::now();
             let run = step.run(project, &dirty)?;
             let ms = run_at.elapsed().as_millis() as u64;
-            let entry = record(project, *step, salt, ms)?;
+            let entry = record(project, *step, salt, ms, before, &run)?;
             Ok((Some((dirty, run)), Some(entry)))
         });
         let ms = t.elapsed().as_millis() as u64;
@@ -376,12 +425,15 @@ mod tests {
     use super::*;
     use crate::test_support::synthetic_project;
 
-    /// Copies `in/` file `a` to `out/a`, counting its runs.
+    /// Copies `in/` file `a` to `out/a`, counting its runs. With `external`, someone else
+    /// rewrites `in/a` while it runs; with `own`, it writes its input `in/own` itself.
     struct Copy {
         salt: String,
         runs: Cell<u32>,
         last: std::cell::RefCell<Dirty>,
         fail: Cell<bool>,
+        external: Cell<Option<&'static [u8]>>,
+        own: Cell<bool>,
     }
 
     impl Copy {
@@ -391,6 +443,8 @@ mod tests {
                 runs: Cell::new(0),
                 last: Default::default(),
                 fail: Cell::new(false),
+                external: Cell::new(None),
+                own: Cell::new(false),
             }
         }
     }
@@ -406,7 +460,7 @@ mod tests {
             Ok(vec![PathBuf::from("in")])
         }
         fn outputs(&self, _: &Project) -> Result<Vec<PathBuf>, KernelError> {
-            Ok(vec![PathBuf::from("out/a")])
+            Ok(vec![PathBuf::from("out")])
         }
         fn run(&self, p: &Project, dirty: &Dirty) -> Result<StepRun, KernelError> {
             self.runs.set(self.runs.get() + 1);
@@ -416,9 +470,19 @@ mod tests {
             }
             std::fs::create_dir_all(p.root.join("out")).unwrap();
             std::fs::copy(p.root.join("in/a"), p.root.join("out/a")).unwrap();
+            if let Some(bytes) = self.external.take() {
+                std::fs::write(p.root.join("in/a"), bytes).unwrap();
+            }
+            let mut wrote = Vec::new();
+            if self.own.get() {
+                let runs = self.runs.get().to_string();
+                std::fs::write(p.root.join("in/own"), runs).unwrap();
+                wrote.push(PathBuf::from("in/own"));
+            }
             Ok(StepRun {
                 done: 1,
                 total: 1,
+                wrote,
                 ..StepRun::default()
             })
         }
@@ -472,6 +536,69 @@ mod tests {
         };
         let rows = run_steps(&p, &[&salted]).unwrap();
         assert_eq!(rows[0].reason, Some(CACHE_STALE));
+    }
+
+    #[test]
+    fn an_input_changed_during_the_run_runs_the_step_again() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+        // Full run (no entry): the input is changed behind the step's back.
+        step.external.set(Some(b"2"));
+        run_steps(&p, &[&step]).unwrap();
+        assert_eq!(std::fs::read(root.join("out/a")).unwrap(), b"1");
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Incremental, "{rows:?}");
+        assert_eq!(step.last.borrow().changed, [PathBuf::from("in/a")]);
+        assert_eq!(std::fs::read(root.join("out/a")).unwrap(), b"2");
+
+        // Incremental run: the same with the same size.
+        std::fs::write(root.join("in/a"), b"3").unwrap();
+        step.external.set(Some(b"4"));
+        run_steps(&p, &[&step]).unwrap();
+        assert_eq!(std::fs::read(root.join("out/a")).unwrap(), b"3");
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Incremental, "{rows:?}");
+        assert_eq!(std::fs::read(root.join("out/a")).unwrap(), b"4");
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Skipped);
+    }
+
+    #[test]
+    fn an_input_the_step_wrote_itself_keeps_it_skipped() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+        step.own.set(true);
+        run_steps(&p, &[&step]).unwrap();
+        let entry = &BuildState::load(root).steps["copy"];
+        assert!(entry.inputs.contains_key("in/own"), "{:?}", entry.inputs);
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Skipped, "{rows:?}");
+    }
+
+    #[test]
+    fn an_output_gone_from_its_folder_runs_the_step_fully() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+        run_steps(&p, &[&step]).unwrap();
+        std::fs::remove_file(root.join("out/a")).unwrap();
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(
+            (rows[0].status, rows[0].reason),
+            (StepStatus::Full, Some(REMOVED))
+        );
+        assert!(root.join("out/a").exists());
     }
 
     #[test]

@@ -72,13 +72,17 @@ Inhalt geprüft, auch wenn der `stat` gleich ist. Die 2 s decken auch FAT und ex
 |---|---|---|
 | voll | kein Eintrag (auch nach „ohne Cache“ oder kaputter Datei) | `no-state` |
 | voll | Salz weicht ab | `build.cache-stale` |
-| voll | eine Ausgabe fehlt (gelöschte ROM, neuer Ausgabepfad) | `removed` |
+| voll | eine Ausgabe fehlt (gelöschte ROM, neuer Ausgabepfad, eine aufgezeichnete Datei fehlt im Ausgabeordner) | `removed` |
 | voll | eine Ausgabe weicht vom Eintrag ab oder steht nicht darin | `output-changed` |
 | übersprungen | keine Eingabe weicht ab | – |
 | inkrementell | sonst; der Schritt bekommt die geänderten, neuen und entfernten Eingaben | – |
 
-Ein Schritt bekommt seinen Eintrag erst nach Erfolg, aufgenommen nach seinem Lauf. Scheitert er,
-wird sein alter Eintrag gelöscht. `prepare_for_build` schreibt die Einträge von `rotom` und
+Ein Schritt bekommt seinen Eintrag erst nach Erfolg. Die Eingaben stehen darin so, wie sie vor
+dem Lauf waren (was der Schritt gelesen hat), außer denen, die er selbst schrieb (`StepRun.wrote`:
+rotoms `compile-state.json`, die JSON und Member der kodierten Textarchive); die werden nach dem
+Lauf aufgenommen, ebenso die Ausgaben. Ändert jemand anderes eine Eingabe, während der Schritt
+läuft, sieht der nächste Build sie als geändert. Scheitert ein Schritt, wird sein alter Eintrag
+gelöscht. `prepare_for_build` schreibt die Einträge von `rotom` und
 `chatot`, `build_prepared` die der Pack-Schritte und von `rom`.
 
 ## Werkzeug-Salz
@@ -94,7 +98,7 @@ Schritt einmal voll laufen.
 
 | Schritt | Eingaben | Ausgaben |
 |---|---|---|
-| `rotom` (nur mit `rotom.toml`) | `expanded/scripts/`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
+| `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
 | `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `banner/`, `files/` | die Ziel-ROM |

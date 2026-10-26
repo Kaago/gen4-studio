@@ -117,6 +117,14 @@ fn load_config(project: &Project) -> Result<rotom::project_config::RotomConfig, 
     Ok(config)
 }
 
+/// The include roots of `rotom.toml` (resolved against the project root), empty when the
+/// project is not adopted or its configuration does not load.
+pub(crate) fn include_roots(project: &Project) -> Vec<PathBuf> {
+    load_config(project)
+        .map(|config| config.include_roots(&project.root))
+        .unwrap_or_default()
+}
+
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
 /// way and no lower-case one exists (compared by exact name, so a case-insensitive file
 /// system does not hide the difference).
