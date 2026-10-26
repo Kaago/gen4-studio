@@ -18,7 +18,7 @@ bash ../build-screen.sh projektstart
 node ../../scripts/op.mjs render '{"document_id":"tab-1","page_id":"<SEITE>","x":<X>,"y":<Y>}' --jsx projektstart.jsx
 ```
 
-Die Antwort nennt die Frame-ID. Ansehen und vergleichen mit der Galerie (`?gallery`, Seite „Projekt“, „Assistent im eigenen Deck“) oder einem Screenshot der Test-Umgebung (Drop eines Pfads auf Start):
+Die Antwort nennt die Frame-ID. Ansehen und vergleichen mit der Galerie (`?gallery`, Seite „Projektstart“, „Assistent im eigenen Deck“) oder einem Screenshot der Test-Umgebung (Drop eines Pfads auf Start):
 
 ```sh
 node ../../scripts/op.mjs export_image '{"document_id":"tab-1","page_id":"<SEITE>","ids":["<ID>"],"maxEdge":1440}' --png projektstart.png
@@ -62,7 +62,7 @@ node ../../scripts/op.mjs render '{"document_id":"tab-1","page_id":"<SEITE>","x"
 node ../../scripts/op.mjs export_image '{"document_id":"tab-1","page_id":"<SEITE>","ids":["<ID>"],"maxEdge":1440}' --png leere-region.png
 ```
 
-  Korrigieren: Body ändern, neu bauen, `render` mit `"replace_id":"<ID>"` (höchstens drei Läufe). Die erzeugte `leere-region.jsx` nicht einchecken (der Bau erzeugt sie neu). Vergleichen mit der Galerie (`?gallery`, Seite „Projekt“) oder der Test-Umgebung: ROM ablegen, „Weiter“, im Schritt Vorlage die zweite Karte wählen.
+  Korrigieren: Body ändern, neu bauen, `render` mit `"replace_id":"<ID>"` (höchstens drei Läufe). Die erzeugte `leere-region.jsx` nicht einchecken (der Bau erzeugt sie neu). Vergleichen mit der Galerie (`?gallery`, Seite „Projektstart“) oder der Test-Umgebung: ROM ablegen, „Weiter“, im Schritt Vorlage die zweite Karte wählen.
 - **Was die Vorlage zeigt:** Der Assistent im Schritt 2 „Vorlage“ (Schrittleiste mit „Vorlage“ aktiv, „ROM“ abgehakt), die Schau mit „POKEMON PL“ auf dem DS-Bildschirm und den Zeilen Spiel „Platin (Deutsch)“, Vorlage „Leere Region“, Ziel; die Hand mit der Frage „Womit startet das Projekt?“ und drei Karten in einer Reihe: „Original“ („Das Spiel, wie es ist.“), „Leere Region mit Startstadt“ (gewählt: `auswahl/flaeche`, doppelte Kante `auswahl/kante`, gefülltes Häkchen) mit dem Satz „Nur die Startstadt mit Spielerhaus bleibt, der Rest ist eine leere Region. Ein Start-Script gibt dir deinen ersten Partner.“ und „Nur Daten“. Titelleiste „Kein Projekt geöffnet“, Statusleiste „Schritt 2 von 4: Vorlage“.
 - **Was sie nicht zeigt:** die Plakette „Nicht geprüft“ auf den Karten (sie erscheint nur bei einer ROM mit dieser Freigabe; die Vorlage zeigt Platin DE, Freigegeben); den Satz der Zusammenfassung mit „Scripts werden übernommen.“ (Schritt 4, im Fuß); den Pfeiltasten-Fokus und den Zustand „offen“ der Karten (nur die gewählte und zwei offene Karten ohne Fokusring). Die Atlas-Sperre bei offenem Assistenten ist wie bei 3g.1 nicht gezeichnet. Das Scharnier trägt wie dort die Linie der Welt.
 
