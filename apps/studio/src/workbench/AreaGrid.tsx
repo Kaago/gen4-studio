@@ -109,7 +109,8 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
       <>
         {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
         {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
-        {size === 64 && hasHeaders && header !== null && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
+        {/* The header number only where the words are technical: Bauen shows the area by its colour, not by a number. */}
+        {size === 64 && hasHeaders && header !== null && techWords && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
       </>
     );
   const shared = {

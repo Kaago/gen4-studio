@@ -115,7 +115,12 @@ describe("WorldMapPanel", () => {
     await show(context());
     for (const details of container.querySelectorAll("details")) details.open = true;
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
-    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet · 0000");
+    // Bauen: the area entry without its number, the rooms by their clear names (no internal codes, no header numbers).
+    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet");
+    const room = container.querySelector<HTMLElement>('button[data-room-id="1"]')!;
+    expect(room.textContent).not.toContain("H1");
+    expect(room.textContent).not.toContain("0001");
+    expect(room.textContent).toContain(headerIdentity([], headers[1]!).name);
     expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.area.short);
     await show(context({ matrices: withoutRegion }));
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
@@ -132,6 +137,16 @@ describe("WorldMapPanel", () => {
     await choose("Weitere Gebiete");
     expect(container.querySelector("[data-world-view]")?.getAttribute("data-world-view")).toBe("more");
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("numbers_the_sections_of_an_area_in_bauen_without_header_numbers", async () => {
+    await show(context({ headers: [...headers, header(4, "Route 201", 0)] }));
+    for (const details of container.querySelectorAll("details")) details.open = true;
+    expect(container.querySelector('[data-header-id="3"]')?.textContent).toBe("Gebiet, Abschnitt 1");
+    expect(container.querySelector('[data-header-id="4"]')?.textContent).toBe("Gebiet, Abschnitt 2");
+    await show(context({ headers: [...headers, header(4, "Route 201", 0)], depth: "tuefteln" }));
+    expect(container.querySelector('[data-header-id="4"]')?.textContent).toBe("Header · 0004");
+    expect(container.querySelector('button[data-room-id="1"]')?.textContent).toContain("H1");
   });
 
   it("labels_the_grids_in_user_words_in_bauen_and_keeps_raster_in_tuefteln", async () => {

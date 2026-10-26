@@ -182,10 +182,16 @@ describe("AreaGrid", () => {
   });
 
   it("shows_map_and_header_ids_only_at_size_64", () => {
-    show({ cellSize: 64 });
+    show({ cellSize: 64, depth: "tuefteln" });
     expect(cell(0, 0)?.textContent).toContain("0521");
     expect(cell(0, 0)?.textContent).toContain("0415");
-    show({ cellSize: 32 });
+    show({ cellSize: 32, depth: "tuefteln" });
+    expect(cell(0, 0)?.textContent).not.toContain("0415");
+  });
+
+  it("shows_no_header_number_in_a_64_px_cell_in_bauen", () => {
+    show({ cellSize: 64, depth: "bauen" });
+    expect(cell(0, 0)?.textContent).toContain("0521");
     expect(cell(0, 0)?.textContent).not.toContain("0415");
   });
 

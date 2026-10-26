@@ -124,9 +124,14 @@ const inside = (rect: CellRect | null, p: { x: number; y: number }) =>
 const sameLines = (a: Line[], b: Line[]) =>
   a.length === b.length && a.every((l, i) => l.header === b[i].header && l.hidden === b[i].hidden && l.x1 === b[i].x1 && l.y1 === b[i].y1 && l.x2 === b[i].x2 && l.y2 === b[i].y2);
 
-function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
+/**
+ * A room of the list. Bauen names it by its clear name with the number of maps; Tüfteln keeps the internal code with the header
+ * number.
+ */
+function RoomCard({ entry, name, depth, link, selected, onOpen }: { entry: PlaceHeader; name: string; depth: Depth; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
   const h = entry.header;
-  const grey = [id4(h.id), mapsText(entry)].filter((part) => part !== null).join(" · ");
+  const tinker = depth === "tuefteln";
+  const grey = [tinker ? id4(h.id) : null, mapsText(entry)].filter((part) => part !== null).join(" · ");
   const unplaced = link !== undefined && link.cell === null;
   return (
     <button
@@ -137,8 +142,8 @@ function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link:
       onClick={() => onOpen(h.id)}
       className={`${styles.card} ${selected ? styles.current : ""} ${unplaced ? styles.unplaced : ""}`}
     >
-      <span className={styles.cardName}>{h.internal_name}</span>
-      <span className={styles.grey}>{grey}</span>
+      <span className={styles.cardName}>{tinker ? h.internal_name : name}</span>
+      {grey && <span className={styles.grey}>{grey}</span>}
       {unplaced && <span className={styles.grey}>ohne Eingang</span>}
       {unplaced && <span className={`${styles.grey} ${styles.reason}`}>{link.reason}</span>}
     </button>
@@ -365,10 +370,21 @@ interface PlaceListProps {
   onToggle: (key: string, open: boolean) => void;
   onOpen: (id: number) => void;
   list: RefObject<HTMLDivElement | null>;
+  /** The clear names of Bauen (`WorkbenchWorld.identify`). */
+  identify: (header: HeaderSummary) => HeaderIdentity;
+}
+
+/**
+ * Bauen's label of an area entry: „Gebiet“, with the section number where a place has several (the maps of its matrix would count the
+ * whole world map); Tüfteln the header number.
+ */
+function outsideLabel(entry: PlaceHeader, section: number, sections: number, depth: Depth): string {
+  if (depth === "tuefteln") return `${termFor("header", depth, "area")} · ${id4(entry.header.id)}`;
+  return sections > 1 ? `${TERMS.area.label}, Abschnitt ${section}` : TERMS.area.label;
 }
 
 /** The places as one `details` each, a card per room. Memoised: pan and zoom of the map do not reach it. */
-const PlaceList = memo(function PlaceList({ places, depth, links, selected, openKeys, onToggle, onOpen, list }: PlaceListProps) {
+const PlaceList = memo(function PlaceList({ places, depth, links, selected, openKeys, onToggle, onOpen, list, identify }: PlaceListProps) {
   return (
     <div ref={list} className={styles.places}>
       {places.map((place) => (
@@ -380,7 +396,15 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
           <div className={styles.rooms}>
             {place.headers.map((entry) =>
               entry.kind === "inside" ? (
-                <RoomCard key={entry.header.id} entry={entry} link={links.get(place.key)?.find((l) => l.header === entry.header.id)} selected={entry.header.id === selected} onOpen={onOpen} />
+                <RoomCard
+                  key={entry.header.id}
+                  entry={entry}
+                  name={identify(entry.header).name}
+                  depth={depth}
+                  link={links.get(place.key)?.find((l) => l.header === entry.header.id)}
+                  selected={entry.header.id === selected}
+                  onOpen={onOpen}
+                />
               ) : (
                 <button
                   key={entry.header.id}
@@ -391,7 +415,12 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
                   onClick={() => onOpen(entry.header.id)}
                   className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >
-                  {termFor("header", depth, "area")} · {id4(entry.header.id)}
+                  {outsideLabel(
+                    entry,
+                    place.headers.filter((h) => h.kind === "outside").indexOf(entry) + 1,
+                    place.headers.filter((h) => h.kind === "outside").length,
+                    depth,
+                  )}
                 </button>
               ),
             )}
@@ -708,7 +737,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
             focus={focus}
             focusKey={focusKey}
           />
-          <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
+          <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} identify={identify} />
         </div>
       )}
       {extendAt && extendMatrix && (
