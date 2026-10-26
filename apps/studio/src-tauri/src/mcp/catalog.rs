@@ -241,8 +241,9 @@ static TOOLS: &[ToolDef] = &[
         name: "list_places",
         title: "List places",
         description: concat!(
-            "Lists every map header (a place of the game) with its id, internal and location \
-             name and the matrix, area data, event file, text archive and script file it uses. ",
+            "Lists every map header (Ort: a place of the game, the headers sharing one \
+             location name) with its id, internal and location name and the matrix, area \
+             data, event file, text archive and script file it uses. ",
             data_note!()
         ),
         input_schema: no_args,
@@ -252,10 +253,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "get_header",
         title: "Get header",
-        description: "Returns one map header with all its fields, tagged by game family \
-                      ({\"Pt\": {...}}). Its event_file_id, matrix_id, text_archive_id and \
-                      script_file_id lead to get_events, get_matrix, get_text_archive and \
-                      read_script.",
+        description: "Returns one map header (Header: one row of the place table, which \
+                      points at a Raster, an Eventdatei, Area-Data, music and weather) with \
+                      all its fields, tagged by game family ({\"Pt\": {...}}). Its \
+                      event_file_id, matrix_id, text_archive_id and script_file_id lead to \
+                      get_events, get_matrix, get_text_archive and read_script.",
         input_schema: || {
             object(
                 json!({ "id": uint("header id, as list_places returns in headers[].id") }),
@@ -269,9 +271,9 @@ static TOOLS: &[ToolDef] = &[
         name: "get_matrix",
         title: "Get matrix",
         description: concat!(
-            "Returns a map matrix (the grid of maps a place is made of): index, name, width, \
-             height and three parallel row-major arrays, maps (map id per cell, null for an \
-             empty cell), headers and altitudes (each null without that section). ",
+            "Returns a map matrix (Raster: the grid of maps a place is made of): index, name, \
+             width, height and three parallel row-major arrays, maps (map id per cell, null \
+             for an empty cell), headers and altitudes (each null without that section). ",
             data_note!()
         ),
         input_schema: || {
@@ -528,8 +530,8 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "set_matrix_cell",
         title: "Set matrix cell",
-        description: "Sets the map, header or altitude of one matrix cell in one undoable \
-                      step; values left out stay as they are.",
+        description: "Sets the map, header or altitude of one cell of a matrix (Raster) in \
+                      one undoable step; values left out stay as they are.",
         input_schema: || {
             object(
                 json!({
@@ -553,8 +555,10 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_area",
         title: "Create area",
-        description: "Creates a new outdoor area: a matrix of the given size whose cells are \
-                      copies of existing maps, optionally with a header pointed at it.",
+        description: "Creates a new outdoor area (Gebiet: a Raster of maps under the open \
+                      sky, as the Gebiet wizard of the app makes it): a matrix of the given \
+                      size whose cells are copies of existing maps, optionally with a header \
+                      pointed at it.",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -573,9 +577,10 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_room",
         title: "Create room",
-        description: "Creates an indoor room: a one-cell matrix with a copy of an existing \
-                      map, a header for it and, optionally, the warps of the door between the \
-                      room and an outside place.",
+        description: "Creates an indoor room (Raum: a house, cave or dungeon, a header whose \
+                      Raster has no header section): a one-cell matrix with a copy of an \
+                      existing map, a header for it and, optionally, the warps of the door \
+                      between the room and an outside place.",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -594,8 +599,9 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "extend_area",
         title: "Extend area",
-        description: "Adds one cell to an existing matrix, growing the matrix when the cell \
-                      lies outside it, with a copy of an existing map.",
+        description: "Extends an area (Gebiet) by one cell of its matrix (Raster), growing \
+                      the matrix when the cell lies outside it, with a copy of an existing \
+                      map.",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -612,8 +618,10 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "add_event",
         title: "Add event",
-        description: "Adds an event at (x, z) to an event file and returns its index; patch \
-                      sets further fields in the same undo step.",
+        description: "Adds an event at (x, z) to an event file (Eventdatei) and returns its \
+                      index; kind picks object (Person/Objekt), bg (Schild/Hintergrund-Event), \
+                      warp (Warp: door or stairs) or coord (trigger), and patch sets further fields in \
+                      the same undo step.",
         input_schema: || {
             object(
                 json!({
@@ -962,6 +970,26 @@ mod tests {
                 "{}: {}",
                 t.name,
                 t.description
+            );
+        }
+    }
+
+    #[test]
+    fn descriptions_use_user_words() {
+        for (name, word) in [
+            ("create_area", "Gebiet"),
+            ("create_room", "Raum"),
+            ("list_places", "Ort"),
+            ("get_header", "Header"),
+            ("get_matrix", "Raster"),
+            ("extend_area", "Gebiet"),
+            ("set_matrix_cell", "Raster"),
+            ("add_event", "Eventdatei"),
+        ] {
+            let description = tool(name).description;
+            assert!(
+                description.contains(&format!("({word}")),
+                "{name}: {description}"
             );
         }
     }

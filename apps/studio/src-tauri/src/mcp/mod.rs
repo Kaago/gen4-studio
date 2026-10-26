@@ -10,9 +10,11 @@
 pub mod access;
 pub mod catalog;
 pub mod discovery;
+pub mod docs;
 pub mod host;
 pub mod http;
 pub mod hub;
+pub mod prompts;
 pub mod proxy;
 pub mod server;
 pub mod settings;

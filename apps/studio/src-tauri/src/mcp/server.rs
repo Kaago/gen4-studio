@@ -12,11 +12,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation,
-    InitializeRequestParams, InitializeResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse,
-    ReadResourceResult, Resource, ResourceContents, ResourceTemplate, ServerCapabilities,
-    ServerConfig, Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResponse, CallToolResult, GetPromptRequestParams,
+    GetPromptResponse, GetPromptResult, Implementation, InitializeRequestParams, InitializeResult,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, Prompt, PromptArgument, PromptMessage, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate, Role,
+    ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
@@ -29,6 +30,7 @@ use crate::mcp::access::{Access, Kind, kind_of};
 use crate::mcp::catalog::{Route, ToolDef};
 use crate::mcp::host::StateSource;
 use crate::mcp::hub::client_display_name;
+use crate::mcp::prompts::{self, PromptDef};
 use crate::mcp::tools::{ResourceDef, ToolError, Toolbox};
 
 /// The server's name in `initialize`.
@@ -269,6 +271,19 @@ fn template(def: ResourceDef) -> ResourceTemplate {
         .with_mime_type(def.mime)
 }
 
+fn prompt(def: &PromptDef) -> Prompt {
+    let arguments = def
+        .arguments
+        .iter()
+        .map(|(name, description, required)| {
+            let mut argument = PromptArgument::new(*name).with_description(*description);
+            argument.required = Some(*required);
+            argument
+        })
+        .collect();
+    Prompt::new(def.name, Some(def.description), Some(arguments)).with_title(def.title)
+}
+
 /// A failed call as the tool error the agent reads.
 fn failed(code: String, message: String, details: Value) -> CallToolResult {
     CallToolResult::structured_error(json!({
@@ -302,6 +317,7 @@ impl ServerHandler for Server {
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
+                .enable_prompts()
                 .build(),
         )
         .with_server_info(
@@ -368,6 +384,31 @@ impl ServerHandler for Server {
         Ok(ListResourceTemplatesResult::with_all_items(
             templates.collect(),
         ))
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(ListPromptsResult::with_all_items(
+            prompts::PROMPTS.iter().map(prompt).collect(),
+        ))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, McpError> {
+        let arguments = request.arguments.unwrap_or_default();
+        let (def, text) = prompts::render(&request.name, &arguments)
+            .map_err(|message| McpError::invalid_params(message, None))?;
+        Ok(
+            GetPromptResult::new(vec![PromptMessage::new_text(Role::User, text)])
+                .with_description(def.title)
+                .into(),
+        )
     }
 
     async fn read_resource(
