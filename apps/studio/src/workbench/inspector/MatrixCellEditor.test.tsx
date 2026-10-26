@@ -149,8 +149,26 @@ describe("MatrixCellEditor", () => {
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
     await show();
     expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
-    expect(container.textContent).toContain("Die Weltkarte hat keinen Höhenabschnitt.");
+    expect(container.textContent).not.toContain("Höhenabschnitt");
     expect(input("Gebiet")).toBeNull();
+  });
+
+  it("shows_the_height_in_bauen_for_a_matrix_without_altitudes", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ altitudes: null }));
+    await show();
+    expect(input("Höhe").value).toBe("0");
+    expect(container.textContent).not.toContain("Die Weltkarte hat keinen Höhenabschnitt.");
+    await show(1, 0, "tuefteln");
+    expect(input("Höhe").value).toBe("0");
+    expect(container.textContent).not.toContain("Höhenabschnitt");
+  });
+
+  it("commits_a_height_without_altitudes_as_one_cell_edit", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ altitudes: null }));
+    await show();
+    await typeAndBlur("Höhe", "2");
+    expect(setMatrixCell).toHaveBeenCalledTimes(1);
+    expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, null, 2);
   });
 
   it("duplicates_the_map_into_the_cell_and_refreshes_the_counts", async () => {

@@ -184,13 +184,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         ) : (
           <p className={styles.note}>{tinker ? "Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Abschnitt für Gebiete."}</p>
         )}
-        {altitude !== null ? (
-          <InspectorRow label="Höhe" hint="0 bis 255">
-            <NumberField label="Höhe" value={altitude} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
-          </InspectorRow>
-        ) : (
-          <p className={styles.note}>{tinker ? "Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Höhenabschnitt."}</p>
-        )}
+        {/* Without an altitude section the height reads 0; the first height written makes the kernel add the section. */}
+        <InspectorRow label="Höhe" hint="0 bis 255">
+          <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
+        </InspectorRow>
         {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <p className={styles.note}>
