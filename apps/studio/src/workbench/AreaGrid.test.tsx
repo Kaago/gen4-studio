@@ -67,10 +67,64 @@ describe("AreaGrid", () => {
     act(() => cell(1, 0)?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true })));
     act(() => cell(1, 0)?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     expect(onCellClick.mock.calls).toEqual([
-      [1, 0, { shift: false }],
-      [1, 0, { shift: true }],
+      [1, 0, { shift: false, alt: false }],
+      [1, 0, { shift: true, alt: false }],
     ]);
     expect(onCellDoubleClick).toHaveBeenCalledWith(1, 0);
+  });
+
+  it("reports_alt_on_click", () => {
+    const onCellClick = vi.fn();
+    show({ onCellClick });
+    act(() => cell(1, 0)?.dispatchEvent(new MouseEvent("click", { bubbles: true, altKey: true })));
+    expect(onCellClick).toHaveBeenCalledWith(1, 0, { shift: false, alt: true });
+  });
+
+  it("labels_the_grid_as_given", () => {
+    show({ label: "Weltkarte, 2 Zeilen, 3 Spalten" });
+    expect(container.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("Weltkarte, 2 Zeilen, 3 Spalten");
+  });
+
+  it("turns_extendable_cells_into_plus_buttons_with_the_not_undoable_label", () => {
+    const onExtend = vi.fn();
+    show({ extendable: new Set(["2,0", "1,1"]), onExtend });
+    const plus = [...container.querySelectorAll("[data-extend]")];
+    expect(plus.map((e) => e.getAttribute("data-extend")).sort()).toEqual(["1,1", "2,0"]);
+    expect(plus[0].getAttribute("aria-label")).toBe("Karte bei x 2, y 0 anlegen (nicht rückgängig)");
+    expect(plus[0].getAttribute("title")).toBe("Karte bei x 2, y 0 anlegen (nicht rückgängig)");
+    // The two cells are plus buttons instead of empty cells; no column or row is added.
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(4);
+    expect(container.querySelector('[role="group"]')?.children).toHaveLength(6);
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,1"]')?.click());
+    expect(onExtend).toHaveBeenCalledWith(1, 1);
+  });
+
+  it("adds_the_extra_column_and_row_only_where_an_extendable_cell_lies", () => {
+    show({ extendable: new Set(["3,1", "2,2"]) });
+    const group = container.querySelector<HTMLElement>('[role="group"]');
+    expect([...container.querySelectorAll("[data-extend]")].map((e) => e.getAttribute("data-extend")).sort()).toEqual(["2,2", "3,1"]);
+    // 4 columns by 3 rows; the corner and the other border positions stay blank.
+    expect(group?.children).toHaveLength(12);
+    expect(group?.style.gridTemplateColumns).toBe("repeat(4, 64px)");
+    show({ extendable: new Set(["3,1"]) });
+    expect(container.querySelector('[role="group"]')?.children).toHaveLength(8);
+  });
+
+  it("shows_only_the_window_and_keeps_matrix_coordinates", () => {
+    const onCellClick = vi.fn();
+    show({ window: { x: 1, y: 0, width: 2, height: 2 }, onCellClick });
+    expect([...container.querySelectorAll("[data-cell]")].map((e) => e.getAttribute("data-cell"))).toEqual(["1,0", "2,0", "1,1", "2,1"]);
+    expect(cell(2, 1)?.getAttribute("title")).toBe("x 2, y 1 · Karte 0524 · Nummer 0000 · Höhe 2");
+    expect(container.querySelector<HTMLElement>('[role="group"]')?.style.gridTemplateColumns).toBe("repeat(2, 64px)");
+    act(() => cell(2, 1)?.click());
+    expect(onCellClick).toHaveBeenCalledWith(2, 1, { shift: false, alt: false });
+  });
+
+  it("marks_foreign_cells", () => {
+    show({ foreign: new Set(["0,0", "2,0"]) });
+    const marked = [...container.querySelectorAll("[data-foreign]")].map((e) => e.getAttribute("data-cell"));
+    expect(marked.sort()).toEqual(["0,0", "2,0"]);
+    expect(cell(1, 0)?.hasAttribute("data-foreign")).toBe(false);
   });
 
   it("marks_selected_cells_as_pressed", () => {
