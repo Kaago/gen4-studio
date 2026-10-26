@@ -1,0 +1,12 @@
+g4-xdelta includes third-party software:
+
+Xdelta 3, version 3.0.12
+Copyright 2016 Joshua MacDonald
+Licensed under the Apache License, Version 2.0 (vendor/xdelta3/LICENSE)
+
+Files: vendor/xdelta3/xdelta3.c, vendor/xdelta3/xdelta3.h, vendor/xdelta3/xdelta3-*.h,
+vendor/xdelta3/LICENSE
+Origin: the source tarball of the crate xdelta3 0.1.5 from crates.io (directory
+xdelta3/xdelta3/), VCS commit 67be0d3f6498cfc79cbddf7eb42d4f6f95726f02 from its
+.cargo_vcs_info.json; upstream https://github.com/jmacd/xdelta
+Modifications: none; csrc/g4_xdelta.c is ours (MIT) and includes xdelta3.c

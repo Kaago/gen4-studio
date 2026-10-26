@@ -1536,6 +1536,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "g4-xdelta"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
