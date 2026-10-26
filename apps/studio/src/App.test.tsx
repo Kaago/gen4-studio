@@ -584,11 +584,14 @@ describe("App wiring", () => {
       expect(listToasts()).toEqual([]);
       const menu = async (name: string) => {
         const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="Weitere Aktionen für ${name}"]`)!;
-        await act(async () => {
-          trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
-          trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
-          trigger.click();
-        });
+        // Opens the menu unless it is open already: whether mousedown and click open it or toggle it twice depends on their timing.
+        for (let tries = 0; tries < 3 && trigger.getAttribute("aria-expanded") !== "true"; tries++) {
+          await act(async () => {
+            trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+            trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+            trigger.click();
+          });
+        }
         return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
       };
       const pick = async (name: string, label: string) => {
@@ -617,6 +620,13 @@ describe("App wiring", () => {
       await pick("pt-a", "Vorschaubild wählen…");
       expect(projectPreviewSet).not.toHaveBeenCalled();
       expect(listToasts()).toEqual([]);
+
+      // The dialog itself fails: a toast with its text, nothing is written (no unhandled rejection).
+      vi.mocked(openPath).mockRejectedValueOnce({ code: "error", message: "dialog failed", asset: null });
+      await pick("pt-a", "Vorschaubild wählen…");
+      expect(projectPreviewSet).not.toHaveBeenCalled();
+      expect(listToasts().map((t) => [t.kind, t.text])).toEqual([["error", "dialog failed"]]);
+      resetToasts();
 
       // A refused picture: the sentence of its code, the picture stays.
       vi.mocked(openPath).mockResolvedValueOnce("/bilder/notiz.txt");
@@ -1018,7 +1028,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(4);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(5);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -1027,6 +1037,31 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-patch]")?.textContent).toBe("Verfügbar");
       // The world stays mounted behind the surface.
       expect(shown.mounts).toBe(1);
+    });
+
+    it("technik_projekt_shows_the_open_projects_preview_and_names_the_start_town_as_the_world_does", async () => {
+      // Header 1 has a place: Bauen names it after the place („Ort 1“; here outside the world maps, as no world map is set up).
+      listed = [header(0, 0), { ...header(1, 1), location_index: 2 }];
+      vi.mocked(listMatrices).mockResolvedValue({ matrices: [{ index: 1, name: "m1", width: 1, height: 1, has_headers: true, has_altitudes: false, filled: 1 }], unreadable: [] });
+      await click("Projekt öffnen");
+      expect(live().world.identify(listed[1]!).name).toBe("Ort 1");
+      vi.mocked(projectPreviewGet).mockResolvedValue({ source: "standard", png: "T1dO", standardMap: { header: 1, map: 1, areaDataId: 0 } });
+      await act(async () => atlasEntry("Technik")!.click());
+      const projekt = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Projekt"))!;
+      await act(async () => projekt.click());
+      await act(async () => {});
+      const surface = container.querySelector("[data-technik=projekt]")!;
+      expect(projectPreviewGet).toHaveBeenCalledWith();
+      expect(surface.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,T1dO");
+      expect(surface.querySelector("[data-hint]")?.textContent).toBe("Ohne eigenes Bild zeigt Start das Kartenbild von Ort 1.");
+      // Chosen here: written into the open project (no path), said in a toast.
+      vi.mocked(openPath).mockResolvedValueOnce("/bilder/stadt.png");
+      vi.mocked(projectPreviewSet).mockResolvedValueOnce({ source: "eigen", png: "RUlH", standardMap: { header: 1, map: 1, areaDataId: 0 } });
+      await click("Vorschaubild wählen…");
+      await act(async () => {});
+      expect(projectPreviewSet).toHaveBeenCalledWith({ file: "/bilder/stadt.png" });
+      expect(surface.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,RUlH");
+      expect(listToasts().map((t) => [t.kind, t.text])).toEqual([["info", "Vorschaubild gesetzt"]]);
     });
 
     it("technik_and_einstellungen_show_the_emulator_the_session_picked", async () => {

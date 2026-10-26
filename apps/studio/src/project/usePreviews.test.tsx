@@ -96,4 +96,35 @@ describe("usePreviews", () => {
     expect(get).toHaveBeenCalledTimes(2);
     expect(result.previews.has("/a")).toBe(false);
   });
+
+  /** A `get` whose answers the test hands out itself, in any order. */
+  function deferredGets() {
+    const pending: { path: string | undefined; answer: (dto: PreviewDto) => void }[] = [];
+    get.mockImplementation((path) => new Promise<PreviewDto>((resolve) => pending.push({ path, answer: resolve })));
+    return pending;
+  }
+
+  it("of two answers for the same path that arrive out of order only the newest is kept", async () => {
+    const pending = deferredGets();
+    await render(["/a"]);
+    await act(async () => result.reload("/a"));
+    expect(pending.map((p) => p.path)).toEqual(["/a", "/a"]);
+    // The newer read answers first, the older one after it: the older answer is dropped.
+    await act(async () => pending[1]!.answer(dto("new")));
+    expect(result.previews.get("/a")?.png).toBe("new");
+    await act(async () => pending[0]!.answer(dto("old")));
+    expect(result.previews.get("/a")?.png).toBe("new");
+  });
+
+  it("an answer that arrives after its path left the list is dropped", async () => {
+    const pending = deferredGets();
+    await render(["/a", "/b"]);
+    await render(["/b"]);
+    await act(async () => {
+      pending.find((p) => p.path === "/a")!.answer(dto("late"));
+      pending.find((p) => p.path === "/b")!.answer(dto("b"));
+    });
+    expect(result.previews.has("/a")).toBe(false);
+    expect(result.previews.get("/b")?.png).toBe("b");
+  });
 });

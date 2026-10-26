@@ -12,6 +12,7 @@ import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
 import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
 import { useEvents } from "./workbench/useEvents";
+import { placeNameOf } from "./workbench/worldModel";
 import { useBusRevision } from "./bus/useBusEvent";
 import { crumbsFor, textCrumbs } from "./workbench/breadcrumb";
 import type { Crumb } from "./workbench/breadcrumb";
@@ -44,7 +45,7 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, projectPreviewSet, redo, undo } from "./api";
+import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
@@ -83,7 +84,7 @@ import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
 import { ProjectStart } from "./project/ProjectStart";
 import type { StartWizardRequest } from "./project/ProjectStart";
-import { choosePreviewFile, previewErrorText } from "./project/previewMessages";
+import { changePreview } from "./project/previewMessages";
 import { usePreviews } from "./project/usePreviews";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
@@ -536,20 +537,9 @@ function AppBody() {
     missing,
     area === "start" && !startOpen,
   );
-  /** Writes (a file) or removes the own preview picture of the project at `path`; says so in a toast, a refused picture with its sentence. */
-  async function setPreview(path: string, file: string | null) {
-    try {
-      await projectPreviewSet(file === null ? { path } : { path, file });
-    } catch (e) {
-      toast.error(previewErrorText(e));
-      return;
-    }
-    reloadPreview(path);
-    toast.info(file === null ? "Vorschaubild entfernt" : "Vorschaubild gesetzt");
-  }
-  async function onChoosePreview(path: string) {
-    const file = await choosePreviewFile();
-    if (file !== null) await setPreview(path, file);
+  /** Chooses (a file) or removes the own preview picture of the project at `path` (says so in a toast); the card reads it again after a write. */
+  async function onChangePreview(how: "choose" | "remove", path: string) {
+    if ((await changePreview(how, path)) !== null) reloadPreview(path);
   }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
@@ -798,6 +788,18 @@ function AppBody() {
     }
   });
 
+  // The start town as the world names it in Bauen (an area's name, or the place of a header outside the world maps), for Technik's hint
+  // below the preview picture; a room or a header without a place gives no name.
+  const startTown = useCallback(
+    (id: number) => {
+      const header = scene.headers.find((h) => h.id === id);
+      if (header === undefined) return null;
+      const identity = live.world.identify(header);
+      if (identity.kind === "area") return identity.name;
+      return identity.kind === "other" && placeNameOf(header) !== "" ? identity.name : null;
+    },
+    [scene.headers, live.world.identify],
+  );
   const { info } = session;
   const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth, cellMap);
   const pane =
@@ -809,8 +811,8 @@ function AppBody() {
         onOpenRecent={(path) => void onOpenRecent(path)}
         onForget={onForget}
         previews={previews}
-        onChoosePreview={(path) => void onChoosePreview(path)}
-        onRemovePreview={(path) => void setPreview(path, null)}
+        onChoosePreview={(path) => void onChangePreview("choose", path)}
+        onRemovePreview={(path) => void onChangePreview("remove", path)}
         wizard={startWizard}
         onWizard={setStartWizard}
         onOpenCreated={(created) => void onOpenCreated(created)}
@@ -842,6 +844,7 @@ function AppBody() {
         onClearWorld={() => {
           if (session.info) wizards.open({ kind: "clearWorld" });
         }}
+        startTown={startTown}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

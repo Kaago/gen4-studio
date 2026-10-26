@@ -1,5 +1,7 @@
-import { errorText } from "../api";
+import { errorText, projectPreviewSet } from "../api";
+import type { PreviewDto } from "../api";
 import { openPath } from "../platform/dialogs";
+import { toast } from "../ui/frame/toasts";
 
 /** The sentence for each code a refused preview picture carries in its message (phase 4.0 design, §3.5). */
 const SENTENCES: Record<string, string> = {
@@ -20,4 +22,24 @@ export function previewErrorText(e: unknown): string {
 /** Asks for a picture file (PNG or JPEG) for the preview; null when cancelled. In the browser the path is typed into the page. */
 export async function choosePreviewFile(): Promise<string | null> {
   return openPath({ directory: false, title: "Vorschaubild wählen", filters: [{ name: "Bilder (PNG, JPEG)", extensions: ["png", "jpg", "jpeg"] }] });
+}
+
+/**
+ * „Vorschaubild wählen…“ (`choose`: asks for a file, then writes it) or removing the own picture (`remove`), for the project at `path`
+ * (Start) or the open project without one (Technik). Says so in a toast: „Vorschaubild gesetzt“ or „Vorschaubild entfernt“, a refused
+ * picture with the sentence of its code, a failing dialog with its text. Answers the preview after the write; null when cancelled or
+ * failed (never rejects).
+ */
+export async function changePreview(how: "choose" | "remove", path?: string): Promise<PreviewDto | null> {
+  const where = path === undefined ? {} : { path };
+  try {
+    const file = how === "choose" ? await choosePreviewFile() : null;
+    if (how === "choose" && file === null) return null;
+    const preview = await projectPreviewSet(file === null ? where : { ...where, file });
+    toast.info(file === null ? "Vorschaubild entfernt" : "Vorschaubild gesetzt");
+    return preview;
+  } catch (e) {
+    toast.error(previewErrorText(e));
+    return null;
+  }
 }
