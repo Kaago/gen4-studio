@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Badge,
+  Button,
   EmptyState,
   IconButton,
   InspectorRow,
@@ -168,6 +169,27 @@ export function ContentPage() {
           <Section title="Zugeklappt" count={0} open={sections.leer} onToggle={() => toggle("leer")}>
             <InspectorRow label="Nichts">–</InspectorRow>
           </Section>
+        </div>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Inspector-Zeilen, schmal</h2>
+        <p className={styles.note}>So schmal wie der Inspector der Werkbank bei 1100 × 720 (280 px): die Beschriftung steht über dem Feld, ein Verweis behält seinen Namen und „Ändern…“ bleibt daneben.</p>
+        <div className={styles.inspectorNarrow} data-gallery-state="inspector-schmal">
+          <InspectorRow label="Ort">
+            <span className={styles.inlineRow}>
+              <Reference area="welt" label="Zweiblattdorf" tech="0412" onOpen={() => {}} />
+              <Button kind="quiet" size="s" onClick={() => {}}>
+                Ändern…
+              </Button>
+            </span>
+          </InspectorRow>
+          <InspectorRow label="Modell" deviates hint="Weicht vom Original (100) ab.">
+            <NumberField label="Modell" value={model} onCommit={setModel} bits={16} />
+          </InspectorRow>
+          <InspectorRow label="Sichtbar">
+            <Switch label="Sichtbar" checked={visible} onChange={setVisible} />
+          </InspectorRow>
         </div>
       </section>
 

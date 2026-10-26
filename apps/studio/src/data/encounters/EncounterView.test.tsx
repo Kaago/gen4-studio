@@ -61,6 +61,15 @@ describe("EncounterView", () => {
     expect(h.button("Route 201: für diesen Ort abspalten…")).toBeUndefined();
   });
 
+  it("tells_where_a_file_no_place_uses_gets_bound_in_the_words_of_the_world", async () => {
+    // Since 3e.3 the header editor is the inspector of an area or a room; „Header-Editor“ names nothing the user sees.
+    wireApi(() => ({ ...ROUTE_201, users: [] }));
+    await h.open(140);
+    expect(h.view().textContent).toContain("Von keinem Ort verwendet");
+    expect(h.view().textContent).toContain("Binde die Datei im Inspector eines Gebiets oder Raums an (Feld „Begegnungen“), dann gilt sie dort.");
+    expect(h.view().textContent).not.toContain("Header-Editor");
+  });
+
   it("splits_a_file_for_one_of_its_places_after_a_question_and_selects_the_copy", async () => {
     await h.open(141);
     expect(h.view().textContent).toContain("Verwendet von 2 Orten");

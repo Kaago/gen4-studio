@@ -423,6 +423,22 @@ G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/3g-probe/pt.nds" \
 
 `project_start_empty_region_from_the_rom` (`G4_TEST_ROM`) legt ein Projekt mit `Template::EmptyRegion` an und verlangt die Marke `empty_region`, Fortschritt bis `done = total` und 0 Fehler in allen Prüfgruppen. Gemessen: die vier Tests in `templates.rs` brauchen auf Platin DE etwa 50 s, auf HeartGold DE etwa 40 s (dreimal Scripts übernehmen); die Vorlagen-Phase von `create_project` 4 bis 7 s.
 
+#### Weltmodell (3e.2)
+
+`apps/studio/src/workbench/worldModel.ts` (`buildWorld`) baut den Weltbaum der Werkbank aus Headern, Matrizen, Warps und der Projektdatei der Welt (Weltkarten, Gebiete, Räume). `worldModel.vanilla.test.ts` prüft das Modell an den drei Vanilla-Projekten. Der Test liest keine ROMs, sondern JSON-Dumps, die `scripts/agent/world-dump.sh` über die Brücke schreibt; ohne `G4_WORLD_DUMP` meldet er einen übersprungenen Test mit Hinweis.
+
+Die Dumps (je Projekt ein Ordner: `project.json`, `headers.json`, `matrices.json`, `matrix-<n>.json` für jede Matrix mit Abschnitt, `warps.json`, `meta.json`) entstehen aus frischen Kopien unter `_testkopien`, bei laufender Brücke (`scripts/agent/studio-web.sh`; `call.sh` liest Port und Token aus `target/agent/`):
+
+```sh
+for p in 3e-pt 3e-hgd 3e-hgu; do
+  scripts/agent/world-dump.sh "/<absoluter Pfad zu Roms>/_testkopien/$p" "$PWD/target/agent/world-dump/$p"
+done
+G4_WORLD_DUMP="$PWD/target/agent/world-dump" \
+  pnpm --dir apps/studio exec vitest run src/workbench/worldModel.vanilla.test.ts
+```
+
+Der Pfad in `G4_WORLD_DUMP` muss absolut sein; die Ordner heißen `3e-pt` (Platin DE, `CPUD`), `3e-hgd` (HeartGold DE, `IPKD`) und `3e-hgu` (HeartGold US, `IPKE`). Geprüft wird je Projekt: die Weltkarten (Platin genau „Sinnoh“, HeartGold/SoulSilver „Johto“ und „Kanto“), mindestens 90 % der Räume einem Gebiet zugeordnet, jeder Header genau einmal im Baum, `buildWorld` unter 200 ms; dazu bei Platin Großmoor und Kampfzone unter „Weitere Gebiete“ und alle Räume des Kraterbergs unter einem Gebiet (mindestens einer unter einem anderen Ort, seinem Eingang), bei HeartGold/SoulSilver die Safari-Zone unter „Weitere Gebiete“. Gemessen (Brücke, frische Kopien): Platin 482 von 492 Räumen zugeordnet, HeartGold/SoulSilver je 427 von 448, `buildWorld` jeweils unter 5 ms.
+
 ## Design-System und Tokens
 
 Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.

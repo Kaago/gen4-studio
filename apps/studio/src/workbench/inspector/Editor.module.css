@@ -1,5 +1,6 @@
-/* The frame and the small parts the inspector editors share. */
+/* The frame and the small parts the inspector editors share. The frame is the container `InspectorRow` asks for its width. */
 .panel {
+  container: inspector / inline-size;
   display: flex;
   height: 100%;
   min-width: 0;

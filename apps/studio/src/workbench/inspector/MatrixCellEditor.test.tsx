@@ -4,16 +4,31 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MATRIX_EMPTY, duplicateMap, getMatrix, setMatrixCell } from "../../api";
-import type { AssetId, MatrixDto } from "../../api";
+import type { AssetId, HeaderSummary, MatrixDto } from "../../api";
 import { typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+const summary = (id: number): HeaderSummary => ({
+  id,
+  internal_name: `T${id}`,
+  location_name: "Zweiblattdorf",
+  location_index: 5,
+  kanto: false,
+  matrix_id: 3,
+  area_data_id: 0,
+  event_file_id: 0,
+  text_archive_id: 0,
+  script_file_id: 0,
+  level_script_id: 0,
+});
 const matrix = (over: Partial<MatrixDto> = {}): MatrixDto => ({ index: 3, name: "m", width: 2, height: 1, maps: [10, 11], headers: [411, 412], altitudes: [0, 2], ...over });
 
 describe("MatrixCellEditor", () => {
@@ -25,7 +40,20 @@ describe("MatrixCellEditor", () => {
   const onError = vi.fn();
   const onMapImported = vi.fn();
   let dirty: AssetId[] = [];
-  const context = (): MatrixCellContext => ({ dirty, headerCount: 500, goTo, counts: { Map: 600 }, revision: 0, onEdited, onCountsChanged, onError, onMapImported, checks: null });
+  const context = (): MatrixCellContext => ({
+    dirty,
+    headers: [summary(411), summary(412)],
+    identify: (h) => (h.id === 412 ? { kind: "room", name: "Haus von Lucas", place: "Zweiblattdorf" } : { kind: "area", name: "Zweiblattdorf", place: "Zweiblattdorf" }),
+    headerCount: 500,
+    goTo,
+    counts: { Map: 600 },
+    revision: 0,
+    onEdited,
+    onCountsChanged,
+    onError,
+    onMapImported,
+    checks: null,
+  });
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -55,10 +83,12 @@ describe("MatrixCellEditor", () => {
 
   it("names_the_cell_and_the_matrix", async () => {
     await show();
-    expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
-    expect(container.textContent).toContain("Raster 0003");
+    expect(container.querySelector("header[data-inspector-kind='map'] [data-eyebrow]")?.textContent).toBe("Karte");
+    // Bauen: the map of the cell, and where it lies, in the words of the hierarchy (no matrix or header codes).
+    expect(container.querySelector("h2")?.textContent).toBe("Karte 0011");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0 · Haus von Lucas");
     expect(input("Karte").value).toBe("11");
-    expect(input("Header").value).toBe("412");
+    expect(input("Gebiet").value).toBe("412");
     expect(input("Höhe").value).toBe("2");
   });
 
@@ -98,34 +128,34 @@ describe("MatrixCellEditor", () => {
 
   it("writes_a_header_and_an_altitude_and_refuses_beyond_their_limits", async () => {
     await show();
-    await typeAndBlur("Header", "413");
+    await typeAndBlur("Gebiet", "413");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, 413, null);
     await typeAndBlur("Höhe", "9");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, null, 9);
     await typeAndBlur("Höhe", "300");
     expect(container.textContent).toContain("höchstens 255");
-    await typeAndBlur("Header", "600");
+    await typeAndBlur("Gebiet", "600");
     expect(container.textContent).toContain("höchstens 499");
     expect(setMatrixCell).toHaveBeenCalledTimes(2);
   });
 
   it("leads_the_header_of_the_cell_to_its_editor", async () => {
     await show();
-    await act(async () => void button("Header0412").click());
+    await act(async () => void button("Gebiet0412").click());
     expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 412 });
   });
 
   it("says_which_sections_the_matrix_lacks", async () => {
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
     await show();
-    expect(container.textContent).toContain("Das Raster hat keinen Header-Abschnitt");
-    expect(container.textContent).toContain("Das Raster hat keinen Höhenabschnitt");
-    expect(input("Header")).toBeNull();
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Höhenabschnitt.");
+    expect(input("Gebiet")).toBeNull();
   });
 
   it("duplicates_the_map_into_the_cell_and_refreshes_the_counts", async () => {
     await show();
-    await act(async () => void button("Karte duplizieren und hier eintragen").click());
+    chooseAction(container, "Duplizieren");
     await flush();
     expect(duplicateMap).toHaveBeenCalledWith(11);
     expect(setMatrixCell).toHaveBeenCalledWith(3, 1, 0, 77, null, null);
@@ -134,6 +164,58 @@ describe("MatrixCellEditor", () => {
 
   it("says_a_cell_outside_the_matrix_is_outside", async () => {
     await show(5, 0);
+    expect(container.textContent).toContain("außerhalb der Weltkarte (2 × 1)");
+  });
+
+  it("names_the_cell_with_the_codes_in_tuefteln", async () => {
+    await show(1, 0, "tuefteln");
+    expect(container.querySelector("h2")?.textContent).toBe("Zelle 1, 0");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Raster 0003 · M0011 H0412");
+  });
+
+  it("names_a_cell_without_a_map_or_a_known_header_by_the_cell_alone", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null], headers: [411, 900] }));
+    await show(1, 0);
+    expect(container.querySelector("h2")?.textContent).toBe("Leere Zelle");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0");
+    await show(0, 0);
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 0, 0 · Zweiblattdorf");
+    // Header 0 is the landscape: no place to name.
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [0, 900] }));
+    await show(0, 0);
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 0, 0");
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [411, 900] }));
+    await show(1, 0);
+    expect(container.querySelector("h2")?.textContent).toBe("Karte 0011");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0");
+  });
+
+  it("says_no_raster_matrix_or_header_and_no_codes_in_building", async () => {
+    await show();
+    expect(visibleWords(container)).not.toMatch(/\bM\d{4}\b|\bH\d{4}\b/);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await show(5, 0);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // A matrix without the sections, read anew.
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
+    await show();
+    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show(1, 0, "tuefteln");
+    expect(container.textContent).toContain("Raster 0003");
+    expect(input("Header").value).toBe("412");
+    expect(button("Header0412")).toBeDefined();
+    act(() => root.render(null));
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
+    await show(1, 0, "tuefteln");
+    expect(container.textContent).toContain("Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).");
+    await show(5, 0, "tuefteln");
     expect(container.textContent).toContain("außerhalb des Rasters (2 × 1)");
   });
 
@@ -174,20 +256,28 @@ describe("MatrixCellEditor", () => {
     expect([...table.querySelectorAll("tbody th")].map((h) => h.textContent)).toEqual(["Karte"]);
   });
 
-  it("opens_the_import_and_export_dialogs_of_the_cell_map_from_the_field_Karte", async () => {
+  it("offers_import_export_and_duplicate_in_the_head_menu_not_in_the_field_row", async () => {
     await show();
-    await act(async () => void button("Teile importieren…").click());
+    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren"]);
+    // The buttons below the field „Karte“ and at the end of the form are gone.
+    for (const old of ["Teile importieren…", "Teile exportieren…", "Karte duplizieren und hier eintragen", "Duplizieren"]) expect(button(old), old).toBeUndefined();
+    chooseAction(container, "Teile importieren…");
+    await flush();
     expect(document.querySelector("[role=dialog]")?.textContent).toContain("Teile in Karte 0011 importieren");
     expect(document.querySelector("[data-import-dialog='11']")).not.toBeNull();
     await act(async () => void [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Abbrechen")!.click());
     await flush();
-    await act(async () => void button("Teile exportieren…").click());
+    chooseAction(container, "Teile exportieren…");
+    await flush();
     expect(document.querySelector("[data-export-dialog='11']")).not.toBeNull();
   });
 
-  it("offers_no_import_for_a_cell_without_a_map", async () => {
+  it("offers_no_parts_and_no_duplicate_for_a_cell_without_a_map", async () => {
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
     await show();
-    expect(button("Teile importieren…")).toBeUndefined();
+    expect(headAction(container, "Teile importieren…")).toBeUndefined();
+    expect(headAction(container, "Teile exportieren…")).toBeUndefined();
+    const duplicate = headAction(container, "Duplizieren");
+    expect(duplicate?.getAttribute("aria-disabled") === "true" || duplicate?.hasAttribute("data-disabled")).toBe(true);
   });
 });

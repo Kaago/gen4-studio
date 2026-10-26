@@ -60,7 +60,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         lastTile.current = { map: model.map, x: model.x, y: model.y };
         matrixTile.current = { x: model.absX, z: model.absZ };
       }
-      setHover(model.kind === "none" ? null : model);
+      setHover(model.kind === "tile" || model.kind === "eventHover" ? model : null);
     },
     [setHover],
   );
@@ -74,7 +74,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     setEventLock((previous) => (previous?.file === lock?.file && previous?.reason === lock?.reason ? previous : lock));
   }, []);
 
-  // The buildings of the shown maps, as the scene reports them (the list "An diesem Ort" shows). A report that says what is known
+  // The buildings of the shown maps, as the scene reports them (the list „In dieser Szene“ shows them). A report that says what is known
   // already keeps the list, so a refresh that changed nothing renders nothing.
   const [sceneBuildings, setSceneBuildings] = useState<MapBuildings[]>([]);
   const onBuildings = useCallback((next: MapBuildings[]) => {
@@ -85,6 +85,8 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
   const unpinSelection = useCallback(() => {
     setPinned((p) => pinAfterHistory(p, selectedRef.current));
   }, [setPinned, selectedRef]);
+  /** Pins what a row of „In dieser Szene“ stands for: the same pin a click in the scene sets (a header, a cell, a building, an event). */
+  const onPin = useCallback((model: InspectorModel) => setPinned(model), [setPinned]);
   const onSelectBuilding = useCallback(
     (ref: BuildingRef | null) => (ref ? setPinned({ kind: "building", map: ref.map, index: ref.index }) : unpinSelection()),
     [setPinned, unpinSelection],
@@ -276,6 +278,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     lastMatrixTile,
     onEventsLocked,
     unpinSelection,
+    onPin,
     onSelectBuilding,
     onSelectEvent,
     onEventMoved,

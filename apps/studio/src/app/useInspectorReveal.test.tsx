@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import type { SetStateAction } from "react";
+import type { MutableRefObject, SetStateAction } from "react";
+import type { DockviewApi } from "dockview-react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
 import { useInspectorReveal } from "./useInspectorReveal";
-import type { DockApis } from "./useSceneSync";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,20 +15,26 @@ describe("useInspectorReveal", () => {
   let root: Root;
   let pin: (next: SetStateAction<InspectorModel>) => void;
   const setPinned = vi.fn();
-  const revealHand = vi.fn();
   const focusInspector = vi.fn();
-  const getPanel = vi.fn((id: string) => (id === "inspector" ? { focus: focusInspector } : undefined));
-  const dockApi = { schau: { current: null }, hand: { current: { getPanel } } } as unknown as DockApis;
-  // Whether a wizard holds the hand.
+  // Whether a group of the dock is maximized, and whether it is the inspector's.
+  let maximized = false;
+  let inspectorMaximized = false;
+  const exitMaximizedGroup = vi.fn();
+  const getPanel = vi.fn((id: string) => (id === "inspector" ? { focus: focusInspector, api: { isMaximized: () => inspectorMaximized } } : undefined));
+  const api = { getPanel, hasMaximizedGroup: () => maximized, exitMaximizedGroup };
+  const dock = { current: api as unknown } as MutableRefObject<DockviewApi | null>;
+  // Whether a wizard works (its step under the dock keeps the keyboard).
   let paused = false;
 
   function Probe() {
-    pin = useInspectorReveal(setPinned, dockApi, revealHand, () => paused);
+    pin = useInspectorReveal(setPinned, dock, () => paused);
     return null;
   }
 
   beforeEach(() => {
-    for (const fn of [setPinned, revealHand, focusInspector, getPanel]) fn.mockClear();
+    for (const fn of [setPinned, focusInspector, getPanel, exitMaximizedGroup]) fn.mockClear();
+    maximized = false;
+    inspectorMaximized = false;
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -45,11 +51,27 @@ describe("useInspectorReveal", () => {
     { kind: "building", map: 2, index: 1 },
     { kind: "area", id: 7 },
     { kind: "matrixCell", matrix: 0, x: 1, y: 2 },
-  ])("pins_a_$kind_and_brings_the_inspector_tab_forward_in_an_opened_hand", (model) => {
+  ])("brings_the_inspector_forward_for_a_pinned_$kind", (model) => {
     pin(model);
     expect(setPinned).toHaveBeenCalledExactlyOnceWith(model);
-    expect(revealHand).toHaveBeenCalledOnce();
     expect(focusInspector).toHaveBeenCalledOnce();
+  });
+
+  it("brings_the_inspector_forward_in_the_one_dock", () => {
+    pin({ kind: "building", map: 1, index: 0 });
+    expect(getPanel).toHaveBeenCalledWith("inspector");
+    expect(focusInspector).toHaveBeenCalledOnce();
+    // Selecting in a maximized view is what it is maximized for: the pin leaves the maximization (and the inspector behind it) alone.
+    maximized = true;
+    pin({ kind: "building", map: 1, index: 1 });
+    expect(setPinned).toHaveBeenCalledTimes(2);
+    expect(focusInspector).toHaveBeenCalledOnce();
+    expect(exitMaximizedGroup).not.toHaveBeenCalled();
+    // The inspector's own group maximized: it is in front already, and is focused as before.
+    inspectorMaximized = true;
+    pin({ kind: "building", map: 1, index: 2 });
+    expect(focusInspector).toHaveBeenCalledTimes(2);
+    expect(exitMaximizedGroup).not.toHaveBeenCalled();
   });
 
   it("leaves_the_tabs_alone_for_no_pin_and_for_an_update_function", () => {
@@ -57,7 +79,6 @@ describe("useInspectorReveal", () => {
     pin((p) => p);
     expect(setPinned).toHaveBeenCalledTimes(2);
     expect(focusInspector).not.toHaveBeenCalled();
-    expect(revealHand).not.toHaveBeenCalled();
   });
 
   it("does_not_take_the_keyboard_from_a_text_field", () => {
@@ -80,20 +101,19 @@ describe("useInspectorReveal", () => {
     editable.remove();
   });
 
-  it("pins_but_leaves_the_hand_alone_while_a_wizard_holds_it", () => {
+  it("pins_but_leaves_the_inspector_alone_while_a_wizard_works", () => {
     paused = true;
     pin({ kind: "building", map: 1, index: 0 });
     paused = false;
     expect(setPinned).toHaveBeenCalledOnce();
-    expect(revealHand).not.toHaveBeenCalled();
     expect(focusInspector).not.toHaveBeenCalled();
   });
 
-  it("still_pins_when_the_deck_has_no_hand_yet", () => {
-    (dockApi.hand as { current: unknown }).current = null;
+  it("still_pins_when_the_dock_is_not_built_yet", () => {
+    dock.current = null;
     pin({ kind: "building", map: 1, index: 0 });
     expect(setPinned).toHaveBeenCalledOnce();
-    expect(revealHand).not.toHaveBeenCalled();
-    (dockApi.hand as { current: unknown }).current = { getPanel };
+    expect(focusInspector).not.toHaveBeenCalled();
+    dock.current = api as unknown as DockviewApi;
   });
 });

@@ -47,6 +47,10 @@ def css_value(v):
         return 'var(' + css_name(val[1:-1].replace('.', '/')) + ')'
     if v['$type'] == 'duration':
         return f"{val['value']}{val['unit']}"
+    if v['$type'] == 'shadow':
+        # The shadow colour is a primitive with an alpha; `color-mix` lets the alpha ride on the variable.
+        color = css_name(val['color'][1:-1].replace('.', '/'))
+        return f"{val['offsetX']} {val['offsetY']} {val['blur']} {val['spread']} color-mix(in srgb, var({color}) {round(val['alpha'] * 100)}%, transparent)"
     if v['$type'] == 'fontFamily':
         fallback = 'ui-monospace, monospace' if 'Mono' in val else 'system-ui, sans-serif'
         return f'"{val}", {fallback}'
@@ -124,13 +128,36 @@ css.append('''/* Basis */
 }
 ''')
 
-dockview = '''/* Dockview-Thema für Gen4 Studio: class "dockview-theme-g4" auf den Dockview-Container setzen. */
+dockview = '''/* Dockview-Thema für Gen4 Studio: als Dockview-Thema `{ className: "dockview-theme-g4" }` setzen (Option `theme`), nicht als Klasse des
+   Gitters: Dockview setzt es auf seine Hülle, in der auch die schwebenden Gruppen und die Reitermenüs liegen. Es ersetzt Dockviews eigenes
+   Thema ganz und bringt darum auch dessen Grundwerte mit (Ebene der schwebenden Gruppen, Ecken, Teiler). */
 .dockview-theme-g4 {
+  --dv-overlay-z-index: 999;
+  --dv-border-radius: 0px;
+  --dv-tab-font-size: inherit;
+  --dv-tab-margin: 0;
+  --dv-tab-border-radius: 0px;
+  --dv-tab-close-icon-size: inherit;
+  --dv-spacing-padding: 0px;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: transparent;
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.5s;
+  --dv-sash-border-radius: 0px;
+  --dv-dropdown-border-radius: 0px;
+  --dv-tabs-container-scrollbar-color: var(--g4-linie-standard);
+  --dv-edge-dock-indicator-color: var(--g4-akzent-grund);
+  --dv-drag-over-border: none;
+  --dv-floating-group-border: none;
+  --dv-floating-group-dragging-opacity: 0.5;
+  --dv-floating-titlebar-height: 22px;
+  --dv-context-menu-background-color: var(--g4-flaeche-blatt);
+  --dv-context-menu-color: var(--g4-text-primaer);
   --dv-background-color: var(--g4-flaeche-gehaeuse);
   --dv-group-view-background-color: var(--g4-flaeche-gehaeuse);
   --dv-paneview-header-border-color: var(--g4-linie-leise);
   --dv-tabs-and-actions-container-background-color: var(--g4-flaeche-gehaeuse);
-  --dv-tabs-and-actions-container-height: 36px;
+  --dv-tabs-and-actions-container-height: var(--g4-dichte-reiter);
   --dv-tabs-and-actions-container-font-size: 13px;
   --dv-activegroup-visiblepanel-tab-background-color: var(--g4-flaeche-schau);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--g4-flaeche-gehaeuse);
@@ -146,11 +173,23 @@ dockview = '''/* Dockview-Thema für Gen4 Studio: class "dockview-theme-g4" auf 
   --dv-drag-over-background-color: color-mix(in srgb, var(--g4-akzent-grund) 18%, transparent);
   --dv-drag-over-border-color: var(--g4-akzent-grund);
   --dv-icon-hover-background-color: var(--g4-flaeche-deck);
+  --dv-floating-box-shadow: var(--g4-schatten-schwebend);
+  --dv-floating-border: 1px solid var(--g4-linie-standard);
+  --dv-floating-titlebar-background-color: var(--g4-flaeche-deck);
+  --dv-floating-titlebar-border-bottom: 1px solid var(--g4-linie-standard);
   font-family: var(--g4-schrift-familie-ui);
 }
 /* Aktiver Reiter: 2-px-Kobaltkante oben, wie die Komponente "Reiter" */
 .dockview-theme-g4 .dv-tab.dv-active-tab { box-shadow: inset 0 2px 0 var(--g4-akzent-grund); }
-/* Das Scharnier ist kein Dockview-Panel, sondern ein eigener Trenner zwischen Schau- und Hand-Gruppe. */
+/* Schwebende Gruppe: ein Blatt (`flaeche/blatt`) mit Titelleiste und Ecken wie ein Fenster (`radius/fenster`); die Griffe zum Skalieren ragen 2 px heraus, darum kein overflow am Rahmen. */
+.dockview-theme-g4 .dv-resize-container { --dv-group-view-background-color: var(--g4-flaeche-blatt); border-radius: var(--g4-radius-fenster); }
+.dockview-theme-g4 .dv-resize-container > .dv-floating-titlebar { border-radius: var(--g4-radius-fenster) var(--g4-radius-fenster) 0 0; }
+.dockview-theme-g4 .dv-resize-container-with-titlebar > .dv-grid-view { border-radius: 0 0 var(--g4-radius-fenster) var(--g4-radius-fenster); overflow: hidden; }
+/* Reitermenü: schwebt wie die Menüs der App (`flaeche/blatt`, Kante `linie/standard`, `radius/taste`). */
+.dockview-theme-g4 .dv-context-menu { border-color: var(--g4-linie-standard); border-radius: var(--g4-radius-taste); }
+/* Wechselt die Ablage-Markierung beim Ziehen den Behälter (Gitter ↔ schwebende Gruppe), blendet sie kurz aus, statt vom alten Ort herüberzugleiten (wie Dockviews eigene Themen). */
+.dockview-theme-g4 .dv-drop-target-container .dv-drop-target-anchor.dv-drop-target-anchor-container-changed { opacity: 0; transition: none; }
+/* Das Scharnier ist kein Dockview-Panel, sondern die Leiste über dem Dock. */
 '''
 
 
@@ -188,6 +227,9 @@ for name, src in (('hell', hell), ('dunkel', dunkel)):
     ts.append(f'/** Thema {name.capitalize()}: aufgelöste Hex-Werte (für Monaco defineTheme, Canvas, Export). */')
     ts.append(f'export const {name} = {{')
     for k, v in src.items():
+        # Shadows are CSS only: no code that reads tokens.ts draws one.
+        if v['$type'] == 'shadow':
+            continue
         ts.append(f"  '{k}': '{resolve(v)}',")
     ts.append('} as const;\n')
 ts.append('''/** Syntaxfarben für rotom-Skripte (CodeMirror HighlightStyle oder Monaco-Regeln). Kontrast >= 4.5:1 auf flaeche/blatt. */

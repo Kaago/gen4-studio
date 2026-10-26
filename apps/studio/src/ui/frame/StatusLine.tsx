@@ -39,11 +39,11 @@ function BuildState({ builtAt, building }: StatusLineProps["build"]) {
 
 /**
  * The 28 px bar at the bottom: left the tool hints, in the middle the context, right the problems, the connected agents, the build, the
- * density and the bridge.
+ * density and the bridge. `data-status-line` makes its footer the last stop of the F6 round (`useF6Ring`).
  */
 export function StatusLine({ left, middle, right, bridge, density, onToggleDensity, build, agent }: StatusLineProps) {
   return (
-    <div className={styles.line}>
+    <div className={styles.line} data-status-line="">
       <div className={styles.left}>{left}</div>
       <div className={styles.middle}>{middle}</div>
       <div className={styles.right}>

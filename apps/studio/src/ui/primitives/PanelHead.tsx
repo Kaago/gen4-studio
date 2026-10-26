@@ -24,7 +24,8 @@ export type PanelHeadSwitcher = {
 };
 
 export type PanelHeadProps = {
-  title: string;
+  /** None in a dock panel whose tab already names it: the head then holds only its subtitle, actions and status. */
+  title?: string;
   subtitle?: string;
   actions?: ReactNode;
   /** A state shown at the right end (a badge); in a narrow head it stays beside the title and the actions take their own row. */
@@ -62,21 +63,23 @@ export function PanelHead({ title, subtitle, actions, status, switcher }: PanelH
   const current = switcher?.items.find((item) => item.id === switcher.value);
   return (
     <header className={status ? `${styles.head} ${styles.withStatus}` : styles.head}>
-      <h2 className={styles.title}>
-        {switcher ? (
-          <Menu
-            trigger={
-              <>
-                {current?.label ?? title}
-                <Icon name="caretDown" />
-              </>
-            }
-            items={switcherMenu(switcher)}
-          />
-        ) : (
-          title
-        )}
-      </h2>
+      {(switcher || title !== undefined) && (
+        <h2 className={styles.title}>
+          {switcher ? (
+            <Menu
+              trigger={
+                <>
+                  {current?.label ?? title}
+                  <Icon name="caretDown" />
+                </>
+              }
+              items={switcherMenu(switcher)}
+            />
+          ) : (
+            title
+          )}
+        </h2>
+      )}
       {subtitle && <span className={styles.subtitle}>{subtitle}</span>}
       {actions && <div className={styles.actions}>{actions}</div>}
       {status && (

@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from "react";
-import type { HeaderSummary, MatrixDto } from "../api";
+import type { MatrixDto } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -36,8 +36,8 @@ interface Props {
   /** Event file of the selected header; its events are shown as markers (null: none). */
   eventFileId: number | null;
   showEvents: boolean;
-  /** Header list, for the internal names of warp destinations. */
-  headers: HeaderSummary[];
+  /** The name of the header a door leads to, as the world tree calls it; the status line says it while the pointer is on the door. */
+  destName: (headerId: number) => string | undefined;
   /** Edits (painting, adding, dragging) are ignored while false (e.g. during a build). */
   paintEnabled: boolean;
   /** The active tool: what a click on a tile does (see `canvasClicks`). */
@@ -54,7 +54,7 @@ interface Props {
   /** Called after a tile was changed in the backend. */
   onEdited: () => void;
   onError: (message: string) => void;
-  /** Reports what the inspector should show (filled in by tile hover and event markers). */
+  /** Reports the tile or event marker under the pointer (the status line names it), `none` when there is neither. */
   onInspect: (model: InspectorModel) => void;
   /** Load progress and the summary of what failed to load (null: nothing to show, clears the progress). */
   onStatus: (message: Message | null) => void;
@@ -84,7 +84,7 @@ function MatrixScene({
   showPermissions,
   eventFileId,
   showEvents,
-  headers,
+  destName,
   paintEnabled,
   tool,
   onTileClick,
@@ -119,7 +119,7 @@ function MatrixScene({
     showPermissions,
     showEvents,
     eventFileId,
-    headers,
+    destName,
     areaDataId,
     callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked },
   });
@@ -152,5 +152,5 @@ function MatrixScene({
   );
 }
 
-// Hover moves only the inspector state in App; the scene itself must not re-render for it.
+// Hover moves only the hover state in App (the status line); the scene itself must not re-render for it.
 export default memo(MatrixScene);

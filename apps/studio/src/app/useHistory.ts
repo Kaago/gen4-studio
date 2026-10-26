@@ -35,7 +35,7 @@ export class HistoryFeed {
 }
 
 /**
- * Reads the history into `feed`, debounced, after every topic of the edit bus except `headerReveal` (which only scrolls the list) and
+ * Reads the history into `feed`, debounced, after every topic of the edit bus except `headerReveal` and `sceneGroup` (which only move the list) and
  * whenever `revision` changes (App bumps it after an undo or redo and after every write it refreshes the dirty count for); never on
  * hover. `enabled` false (no project) empties it and reads nothing. A read that fails keeps what is shown. Holds no state of its own:
  * the component that calls it does not render for a new history, only the readers of `feed` do.
@@ -67,7 +67,7 @@ export function useHistoryReader(feed: HistoryFeed, bus: EditBus, revision: numb
       timer.current = setTimeout(read, HISTORY_DEBOUNCE_MS);
     };
     schedule();
-    const unsubscribe = bus.subscribe((event) => event.topic !== "headerReveal", schedule);
+    const unsubscribe = bus.subscribe((event) => event.topic !== "headerReveal" && event.topic !== "sceneGroup", schedule);
     return () => {
       unsubscribe();
       if (timer.current !== null) clearTimeout(timer.current);

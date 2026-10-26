@@ -1,3 +1,61 @@
+/* The section „Orte“ of the list „Welt“: its head, then the tree or the list (or, folded, one row). */
+.section {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.body {
+  min-height: 0;
+  flex: 1;
+}
+
+/* Folded, the section is as high as its head and its row. */
+.folded {
+  height: auto;
+}
+
+/* The folded row: the shown place as a button that opens the picker, a symbol before it and an arrow after it. */
+.foldedRow {
+  display: flex;
+  min-height: var(--g4-dichte-zeile);
+  align-items: center;
+  gap: var(--g4-raum-6);
+  margin: 0 var(--g4-raum-4) var(--g4-raum-4);
+  padding: 0 var(--g4-dichte-zeile-innen);
+  border: 0;
+  border-radius: var(--g4-radius-taste);
+  background: transparent;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-align: left;
+  cursor: pointer;
+}
+
+.foldedRow svg {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.foldedRow:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.foldedRow:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}
+
+.foldedLabel {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Shared by the world tree and the header list: a status line and a search above a scrolling host. */
 .column {
   display: flex;
@@ -70,4 +128,30 @@
 
 .indented {
   padding-left: var(--g4-raum-24);
+}
+
+/* The place label of a room of another place: a dot in the place's colour (set inline as the only dynamic value) and its name in grey. */
+.placeLabel {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* The menu of a selected room or of a world map, at the end of its row. */
+.actions {
+  display: inline-flex;
+  align-items: center;
 }

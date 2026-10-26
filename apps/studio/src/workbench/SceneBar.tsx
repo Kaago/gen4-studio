@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { IconButton } from "../ui/primitives";
 import styles from "./SceneBar.module.css";
 
@@ -9,7 +10,7 @@ export interface SceneBarProps {
 }
 
 /** The bar that floats over the 3D view: which layers of the scene are shown. */
-export function SceneBar({ showPermissions, showEvents, onShowPermissions, onShowEvents }: SceneBarProps) {
+export const SceneBar = memo(function SceneBar({ showPermissions, showEvents, onShowPermissions, onShowEvents }: SceneBarProps) {
   return (
     <div role="toolbar" aria-label="Ebenen der Schau" className={styles.bar}>
       <div className={styles.layers}>
@@ -18,4 +19,4 @@ export function SceneBar({ showPermissions, showEvents, onShowPermissions, onSho
       </div>
     </div>
   );
-}
+});

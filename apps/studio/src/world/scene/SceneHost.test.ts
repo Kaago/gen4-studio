@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const calls: string[] = [];
 const renders = { count: 0 };
 const clearColors: string[] = [];
+const sizes: [number, number][] = [];
 
 vi.mock("three", async (importOriginal) => {
   const three = await importOriginal<typeof import("three")>();
@@ -21,7 +22,9 @@ vi.mock("three", async (importOriginal) => {
     setClearColor(color: string) {
       clearColors.push(color);
     }
-    setSize() {}
+    setSize(w: number, h: number) {
+      sizes.push([w, h]);
+    }
     render() {
       renders.count++;
     }
@@ -39,8 +42,16 @@ import type { BuildingLayer } from "../buildingLayer";
 import type { MarkerSet } from "../markers";
 import { SceneHost } from "./SceneHost";
 
+/** The observers made, with the callback each was given and the elements it watches. */
+const observers: FakeObserver[] = [];
 class FakeObserver {
-  observe() {}
+  watched: Element[] = [];
+  constructor(readonly callback: () => void) {
+    observers.push(this);
+  }
+  observe(el: Element) {
+    this.watched.push(el);
+  }
   disconnect() {
     calls.push("observer");
   }
@@ -50,6 +61,8 @@ beforeEach(() => {
   calls.length = 0;
   renders.count = 0;
   clearColors.length = 0;
+  sizes.length = 0;
+  observers.length = 0;
   vi.stubGlobal("ResizeObserver", FakeObserver);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -95,6 +108,26 @@ describe("SceneHost", () => {
     const { el, h } = host();
     expect(el.contains(h.canvas)).toBe(true);
     expect(renders.count).toBe(1);
+  });
+
+  it("resizes_the_renderer_and_the_camera_when_its_element_changes_size", () => {
+    // The dock maximizes, restores or floats a group: the panel's element changes size and the scene must fill it without distortion.
+    const { el, h } = host();
+    const size = (w: number, h: number) => {
+      Object.defineProperty(el, "clientWidth", { value: w, configurable: true });
+      Object.defineProperty(el, "clientHeight", { value: h, configurable: true });
+    };
+    expect(observers.flatMap((o) => o.watched)).toEqual([el]);
+    const rendered = renders.count;
+    size(1200, 600);
+    observers[0]!.callback();
+    expect(sizes[sizes.length - 1]).toEqual([1200, 600]);
+    expect(h.camera.aspect).toBe(2);
+    expect(renders.count).toBe(rendered + 1);
+    size(300, 600);
+    observers[0]!.callback();
+    expect(sizes[sizes.length - 1]).toEqual([300, 600]);
+    expect(h.camera.aspect).toBe(0.5);
   });
 
   it("disposes markers, buildings, observer and controls, content, then the renderer", () => {

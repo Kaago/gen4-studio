@@ -16,7 +16,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const header = (id: number, internal: string, location: string, matrix = 0): HeaderSummary => ({
   id,
-  internal_name: internal,
+  internal_name: internal, location_index: 0, kanto: false,
   location_name: location,
   matrix_id: matrix,
   area_data_id: 7,

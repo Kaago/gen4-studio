@@ -31,6 +31,10 @@
   "werkzeug": {
    "$type": "dimension",
    "$value": "40px"
+  },
+  "reiter": {
+   "$type": "dimension",
+   "$value": "28px"
   }
  }
 }

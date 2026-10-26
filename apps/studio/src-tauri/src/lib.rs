@@ -27,7 +27,7 @@ use commands::{
     save_level_script, save_script, scripts_status, search_scripts, search_text, set_area_data,
     set_check_enabled, set_header, set_matrix_cell, set_matrix_sections, set_permission,
     set_trainer_texts, split_encounter_file, tile_behaviors, undo, unignore_finding,
-    update_building, update_event, validate_text,
+    update_building, update_event, validate_text, world_meta_get, world_meta_set,
 };
 use commands::{
     agent_answer, agent_disconnect, agent_poll, agent_remove_grant, agent_set_enabled,
@@ -165,7 +165,9 @@ pub fn run() {
             agent_remove_grant,
             agent_answer,
             agent_disconnect,
-            agent_set_read_only
+            agent_set_read_only,
+            world_meta_get,
+            world_meta_set
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

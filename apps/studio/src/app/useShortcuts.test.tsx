@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InspectorModel } from "../workbench/Inspector";
-import type { AreaId } from "../ui/frame/shellState";
+import type { AreaId, Tool } from "../ui/frame/shellState";
 import { useShortcuts } from "./useShortcuts";
 
 vi.mock("../api", () => ({ undo: vi.fn(), redo: vi.fn() }));
@@ -16,7 +16,7 @@ vi.mock("../platform/transport", () => ({ inTauri: () => env.tauri }));
 describe("useShortcuts", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, placing: false };
+  const handlers = { onSave: vi.fn(async () => {}), step: vi.fn(async () => {}), onPlay: vi.fn(async () => {}), onOpenProject: vi.fn(), onPalette: vi.fn(), onDeleteBuilding: vi.fn(), onDeleteEvent: vi.fn(), unpinSelection: vi.fn(), onTool: vi.fn(), onSub: vi.fn(), onSceneBack: vi.fn(), onSceneForward: vi.fn(), area: "welt" as AreaId, toolLocked: (() => false) as (tool: string) => boolean, toolsShown: (() => true) as () => boolean, onToolsHidden: vi.fn(), placing: false, tool: undefined as Tool | undefined, onEscape: vi.fn((): boolean => false) };
   const pinned = { current: { kind: "building", map: 3, index: 1 } as InspectorModel };
 
   function Probe() {
@@ -29,7 +29,10 @@ describe("useShortcuts", () => {
     env.tauri = false;
     handlers.area = "welt";
     handlers.toolLocked = () => false;
+    handlers.toolsShown = () => true;
     handlers.placing = false;
+    handlers.tool = undefined;
+    handlers.onEscape.mockImplementation(() => false);
     pinned.current = { kind: "building", map: 3, index: 1 };
     for (const fn of Object.values(handlers)) if (vi.isMockFunction(fn)) fn.mockClear();
     container = document.createElement("div");
@@ -271,6 +274,20 @@ describe("useShortcuts", () => {
     expect(handlers.onPalette).not.toHaveBeenCalled();
   });
 
+  it("opens_the_palette_again_while_the_last_dialog_still_closes", async () => {
+    // Base UI keeps a closing popup mounted for its exit transition (`data-closed`, still `aria-modal`): a Cmd+K right after Escape
+    // must open the palette again instead of being taken for a key behind an open dialog.
+    const closing = document.createElement("div");
+    closing.setAttribute("role", "dialog");
+    closing.setAttribute("aria-modal", "true");
+    closing.setAttribute("data-closed", "");
+    closing.setAttribute("data-ending-style", "");
+    document.body.append(closing);
+    await press({ key: "k", metaKey: true });
+    closing.remove();
+    expect(handlers.onPalette).toHaveBeenCalledOnce();
+  });
+
   it("does_not_play_while_a_modal_dialog_is_open", async () => {
     env.tauri = true;
     const dialog = document.createElement("div");
@@ -314,6 +331,37 @@ describe("useShortcuts", () => {
       await press({ key: "b" });
       expect(handlers.onTool).toHaveBeenLastCalledWith("paint");
       expect(handlers.onTool).toHaveBeenCalledOnce();
+    });
+
+    it("ignores_a_tool_letter_while_the_3d_view_is_hidden", async () => {
+      // Raster or Weltkarte in front: a letter changes nothing and says why.
+      handlers.toolsShown = () => false;
+      await press({ key: "b" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      expect(handlers.onToolsHidden).toHaveBeenCalledOnce();
+    });
+
+    it("switches_the_tool_with_a_letter_while_the_3d_view_shows", async () => {
+      handlers.toolsShown = () => true;
+      await press({ key: "g" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("building");
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
+    });
+
+    it("still_goes_back_to_select_on_escape_while_the_3d_view_is_hidden", async () => {
+      mountWith(none);
+      handlers.toolsShown = () => false;
+      await press({ key: "Escape" });
+      expect(handlers.onTool).toHaveBeenLastCalledWith("select");
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
+    });
+
+    it("keeps_a_locked_tool_silent_while_the_3d_view_is_hidden", async () => {
+      handlers.toolsShown = () => false;
+      handlers.toolLocked = (tool) => tool === "figure";
+      await press({ key: "f" });
+      expect(handlers.onTool).not.toHaveBeenCalled();
+      expect(handlers.onToolsHidden).not.toHaveBeenCalled();
     });
 
     it("does_nothing_with_letters_or_escape_while_the_world_is_not_shown_and_works_again_when_it_is", async () => {
@@ -414,6 +462,94 @@ describe("useShortcuts", () => {
       await act(async () => void document.body.dispatchEvent(event));
       expect(handlers.onTool).not.toHaveBeenCalled();
     });
+  });
+
+  it("ends_a_maximization_on_escape_when_nothing_else_takes_it", async () => {
+    handlers.onEscape.mockImplementation(() => true);
+    handlers.tool = "paint";
+    const escape = async (target: EventTarget = document.body, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, ...init });
+      await act(async () => void target.dispatchEvent(event));
+      return event;
+    };
+    // The selection takes Escape first, then the tool goes back to „Auswählen“; only then does Escape end the maximization.
+    await escape();
+    expect(handlers.unpinSelection).toHaveBeenCalledOnce();
+    pinned.current = { kind: "header", id: 3 };
+    await escape();
+    expect(handlers.onTool).toHaveBeenCalledExactlyOnceWith("select");
+    expect(handlers.onEscape).not.toHaveBeenCalled();
+    handlers.tool = "select";
+    expect((await escape()).defaultPrevented).toBe(true);
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    // A trainer waiting to be placed is let go first.
+    handlers.placing = true;
+    await escape();
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    handlers.placing = false;
+    // A field, a search field, an open menu or list, a modifier, an Escape already used, a dialog: theirs, not the dock's.
+    const input = document.createElement("input");
+    const search = document.createElement("input");
+    search.type = "search";
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("button");
+    menu.append(item);
+    container.append(input, search, menu);
+    await escape(input);
+    await escape(search);
+    await escape(item);
+    await escape(document.body, { shiftKey: true });
+    const used = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    used.preventDefault();
+    await act(async () => void document.body.dispatchEvent(used));
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.append(dialog);
+    await escape();
+    dialog.remove();
+    // A dock's tab menu closes on Escape by itself, with the focus left on the tab.
+    const dockMenu = document.createElement("div");
+    dockMenu.className = "dv-context-menu";
+    dockMenu.setAttribute("role", "menu");
+    document.body.append(dockMenu);
+    await escape();
+    dockMenu.remove();
+    expect(handlers.onEscape).toHaveBeenCalledOnce();
+    // In every area with a dock; nothing maximized: the Escape stays unused.
+    handlers.area = "texte";
+    await escape();
+    expect(handlers.onEscape).toHaveBeenCalledTimes(2);
+    handlers.onEscape.mockImplementation(() => false);
+    expect((await escape()).defaultPrevented).toBe(false);
+  });
+
+  it("goes_back_and_forward_with_option_command_arrows_but_not_in_a_field", async () => {
+    const back = new KeyboardEvent("keydown", { key: "ArrowLeft", metaKey: true, altKey: true, bubbles: true, cancelable: true });
+    await act(async () => void document.body.dispatchEvent(back));
+    expect(handlers.onSceneBack).toHaveBeenCalledOnce();
+    expect(back.defaultPrevented).toBe(true);
+    await press({ key: "ArrowRight", metaKey: true, altKey: true });
+    expect(handlers.onSceneForward).toHaveBeenCalledOnce();
+    // Another modifier mix is not ours: plain arrows, Cmd alone (the browser's own back), Shift added.
+    await press({ key: "ArrowLeft" });
+    await press({ key: "ArrowLeft", metaKey: true });
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true, shiftKey: true });
+    // In a field the arrows move the caret (Cmd+Alt+Arrow too, in a code field).
+    const input = document.createElement("input");
+    container.append(input);
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true }, input);
+    // Not behind a wizard or a dialog, and not outside the world, whose scene the history shows.
+    const wizard = document.createElement("div");
+    wizard.setAttribute("data-wizard", "");
+    document.body.append(wizard);
+    await press({ key: "ArrowRight", metaKey: true, altKey: true });
+    wizard.remove();
+    handlers.area = "pokemon";
+    await press({ key: "ArrowLeft", metaKey: true, altKey: true });
+    expect(handlers.onSceneBack).toHaveBeenCalledOnce();
+    expect(handlers.onSceneForward).toHaveBeenCalledOnce();
   });
 
   it("leaves_select_all_to_the_text_field", async () => {

@@ -4,10 +4,11 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto } from "../api";
+import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorldPanel } from "./panels";
-import { WorkbenchProviders } from "./WorkbenchContext";
+import { NO_WORLD, WorkbenchProviders } from "./WorkbenchContext";
 import { ProblemsStore } from "./problems/problems";
-import type { WorkbenchData } from "./WorkbenchContext";
+import type { WorkbenchData, WorkbenchWorld } from "./WorkbenchContext";
 
 // The scene needs WebGL; the panel around it is under test.
 const sceneProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
@@ -22,7 +23,7 @@ vi.mock("../world/MatrixScene", () => ({
 
 const header = (id: number): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name: "Ort",
   matrix_id: 0,
   area_data_id: 0,
@@ -50,7 +51,7 @@ describe("WorldPanel", () => {
     container.remove();
   });
 
-  const show = (over: Partial<WorkbenchData> = {}) => {
+  const show = (over: Partial<WorkbenchData> = {}, world: WorkbenchWorld = NO_WORLD) => {
     const data = {
       headers: [header(3), header(4)],
       matrix: null,
@@ -68,9 +69,11 @@ describe("WorldPanel", () => {
     } as unknown as WorkbenchData;
     act(() =>
       root.render(
-        <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null }}>
-          <WorldPanel />
-        </WorkbenchProviders>,
+        <ShellProvider>
+          <WorkbenchProviders data={data} live={{ inspector: { kind: "none" }, matrixSelection: null, message: null, world }}>
+            <WorldPanel />
+          </WorkbenchProviders>
+        </ShellProvider>,
       ),
     );
   };
@@ -83,6 +86,15 @@ describe("WorldPanel", () => {
     expect(container.querySelector("[data-testid=scene]")).toBeNull();
     act(() => button("Ersten Ort zeigen").click());
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
+  });
+
+  it("names_the_door_target_for_the_status_line_as_the_world_tree_does", () => {
+    const world: WorkbenchWorld = { ...NO_WORLD, identify: (h) => ({ kind: "room", name: h.id === 4 ? "Haus des Rivalen" : "Haus 1", place: "Zweiblattdorf" }) };
+    show({ matrix }, world);
+    const destName = sceneProps.current?.destName as (id: number) => string | undefined;
+    expect(destName(4)).toBe("Haus des Rivalen");
+    // A door to a header that does not exist leads to no name.
+    expect(destName(999)).toBeUndefined();
   });
 
   it("offers_no_first_place_when_the_project_has_no_header", () => {
@@ -103,13 +115,22 @@ describe("WorldPanel", () => {
     expect(onShowPermissions).toHaveBeenCalledWith(false);
   });
 
-  it("has_no_add_buttons_over_the_scene_any_more_the_tools_of_the_hand_add", () => {
+  it("has_no_add_buttons_over_the_scene_any_more_the_tools_add", () => {
     show({ matrix });
     expect(button("Neues Gebäude")).toBeUndefined();
     expect(button("Hinzufügen")).toBeUndefined();
     expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
-    // Only the two layer toggles are left in the bar.
-    expect([...container.querySelectorAll('[role="toolbar"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+    // Only the two layer toggles are left in the layer bar.
+    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+  });
+
+  it("floats_the_toolbar_over_the_scene_with_the_tool_of_the_workbench", () => {
+    show({ matrix, tool: "door" });
+    const toolbar = container.querySelector('[role="toolbar"][aria-label="Werkzeugleiste"]')!;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.querySelector('[data-tool="door"]')?.getAttribute("aria-pressed")).toBe("true");
+    show();
+    expect(container.querySelector('[role="toolbar"][aria-label="Werkzeugleiste"]')).toBeNull();
   });
 
   it("hands_the_scene_the_tool_and_what_it_reports_back", () => {

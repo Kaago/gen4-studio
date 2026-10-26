@@ -4,10 +4,11 @@ import { crumbsFor, dataCrumbs, textCrumbs } from "./breadcrumb";
 import type { Crumb } from "./breadcrumb";
 import { buildPlaces } from "./places";
 import type { InspectorModel } from "./Inspector";
+import type { Depth } from "../ui/frame/shellState";
 
 const header = (id: number, location_name: string, matrix_id: number, internal_name = `H${id}`): HeaderSummary => ({
   id,
-  internal_name,
+  internal_name, location_index: 0, kanto: false,
   location_name,
   matrix_id,
   area_data_id: 0,
@@ -20,7 +21,8 @@ const matrix = (index: number, has_headers: boolean): MatrixSummary => ({ index,
 
 const headers = [header(0, "Zweiblattdorf", 0), header(414, "Zweiblattdorf", 7), header(9, "", 9)];
 const places = buildPlaces(headers, [matrix(0, true), matrix(7, false), matrix(9, false)]);
-const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; goTo?: () => void; events?: EventsDto | null } = {}) => crumbsFor({ places, headers, selected, pinned, ...extra });
+const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; goTo?: () => void; events?: EventsDto | null; depth?: Depth } = {}) =>
+  crumbsFor({ places, headers, selected, pinned, depth: "bauen", ...extra });
 const eventsOf = (file: number, over: Partial<EventsDto>): EventsDto => ({ event_file_id: file, locked: null, bg: [], objects: [], warps: [], coords: [], ...over });
 const object = { index: 2, local_id: 7 } as ObjectDto;
 const warp = { index: 1, x: 0, z: 0, dest_header_id: 0, dest_warp_id: 0, height: 0 } as WarpDto;
@@ -30,14 +32,16 @@ describe("crumbsFor", () => {
     const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "object", index: 2 }, 414, { events: eventsOf(514, { objects: [object] }) });
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Raum", "0414"],
+      ["Raum 1", "0414"],
       ["Objekt 2 · ID 7", "Eventdatei 0514"],
     ]);
   });
 
-  it("names_the_destination_header_in_the_title_of_a_warp_like_the_event_editor", () => {
-    const crumbs = pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }) });
-    expect(crumbs[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
+  it("names_the_destination_of_a_warp_like_the_event_editor_and_the_world_tree", () => {
+    // Bauen: the name the world tree gives the destination (here from the places: header 0 is the area of its place); Tüfteln: number and code.
+    const pinned = { kind: "event", eventFile: 514, eventKind: "warp", index: 1 } as const;
+    expect(pin(pinned, 414, { events: eventsOf(514, { warps: [warp] }) })[2]?.label).toBe("Warp 1 → Zweiblattdorf");
+    expect(pin(pinned, 414, { events: eventsOf(514, { warps: [warp] }), depth: "tuefteln" })[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
   });
 
   it("falls_back_to_the_short_words_while_the_data_of_the_event_is_missing", () => {
@@ -51,22 +55,56 @@ describe("crumbsFor", () => {
     expect(pin({ ...pinned, eventKind: "bg", index: 0 })[2]?.label).toBe("Hintergrund-Event 0");
   });
 
-  it("calls_an_outside_header_Aussen_and_a_room_Raum_with_the_id_grey", () => {
+  it("calls_an_outside_header_Gebiet_and_a_room_by_its_clear_name_with_the_id_grey", () => {
     expect(pin({ kind: "header", id: 0 }, 0).map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Außen", "0000"],
+      ["Gebiet", "0000"],
     ]);
     expect(pin({ kind: "header", id: 414 }).map((c) => [c.label, c.tech])).toEqual([
       ["Zweiblattdorf", undefined],
-      ["Raum", "0414"],
+      ["Raum 1", "0414"],
+    ]);
+    // The name the room's code suggests, as the world tree gives it: „Haus 1“, not „Raum 0412“.
+    const house = header(412, "Zweiblattdorf", 8, "T01R0101");
+    const withHouse = [...headers, house];
+    const crumbs = crumbsFor({ places: buildPlaces(withHouse, [matrix(0, true), matrix(7, false), matrix(8, false), matrix(9, false)]), headers: withHouse, selected: 412, pinned: { kind: "header", id: 412 }, depth: "bauen" });
+    expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
+      ["Zweiblattdorf", undefined],
+      ["Haus 1", "0412"],
     ]);
   });
 
-  it("names_a_header_of_an_unnamed_place_Raum_and_gives_its_id", () => {
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    const crumbs = [
+      ...pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }) }),
+      ...pin({ kind: "matrixCell", matrix: 0, x: 7, y: 25 }, 0, { matrixName: "m0" }),
+      ...pin({ kind: "header", id: 9 }, 9),
+    ];
+    expect(crumbs.map((c) => `${c.label} ${c.tech ?? ""}`).join(" ")).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    expect(pin({ kind: "header", id: 0 }, 0, { depth: "tuefteln" })[1]).toMatchObject({ label: "Header", tech: "0000" });
+    expect(pin({ kind: "header", id: 414 }, 414, { depth: "tuefteln" })[1]).toMatchObject({ label: "Header", tech: "0414" });
+    expect(pin({ kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, 414, { events: eventsOf(514, { warps: [warp] }), depth: "tuefteln" })[2]?.label).toBe("Warp 1 → Header 0000 (H0)");
+  });
+
+  it("names_the_header_as_the_world_tree_does_when_it_is_given", () => {
+    const named = (kind: "area" | "room" | "other", name: string) => () => ({ kind, name, place: "Zweiblattdorf" });
+    const crumb = (identify: ReturnType<typeof named>, depth: Depth = "bauen") => crumbsFor({ places, headers, selected: 414, pinned: { kind: "header", id: 414 }, depth, identify })[1];
+    // A room renamed in the project file.
+    expect(crumb(named("room", "Omas Haus"))).toMatchObject({ label: "Omas Haus", tech: "0414" });
+    // An area with its own map (the places would call it a room), and a header that is neither.
+    expect(crumb(named("area", "Zweiblattdorf"))).toMatchObject({ label: "Gebiet", tech: "0414" });
+    expect(crumb(named("other", "Zweiblattdorf"))).toMatchObject({ label: "Ort", tech: "0414" });
+    expect(crumb(named("room", "Omas Haus"), "tuefteln")).toMatchObject({ label: "Header", tech: "0414" });
+  });
+
+  it("names_a_header_of_an_unnamed_place_a_room_and_gives_its_id", () => {
     const crumbs = pin({ kind: "header", id: 9 }, 9);
     expect(crumbs.map((c) => [c.label, c.tech])).toEqual([
       ["Ohne Ortsnamen", undefined],
-      ["Raum", "0009"],
+      ["Raum 1", "0009"],
     ]);
   });
 
@@ -89,13 +127,13 @@ describe("crumbsFor", () => {
   });
 
   it("says_Kein_Projekt_without_headers_and_Kein_Ort_gewaehlt_without_a_selected_header", () => {
-    expect(crumbsFor({ places: [], headers: [], selected: null, pinned: { kind: "none" } })).toEqual([{ label: "Kein Projekt" }]);
+    expect(crumbsFor({ places: [], headers: [], selected: null, pinned: { kind: "none" }, depth: "bauen" })).toEqual([{ label: "Kein Projekt" }]);
     expect(pin({ kind: "none" }, null)).toEqual([{ label: "Kein Ort gewählt" }]);
   });
 
   it("makes_each_crumb_a_link_to_what_its_label_says", () => {
     const goTo = vi.fn();
-    const crumbs = crumbsFor({ places, headers, selected: 414, pinned: { kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, goTo });
+    const crumbs = crumbsFor({ places, headers, selected: 414, pinned: { kind: "event", eventFile: 514, eventKind: "warp", index: 1 }, goTo, depth: "bauen" });
     crumbs.forEach((c) => c.onClick?.());
     expect(goTo.mock.calls.map((c) => c[0])).toEqual([
       { kind: "header", id: 0 },

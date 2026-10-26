@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { KeyboardEvent } from "react";
 import { Icon } from "./Icon";
 import { rowClass, selectOnKey } from "./ListRow";
@@ -13,9 +14,13 @@ export type TreeRowProps = ListRowProps & {
   onToggle?: () => void;
 };
 
-/** One row of a tree: indent by depth, a caret for branches, Right opens and Left closes a branch. */
-export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, depth, expanded, onToggle }: TreeRowProps) {
+/** One row of a tree: indent by depth, a caret for branches, Right opens and Left closes a branch; `subtitle` is a second line as in `ListRow`. */
+export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, depth, expanded, onToggle }: TreeRowProps) {
   const branch = expanded !== undefined;
+  const id = useId();
+  const labelId = `${id}-label`;
+  const subtitleId = `${id}-subtitle`;
+  const named = subtitle !== undefined && ariaLabel === undefined;
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.target === event.currentTarget && onToggle && branch) {
       const opens = event.key === "ArrowRight" && !expanded;
@@ -36,6 +41,8 @@ export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataA
       aria-selected={selected}
       aria-expanded={expanded}
       aria-label={ariaLabel}
+      aria-labelledby={named ? labelId : undefined}
+      aria-describedby={subtitle !== undefined ? subtitleId : undefined}
       aria-disabled={disabled ? true : undefined}
       title={title}
       data-roving=""
@@ -56,7 +63,18 @@ export function TreeRow({ label, tech, icon, selected, onSelect, trailing, dataA
         {branch && <Icon name={expanded ? "caretDown" : "caretRight"} />}
       </span>
       {icon && <Icon name={icon} />}
-      <span className={listStyles.label}>{label}</span>
+      {subtitle !== undefined ? (
+        <span className={listStyles.text}>
+          <span id={labelId} className={listStyles.label}>
+            {label}
+          </span>
+          <span id={subtitleId} className={listStyles.subtitle}>
+            {subtitle}
+          </span>
+        </span>
+      ) : (
+        <span className={listStyles.label}>{label}</span>
+      )}
       {tech && <span className={listStyles.tech}>{tech}</span>}
       {trailing && <span className={listStyles.trailing}>{trailing}</span>}
     </div>

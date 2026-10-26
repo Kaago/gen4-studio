@@ -120,7 +120,7 @@ export const fileRow = (index: number, users: number[]): DataRowDto => ({ index,
 /** File 0 unused, 140 on Route 201, 141 on Routes 202 and 203, 182 unused. */
 export const FILE_ROWS: DataRowDto[] = [fileRow(0, []), fileRow(140, [342]), fileRow(141, [400, 401]), fileRow(182, [])];
 
-const header = (id: number, location_name: string): HeaderSummary => ({ id, internal_name: `R${id}`, location_name, matrix_id: 0, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, location_name: string): HeaderSummary => ({ id, internal_name: `R${id}`, location_index: 0, kanto: false, location_name, matrix_id: 0, area_data_id: 0, event_file_id: id, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 export const HEADERS: HeaderSummary[] = [header(342, "Route 201"), header(400, "Route 202"), header(401, "Route 203"), header(30, "Route 29")];
 
 const named = (length: number, at: Record<number, string>, word: string) => Array.from({ length }, (_, i) => at[i] ?? `${word} ${i}`);

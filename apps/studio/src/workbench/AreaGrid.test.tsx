@@ -13,7 +13,7 @@ import type { AreaGridProps } from "./AreaGrid";
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
 const matrix: MatrixDto = { index: 3, name: "m", width: 3, height: 2, maps: [521, 522, null, 523, null, 524], headers: [415, 416, 0, 417, 0, 0], altitudes: [0, 0, 0, 0, 0, 2] };
-const header = (id: number, area: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 3, area_data_id: area, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, area: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: "", matrix_id: 3, area_data_id: area, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const headers = [header(415, 7), header(416, 7), header(417, 8)];
 
 describe("AreaGrid", () => {
@@ -102,11 +102,20 @@ describe("AreaGrid", () => {
   });
 
   it("titles_cells_with_their_parts_and_dashes_empty_ones", () => {
-    show();
+    show({ tinker: true });
     expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Header 0416 · Höhe 0");
     expect(cell(2, 1)?.getAttribute("title")).toBe("x 2, y 1 · Karte 0524 · Header 0000 · Höhe 2");
     expect(cell(2, 0)?.getAttribute("title")).toBe("x 2, y 0 · Höhe 0");
     expect(cell(2, 0)?.textContent).toBe("—");
+  });
+
+  it("names_the_header_of_a_cell_by_its_number_in_bauen_also_for_a_grid_that_shows_pictures_in_tuefteln", () => {
+    // Bauen speaks of no header (the world map's tooltips included); the world map draws pictures in both depths and says so by `depth`.
+    show();
+    expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Nummer 0416 · Höhe 0");
+    show({ depth: "tuefteln" });
+    expect(cell(1, 0)?.getAttribute("title")).toBe("x 1, y 0 · Karte 0522 · Header 0416 · Höhe 0");
+    expect(cell(1, 0)?.textContent).not.toContain("0416\n");
   });
 
   it("shows_map_and_header_ids_only_at_size_64", () => {

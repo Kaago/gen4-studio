@@ -150,6 +150,8 @@ pub const COMMANDS: &[&str] = &[
     "agent_answer",
     "agent_disconnect",
     "agent_set_read_only",
+    "world_meta_get",
+    "world_meta_set",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -657,6 +659,14 @@ pub fn dispatch(
         "agent_set_read_only" => run!(json, "agent_set_read_only", args, { on: bool }, |a| {
             agent_set_read_only_impl(state, a.on)
         }),
+        "world_meta_get" => run!(json, "world_meta_get", args, {}, |_a| world_meta_get_impl(
+            state
+        )),
+        "world_meta_set" => run!(
+            json, "world_meta_set", args,
+            { meta: g4_kernel::world_meta::WorldMeta },
+            |a| world_meta_set_impl(state, a.meta)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -955,6 +965,11 @@ mod tests {
             ("agent_answer", json!({ "question": 1, "answer": "deny" })),
             ("agent_disconnect", json!({})),
             ("agent_set_read_only", json!({ "on": false })),
+            ("world_meta_get", json!({})),
+            (
+                "world_meta_set",
+                json!({ "meta": { "roomNames": { "1": "Haus" } } }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

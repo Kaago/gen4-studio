@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { HeaderSummary } from "../api";
+import { useBusEvent } from "../bus/useBusEvent";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import type { TileClick } from "../world/scene/types";
 import type { EditBus } from "../bus/editBus";
@@ -8,11 +9,15 @@ import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import type { TextTarget } from "../workbench/text/textModel";
-import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
+import { headerIdentity } from "../workbench/headerIdentity";
+import { buildPlaces } from "../workbench/places";
+import { useWorldModel } from "../workbench/useWorldModel";
+import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive, WorkbenchWorld } from "../workbench/WorkbenchContext";
 import type { Overview } from "./useOverview";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
 import type { SceneSync } from "./useSceneSync";
+import type { useSceneHistory } from "./useSceneHistory";
 import { useShallowStable, useStableCallback } from "./useStable";
 import type { WorldActions } from "./useWorldActions";
 
@@ -26,6 +31,7 @@ interface WorkbenchModelParams {
     | "selectedEvent"
     | "onInspect"
     | "onEventsLocked"
+    | "onPin"
     | "onSelectBuilding"
     | "onSelectEvent"
     | "onEventMoved"
@@ -39,7 +45,9 @@ interface WorkbenchModelParams {
     | "sceneBuildings"
     | "onBuildings"
   >;
-  pins: Pick<InspectorState, "pinned" | "inspector">;
+  pins: Pick<InspectorState, "pinned">;
+  /** The history of the scenes shown (App owns it: the keys act on it too). */
+  sceneHistory: ReturnType<typeof useSceneHistory>;
   /** The matrix and warp overviews of the project (the world explorer's data). */
   overview: Pick<Overview, "matrices" | "links" | "loaded" | "failed">;
   /** Parts were imported into a map (must keep its identity). */
@@ -73,10 +81,10 @@ interface WorkbenchModelParams {
 /**
  * What App hands the workbench, in two parts. `data` is everything that changes rarely; its
  * identity changes only when one of its fields does, so the panels reading only it are not
- * rendered again by a hover or a message. `live` is the volatile part (the inspector's hover,
- * the cell it selects, the message), where a panel subscribes to the piece it renders.
+ * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
+ * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -98,6 +106,10 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     selected: scene.selected,
     onSelect,
     goTo,
+    sceneBack: sceneHistory.back,
+    sceneForward: sceneHistory.forward,
+    canBack: sceneHistory.canBack,
+    canForward: sceneHistory.canForward,
     bus,
     matrix: scene.matrix,
     areaDataId: scene.sceneArea,
@@ -126,6 +138,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     onCountsChanged: session.onCountsChanged,
     onMapImported,
     selectedBuilding,
+    onPin: world.onPin,
     onSelectBuilding: world.onSelectBuilding,
     onBuildingMoved: world.onBuildingMoved,
     onBuildingChanged: world.onBuildingChanged,
@@ -146,13 +159,32 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, overview, 
     dataStore,
   });
 
-  const { inspector } = pins;
+  // The inspector shows the selection; the hover goes to the status line and is not part of the model.
+  const inspector = pinned;
   const cell = inspector.kind === "matrixCell" ? inspector : null;
   const [cellMatrix, cellX, cellY] = [cell?.matrix, cell?.x, cell?.y];
   const matrixSelection = useMemo<MatrixSelection | null>(
     () => (cellMatrix !== undefined && cellX !== undefined && cellY !== undefined ? { matrix: cellMatrix, x: cellX, y: cellY } : null),
     [cellMatrix, cellX, cellY],
   );
-  const live = useShallowStable<WorkbenchLive>({ inspector, matrixSelection, message: session.message });
+
+  // The world model, built once for the workbench: the cells of the world maps are read again whenever matrix data moved (which
+  // renders App only when they changed), the project file once per project. Until it is read, the places name the headers.
+  const worldModel = useWorldModel({
+    info: session.info,
+    headers: scene.headers,
+    matrices: overview.matrices,
+    links: overview.links,
+    loaded: overview.loaded,
+    revision: 0,
+    onError: session.fail,
+  });
+  useBusEvent(bus, "matrixData", worldModel.reread);
+  const places = useMemo(() => buildPlaces(scene.headers, overview.matrices), [scene.headers, overview.matrices]);
+  const { names } = worldModel;
+  const identify = useCallback((header: HeaderSummary) => headerIdentity(places, header, names), [places, names]);
+  const shownWorld = useMemo<WorkbenchWorld>(() => ({ ...worldModel, identify }), [worldModel, identify]);
+
+  const live = useShallowStable<WorkbenchLive>({ inspector, matrixSelection, message: session.message, world: shownWorld });
   return { data, live };
 }

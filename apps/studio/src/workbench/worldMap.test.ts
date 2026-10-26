@@ -15,7 +15,7 @@ const summary = (index: number, width: number, height: number, has_headers: bool
 
 const header = (id: number, location_name: string, matrix_id: number, event_file_id = 10 + id): HeaderSummary => ({
   id,
-  internal_name: `H${id}`,
+  internal_name: `H${id}`, location_index: 0, kanto: false,
   location_name,
   matrix_id,
   area_data_id: 0,
@@ -107,9 +107,9 @@ describe("roomLinks", () => {
   it("says_when_the_target_is_not_an_outside_header", () => {
     const toRoom = warp(11, 0, 4, 0);
     const [link] = roomLinks(dorf, headers, [toRoom], region([1, 2], [0, 0]));
-    expect(link).toEqual({ header: 1, cell: null, reason: "Ziel ist kein Außen-Header" });
+    expect(link).toEqual({ header: 1, cell: null, reason: "Ziel liegt nicht auf der Weltkarte" });
     const unknown = warp(11, 0, 99, 0);
-    expect(roomLinks(dorf, headers, [unknown], region([1, 2], [0, 0]))[0].reason).toBe("Ziel ist kein Außen-Header");
+    expect(roomLinks(dorf, headers, [unknown], region([1, 2], [0, 0]))[0].reason).toBe("Ziel liegt nicht auf der Weltkarte");
   });
 
   it("says_when_the_entrance_lies_beyond_the_region", () => {

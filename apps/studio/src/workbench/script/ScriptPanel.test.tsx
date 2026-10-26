@@ -11,6 +11,7 @@ import { addScript, adoptScripts, lspSend, lspStart, lspStop, readScript, saveLe
 import { createEditBus } from "../../bus/editBus";
 import type { EditBus, EditEvent } from "../../bus/editBus";
 import type { Depth } from "../../ui/frame/shellState";
+import { visibleWords } from "../../ui/visibleText";
 import { ProblemsStore } from "../problems/problems";
 import { ScriptPanel } from "./ScriptPanel";
 import { toolStatus } from "../../app/toolStatus";
@@ -151,11 +152,33 @@ describe("ScriptPanel", () => {
     expect(container.querySelector('[role="tabpanel"] .cm-editor')).not.toBeNull();
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await render();
+    await settle();
+    // Without a document the head would only say "Script", as the dock tab above it does; with one it names the document.
+    expect(container.querySelector("header")).not.toBeNull();
+    expect(title()).toBeUndefined();
+    await open(42);
+    expect(title()).toBe("Scriptdatei 0042");
+  });
+
   it("says_how_a_script_opens_while_none_is_open", async () => {
     await render();
     await settle();
     expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(container.textContent).toContain("Kein Script geöffnet.");
+    expect(container.textContent).toContain("Eine Scriptdatei öffnet sich über den Ort, ein Event oder ein Problem.");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    await render(projectA, "bauen");
+    await settle();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await render(projectA, "tuefteln");
+    await settle();
     expect(container.textContent).toContain("Eine Scriptdatei öffnet sich über den Header, ein Event oder ein Problem.");
   });
 

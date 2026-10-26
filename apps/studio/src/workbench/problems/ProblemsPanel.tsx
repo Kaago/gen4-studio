@@ -1,7 +1,7 @@
 import { memo, useId, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { CheckProblemDto } from "../../api";
-import { AREA_LABELS, CHECK_CODES, areaOf, checkTitle, findingText, progressText, skippedText } from "../../checks/messages";
+import { AREA_LABELS, CHECK_CODES, areaOf, checkTitle, findingLabel, findingText, progressText, skippedText } from "../../checks/messages";
 import type { CheckArea } from "../../checks/messages";
 import { notChecked } from "../../checks/useChecks";
 import type { ChecksApi, ChecksView } from "../../checks/useChecks";
@@ -75,9 +75,9 @@ function groupFindings(findings: readonly CheckProblemDto[]) {
 function FindingLines({ f, depth }: { f: CheckProblemDto; depth: Depth }) {
   return (
     <>
-      <span className={styles.sentence}>{findingText(f)}</span>
+      <span className={styles.sentence}>{findingText(f, depth)}</span>
       <span className={styles.where}>
-        {f.label}
+        {findingLabel(f, depth)}
         {depth === "tuefteln" && f.file !== "" ? ` · ${f.file}:${f.line}` : ""}
       </span>
     </>
@@ -134,7 +134,7 @@ export function FindingActions({ f, goTo, checks, onFix, open = true }: { f: Che
 /** The findings of one code: its title and count, then its rows. */
 function CodeGroup({ code, rows, depth, goTo, checks, onFix }: { code: string; rows: readonly CheckProblemDto[]; depth: Depth; goTo: (target: NavTarget) => void; checks: ChecksApi | null; onFix: (f: CheckProblemDto) => void }) {
   const headId = useId();
-  const title = checkTitle(code);
+  const title = checkTitle(code, depth);
   return (
     <div role="group" aria-labelledby={headId} className={styles.code} data-check={code}>
       <h4 id={headId} className={styles.codeHead}>
@@ -216,7 +216,7 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
           </tbody>
         </table>
       )}
-      {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} onClose={() => setFixing(null)} />}
+      {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} depth={depth} onClose={() => setFixing(null)} />}
     </div>
   );
 }
@@ -250,12 +250,12 @@ export function checksPending(view: ChecksView | null): "first" | "unchecked" | 
 }
 
 /** The checks that did not run, or left part of their work undone, as hint lines beside the findings. */
-export function ChecksNotes({ checks }: { checks: ChecksApi }) {
+export function ChecksNotes({ checks, depth }: { checks: ChecksApi; depth: Depth }) {
   const view = useSyncExternalStore(checks.feed.subscribe, checks.feed.get);
   if (view.skipped.length === 0) return null;
   return (
     <div className={styles.notes}>
-      <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s), dataAttrs: { "data-check": s.code } }))} />
+      <CheckList ariaLabel="Nicht geprüft" rows={view.skipped.map((s) => ({ id: `${s.code}:${s.why}`, state: "info", text: skippedText(s, depth), dataAttrs: { "data-check": s.code } }))} />
     </div>
   );
 }
@@ -331,9 +331,10 @@ export const ProblemsPanel = memo(function ProblemsPanel({ context }: { context:
   const pending = checksPending(view);
   return (
     <section className={styles.panel} aria-label="Probleme">
-      <PanelHead title="Probleme" subtitle={countsText(counts)} />
+      {/* The dock tab says "Probleme": the head keeps the counts, and is left out while there are none. */}
+      {countsText(counts) !== "" && <PanelHead subtitle={countsText(counts)} />}
       <div className={styles.body}>
-        {checks !== null && <ChecksNotes checks={checks} />}
+        {checks !== null && <ChecksNotes checks={checks} depth={depth} />}
         {rows.length > 0 && checks !== null && <UncheckedNotice checks={checks} />}
         {rows.length === 0 && pending === "first" ? (
           <EmptyState what="Prüft das Projekt …" why="Die Befunde der Prüfungen erscheinen hier, sobald sie fertig sind." />

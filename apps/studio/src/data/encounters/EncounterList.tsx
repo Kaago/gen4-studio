@@ -89,7 +89,7 @@ function CreateDialog({ next, onClose, onCreated }: { next: number; onClose: () 
       open
       onOpenChange={(open) => !open && onClose()}
       title={`Begegnungsdatei ${id4(next)} anlegen?`}
-      description="Sie wird sofort angelegt und von keinem Ort verwendet; anbinden kann man sie im Header-Editor (Feld „Begegnungen“)."
+      description="Sie wird sofort angelegt und von keinem Ort verwendet; anbinden kann man sie im Inspector eines Gebiets oder Raums (Feld „Begegnungen“)."
       actions={[
         { label: "Abbrechen", onClick: onClose },
         { label: "Anlegen", kind: "primary", onClick: () => void create() },

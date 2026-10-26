@@ -369,6 +369,12 @@ pub struct HeaderSummary {
     /// In-game location name from the text archive (empty when the header's name index
     /// lies outside the archive).
     pub location_name: String,
+    /// Index of that name in the location text bank (0 is "no place"); the name alone cannot
+    /// tell two places of the same name apart.
+    pub location_index: u16,
+    /// HeartGold/SoulSilver `kanto_flag`: the header lies in Kanto (always `false` in DP and
+    /// Platinum).
+    pub kanto: bool,
     /// Kind of place the game treats the header as (Platinum and Diamond/Pearl
     /// `location_specifier`, HeartGold/SoulSilver `location_type`): 6 is the Underground.
     pub map_type: u8,
@@ -971,6 +977,9 @@ impl Project {
                         .get(location_name_index(header))
                         .cloned()
                         .unwrap_or_default(),
+                    // `location_name_index` is at most `u16::MAX` (the DP index is a `u16`).
+                    location_index: location_name_index(header) as u16,
+                    kanto: matches!(header, uxie::MapHeader::HGSS(h) if h.kanto_flag),
                     map_type: map_type(header),
                     matrix_id: header.matrix_id(),
                     area_data_id: header.area_data_id(),

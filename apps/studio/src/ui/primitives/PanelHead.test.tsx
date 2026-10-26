@@ -44,6 +44,12 @@ describe("PanelHead", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
+  it("shows_no_heading_without_a_title_but_keeps_subtitle_and_actions", () => {
+    act(() => root.render(<PanelHead subtitle="2 Fehler" actions={<button type="button">Neu</button>} />));
+    expect(container.querySelector("h2")).toBeNull();
+    expect(container.querySelector("header")?.textContent).toBe("2 FehlerNeu");
+  });
+
   it("with_a_switcher_the_heading_is_a_menu_button_naming_the_current_part", () => {
     act(() => root.render(<PanelHead title="Pokémon" switcher={switcher(() => {})} />));
     const button = container.querySelector<HTMLElement>("h2 button")!;

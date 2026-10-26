@@ -79,4 +79,35 @@ describe("ShellProvider theme and density", () => {
     act(() => shell.toggleDensity());
     expect(shell.density).toBe("komfort");
   });
+
+  it("reads_and_writes_world_sort_in_the_shell_state", () => {
+    expect(shell.state.worldSort).toEqual({ tree: "game", list: "id" });
+    act(() => shell.setWorldSort({ tree: "name" }));
+    expect(shell.state.worldSort).toEqual({ tree: "name", list: "id" });
+    act(() => shell.setWorldSort({ list: "code" }));
+    expect(shell.state.worldSort).toEqual({ tree: "name", list: "code" });
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).worldSort).toEqual({ tree: "name", list: "code" });
+  });
+
+  it("remembers_the_split_of_the_world_list_and_the_fold_of_the_places", () => {
+    expect([shell.state.worldListSplit, shell.state.placesFolded]).toEqual([0.5, false]);
+    act(() => shell.setWorldListSplit(0.9));
+    expect(shell.state.worldListSplit).toBe(0.8);
+    act(() => shell.setPlacesFolded(true));
+    expect(shell.state.placesFolded).toBe(true);
+    const stored = JSON.parse(localStorage.getItem("g4.shell.v1")!);
+    expect([stored.worldListSplit, stored.placesFolded]).toEqual([0.8, true]);
+    // Asking for what already is keeps the state.
+    const before = shell.state;
+    act(() => shell.setPlacesFolded(true));
+    act(() => shell.setWorldListSplit(0.8));
+    expect(shell.state).toBe(before);
+  });
+
+  it("remembers_the_toolbar_anchor", () => {
+    expect(shell.state.toolbar).toBe("left");
+    act(() => shell.setToolbar("bottom"));
+    expect(shell.state.toolbar).toBe("bottom");
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).toolbar).toBe("bottom");
+  });
 });

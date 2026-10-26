@@ -3,6 +3,13 @@ import { readCss, ruleBody } from "../../ui/cssSource";
 
 const css = readCss("./Editor.module.css", import.meta.url);
 
+describe("the inspector's frame", () => {
+  it("is_the_container_its_rows_ask_for_their_width", () => {
+    // `InspectorRow` puts the label above its control while this container is narrow (the Werkbank's inspector).
+    expect(ruleBody(css, ".panel")).toMatch(/container:\s*inspector\s*\/\s*inline-size/);
+  });
+});
+
 describe("a field with buttons next to it", () => {
   it("keeps a usable width and lets the buttons wrap instead of squeezing the control", () => {
     const grow = ruleBody(css, ".grow");

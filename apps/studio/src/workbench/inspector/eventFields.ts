@@ -1,6 +1,5 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
 import { KIND_LABELS, eventAt } from "../../world/events";
-import { KIND_SINGULAR } from "../context";
 import { TERMS } from "../terms";
 import type { EventData } from "../../world/events";
 import type { RecordBackend, RecordFields } from "./headerCommit";
@@ -85,11 +84,6 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
     case "bg":
       return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
-}
-
-/** "Figur 3 von 5 in Zweiblattdorf": the place of an event among those of its class, and where; `total` and `place` are left out while unknown. */
-export function eventSubtitle(kind: EventKind, index: number, total: number | null, place: string | null): string {
-  return `${KIND_SINGULAR[kind]} ${index + 1}${total === null ? "" : ` von ${total}`}${place ? ` in ${place}` : ""}`;
 }
 
 const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];

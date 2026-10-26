@@ -5,6 +5,12 @@ import type { ButtonProps } from "./Button";
 import { Icon } from "./Icon";
 import styles from "./Dialog.module.css";
 
+/**
+ * A modal dialog that is open: Base UI keeps a closing popup mounted (still `aria-modal`) for its exit transition and marks it
+ * `data-closed`; such a popup no longer covers the workbench, so a key right after Escape is the workbench's again.
+ */
+export const OPEN_MODAL = '[role="dialog"][aria-modal="true"]:not([data-closed])';
+
 export type DialogAction = { label: string; kind?: ButtonProps["kind"]; onClick: () => void };
 
 export type DialogProps = {

@@ -1,12 +1,11 @@
 import { MAP_SIZE } from "../layout";
-import { headerLabel } from "../../workbench/headers";
 import type { WarpDto } from "../../api";
 import { describeTile } from "../hover";
 import type { Picker } from "./picking";
 import type { SceneHost } from "./SceneHost";
 import type { SceneRefs } from "./types";
 
-/** The pointer-follows-inspector part of the scene: what is under the pointer is reported through `onInspect`. */
+/** The hover part of the scene: what is under the pointer is reported through `onInspect` (the status line names it). */
 export interface PointerHover {
   /** Starts listening for the pointer on the canvas; the returned function stops it (and drops a queued frame). */
   attach(): () => void;
@@ -16,8 +15,8 @@ export interface PointerHover {
 
 /**
  * Hover: the latest pointer position is resolved at most once per animation frame. A marker under
- * the pointer wins over the tile below it. While `busy()` (something is dragged) the inspector
- * keeps showing what it shows; the end of the drag looks again (through `refresh`).
+ * the pointer wins over the tile below it. While `busy()` (something is dragged) the hover keeps
+ * what it reported; the end of the drag looks again (through `refresh`).
  */
 export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy: () => boolean): PointerHover {
   let pointer: { x: number; y: number } | null = null;
@@ -25,7 +24,7 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
   let shown = "";
   const showHover = () => {
     frame = 0;
-    // While something is dragged the inspector keeps showing it; the end of the drag looks again.
+    // While something is dragged the reported hover stays; the end of the drag looks again.
     if (busy()) return;
     // A marker under the pointer wins over the tile below it.
     const marker = pointer ? picker.markerAt(pointer.x, pointer.y) : null;
@@ -33,9 +32,7 @@ export function createHover(h: SceneHost, picker: Picker, refs: SceneRefs, busy:
       const key = `event:${marker.kind}:${marker.data.index}`;
       if (key === shown) return;
       shown = key;
-      const destId = marker.kind === "warp" ? (marker.data as WarpDto).dest_header_id : null;
-      const destHeader = destId === null ? undefined : refs.headers.current.find((x) => x.id === destId);
-      const destName = destHeader && headerLabel(destHeader);
+      const destName = marker.kind === "warp" ? refs.destName.current((marker.data as WarpDto).dest_header_id) : undefined;
       refs.callbacks.current.onInspect({ kind: "eventHover", eventFile: h.events?.event_file_id ?? 0, eventKind: marker.kind, index: marker.data.index, data: marker.data, destName });
       return;
     }

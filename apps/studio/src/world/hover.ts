@@ -1,4 +1,5 @@
 import type { TileBehavior } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 
 /** What the hover shows about one tile: raw bytes plus the decomp's behaviour name and class (null when unnamed). */
 export interface TileInfo {
@@ -24,9 +25,18 @@ export function describeTile(cell: [number, number], names: Map<number, TileBeha
   };
 }
 
-/** One-line inspector text: "Karte 0187 · Kachel x 8, y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert". */
-export function tileSummary(map: number, x: number, y: number, info: TileInfo): string {
+/** The plain word of a behaviour class that says what the tile is to walk on; the others (a warp, a door, ...) have none. */
+const CLASS_WORDS: Record<string, string> = { grass: "hohes Gras", water: "Wasser", ledge: "Vorsprung", ice: "Eis" };
+
+/**
+ * One-line status text. Tüfteln: "Karte 0187 · Kachel x 8, y 4 · Typ 0x5E WARP_STAIRS_EAST · blockiert"; Bauen leaves out the type
+ * and the ROM constant and puts the tile first: "Kachel x 8, y 4 · Karte 0187 · blockiert" (or "begehbar", "hohes Gras" ...).
+ */
+export function tileSummary(map: number, x: number, y: number, info: TileInfo, depth: Depth): string {
+  const where = `Karte ${String(map).padStart(4, "0")}`;
+  const tile = `Kachel x ${x}, y ${y}`;
+  if (depth !== "tuefteln") return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar")].join(" · ");
   const hex = `0x${info.kind.toString(16).toUpperCase().padStart(2, "0")}`;
   const type = info.name === null ? hex : `${hex} ${info.name}`;
-  return [`Karte ${String(map).padStart(4, "0")}`, `Kachel x ${x}, y ${y}`, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar"].join(" · ");
+  return [where, tile, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar"].join(" · ");
 }

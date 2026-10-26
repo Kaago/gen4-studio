@@ -142,6 +142,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("agent_answer", APP_ONLY),
     ("agent_disconnect", APP_ONLY),
     ("agent_set_read_only", APP_ONLY),
+    ("world_meta_get", Kind::Read),
+    ("world_meta_set", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.

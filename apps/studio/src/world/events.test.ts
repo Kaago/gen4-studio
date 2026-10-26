@@ -29,28 +29,38 @@ describe("event texts", () => {
   const warp = { index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0 };
 
   it("names a warp with its destination header and internal name", () => {
-    expect(eventTitle("warp", warp, "T01R0201")).toBe("Warp 0 → Header 0414 (T01R0201)");
-    expect(eventTitle("warp", warp)).toBe("Warp 0 → Header 0414");
+    expect(eventTitle("warp", warp, "tuefteln", "T01R0201")).toBe("Warp 0 → Header 0414 (T01R0201)");
+    expect(eventTitle("warp", warp, "tuefteln")).toBe("Warp 0 → Header 0414");
     expect(eventDetails("warp", warp)).toBe("Position x 8, z 4 · Ziel-Warp 1 · Höhe 0");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    // Bauen gets the name the world tree gives the destination, and writes it alone.
+    expect(eventTitle("warp", warp, "bauen", "Haus 2")).toBe("Warp 0 → Haus 2");
+    expect(eventTitle("warp", warp, "bauen")).toBe("Warp 0 → Ort 0414");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    expect(eventTitle("warp", warp, "tuefteln", "T01R0201")).toBe("Warp 0 → Header 0414 (T01R0201)");
   });
 
   it("describes objects, triggers and background events", () => {
     const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, dir: 1, trainer_type: 0, sight: 0, x: 12, z: 13, y: -1 };
-    expect(eventTitle("object", object)).toBe("Objekt 2 · ID 7");
+    expect(eventTitle("object", object, "bauen")).toBe("Objekt 2 · ID 7");
     expect(eventDetails("object", object)).toBe("Position x 12, z 13, y -1 · Grafik 9 · Bewegung 3 · Script 2001");
     const coord = { index: 1, script: 9000, x: 3, z: 5, width: 2, length: 1 };
-    expect(eventTitle("coord", coord)).toBe("Trigger 1 · Script 9000");
+    expect(eventTitle("coord", coord, "bauen")).toBe("Trigger 1 · Script 9000");
     expect(eventDetails("coord", coord)).toBe("Position x 3, z 5 · Größe 2 × 1");
     const bg = { index: 0, script: 100, event_type: 1, x: 20, z: 21, y: 0 };
-    expect(eventTitle("bg", bg)).toBe("Hintergrund-Event 0 · Script 100");
+    expect(eventTitle("bg", bg, "bauen")).toBe("Hintergrund-Event 0 · Script 100");
     expect(eventDetails("bg", bg)).toBe("Position x 20, z 21, y 0 · Typ 1");
   });
 });
 
 describe("warpDestinationLabel", () => {
   const hs = [
-    { id: 414, internal_name: "T01R0201", location_name: "Zweiblattdorf", matrix_id: 126, area_data_id: 20, event_file_id: 1, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
-    { id: 7, internal_name: "D99", location_name: "", matrix_id: 1, area_data_id: 1, event_file_id: 2, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
+    { id: 414, internal_name: "T01R0201", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 126, area_data_id: 20, event_file_id: 1, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
+    { id: 7, internal_name: "D99", location_index: 0, kanto: false, location_name: "", matrix_id: 1, area_data_id: 1, event_file_id: 2, text_archive_id: 0, script_file_id: 0, level_script_id: 0 },
   ];
 
   it("labels warp destinations and flags unknown headers", () => {

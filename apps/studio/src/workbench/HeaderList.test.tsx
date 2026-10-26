@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary } from "../api";
-import type { Depth } from "../ui/frame/shellState";
+import type { Depth, ListSort } from "../ui/frame/shellState";
 import { HeaderList } from "./HeaderList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,6 +52,7 @@ describe("HeaderList", () => {
     shownMatrix: null,
     revealToken: 0,
     depth: "bauen" as Depth,
+    sort: "id" as ListSort,
     onSelect: () => {},
     ...over,
   });
@@ -82,13 +83,50 @@ describe("HeaderList", () => {
     expect(reads() - before).toBe(headers.filter((h) => h.matrix_id === 2).length * perRow);
   });
 
-  it("leaves_the_id_and_the_internal_name_to_the_tooltip_in_bauen", () => {
+  it("shows_the_number_and_the_code_as_the_grey_part_in_bauen_so_rows_of_one_place_differ", () => {
+    // Eight rooms of one place all read "Zweiblattdorf": the number and the code tell them apart (Bauen speaks of a number, not a header).
     const { headers } = countedHeaders(2);
     act(() => root.render(<HeaderList {...props(headers)} />));
     const row = container.querySelector<HTMLElement>('[data-header-id="1"]')!;
-    expect(row.textContent).toBe("Ort 1M1");
-    expect(row.getAttribute("title")).toContain("Header 0001");
-    expect(row.getAttribute("title")).toContain("H1");
+    expect(row.textContent).toBe("Ort 10001 · H1");
+    expect(row.getAttribute("title")).toBe("Ort 1 · Nummer 0001 · H1");
+  });
+
+  it("names_its_search_and_list_without_header_in_bauen", () => {
+    const { headers } = countedHeaders(2);
+    act(() => root.render(<HeaderList {...props(headers)} />));
+    expect(container.querySelector('input[aria-label="Orte suchen"]')).not.toBeNull();
+    expect(container.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Orte");
+    act(() => root.render(<HeaderList {...props(headers, { depth: "tuefteln" })} />));
+    expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
+    expect(container.querySelector('[role="listbox"]')?.getAttribute("aria-label")).toBe("Header");
+  });
+
+  it("shows_no_matrix_tag_in_building", () => {
+    const { headers } = countedHeaders(3);
+    act(() => root.render(<HeaderList {...props(headers, { info: { root: "/p", game_code: "CPUE", family: "Pt", language: "de", header_count: 3 }, shownMatrix: 1 })} />));
+    expect(container.textContent).not.toMatch(/Header|Matrix|Raster|M1\b/);
+    expect([...container.querySelectorAll("[title]")].map((e) => e.getAttribute("title")).join(" ")).not.toMatch(/Header|Matrix|Raster/);
+    expect(container.textContent).toContain("3 Orte");
+    act(() => root.render(<HeaderList {...props(headers, { depth: "tuefteln" })} />));
+    expect(container.querySelector('[data-header-id="1"]')?.textContent).toBe("Ort 10001 · H1M1");
+  });
+
+  it("sorts_by_number_name_and_code", () => {
+    const listed = [
+      { id: 0, internal_name: "T10", location_name: "Route 10", matrix_id: 0 },
+      { id: 1, internal_name: "R02", location_name: "Äther", matrix_id: 0 },
+      { id: 2, internal_name: "A01", location_name: "Route 2", matrix_id: 0 },
+      { id: 3, internal_name: "B01", location_name: "", matrix_id: 0 },
+    ] as HeaderSummary[];
+    const order = () => [...container.querySelectorAll("[role=option]")].map((o) => o.getAttribute("data-header-id"));
+    act(() => root.render(<HeaderList {...props(listed)} />));
+    expect(order()).toEqual(["0", "1", "2", "3"]);
+    // By the name the row shows: a header without a place by its code.
+    act(() => root.render(<HeaderList {...props(listed, { sort: "name" })} />));
+    expect(order()).toEqual(["1", "3", "2", "0"]);
+    act(() => root.render(<HeaderList {...props(listed, { sort: "code" })} />));
+    expect(order()).toEqual(["2", "3", "1", "0"]);
   });
 
   it("names a row by its location name, with the id and the internal name as its grey part, and marks it for the shown matrix", () => {

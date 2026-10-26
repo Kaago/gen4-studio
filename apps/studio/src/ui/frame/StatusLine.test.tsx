@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { f6Targets } from "../../app/useF6Ring";
 import { StatusLine } from "./StatusLine";
 import type { StatusLineProps } from "./StatusLine";
 
@@ -40,6 +41,16 @@ describe("StatusLine", () => {
     expect(probe.nextElementSibling?.textContent).toBe("Noch nicht gebaut");
     show(props());
     expect(container.querySelector("[data-probe]")).toBeNull();
+  });
+
+  it("is_the_last_stop_of_the_f6_round_as_its_footer", () => {
+    const footer = document.createElement("footer");
+    container.append(footer);
+    const lineRoot = createRoot(footer);
+    act(() => lineRoot.render(<StatusLine {...props()} />));
+    expect(footer.querySelector("[data-status-line]")).not.toBeNull();
+    expect(f6Targets(document, "start").slice(-1)).toEqual([footer]);
+    act(() => lineRoot.unmount());
   });
 
   it("names_the_browser_mode_and_a_missing_bridge_and_stays_silent_in_the_app", () => {

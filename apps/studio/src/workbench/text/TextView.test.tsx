@@ -38,6 +38,13 @@ describe("TextView", () => {
     expect(view().querySelector("[data-map-picture]")).not.toBeNull();
   });
 
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await h.open433();
+    // The dock tab says "Vorschau"; the head names the message shown.
+    expect([...view().querySelectorAll("h2")].map((t) => t.textContent)).toEqual(["Nachricht 000"]);
+    expect([...h.container.querySelectorAll("h2")].map((t) => t.textContent)).not.toContain("Vorschau");
+  });
+
   it("lists the pages as cards with the characters of each line, and a card click shows its page", async () => {
     await h.open433();
     expect(cards().map((c) => c.querySelector("[data-page-title]")?.textContent)).toEqual(["Seite 1", "Seite 2", "Seite 3"]);

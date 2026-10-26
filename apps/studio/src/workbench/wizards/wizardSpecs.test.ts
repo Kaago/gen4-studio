@@ -3,7 +3,7 @@ import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomRep
 import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 
-const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const headers = [header(0, "ZERO"), header(1, "NOTHING"), header(2, "TWO", 5, 7, 9)];
 
 const form = (change: Partial<AreaForm> = {}): AreaForm => ({ ...emptyAreaForm, sourceMatrix: 0, ...change });
@@ -221,7 +221,7 @@ describe("areaResult", () => {
     expect(lines.join("\n")).toContain("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0055");
     const created = { ...spec, header: { id: 593, area_data_id: null, event_file: "New" as const, new_header: { template: 342, internal_name: "R231" } } };
     expect(areaResult({ ...report, header: 593 }, created).lines).toContain("Neuer Header 0593 „R231“ (Kopie von 0342) zeigt jetzt auf Raster 0131, Eventdatei 0055.");
-    expect(next).toEqual(["Mit der Welt verbinden: Header-Editor › Eingänge / Ausgänge › Warp hinzufügen (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
+    expect(next).toEqual(["Mit der Welt verbinden: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“ (Ziel im Event-Editor wählen)", "Karten prüfen: Raster-Tab"]);
   });
 
   it("uses_the_singular_and_leaves_out_a_header_that_was_not_assigned", () => {
@@ -456,6 +456,8 @@ describe("roomResult", () => {
     expect(lines[1]).toBe("Header 0001 zeigt jetzt auf Raster 0131, Eventdatei 0020.");
     expect(lines[2]).toBe("Eingang: Warp 3 in Header 0411, Rückweg: Warp 0 im neuen Raum.");
     expect(next[0]).toContain("Emulator");
+    // Figures and triggers come from the tools and the „+“ of „In dieser Szene“ since 3e.3, not from a header editor.
+    expect(next[1]).toBe("Innenraum einrichten: Figuren, Auslöser und Schilder mit den Werkzeugen oder „+“ in „In dieser Szene“");
   });
 
   it("calls_a_created_header_new_and_names_the_door_tiles_and_the_reused_warp", () => {
@@ -466,10 +468,11 @@ describe("roomResult", () => {
     expect(lines[3]).toBe("Tür-Kachel gesetzt: Karte 0187, Kachel x 8, z 4 innerhalb der Karte.");
   });
 
-  it("points_to_the_exits_section_when_no_entrance_was_made", () => {
+  it("points_to_the_door_tool_when_no_entrance_was_made", () => {
     const { lines, next } = roomResult({ ...report, outside_warp: null, inside_warp: null }, { ...spec, entrance: null });
     expect(lines).toHaveLength(2);
-    expect(next[0]).toContain("Ausgänge");
+    expect(next[0]).toBe("Eingang verbinden: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“");
+    expect(next[0]).not.toMatch(/Ausgänge|Warp hinzufügen/);
   });
 });
 
@@ -504,7 +507,7 @@ describe("isLateFailure", () => {
 });
 
 describe("previewArea", () => {
-  const h = (id: number, area_data_id: number) => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+  const h = (id: number, area_data_id: number) => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: "", matrix_id: 0, area_data_id, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
   const headers = [h(1, 4), h(2, 9)];
   it("prefers_the_forms_area_then_the_chosen_header_then_the_source", () => {
     expect(previewArea({ areaDataId: 7, header: 1 }, headers, h(2, 9))).toBe(7);

@@ -1,16 +1,32 @@
-import type { HeaderSummary } from "../api";
-import type { InspectorModel } from "../workbench/Inspector";
+import type { HeaderSummary, WarpDto } from "../api";
+import type { Depth } from "../ui/frame/shellState";
+import { KIND_SINGULAR } from "../workbench/context";
+import type { InspectorModel, SceneHover } from "../workbench/Inspector";
+import { id4, termFor } from "../workbench/terms";
+import { eventTitle } from "../world/events";
 import { tileSummary } from "../world/hover";
 
 /**
- * The middle of the status line: the tile under the pointer, else where the user is ("Zweiblattdorf, Raster 0, Zelle 3, 27").
- * Empty when no header is selected.
+ * The marker under the pointer: a door with where it leads, named as the world tree names it ("Tür 1 → Haus des Rivalen", with the
+ * number the inspector's title gives the warp), any other event by its title.
  */
-export function statusContext(shown: InspectorModel, header: HeaderSummary | undefined): string {
-  if (shown.kind === "tile") return tileSummary(shown.map, shown.x, shown.y, shown.info);
+function markerSummary(hover: Extract<SceneHover, { kind: "eventHover" }>, depth: Depth): string {
+  if (hover.eventKind !== "warp") return eventTitle(hover.eventKind, hover.data, depth);
+  const dest = hover.destName || `${termFor("header", depth)} ${id4((hover.data as WarpDto).dest_header_id)}`;
+  return `${KIND_SINGULAR.warp} ${hover.index} → ${dest}`;
+}
+
+/**
+ * The middle of the status line: the tile or marker under the pointer, else where the user is ("Zweiblattdorf, Zelle 3, 27";
+ * Tüfteln adds the matrix: "Zweiblattdorf, Raster 0, Zelle 3, 27"). Empty when nothing is hovered and no header is selected.
+ */
+export function statusContext(pinned: InspectorModel, hover: SceneHover | null, header: HeaderSummary | undefined, depth: Depth): string {
+  if (hover?.kind === "tile") return tileSummary(hover.map, hover.x, hover.y, hover.info, depth);
+  if (hover?.kind === "eventHover") return markerSummary(hover, depth);
   if (!header) return "";
-  const parts = [header.location_name || header.internal_name, `Raster ${header.matrix_id}`];
-  if (shown.kind === "matrixCell") parts.push(`Zelle ${shown.x}, ${shown.y}`);
+  const parts = [header.location_name || header.internal_name];
+  if (depth === "tuefteln") parts.push(`Raster ${header.matrix_id}`);
+  if (pinned.kind === "matrixCell") parts.push(`Zelle ${pinned.x}, ${pinned.y}`);
   return parts.join(", ");
 }
 

@@ -48,7 +48,7 @@ export function ChecksSection({ findings, checks, depth = "bauen" }: { findings:
           <CheckList ariaLabel="Prüfungen" rows={findings.map((f) => findingRow(f, depth, <FindingActions f={f} checks={checks} onFix={setFixing} open={false} />))} />
         </div>
       </Section>
-      {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} onClose={() => setFixing(null)} />}
+      {fixing !== null && checks !== null && <FixDialog finding={fixing} checks={checks} depth={depth} onClose={() => setFixing(null)} />}
     </>
   );
 }

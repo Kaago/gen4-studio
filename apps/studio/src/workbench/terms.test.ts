@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TERMS, id4, techLabel } from "./terms";
+import { TERMS, id4, techLabel, termFor } from "./terms";
 
 describe("terms", () => {
   it("writes ids with four digits and the technical name", () => {
@@ -14,6 +14,33 @@ describe("terms", () => {
     expect(TERMS.header.tech).toBe("MapHeader");
     expect(TERMS.map.tech).toBe("MapFile");
     expect(TERMS.outside.short).toContain("Region");
+  });
+
+  it("names_world_maps_areas_rooms_places_and_the_landscape", () => {
+    expect(TERMS.worldMap).toMatchObject({ label: "Weltkarte", plural: "Weltkarten" });
+    expect(TERMS.area).toMatchObject({ label: "Gebiet", plural: "Gebiete" });
+    expect(TERMS.landscape.label).toBe("Landschaft");
+    expect(TERMS.place.short).toMatch(/^Der Name, den das Spiel beim Betreten zeigt/);
+    expect(TERMS.room.short).toContain("Eingang");
+    expect(TERMS.matrix.short).toContain("Nur in Tüfteln");
+    expect(TERMS.header.short).toContain("Nur in Tüfteln");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    expect(termFor("header", "bauen", "area")).toBe("Gebiet");
+    expect(termFor("header", "bauen", "room")).toBe("Raum");
+    expect(termFor("header", "bauen")).toBe("Ort");
+    expect(termFor("matrix", "bauen")).toBe("Weltkarte");
+    // The words Bauen explains with: the game's, not the ROM's.
+    for (const key of ["worldMap", "area", "room", "place", "landscape", "map", "warp"] as const) {
+      expect(`${TERMS[key].label} ${TERMS[key].plural} ${TERMS[key].short}`).not.toMatch(/Raster|Matrix|Header/);
+    }
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    expect(termFor("header", "tuefteln", "area")).toBe("Header");
+    expect(termFor("header", "tuefteln")).toBe("Header");
+    expect(termFor("matrix", "tuefteln")).toBe("Matrix");
   });
 
   it("names the text archive and its message", () => {

@@ -115,7 +115,7 @@ export function roomLinks(place: Place, headers: readonly HeaderSummary[], links
 /** The paired warp of `exit` and the cell it lies in, or the reason there is none. */
 function entrance(exit: WarpLink, index: RoomLinkIndex, region: MatrixDto): { cell: { x: number; y: number }; paired: WarpLink } | string {
   const target = index.byId.get(exit.dest_header_id);
-  if (!target || target.matrix_id !== region.index) return "Ziel ist kein Außen-Header";
+  if (!target || target.matrix_id !== region.index) return "Ziel liegt nicht auf der Weltkarte";
   const paired = index.byWarp.get(warpKey(target.event_file_id, exit.dest_warp_id));
   if (!paired) return "Ziel-Warp fehlt";
   const cell = { x: Math.floor(paired.x / MAP_TILES), y: Math.floor(paired.z / MAP_TILES) };

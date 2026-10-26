@@ -6,15 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, resolveScript, updateEvent } from "../../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-const header = (id: number, event: number, script: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0, script_file_id: script, level_script_id: 0 });
+const header = (id: number, event: number, script: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0, script_file_id: script, level_script_id: 0 });
 const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
 const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
 
@@ -167,11 +169,26 @@ describe("EventEditor scripts", () => {
     expect(container.textContent).toContain("Ungespeichert");
   });
 
-  it("names_the_event_by_its_title_and_its_place_among_the_events_of_its_class", async () => {
+  it("names_the_event_by_its_kind_its_title_and_its_number_in_the_event_file", async () => {
     await show();
+    expect(container.querySelector("header[data-inspector-kind='figure'] [data-eyebrow]")?.textContent).toBe("Figur");
     expect(container.querySelector("h2")?.textContent).toBe("Objekt 2 · ID 1");
-    // Header 9 is the selected one of the two that use event file 8.
-    expect(container.textContent).toContain("Figur 3 von 3 in H9");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Objekt 2 · Eventdatei 0008");
+    // The other classes have their own words.
+    vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 }] }));
+    await show(context(), "warp", 0);
+    expect(container.querySelector("header[data-inspector-kind='door'] [data-eyebrow]")?.textContent).toBe("Tür");
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Warp 0 · Eventdatei 0008");
+  });
+
+  it("deletes_from_the_head_menu", async () => {
+    const onDelete = vi.fn();
+    await show(context({ onDelete }));
+    // „Löschen“ is no button in the form any more: it is the head's action, with its key.
+    expect(button("Löschen")).toBeUndefined();
+    expect(headActions(container)).toEqual(["LöschenEntf"]);
+    chooseAction(container, "Löschen");
+    expect(onDelete).toHaveBeenCalledWith(8, "object", 2);
   });
 
   it("changes_the_facing_through_a_select_and_writes_only_that_field", async () => {
@@ -202,7 +219,8 @@ describe("EventEditor scripts", () => {
     expect(container.textContent).toContain("schreibgeschützt: uses common data");
     expect(field("x (Kachel)").disabled).toBe(true);
     expect(select("Blickrichtung").hasAttribute("data-disabled") || select("Blickrichtung").getAttribute("aria-disabled") === "true").toBe(true);
-    expect((button("Löschen") as HTMLButtonElement).disabled).toBe(true);
+    const remove = headAction(container, "Löschen");
+    expect(remove?.getAttribute("aria-disabled") === "true" || remove?.hasAttribute("data-disabled")).toBe(true);
   });
 
   describe("a warp", () => {
@@ -213,20 +231,56 @@ describe("EventEditor scripts", () => {
       const goTo = vi.fn();
       withWarp(1);
       await show(context({ goTo }), "warp", 0);
-      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Ort 0001");
       await click(button("H10001 · H1"));
       expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
+    });
+
+    it("names_the_destination_in_the_head_as_the_world_tree_does_in_building", async () => {
+      // The row in „In dieser Szene“ says „Warp 0 → Haus 1“: the head says the same, not the code of the header.
+      withWarp(1);
+      const identify = (h: HeaderSummary) => ({ kind: "room" as const, name: h.id === 1 ? "Haus 1" : `Raum ${h.id}`, place: "Zweiblattdorf" });
+      await show(context({ identify }), "warp", 0);
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Haus 1");
+      await show(context({ identify }), "warp", 0, "tuefteln");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
     });
 
     it("picks_another_destination_header_in_the_picker_by_number", async () => {
       withWarp(1);
       await show(context(), "warp", 0);
-      await click(container.querySelector("button[aria-label='Zielheader ändern…']") ?? undefined);
+      await click(container.querySelector("button[aria-label='Ziel ändern…']") ?? undefined);
       typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0009");
       expect(options().map((o) => o.textContent)).toEqual(["H90009"]);
       await click(options()[0]);
       await flush();
       expect(updateEvent).toHaveBeenCalledWith(8, "warp", 0, { dest_header_id: 9 });
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0);
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+      // The figure the Gate selects.
+      vi.mocked(getEvents).mockImplementation(async () => events());
+      await show();
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    });
+
+    it("keeps_the_technical_words_in_tinkering", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0, "tuefteln");
+      expect(container.querySelector("h2")?.textContent).toBe("Warp 0 → Header 0001 (H1)");
+      await click(container.querySelector("button[aria-label='Zielheader ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Zielheader wählen");
+    });
+
+    it("names_the_destination_ziel_in_building", async () => {
+      withWarp(1);
+      await show(context(), "warp", 0);
+      await click(container.querySelector("button[aria-label='Ziel ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Ziel wählen");
+      expect(document.querySelector("[role=dialog]")?.textContent).not.toContain("Zielheader");
     });
 
     it("says_a_door_to_a_header_that_does_not_exist_leads_nowhere_and_how_to_fix_it", async () => {
@@ -260,6 +314,12 @@ describe("EventEditor scripts", () => {
       expect(trainerChip()?.getAttribute("data-trainer")).toBe("356");
       await click(trainerChip()!);
       expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 356 });
+    });
+
+    it("names_a_trainer_figure_in_the_head_as_the_scene_hierarchy_does", async () => {
+      withObject({ script: 3927, trainer_type: 1, sight: 3 });
+      await show(context({ trainers }), "object", 0);
+      expect(container.querySelector("h2")?.textContent).toBe("Objekt 0 · Wanderer Jens");
     });
 
     it("says_kein_Trainer_for_a_script_outside_3000_to_4999", async () => {

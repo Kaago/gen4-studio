@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { DataRowDto, ProjectInfo } from "../api";
 import { headerMarks } from "../checks/FindingMark";
 import { useStableCallback } from "../app/useStable";
-import { useBusRevision } from "../bus/useBusEvent";
+import { useBusEvent, useBusRevision } from "../bus/useBusEvent";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "../data/PokemonArea";
 import type { DataArea } from "../data/dataModel";
@@ -12,21 +12,19 @@ import type { DataAreaProps } from "../data/useDataArea";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
 import { EmptyState } from "../ui/primitives";
-import { lockedText } from "../world/events";
 import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
 import { thumbnails } from "../world/thumbnailStore";
-import { ContextPanel } from "./ContextPanel";
 import { Inspector } from "./Inspector";
 import { findingsFor } from "./inspector/ChecksSection";
 import type { Crumb } from "./breadcrumb";
-import type { DeckArea, DeckId } from "./layout";
+import type { DeckArea } from "./layout";
 import { withHeaderHint } from "./navigation";
 import type { DataNav, NavTarget } from "./navigation";
 import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
-import { SceneBar } from "./SceneBar";
+import { SceneOverlays } from "./SceneOverlays";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import { isFinding } from "./problems/problems";
@@ -40,22 +38,30 @@ import { TextView } from "./text/TextView";
 import styles from "./panels.module.css";
 import { useEvents } from "./useEvents";
 import { useThumbnailReset, useThumbnailToolReport } from "./useThumbnailReset";
-import { ToolsPanel } from "./ToolsPanel";
-import { WorldExplorer } from "./WorldExplorer";
+import { inspectorOfScene, sceneRefOf } from "./sceneModel";
+import type { SceneGroup, SceneRef } from "./sceneModel";
+import { eventToolsBlocked } from "./tools";
+import { WorldList } from "./WorldList";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useWorkbench } from "./WorkbenchContext";
+import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
+import { useWorldActions } from "./RoomActions";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
 
-/** The explorer: no dock panel but the shell's list column; whether it is folded is the shell's state of the world area. */
+/**
+ * The list „Welt“: no dock panel but the shell's list column, whether it is folded is the shell's state of the world area. Above, the
+ * places (the world tree); below, „In dieser Szene“, fed with what the shown scene holds: its events (read again when they moved), the
+ * buildings the scene reports, the trainers its figures fight as, the lock, the checks' marks. A row selects as a click in the scene
+ * does; a link to the doors (`sceneGroup` on the bus) opens the list and focuses them.
+ */
 export function ExplorerPane() {
   const d = useWorkbench();
-  const { state, setListOpen } = useShell();
+  const { state, setListOpen, setWorldSort } = useShell();
   const listOpen = state.listOpen.welt;
   const onToggleList = useStableCallback(() => setListOpen("welt", !listOpen));
   // Counts the links that lead to a header: the list scrolls to the selection again, also when it was selected already.
@@ -66,24 +72,96 @@ export function ExplorerPane() {
   // A header the checks found an error or warning at (its own, or of its event file) is marked.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const marks = useMemo(() => headerMarks(rows, d.headers), [rows, d.headers]);
+  const faultyEvents = useFaultyEvents(rows);
+  // The world model, built once for the workbench (see `WorkbenchWorld`).
+  const { world, meta, setMeta, identify } = useWorld();
+  const { onRename, onOwner } = useWorldActions(meta, setMeta);
+
+  // The events of the shown scene, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
+  // failed read already; here it only ends the "Lade …".
+  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
+  const [failedFile, setFailedFile] = useState<number | null>(null);
+  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
+  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
+  const { dataStore, info, headers, selected, onPin, onOpenWizard } = d;
+  // Trainer figures are named by class and name: the trainer rows are read once the scene has one.
+  const hasTrainers = events?.objects.some((o) => trainerOfScript(o.script) !== null) ?? false;
+  useEffect(() => {
+    if (hasTrainers && namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [hasTrainers, info, dataStore]);
+  const trainers = useTrainerRows(dataStore, info);
+  const header = useMemo(() => headers.find((h) => h.id === selected) ?? null, [headers, selected]);
+  // The selected row is the inspector's selection, the one the scene shows with its halo.
+  const inspector = useInspectorModel();
+  const sceneSelected = useMemo(() => sceneRefOf(inspector), [inspector]);
+  const onSceneSelect = useCallback(
+    (ref: SceneRef) => {
+      const model = inspectorOfScene(ref);
+      if (model) onPin(model);
+    },
+    [onPin],
+  );
+  const onFollow = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  const onConnectRoom = useCallback(() => {
+    if (selected !== null) onOpenWizard({ kind: "room", prefill: { outsideHeader: selected } });
+  }, [selected, onOpenWizard]);
+  // A link to the doors (the header editor's line) opens a folded list and focuses the group.
+  const [focusGroup, setFocusGroup] = useState<{ group: SceneGroup; token: number } | undefined>(undefined);
+  useBusEvent(d.bus, "sceneGroup", (event) => {
+    if (event.topic !== "sceneGroup") return;
+    setListOpen("welt", true);
+    setFocusGroup((previous) => ({ group: event.group, token: (previous?.token ?? 0) + 1 }));
+  });
+
   return (
-    <WorldExplorer
-      info={d.info}
-      headers={d.headers}
-      matrices={d.matrices}
+    <WorldList
+      info={info}
+      headers={headers}
+      world={world}
+      identify={identify}
       matricesLoaded={d.matricesLoaded}
       matricesFailed={d.matricesFailed}
-      selected={d.selected}
+      selected={selected}
       shownMatrix={d.matrix?.index ?? null}
       revealToken={revealToken}
       depth={d.depth}
       onSelect={d.onSelect}
-      onOpenWizard={d.onOpenWizard}
+      onOpenWizard={onOpenWizard}
       scriptsAdopted={d.scripts.status?.adopted === true}
       onOpenScript={onOpenScript}
       listOpen={listOpen}
       onToggleList={onToggleList}
       marks={marks}
+      sort={state.worldSort}
+      onSort={setWorldSort}
+      onRename={onRename}
+      onOwner={onOwner}
+      scene={{
+        header,
+        headers,
+        matrix: d.matrix,
+        events,
+        buildings: d.buildings,
+        trainers,
+        depth: d.depth,
+        identify,
+        selected: sceneSelected,
+        marks,
+        faultyEvents,
+        locked: events?.locked ?? null,
+        loading,
+        onSelect: onSceneSelect,
+        onFollow,
+        onOpenScript,
+        onTool: d.onTool,
+        toolsBlocked: eventToolsBlocked(d.eventLock, d.eventFileId),
+        onConnectRoom,
+        onBack: d.sceneBack,
+        onForward: d.sceneForward,
+        canBack: d.canBack,
+        canForward: d.canForward,
+        focusGroup,
+      }}
     />
   );
 }
@@ -111,6 +189,16 @@ export function WorldPanel() {
   const first = d.headers[0];
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const faultyEvents = useFaultyEvents(rows);
+  // The door under the pointer names where it leads as the world tree does.
+  const { identify } = useWorld();
+  const { headers } = d;
+  const destName = useCallback(
+    (id: number) => {
+      const header = headers.find((h) => h.id === id);
+      return header && identify(header).name;
+    },
+    [headers, identify],
+  );
   if (!d.matrix) {
     return (
       <div className={styles.empty}>
@@ -130,7 +218,7 @@ export function WorldPanel() {
         showPermissions={d.showPermissions}
         eventFileId={d.eventFileId}
         showEvents={d.showEvents}
-        headers={d.headers}
+        destName={destName}
         paintEnabled={d.paintEnabled}
         tool={d.tool}
         onTileClick={d.onTileClick}
@@ -151,11 +239,9 @@ export function WorldPanel() {
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}
       />
-      <SceneBar
-        showPermissions={d.showPermissions}
-        showEvents={d.showEvents}
-        onShowPermissions={d.onShowPermissions}
-        onShowEvents={d.onShowEvents}
+      {/* The layer bar and the toolbar; they read the shell themselves, so moving the toolbar does not render the scene. */}
+      <SceneOverlays
+        layers={{ showPermissions: d.showPermissions, showEvents: d.showEvents, onShowPermissions: d.onShowPermissions, onShowEvents: d.onShowEvents }}
       />
       <Legend />
     </div>
@@ -200,11 +286,11 @@ export function WorldMapTab() {
   const d = useWorkbench();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
-    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus],
+    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus, depth }),
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth],
   );
   return <WorldMapPanel context={context} />;
 }
@@ -229,14 +315,6 @@ export function ProblemsTab() {
   return <ProblemsPanel context={context} />;
 }
 
-export function ToolsTab() {
-  const { tool, onTool, eventFileId, eventLock } = useWorkbench();
-  const { density } = useShell();
-  // The four event tools wait for a shown place and an event file that may be written.
-  const eventsBlocked = eventLock ? lockedText(eventLock.reason) : eventFileId === null ? "Erst einen Ort wählen." : null;
-  return <ToolsPanel tool={tool} onTool={onTool} eventsBlocked={eventsBlocked} density={density} />;
-}
-
 /**
  * The trainer rows of `project` as the data store holds them (null while they are not read); renders the caller only when they change. The
  * store reads them when someone needs them (`DataStore.need`), and again when trainers, their names or the events change.
@@ -251,45 +329,14 @@ function useTrainerRows(store: DataStore, project: ProjectInfo | null): readonly
 /** Diamond and Pearl have no data editors (their trainers are not read): the world names no trainers there. */
 const namesTrainers = (info: ProjectInfo | null): info is ProjectInfo => info !== null && info.family !== "Dp";
 
-export function ContextTab() {
-  const d = useWorkbench();
-  // The events of the shown place, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
-  // failed read already; here it only ends the "Lade …".
-  const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
-  const [failedFile, setFailedFile] = useState<number | null>(null);
-  const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
-  const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
-  const { goTo, onSelectEvent, onSelectBuilding, dataStore, info } = d;
-  const onOpenHeader = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
-  // Trainer figures are named by class and name: the trainer rows are read once the place has one.
-  const hasTrainers = events?.objects.some((o) => trainerOfScript(o.script) !== null) ?? false;
-  useEffect(() => {
-    if (hasTrainers && namesTrainers(info)) dataStore.need(info, "trainer");
-  }, [hasTrainers, info, dataStore]);
-  const trainers = useTrainerRows(dataStore, info);
-  return (
-    <ContextPanel
-      hasPlace={d.matrix !== null}
-      events={events}
-      headers={d.headers}
-      buildings={d.buildings}
-      selectedEvent={d.selectedEvent}
-      selectedBuilding={d.selectedBuilding}
-      onSelectEvent={onSelectEvent}
-      onSelectBuilding={onSelectBuilding}
-      onOpenHeader={onOpenHeader}
-      loading={loading}
-      trainers={trainers}
-    />
-  );
-}
-
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
+  // The head names the header as the world tree does: an area, a room or another header, and its name.
+  const { identify } = useWorld();
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -317,13 +364,13 @@ export function InspectorPanel() {
       checks={d.checks}
       headerEditor={{
         headers: d.headers,
+        identify,
         counts: d.memberCounts,
         revision: headerRevision,
         onChanged: d.onHeaderChanged,
         goTo: d.goTo,
         eventRevision,
         onOpenWizard: d.onOpenWizard,
-        onAddWarp: () => void d.onAddEvent("warp"),
         info: d.info,
         scriptsAdopted: d.scripts.status?.adopted === true,
         scriptsRevision: d.scripts.revision,
@@ -346,6 +393,7 @@ export function InspectorPanel() {
       }}
       eventEditor={{
         headers: d.headers,
+        identify,
         dirty: d.dirtyAssets,
         family: d.info?.family ?? null,
         revision: eventRevision,
@@ -363,6 +411,8 @@ export function InspectorPanel() {
       }}
       matrixEditor={{
         dirty: d.dirtyAssets,
+        headers: d.headers,
+        identify,
         headerCount: d.headers.length,
         goTo: d.goTo,
         counts: d.memberCounts,
@@ -386,10 +436,10 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
   // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, depth } = d;
   const context = useMemo<TextAreaProps>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown],
+    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }
@@ -477,25 +527,12 @@ export function ItemsListPane() {
 }
 
 /**
- * The panels of the view dock and of the hand dock of each area, by id. Module-level constants: dockview would remount every panel if they
- * changed. The problems are in the hands of Welt and Texte: each area's dock is its own dockview, and every instance reads the one problems
- * store.
+ * The panels of the dock of each area, by id. Module-level constants: dockview would remount every panel if they changed. The problems are
+ * panels of Welt and Texte: each area's dock is its own dockview, and every instance reads the one problems store.
  */
-export const DECK_COMPONENTS: Record<DeckArea, Record<DeckId, DockComponents>> = {
-  welt: {
-    schau: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab },
-    hand: { tools: ToolsTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab, context: ContextTab },
-  },
-  texte: {
-    schau: { textView: TextViewTab },
-    hand: { textEdit: TextEditTab, problems: ProblemsTab },
-  },
-  pokemon: {
-    schau: { pokemonView: PokemonView },
-    hand: { pokemonEdit: PokemonHand },
-  },
-  gegenstaende: {
-    schau: { itemView: ItemsView },
-    hand: { itemEdit: ItemsHand },
-  },
+export const DECK_COMPONENTS: Record<DeckArea, DockComponents> = {
+  welt: { world: WorldPanel, matrix: MatrixTab, worldmap: WorldMapTab, inspector: InspectorPanel, script: ScriptTab, problems: ProblemsTab },
+  texte: { textView: TextViewTab, textEdit: TextEditTab, problems: ProblemsTab },
+  pokemon: { pokemonView: PokemonView, pokemonEdit: PokemonHand },
+  gegenstaende: { itemView: ItemsView, itemEdit: ItemsHand },
 };

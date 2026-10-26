@@ -310,6 +310,76 @@ fn header_listing_has_no_names_error_when_names_are_readable() {
 }
 
 #[test]
+fn header_listing_carries_the_location_index_and_the_kanto_flag() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    // The synthetic Platinum headers never have the flag.
+    let listing = p.header_listing().unwrap();
+    assert!(listing.headers.iter().all(|h| !h.kanto));
+    assert_eq!(listing.headers[0].location_index, 1);
+    assert_eq!(listing.headers[0].location_name, "Twinleaf Town");
+    // The location index is the one that selects the name; a HeartGold header with the flag
+    // set is a Kanto header, the same header without it is not.
+    let hgss = |kanto_flag: bool, location_name: u8| {
+        uxie::MapHeader::HGSS(uxie::map_header::MapHeaderHGSS {
+            kanto_flag,
+            location_name,
+            ..Default::default()
+        })
+    };
+    let pt = uxie::MapHeader::Pt(uxie::map_header::MapHeaderPt {
+        location_name: 7,
+        ..Default::default()
+    });
+    let table = [hgss(true, 9), hgss(false, 3)];
+    let listing = p.header_listing_for(&table).unwrap();
+    assert_eq!(
+        listing
+            .headers
+            .iter()
+            .map(|h| (h.location_index, h.kanto))
+            .collect::<Vec<_>>(),
+        vec![(9, true), (3, false)]
+    );
+    let listing = p.header_listing_for(&[pt, hgss(true, 0)]).unwrap();
+    assert_eq!(listing.headers[0].location_index, 7);
+    assert!(!listing.headers[0].kanto);
+    assert!(listing.headers[1].kanto);
+}
+
+#[test]
+fn vanilla_headers_have_location_indices_and_hgss_has_kanto_headers() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let headers = p.headers().unwrap();
+    let kanto = headers.iter().filter(|h| h.kanto).count();
+    let named = headers.iter().filter(|h| h.location_index != 0).count();
+    eprintln!(
+        "{}: {kanto} Kanto headers, {named} with a place",
+        p.game_code
+    );
+    assert!(named > 100, "{named}");
+    // Every header's name is the one its index selects.
+    let names = p.location_names().unwrap();
+    for h in &headers {
+        assert_eq!(
+            names
+                .get(usize::from(h.location_index))
+                .cloned()
+                .unwrap_or_default(),
+            h.location_name
+        );
+    }
+    if p.family == Family::Hgss {
+        assert!(kanto >= 150, "{kanto}");
+    } else {
+        assert_eq!(kanto, 0);
+    }
+}
+
+#[test]
 fn headers_survive_a_missing_text_bank_member_with_empty_names() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
