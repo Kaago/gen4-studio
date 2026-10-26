@@ -144,6 +144,18 @@ pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
     })
 }
 
+/// Internal name (`mapname.bin`) of the start town's header in the recipe of `family`, for
+/// example `T01` (Platinum) or `T20` (HeartGold/SoulSilver); `None` for Diamond/Pearl, which
+/// has no recipe, or when `templates.yaml` cannot be read.
+pub fn start_town(family: Family) -> Option<&'static str> {
+    let yaml = &templates().ok()?.empty_region;
+    match family {
+        Family::Dp => None,
+        Family::Pt => Some(&yaml.pt.start_town),
+        Family::Hgss => Some(&yaml.hgss.start_town),
+    }
+}
+
 /// What the empty-region recipe would do to the store's world (unsaved edits included).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
