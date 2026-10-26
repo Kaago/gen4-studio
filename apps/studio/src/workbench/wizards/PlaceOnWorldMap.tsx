@@ -7,7 +7,7 @@ import { TERMS } from "../terms";
 import { cellBounds, centredPan } from "../worldMap";
 import type { CellRect } from "../sceneScope";
 import type { World } from "../worldModel";
-import { cellsOfHeaders, targetBlock } from "../worldMapView";
+import { cellsOfHeaders, isFilled, targetBlock } from "../worldMapView";
 import parts from "./WizardStep.module.css";
 import styles from "./PlaceOnWorldMap.module.css";
 
@@ -64,10 +64,10 @@ export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, 
 
   if (!matrix) return <p className={parts.note}>Lade …</p>;
   const headerCells = matrix.headers;
-  /** Empty and landscape cells take the corner; a cell of an area does not. */
+  /** Empty and landscape cells take the corner; a cell of an area does not (the same cells `targetBlock` counts free). */
   const pick = (x: number, y: number) => {
     const i = y * matrix.width + x;
-    if (matrix.maps[i] === null || (headerCells?.[i] ?? 0) === 0) onChange({ x, y });
+    if (!isFilled(matrix.maps[i]) || (headerCells?.[i] ?? 0) === 0) onChange({ x, y });
   };
   const label = depth === "bauen" ? `${TERMS.worldMap.label}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
   return (

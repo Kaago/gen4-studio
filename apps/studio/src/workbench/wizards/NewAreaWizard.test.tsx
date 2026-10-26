@@ -781,9 +781,12 @@ describe("NewAreaWizard", () => {
       await toLayout("bauen");
       await choose(SINNOH);
       await flush();
-      // No cell chosen yet: „Weiter“ waits for one.
+      // No cell chosen yet: „Weiter“ waits for one, with the grid's hint and no error.
       expect(container.querySelector('[role=group][aria-label="Weltkarte, 2 Zeilen, 3 Spalten"]')).not.toBeNull();
       expect(button("Weiter")?.disabled).toBe(true);
+      expect(container.textContent).toContain("Die Zelle anklicken, an der die linke obere Karte des neuen Gebiets liegen soll.");
+      expect(container.textContent).not.toContain("Die Zelle wählen");
+      expect(container.querySelector("[role=alert]")).toBeNull();
       expect(words()).not.toMatch(FORBIDDEN);
       // (2, 0) is empty, but the 2 × 1 block reaches past the edge.
       await click(worldCell(2, 0));

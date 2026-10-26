@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MATRIX_EMPTY } from "../../api";
 import type { HeaderSummary, MatrixDto } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import type { World } from "../worldModel";
@@ -70,6 +71,11 @@ describe("PlaceOnWorldMap", () => {
     onChange.mockClear();
     act(() => cell(0, 0)?.click());
     expect(onChange).not.toHaveBeenCalled();
+    // A cell without a map (the empty marker) takes the corner whatever its header says, as the block counts it free.
+    const marker: MatrixDto = { ...matrix, maps: [10, MATRIX_EMPTY, null, 13, 14, 15], headers: [1, 1, 0, 0, 0, 0] };
+    act(() => root.render(<PlaceOnWorldMap world={world} matrix={marker} headers={headers} width={1} height={1} value={null} onChange={onChange} depth="bauen" focus={1} />));
+    act(() => cell(1, 0)?.click());
+    expect(onChange).toHaveBeenCalledWith({ x: 1, y: 0 });
     // Tüfteln keeps the grid's own name.
     show(null, "tuefteln");
     expect(container.querySelector("[role=group]")?.getAttribute("aria-label")).toBe("Raster 1, 2 Zeilen, 3 Spalten");

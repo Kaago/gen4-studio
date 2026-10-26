@@ -208,6 +208,9 @@ function buildingHeader(form: { place: PlaceChoice | null; lookAreaData: number 
   };
 }
 
+/** What `areaSpec` says while a world map is chosen and no cell on it yet: the step's grid hint asks for it, so the step shows no error. */
+export const PICK_TARGET = `Die Zelle wählen, an der das ${TERMS.area.label} auf der ${TERMS.worldMap.label} liegen soll.`;
+
 /**
  * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now:
  * a new header gets that number. Tüfteln assigns the header the form chose; Bauen always makes a new one (`buildingHeader`),
@@ -220,7 +223,7 @@ export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { s
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
   const target = form.worldMap === null ? null : form.target;
-  if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: `Die Zelle wählen, an der das ${TERMS.area.label} auf der ${TERMS.worldMap.label} liegen soll.` };
+  if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: PICK_TARGET };
   let header: AssignHeader | null;
   if (depth === "bauen") {
     if (form.newHeader === null) return { error: "Vorlage wählen." };
@@ -377,7 +380,8 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
     const count = report.maps.length;
     return {
       lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`, ...(snapshot ? [snapshot] : [])],
-      next: [`Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
+      // An area on a world map lies beside its neighbours: no door needed.
+      next: [spec.target ? SEAMLESS : `Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
     };
   }
   // An area on a world map made no raster: it went into the world map's.
@@ -395,7 +399,10 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
   if (snapshot) lines.push(snapshot);
   return {
     lines,
-    next: [`Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
+    next: [
+      spec.target ? `Nahtlos begehbar: vom Nachbargebiet in ${TERMS.matrix.label} ${id4(report.matrix)} aus hinüberlaufen.` : `Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`,
+      `Karten prüfen: ${TERMS.matrix.label}-Tab`,
+    ],
   };
 }
 
@@ -776,6 +783,8 @@ const FURNISH = "Innenraum einrichten: Figuren, Auslöser und Schilder mit den W
 
 /** Where a door is set now (after a colon of the step it follows): the tool, or the „+“ of „In dieser Szene“. */
 const SET_DOOR = "Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“";
+/** The next step after an area on a world map: it is walked into from its neighbours. */
+const SEAMLESS = "Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.";
 
 /**
  * What `create_room` made, in words, and where to go on from there; Bauen names the room, its map and the doors, never its raster or

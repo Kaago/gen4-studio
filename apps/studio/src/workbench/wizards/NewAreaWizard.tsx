@@ -21,7 +21,7 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection, worldMapChoices } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, PICK_TARGET, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection, worldMapChoices } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewAreaWizard.module.css";
@@ -345,7 +345,8 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
                 <Segmented ariaLabel="Lage" options={lageOptions} value={form.worldMap === null ? OWN_MAP : `w${form.worldMap}`} onChange={chooseLage} wrap />
               </>
             )}
-            {"error" in built && <Notice kind="error">{built.error}</Notice>}
+            {/* Still to choose a cell of the world map: the grid's hint says so, no error. */}
+            {"error" in built && built.error !== PICK_TARGET && <Notice kind="error">{built.error}</Notice>}
           </section>
           <section className={`${parts.column} ${parts.wide}`}>
             <h3 className={parts.heading}>{form.worldMap === null ? "Vorschau" : `${TERMS.worldMap.label} ${worldMapName}`}</h3>

@@ -14,7 +14,7 @@ export interface WorldViewItem {
 }
 
 /** A matrix cell holds a map. */
-const isFilled = (map: number | null | undefined): boolean => map !== null && map !== undefined && map !== MATRIX_EMPTY;
+export const isFilled = (map: number | null | undefined): boolean => map !== null && map !== undefined && map !== MATRIX_EMPTY;
 
 /**
  * The views of the world map panel in the order of its switcher: the world maps, after the last half of a split matrix the view of

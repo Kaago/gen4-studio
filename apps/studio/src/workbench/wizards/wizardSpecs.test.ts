@@ -795,4 +795,16 @@ describe("an area on a world map", () => {
     const report: AreaReport = { matrix: 1, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 2 };
     expect(areaResult(report, spec).lines[0]).toBe("Gebiet „Neuheim“ (2 × 1) in Raster 0001 angelegt.");
   });
+
+  it("names_walking_over_instead_of_a_door_as_the_next_step", () => {
+    const report: AreaReport = { matrix: 1, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: 470, patched: false, snapshot: null, place: null, replaced: 2 };
+    const bauen = areaResult(report, specOf({ worldMap: 1, target: { matrix: 1, x: 4, y: 7 } }), "bauen").next;
+    expect(bauen[0]).toBe("Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.");
+    expect(bauen.join(" ")).not.toContain("Tür");
+    const tuefteln = areaResult(report, specOf({ worldMap: 1, target: { matrix: 1, x: 4, y: 7 } }, "tuefteln")).next;
+    expect(tuefteln[0]).toBe("Nahtlos begehbar: vom Nachbargebiet in Raster 0001 aus hinüberlaufen.");
+    expect(tuefteln.join(" ")).not.toContain("Tür");
+    // An area with a map of its own still needs a door.
+    expect(areaResult(report, specOf({}), "bauen").next[0]).toContain("Mit der Welt verbinden: ");
+  });
 });
