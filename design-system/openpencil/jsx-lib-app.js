@@ -241,9 +241,10 @@ const Welt3D = ({ w, h: H, sel = 2, children }) => {
   </Frame>;
 };
 // Baumzeile (TreeRow): Einzug dichte/zeile-innen + 16 je Ebene, Pfeil 18 (leer bei Blättern), Symbol, Name, Kennung grau Mono 12, rechts Zähler und Zeichen.
+// Feste Höhe (dichte/zeile, mit zweiter Zeile 40): mit overflow hidden und nur minH blieb die Zeile in OpenPencil 100 hoch.
 // open true/false: Zweig offen/zu, undefined: Blatt. sel: gewählt (auswahl/flaeche, akzent/text, 2 px auswahl/kante links). sub: zweite Zeile (Tür: „→ Haus 1“).
 // techW: Breite der Kennung (sie weicht zuerst, gekürzt mit …); count: Zähler rechts (Mono 12, sekundär); shown: Zeichen „Gezeigt“ (ShownMark, ph:grid-four in bereich/welt); end: weitere Zeichen rechts
-const TreeRowX = ({ label, tech, techW, sub, icon, depth = 0, open, sel, count, shown, end }) => <Frame name={label} flex="row" items="center" gap={8} pl={DI.innen - 4 + depth * 16} pr={DI.innen} minH={sub ? 40 : DI.zeile} w="fill" rounded={4} overflow="hidden" bg={sel ? v('auswahl/flaeche') : undefined} strokeWeights={sel ? { top: 0, right: 0, bottom: 0, left: 2 } : undefined} stroke={sel ? v('auswahl/kante') : undefined}>
+const TreeRowX = ({ label, tech, techW, sub, icon, depth = 0, open, sel, count, shown, end }) => <Frame name={label} flex="row" items="center" gap={8} pl={DI.innen - 4 + depth * 16} pr={DI.innen} h={sub ? 40 : DI.zeile} w="fill" rounded={4} overflow="hidden" bg={sel ? v('auswahl/flaeche') : undefined} strokeWeights={sel ? { top: 0, right: 0, bottom: 0, left: 2 } : undefined} stroke={sel ? v('auswahl/kante') : undefined}>
   <Frame w={DI.symbol} h={DI.symbol} flex="row" items="center" justify="center">{open !== undefined && I(open ? 'ph:caret-down' : 'ph:caret-right', DI.symbol, 's')}</Frame>
   {icon && I(icon, DI.symbol, sel ? 'at' : 'p')}
   {sub ? <Frame flex="col" py={4}>{T(label, { c: sel ? 'akzent/text' : 'text/primaer', one: true })}{T(sub, { s: 12, c: sel ? 'akzent/text' : 'text/sekundaer', one: true })}</Frame> : T(label, { c: sel ? 'akzent/text' : 'text/primaer', one: true })}
