@@ -230,6 +230,17 @@ describe("areaResult", () => {
     const { lines } = areaResult({ matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: false, snapshot: null, place: null }, spec);
     expect(lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert."]);
   });
+
+  it("names_where_the_patch_put_the_old_header_folder", () => {
+    const spec: AreaSpec = { name: "A", width: 1, height: 1, cells: [], with_headers: false, header: null };
+    const report: AreaReport = { matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000", place: null };
+    const line = "Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000";
+    expect(areaResult(report, spec).lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert.", line]);
+    expect(areaResult(report, spec, "bauen").lines).toEqual(["Gebiet „A“ angelegt: 1 Karte.", line]);
+    // No snapshot (or no patch in the call): no line.
+    expect(areaResult({ ...report, snapshot: null }, spec, "bauen").lines).toEqual(["Gebiet „A“ angelegt: 1 Karte."]);
+    expect(areaResult({ ...report, patched: false }, spec).lines.join(" ")).not.toContain("Sicherung");
+  });
 });
 
 describe("selection helpers", () => {
@@ -515,6 +526,14 @@ describe("roomResult", () => {
     expect(next[0]).toBe("Eingang verbinden: Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“");
     expect(next[0]).not.toMatch(/Ausgänge|Warp hinzufügen/);
   });
+
+  it("names_where_the_patch_put_the_old_header_folder", () => {
+    const patched = { ...report, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" };
+    const line = "Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000";
+    expect(roomResult(patched, spec).lines.slice(-1)).toEqual([line]);
+    expect(roomResult(patched, spec, "bauen").lines.slice(-1)).toEqual([line]);
+    expect(roomResult({ ...patched, snapshot: null }, spec, "bauen").lines.join(" ")).not.toContain("Sicherung");
+  });
 });
 
 describe("templateWarp", () => {
@@ -614,6 +633,18 @@ describe("the words in Bauen", () => {
     expect([...lines, ...next].join(" ")).not.toMatch(FORBIDDEN);
   });
 
+  it("names_the_templates_own_place_for_its_look_in_bauen", () => {
+    // Template 342 is Route 201; its area data is Jubelstadt's too, and Jubelstadt comes first in header order.
+    const shared: HeaderSummary[] = [
+      { ...header(100, "C01", 0, 3), location_index: 4, location_name: "Jubelstadt" },
+      { ...header(342, "R201", 0, 3), location_index: 5, location_name: "Route 201" },
+      { ...header(400, "T02", 0, 5), location_index: 2, location_name: "Sandgemme" },
+    ];
+    expect(areaSummary(areaOf(), shared, [], "bauen")).toContain("Aussehen wie Route 201.");
+    // A look chosen in the step stays named by its first place.
+    expect(areaSummary(areaOf({ lookAreaData: 5 }), shared, [], "bauen")).toContain("Aussehen wie Sandgemme.");
+  });
+
   it("summarises_a_room_in_user_words_in_bauen", () => {
     const lines = roomSummary(roomOf(), known, undefined, [], {}, "bauen");
     expect(lines).toEqual([
@@ -657,11 +688,26 @@ describe("the words in Bauen", () => {
   });
 
   it("says_a_late_failure_in_user_words_in_bauen", () => {
+    // The area and its arrangement without their numbers; the maps keep theirs.
     expect(partialText("header 0470, matrix 0131, maps 0571, 0572 and event file 0055 were created; header edit failed: boom", "bauen", "area")).toBe(
-      "Angelegt: Gebiet 0470, Anordnung 0131, Karten 0571, 0572, Eventdatei 0055. Danach fehlgeschlagen: Gebiet einrichten (boom).",
+      "Angelegt: das Gebiet, die Anordnung, Karten 0571, 0572, Eventdatei 0055. Danach fehlgeschlagen: Gebiet einrichten (boom).",
     );
-    expect(partialText("headers 0470, 0471 were created; matrix creation failed: x", "bauen", "room")).toBe("Angelegt: Räume 0470, 0471. Danach fehlgeschlagen: Anordnung anlegen (x).");
-    expect(partialText("header 0470 was created; header creation failed: x", "bauen", "room")).toBe("Angelegt: Raum 0470. Danach fehlgeschlagen: Raum anlegen (x).");
+    expect(partialText("headers 0470, 0471 were created; matrix creation failed: x", "bauen", "room")).toBe("Angelegt: die Räume. Danach fehlgeschlagen: Anordnung anlegen (x).");
+    expect(partialText("header 0470 was created; header creation failed: x", "bauen", "room")).toBe("Angelegt: der Raum. Danach fehlgeschlagen: Raum anlegen (x).");
+  });
+
+  it("keeps_the_patch_that_stays_in_a_late_failure", () => {
+    // The backend's texts (`created_text` in wizards.rs): members after the patch, or the patch alone.
+    const withMembers = "the Dynamic Headers patch was applied and stays, header 0002 was created; map copy failed: X";
+    const patchOnly = "the Dynamic Headers patch was applied and stays; header creation failed: X";
+    expect(partialText(withMembers, "bauen", "area")).toBe("Spielcode für neue Orte angepasst (bleibt). Angelegt: das Gebiet. Danach fehlgeschlagen: Karte kopieren (X).");
+    expect(partialText(patchOnly, "bauen", "area")).toBe("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Gebiet anlegen (X).");
+    expect(partialText(patchOnly, "bauen", "room")).toBe("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Raum anlegen (X).");
+    expect(partialText(withMembers, "tuefteln")).toBe("Patch „Dynamische Header“ angewendet (bleibt). Angelegt: Header 0002. Danach fehlgeschlagen: Karte kopieren (X).");
+    expect(partialText(patchOnly, "tuefteln")).toBe("Patch „Dynamische Header“ angewendet (bleibt). Danach fehlgeschlagen: Header anlegen (X).");
+    expect(partialText("the Dynamic Headers patch was applied and stays, header 0006, matrix 0131 and map 0571 were created; warp edit failed: boom", "bauen", "room")).toBe(
+      "Spielcode für neue Orte angepasst (bleibt). Angelegt: der Raum, die Anordnung, Karte 0571. Danach fehlgeschlagen: Warp setzen (boom).",
+    );
   });
 
   it("keeps_the_tuefteln_words", () => {

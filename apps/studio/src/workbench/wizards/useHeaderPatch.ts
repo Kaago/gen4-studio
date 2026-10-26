@@ -11,12 +11,13 @@ import { useStableCallback } from "../../app/useStable";
  * Unsaved header edits need no saving first: the kernel patches with the table as it is on disk and keeps the edits
  * (and their undo) unsaved. `repair` fixes a patch whose routine calls a wrong function (`patch.repairable`); the
  * header table stays as it is. `repaired` runs after a repair went in (the app closes the toast that offered it and
- * says what changed).
+ * says what changed). `snapshot` is where the last apply put an older header folder (null: none, or not applied here).
  */
 export function useHeaderPatch(applied: () => Promise<void>, { repaired }: { repaired?: () => void } = {}) {
   const [patch, setPatch] = useState<HeaderPatchDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [snapshot, setSnapshot] = useState<string | null>(null);
   const afterApply = useStableCallback(applied);
 
   useEffect(() => {
@@ -34,7 +35,9 @@ export function useHeaderPatch(applied: () => Promise<void>, { repaired }: { rep
     setBusy(true);
     setError(null);
     try {
-      setPatch(await applyHeaderPatch());
+      const report = await applyHeaderPatch();
+      setPatch(report);
+      setSnapshot(report.snapshot);
       await afterApply();
     } catch (e) {
       setError(errorText(e));
@@ -56,5 +59,5 @@ export function useHeaderPatch(applied: () => Promise<void>, { repaired }: { rep
     }
   }, [repaired]);
 
-  return { patch, error, busy, apply, repair };
+  return { patch, error, busy, snapshot, apply, repair };
 }

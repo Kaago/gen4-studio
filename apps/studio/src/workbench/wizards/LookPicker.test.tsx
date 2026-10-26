@@ -91,10 +91,23 @@ describe("LookPicker", () => {
     expect(button().textContent).toBe("Aussehen wie Route 201, Nord");
     await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={8} onChange={onChange} />));
     expect(button().textContent).toBe("Aussehen: Ohne Ortsnamen");
-    // A value no header carries: Bauen does not show its number.
-    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} />));
+    // A value no header carries: Bauen does not show its number, Tüfteln (the default) does.
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} depth="bauen" />));
     expect(button().textContent).toBe("Aussehen der Vorlage");
-    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} depth="tuefteln" />));
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} />));
     expect(button().textContent).toBe("Aussehen 0009");
+  });
+
+  it("names_the_templates_own_place_first_for_its_look", async () => {
+    const button = () => container.querySelector<HTMLButtonElement>("button[data-look-picker]")!;
+    // Route 201 shares its area data with Jubelstadt, which comes first in header order.
+    const shared = [header(1, "Jubelstadt", 5), header(2, "Route 201", 5), header(3, "Sandgemme", 3)];
+    expect(lookItems(shared, shared[1]!)[1]).toEqual({ areaDataId: 5, names: ["Route 201", "Jubelstadt"], label: "Route 201, Jubelstadt" });
+    await act(async () => root.render(<LookPicker headers={shared} template={shared[1]!} value={5} onChange={onChange} depth="bauen" />));
+    await flush();
+    expect(button().textContent).toBe("Aussehen wie Route 201");
+    // Another look keeps its first place.
+    await act(async () => root.render(<LookPicker headers={shared} template={shared[1]!} value={3} onChange={onChange} depth="bauen" />));
+    expect(button().textContent).toBe("Aussehen wie Sandgemme");
   });
 });

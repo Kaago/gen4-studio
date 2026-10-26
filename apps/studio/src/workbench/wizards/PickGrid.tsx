@@ -19,6 +19,8 @@ interface Props {
   onCellClick: (x: number, y: number, modifiers: { shift: boolean }) => void;
   /** Bauen names a cell by its place and map, without the header number. Default: Tüfteln. */
   depth?: Depth;
+  /** The grid's accessible name; default: the raster's (see `AreaGrid`). */
+  label?: string;
 }
 
 /** "Route 201 · Header 0342 · Karte 0521" (Bauen: "Route 201 · Karte 0521"): which place a cell belongs to (a 32 px cell has room for no number). */
@@ -43,12 +45,12 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
  * under the pointer (else the one clicked last). The hover is state of this component only, and the
  * grid itself is not built again for it.
  */
-export function PickGrid({ matrix, headers, areaFallback, selected, places, last, onCellClick, depth = "tuefteln" }: Props) {
+export function PickGrid({ matrix, headers, areaFallback, selected, places, last, onCellClick, depth = "tuefteln", label }: Props) {
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const colorOf = useMemo(() => (header: number | null) => (header === null ? null : (places.get(header)?.color ?? null)), [places]);
   const grid = useMemo(
-    () => <AreaGrid matrix={matrix} headers={headers} areaFallback={areaFallback} cellSize={32} selected={selected} colorOf={colorOf} onCellClick={onCellClick} />,
-    [matrix, headers, areaFallback, selected, colorOf, onCellClick],
+    () => <AreaGrid matrix={matrix} headers={headers} areaFallback={areaFallback} cellSize={32} selected={selected} colorOf={colorOf} onCellClick={onCellClick} label={label} />,
+    [matrix, headers, areaFallback, selected, colorOf, onCellClick, label],
   );
   const shown = hover ?? last;
   return (

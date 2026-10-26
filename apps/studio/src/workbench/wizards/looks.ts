@@ -15,10 +15,13 @@ export interface Look {
 
 /**
  * The looks the headers carry, lowest area data first, each named by its places in header order (each name once, at most three, then
- * „…“); a look whose headers have no place name is „Ohne Ortsnamen“.
+ * „…“); a look whose headers have no place name is „Ohne Ortsnamen“. The look of `template` (the header the new one is copied from)
+ * names the template's own place first: Route 201 shares its look with Jubelstadt and is still „wie Route 201“.
  */
-export function lookItems(headers: readonly HeaderSummary[]): Look[] {
+export function lookItems(headers: readonly HeaderSummary[], template: HeaderSummary | null = null): Look[] {
   const places = new Map<number, string[]>();
+  const own = template?.location_name.trim() ?? "";
+  if (template && own !== "") places.set(template.area_data_id, [own]);
   for (const h of headers) {
     const names = places.get(h.area_data_id) ?? [];
     const name = h.location_name.trim();

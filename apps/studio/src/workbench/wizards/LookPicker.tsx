@@ -28,7 +28,7 @@ interface Props {
   /** The chosen look (area data). */
   value: number;
   onChange: (areaDataId: number) => void;
-  /** How a look no header carries is named (see `lookText`). Default: Bauen, where the step „Ort“ is. */
+  /** How a look no header carries is named (see `lookText`). Default: Tüfteln, like the other components (callers pass it). */
   depth?: Depth;
 }
 
@@ -36,9 +36,9 @@ interface Props {
  * „Aussehen wie …“: a button with the chosen look that opens the picker of every look the game uses, each with the places that carry
  * it and the template's map drawn in it.
  */
-export function LookPicker({ headers, template, value, onChange, depth = "bauen" }: Props) {
+export function LookPicker({ headers, template, value, onChange, depth = "tuefteln" }: Props) {
   const [open, setOpen] = useState(false);
-  const looks = useMemo(() => lookItems(headers), [headers]);
+  const looks = useMemo(() => lookItems(headers, template), [headers, template]);
   // A failed read only leaves the pictures out.
   const matrix = useMatrix(template?.matrix_id ?? null, 0, ignore);
   const map = matrix && template ? mapOfHeader(matrix, template.id) : null;

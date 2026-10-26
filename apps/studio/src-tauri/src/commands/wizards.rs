@@ -405,8 +405,10 @@ pub fn auto_internal_name(existing: &[String], base: &str) -> String {
 }
 
 /// Applies the Dynamic Headers patch when the assignment creates a header, allows the patch
-/// and the game lacks it: the first step of a run, so a failure leaves nothing behind.
-/// Answers the snapshot of an older header folder (see [`Store::apply_dynamic_headers`]).
+/// and the game lacks it: the first write of a run, after every check (the place's too, see
+/// [`plan_place`]), so a refusal never leaves the patch in and a failing patch leaves nothing
+/// behind; once it is in, it stays ([`Created::patch`]). Answers the snapshot of an older
+/// header folder (see [`Store::apply_dynamic_headers`]).
 fn provide_patch(
     store: &mut Store,
     assign: &AssignHeader,

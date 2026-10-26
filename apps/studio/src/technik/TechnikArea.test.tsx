@@ -294,6 +294,27 @@ describe("TechnikArea", () => {
     expect(button("Patch anwenden")).toBeUndefined();
   });
 
+  it("patch_anwenden_names_where_the_old_header_folder_went", async () => {
+    vi.mocked(applyHeaderPatch).mockResolvedValue({ ...patch({ applied: true }), snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" });
+    await render({ start: "patches" });
+    await settle();
+    expect(surface()?.textContent).not.toContain("Sicherung des alten Ordners");
+    await click(button("Patch anwenden"));
+    await click(button("Patch anwenden", dialog()!));
+    await settle();
+    expect(surface()?.textContent).toContain("Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000");
+  });
+
+  it("patch_anwenden_without_an_old_folder_names_no_snapshot", async () => {
+    await render({ start: "patches" });
+    await settle();
+    await click(button("Patch anwenden"));
+    await click(button("Patch anwenden", dialog()!));
+    await settle();
+    expect(surface()?.querySelector("[data-patch]")?.textContent).toBe("Angewendet");
+    expect(surface()?.textContent).not.toContain("Sicherung des alten Ordners");
+  });
+
   it("patch_reparieren_repairs_a_broken_patch_and_a_refusal_shows_its_reason", async () => {
     vi.mocked(headerPatchStatus).mockResolvedValue(patch({ applied: true, repairable: true }));
     await render({ start: "patches" });

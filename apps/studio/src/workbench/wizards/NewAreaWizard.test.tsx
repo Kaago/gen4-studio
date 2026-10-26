@@ -482,13 +482,13 @@ describe("NewAreaWizard", () => {
     });
 
     it("reads_the_patch_again_after_a_late_failure_of_a_patching_create", async () => {
-      vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "header 0002 and matrix 0131 were created; map copy failed: boom", asset: null });
+      vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays, header 0002 and matrix 0131 were created; map copy failed: boom", asset: null });
       await toSummary({ applied: false });
       await click(consent());
       await click(button("Anlegen"));
       await flush();
       expect(onHeaderPatch).toHaveBeenCalledOnce();
-      expect(container.textContent).toContain("Angelegt: Gebiet 0002, Anordnung 0131. Danach fehlgeschlagen: Karte kopieren (boom).");
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Angelegt: das Gebiet, die Anordnung. Danach fehlgeschlagen: Karte kopieren (boom).");
       expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
       act(() => root.unmount());
       root = createRoot(container);
@@ -498,6 +498,40 @@ describe("NewAreaWizard", () => {
       await click(button("Anlegen"));
       await flush();
       expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("names_where_the_patch_put_the_old_header_folder", async () => {
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
+      expect(container.textContent).toContain("Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000");
+    });
+
+    it("hands_a_failed_read_after_a_patching_create_to_on_error_and_keeps_the_result", async () => {
+      const failure = { code: "error", message: "read failed", asset: null };
+      onHeaderPatch.mockRejectedValue(failure);
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
+      expect(container.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+      act(() => root.unmount());
+      root = createRoot(container);
+      // After a late failure the same: the partial result stays, the read failure goes to the app.
+      onError.mockClear();
+      vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays; header creation failed: boom", asset: null });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Gebiet anlegen (boom).");
     });
 
     it("says_no_raster_matrix_or_header_in_building", async () => {
@@ -517,10 +551,14 @@ describe("NewAreaWizard", () => {
       await click(cell(0, 0));
       // The caption names the place and the map of the clicked cell.
       expect(container.querySelector("[data-caption]")?.textContent).toBe("Ohne Ortsnamen · Karte 0010");
+      // The grids' accessible names say no raster either.
+      const gridNames = () => [...container.querySelectorAll("[aria-label]")].map((e) => e.getAttribute("aria-label") ?? "").filter((n) => n.includes("Zeilen"));
+      expect(gridNames()).toEqual(["Karten der Quelle, 2 Zeilen, 3 Spalten"]);
       expect(words()).not.toMatch(FORBIDDEN);
       await next();
       expect(current()).toBe("2. Anordnung");
       expect([...container.querySelectorAll("label")].some((l) => l.textContent?.includes("Abschnitt"))).toBe(false);
+      expect(gridNames()).toEqual(["Vorschau des neuen Gebiets, 1 Zeilen, 1 Spalten"]);
       expect(words()).not.toMatch(FORBIDDEN);
       await next();
       await flush();

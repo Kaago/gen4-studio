@@ -599,13 +599,13 @@ describe("NewRoomWizard", () => {
     });
 
     it("reads_the_patch_again_after_a_late_failure_of_a_patching_create", async () => {
-      vi.mocked(createRoom).mockRejectedValue({ code: "partial", message: "header 0006 and matrix 0131 were created; warp edit failed: boom", asset: null });
+      vi.mocked(createRoom).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays, header 0006 and matrix 0131 were created; warp edit failed: boom", asset: null });
       await toSummary({ applied: false });
       await click(consent());
       await click(button("Anlegen"));
       await flush();
       expect(onHeaderPatch).toHaveBeenCalledOnce();
-      expect(container.textContent).toContain("Angelegt: Raum 0006, Anordnung 0131. Danach fehlgeschlagen: Warp setzen (boom).");
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Angelegt: der Raum, die Anordnung. Danach fehlgeschlagen: Warp setzen (boom).");
       expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
       act(() => root.unmount());
       root = createRoot(container);
@@ -615,6 +615,20 @@ describe("NewRoomWizard", () => {
       await click(button("Anlegen"));
       await flush();
       expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("names_the_snapshot_and_hands_a_failed_read_to_on_error", async () => {
+      const failure = { code: "error", message: "read failed", asset: null };
+      onHeaderPatch.mockRejectedValue(failure);
+      vi.mocked(createRoom).mockResolvedValue({ ...report, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
+      expect(container.textContent).toContain("Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000");
+      expect(container.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
     });
 
     it("takes_the_templates_place_when_the_entrance_cannot_be_made", async () => {

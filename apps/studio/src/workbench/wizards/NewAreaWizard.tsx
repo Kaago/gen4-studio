@@ -68,6 +68,9 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
   return { index, name: form.name, width, height, maps };
 }
 
+/** Bauen's accessible name of a wizard grid: „Karten der Quelle, 2 Zeilen, 3 Spalten“ (the grids' own name says „Raster“). */
+const gridLabel = (what: string, matrix: { width: number; height: number }) => `${what}, ${matrix.height} Zeilen, ${matrix.width} Spalten`;
+
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
 export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
@@ -159,6 +162,15 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
     setRejected(invalid);
   }
 
+  /** The app reads the header table and list again after a create that applied the patch; a failed read goes to `onError`, the result stays. */
+  async function rereadPatch() {
+    try {
+      await onHeaderPatch();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
   async function create() {
     if ("error" in built) return;
     setBusy(true);
@@ -168,13 +180,13 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
       const report = await createArea(built.spec);
       setOutcome({ kind: "done", report, spec: built.spec });
       // The call applied the patch: the app reads the header table and list again, as after „Patch anwenden“.
-      if (report.patched) await onHeaderPatch();
+      if (report.patched) await rereadPatch();
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
       if (isLateFailure(e)) {
         setOutcome({ kind: "partial", message: partialText(text, depth, "area") });
-        if (patching) await onHeaderPatch();
+        if (patching) await rereadPatch();
       } else setRefusal(text);
     } finally {
       setBusy(false);
@@ -267,6 +279,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
                 last={anchor}
                 onCellClick={onCell}
                 depth={depth}
+                label={building ? gridLabel(`${TERMS.map.plural} der Quelle`, matrix) : undefined}
               />
             ) : (
               <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? (building ? `Keine ${TERMS.worldMap.label} vorhanden.` : `Kein ${TERMS.matrix.label} vorhanden.`)) : "Lade …"}</p>
@@ -311,7 +324,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
             <h3 className={parts.heading}>Vorschau</h3>
             {preview ? (
               <div className={styles.preview}>
-                <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} />
+                <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} label={building ? gridLabel("Vorschau des neuen Gebiets", preview) : undefined} />
               </div>
             ) : (
               "spec" in built && <p className={parts.note}>Die Vorschau entfällt bei so vielen Zellen.</p>

@@ -296,7 +296,7 @@ function buildingLines(assign: AssignHeader, headers: readonly HeaderSummary[]):
   const template = headers.find((h) => h.id === assign.new_header?.template);
   const look = assign.area_data_id ?? template?.area_data_id;
   const lines = assign.place ? [placeLine(assign.place, headers)] : [];
-  lines.push(`${look === undefined ? "Aussehen der Vorlage" : lookText(lookItems(headers), look, "bauen")}.`);
+  lines.push(`${look === undefined ? "Aussehen der Vorlage" : lookText(lookItems(headers, template ?? null), look, "bauen")}.`);
   lines.push(NEW_EVENTS);
   return lines;
 }
@@ -327,12 +327,18 @@ export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], l
   return lines;
 }
 
-/** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only. */
+/** Where the patch a create applied put the old header folder (`report.snapshot`), as a result line; null without one. */
+function snapshotLine(report: Pick<AreaReport, "patched" | "snapshot">): string | null {
+  return report.patched && report.snapshot ? `Sicherung des alten Ordners: ${report.snapshot}` : null;
+}
+
+/** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and where the patch put the old folder). */
 export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
+  const snapshot = snapshotLine(report);
   if (depth === "bauen") {
     const count = report.maps.length;
     return {
-      lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`],
+      lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`, ...(snapshot ? [snapshot] : [])],
       next: [`Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
     };
   }
@@ -343,6 +349,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
     const file = report.event_file === null ? "" : `, ${TERMS.eventFile.label} ${id4(report.event_file)}`;
     lines.push(`${headerResultName(report.header, spec.header)} zeigt jetzt auf ${TERMS.matrix.label} ${id4(report.matrix)}${file}.`);
   }
+  if (snapshot) lines.push(snapshot);
   return {
     lines,
     next: [`Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`, `Karten prüfen: ${TERMS.matrix.label}-Tab`],
@@ -466,34 +473,50 @@ const STEP_WORDS: Record<string, string> = {
   "door tile": "Tür-Kachel setzen",
 };
 
+/** Bauen's article for the new area or room as the one member of its kind („das Gebiet“, „der Raum“). */
+const BUILDING_ARTICLE = { area: "das", room: "der" } as const;
+
 /**
  * Bauen's words for the members and steps: the header is the new area or room itself, its matrix the arrangement of its maps (the
- * wizard's step „Anordnung“).
+ * wizard's step „Anordnung“). Both are named without their numbers.
  */
 function buildingWords(kind: "area" | "room"): { members: Record<string, string>; steps: Record<string, string> } {
   const { label, plural } = TERMS[kind];
   return {
-    members: { header: label, headers: plural, matrix: "Anordnung", matrices: "Anordnungen" },
+    members: { header: `${BUILDING_ARTICLE[kind]} ${label}`, headers: `die ${plural}`, matrix: "die Anordnung", matrices: "die Anordnungen" },
     steps: { "header creation": `${label} anlegen`, "matrix creation": "Anordnung anlegen", "matrix edit": "Anordnung ändern", "header edit": `${label} einrichten` },
   };
 }
 
+/** How the backend's late failure begins when the run applied the Dynamic Headers patch (see `created_text` in wizards.rs). */
+const PATCH_CLAUSE = "the Dynamic Headers patch was applied and stays";
+
 /**
- * The backend's text of a late failure ("header 0593 and map 0670 were created; map copy failed: …") in German: what
- * was created and which step failed; the system's reason stays as it came. Another text comes back unchanged. Bauen calls the
- * header the new area or room (`kind`) and the matrix its arrangement.
+ * The backend's text of a late failure ("header 0593 and map 0670 were created; map copy failed: …") in German: the patch when the
+ * run applied it ("the Dynamic Headers patch was applied and stays, header 0002 was created; …", or with nothing else created
+ * "the Dynamic Headers patch was applied and stays; header creation failed: …"), what was created and which step failed; the
+ * system's reason stays as it came. Another text comes back unchanged. Bauen calls the patch an adaptation of the game code, the
+ * header the new area or room (`kind`) and the matrix its arrangement, both without their numbers.
  */
 export function partialText(message: string, depth: Depth = "tuefteln", kind: "area" | "room" = "area"): string {
-  const parts = /^(.*) (?:was|were) created; (.*?) failed: (.*)$/s.exec(message);
+  const patched = message.startsWith(PATCH_CLAUSE);
+  const parts = patched
+    ? /^(?:, (.*) (?:was|were) created)?; (.*?) failed: (.*)$/s.exec(message.slice(PATCH_CLAUSE.length))
+    : /^(.*) (?:was|were) created; (.*?) failed: (.*)$/s.exec(message);
   if (!parts) return message;
   const [, members, step, reason] = parts;
-  // "header 0593, matrix 0131 and maps 0003, 0004": each group is a word and its ids.
-  const groups = [...members.matchAll(/(event files?|headers?|matrix|matrices|maps?) ([\d, ]+?)(?=,? and |, [a-z]|$)/g)];
-  if (groups.length === 0) return message;
   const building = depth === "bauen" ? buildingWords(kind) : null;
-  const member = (word: string) => building?.members[word] ?? MEMBER_WORDS[word] ?? word;
-  const created = groups.map(([, word, ids]) => `${member(word)} ${ids.trim()}`).join(", ");
-  return `Angelegt: ${created}. Danach fehlgeschlagen: ${building?.steps[step] ?? STEP_WORDS[step] ?? step} (${reason}).`;
+  const said: string[] = [];
+  if (patched) said.push(building ? "Spielcode für neue Orte angepasst (bleibt)." : "Patch „Dynamische Header“ angewendet (bleibt).");
+  if (members !== undefined) {
+    // "header 0593, matrix 0131 and maps 0003, 0004": each group is a word and its ids.
+    const groups = [...members.matchAll(/(event files?|headers?|matrix|matrices|maps?) ([\d, ]+?)(?=,? and |, [a-z]|$)/g)];
+    if (groups.length === 0) return message;
+    const member = (word: string, ids: string) => building?.members[word] ?? `${MEMBER_WORDS[word] ?? word} ${ids.trim()}`;
+    said.push(`Angelegt: ${groups.map(([, word, ids]) => member(word, ids)).join(", ")}.`);
+  }
+  said.push(`Danach fehlgeschlagen: ${building?.steps[step] ?? STEP_WORDS[step] ?? step} (${reason}).`);
+  return said.join(" ");
 }
 
 /** What the "Raum anlegen" wizard edits. `template` is the room's header, `templateMap` the map it is copied from. */
@@ -704,7 +727,10 @@ const FURNISH = "Innenraum einrichten: Figuren, Auslöser und Schilder mit den W
 /** Where a door is set now (after a colon of the step it follows): the tool, or the „+“ of „In dieser Szene“. */
 const SET_DOOR = "Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“";
 
-/** What `create_room` made, in words, and where to go on from there; Bauen names the room, its map and the doors, never its raster or header. */
+/**
+ * What `create_room` made, in words, and where to go on from there; Bauen names the room, its map and the doors, never its raster or
+ * header. Both say where the patch the call applied put the old header folder.
+ */
 export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
   const building = depth === "bauen";
   const lines = building
@@ -720,6 +746,8 @@ export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "t
     lines.push(`Eingang: Warp ${report.outside_warp} ${outside}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${TERMS.room.label}.`);
   }
   for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y} innerhalb der ${TERMS.map.label}.`);
+  const snapshot = snapshotLine(report);
+  if (snapshot) lines.push(snapshot);
   return {
     lines,
     next:

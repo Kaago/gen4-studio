@@ -346,6 +346,7 @@ function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onO
             {patch.busy && <span className={styles.note}>{state === "available" ? "Wende an …" : "Repariere …"}</span>}
           </div>
         )}
+        {patch.snapshot !== null && <p className={styles.text}>Sicherung des alten Ordners: {patch.snapshot}</p>}
         {patch.error !== null && <Notice kind="error">{patch.error}</Notice>}
       </section>
       <Dialog

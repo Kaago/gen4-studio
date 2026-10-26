@@ -214,6 +214,15 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
     </div>
   );
 
+  /** The app reads the header table and list again after a create that applied the patch; a failed read goes to `onError`, the result stays. */
+  async function rereadPatch() {
+    try {
+      await onHeaderPatch();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
   async function create() {
     if ("error" in built) return;
     setBusy(true);
@@ -223,13 +232,13 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
       const report = await createRoom(built.spec);
       setOutcome({ kind: "done", report, spec: built.spec });
       // The call applied the patch: the app reads the header table and list again, as after „Patch anwenden“.
-      if (report.patched) await onHeaderPatch();
+      if (report.patched) await rereadPatch();
     } catch (e) {
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
       if (isLateFailure(e)) {
         setOutcome({ kind: "partial", message: partialText(text, depth, "room") });
-        if (patching) await onHeaderPatch();
+        if (patching) await rereadPatch();
       } else setRefusal(text);
     } finally {
       setBusy(false);

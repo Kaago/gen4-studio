@@ -148,7 +148,7 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
       </section>
       <section className={parts.column}>
         <h3 className={parts.heading}>Aussehen</h3>
-        <LookPicker headers={headers} template={template} value={value.areaDataId} onChange={(areaDataId) => set({ areaDataId })} />
+        <LookPicker headers={headers} template={template} value={value.areaDataId} onChange={(areaDataId) => set({ areaDataId })} depth="bauen" />
       </section>
     </>
   );
