@@ -9,6 +9,7 @@ use g4_formats::game::Family;
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::MATRIX_EMPTY;
 use g4_kernel::error::KernelError;
+use g4_kernel::places;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, Store, WarpEvent};
 
@@ -1806,6 +1807,25 @@ fn location_names_read_the_member_even_when_the_json_differs() {
         .location_names()
         .unwrap();
     assert_eq!(names[1], "Zweiblattdorf");
+}
+
+#[test]
+fn store_names_include_an_unsaved_message() {
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    assert_eq!(places::location_bank(st.project()), 433);
+    st.edit_text_archive(433, "Ort angelegt", |d| {
+        let mut message = d.messages[2].clone();
+        message.text = "Neuheim".into();
+        d.messages.push(message);
+    })
+    .unwrap();
+    assert_eq!(
+        places::location_names(&mut st).unwrap(),
+        ["Nowhere", "Twinleaf Town", "Sandgem Town", "Neuheim"]
+    );
+    // Not saved: the member on disk still has three names.
+    assert_eq!(st.project().location_names().unwrap().len(), 3);
 }
 
 /// A JSON another tool left half-edited, newer than the member.

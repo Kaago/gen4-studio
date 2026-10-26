@@ -949,23 +949,34 @@ impl Project {
     }
 
     /// Lists `headers` (for example the store's edited table, which may differ from the
-    /// one on disk) with the internal names from `files/fielddata/maptable/mapname.bin` and
-    /// the location names their `location_name` indexes select. An index outside the text
-    /// bank gives an empty name; so does every header when the names cannot be read
-    /// (reported in `names_error`).
+    /// one on disk) with the location names of the bank on disk; see
+    /// [`Project::header_listing_with`].
     pub fn header_listing_for(
         &self,
         headers: &[uxie::MapHeader],
     ) -> Result<HeaderListing, KernelError> {
+        self.header_listing_with(headers, self.location_names().map_err(|e| e.to_string()))
+    }
+
+    /// Lists `headers` with the internal names from `files/fielddata/maptable/mapname.bin`
+    /// and the location names (`names`, for example [`crate::places::location_names`] of
+    /// the store, unsaved names included) their `location_name` indexes select. An index
+    /// outside the names gives an empty name; so does every header when the names could not
+    /// be read (the error is reported in `names_error`).
+    pub fn header_listing_with(
+        &self,
+        headers: &[uxie::MapHeader],
+        names: Result<Vec<String>, String>,
+    ) -> Result<HeaderListing, KernelError> {
         let names_path = self.mapname_path();
-        let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
-        let (locations, names_error) = match self.location_names() {
+        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        let (locations, names_error) = match names {
             Ok(names) => (names, None),
-            Err(e) => (Vec::new(), Some(e.to_string())),
+            Err(e) => (Vec::new(), Some(e)),
         };
         let headers = headers
             .iter()
-            .zip(names.as_chunks::<MAPNAME_RECORD>().0)
+            .zip(mapnames.as_chunks::<MAPNAME_RECORD>().0)
             .enumerate()
             .map(|(i, (header, record))| {
                 let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
