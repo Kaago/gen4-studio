@@ -2,7 +2,7 @@
 
 Stand: 2026-10-26. Phase 3f „Weltmodell“ baut das Weltmodell in Teilphasen aus: 3f.1 Raster nach Tüfteln, 3f.2 Eigene Orte, 3f.3 Leichter Patch, optional 3f.4 Nahtlos und Abspalten. Jede Teilphase hat unten ihren Teil mit eigener Ergebnistabelle; am Ende steht das Gesamtgate aus [docs/ROADMAP.md](ROADMAP.md) („Phase 3f: Weltmodell“, Absatz „Gate:“).
 
-Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md), [3f.2](superpowers/plans/2026-10-26-phase-3f2-eigene-orte.md).
+Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md), [3f.2](superpowers/plans/2026-10-26-phase-3f2-eigene-orte.md), [3f.3](superpowers/plans/2026-10-26-phase-3f3-leichter-patch.md).
 
 Wer was prüft: Die Spalte „Wer“ sagt **Agent** (Test-Umgebung aus [docs/agent-gate.md](agent-gate.md): Browser-Fenster mit `studio-bridge`, `call.sh`), **Agent + Blick** (der Agent prüft und beschreibt Ort und Zahlen, der Nutzer bestätigt kurz am Bild) oder **Hand** (der Nutzer).
 
@@ -95,3 +95,64 @@ Stand: bis `c344ea1`, Test-Umgebung 1470/1471 (nach den Rust-Änderungen neu ges
 Befunde der Abschlussprüfung von 3f.2 (behoben in `c344ea1`): die Bank-Nummer konnte beim schnellen Bestätigen noch fehlen (die offene Nachrichtentabelle blieb dann alt); die Zahl der Nutzer zählte Abschnitte eines Gebiets einzeln; „Ort anlegen“ und „Umbenennen“ gingen mit leerem Namen (der Kernel lehnte erst danach ab); Namen behielten Leerzeichen am Rand; `plan_empty_region` las Ortsnamen von der Platte; der Prüftext setzte den Namen ohne Anführungszeichen.
 
 Offen (Blick beim Nutzer, Recherche): ob HeartGold Namen ab Index 235 im Spiel richtig zeigt, prüft das Gesamtgate mit `hg-neuheim.yaml`; Stadtkarte und Flugziele neuer Orte sind nicht Teil von 3f.
+
+## Teil 3f.3: Leichter Patch
+
+Lieferumfang (Roadmap): im Assistenten der Schritt „Ort“ statt „Header“, der Header wird immer neu angelegt (interner Name automatisch), der Patch „Dynamic Headers“ wird einmal in der Zusammenfassung bestätigt (Plakette „Nicht rückgängig“); der Kernel wendet ihn auch bei ungespeicherter Header-Tabelle an und legt vorher einen Schnappschuss von `unpacked/dynamicHeaders` an (`allow_patch`); Technik › Patches bleibt für Reparatur und Status. Dazu: `AssignHeader.place` (vorhandener oder neuer Ort im selben Schritt), die Texte der Assistenten in Bauen ohne „Raster“, „Matrix“, „Header“; Tüfteln behält den Schritt „Header“.
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (3.1) Ungespeicherte Änderung | Inspector von Zweiblattdorf (Platin) bzw. Neuborkia (HeartGold): „Musik Tag“ +1, ungespeichert (`dirty` HeaderTable, Verlauf „Musik Tag“) | Agent |
+| (3.2) Schritte | „Neu anlegen“ › „Gebiet anlegen…“: Schrittleiste „Quelle, Anordnung, Ort, Zusammenfassung“, Quelle nach Weltkarten benannt, kein „Raster/Matrix/Header“ in allen Schritten (`visibleWords`) | Agent |
+| (3.3) Schritt „Ort“ | „Vorhandener Ort | Neuer Ort“, Vorgabe „Neuer Ort“ mit dem Gebietsnamen, „Aussehen wie <Ort der Vorlage>“ | Agent |
+| (3.4) Zustimmung | Zusammenfassung mit Plakette „Nicht rückgängig“ und „Einmalig für dieses Projekt: Spielcode für neue Orte anpassen (DSPRE-kompatibel, Sicherung arm9.bin.backup)“; „Anlegen“ erst mit Haken | Agent |
+| (3.5) Ein Aufruf | „Anlegen“: Patch angewendet, neuer Header mit automatischem Namen, neuer Ort, Schnappschuss unter `.g4/backup/`, die ungespeicherte Änderung bleibt | Agent |
+| (3.6) Undo über den Patch | ⌘Z bis vor die Änderung von (3.1): „Musik Tag“ wieder alt; ⌘⇧Z bis zum Ende: alles wieder da | Agent |
+| (3.7) Speichern | ⌘S: keine ungespeicherten Assets, `unpacked/dynamicHeaders/<id>` geschrieben | Agent |
+| (3.8) Tüfteln | Schritt „Header“ mit „Vorhandenen Header umstellen | Neuer Header“ unverändert (vitest `shows_the_step_place_in_bauen_and_header_in_tuefteln`) | Agent |
+
+### Ergebnis 3f.3
+
+Stand: bis `f6f958e`, Test-Umgebung 1470/1471 (nach den Rust-Änderungen neu gestartet), Kopien `3f3-pt` (Platin DE) und `3f3-hgd` (HeartGold DE). Der Reiter „Raster“ wurde nicht geöffnet (es gibt ihn in Bauen nicht), Technik nicht besucht.
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.1) | bestanden: Platin „Musik Tag“ 1004 → 1005, HeartGold 1018 → 1019; Verlauf `["Musik Tag"]`, `dirty` HeaderTable; Patch fehlte (`applied: false`) | – |
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.2) | bestanden: Schrittleiste „Quelle, Anordnung, Ort, Zusammenfassung“; Quelle „Sinnoh“ bzw. „Johto / Kanto“, „Karten aus einer Weltkarte oder einem Gebiet“; Platin Zellen 3,26 und 4,26 (Karten 0005, 0006, Route 201), HeartGold 18,12 und 19,12 (Karten 0001, 0002, Route 29); Name „Neuheim“; `visibleWords` ohne Treffer in jedem Schritt | Vorbelegt war die Zelle des gewählten Gebiets (Zweiblattdorf), abgewählt |
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.3) | bestanden: „Neuer Ort“ gedrückt, „Name des neuen Orts“ = „Neuheim“ | „Aussehen wie Jubelstadt“ bzw. „Route 26“ (erster Ort mit diesem Aussehen), seit `68cc29e` nennt es den Ort der Vorlage („Route 201“) |
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.4) | bestanden: Zusammenfassung „Legt das Gebiet „Neuheim“ mit 2 × 1 Karten an. Kopiert Karten 0005, 0006, mit Gebäuden. Neuer Ort „Neuheim“. … Eine neue, leere Liste der Figuren und Türen. Anlegen lässt sich nicht rückgängig machen.“, Plakette, Kästchen; „Anlegen“ gesperrt, nach dem Haken frei | – |
+| 2026-10-26 | 3f3-pt | (3.5) | bestanden: Ergebnis „Gebiet „Neuheim“ angelegt: 2 Karten.“; `applied: true`; Header 0593 `NEUHEIM`, Ort 126 „Neuheim“, Matrix 0289, Eventdatei 0534, Aussehen 6; `.g4/backup/dynamicHeaders-20261026-115543/` mit den 12 Vanilla-Dateien; Header 0411 weiter mit „Musik Tag“ 1005 im Speicher; Verlauf `["Musik Tag", "build area", "Gebiet „Neuheim“ angelegt"]`; „Zeigen“: Brotkrume „Neuheim › Gebiet 0593“, unter „Weitere Gebiete“ | – |
+| 2026-10-26 | 3f3-hgd | (3.5) | bestanden: Header 0540 `NEUHEIM`, Ort 235 „Neuheim“ (erster Platz hinter den Vanilla-Namen), Schnappschuss `dynamicHeaders-20261026-120320` | – |
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.6) | bestanden: Platin ⌘Z ×3 → Verlauf leer, „Musik Tag“ 1004; ⌘⇧Z ×3 → 1005, Gebiet zurück; HeartGold ⌘Z ×6 (nach Erweitern, Import und Höhe) → Verlauf leer, Header 0540 wieder „Route 29“; ⌘⇧Z ×6 → „Neuheim“ | – |
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (3.7) | bestanden: `dirty` leer, `unpacked/dynamicHeaders/0411` und `0593` je 24 Byte | – |
+| 2026-10-26 | – | (3.8) | bestanden (vitest) | – |
+
+Befunde der Abschlussprüfung von 3f.3 (behoben in `68cc29e`, `f6f958e`): der deutsche Fehlertext nach einem späten Fehler verschwieg, dass der Patch bleibt (oder zeigte den englischen Text); das Aussehen nannte den ersten Ort statt der Vorlage; der Pfad der Sicherung erschien nirgends (jetzt im Ergebnis und in Technik › Patches, in Bauen ohne Pfad: „Die alten Dateien sind unter .g4/backup gesichert.“); ein Fehler beim Nachladen nach dem Patch konnte als Ablehnung neben dem Ergebnis stehen; das Gitter im Assistenten hieß für Screenreader „Raster“.
+
+## Gesamtgate 3f
+
+Roadmap, Absatz „Gate:“: Auf Kopien von Platin DE und HeartGold DE entsteht in Bauen, ohne den Reiter „Raster“ zu öffnen und ohne Technik, ein Gebiet mit dem neuen Ort „Neuheim“ in einem Durchgang (Patch mit einer Zustimmung, auch bei ungespeicherter Header-Änderung, deren Undo danach noch geht), das Gebiet wird um eine Karte erweitert, in die neue Karte werden Teile importiert und eine Höhe gesetzt; im Emulator erscheint beim Betreten die Einblendung „Neuheim“, ein dort gefangenes Pokémon zeigt den Fundort; DSPRE zeigt Name und Patch (Hand); `vanilla_checks` behält 0 Fehler, die Ladezeit von Zweiblattdorf ist kleiner als vor 3f.1; `scripts/gate.sh` grün (läuft später auf main).
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (G.1) Gebiet in Bauen | Teil 3f.3 (3.1)–(3.7) auf Platin DE und HeartGold DE, ohne Reiter „Raster“, ohne Technik | Agent |
+| (G.2) Erweitern, Teile, Höhe | Raumplan des neuen Gebiets: „+“ bei 2,0, „Karte anlegen“ (neue Karte im Gebiet, 3 × 1); Inspector „Karte“ › „Aktionen“ › „Teile importieren…“ aus einer Karte im Projekt; „Höhe“ 1; `run_checks` 0 Fehler | Agent |
+| (G.3) Einblendung | Szenarien `pt-neuheim.yaml` und `hg-neuheim.yaml` (dieselben Schritte über die Brücke, die Treppe des Zimmers führt ins Gebiet): Bild `einblendung` | Agent + Blick |
+| (G.4) Fundort | ein im neuen Gebiet gefangenes Pokémon zeigt „Neuheim“ als Fundort | Hand |
+| (G.5) DSPRE | DSPRE öffnet eine Kopie nach dem Gate, zeigt den Patch als angewendet und „Neuheim“ als Ortsnamen | Hand |
+| (G.6) Prüfungen | gated `vanilla_checks` (41 Prüfungen) auf frischen Kopien Platin DE, HeartGold DE und US: 0 Fehler; dazu die gated Workspace-Tests | Agent |
+| (G.7) Ladezeit | Zweiblattdorf (Platin) und Neuborkia (HeartGold) vorher (`974a545`) und nachher, `measureSceneLoad` | Agent |
+
+### Ergebnis Gesamtgate
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-26 | 3f3-pt, 3f3-hgd | (G.1) | bestanden (Teil 3f.3) | – |
+| 2026-10-26 | 3f3-pt | (G.2) | bestanden: „+“ bei 2,0, Dialog „Kopie von Karte 0667 (Nachbarzelle)“, „Die neue Karte gehört zu „Neuheim“.“, „Die Karte wird größer: 3 × 1.“; Karte 0668 im Gebiet 0593; „Teile importieren…“ aus Karte 0005: „3 Teile übernommen“ (Modell, Kollision, BDHC); „Höhe“ 1; Matrix 0289 `maps [666, 667, 668]`, `headers [593, 593, 593]`, `altitudes [0, 0, 1]`; Verlauf dazu „extend area“, „map 0668: model and permissions and terrain imported“, „edit matrix cell“; 3D zeigt drei Karten, die dritte mit dem Modell von Route 201 Karte 5, eine halbe Kachel höher; `run_checks` 0 Fehler | Erster Import aus Karte 6: „Nichts geändert: die Teile waren schon so.“ (die neue Karte ist selbst eine Kopie von 6) |
+| 2026-10-26 | 3f3-hgd | (G.2) | bestanden: Karte 0678 bei 2,0, „Teile importieren…“ aus Karte 0003: „5 Teile übernommen“ (mit Gebäuden und Hintergrundklang), „Höhe“ 1, `run_checks` 0 Fehler | – |
+| 2026-10-26 | 3f-gate-pt | (G.3) | bestanden: `pt-neuheim` exit 0 (Erwartungen: Patch vorher aus, nachher an, `location_name` 126, Breite 3, Höhe 1, 0 Fehler), Header 415 → 593; Bilder `target/agent/gate-2026-10-26/pt-neuheim/einblendung.png` (Einblendung „Neuheim“ oben links über Route-201-Gelände) und `osten.png` (x 43 auf der zweiten Karte) | Ein Lauf weiter nach Osten blieb bei x 29 stehen (vermutlich eine Begegnung im Gras, nicht verfolgt) |
+| 2026-10-26 | 3f-gate-hgd | (G.3) | bestanden: `hg-neuheim` exit 0 (Ort 235 „Neuheim“), Header 64 → 540; Bild `target/agent/gate-2026-10-26/hg-neuheim/einblendung.png`: Einblendung „Neuheim“ oben links über Route-29-Gelände, unten das Menü des Touchscreens. HeartGold zeigt also einen Ortsnamen hinter den Vanilla-Plätzen | – |
+| – | – | (G.4) | beim Nutzer offen: der Spielstand liegt vor dem ersten Pokémon und ohne Bälle; Fangen über `g4emu` ist nicht vorgesehen | – |
+| – | – | (G.5) | beim Nutzer offen (DSPRE, Kopien `3f3-pt`, `3f3-hgd` gespeichert) | – |
+| 2026-10-26 | 3f-gt-pt, 3f-gt-hgd, 3f-gt-hgu | (G.6) | siehe unten | – |
+| 2026-10-26 | 3f-pt, 3f-hgd | (G.7) | bestanden: Zweiblattdorf vorher kalt 7523 ms, warm 2851/2481 ms (852 Anfragen, 176 Modelle) → nachher (`f6f958e`) kalt 471 ms, warm 570 ms (45–55 Anfragen, 6 Modelle; nach 3f.1 warm 347/510 ms); Neuborkia vorher kalt 9856, warm 3854 ms (1058 Anfragen, 204 Modelle) → nachher warm 596 ms (55 Anfragen, 6 Modelle) | Die Brücke läuft als Debug-Build; Zeiten im Browser-Fenster, das verborgen lief |
