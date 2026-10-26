@@ -167,11 +167,15 @@ impl BaseRoms {
     }
 
     /// Remembers the ROM at `path` (inspected as `info`) with its canonical path, its size
-    /// and mtime now, and saves.
+    /// and mtime now, and saves. An original under `G4_ROMS_DIR` is not remembered (the search
+    /// skips it anyway). Errors: the file cannot be read, or its path is no valid text.
     pub fn register(&self, path: &Path, info: &RomInfo) -> Result<(), String> {
         let canonical = path
             .canonicalize()
             .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
+        if self.is_skipped(&canonical) {
+            return Ok(());
+        }
         let meta = std::fs::metadata(&canonical)
             .map_err(|e| format!("ROM nicht lesbar: {}: {e}", path.display()))?;
         let entry = BaseRomEntry {
@@ -254,6 +258,10 @@ impl BaseRoms {
                     } else {
                         hit.path.canonicalize().unwrap_or_else(|_| hit.path.clone())
                     };
+                    // Stored as text, like `register`: a path that is none is not remembered.
+                    let Some(path) = path.to_str().map(str::to_owned) else {
+                        return Ok(found);
+                    };
                     let label = inner
                         .settings
                         .find(&mark.sha1)
@@ -262,7 +270,7 @@ impl BaseRoms {
                         .unwrap_or_else(|| base_label(mark));
                     inner.settings.upsert(BaseRomEntry {
                         sha1: mark.sha1.to_ascii_lowercase(),
-                        path: path.to_string_lossy().into_owned(),
+                        path,
                         size: hit.size,
                         mtime_ms: hit.mtime_ms,
                         game_code: mark.game_code.clone(),
@@ -290,6 +298,14 @@ impl BaseRoms {
 
     pub fn settings(&self) -> BaseRomSettings {
         self.lock().settings.clone()
+    }
+
+    /// Whether `canonical` is an original under the configured `G4_ROMS_DIR`.
+    fn is_skipped(&self, canonical: &Path) -> bool {
+        self.lock()
+            .originals
+            .as_deref()
+            .is_some_and(|roms| is_original(canonical, roms))
     }
 }
 
@@ -633,6 +649,31 @@ mod tests {
             Err(KernelError::Refused(_))
         ));
         let _ = other;
+    }
+
+    #[test]
+    fn register_skips_an_original_under_g4_roms_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let roms = tmp.path().join("Roms");
+        let copies = roms.join("_testkopien");
+        std::fs::create_dir_all(&copies).unwrap();
+        let original = roms.join("x.nds");
+        let copy = copies.join("x.nds");
+        write_rom(&original, 1);
+        write_rom(&copy, 1);
+        let info = g4_kernel::start::inspect_rom(&original).unwrap();
+        let app = tmp.path().join("app");
+        let base = BaseRoms::default();
+        base.configure_with(Some(app.clone()), None, Some(roms));
+        base.register(&original, &info).unwrap();
+        assert!(base.settings().roms.is_empty());
+        assert!(!app.join(BASE_ROMS_FILE).exists());
+        // The copy is remembered.
+        base.register(&copy, &info).unwrap();
+        assert_eq!(
+            BaseRomSettings::load(&app).find(&info.sha1).unwrap().path,
+            std::fs::canonicalize(&copy).unwrap().to_str().unwrap()
+        );
     }
 
     #[test]
