@@ -271,7 +271,7 @@ fn members_text(created: &Created) -> Option<String> {
 /// The error of a step that failed during a run: says what stays behind. Code `"partial"`
 /// once a member was created (the frontend shows what is left to finish by hand), otherwise
 /// a plain `"error"`.
-fn late(created: &Created, step: &str, e: impl std::fmt::Display) -> CmdError {
+pub(super) fn late(created: &Created, step: &str, e: impl std::fmt::Display) -> CmdError {
     let message = format!("{}; {step} failed: {e}", created_text(created));
     if created.is_empty() {
         message.into()
@@ -280,19 +280,24 @@ fn late(created: &Created, step: &str, e: impl std::fmt::Display) -> CmdError {
     }
 }
 
-fn id(kind: AssetKind, index: u16) -> AssetId {
+pub(super) fn id(kind: AssetKind, index: u16) -> AssetId {
     AssetId { kind, index }
 }
 
 /// A matrix name must fit the file format's length byte.
-fn check_name(name: &str) -> Result<(), CmdError> {
+pub(super) fn check_name(name: &str) -> Result<(), CmdError> {
     if name.len() > usize::from(u8::MAX) {
         return Err(format!("the name is {} bytes long, at most 255 fit", name.len()).into());
     }
     Ok(())
 }
 
-fn check_member(store: &Store, kind: AssetKind, index: u16, what: &str) -> Result<(), CmdError> {
+pub(super) fn check_member(
+    store: &Store,
+    kind: AssetKind,
+    index: u16,
+    what: &str,
+) -> Result<(), CmdError> {
     let count = store.member_count(kind)?;
     if usize::from(index) >= count {
         return Err(format!("{what} {index} does not exist (the game has {count})").into());
@@ -309,7 +314,7 @@ fn check_header_id(session: &Session, header: u16) -> Result<(), CmdError> {
 }
 
 /// Refuses a loaded asset the codec would not write back byte for byte.
-fn check_writable(store: &Store, asset: AssetId) -> Result<(), CmdError> {
+pub(super) fn check_writable(store: &Store, asset: AssetId) -> Result<(), CmdError> {
     match store.locked(asset) {
         Some(reason) => Err(KernelError::ReadOnly {
             asset,

@@ -10,6 +10,7 @@ pub mod mcp;
 mod menu;
 mod state;
 
+use commands::split_room;
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -68,6 +69,7 @@ pub fn run() {
             create_area,
             extend_area,
             create_room,
+            split_room,
             header_patch_status,
             apply_header_patch,
             repair_header_patch,

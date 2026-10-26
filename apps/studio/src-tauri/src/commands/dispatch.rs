@@ -64,6 +64,7 @@ pub const COMMANDS: &[&str] = &[
     "create_area",
     "extend_area",
     "create_room",
+    "split_room",
     "header_patch_status",
     "apply_header_patch",
     "repair_header_patch",
@@ -292,6 +293,11 @@ pub fn dispatch(
         "create_room" => {
             run!(json, "create_room", args, { spec: RoomSpec }, |a| create_room_impl(state, a.spec))
         }
+        "split_room" => run!(
+            json, "split_room", args,
+            { header: u16, name: Option<String> },
+            |a| split_room_impl(state, a.header, a.name)
+        ),
         "header_patch_status" => run!(json, "header_patch_status", args, {}, |_a| {
             header_patch_status_impl(state)
         }),
@@ -788,6 +794,7 @@ mod tests {
                     "entrance": null,
                 } }),
             ),
+            ("split_room", json!({ "header": 1, "name": "Haus" })),
             ("header_patch_status", json!({})),
             ("apply_header_patch", json!({})),
             ("repair_header_patch", json!({})),

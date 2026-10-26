@@ -696,6 +696,20 @@ export const createArea = (spec: AreaSpec) => invoke<AreaReport>("create_area", 
 export const extendArea = (spec: ExtendSpec) => invoke<ExtendReport>("extend_area", { spec });
 export const createRoom = (spec: RoomSpec) => invoke<RoomReport>("create_room", { spec });
 
+/** What `splitRoom` did: the room's new matrix and the map copies in it (each copied map once). */
+export interface SplitReport {
+  matrix: number;
+  maps: number[];
+}
+
+/**
+ * Gives room `header` copies of the maps it shares with other rooms, on a new matrix of its own.
+ * The copies and the matrix are written at once and stay; moving the room onto them is one undo
+ * step, labelled with `name` (else the header id).
+ */
+export const splitRoom = (header: number, name?: string | null) =>
+  invoke<SplitReport>("split_room", { header, name: name ?? null });
+
 /** The Dynamic Headers patch of the open game: whether it exists for it, and whether it is in the game already. */
 export interface HeaderPatchDto {
   supported: boolean;

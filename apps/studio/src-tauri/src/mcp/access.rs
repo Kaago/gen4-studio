@@ -53,6 +53,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_area", Kind::Depends),
     ("extend_area", Kind::Write),
     ("create_room", Kind::Depends),
+    ("split_room", Kind::Write),
     ("header_patch_status", Kind::Read),
     ("apply_header_patch", PATCH),
     ("repair_header_patch", PATCH),

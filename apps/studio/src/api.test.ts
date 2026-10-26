@@ -42,6 +42,7 @@ import {
   scriptsStatus,
   searchText,
   setHeader,
+  splitRoom,
   updateBuilding,
   validateText,
   worldMetaGet,
@@ -52,6 +53,7 @@ import {
   type MapHeaderHGSS,
   type MapHeaderPt,
   type RoomSpec,
+  type SplitReport,
 } from "./api";
 
 describe("isCmdError", () => {
@@ -391,5 +393,17 @@ describe("script commands", () => {
     invoke.mockResolvedValueOnce(report);
     await expect(createArea(area)).resolves.toEqual(report);
     expect(invoke.mock.calls).toEqual([["create_area", { spec: area }]]);
+  });
+
+  it("split_room_sends_the_header_and_the_name_or_null", async () => {
+    invoke.mockReset();
+    const report: SplitReport = { matrix: 4, maps: [9, 10] };
+    invoke.mockResolvedValueOnce(report);
+    await expect(splitRoom(7, "Haus")).resolves.toEqual(report);
+    await splitRoom(8);
+    expect(invoke.mock.calls).toEqual([
+      ["split_room", { header: 7, name: "Haus" }],
+      ["split_room", { header: 8, name: null }],
+    ]);
   });
 });
