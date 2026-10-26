@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { placeSlots, renamePlace } from "../../api";
 import type { HeaderSummary } from "../../api";
 import { Dialog, Notice, TextField } from "../../ui/primitives";
-import { nameWarning } from "./placeChoices";
+import { useWorld } from "../WorkbenchContext";
+import { countUsers, nameWarning } from "./placeChoices";
 import styles from "./PlacePicker.module.css";
 
 export interface RenamePlaceDialogProps {
   open: boolean;
   /** The place's index in the location bank (never 0: no place cannot be renamed). */
   index: number;
-  /** The header list: the place's present name and how many headers carry it. */
+  /** The header list: the place's present name and who carries it. */
   headers: readonly HeaderSummary[];
   onClose: () => void;
   /** The place was renamed (one undo step); `bank` is the location bank that changed (null while it was not known yet). */
@@ -18,7 +19,7 @@ export interface RenamePlaceDialogProps {
   onError: (e: unknown) => void;
 }
 
-/** How far a rename reaches: every header with the place, and the place of capture of Pokémon caught there. */
+/** How far a rename reaches: every area and room with the place, and the place of capture of Pokémon caught there. */
 function reachText(count: number): string {
   const what = count === 1 ? "1 Gebiet oder Raum" : `alle ${count} Gebiete und Räume`;
   return `Trifft ${what} mit diesem Ort und den Fundort gefangener Pokémon.`;
@@ -30,7 +31,9 @@ export function RenamePlaceDialog(props: RenamePlaceDialogProps) {
 }
 
 function RenameForm({ index, headers, onClose, onRenamed, onError }: RenamePlaceDialogProps) {
+  const { world } = useWorld();
   const carriers = headers.filter((h) => h.location_index === index);
+  const users = countUsers(carriers, world);
   const [name, setName] = useState(() => carriers[0]?.location_name ?? "");
   const [bank, setBank] = useState<number | null>(null);
   const [working, setWorking] = useState(false);
@@ -51,15 +54,18 @@ function RenameForm({ index, headers, onClose, onRenamed, onError }: RenamePlace
   async function rename() {
     if (working) return;
     setWorking(true);
+    let at: number;
     try {
-      await renamePlace(index, name);
+      // Confirmed before the bank was known: ask now, before anything changes, so the text panel still reads the changed bank.
+      at = bank ?? (await placeSlots()).bank;
+      await renamePlace(index, name.trim());
     } catch (e) {
       setWorking(false);
       onError(e);
       return;
     }
     onClose();
-    await onRenamed(bank);
+    await onRenamed(at);
   }
   const leave = () => {
     if (!working) onClose();
@@ -75,12 +81,12 @@ function RenameForm({ index, headers, onClose, onRenamed, onError }: RenamePlace
       title="Ort umbenennen"
       actions={[
         { label: "Abbrechen", onClick: leave },
-        { label: "Umbenennen", kind: "primary", onClick: () => void rename() },
+        { label: "Umbenennen", kind: "primary", onClick: () => void rename(), disabled: name.trim() === "" },
       ]}
     >
       <div className={styles.form} data-rename-place="" aria-busy={working}>
         <TextField label="Name des Orts" showLabel value={name} onChange={setName} onCommit={setName} disabled={working} />
-        <Notice kind="info">{reachText(carriers.length)}</Notice>
+        <Notice kind="info">{reachText(users)}</Notice>
         {long && <Notice kind="warning">{long}</Notice>}
       </div>
     </Dialog>

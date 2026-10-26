@@ -71,7 +71,7 @@ describe("check messages", () => {
   it("names_the_place_name_and_the_place_index_that_go_wrong", () => {
     const long = finding("place.name-too-long", "warning", { subject: { kind: "textArchive", index: 433 }, args: ["17", "Siebzehn Zeichen!", "17"] });
     expect(checkTitle("place.name-too-long", "tuefteln")).toBe("Ortsname zu lang");
-    expect(findingText(long, "tuefteln")).toBe("Der Ortsname Siebzehn Zeichen! ist 17 Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).");
+    expect(findingText(long, "tuefteln")).toBe("Der Ortsname „Siebzehn Zeichen!“ ist 17 Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).");
     expect(findingText(long, "bauen")).toBe(findingText(long, "tuefteln"));
     const past = finding("place.index-out-of-bank", "error", { args: ["12", "140", "125"] });
     expect(checkTitle("place.index-out-of-bank", "tuefteln")).toBe("Ort fehlt in der Ortsnamen-Bank");

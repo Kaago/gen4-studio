@@ -1713,6 +1713,7 @@ mod tests {
         // Index 0 is "no place" (the Mysterious Place): fine even with an empty bank.
         let mut f = Fake::world();
         f.places = Some(Vec::new());
+        name_place(&mut f, 0, 0);
         name_place(&mut f, 1, 1);
         let found = f.run(&PlaceIndexOutOfBank);
         assert_eq!(keys(&found), [(Subject::Header(1), "location_name")]);

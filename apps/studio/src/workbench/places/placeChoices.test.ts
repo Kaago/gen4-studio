@@ -44,6 +44,15 @@ const world: World = {
 };
 
 describe("placeItems", () => {
+  it("counts_the_sections_of_an_area_once_and_every_room_and_unknown_header_each", () => {
+    const stray = header(99, 5, "Zweiblattdorf");
+    const items = placeItems([north, south, house, attic, stray], ["Mysteriöser Ort", "", "", "", "", "Zweiblattdorf"], world);
+    // One area (two sections), two rooms and a header the world does not know.
+    expect(items[5]!.count).toBe("4 Gebiete und Räume");
+    // Without a world every header counts.
+    expect(placeItems([north, south, house], ["", "", "", "", "", "Zweiblattdorf"])[5]!.count).toBe("3 Gebiete und Räume");
+  });
+
   it("lists_every_name_of_the_bank_with_its_users_and_no_place_first", () => {
     const headers = [header(0, 0, ""), north, south, house, lab];
     const names = ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme", "Route 201"];

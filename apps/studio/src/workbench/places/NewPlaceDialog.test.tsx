@@ -131,13 +131,47 @@ describe("NewPlaceDialog", () => {
   });
 
   it("keeps_the_dialog_open_when_the_kernel_refuses", async () => {
-    const refusal = { code: "refused", message: "Der Ort braucht einen Namen." };
+    const refusal = { code: "refused", message: "Der Name enthält Zeichen, die das Spiel nicht kennt." };
     vi.mocked(createPlace).mockRejectedValue(refusal);
     await show();
+    typeInto(nameField(), "Neu#heim");
     await act(async () => button("Ort anlegen")!.click());
     await flush();
     expect(onError).toHaveBeenCalledWith(refusal);
     expect(onClose).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("asks_for_the_bank_when_confirmed_before_it_was_known", async () => {
+    // The first answer of `placeSlots` (the dialog's own) never comes; the one of `create` does.
+    vi.mocked(placeSlots)
+      .mockReset()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue(roomy);
+    await show();
+    typeInto(nameField(), "Neuheim");
+    await act(async () => button("Ort anlegen")!.click());
+    await flush();
+    expect(onCreated).toHaveBeenCalledWith({ index: 130, reused: null }, 433);
+  });
+
+  it("cannot_be_confirmed_without_a_name", async () => {
+    await show();
+    expect(button("Ort anlegen")!.disabled).toBe(true);
+    typeInto(nameField(), "   ");
+    expect(button("Ort anlegen")!.disabled).toBe(true);
+    await act(async () => button("Ort anlegen")!.click());
+    expect(createPlace).not.toHaveBeenCalled();
+    typeInto(nameField(), "Neuheim");
+    expect(button("Ort anlegen")!.disabled).toBe(false);
+  });
+
+  it("sends_and_names_the_trimmed_name", async () => {
+    await show();
+    typeInto(nameField(), "  Neuheim ");
+    await act(async () => button("Ort anlegen")!.click());
+    await flush();
+    expect(createPlace).toHaveBeenCalledWith("Neuheim", [10, 11, 20]);
+    expect(listToasts().map((t) => t.text)).toContain("Ort „Neuheim“ angelegt");
   });
 });

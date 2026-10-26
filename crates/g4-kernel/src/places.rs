@@ -84,7 +84,8 @@ fn refuse_dp(store: &Store) -> Result<(), KernelError> {
 
 /// Refuses an empty name, one of more than one line (a line break, or chatot's line codes
 /// `\n`, `\r`, `\f` in text form) and one with a character chatot cannot encode (the first
-/// problem of [`text::validate`] in the sentence). The name is never shortened.
+/// problem of [`text::validate`] in the sentence). The name is never shortened; the callers
+/// pass it trimmed.
 fn check_name(store: &Store, bank: u16, name: &str) -> Result<(), KernelError> {
     if name.trim().is_empty() {
         return Err(refused(NAME_MISSING));
@@ -152,7 +153,7 @@ pub fn place_slots(store: &mut Store) -> Result<PlaceSlots, KernelError> {
     })
 }
 
-/// Creates the place `name` and gives it to `headers`, one undo step "Ort „<name>“
+/// Creates the place `name` (trimmed of surrounding white space) and gives it to `headers`, one undo step "Ort „<name>“
 /// angelegt". The name is appended to the location bank; on a full HGSS bank it replaces
 /// the lowest Sinnoh name no header uses ([`PlaceSlots::reusable`]). Refused, with nothing
 /// changed, on Diamond/Pearl, for an empty name, one of more than one line or one with a
@@ -165,6 +166,7 @@ pub fn create_place(
 ) -> Result<PlaceCreated, KernelError> {
     refuse_dp(store)?;
     let bank = location_bank(store.project());
+    let name = name.trim();
     check_name(store, bank, name)?;
     check_headers(store, headers)?;
     let slots = place_slots(store)?;
@@ -199,7 +201,7 @@ pub fn create_place(
     Ok(PlaceCreated { index, reused })
 }
 
-/// Renames the place at `index` for every header that carries it, one undo step "Ort
+/// Renames the place at `index` (to `name` trimmed) for every header that carries it, one undo step "Ort
 /// „<old>“ in „<new>“ umbenannt". Refused on Diamond/Pearl, for index 0 (no place, the
 /// game's "Mysterious Zone"), for an index the bank does not have and for a name
 /// [`create_place`] refuses.
@@ -211,6 +213,7 @@ pub fn rename_place(store: &mut Store, index: u8, name: &str) -> Result<(), Kern
     let bank = location_bank(store.project());
     let names = location_names(store)?;
     let old = existing_name(&names, index)?.to_owned();
+    let name = name.trim();
     check_name(store, bank, name)?;
     store.transaction(&format!("Ort „{old}“ in „{name}“ umbenannt"), |tx| {
         tx.edit_text_archive(bank, |doc| {
@@ -348,6 +351,21 @@ mod tests {
         assert_eq!(location_names(&mut st).unwrap().len(), 3);
         assert_eq!(st.header_table().unwrap(), before.as_slice());
         assert_eq!(st.undo_depth(), 0);
+    }
+
+    #[test]
+    fn stores_the_trimmed_name() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        create_place(&mut st, " Neuheim ", &[0]).unwrap();
+        assert_eq!(location_names(&mut st).unwrap()[3], "Neuheim");
+        assert_eq!(st.history().0, ["Ort „Neuheim“ angelegt"]);
+        rename_place(&mut st, 3, "\t Neustadt  ").unwrap();
+        assert_eq!(location_names(&mut st).unwrap()[3], "Neustadt");
+        assert_eq!(
+            st.history().0.last().unwrap(),
+            "Ort „Neuheim“ in „Neustadt“ umbenannt"
+        );
     }
 
     #[test]

@@ -13,6 +13,7 @@ use g4_formats::matrix::MATRIX_EMPTY;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{KernelError, guard_panic, io_at};
+use crate::places;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, LevelScriptDoc, ScriptSource, SourceKind};
 use crate::start::DP_LOCKED;
@@ -198,7 +199,12 @@ pub struct RegionPlan {
 pub fn plan_empty_region(store: &mut Store) -> Result<RegionPlan, KernelError> {
     let recipe = region_recipe(store.project().family)?;
     let headers = store.header_table()?.to_vec();
-    let listing = store.project().header_listing_for(&headers)?.headers;
+    // The names come from the store, so a rename not yet saved is the town's name too.
+    let names = places::location_names(store).map_err(|e| e.to_string());
+    let listing = store
+        .project()
+        .header_listing_with(&headers, names)?
+        .headers;
     let town = listing
         .iter()
         .find(|h| h.internal_name == recipe.start_town && h.matrix_id == 0)

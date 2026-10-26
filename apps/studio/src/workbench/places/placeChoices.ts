@@ -11,10 +11,28 @@ export const DP_PLACES = "Eigene Orte gibt es nur für Platin und HeartGold/Soul
 /** The longest name of the vanilla games: a longer one may be cut off in the game. */
 const NAME_LIMIT = 16;
 
-/** „1 Gebiet oder Raum“, „3 Gebiete und Räume“: how many headers carry a place. */
+/** „1 Gebiet oder Raum“, „3 Gebiete und Räume“: how many areas and rooms carry a place. */
 export function usersText(count: number): string {
   if (count === 0) return "unbenutzt";
   return count === 1 ? "1 Gebiet oder Raum" : `${count} Gebiete und Räume`;
+}
+
+/**
+ * How a header counts as a user of a place: an area's sections (the headers of its cells) count as one user, the area; a room, a header
+ * the world model does not know and every header while there is no world count one each.
+ */
+function userKeyOf(world: World | null): (h: HeaderSummary) => string {
+  const sections = new Set<number>();
+  if (world) for (const area of [...world.worldMaps.flatMap((w) => w.areas), ...world.moreAreas]) for (const h of area.headers) sections.add(h.id);
+  return (h) => {
+    const area = world !== null && sections.has(h.id) ? world.areaOf.get(h.id) : undefined;
+    return area === undefined ? `header:${h.id}` : `area:${area}`;
+  };
+}
+
+/** How many areas and rooms `headers` stand for: the sections of one area are one. */
+export function countUsers(headers: readonly HeaderSummary[], world: World | null): number {
+  return new Set(headers.map(userKeyOf(world))).size;
 }
 
 /** The key `placeColor` takes for the name at `index` of the bank, as the world tree keys a place (no place and a blank name: `UNNAMED_KEY`). */
@@ -24,15 +42,15 @@ export function placeKeyOf(index: number, name: string): string {
 
 /**
  * The entries of the picker „Ort wählen“: every name of the location bank in its order, id the index, index 0 as „Kein Ort“; each with
- * how many headers carry it.
+ * how many areas and rooms carry it (`countUsers`).
  */
-export function placeItems(headers: readonly HeaderSummary[], names: readonly string[]): PickerItem[] {
-  const users = new Map<number, number>();
-  for (const h of headers) users.set(h.location_index, (users.get(h.location_index) ?? 0) + 1);
+export function placeItems(headers: readonly HeaderSummary[], names: readonly string[], world: World | null = null): PickerItem[] {
+  const users = new Map<number, HeaderSummary[]>();
+  for (const h of headers) users.set(h.location_index, [...(users.get(h.location_index) ?? []), h]);
   return names.map((name, index) => ({
     id: index,
     label: index === NO_PLACE_INDEX ? NO_PLACE_LABEL : name,
-    count: usersText(users.get(index) ?? 0),
+    count: usersText(countUsers(users.get(index) ?? [], world)),
   }));
 }
 

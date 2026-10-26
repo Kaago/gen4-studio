@@ -6,6 +6,7 @@ import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { UNNAMED_PLACE, placeColor } from "../places";
 import { id4 } from "../terms";
+import { useWorld } from "../WorkbenchContext";
 import { NO_PLACE_INDEX } from "../worldModel";
 import { NewPlaceDialog } from "./NewPlaceDialog";
 import { DP_PLACES, placeItems, placeKeyOf } from "./placeChoices";
@@ -35,6 +36,7 @@ const NO_PLACE_SHORT = "Kein Ort";
  */
 export function PlacePicker({ header, depth, onAssigned, headers, family, onError, commit }: PlacePickerProps) {
   const tinker = depth === "tuefteln";
+  const { world } = useWorld();
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState(false);
   const [bank, setBank] = useState<number | null>(null);
@@ -72,7 +74,7 @@ export function PlacePicker({ header, depth, onAssigned, headers, family, onErro
     () =>
       names === null
         ? []
-        : placeItems(headers, names).map((item) => {
+        : placeItems(headers, names, world).map((item) => {
             const index = Number(item.id);
             return {
               ...item,

@@ -19,6 +19,7 @@ use g4_formats::game::Family;
 use g4_formats::matrix::MATRIX_EMPTY;
 use g4_kernel::checks::{Group, IgnoreSet, Runner, Severity, Snapshot, SnapshotCache};
 use g4_kernel::error::KernelError;
+use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::start::DP_LOCKED;
@@ -217,6 +218,15 @@ fn plan_keeps_the_town_and_its_rooms() {
     );
     assert_eq!(json["dropped_warps"], serde_json::json!([[3, 1]]));
     assert_eq!(json["already_empty"], false);
+}
+
+#[test]
+fn plan_names_the_town_after_an_unsaved_rename() {
+    let (_s, mut store) = world();
+    places::rename_place(&mut store, 1, "Zweiblattdorf").unwrap();
+    assert!(!store.dirty().is_empty());
+    let plan = plan_empty_region(&mut store).unwrap();
+    assert_eq!(plan.town_name, "Zweiblattdorf");
 }
 
 #[test]

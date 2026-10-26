@@ -65,17 +65,21 @@ function NewPlaceForm({ header, onClose, onCreated, onError }: NewPlaceDialogPro
   async function create() {
     if (working) return;
     setWorking(true);
+    const trimmed = name.trim();
     let created: PlaceCreated;
+    let at: number;
     try {
-      created = await createPlace(name, choices.filter((c) => c.checked).flatMap((c) => c.headers));
+      // Confirmed before the bank was known: ask now, before anything changes, so the text panel still reads the changed bank.
+      at = bank ?? (await placeSlots()).bank;
+      created = await createPlace(trimmed, choices.filter((c) => c.checked).flatMap((c) => c.headers));
     } catch (e) {
       setWorking(false);
       onError(e);
       return;
     }
-    toast.info(`Ort „${name}“ angelegt`);
+    toast.info(`Ort „${trimmed}“ angelegt`);
     onClose();
-    await onCreated(created, bank);
+    await onCreated(created, at);
   }
   const leave = () => {
     if (!working) onClose();
@@ -91,7 +95,7 @@ function NewPlaceForm({ header, onClose, onCreated, onError }: NewPlaceDialogPro
       title="Neuer Ort"
       actions={[
         { label: "Abbrechen", onClick: leave },
-        { label: "Ort anlegen", kind: "primary", onClick: () => void create() },
+        { label: "Ort anlegen", kind: "primary", onClick: () => void create(), disabled: name.trim() === "" },
       ]}
     >
       <div className={styles.form} data-new-place="" aria-busy={working}>

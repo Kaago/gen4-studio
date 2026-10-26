@@ -61,7 +61,7 @@ const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
  * After a place command (assign, create, rename): the header editor reads its header again and the list, the scene, the world tree
  * and the dirty count follow, as after a header edit; a changed location bank (`bank`) is read again by the text panel.
  */
-function usePlaceChanged(bus: EditBus, onHeaderChanged: () => void | Promise<void>) {
+export function usePlaceChanged(bus: EditBus, onHeaderChanged: () => void | Promise<void>) {
   return useCallback(
     async (bank: number | null) => {
       bus.emit({ topic: "headerTable" });

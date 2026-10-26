@@ -136,6 +136,30 @@ describe("Dialog", () => {
     expect(keep).not.toHaveBeenCalled();
   });
 
+  it("a_disabled_action_is_a_disabled_button_that_does_not_fire", () => {
+    const ok = vi.fn();
+    act(() =>
+      root.render(
+        <Dialog
+          open
+          onOpenChange={() => {}}
+          title="Frage"
+          actions={[
+            { label: "Abbrechen", onClick: () => {} },
+            { label: "Anlegen", kind: "primary", onClick: ok, disabled: true },
+          ]}
+        >
+          <p>Inhalt</p>
+        </Dialog>,
+      ),
+    );
+    const button = (text: string) => [...dialog()!.querySelectorAll("button")].find((b) => b.textContent === text)!;
+    expect(button("Anlegen").disabled).toBe(true);
+    expect(button("Abbrechen").disabled).toBe(false);
+    act(() => button("Anlegen").click());
+    expect(ok).not.toHaveBeenCalled();
+  });
+
   it("focus_moves_into_the_dialog_when_it_opens", async () => {
     act(() =>
       root.render(

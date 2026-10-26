@@ -148,7 +148,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     group: "cheap",
     severity: "warning",
     title: "Ortsname zu lang",
-    text: "Der Ortsname {1} ist {2} Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).",
+    text: "Der Ortsname „{1}“ ist {2} Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).",
   },
   "place.index-out-of-bank": {
     group: "cheap",
