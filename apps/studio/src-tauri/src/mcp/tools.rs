@@ -2682,7 +2682,7 @@ mod tests {
         let question = user.join().unwrap();
         assert_eq!(question.kind, "confirm");
         assert_eq!(question.client, AGENT);
-        assert_eq!(question.what.as_deref(), Some("Patch"));
+        assert_eq!(question.what.as_deref(), Some("Header-Patch einspielen"));
         assert!(header_patch_status_impl(&state).unwrap().applied);
 
         // Refused: nothing runs.
@@ -2694,8 +2694,8 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         assert_eq!(
             message,
-            "apply_header_patch lässt sich nicht rückgängig machen (Patch); in Gen4 Studio \
-             abgelehnt"
+            "apply_header_patch lässt sich nicht rückgängig machen (Header-Patch einspielen); in \
+             Gen4 Studio abgelehnt"
         );
         assert!(!header_patch_status_impl(&state).unwrap().applied);
 

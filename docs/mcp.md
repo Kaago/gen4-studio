@@ -64,7 +64,7 @@ Der Client-Name kommt aus dem Handschlag (`clientInfo.title`, sonst `clientInfo.
 
 ### Unumkehrbares in der App
 
-In der App gibt es kein `--allow-irreversible`. Ein unumkehrbares Werkzeug (siehe „Schreiben und Bestätigung“) fragt mit dem Dialog „Agent möchte etwas Unumkehrbares tun“: „„<Client>“ möchte: <Grund> (lässt sich nicht rückgängig machen).“ mit „Ablehnen“ und „Zulassen“. Ein `g4_batch` fragt einmal mit allen Gründen. „Zulassen“ gilt nur für diesen Aufruf und wird nicht gespeichert; „Ablehnen“, Schließen oder 120 s ohne Antwort ergeben `needs_confirmation` („… lässt sich nicht rückgängig machen (…); in Gen4 Studio abgelehnt“). Mit der Freigabe „Lesen“ oder mit „Nur lesen“ kommt zuerst `read_only`.
+In der App gibt es kein `--allow-irreversible`. Ein unumkehrbares Werkzeug (siehe „Schreiben und Bestätigung“) fragt mit dem Dialog „Agent möchte etwas Unumkehrbares tun“: „„<Client>“ möchte: <Grund> (lässt sich nicht rückgängig machen).“ mit „Ablehnen“ und „Zulassen“; der Grund nennt den Schritt, etwa „Header-Patch einspielen“, „Trainer anlegen“ oder „Script anlegen“. Ein `g4_batch` fragt einmal mit allen Gründen. „Zulassen“ gilt nur für diesen Aufruf und wird nicht gespeichert; „Ablehnen“, Schließen oder 120 s ohne Antwort ergeben `needs_confirmation` („… lässt sich nicht rückgängig machen (…); in Gen4 Studio abgelehnt“). Mit der Freigabe „Lesen“ oder mit „Nur lesen“ kommt zuerst `read_only`.
 
 In der App gibt es keine zusätzlichen Ordner (`--allow-dir`) und keinen Emulator für Agenten: Build-Ziele liegen unter `build/` im Projekt, `run_rom` lehnt ab.
 
@@ -275,7 +275,6 @@ Alle drei schreiben. `new_route` (Header-Patch, falls er fehlt) und `place_train
 - **Batch und Eingaben des Nutzers.** Bearbeitet der Nutzer, während ein `g4_batch` des Agenten läuft, kann sein Schritt in den Batch-Schritt fallen oder mit ihm zurückgenommen werden. Ein Projekt öffnet die App erst, wenn ein laufender Agenten-Aufruf fertig ist (höchstens ein Batch).
 - **Trennen gilt je Client-Name;** danach fragt der nächste Aufruf jedes Clients einmal neu.
 - **Windows:** `studio mcp` prüft dort nicht, ob die App der Entdeckungsdatei noch läuft (eine beendete App zeigt sich erst als abgewiesene Verbindung), der Schutz von stdout fehlt, und die Betriebsart ist dort nicht geprüft.
-- **Rückfrage vor Unumkehrbarem:** Der Grund ist kurz („Patch“, „Trainer anlegen“).
 
 ## Noch nicht umgesetzt
 

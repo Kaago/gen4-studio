@@ -20,7 +20,6 @@ pub enum Kind {
     Depends,
 }
 
-const PATCH: Kind = Kind::Irreversible("Patch");
 const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
 const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
 
@@ -54,8 +53,14 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("extend_area", Kind::Write),
     ("create_room", Kind::Write),
     ("header_patch_status", Kind::Read),
-    ("apply_header_patch", PATCH),
-    ("repair_header_patch", PATCH),
+    (
+        "apply_header_patch",
+        Kind::Irreversible("Header-Patch einspielen"),
+    ),
+    (
+        "repair_header_patch",
+        Kind::Irreversible("Header-Patch reparieren"),
+    ),
     ("get_map", Kind::Read),
     ("get_events", Kind::Read),
     ("get_building_glb", Kind::Read),
@@ -94,7 +99,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("dirty", Kind::Read),
     ("save", Kind::Write),
     ("build_rom", Kind::Depends),
-    ("run_rom", Kind::Irreversible("Emulator")),
+    ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
     ("reload_asset", Kind::Write),
     ("accept_disk", Kind::Write),
     ("force_quit", APP_ONLY),
@@ -296,11 +301,17 @@ mod tests {
                 ),
                 ("add_script", Kind::Irreversible("Script anlegen")),
                 ("apply_empty_region", Kind::Irreversible("Welt leeren")),
-                ("apply_header_patch", Kind::Irreversible("Patch")),
+                (
+                    "apply_header_patch",
+                    Kind::Irreversible("Header-Patch einspielen")
+                ),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
-                ("repair_header_patch", Kind::Irreversible("Patch")),
-                ("run_rom", Kind::Irreversible("Emulator")),
+                (
+                    "repair_header_patch",
+                    Kind::Irreversible("Header-Patch reparieren")
+                ),
+                ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
             ]
         );
         // The agent hub's commands: `agent_commands_are_app_only`.
