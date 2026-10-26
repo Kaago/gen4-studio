@@ -8,3 +8,6 @@ license = "MIT"
 
 [profile.dev.package.ds-rom]
 opt-level = 3
+
+[profile.dev.package.sha1]
+opt-level = 3

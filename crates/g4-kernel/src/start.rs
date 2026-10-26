@@ -75,6 +75,18 @@ fn base_roms() -> Result<&'static [BaseRom], KernelError> {
         .map_err(|e| KernelError::InvalidProject(e.clone()))
 }
 
+/// The label in `base_roms.yaml` of the dump with this SHA-1 (and this game code, when one is
+/// given).
+pub(crate) fn known_base_label(
+    sha1: &str,
+    game_code: Option<&str>,
+) -> Result<Option<String>, KernelError> {
+    Ok(base_roms()?
+        .iter()
+        .find(|e| e.sha1 == sha1 && game_code.is_none_or(|code| e.game_code == code))
+        .map(|e| e.label.clone()))
+}
+
 fn serialize_family<S: Serializer>(family: &Option<Family>, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_some(&family.map(|f| match f {
         Family::Dp => "dp",
@@ -160,10 +172,7 @@ pub fn inspect_rom(path: &Path) -> Result<RomInfo, KernelError> {
         .trim_end_matches('\0')
         .to_string();
     let game_code = String::from_utf8_lossy(&header[0x0C..0x10]).into_owned();
-    let known_base = base_roms()?
-        .iter()
-        .find(|e| e.sha1 == sha1 && e.game_code == game_code)
-        .map(|e| e.label.clone());
+    let known_base = known_base_label(&sha1, Some(&game_code))?;
     let family = Family::from_game_code(&game_code);
     Ok(RomInfo {
         family,
