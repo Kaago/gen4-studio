@@ -19,7 +19,7 @@ use crate::scripts;
 use crate::text::{Problem, Severity};
 
 mod blz;
-mod fingerprint;
+pub(crate) mod fingerprint;
 mod salt;
 pub mod state;
 pub mod step;
@@ -28,6 +28,7 @@ mod steps;
 pub use blz::{BlzCount, BlzReport};
 pub use fingerprint::Fp;
 pub use step::{StepReport, StepStatus};
+pub use steps::NO_STATE_HINT_FILE;
 
 use state::BuildState;
 use steps::{ChatotStep, PackStep, RomStep, RotomStep};

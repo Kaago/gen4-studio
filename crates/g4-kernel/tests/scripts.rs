@@ -86,3 +86,81 @@ fn vanilla_adopts_and_compiles_clean() {
         }
     }
 }
+
+/// Before rotom compiles, a text JSON is rewritten from its member only when the member
+/// changed since the last recorded sync (DSPRE edited it), never by modification time: a
+/// JSON older than its member but unchanged, or changed itself, stays as it is.
+#[test]
+fn refresh_rewrites_the_json_only_when_the_member_is_newer() {
+    use std::time::{Duration, SystemTime};
+
+    use g4_kernel::text::{self, TextArchiveDoc, TextSide, TextSync};
+
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    let json_path = |n: u16| {
+        p.expanded_dir(AssetKind::TextArchive)
+            .join(format!("{n:04}.json"))
+    };
+    let age = |path: &std::path::Path, secs: u64| {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(secs))
+            .unwrap();
+    };
+    // Each JSON carries a second language the member does not hold, so a rewrite from the
+    // member shows.
+    let write_json = |n: u16, texts: &[&str]| {
+        let messages: Vec<_> = texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| serde_json::json!({ "id": format!("msg_{i:05}"), "en_US": t, "de_DE": "x" }))
+            .collect();
+        let path = json_path(n);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            serde_json::json!({ "key": 0, "messages": messages }).to_string(),
+        )
+        .unwrap();
+    };
+    write_json(392, &["None", "Master Ball", "Ultra Ball"]);
+    write_json(433, &["Nowhere", "Twinleaf Town", "Sandgem Town"]);
+    write_json(618, &["", "Kai", "Mia"]);
+    for n in [392, 433, 618] {
+        age(&p.member_path(AssetKind::TextArchive, n), 3600);
+        age(&json_path(n), 3600);
+    }
+    text::record_text_sync(&p, &[392, 433, 618]).unwrap();
+
+    // 392: nothing changed, but the JSON is older than the member.
+    age(&json_path(392), 7200);
+    // 433: DSPRE changed the member.
+    std::fs::write(
+        p.member_path(AssetKind::TextArchive, 433),
+        common::text_archive_bytes(&["Nowhere", "Twinleaf Town", "Sandgem Town", "Aus DSPRE"]),
+    )
+    .unwrap();
+    // 618: the JSON changed (a branch switch), older than the member.
+    write_json(618, &["", "Kai", "Lea"]);
+    age(&json_path(618), 7200);
+    let sync = TextSync::load(&p);
+    assert_eq!(sync.side(&p, 392).unwrap(), TextSide::InSync);
+    assert_eq!(sync.side(&p, 433).unwrap(), TextSide::MemberNewer);
+    assert_eq!(sync.side(&p, 618).unwrap(), TextSide::JsonNewer);
+    let kept = [392, 618].map(|n| std::fs::read(json_path(n)).unwrap());
+
+    scripts::compile(&p).unwrap();
+
+    assert_eq!(std::fs::read(json_path(392)).unwrap(), kept[0]);
+    assert_eq!(std::fs::read(json_path(618)).unwrap(), kept[1]);
+    let doc = TextArchiveDoc::from_json(&std::fs::read(json_path(433)).unwrap(), "en_US").unwrap();
+    assert_eq!(doc.messages.len(), 4);
+    assert_eq!(doc.messages[3].text, "Aus DSPRE");
+    // The refreshed JSON is recorded: both sides agree again.
+    assert_eq!(TextSync::load(&p).side(&p, 433).unwrap(), TextSide::InSync);
+}

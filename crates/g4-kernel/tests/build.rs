@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use g4_kernel::build::{BUILD_DIR, build, clear_cache, extract_rom, pack_dir, prepare};
+use g4_kernel::build::{
+    BUILD_DIR, NO_STATE_HINT_FILE, build, clear_cache, extract_rom, pack_dir, prepare,
+};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
@@ -584,10 +586,11 @@ fn build_encodes_stale_text_json() {
 
     let pre = prepare(&p).unwrap();
     assert_eq!(pre.encoded, [433], "{pre:?}");
-    assert!(
-        pre.compiled.is_empty() && pre.problems.is_empty(),
-        "{pre:?}"
-    );
+    assert!(pre.compiled.is_empty(), "{pre:?}");
+    // No build state yet: the JSON applied, which the build says.
+    assert_eq!(pre.problems.len(), 1, "{pre:?}");
+    assert_eq!(pre.problems[0].severity, Severity::Info);
+    assert_eq!(pre.problems[0].file, Path::new(NO_STATE_HINT_FILE));
     assert_eq!(member_texts(&p, 433), ["Neu"]);
 
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
@@ -713,35 +716,61 @@ fn text_chatot_refuses_is_a_problem_and_the_other_archives_are_still_encoded() {
     std::thread::sleep(std::time::Duration::from_millis(20));
     write_text_json_chatot_refuses(&p, 5);
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
-    assert!(
-        matches!(&err, KernelError::Compile(ps) if ps.len() == 1 && ps[0].file == Path::new("expanded/textArchives/0005.json")),
-        "{err}"
-    );
+    let KernelError::Compile(problems) = &err else {
+        panic!("expected Compile, got {err}");
+    };
+    let errors: Vec<_> = problems
+        .iter()
+        .filter(|p| p.severity == Severity::Error)
+        .collect();
+    assert_eq!(errors.len(), 1, "{problems:?}");
+    assert_eq!(errors[0].file, Path::new("expanded/textArchives/0005.json"));
 }
 
 #[test]
-fn encode_stale_leaves_members_that_won_and_up_to_date_json_alone() {
+fn encode_stale_leaves_members_that_changed_and_synced_json_alone() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
     p.ensure_unpacked(AssetKind::TextArchive).unwrap();
-    // A JSON older than its member: DSPRE changed the member, the member wins.
-    write_text_json(&p, 433, "Alt");
-    std::thread::sleep(std::time::Duration::from_millis(20));
     let member_path = p.member_path(AssetKind::TextArchive, 433);
-    let member = std::fs::read(&member_path).unwrap();
-    std::fs::write(&member_path, &member).unwrap();
     let json_path = p.expanded_dir(AssetKind::TextArchive).join("0433.json");
+    // A JSON written from the member, recorded in sync as a build would.
+    let doc = TextArchiveDoc::from_member(&std::fs::read(&member_path).unwrap(), "en_US").unwrap();
+    std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
+    std::fs::write(&json_path, doc.to_json()).unwrap();
+    text::record_text_sync(&p, &[433]).unwrap();
+
+    // DSPRE changes the member: it applies, nothing is encoded, however old it looks.
+    let member = common::text_archive_bytes(&["Nowhere", "Twinleaf Town", "Aus DSPRE"]);
+    std::fs::write(&member_path, &member).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&member_path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
     let json = std::fs::read(&json_path).unwrap();
     let (encoded, problems) = text::encode_stale(&p).unwrap();
     assert!(encoded.is_empty() && problems.is_empty());
     assert_eq!(std::fs::read(&member_path).unwrap(), member);
     assert_eq!(std::fs::read(&json_path).unwrap(), json);
 
-    // A JSON that wins but says what the member says is not encoded (and not rewritten).
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    std::fs::write(&json_path, &json).unwrap();
+    // A JSON that says what the member says is recorded, not encoded (nor rewritten).
+    let doc = TextArchiveDoc::from_member(&member, "en_US").unwrap();
+    let mut other = serde_json::from_slice::<serde_json::Value>(&doc.to_json()).unwrap();
+    other["messages"][0]["de_DE"] = "Nirgendwo".into();
+    let other = serde_json::to_vec_pretty(&other).unwrap();
+    std::fs::write(&json_path, &other).unwrap();
+    let (encoded, _) = text::encode_stale(&p).unwrap();
+    assert!(encoded.is_empty());
+    assert_eq!(std::fs::read(&json_path).unwrap(), other);
+    assert_eq!(std::fs::read(&member_path).unwrap(), member);
+
+    // An edited JSON is encoded once; the second run has nothing to do.
+    write_text_json(&p, 433, "Neu");
     let (encoded, _) = text::encode_stale(&p).unwrap();
     assert_eq!(encoded, [433]);
+    assert_eq!(member_texts(&p, 433), ["Neu"]);
     let (encoded, _) = text::encode_stale(&p).unwrap();
     assert!(encoded.is_empty(), "the second run has nothing to do");
 }

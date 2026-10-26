@@ -27,7 +27,7 @@ JSON, kompakt, UTF-8.
       "ms": 31
     }
   },
-  "texts": { "0012": { "json": [512, 1, 1, 4711, null], "member": null } },
+  "texts": { "0012": { "json": [512, 1, 1, 4711, "00ab…"], "member": [380, 1, 1, 4712, "00cd…"], "scanned_at_ns": 1761480000123456789 } },
   "rom": { "path": "/Users/…/out.nds", "fp": [134217728, 1, 1, 815, "00ab…"] }
 }
 ```
@@ -40,7 +40,7 @@ JSON, kompakt, UTF-8.
 | `steps.*.scanned_at_ns` | Zeitpunkt der Aufnahme, Nanosekunden seit 1970 (für die racy-Regel) |
 | `steps.*.inputs`, `outputs` | Pfad → Fingerabdruck; Pfade projektrelativ mit `/`, eine Ausgabe außerhalb des Projekts (die ROM) absolut |
 | `steps.*.ms` | Dauer des letzten Laufs |
-| `texts` | je Textarchiv (vierstellig) die Fingerabdrücke von JSON und Member beim letzten Abgleich (ab Task 3 von Phase 4.2) |
+| `texts` | je Textarchiv (vierstellig) die Fingerabdrücke von JSON und Member beim letzten Abgleich, immer mit Hash, und `scanned_at_ns` (fehlt es, gilt der Eintrag als racy); siehe „Welche Fassung gilt“ in [text_archive.md](text_archive.md) |
 | `rom` | die zuletzt geschriebene ROM: Pfad wie in `outputs` und ihr Fingerabdruck |
 
 Ein **Fingerabdruck** ist ein Array `[size, mtime_ns, ctime_ns, ino, "xxh3hex" | null]`: Größe,
@@ -104,9 +104,10 @@ Schritt einmal voll laufen.
 | `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `banner/`, `files/` | die Ziel-ROM |
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
-`scripts::compile` läuft. `chatot` voll: wie vor dem Graphen jede JSON nach der Laderegel, deren
-Texte der Member noch nicht hält; inkrementell dieselbe Regel nur für die Archive, deren JSON oder
-Member sich geändert hat. `rom` liefert vier Zeilen: `blz:arm9`, `blz:overlays`, `rom`, `crc`
+`scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,
+`JsonNewer`, `Unknown`) und deren Texte der Member noch nicht hält; inkrementell dieselbe Regel nur
+für die Archive, deren JSON oder Member sich gegen den Eintrag geändert hat. Ein Archiv mit
+`Conflict` lässt den Schritt scheitern (`KernelError::TextConflict`), bevor er schreibt. `rom` liefert vier Zeilen: `blz:arm9`, `blz:overlays`, `rom`, `crc`
 (`no-base-mark` ohne Basismarke, `secure-area-changed`, wenn die Secure Area nicht mehr passt).
 
 Der BLZ-Cache liegt daneben unter `.g4/build/blz/` (`arm9-<xxh3>.blz`, `ov<NNN>-<xxh3>.blz`).

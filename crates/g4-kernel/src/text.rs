@@ -2,17 +2,22 @@
 //! (`unpacked/textArchives/NNNN`), see `docs/formats/text_archive.md`.
 //!
 //! The JSON is the source of truth, the member is derived from it with chatot (the encoder
-//! DSPRE ships), so both tools produce the same bytes from the same file.
+//! DSPRE ships), so both tools produce the same bytes from the same file. Which of the two
+//! applies when they disagree is decided by fingerprints against their last recorded sync
+//! ([`TextSync`], "Welche Fassung gilt" in the format document), never by modification time.
 
+use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chatot::{BinarySource, Settings, TextSource, get_default_charmap};
 use serde::ser::{SerializeMap, SerializeStruct};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
+use crate::build::fingerprint::{self, Seen};
+use crate::build::state::{BuildState, TextRecord};
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
@@ -247,23 +252,200 @@ impl TextArchiveDoc {
     }
 }
 
-/// The file the loader rule picks: `json` when it exists and is not older than `member`,
-/// else `member` when it exists. `None` when neither does.
-pub(crate) fn text_winner<'a>(
-    json: &'a Path,
-    member: &'a Path,
-) -> Result<Option<&'a Path>, KernelError> {
-    let modified = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
-        Ok(time) => Ok(Some(time)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(io_at(path)(e)),
-    };
-    Ok(match (modified(json)?, modified(member)?) {
-        (Some(j), Some(m)) => Some(if j >= m { json } else { member }),
-        (Some(_), None) => Some(json),
-        (None, Some(_)) => Some(member),
-        (None, None) => None,
+/// `expanded/textArchives/NNNN.json` of archive `n`.
+pub(crate) fn json_path(project: &Project, n: u16) -> PathBuf {
+    project
+        .expanded_dir(AssetKind::TextArchive)
+        .join(format!("{n:04}.json"))
+}
+
+/// Which version of a text archive applies, from the fingerprints of its JSON and its member
+/// against their last recorded sync ([`TextSync::side`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextSide {
+    /// Neither file exists.
+    Neither,
+    /// Only the JSON exists.
+    OnlyJson,
+    /// Only the member exists.
+    OnlyMember,
+    /// Both exist and agree: neither changed since the last sync, or both changed and the
+    /// member holds the JSON's texts (a branch switch that swapped both).
+    InSync,
+    /// Only the JSON changed since the last sync: it applies, the build encodes it.
+    JsonNewer,
+    /// Only the member changed since the last sync (DSPRE edited it): it applies.
+    MemberNewer,
+    /// Both changed and the member does not hold the JSON's texts. The JSON is read; the
+    /// build stops with [`KernelError::TextConflict`] until [`resolve_conflict`] picks one.
+    Conflict,
+    /// Both exist and no sync is recorded (no build state): the JSON applies.
+    Unknown,
+}
+
+impl TextSide {
+    /// Whether the JSON is the version that applies; else the member (nothing for
+    /// [`TextSide::Neither`]).
+    pub fn reads_json(self) -> bool {
+        matches!(
+            self,
+            TextSide::OnlyJson
+                | TextSide::InSync
+                | TextSide::JsonNewer
+                | TextSide::Unknown
+                | TextSide::Conflict
+        )
+    }
+}
+
+/// The text archives' last recorded syncs (`texts` in `.g4/build/state.json`), loaded once
+/// and asked per archive. A sync is recorded ([`record_text_sync`]) after a store save,
+/// after the build encoded an archive or found its member current, after the JSON was
+/// written from the member, and after a conflict was resolved. An outdated `TextSync` can at
+/// most read the JSON where a matching member would apply: when both sides changed, the
+/// member's texts decide ([`TextSide::InSync`] or [`TextSide::Conflict`]).
+#[derive(Debug, Clone, Default)]
+pub struct TextSync {
+    records: BTreeMap<u16, TextRecord>,
+}
+
+impl TextSync {
+    /// The project's records; none without a build state.
+    pub fn load(project: &Project) -> TextSync {
+        TextSync {
+            records: BuildState::load(&project.root).texts,
+        }
+    }
+
+    /// Which version of text archive `archive` applies, see [`TextSide`]. The `stat` of both
+    /// files decides; the content only where the `stat` differs (or the record is racy),
+    /// and the texts only when both sides changed.
+    pub fn side(&self, project: &Project, archive: u16) -> Result<TextSide, KernelError> {
+        Ok(self.check(project, archive)?.0)
+    }
+
+    /// [`TextSync::side`], with whether the archive's record should be taken anew: an
+    /// [`TextSide::InSync`] archive whose files have another `stat` with the same content (a
+    /// copy, a checkout), whose record is racy, or whose sides both changed consistently.
+    pub(crate) fn check(
+        &self,
+        project: &Project,
+        archive: u16,
+    ) -> Result<(TextSide, bool), KernelError> {
+        let json = json_path(project, archive);
+        let member = project.member_path(AssetKind::TextArchive, archive);
+        match (json.is_file(), member.is_file()) {
+            (false, false) => return Ok((TextSide::Neither, false)),
+            (true, false) => return Ok((TextSide::OnlyJson, false)),
+            (false, true) => return Ok((TextSide::OnlyMember, false)),
+            (true, true) => {}
+        }
+        let Some(record) = self.records.get(&archive) else {
+            return Ok((TextSide::Unknown, false));
+        };
+        let scan = record.scanned_at_ns;
+        let now = fingerprint::now_ns();
+        let (json_seen, json_fp) = fingerprint::compare(&json, record.json.as_ref(), scan, now)?;
+        let (member_seen, member_fp) =
+            fingerprint::compare(&member, record.member.as_ref(), scan, now)?;
+        Ok(match (json_seen == Seen::Same, member_seen == Seen::Same) {
+            (true, true) => {
+                let racy = [&record.json, &record.member]
+                    .into_iter()
+                    .flatten()
+                    .any(|fp| fingerprint::is_racy(fp, scan));
+                let moved = json_fp != record.json || member_fp != record.member;
+                (TextSide::InSync, racy || moved)
+            }
+            (false, true) => (TextSide::JsonNewer, false),
+            (true, false) => (TextSide::MemberNewer, false),
+            (false, false) if json_matches_member(project, &json, &member) => {
+                (TextSide::InSync, true)
+            }
+            (false, false) => (TextSide::Conflict, false),
+        })
+    }
+}
+
+/// Whether the JSON at `json` reads and `member` already holds its texts.
+fn json_matches_member(project: &Project, json: &Path, member: &Path) -> bool {
+    std::fs::read(json)
+        .ok()
+        .and_then(|bytes| TextArchiveDoc::from_json(&bytes, project.language.locale_key()).ok())
+        .is_some_and(|doc| member_is_current(member, &doc))
+}
+
+/// Records text archives `archives` as in sync: the fingerprints of their JSON and member as
+/// they are now, with content hashes. An archive with neither file loses its record.
+pub fn record_text_sync(project: &Project, archives: &[u16]) -> Result<(), KernelError> {
+    if archives.is_empty() {
+        return Ok(());
+    }
+    let scan = fingerprint::now_ns();
+    let mut records = Vec::with_capacity(archives.len());
+    for &n in archives {
+        let json = fingerprint::capture_hashed(&json_path(project, n))?;
+        let member = fingerprint::capture_hashed(&project.member_path(AssetKind::TextArchive, n))?;
+        let record = (json.is_some() || member.is_some()).then_some(TextRecord {
+            json,
+            member,
+            scanned_at_ns: scan,
+        });
+        records.push((n, record));
+    }
+    BuildState::update(&project.root, |state| {
+        for (n, record) in records {
+            match record {
+                Some(record) => {
+                    state.texts.insert(n, record);
+                }
+                None => {
+                    state.texts.remove(&n);
+                }
+            }
+        }
     })
+}
+
+/// Which version of a text archive [`resolve_conflict`] keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextKeep {
+    Json,
+    Member,
+}
+
+/// Resolves text archive `archive` to one version and records the sync: `Json` encodes the
+/// member from the JSON (like a save), `Member` writes the JSON from the member (like
+/// DSPRE's expand: the editor's language only, message ids `msg_NNNNN`). Either file may be
+/// overwritten, which is the point; the other one is left as it is. Works whatever the
+/// archive's side is.
+pub fn resolve_conflict(
+    project: &Project,
+    archive: u16,
+    keep: TextKeep,
+) -> Result<(), KernelError> {
+    let json = json_path(project, archive);
+    let member = project.member_path(AssetKind::TextArchive, archive);
+    let lang = project.language.locale_key();
+    project.ensure_unpacked(AssetKind::TextArchive)?;
+    match keep {
+        TextKeep::Json => {
+            let bytes = std::fs::read(&json).map_err(io_at(&json))?;
+            let doc = TextArchiveDoc::from_json(&bytes, lang)?;
+            // The warnings come back with the next save or check run.
+            write_archive(&project.root, &json, &member, &doc)?;
+        }
+        TextKeep::Member => {
+            let bytes = std::fs::read(&member).map_err(io_at(&member))?;
+            let doc = TextArchiveDoc::from_member(&bytes, lang)?;
+            if let Some(dir) = json.parent() {
+                std::fs::create_dir_all(dir).map_err(io_at(dir))?;
+            }
+            write_atomic(&project.root, &json, &doc.to_json())?;
+        }
+    }
+    record_text_sync(project, &[archive])
 }
 
 /// Position of byte offset `at` in a message's `text`: 1-based line and 1-based UTF-16
@@ -421,7 +603,7 @@ pub fn write_archive(
 
 /// Whether `member` already holds what `doc` encodes to: same key and same texts. Encoding
 /// is a function of those two (and the language, which the member does not record).
-fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
+pub(crate) fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
     let Ok(bytes) = std::fs::read(member) else {
         return false;
     };
@@ -436,17 +618,19 @@ fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
     })
 }
 
-/// Encodes every `expanded/textArchives/NNNN.json` that wins against its member by the
-/// loader rule ([`text_winner`]: the member is missing or not newer) like a save does, and
-/// returns the archive numbers it encoded with the warnings of their messages (files
-/// project-relative). A JSON that loses to its member is left alone, the member is newer
-/// (DSPRE changed it). A winning JSON whose texts the member already holds is skipped too:
-/// the mtime order alone cannot tell it from a stale one, because a save leaves the JSON
-/// newer than the member, and encoding it again would rewrite the file on every build.
-/// A JSON that cannot be read is an error [`Problem`], not a failure of the call.
+/// Encodes every `expanded/textArchives/NNNN.json` that applies by [`TextSync`]
+/// ([`TextSide::OnlyJson`], [`TextSide::JsonNewer`], [`TextSide::Unknown`]) and whose texts
+/// the member does not hold yet, like a save does, and returns the archive numbers it
+/// encoded with the warnings of their messages (files project-relative). A member that
+/// applies (DSPRE changed it) is left alone, and so is one that already holds the JSON's
+/// texts: encoding it again would rewrite both files on every build. Every archive encoded
+/// or found current is recorded as in sync. A JSON that cannot be read is an error
+/// [`Problem`], not a failure of the call; an archive whose JSON and member both changed
+/// stops it with [`KernelError::TextConflict`] before anything is written.
 pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
     let dir = project.expanded_dir(AssetKind::TextArchive);
-    encode_archives(project, &numbered_files(&dir, Some("json"))?)
+    let done = encode_archives(project, &numbered_files(&dir, Some("json"))?)?;
+    Ok((done.encoded, done.problems))
 }
 
 #[cfg(feature = "test-support")]
@@ -461,14 +645,20 @@ pub fn encode_archives_calls() -> usize {
     ENCODE_ARCHIVES_CALLS.with(|calls| calls.get())
 }
 
+/// What [`encode_archives`] did: the archives it encoded, the problems (files
+/// project-relative), and how many of the archives it encoded or checked had no recorded
+/// sync ([`TextSide::Unknown`], where the JSON applied for lack of a build state).
+#[derive(Debug, Default)]
+pub(crate) struct Encoded {
+    pub(crate) encoded: Vec<u16>,
+    pub(crate) problems: Vec<Problem>,
+    pub(crate) unknown: usize,
+}
+
 /// [`encode_stale`] for the archives `archives` only (an archive without JSON is skipped).
-pub(crate) fn encode_archives(
-    project: &Project,
-    archives: &[u16],
-) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
+pub(crate) fn encode_archives(project: &Project, archives: &[u16]) -> Result<Encoded, KernelError> {
     #[cfg(feature = "test-support")]
     ENCODE_ARCHIVES_CALLS.with(|calls| calls.set(calls.get() + 1));
-    let dir = project.expanded_dir(AssetKind::TextArchive);
     let lang = project.language.locale_key();
     let relative = |path: &Path| {
         path.strip_prefix(&project.root)
@@ -482,24 +672,42 @@ pub(crate) fn encode_archives(
         col: 1,
         message,
     };
-    let mut problems = Vec::new();
-    // First decide every winner: unpacking the member folder gives all members a fresh
-    // mtime, which would make every JSON decided afterwards lose.
+    let sync = TextSync::load(project);
+    let mut done = Encoded::default();
+    let mut conflicts = Vec::new();
+    // Archives to record as in sync without encoding them.
+    let mut in_sync = Vec::new();
+    // Every side is decided before anything is written.
     let mut stale = Vec::new();
     for &n in archives {
-        let json = dir.join(format!("{n:04}.json"));
-        let member = project.member_path(AssetKind::TextArchive, n);
-        if text_winner(&json, &member)? != Some(json.as_path()) {
-            continue;
+        let (side, renew) = sync.check(project, n)?;
+        match side {
+            TextSide::OnlyJson | TextSide::JsonNewer | TextSide::Unknown => {}
+            TextSide::InSync => {
+                if renew {
+                    in_sync.push(n);
+                }
+                continue;
+            }
+            TextSide::Conflict => {
+                conflicts.push(n);
+                continue;
+            }
+            TextSide::Neither | TextSide::OnlyMember | TextSide::MemberNewer => continue,
         }
+        done.unknown += usize::from(side == TextSide::Unknown);
+        let json = json_path(project, n);
+        let member = project.member_path(AssetKind::TextArchive, n);
         let bytes = std::fs::read(&json).map_err(io_at(&json))?;
         match TextArchiveDoc::from_json(&bytes, lang) {
-            Ok(doc) if member_is_current(&member, &doc) => {}
+            Ok(doc) if member_is_current(&member, &doc) => in_sync.push(n),
             Ok(doc) => stale.push((n, json, member, doc)),
-            Err(e) => problems.push(error(&json, e.to_string())),
+            Err(e) => done.problems.push(error(&json, e.to_string())),
         }
     }
-    let mut encoded = Vec::new();
+    if !conflicts.is_empty() {
+        return Err(KernelError::TextConflict(conflicts));
+    }
     if !stale.is_empty() {
         // The member folder must be complete before one member lands in it.
         project.ensure_unpacked(AssetKind::TextArchive)?;
@@ -509,16 +717,18 @@ pub(crate) fn encode_archives(
             Ok(warnings) => {
                 for mut problem in warnings {
                     problem.file = relative(&json);
-                    problems.push(problem);
+                    done.problems.push(problem);
                 }
-                encoded.push(n);
+                done.encoded.push(n);
             }
             // chatot refused the text (unknown glyph, bad command); the member is untouched.
-            Err(KernelError::InvalidProject(message)) => problems.push(error(&json, message)),
+            Err(KernelError::InvalidProject(message)) => done.problems.push(error(&json, message)),
             Err(e) => return Err(e),
         }
     }
-    Ok((encoded, problems))
+    in_sync.extend(&done.encoded);
+    record_text_sync(project, &in_sync)?;
+    Ok(done)
 }
 
 #[cfg(test)]

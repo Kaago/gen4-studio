@@ -39,11 +39,15 @@ pub struct StepRecord {
     pub ms: u64,
 }
 
-/// The fingerprints of a text archive's JSON and member when they were last in sync.
+/// The fingerprints of a text archive's JSON and member when they were last in sync (see
+/// [`crate::text::TextSync`]), always with their content hash, and when they were taken
+/// (for the racy rule; a record without it counts as racy and is compared by content).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TextRecord {
     pub json: Option<Fp>,
     pub member: Option<Fp>,
+    #[serde(default)]
+    pub scanned_at_ns: i128,
 }
 
 /// The ROM the last build wrote.
@@ -183,6 +187,7 @@ mod tests {
                 TextRecord {
                     json: Some(fp(5)),
                     member: None,
+                    scanned_at_ns: 4,
                 },
             );
             s.rom = Some(RomRecord {

@@ -136,6 +136,17 @@ pub(crate) fn capture(path: &Path, scanned_at_ns: i128) -> Result<Option<Fp>, Ke
     Ok(Some(fp))
 }
 
+/// The fingerprint of `path` with its content hash, racy or not: the text archives' sync
+/// records, which a copied project (other inodes) then compares by content. `None` when the
+/// file does not exist.
+pub(crate) fn capture_hashed(path: &Path) -> Result<Option<Fp>, KernelError> {
+    let Some(mut fp) = stat(path)? else {
+        return Ok(None);
+    };
+    fp.xxh3 = Some(hash(path)?);
+    Ok(Some(fp))
+}
+
 /// Compares `path` with its `recorded` fingerprint (from a scan at `recorded_scan_ns`) and
 /// returns the verdict with the fingerprint to record now (`None` when the file is gone).
 /// `now_ns` is the current scan, for the racy rule of a fingerprint taken anew.

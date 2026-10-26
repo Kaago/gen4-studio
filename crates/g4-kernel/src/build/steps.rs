@@ -104,11 +104,16 @@ impl Step for RotomStep {
 }
 
 /// Encodes text JSON into members, gated by the fingerprints of `expanded/textArchives/`
-/// and `unpacked/textArchives/`. Fully (no entry, another salt) like before the graph: every
-/// JSON the loader rule picks whose texts the member does not hold yet
-/// ([`text::encode_stale`]). Incrementally: the same rule, only for the archives whose JSON
-/// or member differs from the entry. Problems with an error fail the step (`Compile`); what
-/// it encoded and found is in [`ChatotStep::result`].
+/// and `unpacked/textArchives/`. Which archives it encodes, [`text::TextSync`] decides by
+/// the fingerprints of each archive's JSON and member against their last recorded sync:
+/// those whose JSON applies ([`text::TextSide::JsonNewer`], `OnlyJson`, and `Unknown`
+/// without a build state) and whose texts the member does not hold yet. Fully (no entry,
+/// another salt) it looks at every JSON ([`text::encode_stale`]), incrementally only at the
+/// archives whose JSON or member differs from the step's entry. An archive whose JSON and
+/// member both changed stops the step with [`KernelError::TextConflict`] before it writes
+/// anything. Archives without a recorded sync add one [`Severity::Info`] problem
+/// ([`no_state_hint`]). Problems with an error fail the step (`Compile`); what it encoded
+/// and found is in [`ChatotStep::result`].
 #[derive(Default)]
 pub(crate) struct ChatotStep {
     pub(crate) result: RefCell<(Vec<u16>, Vec<Problem>)>,
@@ -138,14 +143,22 @@ impl Step for ChatotStep {
     fn run(&self, p: &Project, dirty: &Dirty) -> Result<StepRun, KernelError> {
         let members = p.unpacked_dir(AssetKind::TextArchive);
         let unpacked_before = members.is_dir();
-        let (encoded, problems) = if dirty.full.is_some() {
-            text::encode_stale(p)?
+        let archives = if dirty.full.is_some() {
+            numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json"))?
         } else {
             let mut archives: Vec<u16> = dirty.paths().filter_map(|f| archive_number(f)).collect();
             archives.sort_unstable();
             archives.dedup();
-            text::encode_archives(p, &archives)?
+            archives
         };
+        let text::Encoded {
+            encoded,
+            mut problems,
+            unknown,
+        } = text::encode_archives(p, &archives)?;
+        if unknown > 0 {
+            problems.push(no_state_hint(unknown));
+        }
         let total = numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json"))?.len();
         // The JSON and member of every encoded archive; all members when this run unpacked
         // the folder.
@@ -177,6 +190,27 @@ impl Step for ChatotStep {
             Some(problems) => Err(KernelError::Compile(problems)),
             None => Ok(run),
         }
+    }
+}
+
+/// The file of the [`no_state_hint`] problem: the build state it lacked (the app shows the
+/// problem with the source "build").
+pub const NO_STATE_HINT_FILE: &str = ".g4/build/state.json";
+
+/// The hint that `count` text archives had no recorded sync, so their JSON applied: severity
+/// info, file [`NO_STATE_HINT_FILE`], no position (line and column 0).
+pub(crate) fn no_state_hint(count: usize) -> Problem {
+    let archives = if count == 1 {
+        "1 text archive".to_owned()
+    } else {
+        format!("{count} text archives")
+    };
+    Problem {
+        severity: Severity::Info,
+        file: PathBuf::from(NO_STATE_HINT_FILE),
+        line: 0,
+        col: 0,
+        message: format!("{archives} without build state: the JSON version applies."),
     }
 }
 
