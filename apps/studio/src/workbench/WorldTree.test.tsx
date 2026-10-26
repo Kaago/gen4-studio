@@ -165,6 +165,22 @@ describe("WorldTree", () => {
     expect(row(3)!.querySelector("[data-place-label]")).toBeNull();
   });
 
+  it("marks_shared_rooms", () => {
+    // A second house on the map of house 3: both share it.
+    const shared = [...headers, header(8, "T01R0102", "Zweiblattdorf", 2, 20)];
+    const sharing = buildWorld({ family: "Pt", headers: shared, matrices, links, cells: new Map([[0, cells]]), meta: emptyMeta() });
+    render({ headers: shared, world: sharing, selected: 3 });
+    const mark = (id: number) => row(id)?.querySelector('[role="img"][aria-label="geteilt"]') ?? null;
+    expect(mark(3)).not.toBeNull();
+    expect(mark(8)).not.toBeNull();
+    expect(mark(3)?.getAttribute("title")).toBe("Geteilt mit 1 Raum");
+    // The row's text stays the name.
+    expect(row(3)?.textContent).toBe("Haus 1");
+    // A room with a map of its own has none.
+    render({ selected: 3 });
+    expect(mark(3)).toBeNull();
+  });
+
   it("opens_the_branch_of_the_selected_header_and_scrolls_to_it", () => {
     render();
     // The world maps start open, their areas closed.

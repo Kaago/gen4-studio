@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignPlace, dataList, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader } from "../../api";
+import { assignPlace, dataList, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { headerIdentity } from "../headerIdentity";
 import { buildPlaces } from "../places";
+import type { World } from "../worldModel";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
@@ -24,6 +25,7 @@ vi.mock("../../api", async (importOriginal) => ({
   placeSlots: vi.fn(),
   getTextArchive: vi.fn(),
   assignPlace: vi.fn(),
+  splitRoom: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -59,6 +61,16 @@ const matrices: MatrixSummary[] = [
   { index: 3, name: "m3", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
 ];
 const house: HeaderSummary = { ...summary, id: 412, internal_name: "T01R0101", matrix_id: 3 };
+/** The world with the house as a room that shares its map with `shared` other rooms. */
+const houseWorld = (shared: number): World => ({
+  worldMaps: [],
+  moreAreas: [],
+  unconnected: [{ header: house, name: "Haus 1", suggested: "Haus 1", placeKey: "Zweiblattdorf", placeName: "Zweiblattdorf", manual: false, shared }],
+  other: [],
+  areaOf: new Map(),
+  roomCount: 1,
+  assignedRooms: 0,
+});
 
 describe("HeaderEditor scripts", () => {
   let container: HTMLElement;
@@ -69,6 +81,7 @@ describe("HeaderEditor scripts", () => {
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
   const onLevelScriptSaved = vi.fn();
+  const onRoomSplit = vi.fn();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
     identify: (h) => headerIdentity(buildPlaces([summary, house], matrices), h),
@@ -87,6 +100,9 @@ describe("HeaderEditor scripts", () => {
     isCurrentProject: () => true,
     onCountsChanged,
     onError,
+    world: null,
+    matrices,
+    onRoomSplit,
     ...over,
   });
   async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
@@ -107,7 +123,8 @@ describe("HeaderEditor scripts", () => {
       .mockReset()
       .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
     vi.mocked(assignPlace).mockReset().mockResolvedValue(undefined);
-    for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved]) fn.mockReset();
+    for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved, onRoomSplit]) fn.mockReset();
+    vi.mocked(splitRoom).mockReset().mockResolvedValue({ matrix: 700, maps: [601] });
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -196,6 +213,63 @@ describe("HeaderEditor scripts", () => {
     expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
+  });
+
+  describe("a shared room", () => {
+    const showHouse = async (world: World | null, depth: "bauen" | "tuefteln" = "bauen") => {
+      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth={depth} />));
+      await flush();
+    };
+    const badge = () => container.querySelector<HTMLElement>("header[data-inspector-kind] [data-shared]");
+
+    it("shows_the_shared_badge_with_the_count", async () => {
+      await showHouse(houseWorld(17));
+      expect(badge()?.textContent).toBe("Geteilt mit 17 Räumen");
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          const b = badge()!;
+          b.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+          b.dispatchEvent(new MouseEvent("mouseenter"));
+          b.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(500);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Diese Karten gehören auch anderen Räumen. Was du hier änderst, ändert sie alle.");
+      await showHouse(houseWorld(1), "tuefteln");
+      expect(badge()?.textContent).toBe("Geteilt mit 1 Raum");
+      // A room of its own, and the world not read yet: no badge.
+      await showHouse(houseWorld(0));
+      expect(badge()).toBeNull();
+      await showHouse(null);
+      expect(badge()).toBeNull();
+    });
+
+    it("offers_split_only_for_a_shared_room", async () => {
+      await showHouse(houseWorld(0));
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+      // An area is no room, whatever shares its world map.
+      await show(context({ world: houseWorld(3) }));
+      expect(headActions(container)).not.toContain("Für diesen Raum abspalten…");
+      // Another header: a fresh editor, as the inspector mounts one per header (`key={id}`).
+      await act(async () => root.render(null));
+      await showHouse(houseWorld(3));
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Für diesen Raum abspalten…"]);
+      chooseAction(container, "Für diesen Raum abspalten…");
+      await flush();
+      const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+      // Matrix 3 holds the house's one map.
+      expect(dialog()?.textContent).toContain("Der Raum „Haus 1“ bekommt eine eigene Kopie seiner Karte.");
+      const split = [...dialog()!.querySelectorAll("button")].find((b) => b.textContent === "Abspalten")!;
+      await act(async () => split.click());
+      await flush();
+      expect(splitRoom).toHaveBeenCalledWith(412, "Haus 1");
+      // The project is read again as after a wizard, the room shown with the message.
+      expect(onRoomSplit).toHaveBeenCalledWith({ matrix: 700, header: 412, announcement: "Raum „Haus 1“ abgespalten" });
+      expect(dialog()).toBeNull();
+    });
   });
 
   describe("place", () => {

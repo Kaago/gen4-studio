@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import type { Created } from "../app/useWizards";
 import type { EventPlacement } from "../app/useWorldActions";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import type { MapBuildings, TileClick } from "../world/scene/types";
@@ -44,6 +45,8 @@ export interface WorkbenchData {
   matricesFailed: boolean;
   /** Opens the wizard for a new area or room. */
   onOpenWizard: (request: WizardRequest) => void;
+  /** The project got new members outside a wizard (a room split off): it is read again as after a wizard and `made.header` shown with the announcement. */
+  onCreated: (made: Created) => Promise<void>;
   selected: number | null;
   onSelect: (h: HeaderSummary) => void;
   /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */

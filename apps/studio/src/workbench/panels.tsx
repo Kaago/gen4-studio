@@ -410,7 +410,7 @@ export function InspectorPanel() {
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
   // The head names the header as the world tree does: an area, a room or another header, and its name.
-  const { identify } = useWorld();
+  const { identify, world } = useWorld();
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -454,6 +454,9 @@ export function InspectorPanel() {
         onLevelScriptSaved: d.scripts.onLevelScriptSaved,
         isCurrentProject,
         onCountsChanged: d.onCountsChanged,
+        world,
+        matrices: d.matrices,
+        onRoomSplit: d.onCreated,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}

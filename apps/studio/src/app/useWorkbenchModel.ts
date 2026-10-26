@@ -13,6 +13,7 @@ import { headerIdentity } from "../workbench/headerIdentity";
 import { buildPlaces } from "../workbench/places";
 import { useWorldModel } from "../workbench/useWorldModel";
 import type { MatrixSelection, WizardRequest, WorkbenchData, WorkbenchLive, WorkbenchWorld } from "../workbench/WorkbenchContext";
+import type { Created } from "./useWizards";
 import type { Overview } from "./useOverview";
 import type { InspectorState } from "./useInspectorState";
 import type { ProjectSession } from "./useProjectSession";
@@ -55,6 +56,8 @@ interface WorkbenchModelParams {
   onMapImported: (map: number) => void | Promise<void>;
   /** Opens a wizard; must keep its identity (it is handed to memoised panels). */
   onOpenWizard: (request: WizardRequest) => void;
+  /** Reads the project again as after a wizard and shows what was made; must keep its identity. */
+  onCreated: (made: Created) => Promise<void>;
   /** The text panel's target and the way to set it (must keep its identity), owned by App. */
   text: { target: TextTarget | null };
   /** The project's scripts (the object keeps its identity until `revision` or another field changes) and the problems store. */
@@ -85,7 +88,7 @@ interface WorkbenchModelParams {
  * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
  * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onCreated, onMapImported, text, scripts, problems, checks, dataStore, view }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -104,6 +107,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     matricesLoaded: overview.loaded,
     matricesFailed: overview.failed,
     onOpenWizard,
+    onCreated,
     selected: scene.selected,
     onSelect,
     goTo,

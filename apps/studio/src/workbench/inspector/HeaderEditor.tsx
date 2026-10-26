@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
-import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
-import { Button, Section } from "../../ui/primitives";
+import type { HeaderSummary, LevelScriptDoc, MapHeader, MatrixSummary, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
+import type { Created } from "../../app/useWizards";
+import { Badge, Button, Section, Tooltip } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
 import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { useEvents } from "../useEvents";
 import type { WizardRequest } from "../WorkbenchContext";
+import { roomOf } from "../worldModel";
+import type { World } from "../worldModel";
 import styles from "./Editor.module.css";
 import { EncounterFileField } from "./EncounterFileField";
 import { Field } from "./Field";
@@ -21,6 +24,7 @@ import { InspectorHead } from "./InspectorHead";
 import { PlacePicker } from "../places/PlacePicker";
 import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
+import { SHARED_HINT, SplitRoomDialog, sharedText } from "./SplitRoomDialog";
 import { ADOPT_HINT } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 
@@ -56,6 +60,12 @@ export interface HeaderEditorContext {
   isCurrentProject: (project: ProjectInfo | null) => boolean;
   /** A script file was added: the member counts (the pickers' limits) follow. */
   onCountsChanged: () => void | Promise<void>;
+  /** The world model (null until it is read): whether a room shares its maps with other rooms (the badge „Geteilt“, „Für diesen Raum abspalten…“). */
+  world: World | null;
+  /** The matrices of the project: how many maps a room to split has. */
+  matrices: readonly MatrixSummary[];
+  /** A room was split off: the project is read again as after a wizard, and `made.header` is shown with the announcement. */
+  onRoomSplit: (made: Created) => void | Promise<void>;
   onError: (e: unknown) => void;
 }
 
@@ -97,11 +107,12 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
+  const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
   const [renaming, setRenaming] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: selecting another header mounts a new one.
   const folds = useSectionFolds();
   const foldKey = (section: HeaderSectionId) => `header:${section}`;
@@ -154,6 +165,9 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const headerId = `${termFor("header", depth)} ${id4(id)}`;
   const code = summary ? ` · ${summary.internal_name}` : "";
   const ident = depth === "tuefteln" ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
+  // A room whose maps other rooms use too: the head says so, and the room can get copies of its own.
+  const room = summary && world ? roomOf(world, id) : undefined;
+  const sharedRoom = room !== undefined && room.shared > 0 ? room : undefined;
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -217,8 +231,20 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
                 { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
                 { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
+                ...(sharedRoom ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
               ]
             : undefined
+        }
+        badges={
+          sharedRoom && (
+            <Tooltip content={SHARED_HINT}>
+              <span className={styles.shared} tabIndex={0} data-shared="">
+                <Badge kind="info" icon="shared">
+                  {sharedText(sharedRoom.shared)}
+                </Badge>
+              </span>
+            </Tooltip>
+          )
         }
         depth={depth}
       />
@@ -258,6 +284,17 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         )}
         {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
       </div>
+      {room && (
+        <SplitRoomDialog
+          open={splitting}
+          header={id}
+          name={room.name}
+          maps={matrices.find((m) => m.index === room.header.matrix_id)?.filled ?? 0}
+          onClose={() => setSplitting(false)}
+          onSplit={(report) => onRoomSplit({ matrix: report.matrix, header: id, announcement: `Raum „${room.name}“ abgespalten` })}
+          onError={onError}
+        />
+      )}
       {summary && <RenamePlaceDialog open={renaming} index={summary.location_index} headers={headers} onClose={() => setRenaming(false)} onRenamed={onPlaceChanged} onError={onError} />}
     </div>
   );

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { EventKind } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Icon, Menu } from "../../ui/primitives";
@@ -39,6 +40,8 @@ export interface InspectorHeadProps {
   locked?: boolean;
   /** A change of the record cannot be undone. */
   irreversible?: boolean;
+  /** Further badges after these (a room's „Geteilt mit 17 Räumen“). */
+  badges?: ReactNode;
   /** What can be done with the record: the menu „Aktionen“ at the right end, left out when there is nothing. */
   actions?: MenuEntry[];
   /** Bauen, or Tüfteln: the word of an area, a room and the look. */
@@ -46,9 +49,9 @@ export interface InspectorHeadProps {
 }
 
 /** The head every inspector view shares: the kind as an eyebrow with its symbol, the title, the ident, the badges and the actions. */
-export function InspectorHead({ kind, title, ident, unsaved, locked, irreversible, actions, depth }: InspectorHeadProps) {
+export function InspectorHead({ kind, title, ident, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
   const { word, tinker, icon } = KINDS[kind];
-  const badges = unsaved || locked || irreversible;
+  const badges = unsaved || locked || irreversible || more != null;
   return (
     <header className={styles.head} data-inspector-kind={kind}>
       <div className={styles.text}>
@@ -68,6 +71,7 @@ export function InspectorHead({ kind, title, ident, unsaved, locked, irreversibl
           {unsaved && <Badge kind="unsaved" />}
           {locked && <Badge kind="locked" />}
           {irreversible && <Badge kind="irreversible" />}
+          {more}
         </div>
       )}
       {actions && actions.length > 0 && (

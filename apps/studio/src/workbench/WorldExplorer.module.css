@@ -111,6 +111,12 @@
   color: var(--g4-bereich-welt);
 }
 
+/* A room whose maps other rooms use too: a quiet symbol with a name. */
+.shared {
+  display: inline-flex;
+  color: var(--g4-text-sekundaer);
+}
+
 .note {
   margin: 0;
   padding: var(--g4-raum-4) var(--g4-raum-12);

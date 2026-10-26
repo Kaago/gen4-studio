@@ -537,6 +537,7 @@ function AppBody() {
     sceneHistory,
     overview,
     onOpenWizard: wizards.open,
+    onCreated: wizards.reread,
     onMapImported,
     text: { target: textTarget },
     scripts: scripts.api,
