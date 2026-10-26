@@ -1,0 +1,38 @@
+# Nachtrag 4.0 für die OpenPencil-Datei
+
+**Teil A eingespielt am 2026-10-27:** das Brett „Marke“ auf der Seite „Grundlagen“, x 1720, y 2900 (1640 × 2028), rechts neben „Grundlagen: Stand der App“ und unter „Raum, Form, Dichte“. Vorlage: `beispiele/marke.body.js`, ohne neue Bausteine in `jsx-lib-app.js`. Gespeichert, geschlossen, `fix_fig_text.mjs --rgb555`, wieder geöffnet und als Bild geprüft (Texte lesbar, Farben auf dem Raster). **Teil B ist offen:** Start mit Bildern, die Komponente „Projektkarte“ und Technik › Projekt (unten, „Teil B: noch zu zeichnen“).
+
+Stand: 27.10.2026. Diese Anleitung sagt, was Phase 4.0 „Nebenaufgaben“ (Marke als App-Symbol, Vorschaubilder auf den Projektkarten) in `Editor_DesignSystem.fig` braucht. Was die App zeigt, beschreibt `design-system/README.md`, Abschnitt „Marke“, die Zeile „Projektkarte“ der Komponenten und „Nachtrag 4.0“; die Spec ist `docs/superpowers/specs/2026-10-27-phase-4-0-nebenaufgaben-design.md` (§2, §3.5, §3.6). Neue Tokens gibt es nicht.
+
+## Teil A: Brett „Marke“ (eingespielt)
+
+- **Seite und Lage:** „Grundlagen“ (`0:4`), x 1720, y 2900. Die Bretter dort liegen in drei Spalten (x 0, 1720, 3440; je 1640 breit, 80 Abstand); die Spalte x 1720 war ab y 2645 frei.
+- **Inhalt (von oben):** Titel „Marke“ und Satz; „Konstruktion“ (die Marke 1:2 im gestrichelten Raster 1024 mit Maßlinien: oben 100 · 824 · 100, unten 120 · 584 · 120, links 120 · 252 · 80 · 252 · 120, an der Auswahl je 78; Hinweislinien zu Körper, Bildschirm oben, Scharnier, Bildschirm unten, Auswahl mit Maß, Lage, Radius und Token); „Formen und Farben“ (drei Farbfelder mit Token und Wert, die fünf Formen, Quelle); „Auf Hell“ und „Auf Dunkel“ nebeneinander (1024 in 1:4, 128, 32, 16 px, unten bündig); „Schutzraum“ (Körper 1:4 mit getönter Zone: 20 px im Symbol, 103 px in Dokumenten und in der App); „Einsatz“.
+- **Farben:** Die fünf Formen tragen die Hex-Werte wie `marke/gen4-studio-marke.svg` (`#42527B`, `#182131`, `#6384F7`, Thema Dunkel und Szene), nicht `v()`: OpenPencil setzt keine Modi pro Rahmen, `v('scharnier/grund')` und `v('akzent/grund')` bänden die hellen Werte. Der dunkle Grund von „Auf Dunkel“ ist `flaeche/gehaeuse` (Dunkel, `#212939`) als Hex. Maßlinien in `live/grund`, Maßzahlen in `live/text` (im dunklen Bildschirm `live/grund`); alles andere sind Variablen.
+- **Neu bauen** (nach einer Änderung an der Marke; Dokument offen, `<ID>` des Bretts aus `get_page_tree` depth 1 auf „Grundlagen“):
+
+```sh
+cd design-system/openpencil/beispiele
+bash ../build-screen.sh marke
+node ../../scripts/op.mjs render '{"document_id":"tab-1","page_id":"0:4","replace_id":"<ID>"}' --jsx marke.jsx
+node ../../scripts/op.mjs export_image '{"document_id":"tab-1","page_id":"0:4","ids":["<ID>"],"maxEdge":2048}' --png marke.png
+```
+
+  Die Geometrie steht in der Vorlage ein zweites Mal (Funktion `Marke`, Raster 1024); sie muss zu `scripts/marke.py` passen.
+- **Ablauf in diesem Lauf:** Der MCP-Server lehnt Pfade mit `.claude/` ab (`forbidden path`), ein Worktree unter `.claude/worktrees/` lässt sich also nicht direkt öffnen. Die Datei wurde dazu in einen ignorierten Ordner der Hauptkopie kopiert (`target/agent/fig-4-0/`), dort geöffnet, gerendert und gespeichert, dann zurück in den Worktree kopiert, dort mit `fix_fig_text.mjs --rgb555` behandelt und zur Kontrolle wieder dort hinein kopiert und geöffnet. Das Dokument der Hauptkopie (falls offen) bleibt unberührt.
+
+## Teil B: noch zu zeichnen
+
+Aus Screenshots der Test-Umgebung (Ports 1490/1491, Testprojekt mit eigenem Bild, eins mit Standardbild, eins ohne, ein fehlender Pfad). Bauen wie in `NACHTRAG-3g.md`, Abschnitt „Einspielen“: Screen-Code als `beispiele/<name>.body.js` mit den Bausteinen aus `jsx-lib-app.js` (`Window`, `DSScreen`, `Badge`, `Btn`, `MenuX`, `Statusbar` …) und `v('token')`-Farben, Symbole nur als Phosphor-Namen; `bash ../build-screen.sh <name>`, `op.mjs render`, Vergleich per `export_image`, Korrektur mit `replace_id` (höchstens drei Läufe). Die Vorschaubilder sind Bilder der Test-Umgebung (Kartenbild der Startstadt, 3D-Ansicht) oder, wo keine Spielgrafik ins Repo darf, Farbflächen aus den Szenen-Tokens wie in der Galerie; keine Nintendo-Grafik einchecken. Vor jedem Einspielen mit `get_page_tree` (depth 1) und `node_bounds` die belegten Stellen ablesen; nur eigene Frames anfassen.
+
+1. **Start mit Bildern.** Seite „App: Start und Welt“, Frame „App: Start, Projekte mit Vorschaubild“, 1440 × 900, im hellen Thema. Lage: Reihe 1 (y 1000) ist bis x 6080 belegt („App: Start, Willkommen zurück“ bei x 0, „App: Start, Neues Spiel aus ROM“ bei x 4560, „App: Start, Leere Region wählen“ bei x 6080), also x 7600, y 1000. Inhalt: „Willkommen zurück“, das Raster der Projektkarten mit vier Karten in einer Reihe: eigenes Bild mit der Plakette „Zuletzt“, Standardbild (Kartenbild der Startstadt), ohne Bild (der Name in der Spielschrift auf dem leeren Bildschirm), „nicht gefunden“ (grau, Bildschirm halb deckend ohne Farbe, „Aus der Liste nehmen“ als Taste); darunter „Neues Spiel aus ROM…“ (primär) und „Projekt öffnen“ (⌘O) mit den beiden Sätzen. Dazu das offene Menü „…“ einer Karte mit eigenem Bild: „Vorschaubild wählen…“, „Vorschaubild entfernen“, Trenner, „Aus der Liste nehmen“ (Schatten nur am Menü).
+2. **Komponente „Projektkarte“.** Seite „Komponenten“, ein Brett „Komponenten (App): Projekt“ unter „Komponenten (App): Weltmodell“ (das endet bei y 12934), also x 3440, y 13020. Die Karte in ihren Zuständen nebeneinander, je mit Beschriftung: Bild eigen, Standardbild, Platzhalter mit Name, Zuletzt, nicht gefunden; dazu das Menü in beiden Formen (mit eigenem Bild vier Einträge; ohne eigenes Bild ohne „Vorschaubild entfernen“; fehlende Karte nur „Aus der Liste nehmen“) und die Maße (Karte mindestens 288 breit, DS-Rahmen 4 : 3 mit 8 px Rand, Bild 256 × 192, ganzzahlig skaliert). Optional die Toasts „Vorschaubild gesetzt“ und ein Fehler mit dem Satz von `preview.format`.
+3. **Technik › Projekt.** Frame „App: Technik, Projekt mit Vorschaubild“, 1440 × 900, auf derselben Seite wie „App: Technik, Welt leeren“ („App: Start und Welt“), Reihe 1 nach Punkt 1: x 9120, y 1000. Die Liste „Technik“ mit „Projekt“ gewählt (Untertitel „Eigenes Vorschaubild“), die Fläche „Projekt“ mit dem Ordnernamen als Untertitel und der Abschnitt „Vorschaubild“: der DS-Bildschirm 256 × 192 mit dem Bild, „Vorschaubild wählen…“ und „Entfernen“ (beide sekundär), grau „Ohne eigenes Bild zeigt Start das Kartenbild von Zweiblattdorf.“.
+4. **Optional „Als Vorschaubild“.** Im Frame aus Punkt 3 nicht nötig; wer es zeichnet: das Reitermenü der Schau über einem Welt-Screen mit „Maximieren“, Trenner, „Als Vorschaubild“ (am Reiter „Weltkarte“ ohne gewählte Karte gesperrt mit Tooltip „Erst eine Karte wählen“). Die Texte vorher gegen die App prüfen (README, Nachtrag 4.0, letzter Punkt).
+
+## Danach
+
+- Speichern (`save_file`), das Dokument schließen, aus der Repo-Wurzel `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555`, wieder öffnen (die Knoten-IDs ändern sich) und die neuen Frames als Bild prüfen.
+- `design-system/README.md`, „Nachtrag 4.0“: den ersten Punkt unter „Abweichungen und offene Punkte“ durch einen Satz ersetzen, welche Frames wo stehen; diese Datei oben um „Teil B eingespielt am …“ ergänzen.
+- Das Brett „Stand der App“ (Seite „Titel“) und „Grundlagen: Stand der App“ um die Zeile „Marke und Vorschaubild (4.0)“ ergänzen, wenn der Besitzer der Kernabschnitte es will; das Zielbild „Start: Willkommen zurück“ zeigt Karten ohne Bild und bekommt die Marke „teilweise umgesetzt“.
+- `bash scripts/check-tokens.sh` ist nicht betroffen (keine neuen Tokens). Die erzeugten `beispiele/*.jsx` und `*.png` nicht einchecken (`git add -A design-system` vermeiden).
