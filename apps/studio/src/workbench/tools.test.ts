@@ -19,6 +19,12 @@ describe("tools", () => {
     }
   });
 
+  it("select_names_markers_buildings_and_maps_and_keeps_its_status_hint", () => {
+    const select = TOOLS[0];
+    expect(select.hint).toBe("Wählt Marker, Gebäude und Karten in der Szene. Ziehen verschiebt das Gewählte. Malt nie.");
+    expect(select.statusHints[0]).toEqual({ keys: "Klick", does: "wählt" });
+  });
+
   it("maps_a_letter_to_its_tool_in_either_case_and_any_other_key_to_null", () => {
     expect(toolForKey("f")).toBe("figure");
     expect(toolForKey("F")).toBe("figure");

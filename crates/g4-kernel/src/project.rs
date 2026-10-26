@@ -7,7 +7,6 @@ use g4_formats::area_data::AreaData;
 use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
 use serde::Deserialize;
-use uxie::text_bank::game_strings::TextBankIds;
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
@@ -400,7 +399,7 @@ pub struct HeaderListing {
 }
 
 /// Index of the header's name in the location text bank (`u16` in DP, `u8` otherwise).
-fn location_name_index(header: &uxie::MapHeader) -> usize {
+pub(crate) fn location_name_index(header: &uxie::MapHeader) -> usize {
     match header {
         uxie::MapHeader::DP(h) => usize::from(h.location_name),
         uxie::MapHeader::Pt(h) => usize::from(h.location_name),
@@ -879,7 +878,7 @@ impl Project {
     /// In-game location names, indexed by the `location_name` of a map header. They come
     /// from the location text bank of the text archive, which is unpacked on demand.
     pub fn location_names(&self) -> Result<Vec<String>, KernelError> {
-        let bank = TextBankIds::for_game(self.uxie_family(), self.uxie_language()).locations;
+        let bank = crate::places::location_bank(self);
         let count = self.ensure_unpacked(AssetKind::TextArchive)?;
         if usize::from(bank) >= count {
             return Err(KernelError::InvalidProject(format!(
@@ -949,30 +948,55 @@ impl Project {
     }
 
     /// Lists `headers` (for example the store's edited table, which may differ from the
-    /// one on disk) with the internal names from `files/fielddata/maptable/mapname.bin` and
-    /// the location names their `location_name` indexes select. An index outside the text
-    /// bank gives an empty name; so does every header when the names cannot be read
-    /// (reported in `names_error`).
+    /// one on disk) with the location names of the bank on disk; see
+    /// [`Project::header_listing_with`].
     pub fn header_listing_for(
         &self,
         headers: &[uxie::MapHeader],
     ) -> Result<HeaderListing, KernelError> {
+        self.header_listing_with(headers, self.location_names().map_err(|e| e.to_string()))
+    }
+
+    /// The internal names of the headers, one per whole record of
+    /// `files/fielddata/maptable/mapname.bin` (NUL padded, read lossily as UTF-8).
+    pub fn internal_names(&self) -> Result<Vec<String>, KernelError> {
         let names_path = self.mapname_path();
-        let names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
-        let (locations, names_error) = match self.location_names() {
+        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        Ok(mapnames
+            .as_chunks::<MAPNAME_RECORD>()
+            .0
+            .iter()
+            .map(|record| {
+                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+                String::from_utf8_lossy(&record[..end]).into_owned()
+            })
+            .collect())
+    }
+
+    /// Lists `headers` with the internal names from `files/fielddata/maptable/mapname.bin`
+    /// and the location names (`names`, for example [`crate::places::location_names`] of
+    /// the store, unsaved names included) their `location_name` indexes select. An index
+    /// outside the names gives an empty name; so does every header when the names could not
+    /// be read (the error is reported in `names_error`).
+    pub fn header_listing_with(
+        &self,
+        headers: &[uxie::MapHeader],
+        names: Result<Vec<String>, String>,
+    ) -> Result<HeaderListing, KernelError> {
+        let internal_names = self.internal_names()?;
+        let (locations, names_error) = match names {
             Ok(names) => (names, None),
-            Err(e) => (Vec::new(), Some(e.to_string())),
+            Err(e) => (Vec::new(), Some(e)),
         };
         let headers = headers
             .iter()
-            .zip(names.as_chunks::<MAPNAME_RECORD>().0)
+            .zip(internal_names)
             .enumerate()
-            .map(|(i, (header, record))| {
-                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+            .map(|(i, (header, internal_name))| {
                 HeaderSummary {
                     // The table holds at most 65536 headers (checked when it is read), so `i` fits in u16.
                     id: i as u16,
-                    internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
+                    internal_name,
                     location_name: locations
                         .get(location_name_index(header))
                         .cloned()

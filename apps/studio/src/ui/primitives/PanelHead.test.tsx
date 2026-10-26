@@ -71,4 +71,16 @@ describe("PanelHead", () => {
     act(() => radios()[2]!.click());
     expect(onChange).toHaveBeenCalledExactlyOnceWith("moves");
   });
+
+  it("choosing_a_part_closes_the_menu", async () => {
+    act(() => root.render(<PanelHead title="Pokémon" switcher={switcher(() => {})} />));
+    const trigger = container.querySelector<HTMLElement>("h2 button")!;
+    act(() => trigger.click());
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    act(() => radios()[2]!.click());
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("[role=menu]")).toBeNull();
+  });
 });

@@ -4,11 +4,12 @@ import type { HeaderSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "..
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
 import type { Depth } from "../ui/frame/shellState";
-import { Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
+import { Icon, Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import { showsMatrix } from "./headers";
 import { placeColor } from "./places";
 import { ADOPT_HINT } from "./inspector/scriptNav";
+import { sharedText } from "./sharedRooms";
 import { RoomActions, WorldMapActions } from "./RoomActions";
 import type { AreaChoice, RenameTarget } from "./RoomActions";
 import { ShownMark } from "./ShownMark";
@@ -283,8 +284,13 @@ const RoomRow = memo(function RoomRow({
       onSelect={() => onPick(h, areaKey)}
       dataAttrs={{ "data-header-id": h.id, "data-room": "" }}
       trailing={
-        labelled || marked || mark || selected ? (
+        labelled || marked || mark || selected || room.shared > 0 ? (
           <>
+            {room.shared > 0 && (
+              <span className={styles.shared} role="img" aria-label="geteilt" title={sharedText(room.shared)}>
+                <Icon name="shared" />
+              </span>
+            )}
             {labelled && (
               <span className={styles.placeLabel} data-place-label="">
                 <span data-place-dot="" className={styles.dot} style={{ background: placeColor(room.placeKey) }} /* dyn */ />

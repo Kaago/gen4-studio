@@ -14,8 +14,9 @@ fn matrix_of(session: &mut Session, index: u16) -> Result<&Matrix, CmdError> {
 }
 
 /// Sets the given fields of the cell at (`x`, `y`); `None` leaves a field as it is. `map` 0xFFFF
-/// empties the cell. `header` and `altitude` need the matrix to have that section. All checks
-/// run before anything changes, so a refused call edits nothing.
+/// empties the cell. `header` needs the matrix to have a header section; `altitude` adds the
+/// altitude section (filled with 0) when it is missing, in the same undo step. All checks run
+/// before anything changes, so a refused call edits nothing.
 pub fn set_matrix_cell_impl(
     state: &AppState,
     index: u16,
@@ -27,7 +28,7 @@ pub fn set_matrix_cell_impl(
 ) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let (cell, has_headers, has_altitudes) = {
+    let (cell, has_headers) = {
         let m = matrix_of(session, index)?;
         if x >= m.width || y >= m.height {
             return Err(format!(
@@ -39,14 +40,10 @@ pub fn set_matrix_cell_impl(
         (
             usize::from(y) * usize::from(m.width) + usize::from(x),
             m.headers.is_some(),
-            m.altitudes.is_some(),
         )
     };
     if header.is_some() && !has_headers {
         return Err("the matrix has no header section".into());
-    }
-    if altitude.is_some() && !has_altitudes {
-        return Err("the matrix has no altitude section".into());
     }
     if let Some(map) = map.filter(|&m| m != MATRIX_EMPTY) {
         let count = session.store.member_count(AssetKind::Map)?;
@@ -67,8 +64,9 @@ pub fn set_matrix_cell_impl(
         if let (Some(header), Some(headers)) = (header, m.headers.as_mut()) {
             headers[cell] = header;
         }
-        if let (Some(altitude), Some(altitudes)) = (altitude, m.altitudes.as_mut()) {
-            altitudes[cell] = altitude;
+        if let Some(altitude) = altitude {
+            let cells = m.maps.len();
+            m.altitudes.get_or_insert_with(|| vec![0; cells])[cell] = altitude;
         }
         Ok(())
     })?;
@@ -230,9 +228,8 @@ mod tests {
     #[test]
     fn cell_edit_changes_only_given_fields_and_needs_the_sections() {
         let (_f, state) = open_synthetic();
-        // No sections yet: header and altitude are refused and nothing changes.
+        // No header section yet: a header is refused and nothing changes.
         assert!(set_matrix_cell_impl(&state, 0, 1, 0, None, Some(1), None).is_err());
-        assert!(set_matrix_cell_impl(&state, 0, 1, 0, None, None, Some(3)).is_err());
         assert!(set_matrix_cell_impl(&state, 0, 1, 0, Some(0), Some(1), None).is_err());
         assert!(dirty_impl(&state).unwrap().is_empty());
         assert_eq!(
@@ -257,6 +254,20 @@ mod tests {
             get_matrix_impl(&state, 0).unwrap().maps,
             vec![None, Some(1)]
         );
+    }
+
+    #[test]
+    fn altitude_on_a_matrix_without_altitudes_adds_the_section_in_one_step() {
+        let (_f, state) = open_synthetic();
+        assert_eq!(get_matrix_impl(&state, 0).unwrap().altitudes, None);
+        set_matrix_cell_impl(&state, 0, 1, 0, None, None, Some(3)).unwrap();
+        assert_eq!(
+            get_matrix_impl(&state, 0).unwrap().altitudes,
+            Some(vec![0, 3])
+        );
+        // One step: a single undo removes the section again.
+        undo_impl(&state).unwrap();
+        assert_eq!(get_matrix_impl(&state, 0).unwrap().altitudes, None);
     }
 
     #[test]

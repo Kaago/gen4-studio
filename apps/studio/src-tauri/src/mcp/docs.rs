@@ -37,6 +37,10 @@ pub static FORMATS: &[(&str, &str)] = &[
     ),
     ("map", include_str!("../../../../../docs/formats/map.md")),
     (
+        "map_header",
+        include_str!("../../../../../docs/formats/map_header.md"),
+    ),
+    (
         "matrix",
         include_str!("../../../../../docs/formats/matrix.md"),
     ),

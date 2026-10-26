@@ -12,7 +12,7 @@ import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
 import type { DeckArea, PanelId } from "../workbench/layout";
 import type { EditBus } from "../bus/editBus";
-import type { AreaId } from "../ui/frame/shellState";
+import type { AreaId, Depth } from "../ui/frame/shellState";
 import { initialSync, isCurrentSelection, sceneSync } from "./sceneSync";
 import type { SyncAction, SyncOutcome } from "./sceneSync";
 
@@ -74,6 +74,8 @@ interface SceneSyncParams {
   onOpenScript: (file: number, line?: number) => void;
   /** Tells a data area which part to show and which member to select (a link to a species, move or item). */
   onOpenData: (target: DataNav) => void;
+  /** The depth of the shell: a link to a matrix cell opens the Raster only in Tüfteln. Omitted: Tüfteln. */
+  depth?: Depth;
 }
 
 /**
@@ -81,7 +83,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, onOpenText, onOpenScript, onOpenData }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, onOpenText, onOpenScript, onOpenData, depth }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -109,6 +111,8 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
 
   const selectedRef = useRef<number | null>(null);
   selectedRef.current = selected;
+  const depthRef = useRef(depth);
+  depthRef.current = depth;
   const matrixRef = useRef<MatrixDto | null>(null);
   matrixRef.current = matrix;
   const headersRef = useRef(headers);
@@ -311,6 +315,7 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
         maps: shown ? shown.maps.filter((m): m is number => m !== null) : [],
         eventFile: current?.event_file_id ?? null,
         headers: headersRef.current,
+        depth: depthRef.current,
       },
       target,
     );
@@ -345,7 +350,8 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
     }
     // After a header's own pin, so a building or event the header brought in wins.
     setPinned(next.pinned);
-    if (focus) focusPanel(next.area, next.panel);
+    // A target that changes no tab (a matrix cell in Bauen) still shows its area.
+    if (focus && next.panel !== null) focusPanel(next.area, next.panel);
     else setArea(next.area);
     // A group of another header's scene: the list waits for that scene's events to focus it.
     if (next.sceneGroup) bus.emit({ topic: "sceneGroup", group: next.sceneGroup });

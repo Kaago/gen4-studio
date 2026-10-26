@@ -234,8 +234,11 @@ describe("paletteEntries", () => {
     expect(byId("cmd-layout", noDock)?.disabled).toBe(false);
   });
 
-  it("offers_the_import_of_parts_only_for_a_chosen_cell_with_a_map", () => {
-    expect(byId("cmd-importParts")).toMatchObject({ label: "Teile in die Karte importieren…", disabled: true, description: "Erst eine Rasterzelle mit Karte wählen" });
-    expect(byId("cmd-importParts", { commands: { ...commands, cellChosen: true } })).toMatchObject({ disabled: false, description: "In die Karte der gewählten Rasterzelle", run: { kind: "command", command: "importParts" } });
+  it("locks_the_import_until_a_map_is_chosen", () => {
+    expect(byId("cmd-importParts")).toMatchObject({ label: "Teile in die Karte importieren…", disabled: true, description: "Erst eine Karte wählen (in 3D auf den Boden klicken)" });
+  });
+
+  it("describes_the_import_as_into_the_chosen_map", () => {
+    expect(byId("cmd-importParts", { commands: { ...commands, cellChosen: true } })).toMatchObject({ disabled: false, description: "In die gewählte Karte", run: { kind: "command", command: "importParts" } });
   });
 });

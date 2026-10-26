@@ -38,6 +38,7 @@ use g4_formats::game::Family;
 use g4_kernel::data::icons;
 use g4_kernel::data::names::{Bank, NameTables, bank_index};
 use g4_kernel::error::KernelError;
+use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::store::{MapHeader, Store};
 use serde_json::json;
@@ -272,9 +273,10 @@ fn place_names(session: &mut Session) -> Vec<String> {
     let Ok(table) = session.store.header_table().map(<[MapHeader]>::to_vec) else {
         return Vec::new();
     };
+    let names = places::location_names(&mut session.store).map_err(|e| e.to_string());
     session
         .project
-        .header_listing_for(&table)
+        .header_listing_with(&table, names)
         .map(|listing| {
             listing
                 .headers

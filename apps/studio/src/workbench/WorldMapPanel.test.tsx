@@ -4,7 +4,10 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
-import { getMatrix } from "../api";
+import { extendArea, getMatrix } from "../api";
+import { headerIdentity } from "./headerIdentity";
+import { buildWorld } from "./worldModel";
+import type { World } from "./worldModel";
 import { mapsText } from "./places";
 import { TERMS } from "./terms";
 import { visibleWords } from "../ui/visibleText";
@@ -17,7 +20,7 @@ vi.mock("./places", async (importOriginal) => {
   const original = await importOriginal<typeof import("./places")>();
   return { ...original, mapsText: vi.fn(original.mapsText) };
 });
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn(), extendArea: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -86,6 +89,12 @@ describe("WorldMapPanel", () => {
     onLoadStatus: vi.fn(),
     cache,
     depth: "bauen",
+    world: null,
+    identify: (h) => headerIdentity([], h),
+    pinnedCell: null,
+    counts: { Map: 600 },
+    onEdited: vi.fn(),
+    onCountsChanged: vi.fn(),
     ...extra,
   });
   const show = async (ctx: WorldMapContext) => {
@@ -106,10 +115,46 @@ describe("WorldMapPanel", () => {
     await show(context());
     for (const details of container.querySelectorAll("details")) details.open = true;
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
-    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet · 0000");
+    // Bauen: the area entry without its number, the rooms by their clear names (no internal codes, no header numbers).
+    expect(container.querySelector('[data-header-id="0"]')?.textContent).toBe("Gebiet");
+    const room = container.querySelector<HTMLElement>('button[data-room-id="1"]')!;
+    expect(room.textContent).not.toContain("H1");
+    expect(room.textContent).not.toContain("0001");
+    expect(room.textContent).toContain(headerIdentity([], headers[1]!).name);
     expect(container.querySelector('[data-header-id="0"]')?.getAttribute("title")).toBe(TERMS.area.short);
     await show(context({ matrices: withoutRegion }));
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // The views of a read world: the world map with its switcher, the room plan, "Weitere Gebiete".
+    serveMatrices();
+    await show(worldContext({ selected: 1 }));
+    expect(container.querySelector("[data-world-view]")?.getAttribute("data-world-view")).toBe("w0");
+    for (const details of container.querySelectorAll("details")) details.open = true;
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await show(worldContext({ selected: 4 }));
+    expect(container.querySelector("[data-world-view]")?.getAttribute("data-world-view")).toBe("plan");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await show(worldContext({ selected: 1 }));
+    await choose("Weitere Gebiete");
+    expect(container.querySelector("[data-world-view]")?.getAttribute("data-world-view")).toBe("more");
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("numbers_the_sections_of_an_area_in_bauen_without_header_numbers", async () => {
+    await show(context({ headers: [...headers, header(4, "Route 201", 0)] }));
+    for (const details of container.querySelectorAll("details")) details.open = true;
+    expect(container.querySelector('[data-header-id="3"]')?.textContent).toBe("Gebiet, Abschnitt 1");
+    expect(container.querySelector('[data-header-id="4"]')?.textContent).toBe("Gebiet, Abschnitt 2");
+    await show(context({ headers: [...headers, header(4, "Route 201", 0)], depth: "tuefteln" }));
+    expect(container.querySelector('[data-header-id="4"]')?.textContent).toBe("Header · 0004");
+    expect(container.querySelector('button[data-room-id="1"]')?.textContent).toContain("H1");
+  });
+
+  it("labels_the_grids_in_user_words_in_bauen_and_keeps_raster_in_tuefteln", async () => {
+    const label = () => container.querySelector("[role=group]")?.getAttribute("aria-label");
+    await show(context());
+    expect(label()).toBe("Weltkarte, 1 Zeilen, 2 Spalten");
+    await show(context({ depth: "tuefteln" }));
+    expect(label()).toBe("Raster 0, 1 Zeilen, 2 Spalten");
   });
 
   it("keeps_the_technical_words_in_tinkering", async () => {
@@ -253,5 +298,366 @@ describe("WorldMapPanel", () => {
     const calls = vi.mocked(ctx.onLoadStatus).mock.calls;
     expect(calls[calls.length - 1]).toEqual([null]);
     root = createRoot(container);
+  });
+
+  // A read world (Sinnoh): matrix 0 (3 × 3) with Zweiblattdorf (1), Route 201 (2, 3), landscape (0) and two empty cells (2, 0) and (2, 2);
+  // matrix 7 is an area with its own map (Großmoor, 10); header 4 is a room of Zweiblattdorf on matrix 20 (1 × 1, no header section).
+  const wheader = (id: number, name: string, place: string, index: number, matrix: number, type = 2, kanto = false): HeaderSummary => ({
+    ...header(id, place, matrix),
+    internal_name: name,
+    location_index: index,
+    map_type: type,
+    kanto,
+  });
+  const sinnohHeaders = [
+    wheader(0, "EVERYWHERE", "Mysteriöser Ort", 0, 0),
+    wheader(1, "T01", "Zweiblattdorf", 2, 0, 1),
+    wheader(2, "R201A", "Route 201", 3, 0),
+    wheader(3, "R201B", "Route 201", 3, 0),
+    wheader(4, "T01R0101", "Zweiblattdorf", 2, 20, 4),
+    wheader(10, "D06", "Großmoor", 70, 7),
+  ];
+  const sinnohSummaries = [summary(0, 3, 3, true), summary(7, 2, 2, true), summary(20, 1, 1)];
+  const sinnohDtos = new Map<number, MatrixDto>([
+    [0, { index: 0, name: "m0", width: 3, height: 3, maps: [1, 2, null, 4, 5, 6, 7, 8, null], headers: [1, 1, 0, 2, 3, 0, 0, 0, 0] }],
+    [7, { index: 7, name: "m7", width: 2, height: 2, maps: [700, 701, 702, 703], headers: [10, 0, 0, 10] }],
+    [20, { index: 20, name: "m20", width: 1, height: 1, maps: [50] }],
+  ]);
+  const meta = { version: 1 as const, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} };
+  const sinnoh: World = buildWorld({ family: "Pt", headers: sinnohHeaders, matrices: sinnohSummaries, links: [], cells: sinnohDtos, meta });
+
+  // HeartGold/SoulSilver: matrix 0 (5 × 4) holds Johto (Neuborkia 1 at 0,0 and 1,0; Route 29 2 at 0,1) and Kanto (Alabastia 3 at 2,1 and
+  // 3,1; Route 29 of Kanto 4 at 2,2 and 3,2); Bergwerk (5) lies on its own map.
+  const hgssHeaders = [
+    wheader(0, "EVERYWHERE", "", 0, 0),
+    wheader(1, "T20", "Neuborkia", 126, 0, 1),
+    wheader(2, "R29", "Route 29", 127, 0),
+    wheader(3, "T01", "Alabastia", 200, 0, 1, true),
+    wheader(4, "R29K", "Route 29", 127, 0, 2, true),
+    wheader(5, "D01", "Bergwerk", 9, 10, 3),
+  ];
+  const hgssSummaries = [summary(0, 5, 4, true), summary(10, 2, 1, true)];
+  const hgssDtos = new Map<number, MatrixDto>([
+    [0, { index: 0, name: "m0", width: 5, height: 4, maps: Array.from({ length: 20 }, (_, i) => i + 1), headers: [1, 1, 0, 0, 0, 2, 0, 3, 3, 0, 0, 0, 4, 4, 0, 0, 0, 0, 0, 0] }],
+    [10, { index: 10, name: "m10", width: 2, height: 1, maps: [80, 81], headers: [5, 5] }],
+  ]);
+  const hgss: World = buildWorld({ family: "Hgss", headers: hgssHeaders, matrices: hgssSummaries, links: [], cells: hgssDtos, meta });
+
+  function serveMatrices(dtos: ReadonlyMap<number, MatrixDto> = sinnohDtos) {
+    vi.mocked(getMatrix).mockImplementation(async (index: number) => {
+      const dto = dtos.get(index);
+      if (!dto) throw new Error(`no matrix ${index}`);
+      return dto;
+    });
+  }
+  const worldContext = (extra: Partial<WorldMapContext> = {}) =>
+    context({ headers: sinnohHeaders, matrices: sinnohSummaries, warpLinks: [], world: sinnoh, identify: (h) => ({ kind: "room", name: `Name ${h.id}`, place: "" }), ...extra });
+  const hgssContext = (extra: Partial<WorldMapContext> = {}) => context({ headers: hgssHeaders, matrices: hgssSummaries, warpLinks: [], world: hgss, ...extra });
+
+  const viewOf = () => container.querySelector("[data-world-view]")?.getAttribute("data-world-view");
+  const cell = (key: string) => container.querySelector<HTMLElement>(`[data-cell="${key}"]`);
+  /** Picks a view from the switcher of the head. */
+  const trigger = () => container.querySelector<HTMLElement>("header h2 button")!;
+  /** Waits (a few ms at a time, at most a second) until the switcher's menu is open or closed. */
+  async function menuIs(open: boolean) {
+    for (let waited = 0; (trigger().getAttribute("aria-expanded") === "true") !== open; waited += 5) {
+      if (waited > 1000) throw new Error(`the menu did not ${open ? "open" : "close"}`);
+      await act(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
+    }
+  }
+  /** Opens the switcher, runs `inside` (a pick closes the menu), and closes it if it is still open. */
+  async function withMenu<T>(inside: () => T): Promise<T> {
+    act(() => trigger().click());
+    await menuIs(true);
+    const result = inside();
+    if (trigger().getAttribute("aria-expanded") === "true") act(() => trigger().click());
+    await menuIs(false);
+    // The chosen view reads its matrix.
+    await flush();
+    return result;
+  }
+  const choose = (label: string) =>
+    withMenu(() => {
+      const item = [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((r) => r.textContent === label);
+      if (!item) throw new Error(`no view ${label}`);
+      act(() => item.click());
+    });
+  /** The views the switcher offers. */
+  const menuLabels = () => withMenu(() => [...document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].map((r) => r.textContent));
+  const altClick = (el: HTMLElement | null) => act(() => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true })));
+  const doubleClick = (el: HTMLElement | null) => act(() => void el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+
+  it("pans_the_selected_area_or_the_pinned_cell_into_the_middle_of_the_map", async () => {
+    // A 30 × 30 Sinnoh: Zweiblattdorf (1) at cells (3, 27) and (4, 27), Route 201 (2, 3) at (5, 27) and (20, 2); the rest landscape.
+    const wide: MatrixDto = { index: 0, name: "m0", width: 30, height: 30, maps: Array.from({ length: 900 }, (_, i) => 1000 + i), headers: new Array<number>(900).fill(0) };
+    const put = (x: number, y: number, h: number) => (wide.headers![y * 30 + x] = h);
+    put(3, 27, 1);
+    put(4, 27, 1);
+    put(5, 27, 2);
+    put(20, 2, 3);
+    const dtos = new Map<number, MatrixDto>([...sinnohDtos, [0, wide]]);
+    const summaries = [summary(0, 30, 30, true), summary(7, 2, 2, true), summary(20, 1, 1)];
+    const world = buildWorld({ family: "Pt", headers: sinnohHeaders, matrices: summaries, links: [], cells: dtos, meta });
+    serveMatrices(dtos);
+    // The viewport is 400 × 300 pixels; everything else keeps jsdom's empty box.
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-world-viewport") ? new DOMRect(0, 0, 400, 300) : real.call(this);
+    });
+    const transform = () => container.querySelector<HTMLElement>("[data-world-grid]")?.style.transform;
+    const ctx = (extra: Partial<WorldMapContext> = {}) => worldContext({ matrices: summaries, world, ...extra });
+    try {
+      await show(ctx({ selected: 1 }));
+      // Cells 3..4 of row 27 span x 102..168, y 918..950 at 34 px a cell: their middle (135, 934) goes to the viewport's (200, 150).
+      expect(transform()).toBe("translate(65px, -784px) scale(1)");
+      // A re-render with the same selection (an edit, new data) leaves the map where the user put it.
+      const viewport = container.querySelector<HTMLElement>("[data-world-viewport]");
+      act(() => void viewport?.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, clientX: 200, clientY: 150, bubbles: true, cancelable: true })));
+      const zoomed = transform();
+      expect(zoomed).not.toBe("translate(65px, -784px) scale(1)");
+      await show(ctx({ selected: 1, revision: 1 }));
+      expect(transform()).toBe(zoomed);
+      // A pinned cell far away is centred at the same zoom: cell (25, 3) has its middle at (866, 118) unzoomed.
+      const scale = Number(/scale\(([\d.]+)\)/.exec(transform() ?? "")?.[1]);
+      await show(ctx({ selected: 1, pinnedCell: { matrix: 0, x: 25, y: 3 } }));
+      const [x, y, s2] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(transform() ?? "")!.slice(1).map(Number);
+      expect(s2).toBe(scale);
+      expect(x).toBeCloseTo(200 - 866 * scale);
+      expect(y).toBeCloseTo(150 - 118 * scale);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it("pans_a_far_area_into_view_on_a_new_selection_and_keeps_the_map_for_a_cell_in_view", async () => {
+    const wide: MatrixDto = { index: 0, name: "m0", width: 30, height: 30, maps: Array.from({ length: 900 }, (_, i) => 1000 + i), headers: new Array<number>(900).fill(0) };
+    wide.headers![27 * 30 + 3] = 1;
+    wide.headers![2 * 30 + 4] = 2;
+    wide.headers![2 * 30 + 8] = 3;
+    const dtos = new Map<number, MatrixDto>([...sinnohDtos, [0, wide]]);
+    const summaries = [summary(0, 30, 30, true), summary(7, 2, 2, true), summary(20, 1, 1)];
+    const world = buildWorld({ family: "Pt", headers: sinnohHeaders, matrices: summaries, links: [], cells: dtos, meta });
+    serveMatrices(dtos);
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-world-viewport") ? new DOMRect(0, 0, 400, 300) : real.call(this);
+    });
+    const transform = () => container.querySelector<HTMLElement>("[data-world-grid]")?.style.transform;
+    const ctx = (extra: Partial<WorldMapContext> = {}) => worldContext({ matrices: summaries, world, ...extra });
+    try {
+      // Zweiblattdorf at (3, 27): its middle (118, 934) goes to (200, 150).
+      await show(ctx({ selected: 1 }));
+      expect(transform()).toBe("translate(82px, -784px) scale(1)");
+      // Route 201 (sections at (4, 2) and (8, 2)): the rectangle x 136..304, y 68..100 has its middle (220, 84).
+      await show(ctx({ selected: 2 }));
+      expect(transform()).toBe("translate(-20px, 66px) scale(1)");
+      // A click on a cell in view pins it: the map does not move under the pointer.
+      await show(ctx({ selected: 2, pinnedCell: { matrix: 0, x: 6, y: 3 } }));
+      expect(transform()).toBe("translate(-20px, 66px) scale(1)");
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it("switches_between_world_maps_and_more_areas", async () => {
+    serveMatrices();
+    await show(worldContext({ selected: 1 }));
+    expect(viewOf()).toBe("w0");
+    expect(container.querySelector("header h2 button")?.textContent).toBe("Sinnoh");
+    expect(await menuLabels()).toEqual(["Sinnoh", "Weitere Gebiete"]);
+    await choose("Weitere Gebiete");
+    expect(viewOf()).toBe("more");
+    expect(container.querySelector('[data-more-area="m7"]')).not.toBeNull();
+    expect(container.querySelector("[data-world-viewport]")).toBeNull();
+    await choose("Sinnoh");
+    expect(viewOf()).toBe("w0");
+    expect(container.querySelector("[data-world-viewport]")).not.toBeNull();
+    expect(cell("0,0")).not.toBeNull();
+  });
+
+  it("follows_the_selection_to_the_world_map_of_an_area_and_to_the_plan_of_a_room", async () => {
+    serveMatrices();
+    await show(worldContext({ selected: 1 }));
+    expect(viewOf()).toBe("w0");
+    // A choice in the menu holds until the next selection.
+    await choose("Weitere Gebiete");
+    await show(worldContext({ selected: 1 }));
+    expect(viewOf()).toBe("more");
+    await show(worldContext({ selected: 4 }));
+    expect(viewOf()).toBe("plan");
+    expect(await menuLabels()).toEqual(["Sinnoh", "Weitere Gebiete", "Raumplan"]);
+    await show(worldContext({ selected: 2 }));
+    expect(viewOf()).toBe("w0");
+    await show(worldContext({ selected: 10 }));
+    expect(viewOf()).toBe("plan");
+    // The choice made while header 1 was selected does not come back with it.
+    await show(worldContext({ selected: 1 }));
+    expect(viewOf()).toBe("w0");
+  });
+
+  it("selects_the_area_on_a_click_and_the_map_on_alt_click_or_double_click", async () => {
+    serveMatrices();
+    const ctx = worldContext({ selected: 1 });
+    await show(ctx);
+    // Cell (1, 1) is the second section of Route 201: a click selects the area by its first header.
+    act(() => cell("1,1")?.click());
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "header", id: 2 });
+    altClick(cell("1,1"));
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 1, y: 1, header: 3, show: "map" });
+    doubleClick(cell("0,0"));
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 0, y: 0, header: 1, show: "map" });
+  });
+
+  it("selects_the_map_on_a_landscape_cell", async () => {
+    serveMatrices();
+    const ctx = worldContext({ selected: 1 });
+    await show(ctx);
+    // Header 0 is no header: only the pin moves, the selection and the scene stay.
+    act(() => cell("2,1")?.click());
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 2, y: 1, header: null, show: "map" });
+    altClick(cell("2,1"));
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 2, y: 1, header: null, show: "map" });
+    // The pinned cell is marked instead of the area's cells.
+    await show(worldContext({ selected: 1, pinnedCell: { matrix: 0, x: 2, y: 1 } }));
+    expect(cell("2,1")?.getAttribute("aria-pressed")).toBe("true");
+    expect(cell("0,0")?.getAttribute("aria-pressed")).toBe("false");
+    await show(worldContext({ selected: 1 }));
+    expect(cell("0,0")?.getAttribute("aria-pressed")).toBe("true");
+    expect(cell("1,0")?.getAttribute("aria-pressed")).toBe("true");
+    expect(cell("2,1")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows_plus_beside_the_selected_area_and_opens_the_extend_dialog", async () => {
+    serveMatrices();
+    vi.mocked(extendArea).mockReset();
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 3 });
+    const ctx = worldContext({ selected: 1 });
+    await show(ctx);
+    const plus = container.querySelector<HTMLElement>('[data-extend="2,0"]');
+    expect(plus?.getAttribute("aria-label")).toBe("Karte bei x 2, y 0 anlegen (nicht rückgängig)");
+    // (2, 2) is empty too, but touches no cell of Zweiblattdorf; no "+" column or row outside the world map.
+    expect(container.querySelectorAll("[data-extend]").length).toBe(1);
+    act(() => plus?.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Karte bei x 2, y 0 anlegen?");
+    expect(dialog.textContent).toContain("Nicht rückgängig");
+    // Bauen names the area the new map belongs to, not its header.
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Zweiblattdorf“.");
+    expect(visibleWords(dialog)).not.toMatch(/Raster|Matrix|Header/);
+    await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 0, x: 2, y: 0, source_map: 2, header_cell: 1 }));
+    expect(ctx.onCountsChanged).toHaveBeenCalled();
+    expect(ctx.onEdited).toHaveBeenCalledWith(0);
+  });
+
+  it("shows_the_room_plan_at_64_with_plus_at_the_edges", async () => {
+    serveMatrices();
+    await show(worldContext({ selected: 4 }));
+    expect(viewOf()).toBe("plan");
+    expect(container.querySelector("header h2 button")?.textContent).toBe("Raumplan");
+    expect(container.querySelector("header")?.textContent).toContain("Name 4");
+    const group = container.querySelector<HTMLElement>("[role=group]");
+    expect(group?.getAttribute("aria-label")).toBe("Raumplan, 1 Zeilen, 1 Spalten");
+    expect(group?.style.gridTemplateColumns).toBe("repeat(2, 64px)");
+    expect([...container.querySelectorAll("[data-extend]")].map((e) => e.getAttribute("data-extend")).sort()).toEqual(["0,1", "1,0"]);
+    expect(container.querySelector("[data-world-viewport]")).toBeNull();
+    expect(container.querySelector("[data-place-key]")).toBeNull();
+  });
+
+  it("labels_the_room_plan_raster_in_tuefteln", async () => {
+    serveMatrices();
+    await show(worldContext({ selected: 4, depth: "tuefteln" }));
+    expect(viewOf()).toBe("plan");
+    expect(container.querySelector("[role=group]")?.getAttribute("aria-label")).toMatch(/^Raster \d+, 1 Zeilen, 1 Spalten$/);
+  });
+
+  it("selects_the_map_on_a_click_in_the_room_plan", async () => {
+    serveMatrices();
+    const ctx = worldContext({ selected: 4 });
+    await show(ctx);
+    act(() => cell("0,0")?.click());
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 20, x: 0, y: 0, header: 4, show: "map" });
+    await show(worldContext({ selected: 4, pinnedCell: { matrix: 20, x: 0, y: 0 } }));
+    expect(cell("0,0")?.getAttribute("aria-pressed")).toBe("true");
+    // Großmoor's plan: cell (1, 0) carries header 0, so the link names the shown header and the plan and the scene stay.
+    const moor = worldContext({ selected: 10 });
+    await show(moor);
+    expect(viewOf()).toBe("plan");
+    act(() => cell("1,0")?.click());
+    expect(moor.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 7, x: 1, y: 0, header: 10, show: "map" });
+    await show(worldContext({ selected: 10, pinnedCell: { matrix: 7, x: 1, y: 0 } }));
+    expect(viewOf()).toBe("plan");
+    expect(cell("1,0")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("proposes_the_nearest_cell_with_a_header_from_a_plus_of_the_room_plan", async () => {
+    // Großmoor with an empty cell (1, 1): left of it lies header 0 (map 702), above it header 10 (map 701).
+    const moor: MatrixDto = { index: 7, name: "m7", width: 2, height: 2, maps: [700, 701, 702, null], headers: [10, 10, 0, 0] };
+    serveMatrices(new Map([...sinnohDtos, [7, moor]]));
+    await show(worldContext({ selected: 10 }));
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,1"]')?.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Kopie von Karte 0701 (Nachbarzelle)");
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Name 10“.");
+    vi.mocked(extendArea).mockReset();
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
+    await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, source_map: 701, header_cell: 10 }));
+  });
+
+  it("gives_a_plus_beside_only_landscape_cells_of_the_room_plan_to_the_shown_room", async () => {
+    // Großmoor with an empty cell (1, 1) whose filled neighbours (1, 0) and (0, 1) both carry header 0: the new map still goes to Großmoor.
+    const moor: MatrixDto = { index: 7, name: "m7", width: 2, height: 2, maps: [700, 701, 702, null], headers: [10, 0, 0, 0] };
+    serveMatrices(new Map([...sinnohDtos, [7, moor]]));
+    await show(worldContext({ selected: 10 }));
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,1"]')?.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Name 10“.");
+    vi.mocked(extendArea).mockReset();
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
+    await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, header_cell: 10 }));
+  });
+
+  it("lists_more_areas_as_tiles_that_select_their_area", async () => {
+    serveMatrices();
+    const ctx = worldContext({ selected: 1 });
+    await show(ctx);
+    await choose("Weitere Gebiete");
+    const tile = container.querySelector<HTMLElement>('[data-more-area="m7"]');
+    expect(tile?.tagName).toBe("BUTTON");
+    expect(tile?.textContent).toContain("Großmoor");
+    expect(tile?.textContent).toContain("4 Karten");
+    // The plan of its matrix in 32 px, drawn as pictures inside the button.
+    expect(tile?.querySelectorAll("[data-cell]").length).toBe(4);
+    expect(tile?.querySelector("button")).toBeNull();
+    expect(getMatrix).toHaveBeenCalledWith(7);
+    act(() => tile?.click());
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "header", id: 10 });
+  });
+
+  it("dims_the_other_half_and_windows_kanto", async () => {
+    serveMatrices(hgssDtos);
+    const ctx = hgssContext({ selected: 3 });
+    await show(ctx);
+    expect(viewOf()).toBe("w0k");
+    expect(await menuLabels()).toEqual(["Johto", "Kanto", "Johto und Kanto", "Weitere Gebiete"]);
+    // Kanto's cells lie in x 2..3, y 1..2: the window is x 1..4, y 0..3.
+    expect(cell("0,0")).toBeNull();
+    expect(cell("4,3")).not.toBeNull();
+    expect(cell("1,0")?.hasAttribute("data-foreign")).toBe(true);
+    expect(cell("2,1")?.hasAttribute("data-foreign")).toBe(false);
+    act(() => cell("1,0")?.click());
+    expect(ctx.goTo).not.toHaveBeenCalled();
+    altClick(cell("1,0"));
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 1, y: 0, header: 1, show: "map" });
+    await show(hgssContext({ selected: 1 }));
+    expect(viewOf()).toBe("w0");
+    expect(cell("4,0")).toBeNull();
+    expect(cell("2,1")?.hasAttribute("data-foreign")).toBe(true);
+    await choose("Johto und Kanto");
+    expect(viewOf()).toBe("w0all");
+    expect(cell("4,3")).not.toBeNull();
+    expect(container.querySelector("[data-foreign]")).toBeNull();
   });
 });

@@ -64,6 +64,7 @@ pub const COMMANDS: &[&str] = &[
     "create_area",
     "extend_area",
     "create_room",
+    "split_room",
     "header_patch_status",
     "apply_header_patch",
     "repair_header_patch",
@@ -152,6 +153,10 @@ pub const COMMANDS: &[&str] = &[
     "agent_set_read_only",
     "world_meta_get",
     "world_meta_set",
+    "place_slots",
+    "create_place",
+    "rename_place",
+    "assign_place",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -298,6 +303,11 @@ pub fn dispatch(
         "create_room" => {
             run!(json, "create_room", args, { spec: RoomSpec }, |a| create_room_impl(state, a.spec))
         }
+        "split_room" => run!(
+            json, "split_room", args,
+            { header: u16, name: Option<String> },
+            |a| split_room_impl(state, a.header, a.name)
+        ),
         "header_patch_status" => run!(json, "header_patch_status", args, {}, |_a| {
             header_patch_status_impl(state)
         }),
@@ -667,6 +677,22 @@ pub fn dispatch(
             { meta: g4_kernel::world_meta::WorldMeta },
             |a| world_meta_set_impl(state, a.meta)
         ),
+        "place_slots" => run!(json, "place_slots", args, {}, |_a| place_slots_impl(state)),
+        "create_place" => run!(
+            json, "create_place", args,
+            { name: String, headers: Vec<u16> },
+            |a| create_place_impl(state, &a.name, &a.headers)
+        ),
+        "rename_place" => run!(
+            json, "rename_place", args,
+            { index: u8, name: String },
+            |a| rename_place_impl(state, a.index, &a.name)
+        ),
+        "assign_place" => run!(
+            json, "assign_place", args,
+            { headers: Vec<u16>, index: u8 },
+            |a| assign_place_impl(state, &a.headers, a.index)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -794,7 +820,7 @@ mod tests {
                 json!({ "spec": {
                     "name": "area", "width": 1, "height": 1,
                     "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
-                    "with_headers": false, "header": null,
+                    "with_headers": false, "header": null, "target": null,
                 } }),
             ),
             (
@@ -808,10 +834,12 @@ mod tests {
                 "create_room",
                 json!({ "spec": {
                     "name": "room", "source_map": 0, "clear_buildings": true,
-                    "header": { "id": 0, "area_data_id": null, "event_file": "Keep" },
+                    "header": { "id": 0, "area_data_id": null, "event_file": "Keep",
+                                "allow_patch": false, "place": { "Existing": 1 } },
                     "entrance": null,
                 } }),
             ),
+            ("split_room", json!({ "header": 1, "name": "Haus" })),
             ("header_patch_status", json!({})),
             ("apply_header_patch", json!({})),
             ("repair_header_patch", json!({})),
@@ -970,6 +998,16 @@ mod tests {
                 "world_meta_set",
                 json!({ "meta": { "roomNames": { "1": "Haus" } } }),
             ),
+            ("place_slots", json!({})),
+            (
+                "create_place",
+                json!({ "name": "Neuheim", "headers": [0, 1] }),
+            ),
+            (
+                "rename_place",
+                json!({ "index": 1, "name": "Zweiblattdorf" }),
+            ),
+            ("assign_place", json!({ "headers": [0], "index": 2 })),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -988,6 +1026,61 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn create_area_takes_the_patch_a_new_place_and_no_internal_name() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let report = json_of(call(
+            &state,
+            &policy,
+            "create_area",
+            json!({ "spec": {
+                "name": "Neuheim", "width": 1, "height": 1,
+                "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
+                "with_headers": true,
+                "header": { "id": 2, "area_data_id": null, "event_file": "New",
+                            "new_header": { "template": 1, "internal_name": null },
+                            "allow_patch": true, "place": { "New": "Neuheim" } },
+            } }),
+        ));
+        assert_eq!(
+            (&report["header"], &report["patched"], &report["place"]),
+            (&json!(2), &json!(true), &json!(3))
+        );
+    }
+
+    #[test]
+    fn create_area_takes_a_target_on_a_world_map() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let spec = json!({
+            "name": "Neuheim", "width": 1, "height": 1,
+            "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
+            "with_headers": false, "header": null,
+            "target": { "matrix": 0, "x": 2, "y": 0 },
+        });
+        // Matrix 0 has no header section yet: refused as the kernel words it.
+        match dispatch(&state, &policy, "create_area", json!({ "spec": spec })) {
+            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("keine Weltkarte"), "{e:?}"),
+            Err(e) => panic!("{e:?}"),
+            Ok(_) => panic!("a matrix without a header section is no target"),
+        }
+        let sections = json!({ "index": 0, "headers": true, "altitudes": false });
+        call(&state, &policy, "set_matrix_sections", sections);
+        let size = json!({ "index": 0, "width": 3, "height": 1 });
+        call(&state, &policy, "resize_matrix", size);
+        let report = json_of(call(
+            &state,
+            &policy,
+            "create_area",
+            json!({ "spec": spec }),
+        ));
+        assert_eq!(
+            (&report["matrix"], &report["replaced"]),
+            (&json!(0), &json!(0))
+        );
     }
 
     #[test]

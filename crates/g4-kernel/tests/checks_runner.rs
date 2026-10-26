@@ -448,9 +448,57 @@ fn a_cheap_run_reads_no_text_archive_and_no_script_source() {
         "{:?}",
         report.findings
     );
-    // Of the text archives only the two name banks trainer.id-range counts were read
-    // (species and trainer classes); no script source.
-    assert_eq!(snap.into_cache().len(), (2, 0));
+    // Of the text archives only the two name banks trainer.id-range counts (species and
+    // trainer classes) and the location names the place checks read; no script source.
+    assert_eq!(snap.into_cache().len(), (3, 0));
+}
+
+#[test]
+fn the_place_checks_read_the_unsaved_location_names() {
+    let (_s, project, mut st) = synthetic();
+    // Archive 433 holds the location names; header 0 names "Twinleaf Town" (1), header 1
+    // place 200, past the end of the bank.
+    st.edit_text_archive(433, "text", |doc| {
+        doc.messages[1].text = "Zweiblattdorf am Meer".into();
+        doc.messages.truncate(2);
+    })
+    .unwrap();
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    let of = |code: &str| -> Vec<(Subject, String, Vec<String>)> {
+        report
+            .findings
+            .iter()
+            .filter(|f| f.code == code)
+            .map(|f| (f.subject, f.key.clone(), f.args.clone()))
+            .collect()
+    };
+    assert_eq!(
+        of("place.name-too-long"),
+        [(
+            Subject::TextArchive(433),
+            "message:1".to_owned(),
+            vec![
+                "1".to_owned(),
+                "Zweiblattdorf am Meer".to_owned(),
+                "21".to_owned()
+            ]
+        )]
+    );
+    assert_eq!(
+        of("place.index-out-of-bank"),
+        [(
+            Subject::Header(1),
+            "location_name".to_owned(),
+            vec!["1".to_owned(), "200".to_owned(), "2".to_owned()]
+        )]
+    );
 }
 
 #[test]

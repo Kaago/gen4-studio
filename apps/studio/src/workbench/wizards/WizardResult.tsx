@@ -1,3 +1,4 @@
+import type { Depth } from "../../ui/frame/shellState";
 import { Notice } from "../../ui/primitives";
 import { TERMS } from "../terms";
 import styles from "./WizardResult.module.css";
@@ -30,15 +31,16 @@ export function DoneResult({ title, lines, next }: DoneProps) {
   );
 }
 
-/** The result step of a wizard that failed after it had created members: what the backend says stayed behind. */
-export function PartialResult({ message }: { message: string }) {
+/** The result step of a wizard that failed after it had created members: what the backend says stayed behind, and where to finish by hand. */
+export function PartialResult({ message, depth = "tuefteln" }: { message: string; depth?: Depth }) {
   return (
     <div className={styles.result}>
       <Notice kind="warning" title="Anlegen unterbrochen">
         <p className={styles.line}>{message}</p>
       </Notice>
       <p className={styles.line}>
-        Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen. Den Rest im {TERMS.matrix.label}-Tab und im {TERMS.header.label}-Editor von Hand fertigstellen.
+        Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen.{" "}
+        {depth === "bauen" ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${TERMS.matrix.label}-Tab und im ${TERMS.header.label}-Editor von Hand fertigstellen.`}
       </p>
     </div>
   );

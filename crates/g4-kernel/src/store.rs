@@ -1441,34 +1441,47 @@ impl Store {
     }
 
     /// Applies the Dynamic Headers patch (see [`dynamic_headers::apply`]) with the header
-    /// table as it is on disk and loads the table from the new header files. Refuses with
-    /// [`KernelError::InvalidProject`] while the table has unsaved changes, and when the game
-    /// has no patch or has it already. Like [`Store::save`] it returns
-    /// [`KernelError::Stale`] and writes nothing when the table in `arm9.bin` is no longer
-    /// the one this store loaded (the patch would otherwise bake the old table over the
-    /// newer one). A table that was not loaded yet is read fresh. The table's undo and redo
-    /// entries are dropped: only a clean table is accepted, but earlier edits that were
-    /// saved leave their changesets behind.
-    pub fn apply_dynamic_headers(&mut self) -> Result<(), KernelError> {
-        if self.dirty().contains(&HEADER_TABLE) {
-            return Err(KernelError::InvalidProject(
-                "the header table has unsaved changes, save them before applying the patch"
-                    .to_owned(),
-            ));
-        }
+    /// table as it is on disk and returns the folder of the snapshot of an older
+    /// `unpacked/dynamicHeaders` (see [`dynamic_headers::snapshot_folder`]). Unsaved changes
+    /// to the table stay: the patch writes the saved table into the header files, which
+    /// then hold exactly the bytes the store last saw, so the table's value, its base and
+    /// its undo and redo entries (whole-table bytes, the same in both places) carry over;
+    /// the next [`Store::save`] writes the changed header files. Refuses with
+    /// [`KernelError::InvalidProject`] when the game has no patch or has it already. Like
+    /// [`Store::save`] it returns [`KernelError::Stale`] and writes nothing when the table
+    /// in `arm9.bin` is no longer the one this store loaded (the patch would otherwise bake
+    /// the old table over the newer one). A table that was not loaded yet is read fresh.
+    pub fn apply_dynamic_headers(&mut self) -> Result<Option<PathBuf>, KernelError> {
+        let lang = self.lang();
+        let saved = match self.assets.get(&HEADER_TABLE) {
+            Some(asset) => {
+                let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
+                let on_disk = read_location(&location, lang)?;
+                if on_disk != asset.saved_bytes {
+                    return Err(KernelError::Stale(HEADER_TABLE));
+                }
+                on_disk.ok_or(KernelError::Stale(HEADER_TABLE))?
+            }
+            None => self.read_member(HEADER_TABLE)?,
+        };
+        let (Loaded::HeaderTable(headers), _) =
+            decode(HEADER_TABLE, &saved, self.project.family, lang)?
+        else {
+            return Err(mismatch(HEADER_TABLE));
+        };
+        let snapshot = dynamic_headers::apply(&self.project, &headers)?;
         if let Some(asset) = self.assets.get(&HEADER_TABLE) {
             let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
-            if read_location(&location, self.lang())? != asset.saved_bytes {
-                return Err(KernelError::Stale(HEADER_TABLE));
+            if read_location(&location, lang)? != asset.saved_bytes {
+                // Only a locked table (one the codec does not write back byte for byte, so
+                // it was never edited) reads differently from the files: read it anew.
+                self.assets.remove(&HEADER_TABLE);
+                self.forget_history(HEADER_TABLE);
+                self.load(HEADER_TABLE)?;
             }
         }
-        let headers = self.header_table()?.to_vec();
-        dynamic_headers::apply(&self.project, &headers)?;
-        self.assets.remove(&HEADER_TABLE);
-        self.forget_history(HEADER_TABLE);
-        self.load(HEADER_TABLE)?;
         self.note_change(HEADER_TABLE);
-        Ok(())
+        Ok(snapshot)
     }
 
     /// Appends a header that is a copy of header `template` as the editor shows it (unsaved

@@ -3,12 +3,15 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, dirty, getMatrix, headerPatchStatus } from "../../api";
+import { applyHeaderPatch, createArea, dirty, getMatrix, getTextArchive, headerPatchStatus, placeSlots } from "../../api";
 import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { openSelect, pressKey } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
+import type { World } from "../worldModel";
 import { NewAreaWizard } from "./NewAreaWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
 // The grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -28,7 +31,18 @@ const matrixOf = (index: number): MatrixDto =>
     ? { index: 0, name: "m0", width: 2, height: 1, maps: [0, 1] }
     : { index: 1, name: "m1", width: 3, height: 2, maps: [10, 11, null, 13, 14, 15], headers: [1, 1, 0, 0, 0, 0] };
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
-const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null };
+/** Matrix 1 is the world map Sinnoh, matrix 0 the area „Erzelingen-Mine“ with a map of its own. */
+const world: World = {
+  worldMaps: [{ key: "w1", matrix: 1, filter: null, name: "Sinnoh", areas: [] }],
+  moreAreas: [{ key: "m0", name: "Erzelingen-Mine", placeKey: "Erzelingen-Mine", headers: [], rooms: [], matrix: 0 }],
+  unconnected: [],
+  other: [],
+  areaOf: new Map(),
+  roomCount: 0,
+  assignedRooms: 0,
+};
+const FORBIDDEN = /Raster|Matrix|Header/;
+const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 0 };
 
 describe("NewAreaWizard", () => {
   let container: HTMLElement;
@@ -48,19 +62,23 @@ describe("NewAreaWizard", () => {
     onError.mockReset();
     onHeaderPatch.mockReset().mockResolvedValue(undefined);
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
-    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patchState());
+    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue({ ...patchState(), snapshot: null });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
+    vi.mocked(placeSlots).mockReset().mockResolvedValue({ bank: 433, count: 3, free: 253, reusable: [] });
+    vi.mocked(getTextArchive)
+      .mockReset()
+      .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
 
-  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }) => (
-    <NewAreaWizard headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
+  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }, depth: Depth = "tuefteln") => (
+    <NewAreaWizard depth={depth} world={world} headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
   );
-  async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }) {
-    await act(async () => root.render(wizard(prefill)));
+  async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }, depth: Depth = "tuefteln") {
+    await act(async () => root.render(wizard(prefill, matrices, { loaded: true, failed: false }, depth)));
     await flush();
   }
   const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
@@ -152,7 +170,7 @@ describe("NewAreaWizard", () => {
 
     async function open(prefill: { matrix?: number; header?: number }) {
       await act(async () =>
-        root.render(<NewAreaWizard headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+        root.render(<NewAreaWizard depth="tuefteln" world={world} headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
       );
       await flush();
     }
@@ -375,6 +393,237 @@ describe("NewAreaWizard", () => {
     expect(onClose).toHaveBeenCalledWith(true);
   });
 
+  describe("in Bauen", () => {
+    const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
+    const consent = () => container.querySelector<HTMLElement>("[data-patch-consent] [role=checkbox]");
+    /** Cell (0, 0) of matrix 1 belongs to header 0001 (area data 3): the new header is a copy of it. */
+    async function toSummary(patch: Partial<HeaderPatchDto> = {}) {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState(patch));
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      await flush();
+      await next();
+    }
+
+    it("shows_the_step_place_in_bauen_and_header_in_tuefteln", async () => {
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      expect(current()).toBe("3. Ort");
+      expect(container.querySelector("[aria-label=Ort]")).not.toBeNull();
+      expect(container.querySelector<HTMLInputElement>('input[aria-label="Name des neuen Orts"]')?.value).toBe("Neues Gebiet");
+      // The headers here carry no place name: the look says so.
+      expect(container.querySelector("button[data-look-picker]")?.textContent).toBe("Aussehen: Ohne Ortsnamen");
+      act(() => root.unmount());
+      root = createRoot(container);
+      await show({ matrix: 1 }, "tuefteln");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      expect(current()).toBe("3. Header");
+      expect(button("Neuer Header")).toBeDefined();
+    });
+
+    it("cannot_create_without_the_consent_when_the_patch_is_missing", async () => {
+      await toSummary({ applied: false });
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.querySelector("[data-patch-consent]")?.textContent).toContain("Nicht rückgängig");
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      expect(button("Anlegen")?.disabled).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // A broken patch is repaired first.
+      await toSummary({ applied: true, repairable: true });
+      expect(container.textContent).toContain("Die Anpassung des Spielcodes für neue Orte ist fehlerhaft. Reparieren in Technik › Patches.");
+      expect(button("Anlegen")?.disabled).toBe(true);
+    });
+
+    it("sends_allow_patch_a_new_place_and_no_internal_name", async () => {
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header).toEqual({
+        id: 2,
+        area_data_id: null,
+        event_file: "New",
+        new_header: { template: 1, internal_name: null },
+        place: { New: "Neues Gebiet" },
+        allow_patch: true,
+      });
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(createArea).mockClear();
+      // With the patch in place there is no line and no patch in the call.
+      await toSummary({ applied: true });
+      expect(container.querySelector("[data-patch-consent]")).toBeNull();
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header).toMatchObject({ allow_patch: false });
+    });
+
+    it("calls_on_header_patch_after_a_patching_create", async () => {
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      act(() => root.unmount());
+      root = createRoot(container);
+      onHeaderPatch.mockClear();
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: false });
+      await toSummary({ applied: true });
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("reads_the_patch_again_after_a_late_failure_of_a_patching_create", async () => {
+      vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays, header 0002 and matrix 0131 were created; map copy failed: boom", asset: null });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Angelegt: das Gebiet, die Anordnung. Danach fehlgeschlagen: Karte kopieren (boom).");
+      expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // Without the patch in the call there is nothing to read again.
+      onHeaderPatch.mockClear();
+      await toSummary({ applied: true });
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("names_where_the_patch_put_the_old_header_folder", async () => {
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
+      expect(container.textContent).toContain("Die alten Dateien sind unter .g4/backup gesichert.");
+      expect(container.textContent).not.toContain("dynamicHeaders");
+      expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
+    });
+
+    it("hands_a_failed_read_after_a_patching_create_to_on_error_and_keeps_the_result", async () => {
+      const failure = { code: "error", message: "read failed", asset: null };
+      onHeaderPatch.mockRejectedValue(failure);
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
+      expect(container.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+      act(() => root.unmount());
+      root = createRoot(container);
+      // After a late failure the same: the partial result stays, the read failure goes to the app.
+      onError.mockClear();
+      vi.mocked(createArea).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays; header creation failed: boom", asset: null });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Gebiet anlegen (boom).");
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      const words = () => visibleWords(document.body);
+      const quelle = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Quelle"]');
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true });
+      await show({ matrix: 1 }, "bauen");
+      expect(container.textContent).toContain("Karten aus einer Weltkarte oder einem Gebiet");
+      expect(quelle()?.textContent).toContain("Sinnoh");
+      openSelect(quelle()!);
+      // The world maps and the areas with a map of their own, by name.
+      expect(options().map((o) => o.textContent)).toEqual(["Sinnoh", "Erzelingen-Mine"]);
+      expect(words()).not.toMatch(FORBIDDEN);
+      await act(async () => options().find((o) => o.textContent === "Sinnoh")!.click());
+      await flush();
+      await click(cell(0, 0));
+      // The caption names the place and the map of the clicked cell.
+      expect(container.querySelector("[data-caption]")?.textContent).toBe("Ohne Ortsnamen · Karte 0010");
+      // The grids' accessible names say no raster either.
+      const gridNames = () => [...container.querySelectorAll("[aria-label]")].map((e) => e.getAttribute("aria-label") ?? "").filter((n) => n.includes("Zeilen"));
+      expect(gridNames()).toEqual(["Karten der Quelle, 2 Zeilen, 3 Spalten"]);
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      expect(current()).toBe("2. Anordnung");
+      expect([...container.querySelectorAll("label")].some((l) => l.textContent?.includes("Abschnitt"))).toBe(false);
+      expect(gridNames()).toEqual(["Vorschau des neuen Gebiets, 1 Zeilen, 1 Spalten"]);
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      await flush();
+      expect(current()).toBe("3. Ort");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).toContain("Legt das Gebiet „Neues Gebiet“ mit 1 × 1 Karten an.");
+      expect(container.textContent).toContain("Neuer Ort „Neues Gebiet“.");
+      expect(container.textContent).toContain("Eine neue, leere Liste der Figuren und Türen.");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(vi.mocked(createArea).mock.calls[0][0].with_headers).toBe(true);
+      expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
+      expect(words()).not.toMatch(FORBIDDEN);
+    });
+
+    it("always_sends_the_cells_of_the_new_area_in_bauen", async () => {
+      // Tüfteln's switch „Header-Abschnitt anlegen“ off does not reach Bauen.
+      await show({ matrix: 1 }, "tuefteln");
+      await click(cell(0, 0));
+      await next();
+      await click([...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((c) => c.closest("label")?.textContent === "Header-Abschnitt anlegen"));
+      await act(async () => root.render(wizard({ matrix: 1 }, matrices, { loaded: true, failed: false }, "bauen")));
+      await flush();
+      expect(current()).toBe("2. Anordnung");
+      await next();
+      await flush();
+      await next();
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].with_headers).toBe(true);
+    });
+
+    it("takes_the_source_by_name_in_bauen", async () => {
+      const quelle = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Quelle"]');
+      await show({ matrix: 1 }, "bauen");
+      expect(container.querySelectorAll("[data-cell]")).toHaveLength(6);
+      openSelect(quelle()!);
+      await act(async () => options().find((o) => o.textContent === "Erzelingen-Mine")!.click());
+      await flush();
+      expect(quelle()?.textContent).toContain("Erzelingen-Mine");
+      expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+    });
+
+    it("starts_on_an_existing_place_when_new_places_are_locked", async () => {
+      // Diamond/Pearl: no patch, no new places.
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ supported: false, applied: false, narc: null }));
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      await flush();
+      const toggle = (label: string) => [...container.querySelectorAll<HTMLButtonElement>("[aria-label=Ort] button")].find((b) => b.textContent === label);
+      expect(toggle("Vorhandener Ort")?.getAttribute("aria-pressed")).toBe("true");
+      expect(toggle("Neuer Ort")?.disabled).toBe(true);
+      await next();
+      expect(container.textContent).toContain("Neue Gebiete und Räume legt Bauen nur für Platin und HeartGold/SoulSilver an. In Tüfteln lässt sich ein vorhandenes Gebiet umstellen.");
+      expect(button("Anlegen")?.disabled).toBe(true);
+    });
+  });
+
   describe("a new header", () => {
     /** Header 0001 is the source of cell (0, 0) of matrix 1, so the new header (number 0002) is a copy of it. */
     async function toHeaderStep() {
@@ -447,24 +696,24 @@ describe("NewAreaWizard", () => {
       expect(radio("Neuer Header")?.disabled).toBe(false);
     });
 
-    it("says_in_german_how_to_save_first_when_the_header_table_is_unsaved", async () => {
-      // The patch takes the headers from disk; the kernel refuses unsaved header edits. Inside the wizard ⌘S is locked: the way out is to cancel.
+    it("applies_the_patch_while_the_header_table_is_unsaved", async () => {
+      // The kernel patches with the table from disk and keeps unsaved header edits: nothing asks to save first.
       vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
       vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable", index: 0 }]);
       await toHeaderStep();
       await click(button("Patch anwenden"));
-      expect(applyHeaderPatch).not.toHaveBeenCalled();
-      expect(container.textContent).toContain("Die Header-Tabelle hat ungespeicherte Änderungen");
-      expect(container.textContent).toContain("Assistent abbrechen, speichern (⌘S) und neu öffnen");
-      expect(button("Patch anwenden")?.disabled).toBe(false);
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(container.textContent).not.toContain("ungespeicherte Änderungen");
+      expect(radio("Neuer Header")?.disabled).toBe(false);
     });
 
     it("shows_the_backends_refusal_in_the_step_and_keeps_the_button", async () => {
       vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
-      vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "the header table has unsaved changes: save first", asset: null });
+      vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "the header table changed on disk", asset: null });
       await toHeaderStep();
       await click(button("Patch anwenden"));
-      expect(container.textContent).toContain("the header table has unsaved changes: save first");
+      expect(container.textContent).toContain("the header table changed on disk");
       expect(onHeaderPatch).not.toHaveBeenCalled();
       expect(onError).not.toHaveBeenCalled();
       expect(radio("Neuer Header")?.disabled).toBe(true);
@@ -483,6 +732,116 @@ describe("NewAreaWizard", () => {
       expect(radio("Neuer Header")?.disabled).toBe(true);
       expect(container.textContent).toContain("unknown game code XXXX");
       expect(onError).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("where the area lies", () => {
+    const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
+    const lage = () => [...container.querySelectorAll<HTMLButtonElement>("[aria-label=Lage] button")];
+    const choose = (label: string) => click(lage().find((b) => b.textContent === label));
+    const pressed = () => lage().find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
+    const SINNOH = "Auf der Weltkarte Sinnoh (nahtlos begehbar)";
+    const OWN = "Eigene Karte (über Türen verbunden)";
+    /** A cell of the world map grid (the preview has cells too). */
+    const worldCell = (x: number, y: number) => container.querySelector<HTMLElement>(`[role=group][aria-label$="2 Zeilen, 3 Spalten"] [data-cell="${x},${y}"]`);
+    /** Picks the area header 0001 at (0, 0) and (1, 0) of the world map Sinnoh (matrix 1) and goes to „Anordnung“. */
+    async function toLayout(depth: Depth) {
+      await show({ matrix: 1 }, depth);
+      await click(cell(0, 0));
+      await click(cell(1, 0));
+      await next();
+      expect(current()).toBe("2. Anordnung");
+    }
+
+    it("offers_own_map_and_each_world_map", async () => {
+      await toLayout("bauen");
+      expect(lage().map((b) => b.textContent)).toEqual([OWN, SINNOH]);
+      expect(pressed()).toBe(OWN);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // HeartGold/SoulSilver: Johto and Kanto are halves of one world map, offered once.
+      const hgss: World = {
+        ...world,
+        worldMaps: [
+          { key: "w1", matrix: 1, filter: "johto", name: "Johto", areas: [] },
+          { key: "w1k", matrix: 1, filter: "kanto", name: "Kanto", areas: [] },
+        ],
+      };
+      await act(async () =>
+        root.render(<NewAreaWizard depth="tuefteln" world={hgss} headers={headers} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={{ matrix: 1 }} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+      );
+      await flush();
+      await click(cell(0, 0));
+      await next();
+      expect(lage().map((b) => b.textContent)).toEqual([OWN, "Auf der Weltkarte Johto und Kanto (nahtlos begehbar)"]);
+    });
+
+    it("sends_the_target_and_says_it_in_the_summary_in_bauen", async () => {
+      const words = () => visibleWords(document.body);
+      await toLayout("bauen");
+      await choose(SINNOH);
+      await flush();
+      // No cell chosen yet: „Weiter“ waits for one, with the grid's hint and no error.
+      expect(container.querySelector('[role=group][aria-label="Weltkarte, 2 Zeilen, 3 Spalten"]')).not.toBeNull();
+      expect(button("Weiter")?.disabled).toBe(true);
+      expect(container.textContent).toContain("Die Zelle anklicken, an der die linke obere Karte des neuen Gebiets liegen soll.");
+      expect(container.textContent).not.toContain("Die Zelle wählen");
+      expect(container.querySelector("[role=alert]")).toBeNull();
+      expect(words()).not.toMatch(FORBIDDEN);
+      // (2, 0) is empty, but the 2 × 1 block reaches past the edge.
+      await click(worldCell(2, 0));
+      expect(worldCell(2, 0)?.hasAttribute("data-foreign")).toBe(true);
+      expect(container.textContent).toContain("Der Block muss auf freie Zellen oder Landschaft fallen.");
+      expect(button("Weiter")?.disabled).toBe(true);
+      // (1, 1) and (2, 1) are landscape.
+      await click(worldCell(1, 1));
+      expect(container.textContent).not.toContain("Der Block muss auf freie Zellen oder Landschaft fallen.");
+      expect(button("Weiter")?.disabled).toBe(false);
+      await next();
+      await flush();
+      expect(current()).toBe("3. Ort");
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).toContain("Liegt auf der Weltkarte Sinnoh bei x 1, y 1 (nahtlos begehbar); ersetzt 2 Landschaftskarten.");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].target).toEqual({ matrix: 1, x: 1, y: 1 });
+    });
+
+    it("keeps_the_target_when_switching_back", async () => {
+      await toLayout("tuefteln");
+      await choose(SINNOH);
+      await flush();
+      // A world map ignores the switch for the header section.
+      expect([...container.querySelectorAll("label")].some((l) => l.textContent === "Header-Abschnitt anlegen")).toBe(false);
+      await click(worldCell(0, 1));
+      expect(worldCell(0, 1)?.getAttribute("aria-pressed")).toBe("true");
+      await choose(OWN);
+      expect(worldCell(0, 1)).toBeNull();
+      expect(button("Weiter")?.disabled).toBe(false);
+      await choose(SINNOH);
+      await flush();
+      expect(pressed()).toBe(SINNOH);
+      expect(worldCell(0, 1)?.getAttribute("aria-pressed")).toBe("true");
+      expect(worldCell(1, 1)?.getAttribute("aria-pressed")).toBe("true");
+      await next();
+      await next();
+      expect(container.textContent).toContain("Ziel: Raster 0001, Zelle 0, 1; 2 Landschaftszellen werden ersetzt.");
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].target).toEqual({ matrix: 1, x: 0, y: 1 });
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(createArea).mockClear();
+      // Back on „Eigene Karte“ the target stays unsent.
+      await toLayout("tuefteln");
+      await choose(SINNOH);
+      await flush();
+      await click(worldCell(0, 1));
+      await choose(OWN);
+      await next();
+      await next();
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0]).not.toHaveProperty("target");
     });
   });
 

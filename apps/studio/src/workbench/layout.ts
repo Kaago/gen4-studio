@@ -1,5 +1,5 @@
 import { HAND_DEFAULT } from "../ui/frame/shellState";
-import type { AreaId } from "../ui/frame/shellState";
+import type { AreaId, Depth } from "../ui/frame/shellState";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
 export type PanelId =
@@ -22,11 +22,15 @@ export type DeckArea = "welt" | "texte" | "pokemon" | "gegenstaende";
 export const DECK_AREAS: readonly DeckArea[] = ["welt", "texte", "pokemon", "gegenstaende"];
 export const isDeckArea = (area: AreaId): area is DeckArea => (DECK_AREAS as readonly AreaId[]).includes(area);
 
-/** A panel of an area's dock; `schau` marks the view panels (3D, Raster, Weltkarte, the previews): they stay docked in the view group. */
+/**
+ * A panel of an area's dock; `schau` marks the view panels (3D, Raster, Weltkarte, the previews): they stay docked in the view group.
+ * `tinkerOnly` marks a panel the dock has only in Tüfteln (the Raster): Bauen works without it.
+ */
 export interface PanelSpec {
   id: PanelId;
   title: string;
   schau?: true;
+  tinkerOnly?: true;
 }
 
 /** The two arrangements of a dock, as building plans: „Werkbank“ (the inspector beside the view) and „Doppeldeck“ (the edit group below it). */
@@ -40,7 +44,7 @@ export type Arrangement = "werkbank" | "doppeldeck";
 export const AREA_PANELS: Record<DeckArea, PanelSpec[]> = {
   welt: [
     { id: "world", title: "3D", schau: true },
-    { id: "matrix", title: "Raster", schau: true },
+    { id: "matrix", title: "Raster", schau: true, tinkerOnly: true },
     { id: "worldmap", title: "Weltkarte", schau: true },
     { id: "inspector", title: "Inspector" },
     { id: "script", title: "Script" },
@@ -60,6 +64,11 @@ export const AREA_PANELS: Record<DeckArea, PanelSpec[]> = {
     { id: "itemEdit", title: "Bearbeiten" },
   ],
 };
+
+/** The panels of the dock of `area` in `depth`: all of them in Tüfteln, in Bauen those not only for Tüfteln (the world without the Raster). */
+export function panelsFor(area: DeckArea, depth: Depth): PanelSpec[] {
+  return depth === "tuefteln" ? AREA_PANELS[area] : AREA_PANELS[area].filter((p) => p.tinkerOnly !== true);
+}
 
 /** The arrangement a dock starts with: the world works at the 3D view with the inspector beside it, the others with the view above the editor. */
 export const DEFAULT_ARRANGEMENT: Record<DeckArea, Arrangement> = {
@@ -87,10 +96,17 @@ const INSPECTOR_MAX = 480;
 const SCRIPT_HEIGHT = 240;
 
 /**
- * The steps that build `arrangement` of the dock of `area`, in the order to apply them (each refers to a panel an earlier step added). Only the
- * world has both; the other areas have one plan, the view above the edit group (`HAND_DEFAULT` high), whatever is asked.
+ * The steps that build `arrangement` of the dock of `area` in `depth`, in the order to apply them (each refers to a panel an earlier step
+ * added). Only the world has both; the other areas have one plan, the view above the edit group (`HAND_DEFAULT` high), whatever is asked.
+ * In Bauen the panels only for Tüfteln are left out (the Raster; no step refers to it).
  */
-export function arrangementSteps(area: DeckArea, arrangement: Arrangement): ArrangementStep[] {
+export function arrangementSteps(area: DeckArea, arrangement: Arrangement, depth: Depth): ArrangementStep[] {
+  const panels = new Set<PanelId>(panelsFor(area, depth).map((p) => p.id));
+  return allSteps(area, arrangement).filter((step) => panels.has(step.id));
+}
+
+/** The steps of `arrangement` with every panel of the area (Tüfteln). */
+function allSteps(area: DeckArea, arrangement: Arrangement): ArrangementStep[] {
   switch (area) {
     case "welt": {
       const schau: ArrangementStep[] = [
@@ -220,13 +236,15 @@ function viewPanelFloats(layout: object): boolean {
 
 /**
  * True when a serialized dockview layout can be restored into a dock with these `panels`: every one of them exists and no other
- * panel does (a layout stored by another panel set would bring back a panel that has no component), and no view panel floats.
+ * panel does (a layout stored by another panel set would bring back a panel that has no component), and no view panel floats. A panel
+ * only for Tüfteln may be missing or there (a layout stored in either depth): the dock adds or removes it after restoring
+ * (`syncDepthPanels`).
  */
-export function isSaneLayout(layout: object, panels: readonly { id: string }[]): boolean {
+export function isSaneLayout(layout: object, panels: readonly { id: string; tinkerOnly?: true }[]): boolean {
   const stored = (layout as { panels?: unknown }).panels;
   if (typeof stored !== "object" || stored === null) return false;
   const known = new Set<string>(panels.map((p) => p.id));
-  if (!panels.every((p) => Object.prototype.hasOwnProperty.call(stored, p.id))) return false;
+  if (!panels.every((p) => p.tinkerOnly === true || Object.prototype.hasOwnProperty.call(stored, p.id))) return false;
   if (!Object.keys(stored).every((id) => known.has(id))) return false;
   return !viewPanelFloats(layout);
 }

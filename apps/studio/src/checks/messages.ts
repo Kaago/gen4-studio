@@ -144,6 +144,19 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     title: "Texturen fehlen",
     text: "Area-Data {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle ein vorhandenes Texturpaket.",
   },
+  "place.name-too-long": {
+    group: "cheap",
+    severity: "warning",
+    title: "Ortsname zu lang",
+    text: "Der Ortsname „{1}“ ist {2} Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).",
+  },
+  "place.index-out-of-bank": {
+    group: "cheap",
+    severity: "error",
+    title: "Ort fehlt in der Ortsnamen-Bank",
+    text: "Header {0:id} zeigt auf Ortsname {1}, die Bank hat nur {2} Namen. Wähle im Inspector einen vorhandenen Ort.",
+    building: { text: "Das Gebiet {0:id} zeigt auf einen Ort, den es nicht gibt. Wähle im Inspector einen vorhandenen Ort." },
+  },
   "trainer.no-party": {
     group: "cheap",
     severity: "error",

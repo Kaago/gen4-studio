@@ -8,14 +8,14 @@ import { TOOLS, eventToolsBlocked } from "./tools";
 import { useWorkbench } from "./WorkbenchContext";
 
 /**
- * The bars floating over the 3D view, in one corner: the layer bar at the top left, the toolbar under it (anchor left), beside it (top),
+ * The bars floating over the 3D view, in one corner: the layer bar (with the top-down switch) at the top left, the toolbar under it (anchor left), beside it (top),
  * or at the bottom middle. It covers the view without taking its pointer; only the bars do. A sibling of the scene: reading the shell here
  * renders the bars, never the scene. In a view lower than `toolbarMinHeight` an upright toolbar lies flat at the top; the anchor the
  * shell remembers stays (and is the one the toolbar's menu ticks).
  */
-export function SceneOverlays({ layers }: { layers: SceneBarProps }) {
+export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown" | "onTopDown"> }) {
   const { tool, onTool, eventFileId, eventLock } = useWorkbench();
-  const { state, setToolbar, density } = useShell();
+  const { state, setToolbar, setTopDown, density } = useShell();
   const box = useRef<HTMLDivElement>(null);
   const minHeight = toolbarMinHeight(density);
   // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
@@ -38,7 +38,7 @@ export function SceneOverlays({ layers }: { layers: SceneBarProps }) {
   const anchor = shownAnchor(state.toolbar, low);
   return (
     <div ref={box} className={styles.overlays} data-scene-overlays="" data-anchor={anchor}>
-      <SceneBar {...layers} />
+      <SceneBar {...layers} topDown={state.topDown} onTopDown={setTopDown} />
       <FloatingToolbar
         tools={TOOLS}
         tool={tool}

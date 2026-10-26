@@ -569,11 +569,17 @@ export interface AreaCell {
   clear_buildings: boolean;
 }
 
-/** A header the wizard creates first: a copy of `template` (as the editor shows it) under this internal name. */
+/**
+ * A header the wizard creates first: a copy of `template` (as the editor shows it) under this internal name; `null`
+ * (or blank) lets the backend derive a unique one from the area's or room's name.
+ */
 export interface NewHeader {
   template: number;
-  internal_name: string;
+  internal_name: string | null;
 }
+
+/** The place (in-game location name) a wizard gives its header: an existing index, or a new name it appends. */
+export type PlaceChoice = { Existing: number } | { New: string };
 
 /**
  * A header that is pointed at the new matrix and gets area data and an event file. With `new_header` it does not exist
@@ -584,6 +590,10 @@ export interface AssignHeader {
   area_data_id: number | null;
   event_file: EventFileChoice;
   new_header?: NewHeader | null;
+  /** A new header may apply the Dynamic Headers patch first when the game lacks it (not undoable). */
+  allow_patch?: boolean;
+  /** The place the header gets, in the same undo step as the assignment; absent keeps its place. */
+  place?: PlaceChoice | null;
 }
 
 export interface AreaSpec {
@@ -593,14 +603,37 @@ export interface AreaSpec {
   cells: AreaCell[];
   with_headers: boolean;
   header: AssignHeader | null;
+  /**
+   * The cell of an existing world map (a matrix with a header section) where the area's upper left cell goes: no new
+   * matrix, the cells get the copies and the header. Absent or `null`: a matrix of its own.
+   */
+  target?: AreaTarget | null;
 }
 
-/** What `create_area` made: the matrix, its maps as [x, y, map id], the event file and the header it assigned. */
+/** Where on a world map an area goes: the cell (x, y) of matrix `matrix` for its upper left cell. */
+export interface AreaTarget {
+  matrix: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * What `create_area` made: the matrix (the target's with one), its maps as [x, y, map id] (x, y within the area), the
+ * event file and the header it assigned.
+ */
 export interface AreaReport {
   matrix: number;
   maps: [number, number, number][];
   event_file: number | null;
   header: number | null;
+  /** The call applied the Dynamic Headers patch. */
+  patched: boolean;
+  /** The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`. */
+  snapshot: string | null;
+  /** The place the header got. */
+  place: number | null;
+  /** The landscape cells (a map, header 0) of the world map the area replaced; 0 without a target. */
+  replaced: number;
 }
 
 export interface ExtendSpec {
@@ -647,6 +680,12 @@ export interface RoomReport {
   inside_warp_reused: boolean;
   /** The tiles made doors (local tile x, y of the map), the outside one first. */
   door_tiles: { map: number; x: number; y: number }[];
+  /** The call applied the Dynamic Headers patch. */
+  patched: boolean;
+  /** The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`. */
+  snapshot: string | null;
+  /** The place the header got. */
+  place: number | null;
 }
 
 export const listMatrices = () => invoke<MatrixListing>("list_matrices");
@@ -660,6 +699,20 @@ export const createArea = (spec: AreaSpec) => invoke<AreaReport>("create_area", 
 export const extendArea = (spec: ExtendSpec) => invoke<ExtendReport>("extend_area", { spec });
 export const createRoom = (spec: RoomSpec) => invoke<RoomReport>("create_room", { spec });
 
+/** What `splitRoom` did: the room's new matrix and the map copies in it (each copied map once). */
+export interface SplitReport {
+  matrix: number;
+  maps: number[];
+}
+
+/**
+ * Gives room `header` copies of the maps it shares with other rooms, on a new matrix of its own.
+ * The copies and the matrix are written at once and stay; moving the room onto them is one undo
+ * step, labelled with `name` (else the header id).
+ */
+export const splitRoom = (header: number, name?: string | null) =>
+  invoke<SplitReport>("split_room", { header, name: name ?? null });
+
 /** The Dynamic Headers patch of the open game: whether it exists for it, and whether it is in the game already. */
 export interface HeaderPatchDto {
   supported: boolean;
@@ -671,8 +724,14 @@ export interface HeaderPatchDto {
 }
 
 export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_status");
-/** Changes the game's code for good; refuses while the header table has unsaved edits. */
-export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");
+/** What applying the patch did: its new state and where the old header folder went. */
+export interface PatchReport extends HeaderPatchDto {
+  /** The copy of an older `unpacked/dynamicHeaders` under `.g4/backup/` (null: there was none, or it was empty). */
+  snapshot: string | null;
+}
+
+/** Changes the game's code for good; unsaved header edits stay unsaved (the patch takes the table from disk). */
+export const applyHeaderPatch = () => invoke<PatchReport>("apply_header_patch");
 /** Rewrites the 4 bytes of a broken patch's wrong call in arm9.bin; the header table is not touched. */
 export const repairHeaderPatch = () => invoke<HeaderPatchDto>("repair_header_patch");
 
@@ -842,6 +901,29 @@ export interface WorldMeta {
 export const worldMetaGet = () => invoke<{ meta: WorldMeta; broken: string | null }>("world_meta_get");
 /** Writes the world file at once. Rejects while the file is broken ("g4-world.json ist beschädigt: … Repariere oder lösche die Datei."). */
 export const worldMetaSet = (meta: WorldMeta) => invoke<void>("world_meta_set", { meta });
+
+/** Room for new places in the location bank (`bank`, a text archive): `free` names can still be appended (256 at most);
+ * `reusable` (HeartGold/SoulSilver only) are the Sinnoh names 1–125 no map uses, lowest first. */
+export interface PlaceSlots {
+  bank: number;
+  count: number;
+  free: number;
+  reusable: number[];
+}
+/** What `createPlace` did: the new place's index and, when it took a reusable slot, the name it replaced. */
+export interface PlaceCreated {
+  index: number;
+  reused: string | null;
+}
+
+export const placeSlots = () => invoke<PlaceSlots>("place_slots");
+/** Creates the place `name` and gives it to the map headers `headers`, one undo step. Rejects an empty name, a
+ * character the game does not know, a full bank and Diamond/Pearl (German sentences). */
+export const createPlace = (name: string, headers: number[]) => invoke<PlaceCreated>("create_place", { name, headers });
+/** Renames the place at `index` for every map header carrying it, one undo step. */
+export const renamePlace = (index: number, name: string) => invoke<void>("rename_place", { index, name });
+/** Gives the existing place at `index` to the map headers `headers`, one undo step. */
+export const assignPlace = (headers: number[], index: number) => invoke<void>("assign_place", { headers, index });
 
 export * from "./api.agents";
 export * from "./api.checks";

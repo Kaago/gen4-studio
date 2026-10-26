@@ -428,10 +428,13 @@ export type TargetDto =
 /** The tabs of the Pokédex hand a reference can open. */
 export type SpeciesTab = "values" | "abilities" | "learnset" | "evolution" | "machines" | "raw";
 
-/** Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`), all of them (a type test keeps both equal). */
+/**
+ * Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`), all of them (a type test keeps both equal).
+ * `show` on a matrix cell is the frontend's (the world map's links); the backend does not send it.
+ */
 export type NavTargetDto =
   | { kind: "header"; id: number }
-  | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null }
+  | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null; show?: "header" | "map" }
   | { kind: "area"; id: number }
   | { kind: "building"; map: number; index: number; header?: number | null }
   | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null }

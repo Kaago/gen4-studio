@@ -23,7 +23,7 @@ sein entpackter Ordner:
 Der Ordner enthält eine Datei `NNNN` (vier Ziffern, ab `0000`) je Header mit genau den 24
 Bytes des Headers (Layout je Familie siehe uxie `map_header`). In einem ungepatchten
 DSPRE-Projekt existiert der Ordner schon und hält die Vanilla-Member des NARC; `apply`
-ersetzt ihn. Die alte Tabelle in `arm9.bin` bleibt stehen und wird nicht mehr gelesen.
+ersetzt ihn, nach einem Schnappschuss (siehe unten). Die alte Tabelle in `arm9.bin` bleibt stehen und wird nicht mehr gelesen.
 Diamant/Perl hat den Patch nicht.
 
 ## Die Routine (20 Bytes bei `init.offset`)
@@ -119,8 +119,33 @@ Schreiben, und jede fehlgeschlagene Prüfung nennt den Offset und schreibt nicht
    die Signatur aus `targets` (Load bzw. Free). Ein falscher oder ungeprüfter Offset wird so
    abgelehnt, statt eine ROM zu erzeugen, die hängt.
 
-Danach: Ordner `unpacked/dynamicHeaders` über einen temporären Nachbarordner ersetzen,
-`arm9.bin.backup` anlegen (nur wenn es fehlt), `arm9.bin` atomar schreiben.
+Danach: Schnappschuss des alten Ordners (unten), Ordner `unpacked/dynamicHeaders` über einen
+temporären Nachbarordner ersetzen, `arm9.bin.backup` anlegen (nur wenn es fehlt), `arm9.bin`
+atomar schreiben.
+
+## Schnappschuss
+
+Existiert `unpacked/dynamicHeaders` und ist nicht leer, kopiert `snapshot_folder` ihn vor dem
+Ersetzen (erst nachdem alle Prüfungen bestanden sind) samt Unterordnern nach
+`<Projekt>/.g4/backup/dynamicHeaders-<YYYYMMDD-HHMMSS>/` (UTC, Sekunden). Gibt es den Ordner
+schon, bekommt der Name `-2`, `-3` … angehängt; in einen vorhandenen Ordner wird nie
+geschrieben. Eine abgebrochene Kopie wird entfernt, und der Patch schreibt dann nichts. Platin
+hält dort die 12 Vanilla-Member des NARC. Der Pfad steht im Ergebnis von `apply_header_patch`
+(`snapshot`, `null` ohne Schnappschuss). Wiederherstellen ist Handarbeit: den Ordner
+zurückkopieren und `arm9.bin.backup` als `arm9.bin` einsetzen.
+
+## Ungespeicherte Tabelle
+
+`Store::apply_dynamic_headers` lehnt eine Header-Tabelle mit ungespeicherten Änderungen nicht
+ab. Gepatcht wird mit dem gespeicherten Stand (dem, den der Store zuletzt gelesen oder
+geschrieben hat); weicht `arm9.bin` davon ab, weil ein anderes Werkzeug die Tabelle geändert
+hat, ist das `stale` und nichts wird geschrieben. Die neuen Dateien halten danach genau diese
+Bytes, und die Bytes des Assets hängen nicht vom Ort ab (Ausschnitt von `arm9.bin` wie
+Verkettung der Dateien). Darum bleiben Wert im Speicher, gespeicherter Stand und Verlauf
+(Undo/Redo) des Assets erhalten: die Änderung bleibt ungespeichert, ⌘Z geht über den Patch
+hinweg zurück, und das nächste Speichern schreibt die geänderten Dateien `NNNN`, nicht mehr
+`arm9.bin`. Nur eine gesperrte Tabelle (vom Codec nicht byte-gleich zurückschreibbar, also nie
+bearbeitet) wird nach dem Patch aus den Dateien neu gelesen.
 
 ## Reparatur eines fehlerhaft angewendeten Patches
 

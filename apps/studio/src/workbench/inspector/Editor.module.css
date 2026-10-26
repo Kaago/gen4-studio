@@ -91,3 +91,9 @@
   color: var(--g4-text-primaer);
   font: var(--g4-font-text-s);
 }
+
+/* The badge „Geteilt“ in the head: focusable, so its tooltip opens from the keyboard too. */
+.shared {
+  display: inline-flex;
+  border-radius: var(--g4-radius-plakette);
+}

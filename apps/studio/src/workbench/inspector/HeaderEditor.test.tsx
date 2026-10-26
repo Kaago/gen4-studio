@@ -3,15 +3,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
+import { assignPlace, dataList, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { headerIdentity } from "../headerIdentity";
 import { buildPlaces } from "../places";
+import type { World } from "../worldModel";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
-import { chooseAction, headActions } from "./headTesting";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -21,6 +22,10 @@ vi.mock("../../api", async (importOriginal) => ({
   newScriptFile: vi.fn(),
   readScript: vi.fn(),
   dataList: vi.fn(),
+  placeSlots: vi.fn(),
+  getTextArchive: vi.fn(),
+  assignPlace: vi.fn(),
+  splitRoom: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -54,23 +59,37 @@ const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [
 const matrices: MatrixSummary[] = [
   { index: 2, name: "m2", width: 30, height: 30, has_headers: true, has_altitudes: true, filled: 600 },
   { index: 3, name: "m3", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
+  { index: 4, name: "m4", width: 2, height: 2, has_headers: false, has_altitudes: false, filled: 3 },
 ];
 const house: HeaderSummary = { ...summary, id: 412, internal_name: "T01R0101", matrix_id: 3 };
+/** The world with the house as a room that shares its map with `shared` other rooms. */
+const houseWorld = (shared: number, matrix_id = 3): World => ({
+  worldMaps: [],
+  moreAreas: [],
+  unconnected: [{ header: { ...house, matrix_id }, name: "Haus 1", suggested: "Haus 1", placeKey: "Zweiblattdorf", placeName: "Zweiblattdorf", manual: false, shared }],
+  other: [],
+  areaOf: new Map(),
+  roomCount: 1,
+  assignedRooms: 0,
+});
 
 describe("HeaderEditor scripts", () => {
   let container: HTMLElement;
   let root: Root;
   const onOpenScript = vi.fn();
   const onChanged = vi.fn();
+  const onPlaceChanged = vi.fn();
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
   const onLevelScriptSaved = vi.fn();
+  const onRoomSplit = vi.fn();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
     identify: (h) => headerIdentity(buildPlaces([summary, house], matrices), h),
     counts: { Script: 800 },
     revision: 0,
     onChanged,
+    onPlaceChanged,
     goTo: vi.fn(),
     eventRevision: 0,
     onOpenWizard: vi.fn(),
@@ -82,6 +101,9 @@ describe("HeaderEditor scripts", () => {
     isCurrentProject: () => true,
     onCountsChanged,
     onError,
+    world: null,
+    matrices,
+    onRoomSplit,
     ...over,
   });
   async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
@@ -97,7 +119,13 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(getEvents).mockReset().mockResolvedValue(noEvents);
     vi.mocked(newScriptFile).mockReset();
     vi.mocked(readScript).mockReset().mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
-    for (const fn of [onOpenScript, onChanged, onCountsChanged, onError, onLevelScriptSaved]) fn.mockReset();
+    vi.mocked(placeSlots).mockReset().mockResolvedValue({ bank: 433, count: 3, free: 253, reusable: [] });
+    vi.mocked(getTextArchive)
+      .mockReset()
+      .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
+    vi.mocked(assignPlace).mockReset().mockResolvedValue(undefined);
+    for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved, onRoomSplit]) fn.mockReset();
+    vi.mocked(splitRoom).mockReset().mockResolvedValue({ matrix: 700, maps: [601] });
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -183,9 +211,135 @@ describe("HeaderEditor scripts", () => {
   it("binds_a_room_here_from_the_head_menu", async () => {
     const onOpenWizard = vi.fn();
     await show(context({ onOpenWizard }));
-    expect(headActions(container)).toEqual(["Raum hier anbinden…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
+  });
+
+  describe("a shared room", () => {
+    const showHouse = async (world: World | null, depth: "bauen" | "tuefteln" = "bauen") => {
+      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth={depth} />));
+      await flush();
+    };
+    const badge = () => container.querySelector<HTMLElement>("header[data-inspector-kind] [data-shared]");
+
+    it("shows_the_shared_badge_with_the_count", async () => {
+      await showHouse(houseWorld(17));
+      expect(badge()?.textContent).toBe("Geteilt mit 17 Räumen");
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          const b = badge()!;
+          b.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+          b.dispatchEvent(new MouseEvent("mouseenter"));
+          b.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(500);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Diese Karten gehören auch anderen Räumen. Was du hier änderst, ändert sie alle.");
+      await showHouse(houseWorld(1), "tuefteln");
+      expect(badge()?.textContent).toBe("Geteilt mit 1 Raum");
+      // A room of its own, and the world not read yet: no badge.
+      await showHouse(houseWorld(0));
+      expect(badge()).toBeNull();
+      await showHouse(null);
+      expect(badge()).toBeNull();
+    });
+
+    it("offers_split_only_for_a_shared_room", async () => {
+      await showHouse(houseWorld(0));
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+      // An area is no room, whatever shares its world map.
+      await show(context({ world: houseWorld(3) }));
+      expect(headActions(container)).not.toContain("Für diesen Raum abspalten…");
+      // Another header: a fresh editor, as the inspector mounts one per header (`key={id}`).
+      await act(async () => root.render(null));
+      await showHouse(houseWorld(3));
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Für diesen Raum abspalten…"]);
+      chooseAction(container, "Für diesen Raum abspalten…");
+      await flush();
+      const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+      // Matrix 3 holds the house's one map.
+      expect(dialog()?.textContent).toContain("Der Raum „Haus 1“ bekommt eine eigene Kopie seiner Karte.");
+      const split = [...dialog()!.querySelectorAll("button")].find((b) => b.textContent === "Abspalten")!;
+      await act(async () => split.click());
+      await flush();
+      expect(splitRoom).toHaveBeenCalledWith(412, "Haus 1");
+      // The project is read again as after a wizard, the room shown with the message.
+      expect(onRoomSplit).toHaveBeenCalledWith({ matrix: 700, header: 412, announcement: "Raum „Haus 1“ abgespalten" });
+      expect(dialog()).toBeNull();
+    });
+  });
+
+  describe("splitting by the matrix", () => {
+    const showHouse = async (world: World) => {
+      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth="bauen" />));
+      await flush();
+    };
+    const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+
+    it("offers_split_only_on_a_matrix_without_a_header_section", async () => {
+      // A matrix with a header section (a world map), and a matrix the project does not list: the badge stays, the action goes.
+      for (const matrixId of [2, 99]) {
+        await act(async () => root.render(null));
+        await showHouse(houseWorld(3, matrixId));
+        expect(container.querySelector("header[data-inspector-kind] [data-shared]")?.textContent).toBe("Geteilt mit 3 Räumen");
+        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+      }
+    });
+
+    it("names_no_number_of_maps_when_the_matrix_has_several_cells", async () => {
+      await showHouse(houseWorld(3, 4));
+      chooseAction(container, "Für diesen Raum abspalten…");
+      await flush();
+      expect(dialog()?.textContent).toContain("Der Raum „Haus 1“ bekommt eigene Kopien seiner Karten. Danach");
+      expect(dialog()?.textContent).not.toMatch(/\d Karten|0 Karten/);
+    });
+  });
+
+  describe("place", () => {
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+    const placed: HeaderSummary = { ...summary, location_index: 1 };
+
+    it("chooses_the_place_by_name_instead_of_the_number", async () => {
+      await show(context({ headers: [placed] }));
+      expect(container.querySelector("input[aria-label='Ortsname']")).toBeNull();
+      await click(container.querySelector("button[data-place-picker]")!);
+      await flush();
+      await click(options()[2]);
+      await flush();
+      expect(assignPlace).toHaveBeenCalledWith([411], 2);
+      expect(onPlaceChanged).toHaveBeenCalledWith(null);
+      expect(setHeader).not.toHaveBeenCalled();
+    });
+
+    it("writes_the_field_on_diamond_and_pearl", async () => {
+      const { area_icon: _icon, ...fields } = (pt() as { Pt: MapHeaderPt }).Pt;
+      vi.mocked(getHeader).mockResolvedValue({ DP: fields });
+      await show(context({ headers: [placed] }));
+      await click(container.querySelector("button[data-place-picker]")!);
+      await flush();
+      await click(options()[2]);
+      await flush();
+      expect(assignPlace).not.toHaveBeenCalled();
+      expect(setHeader).toHaveBeenCalledWith(411, { DP: { ...fields, location_name: 2 } }, "Ortsname");
+      // No place commands there: renaming is locked.
+      expect(headAction(container, "Ort umbenennen…")?.getAttribute("aria-disabled")).toBe("true");
+    });
+
+    it("renames_the_place_from_the_head_menu_but_not_no_place", async () => {
+      await show(context({ headers: [placed, { ...house, location_index: 1 }] }));
+      chooseAction(container, "Ort umbenennen…");
+      await flush();
+      const dialog = document.querySelector("[data-rename-place]")?.closest("[role=dialog]");
+      expect(dialog?.textContent).toContain("Ort umbenennen");
+      expect(dialog?.textContent).toContain("Trifft alle 2 Gebiete und Räume mit diesem Ort und den Fundort gefangener Pokémon.");
+      await act(async () => root.render(null));
+      await show(context({ headers: [summary] }));
+      expect(headAction(container, "Ort umbenennen…")?.getAttribute("aria-disabled")).toBe("true");
+    });
   });
 
   it("opens_the_script_file_and_the_level_script_of_the_header", async () => {

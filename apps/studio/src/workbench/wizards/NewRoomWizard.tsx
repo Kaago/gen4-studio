@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoom, errorText } from "../../api";
-import type { HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { HeaderFamily, HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, Checkbox, ListRow, Notice, NumberField, Reference, TextField, useRovingList } from "../../ui/primitives";
 import { lockedText } from "../../world/events";
 import { thumbnails } from "../../world/thumbnailStore";
@@ -14,16 +15,21 @@ import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
-import { SAVE_FIRST_IN_WIZARD, useHeaderPatch } from "./useHeaderPatch";
+import { PatchConsent, patchReady } from "./PatchConsent";
+import { PlaceStep } from "./PlaceStep";
+import type { PlaceStepValue } from "./PlaceStep";
+import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
+import { MAP_LAST_TILE, OUTSIDE_AREA, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, placeError, placeForm, roomPlace, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewRoomWizard.module.css";
 
 interface Props {
+  /** Bauen gives the new room a new header with a place and a look (step „Ort“); Tüfteln lets the user choose the header. */
+  depth: Depth;
   headers: HeaderSummary[];
   links: WarpLink[];
   counts: MemberCounts;
@@ -76,14 +82,17 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+export function NewRoomWizard({ depth, headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
-  const [form, setForm] = useState<RoomForm>(() => {
+  const [stored, setForm] = useState<RoomForm>(() => {
     const start: RoomForm = { ...emptyRoomForm, outsideHeader: prefill?.outsideHeader ?? null };
     const template = prefill?.template === undefined ? undefined : headers.find((h) => h.id === prefill.template);
     return template ? withTemplate(start, template) : start;
   });
+  const building = depth === "bauen";
+  // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
+  const form = useMemo<RoomForm>(() => (building ? { ...stored, header: null, newHeader: null, areaDataId: stored.lookAreaData, eventFile: "New" } : stored), [building, stored]);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -153,8 +162,15 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
-  const patch = useHeaderPatch(onHeaderPatch, { saveFirst: SAVE_FIRST_IN_WIZARD, repaired: onHeaderPatchRepaired });
-  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
+  const patch = useHeaderPatch(onHeaderPatch, { repaired: onHeaderPatchRepaired });
+  // Bauen: the place and the look follow their defaults (the place at the entrance, the template's look) until chosen. An entrance
+  // that cannot be made leaves the template's place.
+  const placeDefault = roomPlace(null, connect ? outsideHeader : null, template);
+  const place = form.place ?? placeDefault;
+  const look = form.lookAreaData ?? template?.area_data_id ?? 0;
+  // The consent counts only while the patch is missing.
+  const patchConsent = form.patchConsent && patch.patch?.applied === false;
+  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect, place, patchConsent }, headers.length, depth, {
     outsideMatrix: outsideCells ?? outsideMatrix,
     outsideWarps: outsideEvents?.warps,
     keptWarps,
@@ -198,17 +214,32 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     </div>
   );
 
+  /** The app reads the header table and list again after a create that applied the patch; a failed read goes to `onError`, the result stays. */
+  async function rereadPatch() {
+    try {
+      await onHeaderPatch();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
   async function create() {
     if ("error" in built) return;
     setBusy(true);
     setRefusal(null);
+    const patching = built.spec.header.allow_patch === true;
     try {
-      setOutcome({ kind: "done", report: await createRoom(built.spec), spec: built.spec });
+      const report = await createRoom(built.spec);
+      setOutcome({ kind: "done", report, spec: built.spec });
+      // The call applied the patch: the app reads the header table and list again, as after „Patch anwenden“.
+      if (report.patched) await rereadPatch();
     } catch (e) {
       const text = errorText(e);
-      // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(e)) setOutcome({ kind: "partial", message: partialText(text) });
-      else setRefusal(text);
+      // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
+      if (isLateFailure(e)) {
+        setOutcome({ kind: "partial", message: partialText(text, depth, "room") });
+        if (patching) await rereadPatch();
+      } else setRefusal(text);
     } finally {
       setBusy(false);
     }
@@ -231,7 +262,46 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
 
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, form.template ?? 0), areaDataId: form.areaDataId, eventFile: form.eventFile };
 
-  const summaryLines = "spec" in built ? roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }) : null;
+  const summaryLines = "spec" in built ? roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }, depth) : null;
+
+  /** A choice of the step „Ort“: a default is kept as null, so it follows the entrance and the template. */
+  function choosePlace(value: PlaceStepValue) {
+    setForm((f) => ({ ...f, place: placeForm(value.place, placeDefault), lookAreaData: value.areaDataId === (template?.area_data_id ?? 0) ? null : value.areaDataId }));
+  }
+  // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
+  const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
+  // Bauen speaks of the area at the entrance and its tiles, Tüfteln of the header outside and its raster.
+  const outsideWord = building ? OUTSIDE_AREA : `${TERMS.header.label} außen`;
+  // Bauen asks for the place and the look; Tüfteln for the header itself.
+  const headerStep: WizardStep = building
+    ? {
+        id: "place",
+        title: "Ort",
+        canNext: placeError(place) === null,
+        content: <PlaceStep value={{ place: place ?? { New: form.name }, areaDataId: look }} onChange={choosePlace} headers={headers} template={template} family={family} name={form.name} />,
+      }
+    : {
+        id: "header",
+        title: TERMS.header.label,
+        canNext: form.header !== null || form.newHeader !== null,
+        content: (
+          <HeaderChoice
+            headers={headers}
+            links={links}
+            counts={counts}
+            value={headerValue}
+            copySource={template?.event_file_id ?? null}
+            onChange={chooseHeader}
+            patch={patch.patch}
+            patchError={patch.error}
+            patchBusy={patch.busy}
+            onApplyPatch={patch.apply}
+            onRepairPatch={patch.repair}
+            template={form.template ?? 0}
+            defaultName={internalName(form.name)}
+          />
+        ),
+      };
 
   const steps: WizardStep[] = [
     {
@@ -285,12 +355,10 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
               <p className={parts.note}>Noch keine Vorlage gewählt.</p>
             ) : (
               <>
-                <p className={parts.text}>
-                  {TERMS.header.label} {id4(template.id)} „{headerLabel(template)}“
-                </p>
+                <p className={parts.text}>{building ? `„${headerLabel(template)}“` : `${TERMS.header.label} ${id4(template.id)} „${headerLabel(template)}“`}</p>
                 {templateMatrix !== null && templateMap === null ? (
                   <Notice kind="error">
-                    Das {TERMS.matrix.label} dieses {TERMS.room.label}s hat keine {TERMS.map.label} zum Kopieren.
+                    {building ? `Dieser ${TERMS.room.label} hat keine ${TERMS.map.label} zum Kopieren.` : `Das ${TERMS.matrix.label} dieses ${TERMS.room.label}s hat keine ${TERMS.map.label} zum Kopieren.`}
                   </Notice>
                 ) : typeof picture === "string" ? (
                   <img src={picture} alt="Vorschau der Vorlage" className={styles.picture} />
@@ -303,28 +371,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
         </>
       ),
     },
-    {
-      id: "header",
-      title: TERMS.header.label,
-      canNext: form.header !== null || form.newHeader !== null,
-      content: (
-        <HeaderChoice
-          headers={headers}
-          links={links}
-          counts={counts}
-          value={headerValue}
-          copySource={template?.event_file_id ?? null}
-          onChange={chooseHeader}
-          patch={patch.patch}
-          patchError={patch.error}
-          patchBusy={patch.busy}
-          onApplyPatch={patch.apply}
-          onRepairPatch={patch.repair}
-          template={form.template ?? 0}
-          defaultName={internalName(form.name)}
-        />
-      ),
-    },
+    headerStep,
     {
       id: "entrance",
       title: "Eingang",
@@ -332,7 +379,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       content: (
         <>
           <section className={parts.column}>
-            <h3 className={parts.heading}>{TERMS.header.label} außen</h3>
+            <h3 className={parts.heading}>{outsideWord}</h3>
             <Checkbox label="später verbinden (keinen Eingang anlegen)" checked={!connect} disabled={blocked !== null} onChange={(later) => setForm((f) => ({ ...f, connect: !later }))} />
             {blocked !== null && form.connect && <Notice kind="warning">Der Eingang lässt sich jetzt nicht anlegen: {blocked}</Notice>}
             {/* The lock follows the chosen header outside: picking another one is always possible. */}
@@ -345,11 +392,11 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
                     <Reference area="welt" label={headerLabel(outsideHeader)} tech={id4(outsideHeader.id)} onOpen={() => setPickingOutside(true)} disabled={!form.connect} dataAttrs={{ "data-header": outsideHeader.id }} />
                   </div>
                 ) : (
-                  <p className={parts.note}>Kein {TERMS.header.label} außen gewählt.</p>
+                  <p className={parts.note}>Kein {outsideWord} gewählt.</p>
                 )}
                 <div className={parts.actions}>
                   <Button kind="secondary" size="s" icon="search" disabled={!form.connect} onClick={() => setPickingOutside(true)}>
-                    {TERMS.header.label} außen wählen…
+                    {outsideWord} wählen…
                   </Button>
                 </div>
                 <HeaderPicker
@@ -357,7 +404,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
                   onOpenChange={setPickingOutside}
                   headers={candidates}
                   onPick={(id) => setForm((f) => ({ ...f, outsideHeader: id }))}
-                  title={`${TERMS.header.label} außen wählen`}
+                  title={`${outsideWord} wählen`}
                 />
               </>
             )}
@@ -367,15 +414,17 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
             <h3 className={parts.heading}>Tür außen</h3>
             <p className={parts.note}>
               {outsideMatrix && outsideSize
-                ? `Kachel im ${TERMS.matrix.label} ${id4(outsideMatrix.index)}: ${outsideSize.x} × ${outsideSize.z} Kacheln (x 0 bis ${outsideSize.x - 1}, z 0 bis ${outsideSize.z - 1}).`
-                : `Kachel im ${TERMS.matrix.label} des ${TERMS.header.label}s außen.`}
+                ? `Kachel ${building ? "außen" : `im ${TERMS.matrix.label} ${id4(outsideMatrix.index)}`}: ${outsideSize.x} × ${outsideSize.z} Kacheln (x 0 bis ${outsideSize.x - 1}, z 0 bis ${outsideSize.z - 1}).`
+                : building
+                  ? "Kachel außen, beim Gebiet am Eingang."
+                  : `Kachel im ${TERMS.matrix.label} des ${TERMS.header.label}s außen.`}
             </p>
             {tileField("Außen: Kachel x", outsideX, outsideSize ? outsideSize.x - 1 : MATRIX_LAST_TILE, "x", !connect)}
             {tileField("Außen: Kachel z", outsideZ, outsideSize ? outsideSize.z - 1 : MATRIX_LAST_TILE, "z", !connect)}
             {sceneDefault && <p className={parts.note}>Kachel zuletzt in der Szene gewählt (über der die Maus zuletzt war).</p>}
             {outsideHeader && outsideX === null && outsideZ === null && (
               <p className={parts.note}>
-                Noch keine Kachel: die Maus war zuletzt nicht über diesem {TERMS.matrix.label}; x und z eintragen.
+                Noch keine Kachel: die Maus war zuletzt nicht über {building ? `dem ${OUTSIDE_AREA}` : `diesem ${TERMS.matrix.label}`}; x und z eintragen.
               </p>
             )}
             {outsideTile && <p className={outsideTile.fires ? parts.note : parts.warn}>Außen: {outsideTile.text}</p>}
@@ -413,7 +462,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     {
       id: "summary",
       title: "Zusammenfassung",
-      canNext: "spec" in built,
+      canNext: "spec" in built && (!building || patchReady(patch.patch, form.patchConsent)),
       content: (
         <section className={parts.column}>
           {summaryLines ? (
@@ -427,6 +476,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
+          {building && <PatchConsent patch={patch.patch} error={patch.error} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />}
         </section>
       ),
     },
@@ -437,11 +487,11 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec)} />;
+    result = <DoneResult title={`${TERMS.room.label} angelegt`} {...roomResult(report, spec, depth)} />;
     onShow = () => void show(report, spec);
     if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
-    result = <PartialResult message={outcome.message} />;
+    result = <PartialResult message={outcome.message} depth={depth} />;
   }
 
   return (
@@ -462,7 +512,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
       busy={busy || patch.busy}
       result={result}
       error={refusal}
-      summary={"spec" in built ? roomSummary(built.spec, headers, undefined, links)[0] : undefined}
+      summary={"spec" in built ? roomSummary(built.spec, headers, undefined, links, {}, depth)[0] : undefined}
       irreversible
     />
   );

@@ -97,6 +97,43 @@ describe("WorldPanel", () => {
     expect(destName(999)).toBeUndefined();
   });
 
+  it("hands_the_scene_the_area_of_the_selected_header_and_its_ring", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 4, height: 1, maps: [1, 2, 3, 4], headers: [3, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    expect(sceneProps.current?.matrix).toEqual({ ...route, maps: [1, 2, null, null] });
+    expect(sceneProps.current?.focus).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    // Nothing selected (a matrix shown for no header): the whole matrix, framed by the scene itself.
+    const unselected = { ...route };
+    show({ matrix: unselected, selected: null });
+    expect(sceneProps.current?.matrix).toBe(unselected);
+    expect(sceneProps.current?.focus).toBeNull();
+  });
+
+  it("keeps_the_scene_scope_while_a_newly_selected_header_waits_for_its_matrix", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 6, height: 1, maps: [1, 2, 3, 4, 5, 6], headers: [3, 0, 0, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    const before = { matrix: sceneProps.current?.matrix, focus: sceneProps.current?.focus };
+    expect(before.focus).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    // Another header is selected, its matrix is still being fetched: the scene keeps what it shows.
+    show({ matrix: route, selected: 4 });
+    expect(sceneProps.current?.matrix).toBe(before.matrix);
+    expect(sceneProps.current?.focus).toBe(before.focus);
+    // A header of another matrix, pending as well: still the same.
+    show({ matrix: route, selected: 99, headers: [header(3), header(4), { ...header(99), matrix_id: 7 }] });
+    expect(sceneProps.current?.matrix).toBe(before.matrix);
+    expect(sceneProps.current?.focus).toBe(before.focus);
+  });
+
+  it("takes_the_new_scope_when_the_matrix_of_the_selected_header_arrives", () => {
+    const route: MatrixDto = { index: 0, name: "Welt", width: 6, height: 1, maps: [1, 2, 3, 4, 5, 6], headers: [3, 0, 0, 0, 0, 4] };
+    show({ matrix: route, selected: 3 });
+    show({ matrix: route, selected: 4 });
+    const fetched = { ...route, maps: [...route.maps] };
+    show({ matrix: fetched, selected: 4 });
+    expect(sceneProps.current?.matrix).toEqual({ ...route, maps: [null, null, null, null, 5, 6] });
+    expect(sceneProps.current?.focus).toEqual({ x: 5, y: 0, width: 1, height: 1 });
+  });
+
   it("offers_no_first_place_when_the_project_has_no_header", () => {
     show({ headers: [] });
     expect(container.textContent).toContain("Noch kein Ort gewählt.");
@@ -120,8 +157,22 @@ describe("WorldPanel", () => {
     expect(button("Neues Gebäude")).toBeUndefined();
     expect(button("Hinzufügen")).toBeUndefined();
     expect(container.querySelector('[aria-label="Art des neuen Events"]')).toBeNull();
-    // Only the two layer toggles are left in the layer bar.
-    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse"]);
+    // Only the two layer toggles and the top-down switch are left in the layer bar.
+    expect([...container.querySelectorAll('[role="toolbar"][aria-label="Ebenen der Schau"] button')].map((b) => b.getAttribute("aria-label"))).toEqual(["Gelände", "Ereignisse", "Draufsicht"]);
+  });
+
+  it("switches_the_scene_to_the_top_down_view_and_remembers_it", () => {
+    localStorage.clear();
+    try {
+      show({ matrix });
+      expect(sceneProps.current?.topDown).toBe(false);
+      act(() => button("Draufsicht").click());
+      expect(sceneProps.current?.topDown).toBe(true);
+      expect(button("Draufsicht").getAttribute("aria-pressed")).toBe("true");
+      expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).topDown).toBe(true);
+    } finally {
+      localStorage.clear();
+    }
   });
 
   it("floats_the_toolbar_over_the_scene_with_the_tool_of_the_workbench", () => {

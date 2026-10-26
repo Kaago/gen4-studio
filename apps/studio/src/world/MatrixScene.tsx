@@ -1,8 +1,9 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { MatrixDto } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
 import type { InspectorModel } from "../workbench/Inspector";
+import { type CellRect, filledRect } from "../workbench/sceneScope";
 import type { EditBus } from "../bus/editBus";
 import { useBusQueue, useBusRevision } from "../bus/useBusEvent";
 import type { BuildingRef } from "./buildingLayer";
@@ -15,10 +16,15 @@ import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
 import { useSceneTheme } from "./scene/useSceneTheme";
 import styles from "./MatrixScene.module.css";
-import { useBuildingSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility } from "./scene/useSceneProps";
+import { useBuildingSelection, useCellSelection, useEventSelection, useEventVisibility, useFaultyEvents, usePermissionVisibility, useTopDown } from "./scene/useSceneProps";
 
 interface Props {
+  /** The matrix the scene loads; its empty cells (null maps) are not loaded (see `scopedMatrix`). */
   matrix: MatrixDto;
+  /** The cells the camera frames when `matrix` was loaded; it belongs to `matrix`. Null: the filled cells (the whole matrix when none is). */
+  focus: CellRect | null;
+  /** The camera looks straight down (orthographic, no turning) instead of slanted; a switch frames the focus. */
+  topDown: boolean;
   /**
    * Area data of the shown header; selects the map texture set for every map of the matrix. It
    * belongs to `matrix` (App changes both in one update when another header is shown). Changed
@@ -69,6 +75,10 @@ interface Props {
   selectedEvent: EventRef | null;
   /** A click on an event marker (or null for none). The owner decides what to select and passes it back. */
   onSelectEvent: (ref: EventRef | null) => void;
+  /** The selected cell of `matrix` (null: none); the scene frames it. Keeps its identity while the same cell is selected. */
+  selectedCell: { x: number; y: number } | null;
+  /** A click with the select tool on a loaded map (neither marker nor building). The owner decides what to select and passes it back. */
+  onSelectCell: (cell: { x: number; y: number }) => void;
   /** An event was moved by dragging and the move is written. */
   onEventMoved: (eventFile: number) => void;
   /** The shown event file's lock state, reported whenever its events were read (null: not locked, or none shown). */
@@ -79,6 +89,8 @@ interface Props {
 
 function MatrixScene({
   matrix,
+  focus,
+  topDown,
   areaDataId,
   bus,
   showPermissions,
@@ -100,6 +112,8 @@ function MatrixScene({
   onBuildingMoved,
   selectedEvent,
   onSelectEvent,
+  selectedCell,
+  onSelectCell,
   onEventMoved,
   onEventsLocked,
   faultyEvents,
@@ -121,7 +135,7 @@ function MatrixScene({
     eventFileId,
     destName,
     areaDataId,
-    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onEventMoved, onEventsLocked },
+    callbacks: { paintEnabled, tool, onTileClick, onBuildings, onEdited, onError, onInspect, onStatus, onSelectBuilding, onBuildingMoved, onSelectEvent, onSelectCell: ({ col, row }) => onSelectCell({ x: col, y: row }), onEventMoved, onEventsLocked },
   });
   /** Shows (and reports upwards) what reading an event file gave: the note over the scene and its lock state. */
   const reportEvents: ReportEvents = (fetched) => {
@@ -130,15 +144,19 @@ function MatrixScene({
     refs.callbacks.current.onEventsLocked(events?.locked ? { file: events.event_file_id, reason: events.locked } : null);
   };
 
+  const frame = useMemo(() => focus ?? filledRect(matrix) ?? { x: 0, y: 0, width: matrix.width, height: matrix.height }, [focus, matrix]);
+
   // The hooks run their effects in this order, which is the order the effects always had.
   useSceneSetup(host, refs, reportEvents);
   useSceneTheme(refs);
-  useSceneLoader({ matrix, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
+  useSceneLoader({ matrix, focus: frame, areaDataId, modelsToken, history, refs, reportEvents, clearEventStatus: () => setEventStatus(null), onSceneBuilt: () => setSceneBuilt((n) => n + 1) });
+  useTopDown(refs, topDown, matrix, frame);
   useMapRefresh(refs, mapRefresh);
   useMapModelRefresh(refs, mapModelRefresh);
   useBuildingSelection(refs, selectedMap, selectedBuilding);
   useBuildingRefresh(refs, buildingRefresh, sceneBuilt);
   useEventSelection(refs, selectedEvent);
+  useCellSelection(refs, matrix, selectedCell);
   useFaultyEvents(refs, faultyEvents);
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);

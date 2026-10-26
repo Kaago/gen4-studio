@@ -100,7 +100,7 @@ describe("the list „Welt“ on the workbench context", () => {
     expect(row("Warp 0")).toBeDefined();
     act(() => row("Objekt 0").click());
     expect(onPin).toHaveBeenLastCalledWith({ kind: "event", eventFile: 103, eventKind: "object", index: 0 });
-    act(() => row("Zelle 0, 0").click());
+    act(() => row("Karte 0040").click());
     expect(onPin).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 0, y: 0 });
     // The selection shows as the selected row.
     await show({}, { kind: "event", eventFile: 103, eventKind: "object", index: 0 });

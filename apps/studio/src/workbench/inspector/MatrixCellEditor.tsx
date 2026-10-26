@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import type { Depth } from "../../ui/frame/shellState";
-import { InspectorRow, NumberField, Reference, TextField, checkNumber } from "../../ui/primitives";
-import type { MenuEntry } from "../../ui/primitives";
+import { Button, InspectorRow, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
+import type { MenuEntry, PickerItem } from "../../ui/primitives";
 import type { HeaderIdentity } from "../headerIdentity";
 import { cellLabel } from "../matrix";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { useMatrix } from "../useMatrix";
+import { useWorld } from "../WorkbenchContext";
+import type { World } from "../worldModel";
 import styles from "./Editor.module.css";
 import { ExportPartDialog } from "./ExportPartDialog";
 import { ImportPartsDialog } from "./ImportPartsDialog";
@@ -67,17 +69,102 @@ function MapField({ map, max, onCommit }: { map: number | null; max: number; onC
   );
 }
 
+/** Header 0 fills the landscape cells of a world map: no area, no place. */
+const LANDSCAPE = 0;
+
+/** The areas whose cells lie on matrix `index` (a world map, both halves of a split one, or an area with its own map). */
+function areasOn(world: World | null, index: number) {
+  if (world === null) return [];
+  return [...world.worldMaps.flatMap((m) => m.areas), ...world.moreAreas].filter((a) => a.matrix === index);
+}
+
+/**
+ * Bauen's name of a matrix: the world map(s) on it („Johto und Kanto“ for the split one), else the area or room it belongs to, else
+ * „Raumplan“ (never a matrix number).
+ */
+function matrixWords(world: World | null, index: number, headers: readonly HeaderSummary[], identify: (header: HeaderSummary) => HeaderIdentity): string {
+  const maps = world?.worldMaps.filter((m) => m.matrix === index) ?? [];
+  if (maps.length > 0) return maps.map((m) => m.name).join(" und ");
+  const own = world?.moreAreas.find((a) => a.matrix === index);
+  if (own) return own.name;
+  const user = headers.find((h) => h.matrix_id === index);
+  return user ? identify(user).name : "Raumplan";
+}
+
+/**
+ * Bauen's row „Gehört zu“ of a cell on a map with areas: a reference to the area of the cell (none for the landscape) and „Ändern…“,
+ * a picker of „Landschaft“ and the areas of this map (an area with several sections lists each). Tüfteln keeps the header number.
+ */
+function OwnerField({
+  matrix,
+  header,
+  headers,
+  identify,
+  goTo,
+  onCommit,
+}: {
+  matrix: number;
+  header: number;
+  headers: readonly HeaderSummary[];
+  identify: (header: HeaderSummary) => HeaderIdentity;
+  goTo: (target: NavTarget) => void;
+  onCommit: (header: number) => void;
+}) {
+  const { world } = useWorld();
+  const [picking, setPicking] = useState(false);
+  const items = useMemo<PickerItem[]>(() => {
+    const seen = new Set<number>([LANDSCAPE]);
+    const areas: PickerItem[] = [];
+    for (const area of areasOn(world, matrix)) {
+      area.headers.forEach((h, i) => {
+        if (seen.has(h.id)) return;
+        seen.add(h.id);
+        areas.push({ id: h.id, label: area.headers.length > 1 ? `${area.name}, Abschnitt ${i + 1}` : area.name });
+      });
+    }
+    return [{ id: LANDSCAPE, label: TERMS.landscape.label, description: TERMS.landscape.short }, ...areas];
+  }, [world, matrix]);
+  const owner = header === LANDSCAPE ? undefined : headers.find((h) => h.id === header);
+  return (
+    <>
+      <InspectorRow label="Gehört zu">
+        <div className={styles.inline}>
+          {header === LANDSCAPE ? (
+            <span>{TERMS.landscape.label}</span>
+          ) : (
+            <Reference area="welt" label={owner ? identify(owner).name : `Nummer ${id4(header)}`} onOpen={() => goTo({ kind: "header", id: header })} />
+          )}
+          <Button kind="quiet" size="s" aria-label="Gehört zu ändern…" data-cell-owner="" onClick={() => setPicking(true)}>
+            Ändern…
+          </Button>
+        </div>
+      </InspectorRow>
+      <Picker
+        open={picking}
+        onOpenChange={setPicking}
+        title="Gehört zu"
+        items={items}
+        placeholder="Gebiet suchen …"
+        emptyText="Kein Gebiet passt zur Suche."
+        onPick={(item) => Number(item.id) !== header && onCommit(Number(item.id))}
+      />
+    </>
+  );
+}
+
 /** Editor of one matrix cell: map, header and altitude, each one undoable change. */
 export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matrix: number; x: number; y: number; context: MatrixCellContext; depth: Depth }) {
   const { dirty, headers, identify, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
   const matrix = useMatrix(index, revision, onError);
+  const { world } = useWorld();
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
   const cell = `Zelle ${x}, ${y}`;
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
   const tinker = depth === "tuefteln";
-  const matrixName = `${tinker ? TERMS.matrix.label : termFor("matrix", depth)} ${id4(index)}`;
+  // Bauen names the map by its world map, area or room, never by its number (a cell outside or a matrix still loading).
+  const matrixName = tinker ? `${TERMS.matrix.label} ${id4(index)}` : matrixWords(world, index, headers, identify);
   const headerWord = termFor("header", depth, "area");
   const unsaved = isDirty(dirty, "Matrix", index);
   if (!matrix) {
@@ -92,7 +179,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       <div className={styles.panel}>
         <InspectorHead kind="map" title={cell} ident={matrixName} unsaved={unsaved} depth={depth} />
         <p className={styles.note}>
-          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Weltkarte"} ({matrix.width} × {matrix.height}).
+          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Karten"} ({matrix.width} × {matrix.height}).
         </p>
       </div>
     );
@@ -172,7 +259,9 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
             <ExportPartDialog map={map} open={partsDialog === "export"} onClose={() => setPartsDialog(null)} />
           </>
         )}
-        {header !== null ? (
+        {header !== null && !tinker ? (
+          <OwnerField matrix={index} header={header} headers={headers} identify={identify} goTo={goTo} onCommit={commitHeader} />
+        ) : header !== null ? (
           <InspectorRow label={headerWord} hint={`0 bis ${headerMax}`}>
             <div className={styles.inline}>
               <div className={styles.grow}>
@@ -182,15 +271,13 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
             </div>
           </InspectorRow>
         ) : (
-          <p className={styles.note}>{tinker ? "Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Abschnitt für Gebiete."}</p>
+          // A room's cells have no area section: Bauen just leaves the field out, Tüfteln says where to switch the section on.
+          tinker && <p className={styles.note}>Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).</p>
         )}
-        {altitude !== null ? (
-          <InspectorRow label="Höhe" hint="0 bis 255">
-            <NumberField label="Höhe" value={altitude} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
-          </InspectorRow>
-        ) : (
-          <p className={styles.note}>{tinker ? "Das Raster hat keinen Höhenabschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Höhenabschnitt."}</p>
-        )}
+        {/* Without an altitude section the height reads 0; the first height written makes the kernel add the section. */}
+        <InspectorRow label="Höhe" hint="0 bis 255">
+          <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
+        </InspectorRow>
         {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
         {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <p className={styles.note}>

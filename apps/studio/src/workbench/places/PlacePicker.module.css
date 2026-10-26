@@ -1,0 +1,42 @@
+/* The picker „Ort“ and the dialogs „Neuer Ort“ and „Ort umbenennen“ (they share the form's layout). */
+
+/* The place's colour, as the world tree marks it; the colour itself comes from `placeColor`. */
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* The message and the archive behind the name (Tüfteln), grey after it. */
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+/* „Neuer Ort…“ below the list, with the reason when it is locked. */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.legend {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}

@@ -50,6 +50,8 @@ export interface SceneCallbacks {
   onSelectBuilding: (ref: BuildingRef | null) => void;
   onBuildingMoved: (map: number) => void;
   onSelectEvent: (ref: EventRef | null) => void;
+  /** A click with the select tool on a loaded map, neither on a marker nor on a building, chose its matrix cell. */
+  onSelectCell: (cell: { col: number; row: number }) => void;
   onEventMoved: (eventFile: number) => void;
   onEventsLocked: (lock: EventLock | null) => void;
 }

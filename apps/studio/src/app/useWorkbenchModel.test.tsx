@@ -40,6 +40,7 @@ vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePat
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const noop = () => {};
+const asyncNoop = async () => {};
 const bus = createEditBus();
 const info: ProjectInfo = { root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 };
 /** Counts how often the real list rows / the real matrix panel read their data: both read it on every render of theirs. */
@@ -129,6 +130,7 @@ function Model({ pin = pinned, hover: _hover, message, showEvents = true, depth 
     sceneHistory,
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
+    onCreated: asyncNoop,
     onMapImported: noop,
     text,
     scripts: scriptsApi,

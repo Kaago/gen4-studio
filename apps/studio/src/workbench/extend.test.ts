@@ -25,6 +25,13 @@ describe("extendDefaults", () => {
   it("reports_the_header_of_the_neighbour", () => {
     expect(extendDefaults(matrix({ headers: [415, 416] }), 2, 0).neighbour?.header).toBe(416);
   });
+
+  it("proposes_the_preferred_cell_first_and_falls_back_when_it_is_empty", () => {
+    // Left of (1, 1) lies landscape (0, 1); the area's cell above is preferred.
+    const m = matrix({ width: 2, height: 2, maps: [5, 6, 7, null], headers: [0, 416, 0, 0] });
+    expect(extendDefaults(m, 1, 1, { x: 1, y: 0 }).neighbour).toEqual({ x: 1, y: 0, map: 6, header: 416 });
+    expect(extendDefaults(m, 1, 1, { x: 1, y: 1 }).neighbour).toEqual({ x: 0, y: 1, map: 7, header: 0 });
+  });
 });
 
 describe("extendSpec", () => {

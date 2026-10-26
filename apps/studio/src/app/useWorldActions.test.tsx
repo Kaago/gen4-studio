@@ -62,6 +62,34 @@ describe("useWorldActions.lastMatrixTile", () => {
   });
 });
 
+describe("useWorldActions.onSelectCell", () => {
+  it("pins_the_cell_the_scene_reports", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const setPinned = vi.fn();
+    let actions: WorldActions | undefined;
+    function Probe() {
+      const matrix = matrixOf(4);
+      actions = useWorldActions({
+        bus: createEditBus(),
+        pins: { pinned: { kind: "none" }, setPinned, setHover: vi.fn() } as never,
+        matrix,
+        matrixRef: { current: matrix },
+        headersRef: { current: [] },
+        selectedRef: { current: null },
+        setMessage: vi.fn(),
+        fail: vi.fn(),
+        refreshDirty: async () => {},
+      });
+      return null;
+    }
+    act(() => root.render(<Probe />));
+    act(() => actions?.onSelectCell(4, { x: 1, y: 2 }));
+    expect(setPinned).toHaveBeenCalledWith({ kind: "matrixCell", matrix: 4, x: 1, y: 2 });
+    act(() => root.unmount());
+  });
+});
+
 describe("useWorldActions.onAddEvent", () => {
   let container: HTMLElement;
   let root: Root;

@@ -15,6 +15,10 @@ import {
   addEvent,
   addScript,
   adoptScripts,
+  assignPlace,
+  createArea,
+  createPlace,
+  createRoom,
   createTextArchive,
   deleteBuilding,
   editTextArchive,
@@ -26,6 +30,8 @@ import {
   memberCounts,
   headerFields,
   isCmdError,
+  placeSlots,
+  renamePlace,
   lspSend,
   lspStart,
   lspStop,
@@ -36,13 +42,18 @@ import {
   scriptsStatus,
   searchText,
   setHeader,
+  splitRoom,
   updateBuilding,
   validateText,
   worldMetaGet,
   worldMetaSet,
+  type AreaReport,
+  type AreaSpec,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
+  type RoomSpec,
+  type SplitReport,
 } from "./api";
 
 describe("isCmdError", () => {
@@ -333,5 +344,66 @@ describe("script commands", () => {
     await expect(worldMetaGet()).resolves.toEqual({ meta, broken: null });
     await worldMetaSet(meta);
     expect(invoke.mock.calls).toEqual([["world_meta_get"], ["world_meta_set", { meta }]]);
+  });
+
+  it("the_place_wrappers_send_the_keys_of_the_place_commands", async () => {
+    invoke.mockReset();
+    const slots = { bank: 433, count: 3, free: 253, reusable: [] };
+    invoke.mockResolvedValueOnce(slots);
+    await expect(placeSlots()).resolves.toEqual(slots);
+    invoke.mockResolvedValueOnce({ index: 3, reused: null });
+    await expect(createPlace("Neuheim", [0, 1])).resolves.toEqual({ index: 3, reused: null });
+    await renamePlace(3, "Zweiblattdorf");
+    await assignPlace([2], 3);
+    expect(invoke.mock.calls).toEqual([
+      ["place_slots"],
+      ["create_place", { name: "Neuheim", headers: [0, 1] }],
+      ["rename_place", { index: 3, name: "Zweiblattdorf" }],
+      ["assign_place", { headers: [2], index: 3 }],
+    ]);
+  });
+
+  it("the_wizard_wrappers_send_the_patch_flag_the_place_and_a_missing_internal_name", async () => {
+    invoke.mockReset();
+    const header = { id: 2, area_data_id: null, event_file: "New" as const, new_header: { template: 1, internal_name: null }, allow_patch: true, place: { New: "Neuheim" } };
+    const area: AreaSpec = { name: "Neuheim", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }], with_headers: true, header };
+    const room: RoomSpec = { name: "Haus", source_map: 0, clear_buildings: true, header: { ...header, id: 3, place: { Existing: 3 } }, entrance: null };
+    const report: AreaReport = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, snapshot: null, place: 3, replaced: 0 };
+    invoke.mockResolvedValueOnce(report);
+    await expect(createArea(area)).resolves.toEqual(report);
+    await createRoom(room);
+    expect(invoke.mock.calls).toEqual([
+      ["create_area", { spec: area }],
+      ["create_room", { spec: room }],
+    ]);
+  });
+
+  it("create_area_sends_the_target_on_a_world_map_and_answers_the_replaced_cells", async () => {
+    invoke.mockReset();
+    const area: AreaSpec = {
+      name: "Neuheim",
+      width: 2,
+      height: 1,
+      cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }, { x: 1, y: 0, source_map: 1, clear_buildings: true }],
+      with_headers: false,
+      header: null,
+      target: { matrix: 0, x: 4, y: 2 },
+    };
+    const report: AreaReport = { matrix: 0, maps: [[0, 0, 3], [1, 0, 4]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 1 };
+    invoke.mockResolvedValueOnce(report);
+    await expect(createArea(area)).resolves.toEqual(report);
+    expect(invoke.mock.calls).toEqual([["create_area", { spec: area }]]);
+  });
+
+  it("split_room_sends_the_header_and_the_name_or_null", async () => {
+    invoke.mockReset();
+    const report: SplitReport = { matrix: 4, maps: [9, 10] };
+    invoke.mockResolvedValueOnce(report);
+    await expect(splitRoom(7, "Haus")).resolves.toEqual(report);
+    await splitRoom(8);
+    expect(invoke.mock.calls).toEqual([
+      ["split_room", { header: 7, name: "Haus" }],
+      ["split_room", { header: 8, name: null }],
+    ]);
   });
 });

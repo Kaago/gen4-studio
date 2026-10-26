@@ -1,4 +1,5 @@
 import type { EventKind, HeaderSummary, SpeciesTab } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import type { InspectorModel } from "./Inspector";
 import type { DeckArea, PanelId } from "./layout";
 import type { SceneGroup } from "./sceneModel";
@@ -6,10 +7,12 @@ import type { SceneGroup } from "./sceneModel";
 /**
  * Where a link leads. `header` on a matrix cell, building or event is a header known to show it
  * (the cell's own header, say): navigation selects it first when the target is not shown yet.
+ * `show` on a matrix cell says what the link opens: the cell's header (`"header"`, also when omitted: a known header is selected instead of
+ * the cell), or the map in the cell (`"map"`: its known header is selected when it is not yet, and the cell is pinned).
  */
 export type NavTarget =
   | { kind: "header"; id: number }
-  | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null }
+  | { kind: "matrixCell"; matrix: number; x: number; y: number; header?: number | null; show?: "header" | "map" }
   | { kind: "area"; id: number }
   | { kind: "building"; map: number; index: number; header?: number | null }
   | { kind: "event"; eventFile: number; eventKind: EventKind; index: number; header?: number | null }
@@ -59,6 +62,8 @@ export interface NavState {
   eventFile?: number | null;
   /** Every known header. When omitted, a header id is taken to exist. */
   headers?: readonly HeaderSummary[];
+  /** The depth of the shell: a matrix cell shows in the Raster only in Tüfteln (Bauen has no such tab). Omitted: Tüfteln. */
+  depth?: Depth;
 }
 
 export interface NavResult {
@@ -82,7 +87,7 @@ export interface NavResult {
 /**
  * The selection a link leads to, as a pure function (App applies it: selecting a header loads its
  * matrix, then the inspector is pinned and the panel focused). A header is only selected when the
- * target is a header, a matrix cell with a header, or a building or event that the shown scene
+ * target is a header, a matrix cell with a header (for `show: "map"` with the cell pinned), or a building or event that the shown scene
  * does not hold and a known header shows. A building or event the scene holds is just pinned.
  * Without a known header it is pinned alone: the editors read the backend, not the scene.
  * A text archive leads to the area Texte, a species or a move to Pokémon, an item to Gegenstände (none of them touches the selected
@@ -131,9 +136,14 @@ function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchiv
     }
     case "header":
       return known(target.id) ? toHeader(target.id) : { selectedHeader: state.selectedHeader, pinned: null, panel: null };
-    case "matrixCell":
-      if (known(target.header)) return toHeader(target.header);
-      return { selectedHeader: state.selectedHeader, pinned: { kind: "matrixCell", matrix: target.matrix, x: target.x, y: target.y }, panel: "matrix" };
+    case "matrixCell": {
+      if (target.show !== "map" && known(target.header)) return toHeader(target.header);
+      // Bauen has no Raster, and a link to the map (the world map's) stays on the view: the tabs stay as they are and the inspector shows
+      // the cell's map.
+      const panel = target.show === "map" || state.depth === "bauen" ? null : "matrix";
+      const header = target.show === "map" ? switchTo(target.header) : null;
+      return { selectedHeader: header ?? state.selectedHeader, pinned: { kind: "matrixCell", matrix: target.matrix, x: target.x, y: target.y }, panel };
+    }
     case "area":
       return { selectedHeader: state.selectedHeader, pinned: { kind: "area", id: target.id }, panel: "inspector" };
     case "building": {

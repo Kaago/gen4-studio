@@ -1,6 +1,6 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
 // of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows, the selection of each data
-// part, the anchor of the toolbar in the 3D view, how the world tree and the header list are sorted, and how the list „Welt“ splits
+// part, the anchor of the toolbar in the 3D view, whether the 3D view looks straight down, how the world tree and the header list are sorted, and how the list „Welt“ splits
 // between the places and the scene. Plain module (no React); `ShellContext` holds the live copy. A state written
 // before a field existed reads it as its default.
 
@@ -74,6 +74,8 @@ export interface ShellState {
   selected: DataSelection;
   /** The anchor the toolbar was put at; a low view may show it elsewhere (`shownAnchor`), this stays. */
   toolbar: ToolbarAnchor;
+  /** The 3D view looks straight down (orthographic) instead of slanted. */
+  topDown: boolean;
   /** The sort of the world tree and of the header list. */
   worldSort: WorldSort;
   /** The share of the list „Welt“ the places take (0.2 to 0.8); the scene has the rest. */
@@ -149,6 +151,7 @@ export function readShellState(): ShellState {
     sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
     selected: readSelection(s.selected),
     toolbar: TOOLBAR_ANCHORS.find((a) => a === s.toolbar) ?? "left",
+    topDown: s.topDown === true,
     worldSort: readWorldSort(s.worldSort),
     worldListSplit: clampWorldSplit(s.worldListSplit),
     placesFolded: s.placesFolded === true,

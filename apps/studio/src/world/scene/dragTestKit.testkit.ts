@@ -107,6 +107,7 @@ export function fakeRefs(overrides: Partial<SceneCallbacks> = {}) {
     onSelectBuilding: vi.fn(),
     onBuildingMoved: vi.fn(),
     onSelectEvent: vi.fn(),
+    onSelectCell: vi.fn(),
     onEventMoved: vi.fn(),
     onEventsLocked: vi.fn(),
     ...overrides,

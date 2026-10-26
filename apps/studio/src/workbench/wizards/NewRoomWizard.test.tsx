@@ -3,13 +3,15 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoom, getEvents, getMap, getMatrix, headerPatchStatus, tileBehaviors } from "../../api";
+import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, tileBehaviors } from "../../api";
 import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
+import { visibleWords } from "../../ui/visibleText";
 import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []) }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -19,15 +21,15 @@ vi.mock("../../world/thumbnailStore", () => ({
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-const header = (id: number, internal: string, location: string, matrix: number, area: number, event: number): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: location, matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, internal: string, location: string, matrix: number, area: number, event: number, place = 0): HeaderSummary => ({ id, internal_name: internal, location_index: place, kanto: false, location_name: location, matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 // 0: the village (outside), 2: the template room, 3: the header the new room is given to, 4: another room,
 // 5: a second outside header, 6: a room that shares the matrix of header 2 (its first door lies beyond the first map).
 const headers = [
-  header(0, "T01", "Zweiblattdorf", 0, 1, 5),
-  header(2, "T01R0201", "Spielerhaus", 2, 4, 8),
+  header(0, "T01", "Zweiblattdorf", 0, 1, 5, 1),
+  header(2, "T01R0201", "Spielerhaus", 2, 4, 8, 3),
   header(3, "NEWROOM", "", 3, 6, 9),
   header(4, "T01R0202", "Nachbarhaus", 4, 4, 10),
-  header(5, "T02", "Blumenau", 5, 1, 11),
+  header(5, "T02", "Blumenau", 5, 1, 11, 2),
   header(6, "T01R0203", "Zwillingshaus", 2, 4, 12),
 ];
 const summary = (index: number, hasHeaders: boolean): MatrixSummary => ({ index, name: `m${index}`, width: hasHeaders ? 2 : 1, height: 1, has_headers: hasHeaders, has_altitudes: false, filled: 1 });
@@ -35,7 +37,7 @@ const matrices = [summary(0, true), summary(2, false), summary(3, false), summar
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
-const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [] };
+const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
   event_file_id: file,
@@ -82,16 +84,20 @@ describe("NewRoomWizard", () => {
     lastTile.mockReset().mockReturnValue({ x: 12, z: 7 });
     onHeaderPatch.mockReset().mockResolvedValue(undefined);
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
+    vi.mocked(placeSlots).mockReset().mockResolvedValue({ bank: 433, count: 4, free: 252, reusable: [] });
+    vi.mocked(getTextArchive)
+      .mockReset()
+      .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Blumenau", "Spielerhaus"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
 
-  async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }) {
+  async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }, depth: Depth = "tuefteln") {
     await act(async () =>
       root.render(
-        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth={depth} headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
       ),
     );
     await flush();
@@ -464,7 +470,7 @@ describe("NewRoomWizard", () => {
     const unknown = buildPlaces(headers, []);
     await act(async () =>
       root.render(
-        <NewRoomWizard headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
       ),
     );
     await flush();
@@ -521,6 +527,170 @@ describe("NewRoomWizard", () => {
     expect(button("Zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  describe("in Bauen", () => {
+    const consent = () => container.querySelector<HTMLElement>("[data-patch-consent] [role=checkbox]");
+    const placeButton = () => container.querySelector<HTMLButtonElement>("button[data-place-picker]");
+    /** Template room 0002, then the step „Ort“ (the entrance leads out to 0000 Zweiblattdorf). */
+    async function toPlace(patch: Partial<HeaderPatchDto> = {}, depth: Depth = "bauen") {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState(patch));
+      await show({ outsideHeader: 0 }, { loaded: true, failed: false }, depth);
+      await click(templateRow(2));
+      await flush();
+      await next();
+      await flush();
+    }
+    async function toSummary(patch: Partial<HeaderPatchDto> = {}) {
+      await toPlace(patch);
+      await next();
+      await next();
+    }
+
+    it("shows_the_step_place_in_bauen_and_header_in_tuefteln", async () => {
+      await toPlace();
+      expect(current()).toBe("2. Ort");
+      // The room takes the place of the area at its entrance.
+      expect(placeButton()?.textContent).toBe("Zweiblattdorf");
+      expect(container.textContent).toContain("Aussehen wie Spielerhaus");
+      expect(button("Weiter")?.disabled).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(container);
+      await toPlace({}, "tuefteln");
+      expect(current()).toBe("2. Header");
+      expect(placeButton()).toBeNull();
+    });
+
+    it("cannot_create_without_the_consent_when_the_patch_is_missing", async () => {
+      await toSummary({ applied: false });
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.querySelector("[data-patch-consent]")?.textContent).toContain("Nicht rückgängig");
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      expect(button("Anlegen")?.disabled).toBe(false);
+    });
+
+    it("sends_allow_patch_a_new_place_and_no_internal_name", async () => {
+      await toPlace({ applied: false });
+      await click(button("Neuer Ort"));
+      expect(field("Name des neuen Orts").value).toBe("Neuer Raum");
+      await next();
+      await next();
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createRoom).mock.calls[0][0].header).toEqual({
+        id: 6,
+        area_data_id: null,
+        event_file: "New",
+        new_header: { template: 2, internal_name: null },
+        place: { New: "Neuer Raum" },
+        allow_patch: true,
+      });
+    });
+
+    it("calls_on_header_patch_after_a_patching_create", async () => {
+      vi.mocked(createRoom).mockResolvedValue({ ...report, patched: true });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(vi.mocked(createRoom).mock.calls[0][0].header).toMatchObject({ place: { Existing: 1 } });
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+    });
+
+    it("reads_the_patch_again_after_a_late_failure_of_a_patching_create", async () => {
+      vi.mocked(createRoom).mockRejectedValue({ code: "partial", message: "the Dynamic Headers patch was applied and stays, header 0006 and matrix 0131 were created; warp edit failed: boom", asset: null });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Angelegt: der Raum, die Anordnung. Danach fehlgeschlagen: Warp setzen (boom).");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // Without the patch in the call there is nothing to read again.
+      onHeaderPatch.mockClear();
+      await toSummary({ applied: true });
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("names_the_snapshot_and_hands_a_failed_read_to_on_error", async () => {
+      const failure = { code: "error", message: "read failed", asset: null };
+      onHeaderPatch.mockRejectedValue(failure);
+      vi.mocked(createRoom).mockResolvedValue({ ...report, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
+      expect(container.textContent).toContain("Die alten Dateien sind unter .g4/backup gesichert.");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      expect(container.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+    });
+
+    it("takes_the_templates_place_when_the_entrance_cannot_be_made", async () => {
+      // The village's event file is locked: no entrance, so the room does not take the village's place.
+      lockedFiles[5] = "DSPRE";
+      await toPlace();
+      expect(placeButton()?.textContent).toBe("Spielerhaus");
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      const FORBIDDEN = /Raster|Matrix|Header/;
+      const words = () => visibleWords(document.body);
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      await show({ outsideHeader: 0 }, { loaded: true, failed: false }, "bauen");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(templateRow(2));
+      await flush();
+      expect(container.textContent).toContain("„Spielerhaus“");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      await flush();
+      expect(current()).toBe("2. Ort");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      expect(current()).toBe("3. Eingang");
+      expect(container.textContent).toContain("Gebiet am Eingang");
+      expect(words()).not.toMatch(FORBIDDEN);
+      // A door in a cell of another area is refused in the same words.
+      await type(field("Außen: Kachel x"), "40");
+      expect(container.textContent).toContain("eines anderen Gebiets");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await type(field("Außen: Kachel x"), "12");
+      await openPicker("Gebiet am Eingang wählen…");
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Gebiet am Eingang wählen");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(option("Zweiblattdorf"));
+      await flush();
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).toContain("Legt den Raum „Neuer Raum“ mit einer Kopie der Karte 0321 an, mit Gebäuden.");
+      expect(container.textContent).toContain("Verbindet Zweiblattdorf (Kachel x 12, z 7) mit dem neuen Raum.");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt: Karte 0571.");
+      expect(words()).not.toMatch(FORBIDDEN);
+    });
+
+    it("says_no_raster_matrix_or_header_without_an_entrance_in_building", async () => {
+      // No pointer over the scene: the door outside is asked for, then the room is connected later.
+      lastTile.mockReturnValue(null);
+      await toPlace();
+      await next();
+      expect(container.textContent).toContain("Noch keine Kachel");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      await click(checkbox("später verbinden"));
+      await next();
+      expect(container.textContent).toContain("Legt keinen Eingang an");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+    });
   });
 
   describe("a new header", () => {

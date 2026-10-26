@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extendArea } from "../api";
 import type { MatrixDto } from "../api";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
+import { visibleWords } from "../ui/visibleText";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), extendArea: vi.fn() }));
@@ -50,6 +51,58 @@ describe("ExtendAreaDialog", () => {
     await act(async () => button("Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith({ matrix: 7, x: 2, y: 0, source_map: 11, clear_buildings: false, header_cell: 416 });
     expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
+  });
+
+  it("shows_the_not_undoable_badge", () => {
+    show();
+    expect(dialog().textContent).toContain("Nicht rückgängig");
+  });
+
+  it("proposes_the_given_neighbour_with_its_header", () => {
+    const m: MatrixDto = { index: 7, name: "m", width: 2, height: 2, maps: [10, 11, 12, null], headers: [0, 416, 0, 0] };
+    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} prefer={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(dialog().textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
+    expect(field("Header-Zelle")?.value).toBe("416");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
+    act(() => root.render(<ExtendAreaDialog matrix={matrix} x={2} y={0} areaName="Zweiblattdorf" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
+    expect(dialog().textContent).toContain("Die neue Karte gehört zu „Zweiblattdorf“.");
+    expect(dialog().textContent).toContain("Die Karte wird größer: 3 × 1.");
+    expect(field("Header-Zelle")).toBeNull();
+    // The header of the neighbour still goes to the backend.
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 11, header_cell: 416 }));
+    // Without a neighbour the number is asked for, in the words of Bauen; a cell inside keeps the size.
+    act(() => root.render(<ExtendAreaDialog matrix={{ ...matrix, maps: [null, null] }} x={1} y={0} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
+    expect(field("Nummer des Gebiets")).not.toBeNull();
+    expect(dialog().textContent).toContain("Die Größe bleibt 2 × 1.");
+  });
+
+  it("proposes_the_edited_area_for_a_landscape_neighbour_in_building", async () => {
+    // A room plan's "+" beside only landscape cells (header 0): the new map goes to the room being edited, as the sentence says.
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
+    const landscape: MatrixDto = { ...matrix, headers: [0, 0] };
+    act(() =>
+      root.render(
+        <ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" areaHeader={10} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />,
+      ),
+    );
+    expect(dialog().textContent).toContain("Die neue Karte gehört zu „Großmoor“.");
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 11, header_cell: 10 }));
+    // Without the edited area's header the landscape decides nothing: Bauen asks for the number instead of naming a place.
+    act(() => root.render(null));
+    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(dialog().textContent).not.toContain("gehört zu");
+    expect(field("Nummer des Gebiets")?.value).toBe("0");
+    // Tüfteln keeps the neighbour's header as the number to send.
+    act(() => root.render(null));
+    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaHeader={10} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(field("Header-Zelle")?.value).toBe("0");
   });
 
   it("copies_the_chosen_map_without_buildings", async () => {

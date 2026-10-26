@@ -132,6 +132,22 @@ describe("shell state", () => {
     expect(readShellState().toolbar).toBe("left");
   });
 
+  it("reads_top_down_as_false_when_missing", () => {
+    expect(readShellState().topDown).toBe(false);
+    // A state written before the field existed, or with a value that is no boolean.
+    localStorage.setItem(KEY, JSON.stringify({ area: "welt" }));
+    expect(readShellState().topDown).toBe(false);
+    localStorage.setItem(KEY, JSON.stringify({ topDown: "ja" }));
+    expect(readShellState().topDown).toBe(false);
+  });
+
+  it("remembers_top_down", () => {
+    writeShellState({ ...readShellState(), topDown: true });
+    expect(readShellState().topDown).toBe(true);
+    writeShellState({ ...readShellState(), topDown: false });
+    expect(readShellState().topDown).toBe(false);
+  });
+
   it("drops_recent_entries_that_are_not_projects", () => {
     localStorage.setItem(KEY, JSON.stringify({ recent: [project(1), { path: 3 }, null, "x", { path: "/q", name: "q", game: "g" }, project(2)] }));
     expect(readShellState().recent.map((p) => p.path)).toEqual(["/p/1", "/p/2"]);

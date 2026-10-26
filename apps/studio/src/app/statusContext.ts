@@ -17,16 +17,20 @@ function markerSummary(hover: Extract<SceneHover, { kind: "eventHover" }>, depth
 }
 
 /**
- * The middle of the status line: the tile or marker under the pointer, else where the user is ("Zweiblattdorf, Zelle 3, 27";
- * Tüfteln adds the matrix: "Zweiblattdorf, Raster 0, Zelle 3, 27"). Empty when nothing is hovered and no header is selected.
+ * The middle of the status line: the tile or marker under the pointer, else where the user is ("Zweiblattdorf, Karte 0412 (3, 27)", an empty
+ * cell "Zweiblattdorf, leere Zelle (3, 27)"; Tüfteln adds the matrix: "Zweiblattdorf, Raster 0, Zelle 3, 27"). Empty when nothing is hovered and no header is selected.
  */
-export function statusContext(pinned: InspectorModel, hover: SceneHover | null, header: HeaderSummary | undefined, depth: Depth): string {
+export function statusContext(pinned: InspectorModel, hover: SceneHover | null, header: HeaderSummary | undefined, depth: Depth, cellMap?: number | null): string {
   if (hover?.kind === "tile") return tileSummary(hover.map, hover.x, hover.y, hover.info, depth);
   if (hover?.kind === "eventHover") return markerSummary(hover, depth);
   if (!header) return "";
   const parts = [header.location_name || header.internal_name];
   if (depth === "tuefteln") parts.push(`Raster ${header.matrix_id}`);
-  if (pinned.kind === "matrixCell") parts.push(`Zelle ${pinned.x}, ${pinned.y}`);
+  if (pinned.kind === "matrixCell") {
+    const at = `${pinned.x}, ${pinned.y}`;
+    // Bauen names the cell by its map; `cellMap` is null for an empty cell and missing when the matrix is not at hand.
+    parts.push(depth === "tuefteln" ? `Zelle ${at}` : cellMap === null ? `leere Zelle (${at})` : cellMap === undefined ? `Karte (${at})` : `Karte ${id4(cellMap)} (${at})`);
+  }
   return parts.join(", ");
 }
 

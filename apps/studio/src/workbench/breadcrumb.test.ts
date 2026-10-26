@@ -21,7 +21,7 @@ const matrix = (index: number, has_headers: boolean): MatrixSummary => ({ index,
 
 const headers = [header(0, "Zweiblattdorf", 0), header(414, "Zweiblattdorf", 7), header(9, "", 9)];
 const places = buildPlaces(headers, [matrix(0, true), matrix(7, false), matrix(9, false)]);
-const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; goTo?: () => void; events?: EventsDto | null; depth?: Depth } = {}) =>
+const pin = (pinned: InspectorModel, selected: number | null = 414, extra: { matrixName?: string; cellMap?: number | null; goTo?: () => void; events?: EventsDto | null; depth?: Depth } = {}) =>
   crumbsFor({ places, headers, selected, pinned, depth: "bauen", ...extra });
 const eventsOf = (file: number, over: Partial<EventsDto>): EventsDto => ({ event_file_id: file, locked: null, bg: [], objects: [], warps: [], coords: [], ...over });
 const object = { index: 2, local_id: 7 } as ObjectDto;
@@ -118,8 +118,22 @@ describe("crumbsFor", () => {
   it("writes_a_building_a_cell_and_area_data_as_the_last_crumb", () => {
     const last = (crumbs: Crumb[]) => crumbs[crumbs.length - 1];
     expect(last(pin({ kind: "building", map: 3, index: 3 }))).toMatchObject({ label: "Gebäude 4" });
-    expect(last(pin({ kind: "matrixCell", matrix: 0, x: 7, y: 25 }, 0, { matrixName: "Hauptraster" }))).toMatchObject({ label: "Zelle 7, 25", tech: "Hauptraster" });
+    expect(last(pin({ kind: "matrixCell", matrix: 0, x: 7, y: 25 }, 0, { matrixName: "Hauptraster", depth: "tuefteln" }))).toMatchObject({ label: "Zelle 7, 25", tech: "Hauptraster" });
     expect(last(pin({ kind: "area", id: 12 }))).toMatchObject({ label: "Area-Data 0012" });
+  });
+
+  it("names_a_pinned_cell_by_its_map_in_bauen", () => {
+    const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
+    const last = (cellMap?: number | null) => pin(cell, 0, { cellMap, matrixName: "Hauptraster" })[2];
+    expect(last(412)).toMatchObject({ label: "Karte 0412", tech: "Zelle 3, 27" });
+    expect(last(null)).toMatchObject({ label: "Leere Zelle", tech: "Zelle 3, 27" });
+    // The map is not known (the matrix is not the shown one): the cell alone.
+    expect(last()).toMatchObject({ label: "Karte (3, 27)", tech: "Zelle 3, 27" });
+  });
+
+  it("keeps_the_cell_in_tuefteln", () => {
+    const cell = { kind: "matrixCell", matrix: 0, x: 3, y: 27 } as const;
+    expect(pin(cell, 0, { cellMap: 412, matrixName: "Hauptraster", depth: "tuefteln" })[2]).toMatchObject({ label: "Zelle 3, 27", tech: "Hauptraster" });
   });
 
   it("never_has_more_than_three_crumbs", () => {

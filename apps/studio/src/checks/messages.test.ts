@@ -8,7 +8,7 @@ const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.
 describe("check messages", () => {
   // The Rust test `commands::checks::messages_ts` holds this list against the kernel's catalogue (codes, order, group, severity).
   it("has_a_title_and_a_sentence_with_a_way_out_for_every_code", () => {
-    expect(CHECK_CODES.length).toBe(39);
+    expect(CHECK_CODES.length).toBe(41);
     const args = ["0", "1", "2", "3", "4", "5"];
     for (const code of CHECK_CODES) {
       const m = CHECK_MESSAGES[code]!;
@@ -66,6 +66,17 @@ describe("check messages", () => {
     expect(skippedText({ code: "script.message-missing", why: "28 script files that no header uses (common scripts) are not checked: 0101" }, "tuefteln")).toBe(
       "Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.",
     );
+  });
+
+  it("names_the_place_name_and_the_place_index_that_go_wrong", () => {
+    const long = finding("place.name-too-long", "warning", { subject: { kind: "textArchive", index: 433 }, args: ["17", "Siebzehn Zeichen!", "17"] });
+    expect(checkTitle("place.name-too-long", "tuefteln")).toBe("Ortsname zu lang");
+    expect(findingText(long, "tuefteln")).toBe("Der Ortsname „Siebzehn Zeichen!“ ist 17 Zeichen lang; das Spiel zeigt höchstens 16. Kürze ihn im Inspector eines Gebiets (Ort umbenennen).");
+    expect(findingText(long, "bauen")).toBe(findingText(long, "tuefteln"));
+    const past = finding("place.index-out-of-bank", "error", { args: ["12", "140", "125"] });
+    expect(checkTitle("place.index-out-of-bank", "tuefteln")).toBe("Ort fehlt in der Ortsnamen-Bank");
+    expect(findingText(past, "tuefteln")).toBe("Header 0012 zeigt auf Ortsname 140, die Bank hat nur 125 Namen. Wähle im Inspector einen vorhandenen Ort.");
+    expect(findingText(past, "bauen")).toBe("Das Gebiet 0012 zeigt auf einen Ort, den es nicht gibt. Wähle im Inspector einen vorhandenen Ort.");
   });
 
   it("names_the_asset_that_cannot_be_read", () => {

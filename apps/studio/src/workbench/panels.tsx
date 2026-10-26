@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { DataRowDto, ProjectInfo } from "../api";
+import type { EditBus } from "../bus/editBus";
 import { headerMarks } from "../checks/FindingMark";
 import { useStableCallback } from "../app/useStable";
 import { useBusEvent, useBusRevision } from "../bus/useBusEvent";
@@ -25,6 +26,7 @@ import { Legend } from "./Legend";
 import { MatrixPanel } from "./MatrixPanel";
 import type { MatrixPanelContext } from "./MatrixPanel";
 import { SceneOverlays } from "./SceneOverlays";
+import { useSceneScope } from "./sceneScope";
 import { ProblemsPanel } from "./problems/ProblemsPanel";
 import type { ProblemsPanelContext } from "./problems/ProblemsPanel";
 import { isFinding } from "./problems/problems";
@@ -47,11 +49,28 @@ import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
+import { NewPlaceDialog } from "./places/NewPlaceDialog";
+import { DP_PLACES } from "./places/placeChoices";
 
 /** The script panel pulls in CodeMirror and the language client: its chunk loads on its own, not with the app. */
 const ScriptPanel = lazy(() => import("./script/ScriptPanel"));
 
 /** The dockview panels below. Each reads only the contexts it renders (see `WorkbenchLive`). */
+
+/**
+ * After a place command (assign, create, rename): the header editor reads its header again and the list, the scene, the world tree
+ * and the dirty count follow, as after a header edit; a changed location bank (`bank`) is read again by the text panel.
+ */
+export function usePlaceChanged(bus: EditBus, onHeaderChanged: () => void | Promise<void>) {
+  return useCallback(
+    async (bank: number | null) => {
+      bus.emit({ topic: "headerTable" });
+      if (bank !== null) bus.emit({ topic: "textData", archive: bank });
+      await onHeaderChanged();
+    },
+    [bus, onHeaderChanged],
+  );
+}
 
 /**
  * The list „Welt“: no dock panel but the shell's list column, whether it is folded is the shell's state of the world area. Above, the
@@ -105,6 +124,10 @@ export function ExplorerPane() {
   const onConnectRoom = useCallback(() => {
     if (selected !== null) onOpenWizard({ kind: "room", prefill: { outsideHeader: selected } });
   }, [selected, onOpenWizard]);
+  // „Neuer Ort…“ of „+“: the dialog for the shown area or room.
+  const [newPlace, setNewPlace] = useState(false);
+  const onNewPlace = useCallback(() => setNewPlace(true), []);
+  const onPlaceChanged = usePlaceChanged(d.bus, d.onHeaderChanged);
   // A link to the doors (the header editor's line) opens a folded list and focuses the group.
   const [focusGroup, setFocusGroup] = useState<{ group: SceneGroup; token: number } | undefined>(undefined);
   useBusEvent(d.bus, "sceneGroup", (event) => {
@@ -114,55 +137,62 @@ export function ExplorerPane() {
   });
 
   return (
-    <WorldList
-      info={info}
-      headers={headers}
-      world={world}
-      identify={identify}
-      matricesLoaded={d.matricesLoaded}
-      matricesFailed={d.matricesFailed}
-      selected={selected}
-      shownMatrix={d.matrix?.index ?? null}
-      revealToken={revealToken}
-      depth={d.depth}
-      onSelect={d.onSelect}
-      onOpenWizard={onOpenWizard}
-      scriptsAdopted={d.scripts.status?.adopted === true}
-      onOpenScript={onOpenScript}
-      listOpen={listOpen}
-      onToggleList={onToggleList}
-      marks={marks}
-      sort={state.worldSort}
-      onSort={setWorldSort}
-      onRename={onRename}
-      onOwner={onOwner}
-      scene={{
-        header,
-        headers,
-        matrix: d.matrix,
-        events,
-        buildings: d.buildings,
-        trainers,
-        depth: d.depth,
-        identify,
-        selected: sceneSelected,
-        marks,
-        faultyEvents,
-        locked: events?.locked ?? null,
-        loading,
-        onSelect: onSceneSelect,
-        onFollow,
-        onOpenScript,
-        onTool: d.onTool,
-        toolsBlocked: eventToolsBlocked(d.eventLock, d.eventFileId),
-        onConnectRoom,
-        onBack: d.sceneBack,
-        onForward: d.sceneForward,
-        canBack: d.canBack,
-        canForward: d.canForward,
-        focusGroup,
-      }}
-    />
+    <>
+      <WorldList
+        info={info}
+        headers={headers}
+        world={world}
+        identify={identify}
+        matricesLoaded={d.matricesLoaded}
+        matricesFailed={d.matricesFailed}
+        selected={selected}
+        shownMatrix={d.matrix?.index ?? null}
+        revealToken={revealToken}
+        depth={d.depth}
+        onSelect={d.onSelect}
+        onOpenWizard={onOpenWizard}
+        scriptsAdopted={d.scripts.status?.adopted === true}
+        onOpenScript={onOpenScript}
+        listOpen={listOpen}
+        onToggleList={onToggleList}
+        marks={marks}
+        sort={state.worldSort}
+        onSort={setWorldSort}
+        onRename={onRename}
+        onOwner={onOwner}
+        scene={{
+          header,
+          headers,
+          matrix: d.matrix,
+          events,
+          buildings: d.buildings,
+          trainers,
+          depth: d.depth,
+          identify,
+          selected: sceneSelected,
+          marks,
+          faultyEvents,
+          locked: events?.locked ?? null,
+          loading,
+          onSelect: onSceneSelect,
+          onFollow,
+          onOpenScript,
+          onTool: d.onTool,
+          toolsBlocked: eventToolsBlocked(d.eventLock, d.eventFileId),
+          onConnectRoom,
+          onNewPlace,
+          placesBlocked: info?.family === "Dp" ? DP_PLACES : null,
+          onBack: d.sceneBack,
+          onForward: d.sceneForward,
+          canBack: d.canBack,
+          canForward: d.canForward,
+          focusGroup,
+        }}
+      />
+      {header !== null && (
+        <NewPlaceDialog open={newPlace} header={header} onClose={() => setNewPlace(false)} onCreated={(_, bank) => onPlaceChanged(bank)} onError={d.onError} />
+      )}
+    </>
   );
 }
 
@@ -190,7 +220,9 @@ export function WorldPanel() {
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const faultyEvents = useFaultyEvents(rows);
   // The door under the pointer names where it leads as the world tree does.
-  const { identify } = useWorld();
+  const { identify, world } = useWorld();
+  // The scene is memoised: the shell changing elsewhere renders this panel, not the scene.
+  const topDown = useShell().state.topDown;
   const { headers } = d;
   const destName = useCallback(
     (id: number) => {
@@ -199,7 +231,23 @@ export function WorldPanel() {
     },
     [headers, identify],
   );
-  if (!d.matrix) {
+  // The scene loads the selected header's area and the ring around it, and frames the area.
+  const scope = useSceneScope(d.matrix, headers.find((h) => h.id === d.selected) ?? null, world);
+  // The pinned cell is framed while it belongs to the shown matrix; a click on the ground pins the cell under it.
+  const cellSelection = useMatrixSelection();
+  const shownMatrix = d.matrix?.index ?? null;
+  const selectedCell = useMemo(
+    () => (cellSelection && cellSelection.matrix === shownMatrix ? { x: cellSelection.x, y: cellSelection.y } : null),
+    [cellSelection, shownMatrix],
+  );
+  const { onSelectCell: selectCell } = d;
+  const onSelectCell = useCallback(
+    (cell: { x: number; y: number }) => {
+      if (shownMatrix !== null) selectCell(shownMatrix, cell);
+    },
+    [selectCell, shownMatrix],
+  );
+  if (!scope.matrix) {
     return (
       <div className={styles.empty}>
         <EmptyState
@@ -213,7 +261,9 @@ export function WorldPanel() {
   return (
     <div className={styles.stage}>
       <MatrixScene
-        matrix={d.matrix}
+        matrix={scope.matrix}
+        focus={scope.focus}
+        topDown={topDown}
         areaDataId={d.areaDataId}
         showPermissions={d.showPermissions}
         eventFileId={d.eventFileId}
@@ -235,6 +285,8 @@ export function WorldPanel() {
         onBuildingMoved={d.onBuildingMoved}
         selectedEvent={d.selectedEvent}
         onSelectEvent={d.onSelectEvent}
+        selectedCell={selectedCell}
+        onSelectCell={onSelectCell}
         onEventMoved={d.onEventMoved}
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}
@@ -284,13 +336,35 @@ export function MatrixTab() {
 
 export function WorldMapTab() {
   const d = useWorkbench();
+  const { world, identify } = useWorld();
+  // The pinned cell (the same object while the same cell shows): marked on the world map and in the room plan.
+  const pinnedCell = useMatrixSelection();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
-    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus, depth }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth],
+    () => ({
+      headers,
+      matrices,
+      warpLinks,
+      matricesLoaded,
+      matricesFailed,
+      selected,
+      areaDataId,
+      revision: matrixRevision,
+      goTo,
+      onError,
+      onLoadStatus,
+      depth,
+      world,
+      identify,
+      pinnedCell,
+      counts: memberCounts,
+      onEdited: onMatrixEdited,
+      onCountsChanged,
+    }),
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged],
   );
   return <WorldMapPanel context={context} />;
 }
@@ -336,7 +410,7 @@ export function InspectorPanel() {
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
   // The head names the header as the world tree does: an area, a room or another header, and its name.
-  const { identify } = useWorld();
+  const { identify, world } = useWorld();
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -350,6 +424,7 @@ export function InspectorPanel() {
   const openProject = useRef(d.info);
   openProject.current = d.info;
   const isCurrentProject = useCallback((project: ProjectInfo | null) => openProject.current === project, []);
+  const onPlaceChanged = usePlaceChanged(d.bus, d.onHeaderChanged);
   // The trainer field of an object event: the rows are read when the field needs them (a trainer script, or its picker opens).
   const { dataStore, info } = d;
   const trainers = useTrainerRows(dataStore, info);
@@ -368,6 +443,7 @@ export function InspectorPanel() {
         counts: d.memberCounts,
         revision: headerRevision,
         onChanged: d.onHeaderChanged,
+        onPlaceChanged,
         goTo: d.goTo,
         eventRevision,
         onOpenWizard: d.onOpenWizard,
@@ -378,6 +454,9 @@ export function InspectorPanel() {
         onLevelScriptSaved: d.scripts.onLevelScriptSaved,
         isCurrentProject,
         onCountsChanged: d.onCountsChanged,
+        world,
+        matrices: d.matrices,
+        onRoomSplit: d.onCreated,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}

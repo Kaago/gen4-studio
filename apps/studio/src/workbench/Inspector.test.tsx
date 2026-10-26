@@ -108,6 +108,7 @@ describe("Inspector and the scene's hover", () => {
       counts: {},
       revision: 0,
       onChanged: vi.fn(),
+      onPlaceChanged: vi.fn(),
       goTo: vi.fn(),
       eventRevision: 0,
       onOpenWizard: vi.fn(),
@@ -118,6 +119,9 @@ describe("Inspector and the scene's hover", () => {
       onLevelScriptSaved: vi.fn(),
       isCurrentProject: () => true,
       onCountsChanged: vi.fn(),
+      world: null,
+      matrices: [],
+      onRoomSplit: vi.fn(),
       onError: vi.fn(),
     };
     const areaEditor = { counts: {}, dirty: [], revision: 0, onChanged: vi.fn(), onError: vi.fn() };

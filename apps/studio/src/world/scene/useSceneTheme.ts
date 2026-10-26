@@ -2,10 +2,11 @@ import { useEffect } from "react";
 import { onThemeChange } from "../../ui/tokens/theme";
 import { sceneBackground, selectionColor } from "../colors";
 import { recolorMarkerOutline } from "../markers";
+import { showCellFrame } from "./cellFrame";
 import type { SceneRefs } from "./types";
 
 /**
- * Recolours the background of the scene and the selection outlines when the effective theme switches (also a system change
+ * Recolours the background of the scene and the selection outlines (the cell frame is drawn again) when the effective theme switches (also a system change
  * while the theme is "system"): one `setBackground` and one render per switch. The models and the content are not touched. Declared after
  * `useSceneSetup`, whose effect creates the host this one finds through `refs.handle`.
  */
@@ -20,6 +21,7 @@ export function useSceneTheme(refs: Pick<SceneRefs, "handle">) {
         const outline = selectionColor(theme);
         h.buildings?.recolorOutlines(outline);
         if (h.markers) recolorMarkerOutline(h.markers, outline);
+        if (h.selectedCell) showCellFrame(h, theme);
         h.render();
       }),
     [refs],

@@ -12,6 +12,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::split_room;
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -34,6 +35,7 @@ use commands::{
     agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
 };
 use commands::{apply_empty_region, plan_empty_region};
+use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
@@ -80,6 +82,7 @@ pub fn run() {
             create_area,
             extend_area,
             create_room,
+            split_room,
             header_patch_status,
             apply_header_patch,
             repair_header_patch,
@@ -167,7 +170,11 @@ pub fn run() {
             agent_disconnect,
             agent_set_read_only,
             world_meta_get,
-            world_meta_set
+            world_meta_set,
+            place_slots,
+            create_place,
+            rename_place,
+            assign_place
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

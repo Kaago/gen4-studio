@@ -2,6 +2,7 @@ import type { Box, DockviewApi, DockviewGroupPanel, DockviewWillShowOverlayLocat
 import { AREA_PANELS, arrangementSteps, isSchauPanel, loadArrangement } from "../../workbench/layout";
 import type { Arrangement, ArrangementStep, DeckArea, PanelId } from "../../workbench/layout";
 import { messages } from "./dockMessages";
+import type { Depth } from "./shellState";
 
 /** A floating panel's group: as wide as the inspector beside the view, high enough for its head and a few fields (px). */
 const FLOAT_WIDTH = 340;
@@ -71,7 +72,8 @@ function limit(group: DockviewGroupPanel, step: ArrangementStep) {
  * back when it is restored.
  */
 export function restoreLimits(api: DockviewApi, area: DeckArea, arrangement: Arrangement = loadArrangement(area)): void {
-  for (const step of arrangementSteps(area, arrangement)) {
+  // The steps of every panel: one the dock does not have (the Raster in Bauen) is skipped below.
+  for (const step of arrangementSteps(area, arrangement, "tuefteln")) {
     const group = api.getPanel(step.id)?.group;
     if (step.minimumWidth === undefined || !group || group.panels.length !== 1 || group.api.location.type !== "grid") continue;
     group.api.setConstraints({ minimumWidth: step.minimumWidth, maximumWidth: step.maximumWidth });
@@ -98,17 +100,23 @@ function size(group: DockviewGroupPanel, step: ArrangementStep) {
   if (step.height !== undefined) group.api.setSize({ height: step.height });
 }
 
+/** What every panel of a dock is added with: its component by its id, its title, its content kept alive. */
+function panelOptions(area: DeckArea, id: PanelId) {
+  return {
+    id,
+    component: id,
+    title: AREA_PANELS[area].find((p) => p.id === id)?.title ?? id,
+    // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
+    renderer: "always" as const,
+  };
+}
+
 /** Builds the arrangement into an empty dock: dockview adds each panel where its step says. */
 function build(api: DockviewApi, area: DeckArea, steps: ArrangementStep[]) {
-  const titles = new Map<string, string>(AREA_PANELS[area].map((p) => [p.id, p.title]));
   api.clear();
   for (const step of steps) {
     const panel = api.addPanel({
-      id: step.id,
-      component: step.id,
-      title: titles.get(step.id) ?? step.id,
-      // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
-      renderer: "always",
+      ...panelOptions(area, step.id),
       position: step.position ? { referencePanel: step.position.referencePanel, direction: step.position.direction } : undefined,
       initialWidth: step.width,
       initialHeight: step.height,
@@ -148,15 +156,17 @@ function rearrange(api: DockviewApi, steps: ArrangementStep[]) {
 }
 
 /**
- * Builds `arrangement` in the dock of `area`: rearranges the panels it has (they keep their state), or builds the dock from scratch when it
- * is not complete (the first build). A maximized group is restored first. Afterwards every group shows the panel its arrangement opens
- * with, and the view group is the active one, 3D in front: dockview would leave the panel added or moved last in front. Nothing is
+ * Builds `arrangement` of `depth` in the dock of `area`: rearranges the panels it has (they keep their state), or builds the dock from
+ * scratch when it is not complete (the first build). The panels only for Tüfteln are removed or added first (`syncDepthPanels`), so a
+ * change of depth does not rebuild the dock. A maximized group is restored first. Afterwards every group shows the panel its arrangement
+ * opens with, and the view group is the active one, 3D in front: dockview would leave the panel added or moved last in front. Nothing is
  * announced while the panels move.
  */
-export function applyArrangement(api: DockviewApi, area: DeckArea, arrangement: Arrangement): void {
-  const steps = arrangementSteps(area, arrangement);
+export function applyArrangement(api: DockviewApi, area: DeckArea, arrangement: Arrangement, depth: Depth): void {
+  const steps = arrangementSteps(area, arrangement, depth);
   if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
   quietly(api, () => {
+    syncPanels(api, area, depth);
     const complete = api.panels.length === steps.length && steps.every((step) => api.getPanel(step.id) !== undefined);
     // Moving needs the view group in the grid (or a grid group to put it beside); without, the dock is built again.
     const anchor = api.getPanel(steps[0]!.id);
@@ -167,6 +177,39 @@ export function applyArrangement(api: DockviewApi, area: DeckArea, arrangement: 
     const openers = steps.filter((step) => step.position?.direction !== "within").reverse();
     for (const step of openers) api.getPanel(step.id)?.api.setActive();
   });
+}
+
+/**
+ * Gives the dock of `area` the panels of `depth`: in Bauen a panel only for Tüfteln (the Raster) goes, and when it was in front its
+ * reference (3D) comes to the front first, so the view group never shows nothing; in Tüfteln it comes back as a tab beside its reference,
+ * right after it and not in front (what the view group showed stays). A dock without the reference (not built yet) gets nothing added.
+ * Nothing is announced.
+ */
+export function syncDepthPanels(api: DockviewApi, area: DeckArea, depth: Depth): void {
+  quietly(api, () => syncPanels(api, area, depth));
+}
+
+/** `syncDepthPanels` without its quiet. */
+function syncPanels(api: DockviewApi, area: DeckArea, depth: Depth) {
+  // The plan of every panel says where a panel only for Tüfteln goes (a tab of 3D); both arrangements agree on it.
+  const steps = arrangementSteps(area, loadArrangement(area), "tuefteln");
+  for (const spec of AREA_PANELS[area]) {
+    if (spec.tinkerOnly !== true) continue;
+    const panel = api.getPanel(spec.id);
+    const position = steps.find((step) => step.id === spec.id)?.position;
+    const reference = position ? api.getPanel(position.referencePanel) : undefined;
+    if (depth === "bauen") {
+      if (!panel) continue;
+      if (panel.group.activePanel === panel) reference?.api.setActive();
+      api.removePanel(panel);
+    } else if (!panel && position && reference) {
+      api.addPanel({
+        ...panelOptions(area, spec.id),
+        position: { referencePanel: reference, direction: position.direction, index: reference.group.panels.indexOf(reference) + 1 },
+        inactive: true,
+      });
+    }
+  }
 }
 
 /**
@@ -202,7 +245,8 @@ function announce(api: DockviewApi, message: string) {
 export function dockPanel(api: DockviewApi, area: DeckArea, id: PanelId | string, arrangement: Arrangement = loadArrangement(area)): boolean {
   const panel = api.getPanel(id);
   if (!panel || panel.api.location.type !== "floating") return false;
-  const steps = arrangementSteps(area, arrangement);
+  // The steps of every panel: a mate or reference the dock does not have (the Raster in Bauen) counts as not docked.
+  const steps = arrangementSteps(area, arrangement, "tuefteln");
   const step = steps.find((s) => s.id === id);
   const docked = (other: string | undefined) => {
     const found = other === undefined ? undefined : api.getPanel(other);

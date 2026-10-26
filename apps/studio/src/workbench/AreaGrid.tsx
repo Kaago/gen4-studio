@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef } from "react";
+import type { RefObject } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Depth } from "../ui/frame/shellState";
 import { thumbnails } from "../world/thumbnailStore";
@@ -6,6 +7,7 @@ import type { ThumbnailCache } from "../world/thumbnails";
 import { useThumbnail } from "../world/useThumbnail";
 import styles from "./AreaGrid.module.css";
 import { rawCell } from "./matrix";
+import type { CellRect } from "./sceneScope";
 import { id4 } from "./terms";
 import { useVisible } from "./useVisible";
 import { GRID_GAP } from "./worldMap";
@@ -19,16 +21,32 @@ export interface AreaGridProps {
   areaFallback: number;
   cellSize: 32 | 64;
   selected?: ReadonlySet<string>;
-  onCellClick?: (x: number, y: number, modifiers: { shift: boolean }) => void;
+  onCellClick?: (x: number, y: number, modifiers: { shift: boolean; alt: boolean }) => void;
   onCellDoubleClick?: (x: number, y: number) => void;
-  /** Shows a "+" column on the right and a "+" row below; a click reports the target cell (x = width or y = height). */
+  /**
+   * Without `extendable`: shows a "+" column on the right and a "+" row below; a click reports the target cell (x = width or y = height).
+   * With it: only the cells named there are "+" buttons, see `extendable`.
+   */
   onExtend?: (x: number, y: number) => void;
+  /**
+   * The `cellKey`s that are "+" buttons (a cell inside the matrix, or one of the column x = width or the row y = height) and report
+   * through `onExtend`; the extra column or row appears only when a key lies there. Their label says that the step cannot be undone.
+   */
+  extendable?: ReadonlySet<string>;
+  /** Shows only these cells (cut to the matrix); `data-cell` keeps the matrix coordinates. Default: the whole matrix. */
+  window?: CellRect;
+  /** Cells drawn dimmed and marked `data-foreign` (the other half of a split world map). */
+  foreign?: ReadonlySet<string>;
+  /** The name of the group; default "Raster N, H Zeilen, W Spalten". */
+  label?: string;
   /** Default: the app-wide cache. */
   cache?: ThumbnailCache;
   /** Colour per cell (place), optional. */
   colorOf?: (header: number | null) => string | null;
   /** The depth Tüfteln: every filled cell writes its map, header and altitude as three lines of raw values. */
   tinker?: boolean;
+  /** Draws the cells as pictures, not buttons (no clicks, no tab stops): for a grid inside another control, a tile of „Weitere Gebiete“. */
+  still?: boolean;
   /** The words of the tooltips (Bauen: "Nummer", Tüfteln: "Header"), for a grid that shows pictures in both depths; default: `tinker`. */
   depth?: Depth;
 }
@@ -43,20 +61,22 @@ interface CellProps {
   color: string | null;
   size: 32 | 64;
   selected: boolean;
+  foreign: boolean;
   /** The grid has a header section. */
   hasHeaders: boolean;
   cache: ThumbnailCache;
   tinker: boolean;
   /** The tooltip says "Header" (Tüfteln), else "Nummer". */
   techWords: boolean;
+  still: boolean;
   onClick?: AreaGridProps["onCellClick"];
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
-const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, hasHeaders, cache, tinker, techWords, onClick, onDoubleClick }: CellProps) {
-  const button = useRef<HTMLButtonElement>(null);
-  const visible = useVisible(button, map !== null);
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, hasHeaders, cache, tinker, techWords, still, onClick, onDoubleClick }: CellProps) {
+  const box = useRef<HTMLElement>(null);
+  const visible = useVisible(box, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
   const picture = useThumbnail(cache, map, area, visible);
   const parts = [`x ${x}, y ${y}`];
@@ -74,64 +94,90 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
     backgroundColor: !pictured && tinted ? color : undefined, /* dyn */
     boxShadow: tinted ? `inset 0 -4px 0 ${color}` : undefined, /* dyn */
   };
-  const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : ""].join(" ");
+  const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : "", foreign ? styles.foreign : ""].join(" ");
 
+  const content =
+    map === null ? (
+      "—"
+    ) : tinker ? (
+      <span className={styles.raw}>
+        <span>{id4(map)}</span>
+        {hasHeaders && header !== null && <span>{id4(header)}</span>}
+        {altitude !== null && <span>{altitude}</span>}
+      </span>
+    ) : (
+      <>
+        {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
+        {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
+        {/* The header number only where the words are technical: Bauen shows the area by its colour, not by a number. */}
+        {size === 64 && hasHeaders && header !== null && techWords && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
+      </>
+    );
+  const shared = {
+    "data-cell": cellKey(x, y),
+    "data-foreign": foreign ? "" : undefined,
+    "data-raw": tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined,
+    title: parts.join(" · "),
+  };
+
+  if (still) {
+    return (
+      <span ref={box as RefObject<HTMLSpanElement | null>} {...shared} className={`${classes} ${styles.still}`} style={style} /* dyn */>
+        {content}
+      </span>
+    );
+  }
   return (
     <button
-      ref={button}
+      ref={box as RefObject<HTMLButtonElement | null>}
       type="button"
-      data-cell={cellKey(x, y)}
-      data-raw={tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined}
+      {...shared}
       aria-pressed={selected}
-      title={parts.join(" · ")}
       className={classes}
       style={style} /* dyn */
-      onClick={(e) => onClick?.(x, y, { shift: e.shiftKey })}
+      onClick={(e) => onClick?.(x, y, { shift: e.shiftKey, alt: e.altKey })}
       onDoubleClick={() => onDoubleClick?.(x, y)}
     >
-      {map === null ? (
-        "—"
-      ) : tinker ? (
-        <span className={styles.raw}>
-          <span>{id4(map)}</span>
-          {hasHeaders && header !== null && <span>{id4(header)}</span>}
-          {altitude !== null && <span>{altitude}</span>}
-        </span>
-      ) : (
-        <>
-          {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
-          {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
-          {size === 64 && hasHeaders && header !== null && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
-        </>
-      )}
+      {content}
     </button>
   );
 });
 
+/** The words of a "+" button; the extendable cells of the world map say the step cannot be undone. */
+const plusLabel = (x: number, y: number, notUndoable: boolean) => `Karte bei x ${x}, y ${y} anlegen${notUndoable ? " (nicht rückgängig)" : ""}`;
+
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
-export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, cache = thumbnails, colorOf, tinker = false, depth }: AreaGridProps) {
+export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth }: AreaGridProps) {
   const techWords = depth === undefined ? tinker : depth === "tuefteln";
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
-  const columns = matrix.width + (onExtend ? 1 : 0);
-  const rows = matrix.height + (onExtend ? 1 : 0);
+  const x0 = Math.max(0, window?.x ?? 0);
+  const y0 = Math.max(0, window?.y ?? 0);
+  const x1 = Math.min(matrix.width, window ? window.x + window.width : matrix.width);
+  const y1 = Math.min(matrix.height, window ? window.y + window.height : matrix.height);
+  // The "+" column and row sit past the matrix edge: shown with a window that reaches the edge only.
+  const plusKeys = extendable ? [...extendable].map((key) => key.split(",").map(Number)) : null;
+  const extraColumn = x1 === matrix.width && (plusKeys ? plusKeys.some(([x]) => x >= matrix.width) : onExtend !== undefined);
+  const extraRow = y1 === matrix.height && (plusKeys ? plusKeys.some(([, y]) => y >= matrix.height) : onExtend !== undefined);
+  const columns = x1 - x0 + (extraColumn ? 1 : 0);
+  const sizeClass = cellSize === 64 ? styles.big : styles.small;
   const cells = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < columns; x++) {
-      if (x >= matrix.width || y >= matrix.height) {
+  for (let y = y0; y < y1 + (extraRow ? 1 : 0); y++) {
+    for (let x = x0; x < x1 + (extraColumn ? 1 : 0); x++) {
+      const key = cellKey(x, y);
+      const outside = x >= matrix.width || y >= matrix.height;
+      if (extendable ? extendable.has(key) : outside) {
+        const text = plusLabel(x, y, extendable !== undefined);
         cells.push(
-          <button
-            type="button"
-            key={cellKey(x, y)}
-            data-extend={cellKey(x, y)}
-            aria-label={`Karte bei x ${x}, y ${y} anlegen`}
-            title={`Karte bei x ${x}, y ${y} anlegen`}
-            className={`${styles.cell} ${cellSize === 64 ? styles.big : styles.small} ${styles.extend}`}
-            onClick={() => onExtend?.(x, y)}
-          >
+          <button type="button" key={key} data-extend={key} aria-label={text} title={text} className={`${styles.cell} ${sizeClass} ${styles.extend}`} onClick={() => onExtend?.(x, y)}>
             +
           </button>,
         );
+        continue;
+      }
+      if (outside) {
+        // A position of the extra column or row that is no target: blank, so the grid keeps its columns.
+        cells.push(<span key={key} aria-hidden="true" className={sizeClass} />);
         continue;
       }
       const i = y * matrix.width + x;
@@ -139,7 +185,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
       const header = matrix.headers && map !== null ? (matrix.headers[i] ?? null) : null;
       cells.push(
         <Cell
-          key={cellKey(x, y)}
+          key={key}
           x={x}
           y={y}
           map={map}
@@ -148,11 +194,13 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           area={header === null ? areaFallback : (areaOf.get(header) ?? areaFallback)}
           color={colorOf ? colorOf(header) : null}
           size={cellSize}
-          selected={selected?.has(cellKey(x, y)) ?? false}
+          selected={selected?.has(key) ?? false}
+          foreign={foreign?.has(key) ?? false}
           hasHeaders={matrix.headers != null}
           cache={cache}
           tinker={tinker}
           techWords={techWords}
+          still={still}
           onClick={onCellClick}
           onDoubleClick={onCellDoubleClick}
         />,
@@ -162,7 +210,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
   return (
     <div
       role="group"
-      aria-label={`Raster ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
+      aria-label={label ?? `Raster ${matrix.index}, ${matrix.height} Zeilen, ${matrix.width} Spalten`}
       className={styles.grid}
       style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gap: GRID_GAP }} /* dyn */
     >

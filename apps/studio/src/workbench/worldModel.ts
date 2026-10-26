@@ -384,6 +384,16 @@ function ownerFromMeta(value: string | undefined, byKey: ReadonlyMap<string, Dra
   return byKey.get(value) ?? (/^\d+$/.test(value) ? ofHeader.get(Number(value)) : undefined);
 }
 
+/** The room of header `id` (under an area or unconnected); undefined for an area, another header or an unknown id. */
+export function roomOf(world: World, id: number): Room | undefined {
+  const areas = [...world.worldMaps.flatMap((w) => w.areas), ...world.moreAreas];
+  for (const area of areas) {
+    const room = area.rooms.find((r) => r.header.id === id);
+    if (room) return room;
+  }
+  return world.unconnected.find((r) => r.header.id === id);
+}
+
 /** What the world model says a header is: an area (a section of one), a room, or one of the others; and how it is called. */
 export interface WorldName {
   kind: "area" | "room" | "other";

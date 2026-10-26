@@ -1523,10 +1523,13 @@ describe("App wiring", () => {
       // The project is already open (and its overview empty): the matrices are read again.
       vi.mocked(listMatrices).mockResolvedValue({ matrices: [summary(0), summary(1)], unreadable: [] });
       await act(async () => data().bus.emit({ topic: "matrixData" }));
+      // The header step is Tüfteln's (Bauen asks for a place instead).
+      const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Tüfteln");
+      await act(async () => tinker!.click());
       vi.mocked(createArea).mockImplementation(async () => {
         // The backend now has the matrix and header 1 points at it.
         listed = [header(0, 0), header(1, 5)];
-        return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1 };
+        return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1, patched: false, snapshot: null, place: null, replaced: 0 };
       });
     });
 
@@ -1546,7 +1549,7 @@ describe("App wiring", () => {
 
     it("reads the header table and the header list again after a wizard applied the patch", async () => {
       vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
-      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", snapshot: null });
       await select(listed[0]);
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await press(container.querySelector('[data-cell="0,0"]'));
@@ -2029,8 +2032,9 @@ describe("App wiring", () => {
         { kind: "TextArchive", index: 433 },
       ]);
       await pressUndo();
-      // One history move for the step; the shown matrix and the text panel both reload.
-      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1"]);
+      // One history move for the step; the shown matrix and the text panel both reload, and the header list with the names of the
+      // location bank (a text archive).
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1", "headerTable@1", "dataChanged@1"]);
       expect(data().history.current).toBe(1);
     });
   });

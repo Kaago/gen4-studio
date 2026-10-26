@@ -35,6 +35,14 @@ describe("historyLabel", () => {
     expect(historyLabel(label, "tuefteln")).toBe(german);
   });
 
+  it("translates_the_label_of_imported_map_parts", () => {
+    expect(historyLabel("map 0668: model and permissions and terrain imported", "bauen")).toBe("Karte 0668: Modell, Kollision und Laufhöhen importiert");
+    expect(historyLabel("map 0668: model and permissions and terrain imported", "tuefteln")).toBe("Karte 0668: Modell, Kollision und BDHC importiert");
+    expect(historyLabel("map 0000: permissions imported", "bauen")).toBe("Karte 0000: Kollision importiert");
+    expect(historyLabel("map 0003: whole map imported", "bauen")).toBe("Karte 0003: ganze Karte importiert");
+    expect(historyLabel("map 0003: buildings and background sound imported", "bauen")).toBe("Karte 0003: Gebäude und Hintergrundklang importiert");
+  });
+
   it("passes_a_german_label_of_the_frontend_through_unchanged", () => {
     expect(historyLabel("Wetter", "tuefteln")).toBe("Wetter");
     expect(historyLabel("Skript", "tuefteln")).toBe("Skript");

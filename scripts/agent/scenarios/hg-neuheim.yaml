@@ -1,0 +1,78 @@
+# HeartGold DE, Gesamtgate 3f („Weltmodell“): wie pt-neuheim.yaml auf HeartGold. Das Gebiet „Neuheim“ entsteht aus
+# Route 29 (Vorlage 33, Matrix 0 Zellen (18, 12) und (19, 12) = Karten 1 und 2) mit neuem Header 540 (interner Name
+# automatisch), neuem Ort (Index 235: die Bank hat 235 Namen, 21 Plätze sind frei) und `allow_patch`; erweitert um
+# eine Kopie von Karte 2, in die Modell und Kollision von Karte 3 importiert werden, mit Höhe 1. Die Treppe des
+# Zimmers (Header 64, Eventdatei 61, Warp 0) führt ins Gebiet, Ankunft bei (10, 19) (freier Boden von Karte 1),
+# ein Warp dort zurück. Im Spiel: die Einblendung „Neuheim“ (Bild `einblendung`, Agent + Blick); damit ist auch
+# geprüft, dass HeartGold einen Namen hinter den Vanilla-Plätzen (Index ≥ 235) zeigt.
+#
+# Platzhalter: KOPIE = absoluter Pfad der Kopie.
+# Beispiel (aus scripts/g4emu; im Worktree G4_ROMS_DIR, G4_BRIDGE_BIN und G4K_BIN setzen, siehe docs/agent-gate.md):
+#   uv run g4emu scenario ../agent/scenarios/hg-neuheim.yaml --project $R/_testkopien/3f-gate-hgd \
+#     --out ../../target/agent/gate-$(date +%F)/hg-neuheim --set KOPIE=$R/_testkopien/3f-gate-hgd
+game: IPKD
+edits:
+  - - header_patch_status
+    - {}
+    - expect:
+        - {path: applied, equals: false}
+  - - create_area
+    - spec:
+        name: Neuheim
+        width: 2
+        height: 1
+        cells:
+          - {x: 0, y: 0, source_map: 1, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 2, clear_buildings: false}
+        with_headers: true
+        header:
+          id: 540
+          area_data_id: null
+          event_file: New
+          new_header: {template: 33, internal_name: null}
+          allow_patch: true
+          place: {New: Neuheim}
+    - area
+  - - header_patch_status
+    - {}
+    - expect:
+        - {path: applied, equals: true}
+  - - list_headers
+    - {}
+    - expect:
+        - {path: "headers[id=540].0.location_name", equals: Neuheim}
+        - {path: "headers[id=540].0.location_index", equals: 235}
+  - - extend_area
+    - spec: {matrix: "${area.matrix}", x: 2, y: 0, source_map: 2, clear_buildings: false, header_cell: "${area.header}"}
+    - ext
+  - [get_matrix, {index: "${area.matrix}"}, m]
+  - [export_map_part, {map: 3, part: model, path: "${KOPIE}/neuheim-karte3.nsbmd"}]
+  - [export_map_part, {map: 3, part: permissions, path: "${KOPIE}/neuheim-karte3.per"}]
+  - - import_map_parts
+    - map: "${m.maps.2}"
+      source: {files: ["${KOPIE}/neuheim-karte3.nsbmd", "${KOPIE}/neuheim-karte3.per"]}
+      parts: [model, permissions]
+  - [set_matrix_cell, {index: "${area.matrix}", x: 2, y: 0, map: null, header: null, altitude: 1}]
+  - - get_matrix
+    - {index: "${area.matrix}"}
+    - expect:
+        - {path: width, equals: 3}
+        - {path: altitudes.2, equals: 1}
+  - [update_event, {eventFile: 61, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
+  - [add_event, {eventFile: "${area.event_file}", kind: warp, x: 10, z: 19, patch: {dest_header_id: 64, dest_warp_id: 0}}]
+  - [set_permission, {index: "${area.maps.0.2}", x: 10, y: 19, kind: 105, collision: 128}]
+  - - run_checks
+    - {scope: full}
+    - expect:
+        - {path: groups.length, equals: 3}
+        - {path: "findings[severity=error].length", equals: 0}
+build: out.nds
+play:
+  - continue                 # IPKD-zimmer: 64 at x 3, y 4
+  - expect-map 64
+  - walk left 1              # the stairs tile (2, 4)
+  - walk down 1              # the warp, now into Neuheim
+  - expect-map ${area.header}
+  - wait 160
+  - shot einblendung         # the banner „Neuheim“
+  - where

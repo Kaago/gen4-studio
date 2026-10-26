@@ -555,10 +555,16 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_area",
         title: "Create area",
-        description: "Creates a new outdoor area (Gebiet: a Raster of maps under the open \
-                      sky, as the Gebiet wizard of the app makes it): a matrix of the given \
-                      size whose cells are copies of existing maps, optionally with a header \
-                      pointed at it.",
+        description: "Creates a new outdoor area (Gebiet: a Raster of maps under the open sky, \
+                      as the Gebiet wizard of the app makes it): a matrix of the given size whose cells are \
+                      copies of existing maps, optionally with a header pointed at it and a \
+                      place (in-game location name) for that header. With a target the copies \
+                      go into an existing world map instead (seamless, no door): no new \
+                      matrix, each filled cell gets its copy and the header (0 without one); \
+                      the block must lie inside the world map on empty or landscape (header 0) \
+                      cells, the answer's replaced counts the landscape cells. With \
+                      header.allow_patch a new header first applies the Dynamic Headers patch \
+                      when the game lacks it (not undoable, needs a confirmation).",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -566,7 +572,12 @@ static TOOLS: &[ToolDef] = &[
                      source_map (map id to copy), clear_buildings}]), with_headers (give the \
                      matrix a header section), header (null, or {id, area_data_id (null keeps \
                      it), event_file (\"Keep\", \"New\" or {\"Copy\": n}), new_header (null, or \
-                     {template, internal_name} to create the header first)})"
+                     {template, internal_name (null: derived from name, unique)} to create the \
+                     header first), allow_patch (true: apply the Dynamic Headers patch first if \
+                     a new header needs it), place (null keeps it, {\"Existing\": index} or \
+                     {\"New\": name} to append a place, one undo step with the header)}), \
+                     target (null: a matrix of its own, or {matrix, x, y}: the cell of a world \
+                     map with a header section where the area's upper left cell goes)"
                 ) }),
                 &["spec"],
             )
@@ -577,18 +588,22 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_room",
         title: "Create room",
-        description: "Creates an indoor room (Raum: a house, cave or dungeon, a header whose \
-                      Raster has no header section): a one-cell matrix with a copy of an \
-                      existing map, a header for it and, optionally, the warps of the door \
-                      between the room and an outside place.",
+        description: "Creates an indoor room (Raum: a house, cave or dungeon, a header whose Raster \
+                      has no header section): a one-cell matrix with a copy of an existing \
+                      map, a header for it, optionally a place (in-game location name) for that \
+                      header and the warps of the door between the room and an outside place. \
+                      With header.allow_patch a new header first applies the Dynamic Headers \
+                      patch when the game lacks it (not undoable, needs a confirmation).",
         input_schema: || {
             object(
                 json!({ "spec": nested(
                     "the room: name, source_map (map id to copy), clear_buildings, header ({id, \
                      area_data_id (null keeps it), event_file (\"Keep\", \"New\" or {\"Copy\": \
-                     n}), new_header (null, or {template, internal_name})}), entrance (null, or \
-                     {outside_header, x, z (outside warp position), inside_x, inside_z, \
-                     door_tiles})"
+                     n}), new_header (null, or {template, internal_name (null: derived from \
+                     name, unique)}), allow_patch (true: apply the Dynamic Headers patch first \
+                     if a new header needs it), place (null keeps it, {\"Existing\": index} or \
+                     {\"New\": name})}), entrance (null, or {outside_header, x, z (outside warp \
+                     position), inside_x, inside_z, door_tiles})"
                 ) }),
                 &["spec"],
             )
@@ -812,8 +827,11 @@ static TOOLS: &[ToolDef] = &[
         name: "apply_header_patch",
         title: "Apply header patch",
         description: "Applies the Dynamic Headers patch to the game code, which creating new \
-                      map headers needs; this cannot be undone. Headless (studio mcp) it needs \
-                      --allow-irreversible, without it the call answers needs_confirmation.",
+                      map headers needs; this cannot be undone, unsaved header edits stay \
+                      unsaved. Answers the patch state and snapshot, the copy of an older \
+                      unpacked/dynamicHeaders under .g4/backup/ (null without one). Headless \
+                      (studio mcp) it needs --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("apply_header_patch"),

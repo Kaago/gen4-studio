@@ -13,6 +13,7 @@ import { Deck, resetLayout } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
 import type { ShellApi } from "./ShellContext";
 import { HAND_DEFAULT } from "./shellState";
+import type { Depth } from "./shellState";
 
 /** The deck's stylesheet as written (jsdom applies no CSS Modules), read from the package root vitest runs in. */
 const deckCss = readFileSync("src/ui/frame/Deck.module.css", "utf8");
@@ -69,23 +70,23 @@ describe("Deck", () => {
     shell = useShell();
     return null;
   }
-  /** Renders the deck (again: the dock stays); `wizard` as App gives it to the world's deck. */
-  const render = async (area: "welt" | "texte", wizard?: boolean) => {
+  /** Renders the deck (again: the dock stays); `wizard` as App gives it to the world's deck; Tüfteln unless `depth` says otherwise. */
+  const render = async (area: "welt" | "texte", wizard?: boolean, depth: Depth = "tuefteln") => {
     await act(async () =>
       root.render(
         <ShellProvider initialArea={area}>
           <Probe />
-          <Deck area={area} components={area === "welt" ? WELT : TEXTE} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
+          <Deck area={area} depth={depth} components={area === "welt" ? WELT : TEXTE} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
         </ShellProvider>,
       ),
     );
   };
   /** Mounts a fresh deck (a deck already there is unmounted first). */
-  const mount = async (area: "welt" | "texte" = "welt", wizard?: boolean) => {
+  const mount = async (area: "welt" | "texte" = "welt", wizard?: boolean, depth: Depth = "tuefteln") => {
     act(() => root.unmount());
     root = createRoot(container);
     dockRef.current = null;
-    await render(area, wizard);
+    await render(area, wizard, depth);
   };
   const api = () => dockRef.current!;
   const dock = () => container.querySelector<HTMLElement>("[data-dock]")!;
@@ -409,7 +410,7 @@ describe("Deck", () => {
     await mount();
     const world = api().getPanel("world");
     await choose("Inspector", "Schweben lassen");
-    act(() => resetLayout("welt", dockRef, "doppeldeck"));
+    act(() => resetLayout("welt", dockRef, "doppeldeck", "tuefteln"));
     await settle();
     expect(layoutOf(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
     expect(localStorage.getItem(arrangementKey("welt"))).toBe("doppeldeck");
@@ -418,7 +419,7 @@ describe("Deck", () => {
     await choose("Script", "Schweben lassen");
     await choose("Inspector", "Anordnung zurücksetzen");
     expect(layoutOf(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
-    act(() => resetLayout("welt", dockRef));
+    act(() => resetLayout("welt", dockRef, undefined, "tuefteln"));
     await settle();
     expect(layoutOf(api())).toEqual(WERKBANK);
     expect(localStorage.getItem(arrangementKey("welt"))).toBe("werkbank");
@@ -427,11 +428,63 @@ describe("Deck", () => {
     expect(api().activePanel?.id).toBe("world");
   });
 
+  it("builds_bauen_without_the_raster_on_a_reset", async () => {
+    await mount("welt", undefined, "bauen");
+    const noRaster = [
+      [
+        ["world", "worldmap"],
+        ["script", "problems"],
+      ],
+      ["inspector"],
+    ];
+    expect(layoutOf(api())).toEqual(noRaster);
+    expect(tab("Raster")).toBeUndefined();
+    const world = api().getPanel("world");
+    act(() => resetLayout("welt", dockRef, "doppeldeck", "bauen"));
+    await settle();
+    expect(layoutOf(api())).toEqual([["world", "worldmap"], ["inspector", "script", "problems"]]);
+    act(() => resetLayout("welt", dockRef, undefined, "bauen"));
+    await settle();
+    expect(layoutOf(api())).toEqual(noRaster);
+    expect(api().getPanel("world")).toBe(world);
+    // Remembered without the Raster, and still a layout the dock restores (in Tüfteln with the Raster back as a tab).
+    const saved = JSON.parse(localStorage.getItem(layoutKey("welt"))!);
+    expect(Object.keys(saved.panels).sort()).toEqual(["inspector", "problems", "script", "world", "worldmap"]);
+    await mount("welt", undefined, "tuefteln");
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect(api().getPanel("world")!.api.isVisible).toBe(true);
+  });
+
+  it("restores_a_layout_with_the_raster_in_bauen_without_it", async () => {
+    localStorage.setItem(layoutKey("welt"), JSON.stringify(stored(["world", "matrix", "worldmap"], ["inspector", "script", "problems"])));
+    await mount("welt", undefined, "bauen");
+    expect(layoutOf(api())).toEqual([["world", "worldmap"], ["inspector", "script", "problems"]]);
+    await settle();
+    expect(Object.keys(JSON.parse(localStorage.getItem(layoutKey("welt"))!).panels)).not.toContain("matrix");
+  });
+
+  it("follows_the_depth_with_the_raster_tab", async () => {
+    await mount();
+    const world = api().getPanel("world");
+    act(() => api().getPanel("matrix")!.api.setActive());
+    await render("welt", undefined, "bauen");
+    expect(api().getPanel("matrix")).toBeUndefined();
+    expect(api().getPanel("world")!.api.isVisible).toBe(true);
+    expect([...dock().querySelectorAll('[role="tab"]')].map((t) => t.textContent)).not.toContain("Raster");
+    await render("welt", undefined, "tuefteln");
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect(api().getPanel("matrix")!.api.isVisible).toBe(false);
+    expect(api().getPanel("world")!.api.isVisible).toBe(true);
+    // The dock was not built anew, and its content panel is there again.
+    expect(api().getPanel("world")).toBe(world);
+    expect(dock().querySelectorAll('[data-dock-panel="matrix"]')).toHaveLength(1);
+  });
+
   it("forgets_the_stored_layout_of_a_dock_that_is_not_built_so_it_starts_from_the_arrangement", () => {
     // "Layout zurücksetzen" on Start, Technik or Einstellungen works on the world, which may never have been built in this session.
     localStorage.setItem(layoutKey("texte"), JSON.stringify({ panels: { textView: {} } }));
     localStorage.setItem(layoutKey("welt"), JSON.stringify({ panels: { tools: {} } }));
-    expect(() => resetLayout("texte", { current: null })).not.toThrow();
+    expect(() => resetLayout("texte", { current: null }, undefined, "bauen")).not.toThrow();
     expect(localStorage.getItem(layoutKey("texte"))).toBeNull();
     // Another area's layout stays.
     expect(localStorage.getItem(layoutKey("welt"))).not.toBeNull();

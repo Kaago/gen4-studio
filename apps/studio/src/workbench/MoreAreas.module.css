@@ -1,0 +1,54 @@
+/* „Weitere Gebiete“: the areas with a map of their own as a surface of tiles. */
+.tiles {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: var(--g4-raum-12);
+  overflow: auto;
+  padding: var(--g4-raum-16);
+  background: var(--g4-flaeche-welt);
+}
+
+.tile {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tile:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.tile:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: var(--g4-strich-fokus);
+}
+
+.name {
+  font-weight: 700;
+}
+
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* The plan of the area's matrix; a big plan is cut at the width of the surface rather than widen it. */
+.plan {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+}

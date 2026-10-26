@@ -346,13 +346,14 @@ function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onO
             {patch.busy && <span className={styles.note}>{state === "available" ? "Wende an …" : "Repariere …"}</span>}
           </div>
         )}
+        {patch.snapshot !== null && <p className={styles.text}>Sicherung des alten Ordners: {patch.snapshot}</p>}
         {patch.error !== null && <Notice kind="error">{patch.error}</Notice>}
       </section>
       <Dialog
         open={asking}
         onOpenChange={setAsking}
         title="Patch „Dynamische Header“ anwenden?"
-        description="Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Header-Änderungen erst speichern."
+        description="Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Änderungen an Gebieten und Räumen bleiben ungespeichert."
         actions={[
           { label: "Abbrechen", onClick: () => setAsking(false) },
           {

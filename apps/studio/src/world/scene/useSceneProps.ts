@@ -1,6 +1,9 @@
 import { useEffect } from "react";
+import type { MatrixDto } from "../../api";
+import type { CellRect } from "../../workbench/sceneScope";
 import { markFaulty, selectMarker } from "../markers";
 import type { EventRef } from "../events";
+import { showCellFrame } from "./cellFrame";
 import type { SceneRefs } from "./types";
 
 /** The selected building (made by a click, the header list, ...) is outlined; the scene also drags it. */
@@ -25,6 +28,21 @@ export function useEventSelection(refs: SceneRefs, selectedEvent: EventRef | nul
   }, [selectedEvent]);
 }
 
+/**
+ * The selected cell of `matrix` (a click on the ground, a link, the Raster, ...) is framed. While the scene still shows another matrix,
+ * its frame goes; the load of `matrix` draws the frame once the matrix is there.
+ */
+export function useCellSelection(refs: SceneRefs, matrix: MatrixDto, selectedCell: { x: number; y: number } | null) {
+  useEffect(() => {
+    const h = refs.handle.current;
+    if (!h) return;
+    h.selectedCell = selectedCell;
+    if (h.matrix === matrix) showCellFrame(h);
+    else h.setCellFrame(null);
+    h.render();
+  }, [selectedCell]);
+}
+
 /** The events an error finding hits (of any file; the scene picks those of the file it shows) take the error colour. */
 export function useFaultyEvents(refs: SceneRefs, faulty: readonly EventRef[]) {
   useEffect(() => {
@@ -37,6 +55,13 @@ export function useFaultyEvents(refs: SceneRefs, faulty: readonly EventRef[]) {
       h.render();
     }
   }, [faulty]);
+}
+
+/** Switches the camera between the slanted view and the top-down view; switching on frames `focus` of `matrix`, switching off brings back the slanted view as it was left. */
+export function useTopDown(refs: SceneRefs, topDown: boolean, matrix: MatrixDto, focus: CellRect) {
+  useEffect(() => {
+    refs.handle.current?.setTopDown(topDown, focus, matrix);
+  }, [topDown]);
 }
 
 /** Shows or hides the permission overlay. */

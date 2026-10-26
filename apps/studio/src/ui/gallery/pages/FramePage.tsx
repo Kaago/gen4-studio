@@ -411,6 +411,7 @@ function SceneDemo({ locked = null }: { locked?: string | null }) {
           onOpenScript={(file) => setSaid(`Öffnet Scriptdatei ${file}`)}
           onTool={(tool) => setSaid(`Werkzeug ${tool}`)}
           onConnectRoom={() => setSaid("Raum hier anbinden")}
+          onNewPlace={() => setSaid("Neuer Ort")}
           onBack={() => setSaid("Zurück")}
           onForward={() => setSaid("Vor")}
         />

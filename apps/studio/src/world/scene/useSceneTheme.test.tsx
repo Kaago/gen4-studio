@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import type * as THREE from "three";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,6 +77,18 @@ describe("useSceneTheme", () => {
     act(() => applyTheme("hell"));
     expect(recolorOutlines).toHaveBeenLastCalledWith(selectionColor("hell"));
     expect(setColor).toHaveBeenLastCalledWith(selectionColor("hell"));
+  });
+
+  it("draws_the_cell_frame_again_in_the_selection_colour_of_the_theme", () => {
+    const { host } = fakeHost();
+    const setCellFrame = vi.fn();
+    Object.assign(host, { selectedCell: { x: 0, y: 0 }, matrix: { index: 0, name: "m", width: 1, height: 1, maps: [1] }, loaded: new Map([[1, {}]]), setCellFrame });
+    const refs = { handle: { current: host as unknown as SceneHost } };
+    act(() => root.render(<Probe refs={refs} />));
+    act(() => applyTheme("dunkel"));
+    const frame = setCellFrame.mock.calls[0][0] as THREE.Mesh;
+    expect(`#${(frame.material as THREE.MeshBasicMaterial).color.getHexString()}`.toUpperCase()).toBe(selectionColor("dunkel"));
+    expect(host.render).toHaveBeenCalledTimes(1);
   });
 
   it("ignores_a_choice_that_changes_nothing_and_a_disposed_or_missing_host", () => {

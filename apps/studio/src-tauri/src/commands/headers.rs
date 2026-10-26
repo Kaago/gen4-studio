@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use g4_formats::error::FormatError;
 use g4_kernel::error::KernelError;
+use g4_kernel::places;
 use g4_kernel::project::HeaderListing;
 use g4_kernel::store::MapHeader;
 use tauri::State;
@@ -12,13 +13,15 @@ use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::AppState;
 
-/// The header list of the store's table, so edits show up before saving. Names (internal
-/// and location, `names_error`) come from the project files and the location text bank; the
-/// location text follows the edited `location_name` index.
+/// The header list of the store's table, so edits show up before saving. Internal names
+/// come from the project files; location names (and `names_error`) from the store's
+/// location text bank, so a name added and not saved yet shows too. The location text
+/// follows the edited `location_name` index.
 pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
-    // One short lock: the project and a copy of the edited table of the same session.
-    // Decoding the text archive (and unpacking it on first use) happens without the lock.
-    let (project, table) = {
+    // One lock: the project, a copy of the edited table and the names of the same session
+    // (the store decodes the bank on first use and keeps it). `mapname.bin` is read without
+    // the lock.
+    let (project, table, names) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let project = Arc::clone(&session.project);
@@ -27,9 +30,12 @@ pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
             .header_table()
             .map_err(CmdError::from)?
             .to_vec();
-        (project, table)
+        let names = places::location_names(&mut session.store).map_err(|e| e.to_string());
+        (project, table, names)
     };
-    project.header_listing_for(&table).map_err(CmdError::from)
+    project
+        .header_listing_with(&table, names)
+        .map_err(CmdError::from)
 }
 
 /// Map header `id` as the store holds it, edits included.
@@ -197,6 +203,44 @@ mod tests {
         assert!(!undo_impl(&state).unwrap().is_empty());
         assert!(!undo_impl(&state).unwrap().is_empty());
         assert_eq!(names(&state), ["Twinleaf Town", ""]);
+    }
+
+    #[test]
+    fn list_headers_shows_an_unsaved_place_name() {
+        let (_s, state) = open_synthetic();
+        {
+            let mut guard = lock(&state).unwrap();
+            let store = &mut session(&mut guard).unwrap().store;
+            store
+                .edit_text_archive(433, "Ort angelegt", |d| {
+                    let mut message = d.messages[2].clone();
+                    message.text = "Neuheim".into();
+                    d.messages.push(message);
+                })
+                .unwrap();
+        }
+        let mut h = get_header_impl(&state, 0).unwrap();
+        if let MapHeader::Pt(p) = &mut h {
+            p.location_name = 3;
+        }
+        set_header_impl(&state, 0, h, "edit header").unwrap();
+        let listing = list_headers_impl(&state).unwrap();
+        assert_eq!(listing.headers[0].location_name, "Neuheim");
+        assert_eq!(listing.names_error, None);
+    }
+
+    #[test]
+    fn a_broken_bank_leaves_names_empty_with_the_error() {
+        let (_s, state) = open_synthetic();
+        // The text archive is unpacked on demand; break the bank member before the first read.
+        let project = Arc::clone(&session(&mut lock(&state).unwrap()).unwrap().project);
+        project.ensure_unpacked(AssetKind::TextArchive).unwrap();
+        std::fs::write(project.member_path(AssetKind::TextArchive, 433), [1u8, 0]).unwrap();
+        let listing = list_headers_impl(&state).unwrap();
+        assert_eq!(listing.headers.len(), 2);
+        assert_eq!(listing.headers[0].internal_name, "T01");
+        assert!(listing.headers.iter().all(|h| h.location_name.is_empty()));
+        assert!(listing.names_error.is_some_and(|e| e.contains("433")));
     }
 
     #[test]

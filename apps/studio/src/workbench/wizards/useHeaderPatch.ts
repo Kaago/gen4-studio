@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import { applyHeaderPatch, dirty, errorText, headerPatchStatus, repairHeaderPatch } from "../../api";
+import { applyHeaderPatch, errorText, headerPatchStatus, repairHeaderPatch } from "../../api";
 import type { HeaderPatchDto } from "../../api";
 import { useStableCallback } from "../../app/useStable";
-
-/** The way out when the header table is unsaved: in Technik one saves; a wizard locks ⌘S, so it is left first. */
-export const SAVE_FIRST = "Erst speichern (⌘S), dann den Patch anwenden.";
-export const SAVE_FIRST_IN_WIZARD = "Assistent abbrechen, speichern (⌘S) und neu öffnen.";
 
 /**
  * The Dynamic Headers patch as a wizard's "Header" step needs it: its state, read when the wizard opens, and the
  * action that applies it. `patch` stays null while it is being read and when reading it failed (then `error` says why:
  * the step offers no new header). `applied` runs after the patch went in (the app reads the header table again);
- * a refusal (unsaved header edits) or a failure of either becomes `error`, the user fixes it and tries again. `repair`
- * fixes a patch whose routine calls a wrong function (`patch.repairable`); the header table stays as it is.
- * The patch takes the header table from disk, so unsaved header edits are caught before the call: `error` then
- * says so in German and ends with `saveFirst`, the way out where the hook is used (a wizard locks ⌘S). `repaired` runs after a repair
- * went in (the app closes the toast that offered it and says what changed).
+ * a refusal (a header table changed on disk) or a failure of either becomes `error`, the user fixes it and tries again.
+ * Unsaved header edits need no saving first: the kernel patches with the table as it is on disk and keeps the edits
+ * (and their undo) unsaved. `repair` fixes a patch whose routine calls a wrong function (`patch.repairable`); the
+ * header table stays as it is. `repaired` runs after a repair went in (the app closes the toast that offered it and
+ * says what changed). `snapshot` is where the last apply put an older header folder (null: none, or not applied here).
  */
-export function useHeaderPatch(applied: () => Promise<void>, { saveFirst = SAVE_FIRST, repaired }: { saveFirst?: string; repaired?: () => void } = {}) {
+export function useHeaderPatch(applied: () => Promise<void>, { repaired }: { repaired?: () => void } = {}) {
   const [patch, setPatch] = useState<HeaderPatchDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [snapshot, setSnapshot] = useState<string | null>(null);
   const afterApply = useStableCallback(applied);
 
   useEffect(() => {
@@ -38,20 +35,16 @@ export function useHeaderPatch(applied: () => Promise<void>, { saveFirst = SAVE_
     setBusy(true);
     setError(null);
     try {
-      // When the dirty list cannot be read, the kernel's own refusal still guards the patch.
-      const unsaved = await dirty().catch(() => []);
-      if (unsaved.some((asset) => asset.kind === "HeaderTable")) {
-        setError(`Die Header-Tabelle hat ungespeicherte Änderungen; der Patch nimmt die Header von der Platte. ${saveFirst}`);
-        return;
-      }
-      setPatch(await applyHeaderPatch());
+      const report = await applyHeaderPatch();
+      setPatch(report);
+      setSnapshot(report.snapshot);
       await afterApply();
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
-  }, [afterApply, saveFirst]);
+  }, [afterApply]);
 
   const repair = useCallback(async () => {
     setBusy(true);
@@ -66,5 +59,5 @@ export function useHeaderPatch(applied: () => Promise<void>, { saveFirst = SAVE_
     }
   }, [repaired]);
 
-  return { patch, error, busy, apply, repair };
+  return { patch, error, busy, snapshot, apply, repair };
 }

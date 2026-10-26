@@ -38,14 +38,29 @@ pub fn header_patch_status_impl(state: &AppState) -> Result<HeaderPatchDto, CmdE
     status(session(&mut guard)?)
 }
 
-/// Applies the patch and reports the new state. Runs under the state lock: it writes a few
-/// small files and the header files, which is quick. The kernel refuses a header table with
-/// unsaved changes and one that is behind `arm9.bin` on disk (code `stale`).
-pub fn apply_header_patch_impl(state: &AppState) -> Result<HeaderPatchDto, CmdError> {
+/// What `apply_header_patch` did: the new state of the patch and where the old header
+/// folder went.
+#[derive(Debug, Serialize)]
+pub struct PatchReport {
+    #[serde(flatten)]
+    pub status: HeaderPatchDto,
+    /// The copy of an older `unpacked/dynamicHeaders` under `.g4/backup/`; `None` when
+    /// there was no such folder or it was empty.
+    pub snapshot: Option<String>,
+}
+
+/// Applies the patch and reports the new state and the snapshot of an older header folder.
+/// Runs under the state lock: it writes a few small files and the header files, which is
+/// quick. Unsaved header edits stay unsaved (the patch writes the table as it is on disk);
+/// the kernel refuses a table that is behind `arm9.bin` on disk (code `stale`).
+pub fn apply_header_patch_impl(state: &AppState) -> Result<PatchReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    session.store.apply_dynamic_headers()?;
-    status(session)
+    let snapshot = session.store.apply_dynamic_headers()?;
+    Ok(PatchReport {
+        status: status(session)?,
+        snapshot: snapshot.map(|p| p.to_string_lossy().into_owned()),
+    })
 }
 
 /// Repairs a patch whose routine calls a wrong function and reports the new state. Only
@@ -64,7 +79,7 @@ pub fn header_patch_status(state: State<AppState>) -> Result<HeaderPatchDto, Cmd
 }
 
 #[tauri::command]
-pub fn apply_header_patch(state: State<AppState>) -> Result<HeaderPatchDto, CmdError> {
+pub fn apply_header_patch(state: State<AppState>) -> Result<PatchReport, CmdError> {
     apply_header_patch_impl(&state)
 }
 
@@ -110,7 +125,7 @@ mod tests {
             Some("files/debug/cb_edit/d_test.narc")
         );
 
-        let applied = apply_header_patch_impl(&state).unwrap();
+        let applied = apply_header_patch_impl(&state).unwrap().status;
         assert!(applied.supported && applied.applied);
         assert_eq!(
             applied.narc.as_deref(),
@@ -167,16 +182,55 @@ mod tests {
     }
 
     #[test]
-    fn apply_refuses_unsaved_header_edits() {
-        let (_f, state) = open_synthetic();
+    fn apply_keeps_unsaved_header_edits() {
+        use g4_kernel::project::AssetKind;
+        use g4_kernel::store::MapHeader;
+        let (f, state) = open_synthetic();
+        let dir = f.dir.path().join("unpacked/dynamicHeaders");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("0000"), [1u8; 24]).unwrap();
         let mut h = super::super::get_header_impl(&state, 0).unwrap();
-        if let g4_kernel::store::MapHeader::Pt(p) = &mut h {
-            p.matrix_id = 1;
-        }
+        let MapHeader::Pt(p) = &mut h else {
+            panic!("the fixture is Platinum");
+        };
+        let old = p.matrix_id;
+        p.matrix_id = old + 1;
         set_header_impl(&state, 0, h, "edit header").unwrap();
-        let err = apply_header_patch_impl(&state).unwrap_err();
-        assert_eq!(err.code, "error");
-        assert!(err.message.contains("save"), "{}", err.message);
-        assert!(!header_patch_status_impl(&state).unwrap().applied);
+
+        let report = apply_header_patch_impl(&state).unwrap();
+        assert!(report.status.applied);
+        let snapshot = report.snapshot.expect("the old folder was kept");
+        assert!(
+            std::path::Path::new(&snapshot).starts_with(f.dir.path().join(".g4/backup")),
+            "{snapshot}"
+        );
+        assert_eq!(
+            std::fs::read(std::path::Path::new(&snapshot).join("0000")).unwrap(),
+            [1u8; 24]
+        );
+        // The edit stays unsaved; the header file holds the value from disk.
+        let MapHeader::Pt(p) = super::super::get_header_impl(&state, 0).unwrap() else {
+            panic!("the fixture is Platinum");
+        };
+        assert_eq!(p.matrix_id, old + 1);
+        assert_eq!(
+            &std::fs::read(dir.join("0000")).unwrap()[2..4],
+            &old.to_le_bytes()
+        );
+        let dirty = super::super::dirty_impl(&state).unwrap();
+        assert!(dirty.iter().any(|a| a.kind == AssetKind::HeaderTable));
+        assert!(
+            apply_header_patch_impl(&state).is_err(),
+            "applying twice is refused"
+        );
+    }
+
+    #[test]
+    fn the_report_has_the_state_and_the_snapshot() {
+        let (_f, state) = open_synthetic();
+        let report = serde_json::to_value(apply_header_patch_impl(&state).unwrap()).unwrap();
+        assert_eq!(report["applied"], true);
+        assert_eq!(report["supported"], true);
+        assert!(report["snapshot"].is_null(), "{report}");
     }
 }

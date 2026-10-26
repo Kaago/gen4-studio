@@ -55,6 +55,7 @@ import {
   Question,
   Robot,
   Rows,
+  ShareNetwork,
   SidebarSimple,
   Signpost,
   SortAscending,
@@ -142,6 +143,8 @@ export const icons = {
   doppeldeck: SquareSplitVertical,
   float: PictureInPicture,
   dock: SidebarSimple,
+  /** A room whose maps other rooms use too („Geteilt“). */
+  shared: ShareNetwork,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

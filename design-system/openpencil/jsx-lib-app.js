@@ -265,6 +265,65 @@ const InspectorHead = ({ word, icon, title, ident, badges = [], menu = true }) =
   {badges.length > 0 && <Frame name="Zustände" flex="row" gap={4}>{badges.map(([l, a]) => Badge(l, a))}</Frame>}
   {menu && <Frame name="Aktionen" flex="row" items="center" justify="center" px={8} h={DI.steuer} rounded={6}>{I('ph:dots-three', DI.symbol, 'p')}</Frame>}
 </Frame>;
+// ===== Weltmodell (Phase 3f, 26.10.2026): Weltkarte mit Umschalter, Raumplan, Ort, Patch-Zeile, Plakette „Geteilt“ =====
+// Nur Zusätze: die Bausteine oben bleiben, wie sie sind. Quellen: workbench/{AreaGrid,WorldMapPanel,MoreAreas,WorldTree,SceneBar}.tsx,
+// workbench/places/{PlacePicker,NewPlaceDialog}.tsx, workbench/wizards/{PlaceStep,LookPicker,PatchConsent,PlaceOnWorldMap,WizardFrame}.tsx,
+// workbench/inspector/{HeaderEditor,MatrixCellEditor,SplitRoomDialog}.tsx. Vorlagen: beispiele/weltkarte-raumplan, assistent-ort,
+// zusammenfassung-patch, inspector-geteilt (je .body.js); Anleitung NACHTRAG-3f.md.
+// Zelle des Gitters (AreaGrid, Abstand 2): size 64 (Raumplan) oder 32 (Weltkarte, Assistent). map: Kartennummer ('0342'); pic: Platzhalter des
+// Kartenbilds (Beispiel-Hex, keine Spielgrafik); tint: Ortsfarbe (Unterkante 4 px; ohne Bild auch die Fläche); sel: gewählt (2 px auswahl/kante);
+// err: Block, der nicht dorthin darf (2 px status/fehler). Ohne map: leere Zelle („—“) oder mit plus: „+“ (beide gestrichelt linie/stark).
+const GridCell = ({ size = 64, map, pic, tint, sel, plus, err } = {}) => {
+  if (!map) return <Frame name={plus ? '+' : 'Leere Zelle'} w={size} h={size} flex="row" items="center" justify="center" stroke={v('linie/stark')} strokeWidth={1} strokeDash={[4, 3]} dashPattern={[4, 3]}>{T(plus ? '+' : '—', { s: plus ? 15 : 12, f: plus ? F : M, c: 'text/sekundaer' })}</Frame>;
+  const tag = <Frame name="Kartennummer" px={4} h={14} rounded={6} bg={v('flaeche/blatt')} flex="row" items="center">{Mono(map, { c: 'text/primaer', lh: 14 })}</Frame>;
+  return <Frame name={'Karte ' + map} w={size} h={size} bg={pic || tint || v('flaeche/deck')} stroke={v(err ? 'status/fehler' : sel ? 'auswahl/kante' : 'linie/standard')} strokeWidth={err || sel ? 2 : 1} overflow="hidden" flex="row" items="center" justify="center">
+    {tint && <Frame position="absolute" x={0} y={size - 4} w={size} h={4} bg={tint} />}
+    {size === 64 ? <Frame position="absolute" x={2} y={size - 18}>{tag}</Frame> : !pic && tag}
+  </Frame>;
+};
+// Gitter aus Zeilen von GridCell (role="group", „Raumplan, 3 Zeilen, 4 Spalten“ bzw. „Weltkarte, …“)
+const AreaGridX = (rows, name = 'Raumplan') => <Frame name={name} flex="col" gap={2}>{rows.map((r) => <Frame flex="row" gap={2}>{r}</Frame>)}</Frame>;
+// Kopf des Reiters „Weltkarte“: PanelHead mit switcher (Name der Ansicht mit Pfeil), im Raumplan der Name als Untertitel
+const WorldMapHead = (view, sub) => PanelHead({ title: view, sub, switcher: true });
+// Taste des Pickers „Ort“ (button[data-place-picker]): sekundär, klein, 8-px-Punkt in der Ortsfarbe (Beispiel-Hex), Name; Tüfteln: tech grau in Mono
+const PlaceBtn = (name, dot, tech) => <Frame name="Ort wählen" flex="col" rounded={6} bg={v('linie/stark')} pt={1} pl={1} pr={1} pb={2}><Frame flex="row" items="center" gap={6} px={8} h={21} rounded={5} bg={v('flaeche/taste')}><Ellipse w={8} h={8} fill={dot} />{T(name, { w: 600 })}{tech && Mono(tech)}</Frame></Frame>;
+// Patch-Zeile (PatchConsent): Plakette „Nicht rückgängig“ und das Kästchen der einmaligen Zustimmung
+const PATCH_TEXT = 'Einmalig für dieses Projekt: Spielcode für neue Orte anpassen (DSPRE-kompatibel, Sicherung arm9.bin.backup)';
+const PatchLine = (checked) => <Frame name="Patch-Zeile" flex="row" items="center" gap={8} w="fill">{Badge('Nicht rückgängig', 'unumkehrbar', 'ph:warning')}{Check(checked, PATCH_TEXT)}</Frame>;
+// Plakette „Geteilt mit N Räumen“ (Art Info, Symbol ShareNetwork)
+const SharedBadge = (n) => Badge(n === 1 ? 'Geteilt mit 1 Raum' : 'Geteilt mit ' + n + ' Räumen', 'info', 'ph:share-network');
+// Inspector-Kopf mit Plaketten als Knoten (InspectorHead nimmt nur Text-Plaketten): sonst wie InspectorHead
+const InspectorHeadB = ({ word, icon, title, ident, badges = [], menu = true }) => <Frame name="Inspector-Kopf" flex="row" items="start" gap={8} pt={8} pb={8} pl={DI.innen} pr={8} w="fill" strokeWeights={{ top: 0, right: 0, bottom: 1, left: 0 }} stroke={v('linie/leise')}>
+  <Frame flex="col" gap={2} grow={1}>
+    <Frame name="Augenbraue" flex="row" items="center" gap={4}>{I(icon, 12, 's')}{T(word, { s: 12, c: 'text/sekundaer' })}</Frame>
+    {T(title, { f: Z, s: 24, lh: 30, w: 700, one: true })}
+    {ident && Mono(ident, { one: true })}
+  </Frame>
+  {badges.length > 0 && <Frame name="Zustände" flex="row" gap={4}>{badges}</Frame>}
+  {menu && <Frame name="Aktionen" flex="row" items="center" justify="center" px={8} h={DI.steuer} rounded={6}>{I('ph:dots-three', DI.symbol, 'p')}</Frame>}
+</Frame>;
+// Liste „Welt“: „Orte“ (Weltbaum, orteH hoch; nicht „h“, das ist die JSX-Fabrik) über „In dieser Szene“, dazwischen der Teiler „Höhe der Orte“; orte und szene sind Baumzeilen (TreeRowX)
+const WeltListe = ({ orte, szene, orteH = 248, count = '1 Weltkarte, 72 Gebiete, 492 Räume' }) => ListPane([PanelHead({ title: 'Welt', sub: 'Platin, DE' }), <Frame name="Spalte" flex="col" w="fill" grow={1}>
+  <Frame name="Orte" flex="col" w="fill" h={orteH} overflow="hidden">
+    {PanelHead({ title: 'Orte', actions: <Frame flex="row" items="center" gap={8}>{SegS([['', 'ph:tree-structure'], ['', 'ph:list']], 'ph:tree-structure')}{IconBtn('ph:sort-ascending')}{IconBtn('ph:plus')}{IconBtn('ph:caret-down')}</Frame> })}
+    <Frame flex="col" gap={6} p={8} w="fill">{T(count, { s: 12, c: 'text/sekundaer', one: true })}{Search('Gebiet, Raum oder Kürzel suchen')}</Frame>
+    <Frame name="Baum „Orte“" flex="col" px={4} w="fill">{orte}</Frame>
+  </Frame>
+  {Teiler('Teiler „Höhe der Orte“')}
+  <Frame name="In dieser Szene" flex="col" w="fill" grow={1} overflow="hidden">
+    {PanelHead({ title: 'In dieser Szene', actions: <Frame flex="row" items="center" gap={4}>{IconBtn('ph:arrow-left')}{IconBtn('ph:arrow-right', { off: true })}{IconBtn('ph:plus')}</Frame> })}
+    <Frame flex="col" gap={6} p={8} w="fill">{Search('Name oder Nummer suchen')}</Frame>
+    <Frame name="Baum „In dieser Szene“" flex="col" px={4} w="fill">{szene}</Frame>
+  </Frame>
+</Frame>]);
+// Schritt des Assistenten unter dem Dock (data-wizard-hand, 286 hoch, Linie linie/leise oben): Spalten (cols) und der Fuß mit dem ersten Satz
+// der Zusammenfassung und der Plakette „Nicht rückgängig“ (WizardFrame summary/irreversible)
+const WizardCol = (children, first) => <Frame flex="col" gap={8} px={16} py={12} grow={1} h="fill" strokeWeights={first ? undefined : { top: 0, right: 0, bottom: 0, left: 1 }} stroke={first ? undefined : v('linie/leise')}>{children}</Frame>;
+const WizardHand = ({ name, cols, foot }) => <Frame name={name} flex="col" w="fill" h={286} bg={v('flaeche/deck')} strokeWeights={{ top: 1, right: 0, bottom: 0, left: 0 }} stroke={v('linie/leise')}>
+  <Frame flex="row" w="fill" grow={1}>{cols}</Frame>
+  {foot && <Frame name="Fuß: Zusammenfassung" flex="row" items="center" gap={8} px={16} py={8} w="fill" bg={v('flaeche/blatt')} strokeWeights={{ top: 1, right: 0, bottom: 0, left: 0 }} stroke={v('linie/leise')}>{I('ph:list', 18, 's')}{T(foot, { grow: 1 })}{Badge('Nicht rückgängig', 'unumkehrbar', 'ph:warning')}</Frame>}
+</Frame>;
+
 // ===== Agenten (Phase 3h.3, 26.10.2026): lokale Agenten über MCP =====
 // Nur Zusätze. Quellen: einstellungen/AgentsSettings.tsx und .module.css, ui/frame/AgentStatus.tsx, app/AgentQuestion.tsx, ui/primitives/{Menu,Dialog}.module.css,
 // ui/frame/Hinge.tsx (Verlaufsmenü). Vorlagen: beispiele/agenten-*.body.js.

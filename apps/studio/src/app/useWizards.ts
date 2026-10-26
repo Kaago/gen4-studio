@@ -52,7 +52,10 @@ export function useWizards({ onCreated, onOpen }: WizardsParams) {
     [refresh],
   );
 
-  return { request, open, close, created };
+  /** Stable: reads the project again and shows `made` as after a wizard, without touching an open one (a room split off in the inspector). */
+  const reread = useCallback((made: Created) => refresh(made), [refresh]);
+
+  return { request, open, close, created, reread };
 }
 
 export type Wizards = ReturnType<typeof useWizards>;

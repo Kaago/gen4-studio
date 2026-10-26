@@ -95,6 +95,8 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     (ref: EventRef | null) => (ref ? setPinned({ kind: "event", eventFile: ref.file, eventKind: ref.kind, index: ref.index }) : unpinSelection()),
     [setPinned, unpinSelection],
   );
+  /** A click on the ground of the scene chose a map: its cell of `matrix` is pinned (the inspector shows the map, the scene frames it). */
+  const onSelectCell = useCallback((matrix: number, cell: { x: number; y: number }) => setPinned({ kind: "matrixCell", matrix, x: cell.x, y: cell.y }), [setPinned]);
   // Stable while the same event stays pinned (also when it is pinned again), so the memoised scene is not disturbed.
   const pinnedEvent = pinned.kind === "event" ? pinned : null;
   const [eventFile, eventKind, eventIndex] = [pinnedEvent?.eventFile, pinnedEvent?.eventKind, pinnedEvent?.index];
@@ -281,6 +283,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
     onPin,
     onSelectBuilding,
     onSelectEvent,
+    onSelectCell,
     onEventMoved,
     onEventChanged,
     onBuildingMoved,
