@@ -2,7 +2,7 @@
 
 Stand: 2026-10-26. Phase 3f „Weltmodell“ baut das Weltmodell in Teilphasen aus: 3f.1 Raster nach Tüfteln, 3f.2 Eigene Orte, 3f.3 Leichter Patch, optional 3f.4 Nahtlos und Abspalten. Jede Teilphase hat unten ihren Teil mit eigener Ergebnistabelle; am Ende steht das Gesamtgate aus [docs/ROADMAP.md](ROADMAP.md) („Phase 3f: Weltmodell“, Absatz „Gate:“).
 
-Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md).
+Grundlagen: [docs/research/2026-10-25-ausbau/entscheidungen.md](research/2026-10-25-ausbau/entscheidungen.md) (Tabelle „Weltmodell“), [gutachten-a-weltmodell.md](research/2026-10-25-ausbau/gutachten-a-weltmodell.md) (Variante B). Pläne: [3f.1](superpowers/plans/2026-10-26-phase-3f1-raster-nach-tuefteln.md), [3f.2](superpowers/plans/2026-10-26-phase-3f2-eigene-orte.md).
 
 Wer was prüft: Die Spalte „Wer“ sagt **Agent** (Test-Umgebung aus [docs/agent-gate.md](agent-gate.md): Browser-Fenster mit `studio-bridge`, `call.sh`), **Agent + Blick** (der Agent prüft und beschreibt Ort und Zahlen, der Nutzer bestätigt kurz am Bild) oder **Hand** (der Nutzer).
 
@@ -61,3 +61,37 @@ Befunde von 3f.1 (behoben in `16d19c5`, nachgeprüft):
 5. Inspector „Karte“ eines Raums sprach von der Weltkarte („Die Weltkarte hat keinen Abschnitt für Gebiete.“); in Bauen entfällt die Notiz, außerhalb heißt es „Die Zelle liegt außerhalb der Karten (W × H).“
 
 Gesehen, nicht behoben (klein): im Inspector „Karte“ steht in Bauen das Gebiet als Nummer mit Verweis („Gebiet 411“, „Gebiet 0411“), der Picker „Gehört zu“ aus dem Gutachten fehlt; der Kopf eines außerhalb liegenden oder noch ladenden Felds sagt „Weltkarte NNNN“.
+
+## Teil 3f.2: Eigene Orte
+
+Lieferumfang (Roadmap): Kernel `create_place`, `rename_place`, `assign_place` (Nachricht an die Ortsnamen-Bank anhängen, Platin Archiv 433, HGSS 279; `location_name` mehrerer Header in einem Undo-Schritt; Ortsnamen aus dem Store statt von der Platte), Prüfungen (Index ≤ 255, Warnung ab 17 Zeichen, HGSS mit 21 freien Plätzen und Wiederverwendung ungenutzter Sinnoh-Namen mit Warnsatz); Inspector „Ort“ als Picker, „Neuer Ort…“ im +-Menü (im Assistenten mit dem Schritt „Ort“ in 3f.3); `docs/formats/map_header.md`. Dazu `place_slots` und die Prüfungen `place.name-too-long`, `place.index-out-of-bank` (41 Prüfungen).
+
+| Punkt | Prüfung | Wer |
+|---|---|---|
+| (2.1) Picker „Ort“ | Inspector eines Gebiets: Feld „Ort“ mit Ortsfarbe und Name (`button[data-place-picker]`), „Ort wählen“ listet alle Namen der Bank mit Zahl der Gebiete und Räume, Fußzeile „Neuer Ort…“ | Agent |
+| (2.2) Neuer Ort | „+“ in „In dieser Szene“ › „Neuer Ort…“: Dialog „Neuer Ort“ mit „Name des Orts“ und „Mitnehmen“ (Gebiet und Räume vorgewählt), „Neuheim“ anlegen: Toast „Ort „Neuheim“ angelegt“, Baum zeigt das Gebiet als „Neuheim“, Verlauf ein Schritt, ungespeichert `TextArchive 433` und `HeaderTable` | Agent |
+| (2.3) Undo und Redo | ⌘Z: Baum wieder „Zweiblattdorf“; ⌘⇧Z: wieder „Neuheim“ | Agent |
+| (2.4) Lange Namen | ab 17 Zeichen die Notiz „Länger als 16 Zeichen: im Spiel kann der Name abgeschnitten werden.“ | Agent |
+| (2.5) Umbenennen | Kopfmenü „Aktionen“ › „Ort umbenennen…“: Dialog mit dem Namen und dem Satz „Trifft alle N Gebiete und Räume mit diesem Ort und den Fundort gefangener Pokémon.“ | Agent |
+| (2.6) Plätze | `place_slots`: Platin 126 Namen, 130 frei; HeartGold DE Bank 279, 235 Namen, 21 frei, unbenutzte Sinnoh-Namen wiederverwendbar | Agent |
+| (2.7) Prüfungen | `run_checks` 0 Fehler mit dem neuen Ort; gated `vanilla_checks` auf Kopien von Platin DE, HeartGold DE und US mit 0 für beide neuen Codes | Agent |
+| (2.8) Im Spiel | Szenario `pt-neuer-ort.yaml`: `create_place` „Neuheim“ nur für den Außen-Header 0411, bauen, in `g4emu` aus dem Haus treten: Einblendung „Neuheim“ | Agent + Blick |
+
+### Ergebnis 3f.2
+
+Stand: bis `c344ea1`, Test-Umgebung 1470/1471 (nach den Rust-Änderungen neu gestartet), Kopien `3f2-pt`, `3f2-hgd`, für das Szenario `3f2e-pt` (erster Lauf, Weg angepasst) und `3f2f-pt`; gated Läufe auf `3f-pt`, `3f-hgd`, `3f-hgu`.
+
+| Datum | Projekt | Punkt | Ergebnis | Auffälligkeiten |
+|---|---|---|---|---|
+| 2026-10-26 | 3f2-pt | (2.1) | bestanden: Feld „Ort“ mit Punkt und „Zweiblattdorf“; „Ort wählen“ mit 126 Einträgen, zuerst „Kein Ort (Mysteriöser Ort)“, „Zweiblattdorf“, „Sandgemme“, „Flori“; Fußzeile „Neuer Ort…“ | Zählung damals je Header („7 Gebiete und Räume“), seit `c344ea1` je Gebiet |
+| 2026-10-26 | 3f2-pt | (2.2) | bestanden: Kästchen Zweiblattdorf, Haus 1, Haus 1 1. Stock, Haus 2, Haus 2 1. Stock, Haus 3, Haus 4 vorgewählt; „Neuheim“: Toast, Baumzeile `w0:126` „Neuheim, 6 Räume“, Brotkrume „Neuheim › Gebiet 0411“, `history` `["Ort „Neuheim“ angelegt"]`, `dirty` TextArchive 433 und HeaderTable | – |
+| 2026-10-26 | 3f2-pt | (2.3) | bestanden: ⌘Z → `w0:1` „Zweiblattdorf, 6 Räume“, ⌘⇧Z → „Neuheim“ | – |
+| 2026-10-26 | 3f2-pt | (2.4) | bestanden: „Neuheim am langen Fluss“ zeigt die Notiz | – |
+| 2026-10-26 | 3f2-pt | (2.5) | bestanden: „Ort umbenennen“, Feld mit „Neuheim“, „Trifft alle 7 Gebiete und Räume mit diesem Ort und den Fundort gefangener Pokémon.“ (abgebrochen) | seit `c344ea1` gezählt je Gebiet |
+| 2026-10-26 | 3f2-pt, 3f2-hgd | (2.6) | bestanden: Platin nach dem neuen Ort `{bank 433, count 127, free 129, reusable []}`; HeartGold DE `bank 279, count 235, free 21`, 112 wiederverwendbare Sinnoh-Namen (1, 2, 3, 4, 5, 7, …) | – |
+| 2026-10-26 | 3f2-pt, Kopien | (2.7) | bestanden: `run_checks` 0 Fehler, kein `place.*`; gated `vanilla_checks` auf `3f-pt`, `3f-hgd`, `3f-hgu` je 3 Tests ok (SOLL 0 für beide Codes) | – |
+| 2026-10-26 | 3f2f-pt | (2.8) | bestanden: Szenario `pt-neuer-ort` exit 0, Header 415 → 414 → 411; Bild `target/agent/gate-2026-10-26/pt-neuer-ort/einblendung.png`: oben links die Einblendung „Neuheim“ vor dem Spielerhaus (Blick beim Nutzer) | erster Lauf auf `3f2e-pt` blieb im Zimmer stehen (Startpunkt des Spielstands x 7, y 4); Weg angepasst |
+
+Befunde der Abschlussprüfung von 3f.2 (behoben in `c344ea1`): die Bank-Nummer konnte beim schnellen Bestätigen noch fehlen (die offene Nachrichtentabelle blieb dann alt); die Zahl der Nutzer zählte Abschnitte eines Gebiets einzeln; „Ort anlegen“ und „Umbenennen“ gingen mit leerem Namen (der Kernel lehnte erst danach ab); Namen behielten Leerzeichen am Rand; `plan_empty_region` las Ortsnamen von der Platte; der Prüftext setzte den Namen ohne Anführungszeichen.
+
+Offen (Blick beim Nutzer, Recherche): ob HeartGold Namen ab Index 235 im Spiel richtig zeigt, prüft das Gesamtgate mit `hg-neuheim.yaml`; Stadtkarte und Flugziele neuer Orte sind nicht Teil von 3f.
