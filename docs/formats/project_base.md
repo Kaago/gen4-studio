@@ -110,13 +110,20 @@ ds-rom komprimiert beim Laden eines Projekts das ARM9 und jedes Overlay mit `com
 
 | Datei | Schlüssel |
 |---|---|
-| `ov<NNN>-<xxh3>.blz` | `NNN` die Overlay-ID, `xxh3` (16 Hex-Ziffern) über die unkomprimierten Bytes |
-| `arm9-<xxh3>.blz` | `xxh3` über die unkomprimierten Bytes mit der Basisadresse als Seed (sie steht nach dem Komprimieren in der Build-Info) |
+| `ov<NNN>-<xxh3>.blz` | `NNN` die Overlay-ID, `xxh3` über die unkomprimierten Bytes |
+| `arm9-<xxh3>.blz` | `xxh3` über die unkomprimierten Bytes, dazu die Basisadresse |
+
+`xxh3` hat 16 Hex-Ziffern, sein Seed ist der Hash der `Cargo.lock`-Zeile von ds-rom (beim ARM9
+mit der Basisadresse, die nach dem Komprimieren in der Build-Info steht). Nach einem Update von
+ds-rom trifft darum kein alter Eintrag mehr, auch wenn der Kompressor andere Bytes schreibt.
 
 Ein Treffer setzt die Bytes als komprimiertes Modul ein, ein Fehlschlag komprimiert wie ds-rom
-und legt die Datei ab (über `tmp/` und Umbenennen). Die ROM ist dieselbe wie mit ds-roms eigener
-Kompression (gated Test `blz_cache_path_equals_rom_load` je Projekt). Signiert
-`arm9_overlays/overlays.yaml` ein Overlay oder die Tabelle, lädt der Build wie ds-rom mit
-Kompression (`BlzReport.fallback`); in Platin und HeartGold kommt das nicht vor. In den
-DSPRE-Ordnern von HeartGold DE und US liegen nach dem ersten Build 128 Dateien im Ordner (127 von
-129 Overlays und das ARM9), in dem von Platin DE keine (dort ist nichts als komprimiert markiert). Alte Einträge bleiben liegen, bis der Ordner gelöscht wird.
+und legt die Datei ab (über `tmp/` und Umbenennen). Passt die Fußzeile einer Datei nicht zum
+Modul (Länge, Kopflänge, Zuwachs beim Entpacken), etwa weil sie abgeschnitten ist, gilt sie als
+Fehlschlag und wird überschrieben. Die ROM ist dieselbe wie mit ds-roms eigener Kompression
+(gated Test `blz_cache_path_equals_rom_load` je Projekt). Signiert `arm9_overlays/overlays.yaml`
+ein Overlay oder die Tabelle, lädt der Build wie ds-rom mit Kompression (`BlzReport.fallback`);
+in Platin und HeartGold kommt das nicht vor. In den DSPRE-Ordnern von HeartGold DE und US liegen
+nach dem ersten Build 128 Dateien im Ordner (127 von 129 Overlays und das ARM9), in dem von
+Platin DE keine (dort ist nichts als komprimiert markiert). Alte Einträge bleiben liegen, bis der
+Ordner gelöscht wird.

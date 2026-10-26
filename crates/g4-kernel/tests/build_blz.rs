@@ -66,6 +66,36 @@ fn blz_cache_path_equals_rom_load() {
         assert_eq!(warm.overlays.total, 0);
         assert_eq!(warm.arm9.total, 0);
     }
+
+    // A truncated cache file (one overlay, and the ARM9) is a miss: recompressed, rewritten,
+    // and the ROM is still the reference.
+    let blz = root.join(BUILD_DIR).join("blz");
+    let mut truncated = 0;
+    for prefix in ["ov", "arm9-"] {
+        let Some(path) = std::fs::read_dir(&blz).ok().and_then(|entries| {
+            entries
+                .map(|e| e.unwrap().path())
+                .find(|p| p.file_name().unwrap().to_str().unwrap().starts_with(prefix))
+        }) else {
+            continue;
+        };
+        let bytes = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &bytes[..bytes.len() - 100]).unwrap();
+        truncated += 1;
+    }
+    let (rom, damaged) = load_rom(&p).unwrap();
+    let d = build_bytes(rom);
+    eprintln!("after truncating {truncated} files: {damaged:?}");
+    assert!(a == d, "a truncated cache file reached the ROM");
+    let cached = damaged.overlays.cached + damaged.arm9.cached;
+    let total = damaged.overlays.total + damaged.arm9.total;
+    assert_eq!(cached + truncated, total);
+    let (_, again) = load_rom(&p).unwrap();
+    assert_eq!(
+        again.overlays.cached + again.arm9.cached,
+        total,
+        "rewritten"
+    );
 }
 
 #[test]
