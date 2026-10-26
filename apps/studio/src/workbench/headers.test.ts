@@ -4,7 +4,7 @@ import { filterHeaders, headerLabel, mapOfHeader, showsMatrix } from "./headers"
 
 const header = (id: number, internal_name: string, location_name: string): HeaderSummary => ({
   id,
-  internal_name,
+  internal_name, location_index: 0, kanto: false,
   location_name,
   matrix_id: 0,
   area_data_id: 0,

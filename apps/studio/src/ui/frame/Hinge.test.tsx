@@ -17,7 +17,7 @@ const labels = (n: number) => Array.from({ length: n }, (_, i) => `Schritt ${i +
 describe("Hinge", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = () => ({ onDepth: vi.fn(), onProblems: vi.fn(), onUndoTo: vi.fn(), onRedo: vi.fn(), onPlay: vi.fn(), onDragHeight: vi.fn(), onToggleCollapse: vi.fn() });
+  const handlers = () => ({ onDepth: vi.fn(), onProblems: vi.fn(), onUndoTo: vi.fn(), onRedo: vi.fn(), onPlay: vi.fn() });
   const base = (over: Partial<HingeProps> = {}): HingeProps => ({
     crumbs: [{ label: "Zweiblattdorf" }, { label: "Zweiblattdorf", tech: "0414" }],
     depth: "bauen",
@@ -251,6 +251,43 @@ describe("Hinge", () => {
     expect(button(/Hier spielen/)).toBeUndefined();
   });
 
+  it("maximizes_the_view_with_its_button_and_says_so", async () => {
+    // Only a hinge over a dock with a view has the button.
+    show(base());
+    expect(container.querySelector('button[aria-label="Schau maximieren"]')).toBeNull();
+    const onMaximize = vi.fn();
+    show(base({ maximized: false, onMaximize }));
+    const maximize = () => container.querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
+    expect(maximize().getAttribute("aria-pressed")).toBe("false");
+    // An icon button in the right cluster, just before „Hier spielen“.
+    const right = [...maximize().closest("div")!.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(right.slice(-2)).toEqual(["Schau maximieren", "Hier spielen"]);
+    expect(maximize().textContent).toBe("");
+    act(() => maximize().click());
+    expect(onMaximize).toHaveBeenCalledOnce();
+    // While the view is maximized the button is pressed (a click restores it).
+    show(base({ maximized: true, onMaximize }));
+    expect(maximize().getAttribute("aria-pressed")).toBe("true");
+    act(() => maximize().click());
+    expect(onMaximize).toHaveBeenCalledTimes(2);
+    // Its tooltip names it.
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        maximize().dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        maximize().dispatchEvent(new MouseEvent("mouseenter"));
+        maximize().dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Schau maximieren");
+    } finally {
+      vi.useRealTimers();
+    }
+    // In the wizard's mode the bar shows the wizard only.
+    show(base({ maximized: false, onMaximize, wizard: true }));
+    expect(container.querySelector('button[aria-label="Schau maximieren"]')).toBeNull();
+  });
+
   it("has_a_hidden_slot_for_the_wizard_bar_only_where_wizards_show", () => {
     show(base());
     expect(container.querySelector("[data-wizard-bar]")).toBeNull();
@@ -260,107 +297,23 @@ describe("Hinge", () => {
     expect(container.querySelector("nav")).not.toBeNull();
   });
 
-  it("shows_the_wizard_slot_instead_of_its_content_and_keeps_the_grip_without_collapsing", () => {
-    const props = base({ wizard: true });
-    show(props);
+  it("shows_the_wizard_slot_instead_of_its_content", () => {
+    show(base({ wizard: true }));
     const slot = container.querySelector<HTMLElement>("[data-wizard-bar]")!;
     expect(slot.hidden).toBe(false);
     expect(container.querySelector("nav")).toBeNull();
     expect(button(/Hier spielen/)).toBeUndefined();
-    const grip = container.querySelector<HTMLElement>("[data-hinge-grip]")!;
-    expect(grip).not.toBeNull();
-    // The hand stays open while the wizard works in it.
-    act(() => void grip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    act(() => void grip.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
-    expect(props.onToggleCollapse).not.toHaveBeenCalled();
   });
 
-  describe("grip", () => {
-    const grip = () => container.querySelector<HTMLElement>("[data-hinge-grip]")!;
-    /** A hinge whose bottom edge is at y 600 inside a deck that ends at y 886: the hand is 286 px high. */
-    function geometry() {
-      const rect = (bottom: number) => ({ bottom, top: bottom - 44, height: 44, left: 0, right: 100, width: 100, x: 0, y: bottom - 44, toJSON: () => ({}) }) as DOMRect;
-      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-        return this.getAttribute("role") === "toolbar" ? rect(600) : rect(886);
-      });
-    }
-    const pointer = (el: Element, type: string, clientY: number) => {
-      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
-      Object.defineProperty(event, "pointerId", { value: 1 });
-      act(() => void el.dispatchEvent(event));
-    };
-
-    beforeEach(() => {
-      Element.prototype.setPointerCapture = vi.fn();
-      Element.prototype.releasePointerCapture = vi.fn();
-      Element.prototype.hasPointerCapture = vi.fn(() => true);
-    });
-    afterEach(() => vi.restoreAllMocks());
-
-    it("sets_the_hand_height_while_dragging_with_the_pointer_captured_by_the_pressed_element", () => {
-      const props = base();
-      show(props);
-      geometry();
-      pointer(grip(), "pointerdown", 580);
-      // The grip itself holds the pointer: a click goes to the capturing element, and the grip's double click must reach the grip.
-      expect(vi.mocked(Element.prototype.setPointerCapture).mock.contexts).toEqual([grip()]);
-      pointer(grip(), "pointermove", 480);
-      // The pointer moved 100 px up: the hand grows from 286 to 386.
-      expect(props.onDragHeight).toHaveBeenLastCalledWith(386);
-      pointer(grip(), "pointermove", 600);
-      expect(props.onDragHeight).toHaveBeenLastCalledWith(266);
-      pointer(grip(), "pointerup", 600);
-      vi.mocked(props.onDragHeight).mockClear();
-      pointer(grip(), "pointermove", 100);
-      expect(props.onDragHeight).not.toHaveBeenCalled();
-    });
-
-    it("keeps_the_height_between_200_and_560", () => {
-      const props = base();
-      show(props);
-      geometry();
-      pointer(grip(), "pointerdown", 580);
-      pointer(grip(), "pointermove", -2000);
-      expect(props.onDragHeight).toHaveBeenLastCalledWith(560);
-      pointer(grip(), "pointermove", 5000);
-      expect(props.onDragHeight).toHaveBeenLastCalledWith(200);
-    });
-
-    it("drags_from_an_empty_part_of_the_bar_but_not_from_a_button", () => {
-      const props = base();
-      show(props);
-      geometry();
-      pointer(bar(), "pointerdown", 580);
-      pointer(bar(), "pointermove", 530);
-      expect(props.onDragHeight).toHaveBeenLastCalledWith(336);
-      pointer(bar(), "pointerup", 530);
-      vi.mocked(props.onDragHeight).mockClear();
-      pointer(button("Wiederholen")!, "pointerdown", 580);
-      pointer(bar(), "pointermove", 500);
-      expect(props.onDragHeight).not.toHaveBeenCalled();
-    });
-
-    it("does_not_start_a_drag_from_a_press_in_the_history_menu_which_React_delivers_through_the_portal", () => {
-      const props = base({ history: { undo: ["a", "b"], redo: [] } });
-      show(props);
-      geometry();
-      const [item] = openMenu(button(/Verlauf/)!);
-      pointer(item!, "pointerdown", 580);
-      pointer(bar(), "pointermove", 500);
-      expect(props.onDragHeight).not.toHaveBeenCalled();
-      expect(Element.prototype.setPointerCapture).not.toHaveBeenCalled();
-    });
-
-    it("collapses_and_expands_on_a_double_click_or_the_keyboard", () => {
-      const props = base();
-      show(props);
-      act(() => void grip().dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
-      expect(props.onToggleCollapse).toHaveBeenCalledOnce();
-      // A single mouse click only starts a drag; Enter and Space arrive as a click without a click count.
-      act(() => void grip().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 })));
-      expect(props.onToggleCollapse).toHaveBeenCalledOnce();
-      act(() => void grip().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 })));
-      expect(props.onToggleCollapse).toHaveBeenCalledTimes(2);
-    });
+  it("has_no_grip_and_does_not_resize_on_a_drag", () => {
+    show(base());
+    expect(container.querySelector("[data-hinge-grip]")).toBeNull();
+    expect(button(/Hand ein- oder ausklappen/)).toBeUndefined();
+    // The splitter between view and hand sets the height; the bar takes no pointer capture.
+    Element.prototype.setPointerCapture = vi.fn();
+    const down = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientY: 580 });
+    Object.defineProperty(down, "pointerId", { value: 1 });
+    act(() => void bar().dispatchEvent(down));
+    expect(Element.prototype.setPointerCapture).not.toHaveBeenCalled();
   });
 });

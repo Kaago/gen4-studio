@@ -9,7 +9,7 @@ export type InspectorRowProps = {
   children: ReactNode;
 };
 
-/** One labelled field of the inspector: a 116 px label column and the control. */
+/** One labelled field of the inspector: a 116 px label column and the control; in a narrow inspector the label above the control. */
 export function InspectorRow({ label, deviates, hint, children }: InspectorRowProps) {
   return (
     <div className={`${styles.row} ${deviates ? styles.deviates : ""}`}>

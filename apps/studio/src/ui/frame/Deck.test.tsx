@@ -1,17 +1,21 @@
 // @vitest-environment jsdom
-import type { DockviewApi, IDockviewPanelProps } from "dockview-react";
+import { readFileSync } from "node:fs";
+import type { DockviewApi, DockviewGroupPanel, IDockviewPanelProps } from "dockview-react";
 import { act } from "react";
 import type { FunctionComponent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DECK_PANELS, layoutKey } from "../../workbench/layout";
-import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AREA_PANELS, arrangementKey, layoutKey } from "../../workbench/layout";
 import type { PanelId } from "../../workbench/layout";
+import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { Deck, resetLayout } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
 import type { ShellApi } from "./ShellContext";
-import { HAND_DEFAULT, readShellState, writeShellState } from "./shellState";
+import { HAND_DEFAULT } from "./shellState";
+
+/** The deck's stylesheet as written (jsdom applies no CSS Modules), read from the package root vitest runs in. */
+const deckCss = readFileSync("src/ui/frame/Deck.module.css", "utf8");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no ResizeObserver; dockview watches its container with one.
@@ -21,20 +25,27 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 } as unknown as typeof ResizeObserver;
 
-interface Node {
+interface GridNode {
   type: "leaf" | "branch";
-  data: Node[] | { views: string[] };
+  data: GridNode[] | { views: string[] };
 }
-/** The groups of a serialized grid in layout order, each as its list of panel ids. */
-const groups = (node: Node): string[][] => (node.type === "leaf" ? [(node.data as { views: string[] }).views] : (node.data as Node[]).flatMap(groups));
-const layoutOf = (api: DockviewApi) => groups(api.toJSON().grid.root as unknown as Node);
+/** The grid as nested lists: a group as its panel ids, a split as the list of its parts; a split of one part is that part. */
+const shape = (node: GridNode): unknown => {
+  if (node.type === "leaf") return (node.data as { views: string[] }).views;
+  const parts = node.data as GridNode[];
+  return parts.length === 1 ? shape(parts[0]!) : parts.map(shape);
+};
+const layoutOf = (api: DockviewApi) => shape(api.toJSON().grid.root as unknown as GridNode);
+/** The Werkbank: the view above script and problems, the inspector right of both. */
+const WERKBANK = [
+  [
+    ["world", "matrix", "worldmap"],
+    ["script", "problems"],
+  ],
+  ["inspector"],
+];
 /** Lets dockview announce what it changed: its layout event comes a tick after the change. */
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
-/** Moves a panel into a group of its own, to the right of everything. */
-const split = async (api: DockviewApi, panel: string) => {
-  act(() => void api.getPanel(panel)!.api.moveTo({ group: api.addGroup({ direction: "right" }) }));
-  await settle();
-};
 
 const leaf = (...views: string[]) => ({ type: "leaf", data: { views, activeView: views[0], id: views.join("+") }, size: 100 });
 /** A serialized dockview layout with these groups side by side. */
@@ -45,43 +56,57 @@ const stored = (...grouped: string[][]) => ({
 
 const Empty: FunctionComponent<IDockviewPanelProps> = () => null;
 const components = (ids: PanelId[]) => Object.fromEntries(ids.map((id) => [id, Empty]));
-const SCHAU = components(["world", "matrix", "worldmap"]);
-const HAND = components(["tools", "inspector", "script", "problems", "context"]);
-const TEXT_SCHAU = components(["textView"]);
-const TEXT_HAND = components(["textEdit", "problems"]);
+const WELT = components(["world", "matrix", "worldmap", "inspector", "script", "problems"]);
+const TEXTE = components(["textView", "textEdit", "problems"]);
 
 describe("Deck", () => {
   let container: HTMLElement;
   let root: Root;
   let shell: ShellApi;
-  const schauRef = { current: null as DockviewApi | null };
-  const handRef = { current: null as DockviewApi | null };
+  const dockRef = { current: null as DockviewApi | null };
 
   function Probe() {
     shell = useShell();
     return null;
   }
-  /** Renders the deck (again: the docks stay); `wizard` as App gives it to the world's deck. */
+  /** Renders the deck (again: the dock stays); `wizard` as App gives it to the world's deck. */
   const render = async (area: "welt" | "texte", wizard?: boolean) => {
-    const [schauComponents, handComponents] = area === "welt" ? [SCHAU, HAND] : [TEXT_SCHAU, TEXT_HAND];
     await act(async () =>
       root.render(
         <ShellProvider initialArea={area}>
           <Probe />
-          <Deck area={area} schauComponents={schauComponents} handComponents={handComponents} schauRef={schauRef} handRef={handRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
+          <Deck area={area} components={area === "welt" ? WELT : TEXTE} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
         </ShellProvider>,
       ),
     );
   };
+  /** Mounts a fresh deck (a deck already there is unmounted first). */
   const mount = async (area: "welt" | "texte" = "welt", wizard?: boolean) => {
-    schauRef.current = null;
-    handRef.current = null;
+    act(() => root.unmount());
+    root = createRoot(container);
+    dockRef.current = null;
     await render(area, wizard);
   };
-  const schau = () => schauRef.current!;
-  const hand = () => handRef.current!;
-  const dock = (which: "schau" | "hand") => container.querySelector<HTMLElement>(`[data-dock="${which}"]`)!;
-  const headerHidden = (api: DockviewApi, panel: string) => api.getPanel(panel)!.group.header.hidden;
+  const api = () => dockRef.current!;
+  const dock = () => container.querySelector<HTMLElement>("[data-dock]")!;
+  const tab = (title: string) => [...dock().querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === title)!;
+  /** Opens the context menu of a tab the way a right click does and returns its items. */
+  const menu = async (title: string) => {
+    await act(async () => void tab(title).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    return [...document.querySelectorAll<HTMLElement>('.dv-context-menu [role="menuitem"]')];
+  };
+  const choose = async (title: string, label: string) => {
+    const item = (await menu(title)).find((i) => i.textContent === label)!;
+    await act(async () => item.click());
+    await settle();
+  };
+  const groupOf = (id: string) => api().getPanel(id)!.group;
+  /** Fires what dockview fires before it shows a drop overlay (a drag over a group); true when the deck refused it. */
+  const overlay = (group: DockviewGroupPanel, kind: string, position: string) => {
+    const event = { group, kind, position, preventDefault: vi.fn(), get defaultPrevented() { return event.preventDefault.mock.calls.length > 0; } };
+    (api() as unknown as { component: { _onWillShowOverlay: { fire: (e: unknown) => void } } }).component._onWillShowOverlay.fire(event);
+    return event.defaultPrevented;
+  };
 
   beforeEach(() => {
     localStorage.clear();
@@ -92,254 +117,366 @@ describe("Deck", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
     scriptDirtyStore.set(0);
   });
 
-  it("renders_two_docks_with_the_hinge_between_them", async () => {
+  it("renders_one_dock_per_area_with_the_hinge_above", async () => {
     await mount();
-    expect(dock("schau")).not.toBeNull();
-    expect(dock("hand")).not.toBeNull();
+    expect(container.querySelectorAll("[data-dock]")).toHaveLength(1);
+    expect(dock().id).toBe("dock-welt");
+    expect(dock().getAttribute("data-dock")).toBe("welt");
+    // Every panel of the area is in the one dock; the deck has no splitter of its own (the sash between groups is dockview's).
+    expect(api().panels.map((p) => p.id).sort()).toEqual(AREA_PANELS.welt.map((p) => p.id).sort());
+    expect(container.querySelector("[data-splitter]")).toBeNull();
     const hinge = container.querySelector('[role="toolbar"]')!;
-    expect(dock("schau").compareDocumentPosition(hinge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(hinge.compareDocumentPosition(dock("hand")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Each dock is its own dockview in its own container; the panels of one are not in the other.
-    expect(dock("schau").contains(dock("hand"))).toBe(false);
-    expect(schau()).not.toBe(hand());
-    // Dockview numbers its instances; two in one document must not share an id (drag and drop tells them apart by it).
-    expect(schau().id).not.toBe(hand().id);
+    expect(Boolean(hinge.compareDocumentPosition(dock()) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    await mount("texte");
+    expect(dock().id).toBe("dock-texte");
+    expect(dock().getAttribute("data-dock")).toBe("texte");
   });
 
-  it("builds_the_default_layouts_of_both_docks", async () => {
+  it("builds_the_default_arrangement_and_remembers_it_under_v11", async () => {
     await mount();
-    expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
-    expect(schau().panels.map((p) => p.id).sort()).toEqual(DECK_PANELS.welt.schau.map((p) => p.id).sort());
-    expect(hand().panels.map((p) => p.id).sort()).toEqual(DECK_PANELS.welt.hand.map((p) => p.id).sort());
-    // The scene is what the view opens with, the inspector what the hand opens with.
-    expect(schau().activePanel?.id).toBe("world");
-    expect(hand().activePanel?.id).toBe("inspector");
-  });
-
-  it("restores_a_stored_layout_of_each_dock", async () => {
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"], ["worldmap"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector"], ["script", "problems"], ["context"])));
-    await mount();
-    expect(layoutOf(schau())).toEqual([["world", "matrix"], ["worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector"], ["script", "problems"], ["context"]]);
-  });
-
-  it("resets_only_the_view_when_its_stored_layout_is_unusable", async () => {
-    // The view's layout lacks a panel (a layout of another panel set); the hand's was arranged by the user.
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world", "matrix"])));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector"], ["script", "problems"], ["context"])));
-    await mount();
-    expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector"], ["script", "problems"], ["context"]]);
-  });
-
-  it("resets_only_the_hand_when_its_stored_json_is_broken_and_keeps_the_view", async () => {
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(stored(["world"], ["matrix", "worldmap"])));
-    localStorage.setItem(layoutKey("welt", "hand"), "{not json");
-    await mount();
-    expect(layoutOf(schau())).toEqual([["world"], ["matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
-  });
-
-  it("falls_back_to_the_default_of_a_dock_whose_stored_grid_cannot_be_restored", async () => {
-    // Right panels, but a grid dockview refuses.
-    const broken = { ...stored(["world", "matrix", "worldmap"]), grid: { root: { type: "nonsense" } } };
-    localStorage.setItem(layoutKey("welt", "schau"), JSON.stringify(broken));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector"], ["script", "problems"], ["context"])));
-    await mount();
-    expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector"], ["script", "problems"], ["context"]]);
-  });
-
-  it("falls_back_to_the_default_of_a_world_hand_that_still_has_the_text_panel", async () => {
-    // What v7 stored: the text panel was a tab of the world's hand. Under the old key and under the new one it is not restored.
-    const v7 = JSON.stringify(stored(["tools"], ["inspector", "text"], ["script", "problems"], ["context"]));
-    localStorage.setItem("g4.layout.v7.welt.hand", v7);
-    localStorage.setItem(layoutKey("welt", "hand"), v7);
-    await mount();
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
-    expect(hand().getPanel("text")).toBeUndefined();
-  });
-
-  it("ignores_the_layout_stored_by_the_single_dock_version", async () => {
-    localStorage.setItem("g4.layout.v5", JSON.stringify(stored(["world", "matrix", "worldmap"])));
-    await mount();
-    expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-  });
-
-  it("remembers_each_dock_under_its_own_key", async () => {
-    await mount();
-    await split(schau(), "worldmap");
-    const savedSchau = JSON.parse(localStorage.getItem(layoutKey("welt", "schau"))!);
-    expect(Object.keys(savedSchau.panels).sort()).toEqual(["matrix", "world", "worldmap"]);
-    expect(groups(savedSchau.grid.root)).toEqual([["world", "matrix"], ["worldmap"]]);
-    // The hand's key still holds the hand's panels and nothing of the view.
-    const savedHand = JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!);
-    expect(Object.keys(savedHand.panels).sort()).toEqual(["context", "inspector", "problems", "script", "tools"]);
-  });
-
-  it("hides_the_tab_bar_of_a_group_with_one_panel_and_shows_it_from_two_panels", async () => {
-    await mount();
-    // Three panels in one group: tab bar.
-    expect(headerHidden(schau(), "world")).toBe(false);
-    // Moving one out leaves a group of one (no tab bar) and a group of two (tab bar).
-    await split(schau(), "worldmap");
-    expect(headerHidden(schau(), "worldmap")).toBe(true);
-    expect(headerHidden(schau(), "world")).toBe(false);
-    expect(headerHidden(schau(), "matrix")).toBe(false);
-    // The hand is not touched by the view's change.
-    expect(headerHidden(hand(), "inspector")).toBe(false);
-    // Another one out: two groups of one, one of ... world alone, matrix alone, worldmap alone.
-    await split(schau(), "matrix");
-    expect(["world", "matrix", "worldmap"].map((p) => headerHidden(schau(), p))).toEqual([true, true, true]);
-    // Back into one group: the tab bar returns.
-    act(() => void schau().getPanel("matrix")!.api.moveTo({ group: schau().getPanel("world")!.group }));
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    // 3D in front, the view group active; each other group opens with its first panel.
+    expect(api().activePanel?.id).toBe("world");
+    expect(api().getPanel("script")!.api.isVisible).toBe(true);
+    expect(api().getPanel("inspector")!.api.isVisible).toBe(true);
+    // The inspector beside the view keeps between 280 and 480 px.
+    expect([groupOf("inspector").minimumWidth, groupOf("inspector").maximumWidth]).toEqual([280, 480]);
     await settle();
-    expect(headerHidden(schau(), "world")).toBe(false);
-    expect(headerHidden(schau(), "matrix")).toBe(false);
-    expect(headerHidden(schau(), "worldmap")).toBe(true);
+    const saved = JSON.parse(localStorage.getItem(layoutKey("welt"))!);
+    expect(Object.keys(saved.panels).sort()).toEqual(["inspector", "matrix", "problems", "script", "world", "worldmap"]);
+    expect(shape(saved.grid.root)).toEqual(WERKBANK);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("g4.layout.")).every((k) => k === layoutKey("welt") || k === arrangementKey("welt"))).toBe(true);
+    await mount("texte");
+    expect(layoutOf(api())).toEqual([["textView"], ["textEdit", "problems"]]);
+    expect(api().activePanel?.id).toBe("textView");
+    expect(api().getPanel("textEdit")!.api.isVisible).toBe(true);
+    expect(Object.keys(JSON.parse(localStorage.getItem(layoutKey("texte"))!).panels).sort()).toEqual(["problems", "textEdit", "textView"]);
   });
 
-  it("hides_the_tab_bar_of_a_restored_group_with_one_panel", async () => {
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify(stored(["tools"], ["inspector", "script"], ["problems"], ["context"])));
+  it("restores_a_stored_layout", async () => {
+    localStorage.setItem(layoutKey("welt"), JSON.stringify(stored(["world", "matrix"], ["worldmap"], ["inspector", "script", "problems"])));
     await mount();
-    expect(headerHidden(hand(), "problems")).toBe(true);
-    expect(headerHidden(hand(), "inspector")).toBe(false);
+    expect(layoutOf(api())).toEqual([["world", "matrix"], ["worldmap"], ["inspector", "script", "problems"]]);
   });
 
-  it("gives_the_hand_the_remembered_height_and_the_view_the_rest", async () => {
+  it("restores_the_limits_of_the_inspector_beside_the_view", async () => {
     await mount();
-    expect(dock("hand").style.height).toBe(`${HAND_DEFAULT}px`);
-    expect(dock("hand").hidden).toBe(false);
-    act(() => shell.setHandHeight("welt", 400));
-    expect(dock("hand").style.height).toBe("400px");
-    expect(dock("schau").style.height).toBe("");
+    await settle();
+    const saved = localStorage.getItem(layoutKey("welt"))!;
+    await mount();
+    localStorage.setItem(layoutKey("welt"), saved);
+    await mount();
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect([groupOf("inspector").minimumWidth, groupOf("inspector").maximumWidth]).toEqual([280, 480]);
   });
 
-  it("hides_a_collapsed_hand_but_keeps_its_dock_mounted_and_remembers_the_height", async () => {
-    writeShellState({ ...readShellState(), handHeight: { ...readShellState().handHeight, welt: 333 } });
-    await mount();
-    const before = hand();
-    act(() => shell.toggleHandCollapsed("welt"));
-    expect(dock("hand").hidden).toBe(true);
-    expect(hand()).toBe(before);
-    expect(hand().panels).toHaveLength(DECK_PANELS.welt.hand.length);
-    act(() => shell.toggleHandCollapsed("welt"));
-    expect(dock("hand").hidden).toBe(false);
-    expect(dock("hand").style.height).toBe("333px");
+  it("falls_back_to_the_default_when_the_stored_layout_is_unusable_or_a_view_panel_floats", async () => {
+    const floatingWorld = {
+      ...stored(["matrix", "worldmap"], ["inspector", "script", "problems"]),
+      panels: Object.fromEntries(AREA_PANELS.welt.map((p) => [p.id, { id: p.id, contentComponent: p.id, title: p.title }])),
+      floatingGroups: [{ data: { views: ["world"], activeView: "world", id: "f" }, position: { left: 10, top: 10, width: 300, height: 300 } }],
+    };
+    const cases = [
+      // A panel is missing (a layout of another panel set).
+      JSON.stringify(stored(["world", "matrix"], ["inspector", "script", "problems"])),
+      // A panel of an older version is in it.
+      JSON.stringify(stored(["world", "matrix", "worldmap"], ["inspector", "script", "problems"], ["context"])),
+      // Not JSON.
+      "{not json",
+      // The right panels, but a grid dockview refuses.
+      JSON.stringify({ ...stored(["world", "matrix", "worldmap", "inspector", "script", "problems"]), grid: { root: { type: "nonsense" } } }),
+      // 3D floats (stored by hand): the view stays docked.
+      JSON.stringify(floatingWorld),
+    ];
+    for (const value of cases) {
+      localStorage.setItem(layoutKey("welt"), value);
+      await mount();
+      expect(layoutOf(api())).toEqual(WERKBANK);
+      expect(api().getPanel("world")!.api.location.type).toBe("grid");
+      expect(api().getPanel("context")).toBeUndefined();
+    }
   });
 
-  it("does_not_rebuild_a_dock_when_the_frame_state_changes", async () => {
+  it("shows_the_tab_bar_of_every_group", async () => {
     await mount();
-    const [a, b] = [schau(), hand()];
+    // Also the inspector alone in its group shows its tab.
+    for (const group of api().groups) expect(group.header.hidden).toBe(false);
+    expect(groupOf("inspector").element.querySelectorAll('[role="tab"]')).toHaveLength(1);
+    expect([...dock().querySelectorAll('[role="tab"]')].map((t) => t.textContent).sort()).toEqual(["3D", "Inspector", "Probleme", "Raster", "Script", "Weltkarte"]);
+    // Panels cannot be closed: no tab has a close button.
+    expect(dock().querySelector(".dv-default-tab-action")).toBeNull();
+  });
+
+  it("marks_groups_and_panels_with_data_attributes", async () => {
+    await mount();
+    const marked = [...dock().querySelectorAll<HTMLElement>("[data-dock-group]")];
+    expect(marked.map((g) => g.getAttribute("data-dock-group")).sort()).toEqual(api().groups.map((g) => g.id).sort());
+    expect(dock().querySelectorAll('[data-dock-group-kind="schau"]')).toHaveLength(1);
+    expect(groupOf("world").element.getAttribute("data-dock-group-kind")).toBe("schau");
+    expect(groupOf("inspector").element.hasAttribute("data-dock-group-kind")).toBe(false);
+    // Each panel is wrapped in its own element (dockview keeps the content of every panel rendered, over its group).
+    for (const p of AREA_PANELS.welt) expect(dock().querySelectorAll(`[data-dock-panel="${p.id}"]`)).toHaveLength(1);
+    // A group made later (the inspector floats) is marked too.
+    await choose("Inspector", "Schweben lassen");
+    expect(groupOf("inspector").element.getAttribute("data-dock-group")).toBe(groupOf("inspector").id);
+  });
+
+  it("marks_each_tab_with_its_panel_so_the_f6_round_finds_the_content_of_the_active_one", async () => {
+    await mount();
+    for (const p of AREA_PANELS.welt) expect(tab(p.title).querySelector("[data-dock-tab]")?.getAttribute("data-dock-tab")).toBe(p.id);
+    // The view group's active tab names the panel whose content shows over it.
+    const active = groupOf("world").element.querySelector<HTMLElement>(".dv-active-tab [data-dock-tab]")!;
+    expect(active.getAttribute("data-dock-tab")).toBe(groupOf("world").activePanel!.id);
+  });
+
+  it("does_not_let_a_view_panel_be_dragged", async () => {
+    await mount();
+    const drag = (title: string) => {
+      const event = new Event("dragstart", { bubbles: true, cancelable: true });
+      tab(title).dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(drag("3D")).toBe(true);
+    expect(drag("Weltkarte")).toBe(true);
+    expect(drag("Inspector")).toBe(false);
+  });
+
+  it("keeps_other_panels_out_of_the_view_group_as_tabs", async () => {
+    await mount();
+    expect(overlay(groupOf("world"), "tab", "center")).toBe(true);
+    expect(overlay(groupOf("world"), "content", "center")).toBe(true);
+    expect(overlay(groupOf("world"), "content", "right")).toBe(false);
+    expect(overlay(groupOf("script"), "content", "center")).toBe(false);
+  });
+
+  it("keeps_the_view_docked_on_a_shift_click_on_its_tab_or_its_header", async () => {
+    await mount();
+    // dockview floats a tab, or a whole group from its empty header, on Shift+pointerdown without asking onWillDragPanel.
+    const shiftDown = (target: Element) => {
+      const event = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, shiftKey: true, button: 0 });
+      act(() => void target.dispatchEvent(event));
+      return event.defaultPrevented;
+    };
+    shiftDown(tab("3D"));
+    shiftDown(tab("Raster"));
+    shiftDown(groupOf("world").element.querySelector(".dv-void-container")!);
+    expect(api().getPanel("world")!.api.location.type).toBe("grid");
+    expect(api().getPanel("matrix")!.api.location.type).toBe("grid");
+    expect(api().groups.filter((g) => g.api.location.type === "floating")).toHaveLength(0);
+    // The inspector still floats that way (dockview's own gesture).
+    shiftDown(tab("Inspector"));
+    expect(api().getPanel("inspector")!.api.location.type).toBe("floating");
+  });
+
+  it("brings_a_floating_view_back_with_the_reset_of_the_arrangement", async () => {
+    // A view that floats all the same (an older build let Shift+click do it) is not stuck: the reset docks it again.
+    await mount();
+    const world = api().getPanel("world");
+    act(() => api().addFloatingGroup(groupOf("world")));
+    expect(world!.api.location.type).toBe("floating");
+    await choose("Inspector", "Anordnung zurücksetzen");
+    expect(world!.api.location.type).toBe("grid");
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect(api().activePanel?.id).toBe("world");
+  });
+
+  it("maximizes_and_restores_on_a_tab_double_click", async () => {
+    await mount();
+    const twice = (title: string) => act(async () => void tab(title).querySelector("span")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    await twice("Script");
+    expect(api().getPanel("script")!.api.isMaximized()).toBe(true);
+    await twice("Script");
+    expect(api().hasMaximizedGroup()).toBe(false);
+    await twice("3D");
+    expect(api().getPanel("world")!.api.isMaximized()).toBe(true);
+    await twice("3D");
+    expect(api().hasMaximizedGroup()).toBe(false);
+  });
+
+  it("fills_the_dock_with_a_maximized_group_whatever_its_width_limits", async () => {
+    await mount();
+    act(() => api().layout(1000, 600));
+    expect(groupOf("inspector").width).toBeLessThanOrEqual(480);
+    // The inspector beside the view keeps at most 480 px; maximized it fills the dock, not 480 px of it.
+    act(() => api().getPanel("inspector")!.api.maximize());
+    expect(groupOf("inspector").width).toBe(1000);
+    act(() => api().exitMaximizedGroup());
+    expect([groupOf("inspector").minimumWidth, groupOf("inspector").maximumWidth]).toEqual([280, 480]);
+    expect(groupOf("inspector").width).toBeLessThanOrEqual(480);
+  });
+
+  it("remembers_the_arrangement_it_builds_on_the_first_start", async () => {
+    await mount();
+    expect(localStorage.getItem(arrangementKey("welt"))).toBe("werkbank");
+    await mount("texte");
+    expect(localStorage.getItem(arrangementKey("texte"))).toBe("doppeldeck");
+  });
+
+  it("works_the_tab_menu_with_the_keyboard", async () => {
+    await mount();
+    const script = tab("Script");
+    script.focus();
+    await act(async () => void script.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    const items = () => [...document.querySelectorAll<HTMLElement>('.dv-context-menu [role="menuitem"]')];
+    // The menu takes the focus on its first item; the arrows walk the items, round.
+    expect(document.activeElement).toBe(items()[0]);
+    const key = (k: string) => act(async () => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })));
+    await key("ArrowDown");
+    expect(document.activeElement?.textContent).toBe("Schweben lassen");
+    await key("ArrowUp");
+    await key("ArrowUp");
+    expect(document.activeElement?.textContent).toBe("Anordnung zurücksetzen");
+    // Escape closes it and gives the focus back to the tab.
+    await key("Escape");
+    expect(items()).toHaveLength(0);
+    expect(document.activeElement).toBe(script);
+    // Enter runs the item.
+    await act(async () => void script.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    await key("Enter");
+    await settle();
+    expect(api().getPanel("script")!.api.isMaximized()).toBe(true);
+    expect(items()).toHaveLength(0);
+  });
+
+  it("offers_the_tab_menu_in_german_also_with_shift_f10", async () => {
+    await mount();
+    expect((await menu("Inspector")).map((i) => i.textContent)).toEqual(["Maximieren", "Schweben lassen", "Anordnung zurücksetzen"]);
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    expect((await menu("3D")).map((i) => i.textContent)).toEqual(["Maximieren"]);
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    await act(async () => void tab("Script").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    expect([...document.querySelectorAll('.dv-context-menu [role="menuitem"]')].map((i) => i.textContent)).toContain("Schweben lassen");
+  });
+
+  it("floats_and_docks_the_inspector", async () => {
+    await mount();
+    await choose("Inspector", "Schweben lassen");
+    expect(api().getPanel("inspector")!.api.location.type).toBe("floating");
+    // Said in German; the group stays inside the window, and is moved by its own title bar.
+    expect(dock().querySelector(".dv-live-region")?.textContent).toBe("Inspector schwebt");
+    expect((api() as unknown as { component: { options: object } }).component.options).toMatchObject({ floatingGroupBounds: "boundedWithinViewport", floatingGroupDragHandle: "titlebar" });
+    expect(layoutOf(api())).toEqual([
+      ["world", "matrix", "worldmap"],
+      ["script", "problems"],
+    ]);
+    // The floating layout is remembered (a floating inspector is a sane layout).
+    expect(JSON.parse(localStorage.getItem(layoutKey("welt"))!).floatingGroups).toHaveLength(1);
+    expect((await menu("Inspector")).map((i) => [i.textContent, i.getAttribute("aria-disabled")])).toEqual([
+      ["Maximieren", "true"],
+      ["Schweben lassen", "true"],
+      ["Zurück ins Dock", null],
+      ["Anordnung zurücksetzen", null],
+    ]);
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    await choose("Inspector", "Zurück ins Dock");
+    expect(dock().querySelector(".dv-live-region")?.textContent).toBe("Inspector angedockt");
+    expect(api().getPanel("inspector")!.api.location.type).toBe("grid");
+    expect(layoutOf(api())).toEqual(WERKBANK);
+  });
+
+  it("themes_a_floating_group_and_the_tab_menu_like_the_docked_groups", async () => {
+    await mount();
+    await choose("Inspector", "Schweben lassen");
+    // dockview puts floating groups and its menus beside its grid, into its shell: the theme sits on the shell, so it reaches them too, and
+    // nothing of dockview's own dark theme is left.
+    const floating = dock().querySelector<HTMLElement>(".dv-floating-overlay-host > .dv-resize-container")!;
+    expect(floating).not.toBeNull();
+    expect(floating.closest(".dockview-theme-g4")).not.toBeNull();
+    expect(dock().querySelector(".dv-grid-view")!.closest(".dockview-theme-g4")).not.toBeNull();
+    const item = (await menu("Inspector"))[0]!;
+    expect(item.closest(".dv-context-menu")!.closest(".dockview-theme-g4")).not.toBeNull();
+    expect(dock().querySelector('[class*="dockview-theme-"]:not(.dockview-theme-g4)')).toBeNull();
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    // Without dockview's theme the G4 theme brings the variables dockview needs (a floating group's layer above the grid), and a floating
+    // group is a sheet (`flaeche/blatt`) with the floating edge and shadow.
+    const theme = readFileSync("src/ui/tokens/dockview-theme.css", "utf8");
+    expect(theme).toMatch(/\.dockview-theme-g4 \{[^}]*--dv-overlay-z-index: 999;/);
+    expect(theme).toMatch(/\.dockview-theme-g4 \{[^}]*--dv-floating-titlebar-height: /);
+    expect(theme).toMatch(/\.dockview-theme-g4 \.dv-resize-container \{[^}]*--dv-group-view-background-color: var\(--g4-flaeche-blatt\)/);
+  });
+
+  it("hides_a_drop_anchor_that_changes_its_container_as_dockviews_own_themes_do", () => {
+    // Without the rule the drop anchor of a drag that moves between the grid and a floating group glides over from where it was.
+    const theme = readFileSync("src/ui/tokens/dockview-theme.css", "utf8");
+    expect(theme).toContain(".dockview-theme-g4 .dv-drop-target-container .dv-drop-target-anchor.dv-drop-target-anchor-container-changed { opacity: 0; transition: none; }");
+  });
+
+  it("resets_to_the_arrangement_without_rebuilding_the_panels_and_remembers_it", async () => {
+    await mount();
+    const world = api().getPanel("world");
+    await choose("Inspector", "Schweben lassen");
+    act(() => resetLayout("welt", dockRef, "doppeldeck"));
+    await settle();
+    expect(layoutOf(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
+    expect(localStorage.getItem(arrangementKey("welt"))).toBe("doppeldeck");
+    expect(shape(JSON.parse(localStorage.getItem(layoutKey("welt"))!).grid.root)).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
+    // „Anordnung zurücksetzen“ builds the arrangement chosen last; „Layout zurücksetzen“ (no arrangement given) the area's default.
+    await choose("Script", "Schweben lassen");
+    await choose("Inspector", "Anordnung zurücksetzen");
+    expect(layoutOf(api())).toEqual([["world", "matrix", "worldmap"], ["inspector", "script", "problems"]]);
+    act(() => resetLayout("welt", dockRef));
+    await settle();
+    expect(layoutOf(api())).toEqual(WERKBANK);
+    expect(localStorage.getItem(arrangementKey("welt"))).toBe("werkbank");
+    // The panels were moved, never added again: the scene (and what listens to its panel) stays.
+    expect(api().getPanel("world")).toBe(world);
+    expect(api().activePanel?.id).toBe("world");
+  });
+
+  it("forgets_the_stored_layout_of_a_dock_that_is_not_built_so_it_starts_from_the_arrangement", () => {
+    // "Layout zurücksetzen" on Start, Technik or Einstellungen works on the world, which may never have been built in this session.
+    localStorage.setItem(layoutKey("texte"), JSON.stringify({ panels: { textView: {} } }));
+    localStorage.setItem(layoutKey("welt"), JSON.stringify({ panels: { tools: {} } }));
+    expect(() => resetLayout("texte", { current: null })).not.toThrow();
+    expect(localStorage.getItem(layoutKey("texte"))).toBeNull();
+    // Another area's layout stays.
+    expect(localStorage.getItem(layoutKey("welt"))).not.toBeNull();
+  });
+
+  it("does_not_rebuild_the_dock_when_the_frame_state_changes", async () => {
+    await mount();
+    const before = api();
     act(() => shell.setTool("paint"));
-    act(() => shell.setHandHeight("welt", 300));
-    expect(schauRef.current).toBe(a);
-    expect(handRef.current).toBe(b);
+    act(() => shell.toggleTheme());
+    expect(dockRef.current).toBe(before);
   });
 
-  it("builds_the_default_layouts_of_the_text_area_under_its_own_keys", async () => {
-    await mount("texte");
-    expect(layoutOf(schau())).toEqual([["textView"]]);
-    expect(layoutOf(hand())).toEqual([["textEdit", "problems"]]);
-    expect(hand().activePanel?.id).toBe("textEdit");
-    expect(Object.keys(JSON.parse(localStorage.getItem(layoutKey("texte", "hand"))!).panels).sort()).toEqual(["problems", "textEdit"]);
-    expect(localStorage.getItem(layoutKey("welt", "hand"))).toBeNull();
-    // The docks of an area carry its name, so two decks in one document do not share an element id.
-    expect(dock("schau").id).toBe("dock-texte-schau");
-    expect(dock("hand").id).toBe("dock-texte-hand");
-  });
-
-  it("takes_the_height_and_the_collapse_of_the_hand_from_its_own_area", async () => {
-    const before = readShellState();
-    writeShellState({ ...before, handHeight: { ...before.handHeight, welt: 500, texte: 250 }, handCollapsed: { ...before.handCollapsed, welt: true } });
-    await mount("texte");
-    expect(dock("hand").style.height).toBe("250px");
-    expect(dock("hand").hidden).toBe(false);
-    act(() => shell.toggleHandCollapsed("texte"));
-    expect(dock("hand").hidden).toBe(true);
-  });
-
-  it("resets_both_docks_of_an_area_to_their_defaults_and_remembers_them", async () => {
-    await mount();
-    await split(schau(), "worldmap");
-    await split(hand(), "problems");
-    act(() => resetLayout("welt", { schau: schauRef, hand: handRef }));
-    await settle();
-    expect(layoutOf(schau())).toEqual([["world", "matrix", "worldmap"]]);
-    expect(layoutOf(hand())).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
-    expect(headerHidden(schau(), "world")).toBe(false);
-    expect(hand().activePanel?.id).toBe("inspector");
-    expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "schau"))!).grid.root)).toEqual([["world", "matrix", "worldmap"]]);
-    expect(groups(JSON.parse(localStorage.getItem(layoutKey("welt", "hand"))!).grid.root)).toEqual([["tools"], ["inspector", "script", "problems"], ["context"]]);
-  });
-
-  it("marks_the_script_tab_with_a_dot_while_a_script_is_unsaved_and_keeps_its_title", async () => {
-    await mount();
-    const tabOf = (title: string) => [...dock("hand").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === title);
-    const dotIn = (tab: HTMLElement | undefined) => tab?.querySelector('[aria-label="ungespeichert"]') ?? null;
-    expect(tabOf("Script")).toBeDefined();
-    expect(dotIn(tabOf("Script"))).toBeNull();
-    act(() => scriptDirtyStore.set(2));
-    expect(dotIn(tabOf("Script"))?.getAttribute("role")).toBe("img");
-    // Only the script tab carries it; the title is not touched.
-    expect(dotIn(tabOf("Inspector"))).toBeNull();
-    expect(dotIn(tabOf("Probleme"))).toBeNull();
-    expect(hand().getPanel("script")!.title).toBe("Script");
-    act(() => scriptDirtyStore.set(0));
-    expect(dotIn(tabOf("Script"))).toBeNull();
-  });
-
-  it("has_a_slot_for_the_wizard_step_only_where_wizards_show", async () => {
+  it("keeps_the_wizard_strip_under_the_dock_without_unmounting_it", async () => {
     await mount("texte");
     expect(container.querySelector("[data-wizard-hand]")).toBeNull();
     await mount("welt", false);
-    expect(container.querySelector<HTMLElement>("[data-wizard-hand]")!.hidden).toBe(true);
-    expect(dock("hand").hidden).toBe(false);
-  });
-
-  it("hides_the_hand_dock_behind_an_open_wizard_without_rebuilding_it", async () => {
-    await mount("welt", false);
-    const before = hand();
+    const before = api();
+    const strip = () => container.querySelector<HTMLElement>("[data-wizard-hand]")!;
+    expect(strip().hidden).toBe(true);
     await render("welt", true);
-    const slot = container.querySelector<HTMLElement>("[data-wizard-hand]")!;
-    expect(slot.hidden).toBe(false);
-    expect(dock("hand").hidden).toBe(true);
-    expect(slot.style.height).toBe(`${HAND_DEFAULT}px`);
+    expect(strip().hidden).toBe(false);
+    // Its height is the stylesheet's, the default height of the old hand.
+    expect(strip().getAttribute("style")).toBeNull();
+    expect(deckCss).toMatch(new RegExp(`\\.wizard \\{[^}]*height: ${HAND_DEFAULT}px`));
+    // Under the dock, which stays as it is (the view can still be used).
+    expect(Boolean(dock().compareDocumentPosition(strip()) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(dock().hidden).toBe(false);
+    expect(dockRef.current).toBe(before);
     await render("welt", false);
-    expect(slot.hidden).toBe(true);
-    expect(dock("hand").hidden).toBe(false);
-    expect(hand()).toBe(before);
+    expect(strip().hidden).toBe(true);
+    expect(dockRef.current).toBe(before);
   });
 
-  it("lifts_a_collapsed_hand_for_the_wizard_without_touching_the_remembered_height", async () => {
-    const state = readShellState();
-    writeShellState({ ...state, handHeight: { ...state.handHeight, welt: 220 }, handCollapsed: { ...state.handCollapsed, welt: true } });
-    await mount("welt", true);
-    const slot = container.querySelector<HTMLElement>("[data-wizard-hand]")!;
-    expect(slot.hidden).toBe(false);
-    expect(slot.style.height).toBe(`${HAND_DEFAULT}px`);
-    expect(shell.state.handHeight.welt).toBe(220);
-    expect(shell.state.handCollapsed.welt).toBe(true);
-    // An open hand keeps its own height for the wizard.
-    act(() => shell.toggleHandCollapsed("welt"));
-    act(() => shell.setHandHeight("welt", 420));
-    expect(slot.style.height).toBe("420px");
-  });
-
-  it("drops_the_stored_layouts_of_a_deck_that_is_not_built_so_it_starts_from_its_default", () => {
-    // "Layout zurücksetzen" on Start, Technik or Einstellungen works on the world, which may never have been built in this session.
-    localStorage.setItem(layoutKey("texte", "schau"), JSON.stringify({ panels: { textView: {} } }));
-    localStorage.setItem(layoutKey("texte", "hand"), JSON.stringify({ panels: { textEdit: {} } }));
-    localStorage.setItem(layoutKey("welt", "hand"), JSON.stringify({ panels: { tools: {} } }));
-    expect(() => resetLayout("texte", { schau: { current: null }, hand: { current: null } })).not.toThrow();
-    expect(localStorage.getItem(layoutKey("texte", "schau"))).toBeNull();
-    expect(localStorage.getItem(layoutKey("texte", "hand"))).toBeNull();
-    // Another area's layout stays.
-    expect(localStorage.getItem(layoutKey("welt", "hand"))).not.toBeNull();
+  it("marks_the_script_tab_while_a_script_is_unsaved", async () => {
+    await mount();
+    const dotIn = (title: string) => tab(title)?.querySelector('[aria-label="ungespeichert"]') ?? null;
+    expect(dotIn("Script")).toBeNull();
+    act(() => scriptDirtyStore.set(2));
+    expect(dotIn("Script")?.getAttribute("role")).toBe("img");
+    // Only the script tab carries it; the title is not touched.
+    expect(dotIn("Inspector")).toBeNull();
+    expect(dotIn("Probleme")).toBeNull();
+    expect(api().getPanel("script")!.title).toBe("Script");
+    act(() => scriptDirtyStore.set(0));
+    expect(dotIn("Script")).toBeNull();
   });
 });

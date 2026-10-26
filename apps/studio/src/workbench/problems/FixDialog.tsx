@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, isCmdError } from "../../api";
 import type { CheckProblemDto, FixPlanDto } from "../../api";
-import { findingText } from "../../checks/messages";
+import { findingLabel, findingText } from "../../checks/messages";
 import type { ChecksApi } from "../../checks/useChecks";
+import type { Depth } from "../../ui/frame/shellState";
 import { Badge, BeforeAfter, Dialog, Notice } from "../../ui/primitives";
 import { TERMS, id4 } from "../terms";
 import type { DialogAction } from "../../ui/primitives";
@@ -39,7 +40,7 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
  * for a fix undo cannot take back, then one step (`apply_fix`). It closes when the finding is gone; it stays with „Nicht behoben“ when the
  * check still reports it, and says „Befund ist nicht mehr aktuell“ (and offers to check again) when its subject changed meanwhile.
  */
-export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemDto; checks: ChecksApi; onClose: () => void }) {
+export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckProblemDto; checks: ChecksApi; depth: Depth; onClose: () => void }) {
   const fix = finding.fixes[0];
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   // Set once the dialog is left (a button, Escape, or its owner took it away): a save under way does not go on to the fix then.
@@ -103,7 +104,7 @@ export function FixDialog({ finding, checks, onClose }: { finding: CheckProblemD
   const plan = "plan" in phase ? phase.plan : null;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && leave()} title={finding.label} description={findingText(finding)} actions={actions}>
+    <Dialog open onOpenChange={(open) => !open && leave()} title={findingLabel(finding, depth)} description={findingText(finding, depth)} actions={actions}>
       <div className={styles.body} data-fix={fix.id}>
         {phase.kind === "loading" && <p role="status">Lade Vorschau …</p>}
         {plan !== null && (

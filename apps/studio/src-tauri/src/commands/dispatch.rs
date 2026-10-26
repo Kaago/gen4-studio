@@ -140,6 +140,8 @@ pub const COMMANDS: &[&str] = &[
     "create_project",
     "plan_empty_region",
     "apply_empty_region",
+    "world_meta_get",
+    "world_meta_set",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -612,6 +614,14 @@ pub fn dispatch(
         "apply_empty_region" => run!(json, "apply_empty_region", args, {}, |_a| {
             apply_empty_region_impl(state)
         }),
+        "world_meta_get" => run!(json, "world_meta_get", args, {}, |_a| world_meta_get_impl(
+            state
+        )),
+        "world_meta_set" => run!(
+            json, "world_meta_set", args,
+            { meta: g4_kernel::world_meta::WorldMeta },
+            |a| world_meta_set_impl(state, a.meta)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -900,6 +910,11 @@ mod tests {
             ),
             ("plan_empty_region", json!({})),
             ("apply_empty_region", json!({})),
+            ("world_meta_get", json!({})),
+            (
+                "world_meta_set",
+                json!({ "meta": { "roomNames": { "1": "Haus" } } }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

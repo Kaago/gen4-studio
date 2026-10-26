@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { visibleWords } from "../ui/visibleText";
 import { legendEntries } from "../world/legend";
 import { Legend } from "./Legend";
 
@@ -30,6 +31,13 @@ describe("Legend", () => {
     expect(popup).not.toBeNull();
     const names = [...popup.querySelectorAll("li")].map((li) => li.textContent);
     expect(names).toEqual(["Blockiert", "Wasser", "Hohes Gras", "Vorsprung", "Eis", "Spezial", "Unbekannt", "Figur", "Tür", "Auslöser", "Schild", "Gegenstand"]);
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    act(() => root.render(<Legend />));
+    await act(async () => container.querySelector("button")!.click());
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(visibleWords(document.body.querySelector("[role=dialog]")!)).not.toMatch(/Raster|Matrix|Header/);
   });
 
   it("shows_a_swatch_in_the_colour_the_scene_uses_next_to_every_name", async () => {

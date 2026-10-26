@@ -92,6 +92,46 @@ describe("shell state", () => {
     expect(read.selected).toEqual({});
   });
 
+  it("reads_and_writes_world_sort_in_the_shell_state", () => {
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "recent", list: "code" } }));
+    expect(readShellState().worldSort).toEqual({ tree: "recent", list: "code" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "name" } }));
+    expect(readShellState().worldSort).toEqual({ tree: "name", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: { tree: "alphabet", list: 3 } }));
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    localStorage.setItem(KEY, JSON.stringify({ worldSort: "name" }));
+    expect(readShellState().worldSort).toEqual({ tree: "game", list: "id" });
+    writeShellState({ ...readShellState(), worldSort: { tree: "name", list: "name" } });
+    expect(readShellState().worldSort).toEqual({ tree: "name", list: "name" });
+  });
+
+  it("reads_the_split_of_the_world_list_and_the_fold_of_the_places", () => {
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.5, false]);
+    const s = readShellState();
+    writeShellState({ ...s, worldListSplit: 0.3, placesFolded: true });
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.3, true]);
+    // A share outside 0.2..0.8 is clamped, anything else gets the defaults.
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: 0.95, placesFolded: "ja" }));
+    expect([readShellState().worldListSplit, readShellState().placesFolded]).toEqual([0.8, false]);
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: 0.01 }));
+    expect(readShellState().worldListSplit).toBe(0.2);
+    localStorage.setItem(KEY, JSON.stringify({ ...s, worldListSplit: "halb" }));
+    expect(readShellState().worldListSplit).toBe(0.5);
+  });
+
+  it("reads_the_toolbar_anchor_and_falls_back_to_left", () => {
+    expect(readShellState().toolbar).toBe("left");
+    for (const anchor of ["left", "top", "bottom"] as const) {
+      localStorage.setItem(KEY, JSON.stringify({ toolbar: anchor }));
+      expect(readShellState().toolbar).toBe(anchor);
+    }
+    localStorage.setItem(KEY, JSON.stringify({ toolbar: "right" }));
+    expect(readShellState().toolbar).toBe("left");
+    localStorage.setItem(KEY, JSON.stringify({ toolbar: 2 }));
+    expect(readShellState().toolbar).toBe("left");
+  });
+
   it("drops_recent_entries_that_are_not_projects", () => {
     localStorage.setItem(KEY, JSON.stringify({ recent: [project(1), { path: 3 }, null, "x", { path: "/q", name: "q", game: "g" }, project(2)] }));
     expect(readShellState().recent.map((p) => p.path)).toEqual(["/p/1", "/p/2"]);

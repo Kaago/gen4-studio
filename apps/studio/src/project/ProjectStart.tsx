@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Created } from "../api";
 import { Hinge } from "../ui/frame/Hinge";
-import { HAND_DEFAULT } from "../ui/frame/shellState";
 import { StartPane } from "../ui/frame/StartPane";
 import type { StartPaneProps } from "../ui/frame/StartPane";
 import { DSScreen, Icon, Notice } from "../ui/primitives";
@@ -82,7 +81,6 @@ export function DropHint() {
 function StartDeck({ request, onClose, onOpenCreated }: { request: StartWizardRequest; onClose: () => void; onOpenCreated: (created: Created) => void }) {
   const [scope, setScope] = useState<HTMLDivElement | null>(null);
   const [choice, setChoice] = useState<WizardChoice | null>(null);
-  const [handHeight, setHandHeight] = useState(HAND_DEFAULT);
   return (
     <div ref={setScope} className={styles.deck} data-start-deck="">
       <StartSchau choice={choice} />
@@ -98,11 +96,9 @@ function StartDeck({ request, onClose, onOpenCreated }: { request: StartWizardRe
         onPlay={noop}
         playing={false}
         canPlay={false}
-        onDragHeight={setHandHeight}
-        onToggleCollapse={noop}
         wizard
       />
-      <div className={styles.hand} data-wizard-hand="" style={{ height: handHeight } /* dyn */} />
+      <div className={styles.hand} data-wizard-hand="" />
       {scope && (
         <WizardSlotScope.Provider value={scope}>
           <NewProjectWizard initialRom={request.rom} initialNotice={request.notice} onCancel={onClose} onOpen={onOpenCreated} onChoice={setChoice} />

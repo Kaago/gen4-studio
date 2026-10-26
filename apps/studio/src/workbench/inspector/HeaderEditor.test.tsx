@@ -4,10 +4,14 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
-import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt } from "../../api";
+import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
+import { visibleWords } from "../../ui/visibleText";
+import { headerIdentity } from "../headerIdentity";
+import { buildPlaces } from "../places";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
+import { chooseAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -44,8 +48,14 @@ const pt = (over: Partial<MapHeaderPt> = {}): MapHeader => ({
     ...over,
   },
 });
-const summary: HeaderSummary = { id: 411, internal_name: "T01", location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
+const summary: HeaderSummary = { id: 411, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 1, event_file_id: 9, text_archive_id: 5, script_file_id: 40, level_script_id: 41 };
 const noEvents: EventsDto = { event_file_id: 9, locked: null, bg: [], objects: [], warps: [], coords: [] };
+// Matrix 2 has a header section: header 411 is outside, an area. Matrix 3 is the one-cell map of a house.
+const matrices: MatrixSummary[] = [
+  { index: 2, name: "m2", width: 30, height: 30, has_headers: true, has_altitudes: true, filled: 600 },
+  { index: 3, name: "m3", width: 1, height: 1, has_headers: false, has_altitudes: false, filled: 1 },
+];
+const house: HeaderSummary = { ...summary, id: 412, internal_name: "T01R0101", matrix_id: 3 };
 
 describe("HeaderEditor scripts", () => {
   let container: HTMLElement;
@@ -57,13 +67,13 @@ describe("HeaderEditor scripts", () => {
   const onLevelScriptSaved = vi.fn();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
+    identify: (h) => headerIdentity(buildPlaces([summary, house], matrices), h),
     counts: { Script: 800 },
     revision: 0,
     onChanged,
     goTo: vi.fn(),
     eventRevision: 0,
     onOpenWizard: vi.fn(),
-    onAddWarp: vi.fn(),
     info: null,
     scriptsAdopted: true,
     scriptsRevision: 0,
@@ -102,14 +112,80 @@ describe("HeaderEditor scripts", () => {
     expect(row("Scriptdatei").textContent).toContain("0 bis 799");
     expect(row("Level-Script").textContent).toContain("0 bis 799");
     // A picker whose archive size is not known yet is a plain number field.
-    expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
+    expect(container.querySelector("input[aria-label='Weltkarte']")).not.toBeNull();
   });
 
-  it("shows_the_form_in_the_sections_Karten_und_Raster_Aussehen_Texte_und_Scripts_Ausgänge_and_Level_Script", async () => {
+  it("shows_the_form_in_the_sections_Karten_Aussehen_Texte_und_Scripts_and_Level_Script", async () => {
     await show();
-    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten und Raster", "Aussehen", "Texte und Scripts", "Eingänge / Ausgänge0", "Level-Script"]);
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["Karten", "Aussehen", "Texte und Scripts", "Level-Script"]);
     expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
-    expect(container.textContent).toContain("0411 · T01");
+  });
+
+  it("calls_an_area_and_a_room_by_their_names_and_the_header_by_its_number_in_tinkering", async () => {
+    const eyebrow = () => container.querySelector("header[data-inspector-kind] [data-eyebrow]")?.textContent;
+    const kind = () => container.querySelector("header[data-inspector-kind]")?.getAttribute("data-inspector-kind");
+    const ident = () => container.querySelector("[data-ident]")?.textContent;
+    await show();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["area", "Gebiet", "Zweiblattdorf", "Zweiblattdorf · T01"]);
+    await show(context(), "tuefteln");
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["area", "Header", "Zweiblattdorf", "Header 0411 · T01"]);
+    // A room has the clear name its code suggests, not "Raum" and its number.
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="bauen" />));
+    await flush();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Raum", "Haus 1", "Zweiblattdorf · T01R0101"]);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="tuefteln" />));
+    await flush();
+    expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Header", "Haus 1", "Header 0412 · T01R0101"]);
+  });
+
+  it("calls_the_header_what_the_world_tree_calls_it", async () => {
+    const eyebrow = () => container.querySelector("header[data-inspector-kind] [data-eyebrow]")?.textContent;
+    // A room renamed in the project file, and a header the world tree lists under „Sonstige“.
+    const names = { 412: { kind: "room", name: "Omas Haus", place: "Zweiblattdorf" }, 411: { kind: "other", name: "Zweiblattdorf", place: "Zweiblattdorf" } } as const;
+    const identify = (h: HeaderSummary) => names[h.id as 411 | 412];
+    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], identify })} depth="bauen" />));
+    await flush();
+    expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Raum", "Omas Haus"]);
+    await show(context({ identify }));
+    expect(container.querySelector("header[data-inspector-kind]")?.getAttribute("data-inspector-kind")).toBe("place");
+    expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Ort", "Zweiblattdorf"]);
+    await show(context({ identify }), "tuefteln");
+    expect(eyebrow()).toBe("Header");
+  });
+
+  it("has_no_exits_list_but_a_line_that_leads_to_the_doors", async () => {
+    const goTo = vi.fn();
+    const warp = (index: number, dest: number) => ({ index, x: index, z: 2, dest_header_id: dest, dest_warp_id: 0, height: 0 });
+    // A door into the house and one whose target the headers do not list.
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [warp(0, 412), warp(1, 999)] });
+    await show(context({ goTo, headers: [summary, house] }));
+    expect(getEvents).toHaveBeenCalledWith(9);
+    // No list of the exits, no „Warp hinzufügen“, no hint at the wizards (the „+“ of the places has them).
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).not.toContain("Eingänge / Ausgänge2");
+    expect(button("Warp hinzufügen")).toBeUndefined();
+    expect(button("Bearbeiten")).toBeUndefined();
+    expect(container.textContent).not.toContain("Assistenten");
+    // The line leads to the doors of this header's scene.
+    await click(button("2 Türen, 1 ohne Ziel"));
+    expect(goTo).toHaveBeenCalledWith({ kind: "sceneGroup", group: "warp", header: 411 });
+    // Counted again when the events moved; one door says so, none is no link.
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [warp(0, 412)] });
+    await show(context({ goTo, headers: [summary, house], eventRevision: 1 }));
+    expect(button("1 Tür")).toBeDefined();
+    vi.mocked(getEvents).mockResolvedValue(noEvents);
+    await show(context({ goTo, headers: [summary, house], eventRevision: 2 }));
+    expect(container.querySelector("[data-doors]")?.textContent).toBe("Keine Türen");
+    expect(container.querySelector("[data-doors] button")).toBeNull();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+  });
+
+  it("binds_a_room_here_from_the_head_menu", async () => {
+    const onOpenWizard = vi.fn();
+    await show(context({ onOpenWizard }));
+    expect(headActions(container)).toEqual(["Raum hier anbinden…"]);
+    chooseAction(container, "Raum hier anbinden…");
+    expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
   });
 
   it("opens_the_script_file_and_the_level_script_of_the_header", async () => {
@@ -259,16 +335,16 @@ describe("HeaderEditor scripts", () => {
     it("leads_the_matrix_and_the_area_data_to_their_targets_and_changes_them_through_the_picker", async () => {
       const goTo = vi.fn();
       await show(context({ counts: { Script: 800, Matrix: 10, AreaData: 5 }, goTo }));
-      await click(button("Matrix0002"));
+      await click(button("Weltkarte0002"));
       expect(goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 2, x: 0, y: 0 });
       await click(button("Area-Data0001"));
       expect(goTo).toHaveBeenLastCalledWith({ kind: "area", id: 1 });
-      await click(button("Matrix ändern…"));
+      await click(button("Weltkarte ändern…"));
       typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0005");
-      expect(options().map((o) => o.textContent)).toEqual(["Matrix0005"]);
+      expect(options().map((o) => o.textContent)).toEqual(["Weltkarte0005"]);
       await click(options()[0]);
       await flush();
-      expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Matrix");
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ matrix_id: 5 }), "Weltkarte");
     });
   });
 
@@ -351,6 +427,23 @@ describe("HeaderEditor scripts", () => {
       expect(button("Begegnungen0008")).toBeUndefined();
       expect(container.textContent).toContain("Keine");
     });
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    vi.mocked(getEvents).mockResolvedValue({ ...noEvents, warps: [{ index: 0, x: 1, z: 2, dest_header_id: 411, dest_warp_id: 0, height: 0 }] });
+    await show();
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // While the header is read, and for a header the list does not know.
+    vi.mocked(getHeader).mockReturnValue(new Promise(() => {}));
+    await show(context({ headers: [] }));
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.querySelector("h2")?.textContent).toBe("Ort 0411");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    await show(context(), "tuefteln");
+    expect([...container.querySelectorAll("h3")].map((h) => h.textContent)).toContain("Karten und Raster");
+    expect(container.querySelector("input[aria-label='Matrix']")).not.toBeNull();
   });
 
   it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {

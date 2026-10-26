@@ -98,6 +98,8 @@ describe("EncounterList", () => {
     const dialog = h.dialog()!;
     expect(dialog.textContent).toContain("Begegnungsdatei 0183 anlegen?");
     expect(dialog.textContent).toContain("Nicht rückgängig");
+    expect(dialog.textContent).toContain("anbinden kann man sie im Inspector eines Gebiets oder Raums (Feld „Begegnungen“)");
+    expect(dialog.textContent).not.toContain("Header-Editor");
     await h.click(h.button("Anlegen"));
     expect(createEncounterFile).toHaveBeenCalledWith(null);
     expect(readShellState().selected.encounters).toBe(183);

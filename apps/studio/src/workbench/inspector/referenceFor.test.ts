@@ -6,7 +6,7 @@ import { pickerItems, referenceFor } from "./referenceFor";
 
 const header = (id: number, internal: string, location: string, event = 0): HeaderSummary => ({
   id,
-  internal_name: internal,
+  internal_name: internal, location_index: 0, kanto: false,
   location_name: location,
   matrix_id: 0,
   area_data_id: 0,

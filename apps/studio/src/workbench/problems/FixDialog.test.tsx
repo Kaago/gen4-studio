@@ -46,7 +46,7 @@ describe("FixDialog", () => {
     container.remove();
     document.body.innerHTML = "";
   });
-  const show = (f = wide) => act(async () => root.render(<FixDialog finding={f} checks={checks} onClose={onClose} />));
+  const show = (f = wide) => act(async () => root.render(<FixDialog finding={f} checks={checks} depth="bauen" onClose={onClose} />));
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]")!;
   const button = (name: string) => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());

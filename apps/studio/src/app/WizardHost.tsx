@@ -70,7 +70,7 @@ export function WizardHost(props: Props) {
           counts={counts}
           prefill={areaPrefill(request.prefill, selected)}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0] })}
+          onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0], name: spec.name })}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
@@ -91,7 +91,7 @@ export function WizardHost(props: Props) {
           prefill={request.prefill}
           lastTile={lastTile}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec).lines[0] })}
+          onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec).lines[0], name: spec.name })}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}

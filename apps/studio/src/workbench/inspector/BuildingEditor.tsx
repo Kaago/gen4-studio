@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
 import type { AssetId, BuildingDto, MemberCounts } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import { Button, InspectorRow, NumberField, TextField } from "../../ui/primitives";
+import { Button, InspectorRow, Kbd, NumberField, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
 import { BUILDING_FIELDS, BUILDING_POSITION_FIELDS, BUILDING_SCALE_FIELDS, buildingBackend, parseNumberField } from "./buildingFields";
 import type { BuildingFieldSpec } from "./buildingFields";
@@ -124,11 +124,11 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
 
   const commit = (key: string, label: string, value: number) => void session.current?.commit(key, label, value);
   const title = count === null ? `Gebäude ${index + 1}` : `Gebäude ${index + 1} von ${count}`;
-  const subtitle = `Karte ${id4(map)}`;
+  const ident = `Karte ${id4(map)}`;
   if (building === null) {
     return (
       <div className={styles.panel}>
-        <InspectorHead title={title} subtitle={subtitle} unsaved={isDirty(dirty, "Map", map)} />
+        <InspectorHead kind="building" title={title} ident={ident} unsaved={isDirty(dirty, "Map", map)} depth={depth} />
       </div>
     );
   }
@@ -150,7 +150,14 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={title} subtitle={subtitle} unsaved={isDirty(dirty, "Map", map)} />
+      <InspectorHead
+        kind="building"
+        title={title}
+        ident={ident}
+        unsaved={isDirty(dirty, "Map", map)}
+        actions={[{ label: "Löschen", detail: <Kbd keys="Entf" />, onSelect: () => void onDelete(map, index) }]}
+        depth={depth}
+      />
       <div className={styles.body}>
         <div key={refused}>
           <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>
@@ -172,9 +179,6 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
         <div className={styles.actions}>
           <Button kind="secondary" onClick={() => void onAdd(map)}>
             Neues Gebäude
-          </Button>
-          <Button kind="danger" onClick={() => void onDelete(map, index)}>
-            Löschen
           </Button>
         </div>
         <p className={styles.note}>

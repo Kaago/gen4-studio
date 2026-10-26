@@ -14,7 +14,6 @@ import { fakeChecks } from "../checks/checksTesting";
 import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
-import { shownInspector } from "../workbench/pin";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
@@ -31,7 +30,11 @@ vi.mock("../workbench/WorkbenchContext", async (importOriginal) => {
     useMatrixSelection: () => (reads.selection++, real.useMatrixSelection()),
   };
 });
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), getMatrix: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  getMatrix: vi.fn(),
+  worldMetaGet: vi.fn(async () => ({ meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} }, broken: null })),
+}));
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -93,6 +96,7 @@ const checks = fakeChecks();
 // A report of the checks arrived (else the problems panel says „Nicht geprüft“).
 checks.feed.update({ reported: true });
 const dataStore = new DataStore();
+const sceneHistory = { back: noop, forward: noop, canBack: false, canForward: true };
 const view = { showPermissions: true, setShowPermissions: noop, showEvents: true, setShowEvents: noop, depth: "bauen" as const, tool: "select" as const, onTool: noop, onTileClick: noop };
 
 const tile = (x: number): InspectorModel => ({ kind: "tile", map: 1, x, y: 0, absX: x, absZ: 0, info: { kind: 0, collision: 0, blocked: false, name: null, class: null } });
@@ -111,14 +115,18 @@ interface Volatile {
   links?: WarpLink[];
 }
 
-/** Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. */
-function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen", scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
+/**
+ * Calls App's model hook the way App does and hands what it returns to `onModel`; hover and message vary, the rest stays. The hover is
+ * App's state: a new one renders App (and so this) again, but it goes to the status line, not into the model.
+ */
+function Model({ pin = pinned, hover: _hover, message, showEvents = true, depth = "bauen", scripts: scriptsApi = scripts, matrices = summaries, links: warps = links, onModel, children }: Volatile & { onModel: (m: { data: WorkbenchData; live: WorkbenchLive }) => void; children?: ReactNode }) {
   const model = useWorkbenchModel({
     bus,
     session: { ...session, message },
     scene: { ...scene },
     world: { ...world },
-    pins: { pinned: pin, inspector: shownInspector(pin, hover) },
+    pins: { pinned: pin },
+    sceneHistory,
     overview: matrices === summaries && warps === links ? overview : { ...overview, matrices, links: warps },
     onOpenWizard: noop,
     onMapImported: noop,
@@ -136,7 +144,10 @@ function Model({ pin = pinned, hover, message, showEvents = true, depth = "bauen
 describe("workbench model", () => {
   let container: HTMLElement;
   let root: Root;
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The model reads the cells of the matrices for the world model (the panels' tests give the counting matrix instead).
+    const { getMatrix } = await import("../api");
+    vi.mocked(getMatrix).mockResolvedValue({ ...matrix });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -159,8 +170,10 @@ describe("workbench model", () => {
     expect(new Set(models.map((m) => m.data)).size).toBe(1);
     // The data carries the session's dirty assets (the inspector's "Ungespeichert"), and hover/message did not change them.
     expect(models[0].data.dirtyAssets).toBe(dirtyList);
-    // ... while the volatile part does follow.
-    expect(models[2].live.inspector).toMatchObject({ kind: "tile", x: 2 });
+    // ... nor did the hover touch the volatile part: the inspector shows the pin (the status line names the hover) ...
+    expect(new Set(models.slice(0, 3).map((m) => m.live)).size).toBe(1);
+    expect(models[2].live.inspector).toBe(pinned);
+    // ... which does follow the message.
     expect(models[3].live.message?.text).toBe("Modelle 3/900");
     // A tile hover does not select a matrix cell either, so that slice is the same object.
     expect(new Set(models.map((m) => m.live.matrixSelection)).size).toBe(1);
@@ -173,6 +186,13 @@ describe("workbench model", () => {
     show({ hover: null, message: null, showEvents: false });
     expect(models[1].data).not.toBe(models[0].data);
     expect(models[1].data.showEvents).toBe(false);
+  });
+
+  it("carries the history of the scenes shown for the hierarchy's buttons", () => {
+    const models: Array<{ data: WorkbenchData }> = [];
+    act(() => root.render(<Model hover={null} message={null} onModel={(m) => models.push(m)} />));
+    const { data } = models[0];
+    expect([data.sceneBack, data.sceneForward, data.canBack, data.canForward]).toEqual([sceneHistory.back, sceneHistory.forward, false, true]);
   });
 
   it("gives a new data object when the depth changes", () => {
@@ -228,15 +248,17 @@ describe("workbench model", () => {
     await show({ hover: null, message: null, showEvents: false });
     expect(reads.data).toBe(1);
     expect(bodies.rows).toBe(0);
-    // The explorer shows nothing of the warps: a new warp list reaches the panel, not the places.
+    // The rooms hang on their entrances: a new warp list builds the world again.
     await show({ hover: null, message: null, links: [] });
     expect(reads.data).toBe(2);
-    expect(bodies.rows).toBe(0);
+    expect(bodies.rows).toBeGreaterThan(0);
+    bodies.rows = 0;
     // Control: the explorer does render (and read the headers' names) for a new matrix overview.
     await show({ hover: null, message: null, matrices: [...summaries] });
     expect(reads.data).toBe(3);
     expect(bodies.rows).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Ort 0");
+    // Its one header is a room without an entrance.
+    expect(container.textContent).toContain("1 Raum");
   });
 
   it("does not render the matrix tab for a hover or a message", async () => {
@@ -287,25 +309,24 @@ describe("workbench model", () => {
     expect(reads.data).toBe(0);
   });
 
-  it("renders the inspector panel for a hover, not for a message", async () => {
+  it("renders the inspector panel for a new pin, not for a hover or a message", async () => {
     // Nothing pinned: the editors would fetch from the backend, and this is about what the panel shows.
     const show = await mountPanel("inspector", { pin: { kind: "none" } });
     expect(container.textContent).toContain("Nichts ausgewählt");
+    // The inspector shows the selection only: the pointer over the scene does not render it.
     await show({ hover: tile(3), message: null });
-    expect(reads.inspector).toBe(1);
-    expect(container.textContent).toContain("Kachel x 3, y 0");
     await show({ hover: tile(4), message: null });
-    expect(reads.inspector).toBe(2);
-    expect(container.textContent).toContain("Kachel x 4, y 0");
-    await show({ hover: null, message: null });
-    expect(reads.inspector).toBe(3);
-    expect(container.textContent).toContain("Nichts ausgewählt");
-    // Control: a message is not part of what the panel reads.
     await show({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
-    expect(reads.inspector).toBe(3);
+    expect(reads.inspector).toBe(0);
+    expect(container.textContent).toContain("Nichts ausgewählt");
+    expect(container.textContent).not.toContain("Kachel");
+    // Control: a new pin does render it.
+    await show({ pin: { kind: "matrixCell", matrix: 1, x: 0, y: 0 }, hover: null, message: null });
+    expect(reads.inspector).toBe(1);
+    expect(container.textContent).not.toContain("Nichts ausgewählt");
   });
 
-  it("renders the matrix tab when the shown matrix cell changes (pin, hover over a tile)", async () => {
+  it("renders the matrix tab when the selected matrix cell changes, not for a hover over a tile", async () => {
     const show = await mountPanel("matrix");
     const selectedCells = () => [...container.querySelectorAll<HTMLElement>('[data-cell][aria-pressed="true"]')].map((b) => b.title);
     expect(selectedCells()).toEqual([]);
@@ -321,15 +342,12 @@ describe("workbench model", () => {
     expect(reads.selection).toBe(2);
     expect(bodies.matrix).toBeGreaterThan(0);
     expect(selectedCells()).toEqual([expect.stringContaining("x 0, y 1")]);
-    // ... a hover over a tile takes the inspector over, so the cell is no longer the shown one ...
+    // ... and stays while the pointer is over a tile (the hover goes to the status line, not into the inspector).
     bodies.matrix = 0;
     await show({ pin: cell(0, 1), hover: tile(2), message: null });
-    expect(reads.selection).toBe(3);
-    expect(bodies.matrix).toBeGreaterThan(0);
-    expect(selectedCells()).toEqual([]);
-    // ... and when the pointer leaves, it is back.
     await show({ pin: cell(0, 1), hover: null, message: null });
-    expect(reads.selection).toBe(4);
+    expect(reads.selection).toBe(2);
+    expect(bodies.matrix).toBe(0);
     expect(selectedCells()).toEqual([expect.stringContaining("x 0, y 1")]);
   });
 });

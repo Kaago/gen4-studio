@@ -3,7 +3,8 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { editTextArchive, getTextArchive, validateText } from "../../api";
 import { readCss, ruleBody } from "../../ui/cssSource";
-import { archive, flush, textHarness } from "./textTesting";
+import type { Depth } from "../../ui/frame/shellState";
+import { archive, flush, header, textHarness } from "./textTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -39,6 +40,32 @@ describe("TextHand", () => {
     // The column of the selected message: its title, the field and where the archive is used.
     expect(h.container.querySelector('[aria-label="Nachricht bearbeiten"] h2')?.textContent).toBe("Nachricht 000");
     expect(h.container.textContent).toContain("Verwendet in");
+  });
+
+  it("has_no_head_title_that_repeats_the_tab", async () => {
+    await h.open433();
+    // The dock tab says "Nachrichten"; the hand's only head is the chosen message's.
+    expect([...h.container.querySelectorAll('[aria-label="Nachricht bearbeiten"] h2')].map((t) => t.textContent)).toEqual(["Nachricht 000"]);
+    expect([...h.container.querySelectorAll("h2")].map((t) => t.textContent)).not.toContain("Nachrichten");
+  });
+
+  /** Opens archive 433, used by one header without a location name, or archive 434, used by none. */
+  const usedIn = async (index: number, depth: Depth) => {
+    h.show(h.base({ headers: [header(12, 433)], depth }));
+    await flush();
+    h.click(h.archiveRow(index));
+    await flush();
+    return h.container.querySelector<HTMLElement>('[aria-label="Nachricht bearbeiten"]')?.textContent ?? "";
+  };
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    expect(await usedIn(433, "bauen")).toContain("Verwendet inOrt0012");
+    expect(await usedIn(434, "bauen")).toContain("Verwendet inkeinem Ort");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", async () => {
+    expect(await usedIn(433, "tuefteln")).toContain("Verwendet inHeader0012");
+    expect(await usedIn(434, "tuefteln")).toContain("Verwendet inkeinem Header");
   });
 
   it("keeps the removal in reach when an archive is used by hundreds of headers", () => {

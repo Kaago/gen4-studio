@@ -37,3 +37,18 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/*
+ * A narrow inspector (the Werkbank's, 280 to 340 px wide; the container is the editors' frame): the label above its control, which gets
+ * the whole width, so a reference keeps its name and "Ändern…" stays beside it. A wide one (the Doppeldeck's) keeps the label column.
+ */
+@container inspector (max-width: 359px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--g4-raum-2);
+  }
+
+  .hint {
+    grid-column: 1;
+  }
+}

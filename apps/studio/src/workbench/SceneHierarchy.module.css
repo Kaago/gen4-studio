@@ -1,0 +1,43 @@
+.panel {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  flex-direction: column;
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+}
+
+.top {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8);
+}
+
+.host {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--g4-raum-4) var(--g4-raum-8);
+}
+
+/* The wrapper that hears a door's double click must not change how the rows lay out. */
+.entry {
+  display: contents;
+}
+
+/* A group's counter at the right end: grey, in mono, no capitals. */
+.count {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+.note {
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-12);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

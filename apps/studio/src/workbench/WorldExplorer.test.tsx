@@ -4,9 +4,11 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listScriptFiles, searchScripts } from "../api";
-import type { HeaderSummary, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
+import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, ScriptFileDto, ScriptHitDto, WarpLink } from "../api";
+import { ShellProvider, useShell } from "../ui/frame/ShellContext";
 import { pressKey } from "../ui/primitives/testUtils";
-import { placeColor } from "./places";
+import { visibleWords } from "../ui/visibleText";
+import { buildWorld } from "./worldModel";
 import { WorldExplorer } from "./WorldExplorer";
 import type { WorldExplorerProps } from "./WorldExplorer";
 
@@ -14,10 +16,13 @@ vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof i
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const header = (id: number, location_name: string, matrix_id: number, internal_name = `H${id}`): HeaderSummary => ({
+const header = (id: number, internal_name: string, location_name: string, location_index: number, matrix_id: number, map_type = 0): HeaderSummary => ({
   id,
   internal_name,
   location_name,
+  location_index,
+  kanto: false,
+  map_type,
   matrix_id,
   area_data_id: 0,
   event_file_id: id,
@@ -25,25 +30,24 @@ const header = (id: number, location_name: string, matrix_id: number, internal_n
   script_file_id: 0,
   level_script_id: 0,
 });
+const summary = (index: number, width: number, height: number, has_headers = false): MatrixSummary => ({ index, name: `m${index}`, width, height, has_headers, has_altitudes: false, filled: width * height });
 
-const matrix = (index: number, width: number, height: number, has_headers = false): MatrixSummary => ({
-  index,
-  name: `m${index}`,
-  width,
-  height,
-  has_headers,
-  has_altitudes: false,
-  filled: width * height,
-});
-
+// Sinnoh: Zweiblattdorf (1) with the houses 3 and 4, Route 201 (2); the Kampfzone (5) has a map of its own; 0 is the landscape.
 const headers = [
-  header(0, "Zweiblattdorf", 0, "T01"),
-  header(1, "Zweiblattdorf", 7, "T01R0101"),
-  header(2, "Zweiblattdorf", 8, "T01R0102"),
-  header(3, "Route 201", 0, "T01R0201"),
-  header(4, "", 9, "D01"),
+  header(0, "EVERYWHERE", "", 0, 0),
+  header(1, "T01", "Zweiblattdorf", 2, 0, 1),
+  header(2, "R201", "Route 201", 3, 0, 2),
+  header(3, "T01R0101", "Zweiblattdorf", 2, 20),
+  header(4, "T01R0201", "Zweiblattdorf", 2, 21),
+  header(5, "D32", "Kampfzone", 60, 5, 2),
 ];
-const matrices = [matrix(0, 30, 30, true), matrix(7, 1, 1), matrix(8, 2, 2), matrix(9, 1, 1)];
+const matrices = [summary(0, 3, 1, true), summary(5, 2, 2), summary(20, 1, 1), summary(21, 1, 1)];
+const cells: MatrixDto = { index: 0, name: "m0", width: 3, height: 1, maps: [1, 2, 3], headers: [1, 2, 0] };
+const links: WarpLink[] = [3, 4].map((dest) => ({ event_file: 1, index: dest, x: 0, z: 0, dest_header_id: dest, dest_warp_id: 0 }));
+const worldOf = (list: HeaderSummary[] = headers) =>
+  buildWorld({ family: "Pt", headers: list, matrices, links, cells: new Map([[0, cells]]), meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} } });
+const world = worldOf();
+const info: ProjectInfo = { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: headers.length };
 
 const SEARCH = 'input[aria-label="Welt durchsuchen"]';
 
@@ -70,29 +74,32 @@ describe("WorldExplorer", () => {
   });
 
   const props = (over: Partial<WorldExplorerProps> = {}): WorldExplorerProps => ({
-    info: null,
+    info,
     headers,
-    matrices,
+    world,
     matricesLoaded: true,
     matricesFailed: false,
     selected: null,
     shownMatrix: null,
     revealToken: 0,
-    // The existing assertions read the rows with their identifiers: Tüfteln.
     depth: "tuefteln",
     onSelect: () => {},
     onOpenWizard: () => {},
     scriptsAdopted: true,
     onOpenScript: () => {},
-    listOpen: true,
-    onToggleList: () => {},
+    folded: false,
+    onFold: () => {},
+    sort: { tree: "game", list: "id" },
+    onSort: () => {},
+    onRename: () => {},
+    onOwner: () => {},
     ...over,
   });
   const render = (p: WorldExplorerProps) => act(() => root.render(<WorldExplorer {...p} />));
   const treeitems = () => [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')];
-  const places = () => [...container.querySelectorAll<HTMLElement>('[role="treeitem"][data-place-key]')];
-  const expanded = () => places().map((p) => p.getAttribute("aria-expanded"));
-  const row = (id: number) => container.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
+  const areas = () => [...container.querySelectorAll<HTMLElement>('[role="treeitem"][data-area-key]')];
+  const expanded = () => areas().map((p) => p.getAttribute("aria-expanded"));
+  const row = (id: number) => container.querySelector<HTMLElement>(`[data-header-id="${id}"]:not([data-area-key])`) ?? container.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
   const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name || b.getAttribute("aria-label") === name);
   const search = () => container.querySelector<HTMLInputElement>(SEARCH)!;
   const type = (input: HTMLInputElement, value: string) =>
@@ -101,237 +108,192 @@ describe("WorldExplorer", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   const click = (el: Element | null | undefined) => act(() => void (el as HTMLElement).click());
-  /** What a click on a place does: it opens or closes it. */
-  const toggle = (place: HTMLElement) => click(place);
+  const caret = (el: HTMLElement) => click(el.querySelector("span[aria-hidden]"));
+  const menuItems = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')];
 
-  it("renders one treeitem per place with its colour chip and header count; only the selected header's place is open", () => {
-    render(props({ selected: 1 }));
-    expect(places()).toHaveLength(3);
-    expect(places().map((p) => p.textContent)).toEqual(["Zweiblattdorf3", "Route 2011", "Ohne Ortsnamen1"]);
-    expect(places().map((p) => p.getAttribute("aria-level"))).toEqual(["1", "1", "1"]);
-    expect(expanded()).toEqual(["true", "false", "false"]);
-    // The chip has the place's colour (the browser may write it in another notation, so both go through an element).
-    const expectedColor = document.createElement("i");
-    expectedColor.style.background = placeColor("Zweiblattdorf");
-    expect(places()[0].querySelector<HTMLElement>("[data-place-chip]")?.style.background).toBe(expectedColor.style.background);
-    expect(expectedColor.style.background).not.toBe("");
+  it("counts_world_maps_areas_and_rooms", () => {
+    render(props({ depth: "bauen" }));
+    expect(container.textContent).toContain("1 Weltkarte, 3 Gebiete, 2 Räume");
+    expect(container.textContent).not.toContain("Header");
+    render(props({ depth: "tuefteln" }));
+    expect(container.textContent).toContain("1 Weltkarte, 3 Gebiete, 2 Räume, 6 Header");
   });
 
-  it("marks a header that a check found an error or warning at, in the tree and in the list", () => {
-    render(props({ selected: 1, marks: new Map([[1, "error"], [2, "warning"]]) }));
-    expect(row(1)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
-    expect(row(2)?.querySelector("[data-finding-mark]")?.getAttribute("aria-label")).toBe("Warnung gefunden");
-    expect(row(0)?.querySelector("[data-finding-mark]")).toBeNull();
-    click(button("Liste"));
-    expect(row(1)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
-  });
-
-  it("names each place for screen readers without running the count into the name", () => {
-    render(props());
-    expect(places().map((p) => p.getAttribute("aria-label"))).toEqual(["Zweiblattdorf, 3 Header", "Route 201, 1 Header", "Ohne Ortsnamen, 1 Header"]);
-  });
-
-  it("is a tree whose places and headers are treeitems on two levels", () => {
-    render(props({ selected: 1 }));
-    expect(container.querySelector('[role="tree"]')).not.toBeNull();
-    expect(row(1)?.getAttribute("role")).toBe("treeitem");
-    expect(row(1)?.getAttribute("aria-level")).toBe("2");
-  });
-
-  it("starts with every place closed when nothing is selected", () => {
-    render(props());
-    expect(expanded()).toEqual(["false", "false", "false"]);
-    expect(row(0)).toBeNull();
-  });
-
-  it("opens and closes a place on a click and with the arrow keys", () => {
-    render(props());
-    toggle(places()[1]);
-    expect(expanded()).toEqual(["false", "true", "false"]);
-    expect(row(3)).not.toBeNull();
-    pressKey(places()[1], "ArrowLeft");
-    expect(expanded()).toEqual(["false", "false", "false"]);
-    pressKey(places()[0], "ArrowRight");
-    expect(expanded()).toEqual(["true", "false", "false"]);
-  });
-
-  it("writes outside headers by their place name, rooms by their internal name, and grey: id, code and the rooms' maps", () => {
-    render(props({ selected: 1 }));
-    toggle(places()[2]);
-    expect(row(0)?.textContent).toBe("Zweiblattdorf0000 · T01");
-    expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
-    expect(row(2)?.textContent).toBe("T01R01020002 · 4 Karten (2 × 2)");
-    expect(row(4)?.textContent).toBe("D010004 · 1 Karte");
-  });
-
-  it("leaves_the_id_and_the_code_to_the_tooltip_in_bauen_and_keeps_the_rooms_maps", () => {
-    render(props({ selected: 1, depth: "bauen" }));
-    toggle(places()[2]);
-    expect(row(0)?.textContent).toBe("Zweiblattdorf");
-    expect(row(1)?.textContent).toBe("T01R01011 Karte");
-    expect(row(4)?.textContent).toBe("D011 Karte");
-    expect(row(0)?.getAttribute("title")).toContain("Header 0000 T01");
-  });
-
-  it("shows_the_id_and_the_code_in_every_row_when_the_depth_switches_to_tuefteln", () => {
-    render(props({ selected: 1, depth: "bauen" }));
-    expect(row(0)?.textContent).not.toContain("0000");
-    render(props({ selected: 1, depth: "tuefteln" }));
-    expect(row(0)?.textContent).toBe("Zweiblattdorf0000 · T01");
-  });
-
-  it("shows 'Lade Übersicht …' and no room details until the overview is loaded", () => {
-    render(props({ selected: 1, matricesLoaded: false, info: { root: "/p", game_code: "CPUE", family: "HGSS", language: "de", header_count: 5 } }));
+  it("says_it_loads_until_the_world_is_read_and_lists_the_headers_meanwhile", () => {
+    render(props({ world: null, matricesLoaded: false, selected: 3 }));
     expect(container.textContent).toContain("Lade Übersicht …");
-    // The tree is there at once, with the places and the headers' ids and codes.
-    expect(places()).toHaveLength(3);
-    expect(row(1)?.textContent).toBe("Zweiblattdorf0001 · T01R0101");
-    render(props({ selected: 1, info: { root: "/p", game_code: "CPUE", family: "HGSS", language: "de", header_count: 5 } }));
+    expect(row(3)?.textContent).toBe("Zweiblattdorf0003 · T01R0101");
+    expect(scrolled).toEqual(["3"]);
+    // The world arrives: the room opens in its area and is scrolled to again.
+    render(props({ selected: 3 }));
     expect(container.textContent).not.toContain("Lade Übersicht");
-    expect(container.textContent).toContain("3 Orte, 5 Header");
-    expect(row(1)?.textContent).toBe("T01R01010001 · 1 Karte");
+    expect(row(3)?.textContent).toBe("Haus 10003 · T01R0101");
+    expect(scrolled).toEqual(["3", "3"]);
   });
 
   it("says the overview is not available when its first listing failed, instead of loading for ever", () => {
-    render(props({ matricesLoaded: false, matricesFailed: true }));
+    render(props({ world: null, matricesLoaded: false, matricesFailed: true }));
     expect(container.textContent).toContain("Übersicht nicht verfügbar");
     expect(container.textContent).not.toContain("Lade Übersicht");
-    expect(places()).toHaveLength(3);
-    // Loaded wins: a later failing read does not hide what is known.
-    render(props({ matricesFailed: true }));
-    expect(container.textContent).toContain("3 Orte, 5 Header");
   });
 
-  it("does not guess outside and rooms before the overview is known: every row has the place's name, in id order", () => {
-    // With the overview, header 2 (matrix 0, outside) would come first and header 1 would be named by its code.
-    const listed = [header(1, "Ort", 7, "R1"), header(2, "Ort", 0, "T")];
-    render(props({ headers: listed, matricesLoaded: false, selected: 1 }));
-    expect([...container.querySelectorAll("[data-header-id]")].map((e) => e.textContent)).toEqual(["Ort0001 · R1", "Ort0002 · T"]);
-    render(props({ headers: listed, selected: 1 }));
-    expect([...container.querySelectorAll("[data-header-id]")].map((e) => e.textContent)).toEqual(["Ort0002 · T", "R10001 · 1 Karte"]);
+  it("switches_the_sort_in_the_head_menu_and_remembers_it", () => {
+    function Pane() {
+      const { state, setWorldSort } = useShell();
+      return <WorldExplorer {...props({ sort: state.worldSort, onSort: setWorldSort })} />;
+    }
+    act(() =>
+      root.render(
+        <ShellProvider>
+          <Pane />
+        </ShellProvider>,
+      ),
+    );
+    const order = () => areas().map((a) => a.getAttribute("data-area-key"));
+    expect(order()).toEqual(["w0:2", "w0:3"]);
+    click(button("Sortierung"));
+    expect(menuItems().map((e) => [e.textContent, e.getAttribute("aria-checked")])).toEqual([
+      ["Spielreihenfolge", "true"],
+      ["Name A–Z", "false"],
+      ["Zuletzt gewählt", "false"],
+    ]);
+    act(() => menuItems()[1].click());
+    expect(order()).toEqual(["w0:3", "w0:2"]);
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).worldSort).toEqual({ tree: "name", list: "id" });
+    // The recent choice: the area clicked last comes first.
+    click(button("Sortierung"));
+    act(() => menuItems()[2].click());
+    click(areas()[1]);
+    expect(order()).toEqual(["w0:3", "w0:2"]);
+    expect(JSON.parse(localStorage.getItem("g4.world.recent./p")!)).toEqual(["w0:3"]);
+    // The list mode has its own sort.
+    click(button("Liste"));
+    click(button("Sortierung"));
+    expect(menuItems().map((e) => e.textContent)).toEqual(["Nummer", "Name", "Kürzel"]);
+    act(() => menuItems()[2].click());
+    expect([...container.querySelectorAll('[role="option"]')].map((o) => o.getAttribute("data-header-id"))).toEqual(["5", "0", "2", "1", "3", "4"]);
+    expect(JSON.parse(localStorage.getItem("g4.shell.v1")!).worldSort).toEqual({ tree: "recent", list: "code" });
+  });
+
+  it("marks a header that a check found an error or warning at, in the tree and in the list", () => {
+    render(props({ selected: 3, marks: new Map([[3, "error"], [4, "warning"]]) }));
+    expect(row(3)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
+    expect(row(4)?.querySelector("[data-finding-mark]")?.getAttribute("aria-label")).toBe("Warnung gefunden");
+    // The area carries the worst mark of its sections, not of its rooms.
+    expect(row(1)?.querySelector("[data-finding-mark]")).toBeNull();
+    click(button("Liste"));
+    expect(row(3)?.querySelector("[data-finding-mark]")?.getAttribute("data-finding-mark")).toBe("error");
   });
 
   it("marks the selected row, and the rows of the shown matrix with a text of their own", () => {
-    render(props({ selected: 3, shownMatrix: 0 }));
-    toggle(places()[0]);
+    render(props({ selected: 3, shownMatrix: 20 }));
     expect(row(3)?.getAttribute("aria-selected")).toBe("true");
-    expect(row(0)?.getAttribute("aria-selected")).toBe("false");
+    expect(row(4)?.getAttribute("aria-selected")).toBe("false");
     // Not by colour alone: the marked rows carry a name for assistive technology.
-    expect(row(0)?.querySelector('[aria-label="Raster wird angezeigt"]')).not.toBeNull();
     expect(row(3)?.querySelector('[aria-label="Raster wird angezeigt"]')).not.toBeNull();
-    expect(row(1)?.querySelector('[aria-label="Raster wird angezeigt"]')).toBeNull();
+    expect(row(4)?.querySelector('[aria-label="Raster wird angezeigt"]')).toBeNull();
   });
 
-  it("calls onSelect with the header of the clicked row", () => {
+  it("calls onSelect with the header of the clicked row, and with Enter on a focused row", () => {
     const onSelect = vi.fn();
-    render(props({ selected: 1, onSelect }));
-    click(row(2));
-    expect(onSelect).toHaveBeenCalledWith(headers[2]);
-  });
-
-  it("selects with Enter on a focused row", () => {
-    const onSelect = vi.fn();
-    render(props({ selected: 1, onSelect }));
-    pressKey(row(2)!, "Enter");
-    expect(onSelect).toHaveBeenCalledWith(headers[2]);
-  });
-
-  it("a search keeps the places that match, opened", () => {
-    render(props());
-    type(search(), "Route");
-    expect(places()).toHaveLength(1);
-    expect(places()[0].textContent).toContain("Route 201");
-    expect(expanded()).toEqual(["true"]);
-    // A code searches inside the places.
-    type(search(), "r0102");
-    expect(places().map((p) => p.textContent)).toEqual(["Zweiblattdorf1"]);
-    expect(row(2)).not.toBeNull();
-    expect(row(1)).toBeNull();
+    render(props({ selected: 3, onSelect }));
+    click(row(4));
+    expect(onSelect).toHaveBeenLastCalledWith(headers[4]);
+    pressKey(row(3)!, "Enter");
+    expect(onSelect).toHaveBeenLastCalledWith(headers[3]);
   });
 
   it("filters while typing, not only when the field is left", () => {
     render(props());
     act(() => search().focus());
     type(search(), "Rou");
-    expect(places()).toHaveLength(1);
+    expect(areas()).toHaveLength(1);
     expect(document.activeElement).toBe(search());
   });
 
   it("clears a search that hides a newly selected header, then scrolls to it", () => {
     render(props());
     type(search(), "Route");
-    expect(places()).toHaveLength(1);
+    expect(areas()).toHaveLength(1);
     render(props({ selected: 4 }));
-    expect(places()).toHaveLength(3);
     expect(search().value).toBe("");
-    expect(expanded()).toEqual(["false", "false", "true"]);
+    // Route 201 has no rooms: a leaf, neither open nor closed.
+    expect(expanded()).toEqual(["true", null]);
     expect(scrolled).toEqual(["4"]);
   });
 
   it("does not pull a selection back that a later search hides", () => {
-    render(props({ selected: 1 }));
-    expect(scrolled).toEqual(["1"]);
-    type(search(), "Route");
-    expect(places()).toHaveLength(1);
-    expect(search().value).toBe("Route");
-    expect(scrolled).toEqual(["1"]);
-  });
-
-  it("opens the place of a newly selected header, keeps the others, and scrolls to the row once it is visible", () => {
-    render(props({ selected: 1 }));
-    expect(scrolled).toEqual(["1"]);
     render(props({ selected: 3 }));
-    expect(expanded()).toEqual(["true", "true", "false"]);
-    expect(scrolled).toEqual(["1", "3"]);
+    expect(scrolled).toEqual(["3"]);
+    type(search(), "Route");
+    expect(areas()).toHaveLength(1);
+    expect(search().value).toBe("Route");
+    expect(scrolled).toEqual(["3"]);
   });
 
-  it("scrolls again for a new reveal token, also for the header that is selected already", () => {
-    render(props({ selected: 2 }));
-    expect(scrolled).toEqual(["2"]);
-    render(props({ selected: 2 }));
-    expect(scrolled).toEqual(["2"]);
-    render(props({ selected: 2, revealToken: 1 }));
-    expect(scrolled).toEqual(["2", "2"]);
-  });
-
-  it("opens a place a link reveals although the user closed it", () => {
-    render(props({ selected: 1 }));
-    toggle(places()[0]);
+  it("opens an area a link reveals although the user closed it", () => {
+    render(props({ selected: 3 }));
+    caret(areas()[0]);
     expect(expanded()[0]).toBe("false");
-    render(props({ selected: 1, revealToken: 1 }));
+    render(props({ selected: 3, revealToken: 1 }));
     expect(expanded()[0]).toBe("true");
-    expect(scrolled).toEqual(["1", "1"]);
+    expect(scrolled).toEqual(["3", "3"]);
   });
 
-  it("keeps a place the user opened open", () => {
-    render(props());
-    toggle(places()[1]);
-    render(props({ selected: 0 }));
-    expect(expanded()).toEqual(["true", "true", "false"]);
+  it("keeps an area the user opened when the selection moves elsewhere", () => {
+    // A second area with rooms: Route 202 (6) with the room 7.
+    const more = [...headers, header(6, "R202", "Route 202", 4, 0, 2), header(7, "R202R0101", "Route 202", 4, 22)];
+    const grid: MatrixDto = { ...cells, width: 4, maps: [1, 2, 3, 6], headers: [1, 2, 0, 6] };
+    const two = buildWorld({
+      family: "Pt",
+      headers: more,
+      matrices: [summary(0, 4, 1, true), ...matrices.slice(1), summary(22, 1, 1)],
+      links: [...links, { event_file: 6, index: 0, x: 0, z: 0, dest_header_id: 7, dest_warp_id: 0 }],
+      cells: new Map([[0, grid]]),
+      meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} },
+    });
+    const withRooms = () => areas().filter((a) => a.getAttribute("aria-expanded") !== null);
+    render(props({ headers: more, world: two, selected: 3 }));
+    expect(withRooms()).toHaveLength(2);
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
+    caret(withRooms()[1]);
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
+    render(props({ headers: more, world: two, selected: 4 }));
+    expect(withRooms().map((a) => a.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
+    // Elsewhere: an area without rooms.
+    render(props({ headers: more, world: two, selected: 2 }));
+    expect(withRooms()[1]?.getAttribute("aria-expanded")).toBe("true");
   });
 
   describe("the head", () => {
-    it("is titled Orte, names the game and folds the list through the grip", () => {
-      const onToggleList = vi.fn();
-      render(props({ onToggleList, info: { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: 5 } }));
+    it("is the section Orte and folds the places", () => {
+      const onFold = vi.fn();
+      render(props({ onFold }));
+      expect(container.querySelector("section")?.getAttribute("aria-label")).toBe("Orte");
       expect(container.querySelector("h2")?.textContent).toBe("Orte");
-      expect(container.textContent).toContain("Platin, EN");
       // The view switch is symbols only (so the game name has room); the options keep their names.
       const view = container.querySelector('[role="group"][aria-label="Ansicht"]')!;
       expect([...view.querySelectorAll("button")].map((b) => [b.textContent, b.getAttribute("aria-label")])).toEqual([
         ["", "Baum"],
         ["", "Liste"],
       ]);
-      act(() => button("Liste einklappen")!.click());
-      expect(onToggleList).toHaveBeenCalledTimes(1);
+      act(() => button("Orte einklappen")!.click());
+      expect(onFold).toHaveBeenLastCalledWith(true);
+      render(props({ onFold, folded: true }));
+      act(() => button("Orte ausklappen")!.click());
+      expect(onFold).toHaveBeenLastCalledWith(false);
     });
 
-    it("keeps the tree and its state while the list is folded", () => {
-      render(props({ selected: 1 }));
+    it("keeps the tree and its state while the places are folded", () => {
+      render(props({ selected: 3 }));
       type(search(), "Zwei");
-      render(props({ selected: 1, listOpen: false }));
-      expect(container.querySelector("section")?.hidden).toBe(true);
-      render(props({ selected: 1, listOpen: true }));
+      render(props({ selected: 3, folded: true }));
+      expect(search().closest("[hidden]")).not.toBeNull();
+      // Folded, the head keeps „+“ and the fold; the view switch and the sort wait for the tree.
+      expect(container.querySelector('[role="group"][aria-label="Ansicht"]')).toBeNull();
+      expect(button("Neu anlegen")).toBeDefined();
+      render(props({ selected: 3, folded: false }));
+      expect(search().closest("[hidden]")).toBeNull();
       expect(search().value).toBe("Zwei");
     });
   });
@@ -384,15 +346,15 @@ describe("WorldExplorer", () => {
       act(() => button("Liste")!.click());
       expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
       expect(container.querySelector(SEARCH)).toBeNull();
-      expect(places()).toHaveLength(0);
-      expect(container.querySelectorAll('[role="option"]')).toHaveLength(5);
+      expect(areas()).toHaveLength(0);
+      expect(container.querySelectorAll('[role="option"]')).toHaveLength(6);
       expect(localStorage.getItem("g4.explorer.mode")).toBe("list");
       act(() => root.unmount());
       root = createRoot(container);
       render(props());
       expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
       act(() => button("Baum")!.click());
-      expect(places()).toHaveLength(3);
+      expect(areas()).toHaveLength(2);
       expect(localStorage.getItem("g4.explorer.mode")).toBe("tree");
     });
 
@@ -408,6 +370,8 @@ describe("WorldExplorer", () => {
         render(props());
         act(() => button("Liste")!.click());
         expect(container.querySelector('input[aria-label="Header suchen"]')).not.toBeNull();
+        act(() => button("Baum")!.click());
+        click(areas()[0]);
       } finally {
         Object.defineProperty(window, "localStorage", original);
       }
@@ -430,7 +394,7 @@ describe("WorldExplorer", () => {
     const settle = () => act(async () => {});
 
     it("leave exactly one tab stop in the tree, after a search and after switching to the list and back", async () => {
-      render(props({ selected: 1 }));
+      render(props({ selected: 3 }));
       expect(tabStops('[role="treeitem"]')).toHaveLength(1);
       type(search(), "Route");
       await settle();
@@ -444,11 +408,18 @@ describe("WorldExplorer", () => {
       expect(tabStops('[role="treeitem"]')).toHaveLength(1);
     });
 
-    it("move between the rows of the tree and of the list", () => {
-      render(props({ selected: 1 }));
+    it("move between the rows of the tree and of the list, and open and close a branch", () => {
+      render(props({ selected: 3 }));
       const first = treeitems()[0];
       pressKey(first, "ArrowDown");
       expect(document.activeElement).toBe(treeitems()[1]);
+      // The second area has no rooms: a leaf, the arrow opens nothing.
+      pressKey(areas()[1], "ArrowRight");
+      expect(expanded()).toEqual(["true", null]);
+      pressKey(areas()[0], "ArrowLeft");
+      expect(expanded()).toEqual(["false", null]);
+      pressKey(areas()[0], "ArrowRight");
+      expect(expanded()).toEqual(["true", null]);
       act(() => button("Liste")!.click());
       const options = [...container.querySelectorAll<HTMLElement>('[role="option"]')];
       pressKey(options[0], "ArrowDown");
@@ -463,14 +434,15 @@ describe("WorldExplorer", () => {
       Object.defineProperty(c, "internal_name", { enumerable: true, get: () => (reads++, h.internal_name) });
       return c;
     });
-    const base = props({ headers: counted, selected: 0 });
+    const countedWorld = worldOf(counted);
+    const base = props({ headers: counted, world: countedWorld, selected: 3 });
     render(base);
     const first = reads;
     expect(first).toBeGreaterThan(0);
     render({ ...base });
     expect(reads).toBe(first);
-    // Selection 0 -> 3 renders the two outside rows whose mark changes, not the three of the open place.
-    render({ ...base, selected: 3 });
+    // Selection 3 -> 4 renders the two rooms whose selection changed, not every row.
+    render({ ...base, selected: 4 });
     expect(reads - first).toBeGreaterThan(0);
     expect(reads - first).toBeLessThan(first);
   });
@@ -479,15 +451,15 @@ describe("WorldExplorer", () => {
     const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
     const scriptsRoot = () => container.querySelector<HTMLElement>("[data-scripts-root]")!;
     const openScripts = () => click(scriptsRoot());
-    /** The script files below the root node (level 2); the children of a header are level 3. */
+    /** The script files below the root node (level 2). */
     const fileRows = () => [...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="2"]')];
-    const headerChildren = () => [...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="3"]')];
+    /** The script entries of a room (level 4: world map, area, room, entry). */
+    const roomChildren = () => [...container.querySelectorAll<HTMLElement>('[data-script-file][aria-level="4"]')];
     const scriptBox = () => container.querySelector<HTMLInputElement>('input[aria-label="Scripts durchsuchen"]')!;
-    const file = (n: number, kind: ScriptFileDto["kind"] = "script", headers: number[] = []): ScriptFileDto => ({ file: n, kind, size: 120, headers });
+    const file = (n: number, kind: ScriptFileDto["kind"] = "script", users: number[] = []): ScriptFileDto => ({ file: n, kind, size: 120, headers: users });
     const hit = (n: number, line: number, excerpt: string): ScriptHitDto => ({ file: n, line, excerpt });
     const hitRows = () => treeitems().filter((t) => t.textContent?.includes("Zeile"));
-    const withScripts = headers.map((h) => (h.id === 0 ? { ...h, script_file_id: 0, level_script_id: 1 } : { ...h, script_file_id: 5, level_script_id: 0 }));
-    const toggleHeader = (id: number) => pressKey(row(id)!, "ArrowRight");
+    const withScripts = headers.map((h) => (h.id === 3 ? { ...h, script_file_id: 7, level_script_id: 8 } : { ...h, script_file_id: 5, level_script_id: 0 }));
 
     it("lists_the_scripts_node_first_in_the_tree", () => {
       render(props());
@@ -496,35 +468,13 @@ describe("WorldExplorer", () => {
       expect(scriptsRoot().getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("shows_the_script_file_and_level_script_below_an_expanded_header_and_opens_them", () => {
-      const onOpenScript = vi.fn();
-      render(props({ headers: withScripts, selected: 0, onOpenScript }));
-      expect(headerChildren()).toHaveLength(0);
-      expect(row(0)?.getAttribute("aria-expanded")).toBe("false");
-      toggleHeader(0);
-      expect(row(0)?.getAttribute("aria-expanded")).toBe("true");
-      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001"]);
-      click(headerChildren()[0]);
-      click(headerChildren()[1]);
-      expect(onOpenScript.mock.calls).toEqual([[0], [1]]);
-      // A header without a level script has only its script file; collapsing hides the children again.
-      toggle(places()[1]);
-      toggleHeader(3);
-      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0000", "Level-Script 0001", "Scriptdatei 0005"]);
-      pressKey(row(0)!, "ArrowLeft");
-      expect(headerChildren().map((b) => b.textContent)).toEqual(["Scriptdatei 0005"]);
-    });
-
-    it("disables_the_header_children_and_asks_for_the_adoption_while_scripts_are_not_adopted", () => {
-      const onOpenScript = vi.fn();
-      render(props({ headers: withScripts, selected: 0, scriptsAdopted: false, onOpenScript }));
-      toggleHeader(0);
-      const child = headerChildren()[0];
-      expect(child.getAttribute("aria-disabled")).toBe("true");
-      expect(child.title).toBe("Erst Scripts übernehmen (Panel „Script“)");
-      click(child);
-      pressKey(child, "Enter");
-      expect(onOpenScript).not.toHaveBeenCalled();
+    it("has_no_script_children_below_the_rows", () => {
+      // The scene's group „Scripts“ has them; the rows of the places are leaves.
+      render(props({ headers: withScripts, world: worldOf(withScripts), selected: 3 }));
+      expect(container.querySelectorAll('[data-script-file][aria-level="3"]')).toHaveLength(0);
+      expect(row(3)?.hasAttribute("aria-expanded")).toBe(false);
+      pressKey(row(3)!, "ArrowRight");
+      expect(roomChildren()).toHaveLength(0);
     });
 
     it("reads_the_script_list_when_the_root_node_is_first_opened_not_before", async () => {
@@ -545,6 +495,15 @@ describe("WorldExplorer", () => {
       expect(scriptsRoot().textContent).toBe("Scripts3");
       click(fileRows()[1]);
       expect(onOpenScript).toHaveBeenCalledWith(1);
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      vi.mocked(listScriptFiles).mockResolvedValue([file(0, "script", [0, 4]), file(1, "levelScript", [0]), file(2, "binary")]);
+      render(props({ depth: "bauen" }));
+      openScripts();
+      await flush();
+      expect(fileRows().map((r) => r.textContent)).toEqual(["Scriptdatei 0000120 Byte · Orte 0000, 0004", "Level-Script 0001120 Byte · Ort 0000", "Scriptdatei 0002binär · 120 Byte · ohne Ort"]);
+      expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     });
 
     it("says_to_adopt_first_and_calls_no_command_while_scripts_are_not_adopted", async () => {

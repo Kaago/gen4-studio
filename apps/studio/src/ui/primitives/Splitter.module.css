@@ -1,0 +1,57 @@
+.horizontal,
+.vertical {
+  position: relative;
+  flex: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.horizontal {
+  height: var(--g4-raum-8);
+  cursor: row-resize;
+}
+
+.vertical {
+  width: var(--g4-raum-8);
+  cursor: col-resize;
+}
+
+/* The line itself is a hairline in the middle of the grab area; it thickens and turns to the accent under the pointer and on the keyboard. */
+.horizontal::after,
+.vertical::after {
+  content: "";
+  position: absolute;
+  background: var(--g4-linie-leise);
+}
+
+.horizontal::after {
+  inset-inline: 0;
+  top: 50%;
+  height: var(--g4-strich-standard);
+  transform: translateY(-50%);
+}
+
+.vertical::after {
+  inset-block: 0;
+  left: 50%;
+  width: var(--g4-strich-standard);
+  transform: translateX(-50%);
+}
+
+.horizontal:hover::after,
+.horizontal:focus-visible::after {
+  height: var(--g4-strich-fokus);
+  background: var(--g4-akzent-grund);
+}
+
+.vertical:hover::after,
+.vertical:focus-visible::after {
+  width: var(--g4-strich-fokus);
+  background: var(--g4-akzent-grund);
+}
+
+.horizontal:focus-visible,
+.vertical:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}

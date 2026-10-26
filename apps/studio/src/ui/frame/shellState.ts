@@ -1,12 +1,29 @@
 // What the frame remembers between runs (localStorage, key `g4.shell.v1`): the active area, which lists are open, the height
-// of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows and the selection of each data
-// part. Plain module (no React); `ShellContext` holds the live copy. A state written before a field existed reads it as its default.
+// of each area's hand, the depth, the recently opened projects, the part the Pokémon area shows, the selection of each data
+// part, the anchor of the toolbar in the 3D view, how the world tree and the header list are sorted, and how the list „Welt“ splits
+// between the places and the scene. Plain module (no React); `ShellContext` holds the live copy. A state written
+// before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
 export type Depth = "bauen" | "tuefteln";
 export type Tool = "select" | "paint" | "figure" | "door" | "trigger" | "sign" | "building";
 
 export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+
+/** Where the toolbar floats in the 3D view: upright at the left edge, flat at the top (beside the layer bar), or flat at the bottom middle. */
+export type ToolbarAnchor = "left" | "top" | "bottom";
+const TOOLBAR_ANCHORS: readonly ToolbarAnchor[] = ["left", "top", "bottom"];
+
+/** How the world tree orders its areas (and, by name, its rooms): game order (first header id), by name, or the areas chosen last first. */
+export type TreeSort = "game" | "name" | "recent";
+const TREE_SORTS: readonly TreeSort[] = ["game", "name", "recent"];
+/** How the header list orders its rows: by number, by the name it shows, or by code. */
+export type ListSort = "id" | "name" | "code";
+const LIST_SORTS: readonly ListSort[] = ["id", "name", "code"];
+export interface WorldSort {
+  tree: TreeSort;
+  list: ListSort;
+}
 
 /** The parts of the Pokémon area, in the order of their keys ⌘1 to ⌘4. */
 export type PokemonSub = "pokedex" | "trainer" | "encounters" | "moves";
@@ -27,6 +44,11 @@ const SELECT_KEYS: readonly DataSelectKey[] = ["pokedex", "trainer", "encounters
 export const HAND_MIN = 200;
 export const HAND_MAX = 560;
 export const HAND_DEFAULT = 286;
+
+/** The share of the list „Welt“ the places take above the scene: never less than a fifth or more than four fifths. */
+export const WORLD_SPLIT_MIN = 0.2;
+export const WORLD_SPLIT_MAX = 0.8;
+export const WORLD_SPLIT_DEFAULT = 0.5;
 
 const MAX_RECENT = 5;
 const KEY = "g4.shell.v1";
@@ -50,12 +72,26 @@ export interface ShellState {
   sub: { pokemon: PokemonSub };
   /** The selection of each data part; a part without one has none. */
   selected: DataSelection;
+  /** The anchor the toolbar was put at; a low view may show it elsewhere (`shownAnchor`), this stays. */
+  toolbar: ToolbarAnchor;
+  /** The sort of the world tree and of the header list. */
+  worldSort: WorldSort;
+  /** The share of the list „Welt“ the places take (0.2 to 0.8); the scene has the rest. */
+  worldListSplit: number;
+  /** The places are folded to one row (the scene then has the whole list). */
+  placesFolded: boolean;
 }
 
 /** A hand height inside 200..560; anything that is not a number gets the default. */
 export function clampHand(height: unknown): number {
   if (typeof height !== "number" || !Number.isFinite(height)) return HAND_DEFAULT;
   return Math.min(HAND_MAX, Math.max(HAND_MIN, Math.round(height)));
+}
+
+/** A share of the list „Welt“ inside 0.2..0.8; anything that is not a number gets the default. */
+export function clampWorldSplit(share: unknown): number {
+  if (typeof share !== "number" || !Number.isFinite(share)) return WORLD_SPLIT_DEFAULT;
+  return Math.min(WORLD_SPLIT_MAX, Math.max(WORLD_SPLIT_MIN, share));
 }
 
 function perArea<T>(stored: unknown, fallback: T, valid: (v: unknown) => v is T, fix: (v: T) => T = (v) => v): Record<AreaId, T> {
@@ -85,6 +121,11 @@ function readSelection(stored: unknown): DataSelection {
   return selection;
 }
 
+function readWorldSort(stored: unknown): WorldSort {
+  const record = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  return { tree: TREE_SORTS.find((t) => t === record.tree) ?? "game", list: LIST_SORTS.find((l) => l === record.list) ?? "id" };
+}
+
 function stored(): unknown {
   try {
     const raw = localStorage.getItem(KEY);
@@ -107,6 +148,10 @@ export function readShellState(): ShellState {
     recent: Array.isArray(s.recent) ? s.recent.filter(isRecent).slice(0, MAX_RECENT) : [],
     sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
     selected: readSelection(s.selected),
+    toolbar: TOOLBAR_ANCHORS.find((a) => a === s.toolbar) ?? "left",
+    worldSort: readWorldSort(s.worldSort),
+    worldListSplit: clampWorldSplit(s.worldListSplit),
+    placesFolded: s.placesFolded === true,
   };
 }
 

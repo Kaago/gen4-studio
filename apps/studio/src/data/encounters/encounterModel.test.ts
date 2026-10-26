@@ -18,7 +18,7 @@ import {
 } from "./encounterModel";
 import { ROUTE_201, slot } from "./encounterTesting";
 
-const header = (id: number, location_name: string, internal_name = `H${id}`): HeaderSummary => ({ id, internal_name, location_name, matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
+const header = (id: number, location_name: string, internal_name = `H${id}`): HeaderSummary => ({ id, internal_name, location_index: 0, kanto: false, location_name, matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const fileRow = (index: number, users: number[] | null): DataRowDto => ({ index, name: "", tech: String(index).padStart(4, "0"), locked: users === null ? "encounter 0001: 12 bytes, expected 424" : null, extra: users === null ? null : { users } });
 
 describe("encounterModel", () => {

@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fakeChecks, finding } from "../../checks/checksTesting";
 import type { ChecksApi } from "../../checks/useChecks";
+import { visibleWords } from "../../ui/visibleText";
 import type { ProblemRow } from "../problems/problems";
 import { ChecksSection, findingsFor } from "./ChecksSection";
 import { resetSectionFolds } from "./foldState";
@@ -64,12 +65,28 @@ describe("ChecksSection", () => {
       ["warp.dest-warp", "error"],
       ["warp.never-fires", "info"],
     ]);
-    expect(items[0]!.textContent).toContain("Die Tür führt zu Warp 5 in Header 0414, aber dessen Eventdatei 0411 hat nur 3 Warps.");
+    expect(items[0]!.textContent).toContain("Die Tür führt zu Warp 5 von Ort 0414, aber dessen Eventdatei 0411 hat nur 3 Warps.");
     // The record is open already: no „Öffnen“; an error is never hidden.
     expect(buttons(items[0]!)).toEqual([]);
     expect(buttons(items[1]!)).toEqual(["Ausblenden"]);
     act(() => items[1]!.querySelector("button")!.click());
     expect(checks.ignore).toHaveBeenCalledWith(warp2Never);
+  });
+
+  // The findings at a header and at a cell, labelled as the kernel labels them.
+  const atHeader = { ...header, label: "Header 0007 · Begegnungen" };
+  const elsewhere = finding("matrix.header-elsewhere", "error", { subject: { kind: "matrix", index: 0 }, key: "cell:3,4", args: ["0", "3", "4", "12", "5"], label: "Matrix 0000 · Zelle 3, 4" });
+
+  it("says_no_raster_matrix_or_header_in_building", () => {
+    act(() => root.render(<ChecksSection findings={[atHeader, elsewhere, warp2]} checks={checks} depth="bauen" />));
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(container.textContent).toContain("Ort 0007 · Begegnungen");
+  });
+
+  it("keeps_the_technical_words_in_tinkering", () => {
+    act(() => root.render(<ChecksSection findings={[atHeader, elsewhere]} checks={checks} depth="tuefteln" />));
+    expect(container.textContent).toContain("Header 0007 · Begegnungen");
+    expect(container.textContent).toContain("Die Zelle nennt Header 0012, der Matrix 5 nutzt");
   });
 
   it("offers_beheben_for_a_finding_with_a_fix", async () => {

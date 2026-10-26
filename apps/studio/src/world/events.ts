@@ -1,6 +1,7 @@
 import { isCmdError } from "../api";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
-import { TERMS } from "../workbench/terms";
+import type { Depth } from "../ui/frame/shellState";
+import { TERMS, termFor } from "../workbench/terms";
 import { eventColor } from "./colors";
 import { MAP_SIZE } from "./layout";
 
@@ -38,12 +39,16 @@ export function markerPosition(x: number, z: number, matrix: MatrixDto): { wx: n
 
 const id4 = (n: number) => String(n).padStart(4, "0");
 
-/** Headline of an event in the inspector, e.g. "Warp 0 → Header 0414 (T01R0201)". */
-export function eventTitle(kind: EventKind, data: EventData, destName?: string): string {
+/**
+ * Headline of an event in the inspector. A door: Tüfteln "Warp 0 → Header 0414 (T01R0201)" with `destName` the internal name;
+ * Bauen "Warp 0 → Haus 2" with `destName` the name the world tree gives the destination, without one "Warp 0 → Ort 0414".
+ */
+export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destName?: string): string {
   switch (kind) {
     case "warp": {
       const w = data as WarpDto;
-      const dest = `Header ${id4(w.dest_header_id)}`;
+      const dest = `${termFor("header", depth)} ${id4(w.dest_header_id)}`;
+      if (depth !== "tuefteln") return `Warp ${w.index} → ${destName || dest}`;
       return `Warp ${w.index} → ${destName ? `${dest} (${destName})` : dest}`;
     }
     case "object": {

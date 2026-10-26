@@ -132,6 +132,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_project", APP_ONLY),
     ("plan_empty_region", Kind::Read),
     ("apply_empty_region", Kind::Irreversible("Welt leeren")),
+    ("world_meta_get", Kind::Read),
+    ("world_meta_set", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.

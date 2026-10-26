@@ -95,6 +95,17 @@ describe("Section, InspectorRow, PanelHead and EmptyState", () => {
     expect(container.textContent).toContain("weicht ab");
   });
 
+  it("inspector_row_puts_the_label_above_its_control_in_a_narrow_inspector", () => {
+    const css = readCss("./InspectorRow.module.css", import.meta.url).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Wide (the Doppeldeck's inspector): the 116 px label column beside the control.
+    const wide = css.replace(/@container[^{]*\{[\s\S]*?\n\}/g, "");
+    expect(ruleBody(wide, ".row")).toMatch(/grid-template-columns:\s*116px minmax\(0, 1fr\)/);
+    // Narrow (the Werkbank's, 280 to 340 px): one column, the label above, the control and its hint at full width.
+    const narrow = css.match(/@container inspector \(max-width: 359px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(ruleBody(narrow, ".row")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(ruleBody(narrow, ".hint")).toMatch(/grid-column:\s*1\b/);
+  });
+
   it("panel_head_has_title_subtitle_and_actions_in_a_header", () => {
     act(() => root.render(<PanelHead title="Orte" subtitle="Platin" actions={<button type="button">Neu</button>} />));
     expect(container.querySelector("header")).not.toBeNull();

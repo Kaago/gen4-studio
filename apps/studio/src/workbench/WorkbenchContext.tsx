@@ -9,12 +9,16 @@ import type { BuildingRef } from "../world/buildingLayer";
 import type { EditBus } from "../bus/editBus";
 import type { DataStore } from "../data/dataStore";
 import type { EventLock, EventRef } from "../world/events";
+import { headerIdentity } from "./headerIdentity";
+import type { HeaderIdentity } from "./headerIdentity";
 import type { InspectorModel } from "./Inspector";
 import type { NavTarget } from "./navigation";
 import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "./problems/problems";
 import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
+import { EMPTY_WORLD_META } from "./useWorldModel";
+import type { WorldModel } from "./useWorldModel";
 
 /**
  * What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in, or the wizard that
@@ -44,6 +48,11 @@ export interface WorkbenchData {
   onSelect: (h: HeaderSummary) => void;
   /** Follows a link: selects, pins the inspector and focuses the panel that shows the target. */
   goTo: (target: NavTarget) => void;
+  /** Shows the scene shown before / after this one (the history of the scenes shown; „Zurück“ and „Vor“ of „In dieser Szene“). */
+  sceneBack: () => void;
+  sceneForward: () => void;
+  canBack: boolean;
+  canForward: boolean;
   /** Where the writers announce that data moved: the panels and the scene listen. A stable object. */
   bus: EditBus;
   matrix: MatrixDto | null;
@@ -90,6 +99,8 @@ export interface WorkbenchData {
   onCountsChanged: () => void | Promise<void>;
   /** Parts were imported into a map: its pictures are dropped, the scene reloads the models and the dirty count catches up. */
   onMapImported: (map: number) => void | Promise<void>;
+  /** Pins a selection as a click in the scene does (a row of „In dieser Szene“ chose it): the inspector, the halo and the breadcrumb follow. */
+  onPin: (model: InspectorModel) => void;
   /** The building selected in the scene (it is the pinned inspector model); null: none. */
   selectedBuilding: BuildingRef | null;
   /** A click in the scene chose a building (null: none). */
@@ -140,30 +151,54 @@ export interface MatrixSelection {
 }
 
 /**
- * What changes with the pointer and the session message, each in a context of its own so a panel
- * subscribes only to what it renders: hovering the scene must not render the header list or the
- * matrix tab. The message is not read by any panel any more (the frame shows it as a toast); it stays
- * here as the one place that says what the session currently shows.
+ * The world model of the open project (`useWorldModel`), built once for the workbench: the explorer shows it, and the inspector
+ * head, the breadcrumb and the door under the pointer name headers with `identify`, so they say what the world tree says.
+ */
+export interface WorkbenchWorld extends WorldModel {
+  /** What a header is and how it is called: from the world once it is read, from the places until then. Keeps its identity until either changes. */
+  identify: (header: HeaderSummary) => HeaderIdentity;
+}
+
+/** The world before a project is read (and for panels rendered without one). */
+export const NO_WORLD: WorkbenchWorld = {
+  world: null,
+  names: null,
+  meta: EMPTY_WORLD_META,
+  broken: null,
+  setMeta: async () => {},
+  reread: () => {},
+  identify: (header) => headerIdentity([], header),
+};
+
+/**
+ * What changes with the selection, the world and the session message, each in a context of its own so a
+ * panel subscribes only to what it renders: selecting must not render the header list or the matrix tab
+ * (unless the selection is a matrix cell). The scene's hover is not here at all: it goes to the status
+ * line. The message is not read by any panel any more (the frame shows it as a toast); it stays here as
+ * the one place that says what the session currently shows.
  */
 export interface WorkbenchLive {
-  /** What the inspector shows: the scene's hover while the pointer is over a cell, else the pinned model. */
+  /** What the inspector shows: the selection (the pin); the scene's hover goes to the status line. */
   inspector: InspectorModel;
   /** The inspector's cell if it is a matrix cell, else null. Keeps its identity while the same cell shows. */
   matrixSelection: MatrixSelection | null;
   /** The session message the frame mirrors into the toasts. */
   message: Message | null;
+  /** Changes when the world is read again (a project opened, matrix data or the header list moved, the project file written). */
+  world: WorkbenchWorld;
 }
 
 const WorkbenchContext = createContext<WorkbenchData | null>(null);
 const InspectorContext = createContext<InspectorModel>({ kind: "none" });
 const MatrixSelectionContext = createContext<MatrixSelection | null>(null);
+const WorldContext = createContext<WorkbenchWorld>(NO_WORLD);
 
 export function WorkbenchProviders({ data, live, children }: { data: WorkbenchData; live: WorkbenchLive; children: ReactNode }) {
   return (
     <WorkbenchContext.Provider value={data}>
       <InspectorContext.Provider value={live.inspector}>
         <MatrixSelectionContext.Provider value={live.matrixSelection}>
-          {children}
+          <WorldContext.Provider value={live.world}>{children}</WorldContext.Provider>
         </MatrixSelectionContext.Provider>
       </InspectorContext.Provider>
     </WorkbenchContext.Provider>
@@ -177,11 +212,16 @@ export function useWorkbench(): WorkbenchData {
   return data;
 }
 
-/** Changes with every hover; only the inspector reads it. */
+/** Changes with the selection; only the inspector reads it. */
 export function useInspectorModel(): InspectorModel {
   return useContext(InspectorContext);
 }
 
 export function useMatrixSelection(): MatrixSelection | null {
   return useContext(MatrixSelectionContext);
+}
+
+/** The world model and the names of the headers (see `WorkbenchWorld`). */
+export function useWorld(): WorkbenchWorld {
+  return useContext(WorldContext);
 }

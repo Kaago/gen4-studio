@@ -3,13 +3,13 @@ import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import { Button, Section } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
-import { headerLabel } from "../headers";
+import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
-import { TERMS, id4 } from "../terms";
+import { TERMS, id4, termFor } from "../terms";
+import { useEvents } from "../useEvents";
 import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
 import { EncounterFileField } from "./EncounterFileField";
-import { ExitsSection } from "./ExitsSection";
 import { Field } from "./Field";
 import { useSectionFolds } from "./foldState";
 import { fieldValue, pickMax } from "./fields";
@@ -25,19 +25,19 @@ import { TechnicalSection } from "./TechnicalSection";
 /** What the header editor needs from App besides the header id. */
 export interface HeaderEditorContext {
   headers: HeaderSummary[];
+  /** What a header is and how it is called, as the world tree says (`WorkbenchWorld.identify`): the head's kind and title. */
+  identify: (header: HeaderSummary) => HeaderIdentity;
   counts: MemberCounts;
   /** Changes whenever the header table was changed behind the editor's back (undo, redo, reload). */
   revision: number;
   /** Called after a field was written, so the list, the scene and the dirty count follow. */
   onChanged: () => void | Promise<void>;
-  /** Follows a link (area data, matrix panel). */
+  /** Follows a link (area data, matrix panel, the doors of the scene). */
   goTo: (target: NavTarget) => void;
-  /** Changes whenever events were changed behind the exits section's back (a drag, add, delete, undo, redo). */
+  /** Changes whenever events were changed behind the editor's back (a drag, add, delete, undo, redo): the doors are counted again. */
   eventRevision: number;
   /** Opens a wizard ("Raum hier anbinden…"). */
   onOpenWizard: (request: WizardRequest) => void;
-  /** Adds a warp to the selected header's event file. */
-  onAddWarp: () => void;
   /** The open project (the level-script form starts over when another one is opened). */
   info: ProjectInfo | null;
   /** Whether rotom has taken the scripts over; without it the script buttons and the level-script form only show a hint. */
@@ -58,16 +58,46 @@ export interface HeaderEditorContext {
 /** The header fields that name a file of the script archive, with what a new file of that field is. */
 const SCRIPT_FIELDS: Record<string, "script" | "levelScript"> = { script_file_id: "script", level_script_id: "levelScript" };
 
+/** „2 Türen, 1 ohne Ziel“: the doors of the header's event file and how many lead to a header the list does not know; null for none. */
+function doorsText(dests: readonly number[], headers: readonly HeaderSummary[]): string | null {
+  if (dests.length === 0) return null;
+  const lost = dests.filter((dest) => !headers.some((h) => h.id === dest)).length;
+  const doors = `${dests.length} ${dests.length === 1 ? "Tür" : "Türen"}`;
+  return lost === 0 ? doors : `${doors}, ${lost} ohne Ziel`;
+}
+
+/**
+ * The line of the doors where the exits list was: how many the header's event file has and how many lead nowhere, as a link that shows
+ * the scene, opens its „Türen“ and focuses them (the scene's tools and „+“ add a door, the event editor sets its target).
+ */
+function DoorsLine({ header, headers, revision, goTo, onError }: { header: HeaderSummary; headers: readonly HeaderSummary[]; revision: number; goTo: (target: NavTarget) => void; onError: (e: unknown) => void }) {
+  const events = useEvents(header.event_file_id, onError, revision);
+  const text = events === null ? null : doorsText(events.warps.map((w) => w.dest_header_id), headers);
+  return (
+    <p className={styles.actions} data-doors="">
+      {events === null ? (
+        <span className={styles.note}>Lade Türen …</span>
+      ) : text === null ? (
+        <span className={styles.note}>Keine Türen</span>
+      ) : (
+        <Button kind="quiet" size="s" icon="door" title="Zeigt die Türen in „In dieser Szene“" onClick={() => goTo({ kind: "sceneGroup", group: "warp", header: header.id })}>
+          {text}
+        </Button>
+      )}
+    </p>
+  );
+}
+
 /**
  * Editable form of one map header; every committed field is one undoable change. Render it with
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, onAddWarp, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
+  const { headers, identify, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
-  // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: a hover mounts a new one.
+  // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: selecting another header mounts a new one.
   const folds = useSectionFolds();
   const foldKey = (section: HeaderSectionId) => `header:${section}`;
   const callbacks = useRef({ onChanged, onError });
@@ -114,6 +144,11 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   };
 
   const summary = headers.find((h) => h.id === id);
+  // The head: an area by its name, a room by its name; Bauen gives the place and the code as the ident, Tüfteln the header's number.
+  const identity = summary ? identify(summary) : null;
+  const headerId = `${termFor("header", depth)} ${id4(id)}`;
+  const code = summary ? ` · ${summary.internal_name}` : "";
+  const ident = depth === "tuefteln" ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -152,13 +187,19 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
 
   return (
     <div className={styles.panel}>
-      <InspectorHead title={summary ? headerLabel(summary) : `${TERMS.header.label} ${id4(id)}`} subtitle={summary ? `${id4(id)} · ${summary.internal_name}` : id4(id)} />
+      <InspectorHead
+        kind={identity === null ? "room" : identity.kind === "other" ? "place" : identity.kind}
+        title={identity?.name ?? headerId}
+        ident={ident}
+        actions={summary ? [{ label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) }] : undefined}
+        depth={depth}
+      />
       <div className={styles.body}>
         {header === null ? (
-          <p className={styles.note}>Lade Header …</p>
+          <p className={styles.note}>Lade {termFor("header", depth)} …</p>
         ) : (
           <div key={refused}>
-            {headerSections(headerFamily(header)).map((section) => (
+            {headerSections(headerFamily(header), depth).map((section) => (
               <Section key={section.id} title={section.title} open={folds.isOpen(foldKey(section.id))} onToggle={() => folds.toggle(foldKey(section.id))}>
                 {section.specs.map((spec) => fieldRow(spec, header))}
                 {section.id === "texts" && !scriptsAdopted && (
@@ -170,9 +211,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             ))}
           </div>
         )}
-        {summary && (
-          <ExitsSection header={summary} headers={headers} revision={eventRevision} goTo={goTo} onOpenWizard={onOpenWizard} onAddWarp={onAddWarp} onError={onError} />
-        )}
+        {summary && <DoorsLine header={summary} headers={headers} revision={eventRevision} goTo={goTo} onError={onError} />}
         {summary && header !== null && (
           <LevelScriptSection
             // A header of another project or another level script file starts a fresh form.
@@ -190,7 +229,6 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           />
         )}
         {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
-        <p className={styles.note}>Neue Header legen die Assistenten „Gebiet anlegen“ und „Raum anlegen“ an (Schritt „Header“, Option „Neuer Header“).</p>
       </div>
     </div>
   );

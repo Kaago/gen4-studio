@@ -250,5 +250,18 @@
    "$type": "color",
    "$value": "{platin.500}"
   }
+ },
+ "schatten": {
+  "schwebend": {
+   "$type": "shadow",
+   "$value": {
+    "color": "{platin.1000}",
+    "alpha": 0.48,
+    "offsetX": "0px",
+    "offsetY": "8px",
+    "blur": "24px",
+    "spread": "0px"
+   }
+  }
  }
 }

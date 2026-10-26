@@ -2,20 +2,27 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
-import { clampHand, readShellState, rememberRecent, writeShellState } from "./shellState";
-import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool } from "./shellState";
+import { clampWorldSplit, readShellState, rememberRecent, writeShellState } from "./shellState";
+import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor, WorldSort } from "./shellState";
 
 export interface ShellApi {
+  /** The frame's remembered state. `handHeight` and `handCollapsed` (the hand of 3e.3) are still read from storage, but nothing sets them: each area has one dock now, whose groups dockview sizes. */
   state: ShellState;
   setArea: (area: AreaId) => void;
   setListOpen: (area: AreaId, open: boolean) => void;
-  setHandHeight: (area: AreaId, height: number) => void;
-  toggleHandCollapsed: (area: AreaId) => void;
   setDepth: (depth: Depth) => void;
   /** The part the Pokémon area shows (whether it may is the area's to decide). */
   setPokemonSub: (sub: PokemonSub) => void;
   /** The selection of a data part; null: none. */
   setSelected: (key: DataSelectKey, index: number | null) => void;
+  /** Puts the toolbar of the 3D view at an anchor (remembered). */
+  setToolbar: (anchor: ToolbarAnchor) => void;
+  /** Sets how the world tree and/or the header list are sorted (remembered); a part left out stays. */
+  setWorldSort: (sort: Partial<WorldSort>) => void;
+  /** The share of the list „Welt“ the places take (remembered, clamped to 0.2..0.8). */
+  setWorldListSplit: (share: number) => void;
+  /** Folds the places to one row or opens them (remembered). */
+  setPlacesFolded: (folded: boolean) => void;
   /** The tool of the scene; not remembered between runs. Any tool but "figure" drops `pendingTrainer`. */
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -71,8 +78,6 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
     if (area !== "welt") setPendingTrainer(null);
   }, []);
   const setListOpen = useCallback((area: AreaId, open: boolean) => setState((s) => ({ ...s, listOpen: { ...s.listOpen, [area]: open } })), []);
-  const setHandHeight = useCallback((area: AreaId, height: number) => setState((s) => ({ ...s, handHeight: { ...s.handHeight, [area]: clampHand(height) } })), []);
-  const toggleHandCollapsed = useCallback((area: AreaId) => setState((s) => ({ ...s, handCollapsed: { ...s.handCollapsed, [area]: !s.handCollapsed[area] } })), []);
   const setDepth = useCallback((depth: Depth) => setState((s) => (s.depth === depth ? s : { ...s, depth })), []);
   const setPokemonSub = useCallback((sub: PokemonSub) => setState((s) => (s.sub.pokemon === sub ? s : { ...s, sub: { ...s.sub, pokemon: sub } })), []);
   const setSelected = useCallback(
@@ -86,6 +91,20 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       }),
     [],
   );
+  const setToolbar = useCallback((toolbar: ToolbarAnchor) => setState((s) => (s.toolbar === toolbar ? s : { ...s, toolbar })), []);
+  const setWorldSort = useCallback(
+    (sort: Partial<WorldSort>) =>
+      setState((s) => {
+        const worldSort = { tree: sort.tree ?? s.worldSort.tree, list: sort.list ?? s.worldSort.list };
+        return worldSort.tree === s.worldSort.tree && worldSort.list === s.worldSort.list ? s : { ...s, worldSort };
+      }),
+    [],
+  );
+  const setWorldListSplit = useCallback((share: number) => {
+    const worldListSplit = clampWorldSplit(share);
+    setState((s) => (s.worldListSplit === worldListSplit ? s : { ...s, worldListSplit }));
+  }, []);
+  const setPlacesFolded = useCallback((placesFolded: boolean) => setState((s) => (s.placesFolded === placesFolded ? s : { ...s, placesFolded })), []);
   const remember = useCallback((project: RecentProject) => setState((s) => ({ ...s, recent: rememberRecent(s.recent, project) })), []);
   const forget = useCallback((path: string) => setState((s) => ({ ...s, recent: s.recent.filter((p) => p.path !== path) })), []);
   const setTheme = useCallback((t: Theme) => {
@@ -106,11 +125,13 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       state,
       setArea,
       setListOpen,
-      setHandHeight,
-      toggleHandCollapsed,
       setDepth,
       setPokemonSub,
       setSelected,
+      setToolbar,
+      setWorldSort,
+      setWorldListSplit,
+      setPlacesFolded,
       tool,
       setTool,
       pendingTrainer,
@@ -125,7 +146,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setDensity,
       toggleDensity,
     }),
-    [state, setArea, setListOpen, setHandHeight, toggleHandCollapsed, setDepth, setPokemonSub, setSelected, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
+    [state, setArea, setListOpen, setDepth, setPokemonSub, setSelected, setToolbar, setWorldSort, setWorldListSplit, setPlacesFolded, tool, setTool, pendingTrainer, remember, forget, theme, themeSetting, setTheme, toggleTheme, density, setDensity, toggleDensity],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

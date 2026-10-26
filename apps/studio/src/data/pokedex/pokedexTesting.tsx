@@ -167,7 +167,7 @@ export function pokedexHarness() {
   ));
   const open = async (selected: number | null = 397, depth: Depth = "bauen", over: Parameters<typeof h.base>[0] = {}) => {
     writeShellState({ ...readShellState(), depth, selected: selected === null ? {} : { pokedex: selected } });
-    h.show(h.base({ headers: [{ id: 5, internal_name: "R209", location_name: "Route 209", matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }], ...over }));
+    h.show(h.base({ headers: [{ id: 5, internal_name: "R209", location_index: 0, kanto: false, location_name: "Route 209", matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }], ...over }));
     await flush();
     await flush();
   };

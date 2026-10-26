@@ -1,0 +1,59 @@
+/* The inspector head: eyebrow, title and ident on the left, badges and the menu „Aktionen“ on the right. */
+.head {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8) var(--g4-raum-8) var(--g4-raum-8) var(--g4-dichte-zeile-innen);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+}
+
+/* The kind in sentence case with its symbol before it: the quiet first line. */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--g4-font-titel-s);
+  color: var(--g4-text-primaer);
+}
+
+/* The second language: the record in the words of the ROM. */
+.ident {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--g4-font-code-s);
+  color: var(--g4-text-sekundaer);
+}
+
+/* In a narrow inspector the badges wrap among themselves, never under the title. */
+.badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--g4-raum-4);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}

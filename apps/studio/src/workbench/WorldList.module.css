@@ -1,0 +1,33 @@
+/* The list „Welt“: the places above, the splitter, the scene below; each part at least 96 px high. */
+.column {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* The places take their share (set inline as the only dynamic value); the scene takes the rest, and in a list too low for both the
+   places give way first. */
+.places {
+  min-height: 96px;
+  flex: 0 1 50%;
+  overflow: hidden;
+}
+
+/* Folded, the places are as high as their head and their one row. */
+.foldedPlaces {
+  flex: none;
+}
+
+.scene {
+  display: flex;
+  min-height: 96px;
+  flex: 1 1 0;
+  flex-direction: column;
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+/* The splitter draws the line between the open parts; the border is only for the folded places. */
+.places + [role="separator"] + .scene {
+  border-top: 0;
+}

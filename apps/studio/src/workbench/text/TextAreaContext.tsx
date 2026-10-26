@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { HeaderSummary, ProjectInfo, TextArchiveDto, TextHit } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import type { NavTarget } from "../navigation";
 import type { ProblemsStore } from "../problems/problems";
 import type { ArchiveRow } from "./textModel";
@@ -98,6 +99,8 @@ export interface TextAreaModel extends TextAreaState {
   /** Appends an archive to the project and opens it. */
   createArchive(): void;
   goTo(target: NavTarget): void;
+  /** The words of the depth: Bauen names the users of an archive places, Tüfteln headers. */
+  depth: Depth;
 }
 
 export const TextAreaContext = createContext<TextAreaModel | null>(null);

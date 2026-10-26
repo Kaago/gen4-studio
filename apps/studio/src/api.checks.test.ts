@@ -76,7 +76,8 @@ describe("checks commands", () => {
   });
 
   it("navigates like the workbench: a NavTargetDto is a NavTarget and back", () => {
-    expectTypeOf<NavTargetDto>().toEqualTypeOf<NavTarget>();
+    // Except the group of the scene: a link of the UI alone (the header editor's doors), the checks never send it.
+    expectTypeOf<NavTargetDto>().toEqualTypeOf<Exclude<NavTarget, { kind: "sceneGroup" }>>();
   });
 });
 

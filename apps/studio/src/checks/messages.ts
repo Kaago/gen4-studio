@@ -1,5 +1,6 @@
 import type { AssetKind, CheckGroup, CheckProblemDto, ChecksProgressDto, SubjectKind } from "../api";
 import { kindLabel } from "../assets";
+import type { Depth } from "../ui/frame/shellState";
 import { id4 } from "../workbench/terms";
 
 /**
@@ -9,12 +10,14 @@ import { id4 } from "../workbench/terms";
  * In a sentence `{n}` is argument n as the kernel gives it, `{n:id}` a number with four digits („Header 0414“), `{n:field}` a field name in
  * German. `group` and `severity` (the highest the check reports) are the kernel's: the Rust test `commands::checks::messages_ts` holds
  * codes, order, groups and severities against `g4_kernel::checks::Registry::all()`, so this list is complete and in catalogue order.
+ * `building` holds Bauen's title and sentence where they would name a header or a matrix (Bauen speaks of places and world maps).
  */
 export interface CheckMessage {
   group: CheckGroup;
   severity: "error" | "warning" | "info";
   title: string;
   text: string;
+  building?: { title?: string; text: string };
 }
 
 export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
@@ -23,18 +26,21 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "error",
     title: "Tür führt ins Leere",
     text: "Die Tür führt zu Header {1:id}, den es nicht gibt (das Projekt hat {2} Header). Wähle ein Ziel oder lösche die Tür.",
+    building: { text: "Die Tür führt zu Ort {1:id}, den es nicht gibt (das Projekt hat {2} Orte). Wähle ein Ziel oder lösche die Tür." },
   },
   "warp.dest-warp": {
     group: "cheap",
     severity: "error",
     title: "Ziel-Warp fehlt",
     text: "Die Tür führt zu Warp {2} in Header {1:id}, aber dessen Eventdatei {3:id} hat nur {4} Warps. Wähle einen anderen Ziel-Warp oder lege dort einen Warp an.",
+    building: { text: "Die Tür führt zu Warp {2} von Ort {1:id}, aber dessen Eventdatei {3:id} hat nur {4} Warps. Wähle einen anderen Ziel-Warp oder lege dort einen Warp an." },
   },
   "warp.off-map": {
     group: "cheap",
     severity: "error",
     title: "Tür außerhalb der Karte",
     text: "Die Tür steht auf x {1}, z {2}, außerhalb der Karten von Header {3:id}. Verschiebe sie auf eine Karte oder lösche sie.",
+    building: { text: "Die Tür steht auf x {1}, z {2}, außerhalb der Karten von Ort {3:id}. Verschiebe sie auf eine Karte oder lösche sie." },
   },
   "warp.never-fires": {
     group: "cheap",
@@ -53,6 +59,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "error",
     title: "Event außerhalb der Karte",
     text: "Das Event steht auf x {2}, z {3}, außerhalb der Karten von Header {4:id}. Verschiebe es auf eine Karte oder lösche es.",
+    building: { text: "Das Event steht auf x {2}, z {3}, außerhalb der Karten von Ort {4:id}. Verschiebe es auf eine Karte oder lösche es." },
   },
   "event.trainer-blind": {
     group: "cheap",
@@ -77,18 +84,21 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "error",
     title: "Header verweist ins Leere",
     text: "Header {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle im Header einen gültigen Wert.",
+    building: { title: "Ort verweist ins Leere", text: "Ort {0:id} nennt als {1:field} {2}, aber es gibt nur {3}. Wähle beim Ort einen gültigen Wert." },
   },
   "header.wild-dangling": {
     group: "cheap",
     severity: "error",
     title: "Begegnungen fehlen",
     text: "Header {0:id} nennt Begegnungsdatei {1:id}, aber es gibt nur {2}. Wähle im Header eine Begegnungsdatei oder „keine“.",
+    building: { text: "Ort {0:id} nennt Begegnungsdatei {1:id}, aber es gibt nur {2}. Wähle beim Ort eine Begegnungsdatei oder „keine“." },
   },
   "header.text-split": {
     group: "cheap",
     severity: "warning",
     title: "Scriptdatei mit mehreren Textarchiven",
     text: "Die Header {2} teilen Scriptdatei {0:id}, nutzen aber die Textarchive {1}; ihre Nachrichtennummern passen nur zu einem. Gib den Headern dasselbe Textarchiv oder eigene Scriptdateien.",
+    building: { text: "Die Orte {2} teilen Scriptdatei {0:id}, nutzen aber die Textarchive {1}; ihre Nachrichtennummern passen nur zu einem. Gib den Orten dasselbe Textarchiv oder eigene Scriptdateien." },
   },
   "matrix.map-range": {
     group: "cheap",
@@ -101,12 +111,14 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "error",
     title: "Zelle nennt fehlenden Header",
     text: "Die Zelle nennt Header {3:id}, aber es gibt nur {4}. Wähle einen vorhandenen Header.",
+    building: { title: "Zelle nennt fehlenden Ort", text: "Die Zelle nennt Ort {3:id}, aber es gibt nur {4}. Wähle einen vorhandenen Ort." },
   },
   "matrix.header-elsewhere": {
     group: "cheap",
     severity: "error",
     title: "Header einer anderen Matrix",
     text: "Die Zelle nennt Header {3:id}, der Matrix {4} nutzt; seine Events erscheinen hier nicht. Wähle einen Header dieser Matrix oder ändere die Matrix des Headers.",
+    building: { title: "Gebiet einer anderen Weltkarte", text: "Die Zelle nennt Gebiet {3:id}, das Weltkarte {4} nutzt; seine Events erscheinen hier nicht. Wähle ein Gebiet dieser Weltkarte oder ändere die Weltkarte des Gebiets." },
   },
   "map.model-invalid": {
     group: "cheap",
@@ -215,6 +227,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "error",
     title: "Falsche Scriptart",
     text: "Header {0:id} nennt als {1:field} die Datei {2:id}, die von der anderen Art ist. Wähle eine Datei der richtigen Art.",
+    building: { text: "Ort {0:id} nennt als {1:field} die Datei {2:id}, die von der anderen Art ist. Wähle eine Datei der richtigen Art." },
   },
   "script.message-missing": {
     group: "per_script",
@@ -281,8 +294,11 @@ export const areaOf = (f: Pick<CheckProblemDto, "subject">): CheckArea => AREA_O
 /** The group of the check `code` (what a cheap run covers); null for a code this list does not know. */
 export const groupOf = (code: string): CheckGroup | null => CHECK_MESSAGES[code]?.group ?? null;
 
-/** The title of the check `code`; the code itself when it is not known. */
-export const checkTitle = (code: string): string => CHECK_MESSAGES[code]?.title ?? code;
+/** The title of the check `code` in the words of `depth`; the code itself when it is not known. */
+export const checkTitle = (code: string, depth: Depth): string => {
+  const m = CHECK_MESSAGES[code];
+  return (depth === "bauen" ? m?.building?.title : undefined) ?? m?.title ?? code;
+};
 
 /** Field names of headers, area data and trainers in the words of the editors. */
 const FIELD_WORDS: Readonly<Record<string, string>> = {
@@ -301,6 +317,10 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   item: "Gegenstand",
   moves: "Attacke",
 };
+
+/** The field and asset words Bauen says instead of a matrix or a header. */
+const BUILDING_FIELD_WORDS: Readonly<Record<string, string>> = { matrix_id: "Weltkarte" };
+const BUILDING_ASSET_WORDS: Partial<Record<AssetKind, string>> = { Matrix: "Weltkarte", HeaderTable: "Ortstabelle", DynamicHeaders: "Ortsdateien" };
 
 /** The kernel's names of asset kinds (`AssetKind::label`), for `asset.unreadable`. */
 const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
@@ -332,35 +352,44 @@ const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
 };
 
 /** „Eventdatei 0411“, or „Das Archiv Pokémon-Daten“ for a whole archive (no index). */
-function assetName(kind: string, index: string): string {
+function assetName(kind: string, index: string, depth: Depth): string {
   const known = ASSET_KINDS[kind];
-  const word = known ? kindLabel(known) : kind;
+  const word = known ? ((depth === "bauen" ? BUILDING_ASSET_WORDS[known] : undefined) ?? kindLabel(known)) : kind;
   return index === "" ? `Das Archiv ${word}` : `${word} ${id4(Number(index))}`;
 }
 
 /** Puts the arguments into `text` (see `CheckMessage`). */
-function fill(text: string, args: readonly string[]): string {
+function fill(text: string, args: readonly string[], depth: Depth): string {
   return text.replace(/\{(\d+)(?::(id|field))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "id" && /^\d+$/.test(value)) return id4(Number(value));
-    if (format === "field") return FIELD_WORDS[value] ?? value;
+    if (format === "field") return (depth === "bauen" ? BUILDING_FIELD_WORDS[value] : undefined) ?? FIELD_WORDS[value] ?? value;
     return value;
   });
 }
 
-/** The German sentence of a finding with its way out; the kernel's (English) sentence for a code this list does not know. */
-export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">): string {
+/**
+ * The German sentence of a finding with its way out, in the words of `depth`; the kernel's (English) sentence for a code this list
+ * does not know.
+ */
+export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth): string {
   const m = CHECK_MESSAGES[f.code];
   if (!m) return f.message;
+  const text = (depth === "bauen" ? m.building?.text : undefined) ?? m.text;
   if (f.code === "asset.unreadable") {
     const [kind = "", index = "", why = ""] = f.args;
-    const name = assetName(kind, index);
+    const name = assetName(kind, index, depth);
     if (f.key.startsWith("locked:")) {
       return `${name} ist gesperrt (${why}): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.`;
     }
-    return fill(m.text, f.args).replace("{asset}", name);
+    return fill(text, f.args, depth).replace("{asset}", name);
   }
-  return fill(m.text, f.args);
+  return fill(text, f.args, depth);
+}
+
+/** Where a finding is, as the kernel names it („Header 0012 · Matrix“); Bauen says „Ort 0012 · Weltkarte“. */
+export function findingLabel(f: Pick<CheckProblemDto, "label">, depth: Depth): string {
+  return depth === "bauen" ? f.label.replace(/\bHeader\b/g, "Ort").replace(/\bMatrix\b/g, "Weltkarte") : f.label;
 }
 
 const PROGRESS_WORDS: Readonly<Record<ChecksProgressDto["label"], string>> = { cheap: "Welt und Daten", load: "Dateien", scripts: "Scripts", texts: "Texte" };
@@ -381,13 +410,13 @@ const ONE_FILE = /^(level )?script file (\d+) is not checked: (.+)$/;
  * A check that did not run, or left part of its work undone, as a hint line („Nachricht fehlt: 28 Common-Scripts ohne Header nicht geprüft.“):
  * German sentences with the way out, the kernel's reason only as a detail in brackets.
  */
-export function skippedText({ code, why }: { code: string; why: string }): string {
+export function skippedText({ code, why }: { code: string; why: string }, depth: Depth): string {
   // Not a check: the ignore file could not be read when the project opened (ruling R15).
   if (code === IGNORE_FILE) return `${IGNORE_FILE} ist nicht lesbar (${why}): nichts ist ausgeblendet oder abgeschaltet, und das Studio schreibt die Datei nicht. Repariere oder lösche sie, dann geht beides wieder.`;
-  const title = checkTitle(code);
+  const title = checkTitle(code, depth);
   if (why === "scripts not adopted") return `${title}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.`;
   const common = COMMON_SCRIPTS.exec(why);
-  if (common) return `${title}: ${common[1]} Common-Scripts ohne Header nicht geprüft.`;
+  if (common) return `${title}: ${common[1]} Common-Scripts ohne ${depth === "bauen" ? "Ort" : "Header"} nicht geprüft.`;
   const file = ONE_FILE.exec(why);
   if (file) return `${title}: ${file[1] ? "Level-Script" : "Scriptdatei"} ${id4(Number(file[2]))} nicht geprüft (${file[3]}). Behebe den Fehler in der Datei, dann prüft das Studio sie.`;
   // Mostly a file that cannot be read (the header table, an archive): its finding „Datei nicht lesbar“ names it.

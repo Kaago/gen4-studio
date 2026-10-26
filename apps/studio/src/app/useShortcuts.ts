@@ -4,6 +4,7 @@ import { redo, undo } from "../api";
 import type { EventKind } from "../api";
 import type { InspectorModel } from "../workbench/Inspector";
 import { inTauri } from "../platform/transport";
+import { OPEN_MODAL } from "../ui/primitives/Dialog";
 import type { AreaId, PokemonSub, Tool } from "../ui/frame/shellState";
 import { isSubLocked } from "../data/dataModel";
 import { toolForKey } from "../workbench/tools";
@@ -23,6 +24,9 @@ interface ShortcutHandlers {
   unpinSelection: () => void;
   /** Switches the tool of the scene (a letter, or "select" on Escape). */
   onTool: (tool: Tool) => void;
+  /** Option+Cmd+Left and Right in the world: shows the previous or the next scene of the history („Zurück“ and „Vor“ of „In dieser Szene“). */
+  onSceneBack: () => void;
+  onSceneForward: () => void;
   /** Cmd+1 to 4 in the Pokémon area: shows that part (never a locked one). */
   onSub: (sub: PokemonSub) => void;
   /**
@@ -32,15 +36,32 @@ interface ShortcutHandlers {
   area: AreaId;
   /** Whether a tool is locked (the event tools without a place or with a locked event file): its letter does nothing. */
   toolLocked: (tool: Tool) => boolean;
+  /** Whether the 3D view of the world is the one in front: only then do the tool letters act (not with Raster or Weltkarte shown). */
+  toolsShown: () => boolean;
+  /** A tool letter was pressed while the 3D view is hidden: the letter did nothing (the caller says so, once). */
+  onToolsHidden: () => void;
   /** A trainer waits to be placed with the figure tool: Escape drops that binding first (back to "Auswählen"), before it unpins anything. */
   placing?: boolean;
+  /** The tool of the scene: Escape goes back to "Auswählen" from another one; with "Auswählen" (or none given) the tool has no use for it. */
+  tool?: Tool;
+  /**
+   * An Escape that nothing else took (no field, menu, list or dialog, no selection, no tool, no binding needed it): ends a maximized group in
+   * the dock of the shown area; true when there was one.
+   */
+  onEscape?: () => boolean;
 }
 
 /**
  * Whether a modal dialog or a wizard is open: their own keys (Escape, Delete, Cmd+Z in a field) are not the workbench's. A wizard is not
  * modal (the view stays usable), but while it works on the project nothing else may change it.
  */
-const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"], [data-wizard]') !== null;
+const modalOpen = () => document.querySelector(`${OPEN_MODAL}, [data-wizard]`) !== null;
+
+/**
+ * Whether a dock's tab menu is open (dockview's own, `.dv-context-menu`): it closes on Escape through a window listener of its own, without
+ * the focus in it, so that Escape is the menu's.
+ */
+const dockMenuOpen = () => document.querySelector(".dv-context-menu") !== null;
 
 /** Whether the key goes to something that takes letters for itself: a text field, or an open menu or list (type-ahead, Escape closes it). */
 function inField(target: HTMLElement | null): boolean {
@@ -49,8 +70,8 @@ function inField(target: HTMLElement | null): boolean {
 
 /**
  * Cmd+O, Cmd+K, Cmd+S, Cmd+Z, Cmd+Shift+Z and (in the app) Cmd+R (see `shortcutAction`), in the world the tool letters (V B F T A S G),
- * Escape back to "Auswählen" and Delete / Escape on a pinned building or event, in the Pokémon area Cmd+1 to 4 for its parts, none of them
- * while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
+ * Escape back to "Auswählen", Delete / Escape on a pinned building or event and Option+Cmd+Left / Right through the scenes shown, in the Pokémon area Cmd+1 to 4 for its parts,
+ * in every area an Escape that nothing else wants ending a maximization, none of them while a modal dialog or a wizard is open. Registered once; the handlers of the latest render are called through a ref.
  */
 export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handlers: ShortcutHandlers) {
   // Shortcuts always call the handlers of the latest render.
@@ -92,13 +113,28 @@ export function useShortcuts(pinnedRef: MutableRefObject<InspectorModel>, handle
         const tool = toolForKey(e.key);
         if (tool !== null) {
           // The palette's button of a locked tool cannot be pressed; its letter cannot switch to it either.
-          if (!latest.current.toolLocked(tool)) latest.current.onTool(tool);
+          if (!latest.current.toolLocked(tool)) {
+            // The tools belong to the 3D view; with Raster or Weltkarte in front the letter is consumed, but changes nothing.
+            if (latest.current.toolsShown()) latest.current.onTool(tool);
+            else latest.current.onToolsHidden();
+          }
           return;
         }
-        if (e.key === "Escape" && !e.defaultPrevented) {
+        if (e.key === "Escape" && !e.defaultPrevented && latest.current.tool !== "select") {
           latest.current.onTool("select");
           return;
         }
+      }
+      // „Zurück“ and „Vor“ of the scenes shown: only in the world (the scene they show), never in a field, where the arrows move the caret.
+      if (inWorld && (e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !inField(e.target as HTMLElement | null)) {
+        e.preventDefault();
+        if (!e.repeat) (e.key === "ArrowLeft" ? latest.current.onSceneBack : latest.current.onSceneForward)();
+        return;
+      }
+      // Escape that nothing above needed, in any area: a maximized group gives way (the last use of Escape).
+      if (e.key === "Escape" && plainKey && !e.defaultPrevented && !inField(e.target as HTMLElement | null) && !dockMenuOpen()) {
+        if (latest.current.onEscape?.()) e.preventDefault();
+        return;
       }
       const action = shortcutAction({ key: e.key, target: e.target as HTMLElement | null, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, inApp: inTauri(), area });
       if (action === "pokedex" || action === "trainer" || action === "encounters" || action === "moves") {

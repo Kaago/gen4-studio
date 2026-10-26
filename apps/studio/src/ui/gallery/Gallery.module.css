@@ -141,6 +141,25 @@
   background: var(--g4-flaeche-blatt);
 }
 
+/* An inspector as narrow as the Werkbank's at 1100 × 720: the container `InspectorRow` asks, like the inspector editors' frame. */
+.inspectorNarrow {
+  container: inspector / inline-size;
+  width: 280px;
+  padding: var(--g4-raum-4) 0;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-blatt);
+}
+
+/* A reference and its "Ändern…", as the inspector's reference rows put them. */
+.inlineRow {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
 /* Stands in for a map thumbnail; the gallery never ships images from the game. */
 .placeholder {
   display: block;
@@ -166,6 +185,110 @@
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-bildschirm);
   overflow: hidden;
+}
+
+/* The hinge on top of the dock (the view above the edit group): a deck of fixed height; the edit group never takes more than the lower half. */
+.deckFrame {
+  display: flex;
+  height: 420px;
+  flex-direction: column;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
+.deckDock {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+.deckView {
+  min-height: 0;
+  flex: 1 1 0;
+  padding: var(--g4-raum-8);
+  background: var(--g4-flaeche-schau);
+}
+
+.deckHand {
+  height: 40%;
+  flex: none;
+  padding: var(--g4-raum-8);
+  border-top: 1px solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-gehaeuse);
+}
+
+/* Two stand-in panes with a splitter between them. */
+.splitColumn,
+.splitRow {
+  display: flex;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
+.splitColumn {
+  width: 320px;
+  height: 280px;
+  flex-direction: column;
+}
+
+.splitRow {
+  width: 480px;
+  height: 160px;
+}
+
+.splitPane {
+  min-width: 0;
+  min-height: 0;
+  flex: none;
+  padding: var(--g4-raum-8);
+  background: var(--g4-flaeche-schau);
+}
+
+.splitPane[data-rest] {
+  flex: 1 1 0;
+  background: var(--g4-flaeche-gehaeuse);
+}
+
+/* A scene hierarchy in its own height, as the list column gives it one. */
+.sceneColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sceneFrame {
+  width: 320px;
+  height: 460px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  overflow: hidden;
+}
+
+.toolbarViews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-16);
+}
+
+/* A stand-in for the 3D view the toolbar floats over. */
+.toolbarView {
+  display: flex;
+  width: 320px;
+  height: 400px;
+  align-items: flex-start;
+  padding: var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-schau);
+}
+
+/* A flat bar needs width, not height. */
+.toolbarViewFlat {
+  width: 480px;
+  height: 120px;
 }
 
 /* The start pane in a bounded box instead of the whole window. */
@@ -209,4 +332,111 @@
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-bildschirm);
   background: var(--g4-flaeche-gehaeuse);
+}
+
+/*
+ * Dock tabs and a floating group as pictures of the component: dockview's own classes inside the dock theme (`dockview-theme-g4`), so its
+ * tokens style them as in the app. A stage keeps the floating group (dockview places it absolutely, high up) inside its own layer.
+ */
+.dockDemos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-24);
+}
+
+.dockDemo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+/* A docked group: flat, no radius, no shadow; its edge a 1-px line. */
+.dockGroup {
+  width: 320px;
+  height: 120px;
+  border: 1px solid var(--g4-linie-leise);
+}
+
+.dockGroupContent {
+  padding: var(--g4-raum-8);
+}
+
+/* The tab menu shown open, in the flow instead of at the pointer. */
+.dockMenu {
+  width: 220px;
+  margin: 0;
+  list-style: none;
+}
+
+.floatStage {
+  position: relative;
+  width: 560px;
+  height: 340px;
+  isolation: isolate;
+  border: 1px solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-schau);
+}
+
+.floatStage .dockGroup {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Where „Schweben lassen“ puts the group: at the right edge of the view, 16 px in (the app's group is 340 × 480). */
+.floatGroup {
+  top: var(--g4-raum-16);
+  right: var(--g4-raum-16);
+  width: 300px;
+  height: 260px;
+}
+
+/* The two arrangements as small plans: groups as flat boxes with 1-px lines, the view tinted. */
+.arrangement {
+  display: grid;
+  width: 280px;
+  height: 180px;
+  border: 1px solid var(--g4-linie-leise);
+  background: var(--g4-linie-leise);
+  gap: 1px;
+}
+
+.arrangementWerkbank {
+  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-rows: minmax(0, 1fr) 56px;
+  grid-template-areas:
+    "schau side"
+    "below side";
+}
+
+.arrangementDoppeldeck {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 64px;
+  grid-template-areas:
+    "schau"
+    "below";
+}
+
+.arrangementCell {
+  min-width: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-6);
+  overflow: hidden;
+  background: var(--g4-flaeche-gehaeuse);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.arrangementCell[data-cell="schau"] {
+  grid-area: schau;
+  background: var(--g4-flaeche-schau);
+  color: var(--g4-text-primaer);
+}
+
+.arrangementCell[data-cell="side"] {
+  grid-area: side;
+}
+
+.arrangementCell[data-cell="below"] {
+  grid-area: below;
 }

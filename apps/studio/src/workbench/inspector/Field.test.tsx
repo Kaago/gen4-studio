@@ -154,7 +154,7 @@ describe("Field", () => {
   });
 
   describe("pick fields", () => {
-    const headers = [{ id: 1, internal_name: "T01", location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }];
+    const headers = [{ id: 1, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 2, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0 }];
 
     it("shows_the_value_as_a_reference_that_leads_to_its_target", () => {
       const goTo = vi.fn();
