@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extendArea } from "../api";
 import type { MatrixDto } from "../api";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
+import { visibleWords } from "../ui/visibleText";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), extendArea: vi.fn() }));
@@ -59,9 +60,26 @@ describe("ExtendAreaDialog", () => {
 
   it("proposes_the_given_neighbour_with_its_header", () => {
     const m: MatrixDto = { index: 7, name: "m", width: 2, height: 2, maps: [10, 11, 12, null], headers: [0, 416, 0, 0] };
-    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} neighbour={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} prefer={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
     expect(dialog().textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
     expect(field("Header-Zelle")?.value).toBe("416");
+  });
+
+  it("says_no_raster_matrix_or_header_in_building", async () => {
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
+    act(() => root.render(<ExtendAreaDialog matrix={matrix} x={2} y={0} areaName="Zweiblattdorf" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
+    expect(dialog().textContent).toContain("Die neue Karte gehört zu „Zweiblattdorf“.");
+    expect(dialog().textContent).toContain("Die Karte wird größer: 3 × 1.");
+    expect(field("Header-Zelle")).toBeNull();
+    // The header of the neighbour still goes to the backend.
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 11, header_cell: 416 }));
+    // Without a neighbour the number is asked for, in the words of Bauen; a cell inside keeps the size.
+    act(() => root.render(<ExtendAreaDialog matrix={{ ...matrix, maps: [null, null] }} x={1} y={0} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
+    expect(field("Nummer des Gebiets")).not.toBeNull();
+    expect(dialog().textContent).toContain("Die Größe bleibt 2 × 1.");
   });
 
   it("copies_the_chosen_map_without_buildings", async () => {

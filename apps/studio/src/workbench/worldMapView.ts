@@ -57,7 +57,7 @@ export function viewFor(world: World | null, header: HeaderSummary | null): Worl
 }
 
 /** The cells of `matrix` (index y * width + x) with a header of the given set, filled ones only. */
-function cellsOfHeaders(matrix: MatrixDto, ids: ReadonlySet<number>): number[] {
+export function cellsOfHeaders(matrix: MatrixDto, ids: ReadonlySet<number>): number[] {
   const headers = matrix.headers ?? [];
   const cells: number[] = [];
   headers.forEach((id, i) => {
@@ -101,6 +101,11 @@ export function areaAtCell(world: World, matrix: MatrixDto, x: number, y: number
   return area && area.matrix === matrix.index && area.headers.some((h) => h.id === header) ? area : null;
 }
 
+/** The `cellKey`s of the filled cells of `matrix` with a header of the given set (the cells of an area). */
+export function cellKeysOfHeaders(matrix: MatrixDto, ids: ReadonlySet<number>): Set<string> {
+  return new Set(cellsOfHeaders(matrix, ids).map((i) => cellKey(i % matrix.width, Math.floor(i / matrix.width))));
+}
+
 const NEIGHBOURS: readonly (readonly [number, number])[] = [
   [0, -1],
   [-1, 0],
@@ -108,13 +113,27 @@ const NEIGHBOURS: readonly (readonly [number, number])[] = [
   [0, 1],
 ];
 
-/** Whether a neighbour of (x, y) lies in the matrix and its cell index satisfies `test`. */
-function neighbourIs(matrix: MatrixDto, x: number, y: number, test: (i: number) => boolean): boolean {
-  return NEIGHBOURS.some(([dx, dy]) => {
+/** The first of the 4 neighbours of (x, y) (above, left, right, below) that lies in the matrix and whose cell index satisfies `test`. */
+export function firstNeighbour(matrix: MatrixDto, x: number, y: number, test: (i: number) => boolean): { x: number; y: number } | null {
+  for (const [dx, dy] of NEIGHBOURS) {
     const nx = x + dx;
     const ny = y + dy;
-    return nx >= 0 && ny >= 0 && nx < matrix.width && ny < matrix.height && test(ny * matrix.width + nx);
-  });
+    if (nx >= 0 && ny >= 0 && nx < matrix.width && ny < matrix.height && test(ny * matrix.width + nx)) return { x: nx, y: ny };
+  }
+  return null;
+}
+
+/** Whether a neighbour of (x, y) lies in the matrix and its cell index satisfies `test`. */
+const neighbourIs = (matrix: MatrixDto, x: number, y: number, test: (i: number) => boolean): boolean => firstNeighbour(matrix, x, y, test) !== null;
+
+/**
+ * The cell a "+" at (x, y) of a room plan copies: a filled neighbour with a header other than 0 (the new map belongs to its room), else
+ * any filled neighbour (a plan without header section).
+ */
+export function planNeighbour(matrix: MatrixDto, x: number, y: number): { x: number; y: number } | null {
+  const headers = matrix.headers;
+  const withHeader = headers ? firstNeighbour(matrix, x, y, (i) => isFilled(matrix.maps[i]) && (headers[i] ?? 0) !== 0) : null;
+  return withHeader ?? firstNeighbour(matrix, x, y, (i) => isFilled(matrix.maps[i]));
 }
 
 /** The empty cells of `matrix` that touch (4 neighbours) a cell of the area with the headers `areaHeaders`: where "+" extends the area. */

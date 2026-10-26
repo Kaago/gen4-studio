@@ -20,7 +20,7 @@ import { useMatrix } from "./useMatrix";
 import styles from "./WorldMapPanel.module.css";
 import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 import type { PlaceCells, RoomLink } from "./worldMap";
-import { areaAtCell, halfWindow, planExtendTargets, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
+import { areaAtCell, cellKeysOfHeaders, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
 import type { WorldViewKey } from "./worldMapView";
 import type { Area, World } from "./worldModel";
 
@@ -384,28 +384,19 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
 
 const NO_LINKS: RoomLink[] = [];
 const NO_CELLS: ReadonlySet<string> = new Set();
-const FOUR_NEIGHBOURS: readonly (readonly [number, number])[] = [
-  [0, -1],
-  [-1, 0],
-  [1, 0],
-  [0, 1],
-];
+/** Header 0 (`EVERYWHERE`) fills the landscape cells: it counts as no header here, a click on it never selects it. */
+const LANDSCAPE = 0;
 
-/** The filled cells of `matrix` whose header is one of `ids`, as `cellKey`s. */
-function cellsWithHeaders(matrix: MatrixDto, ids: ReadonlySet<number>): Set<string> {
-  const keys = new Set<string>();
-  matrix.headers?.forEach((h, i) => {
-    if (ids.has(h) && matrix.maps[i] !== null) keys.add(cellKey(i % matrix.width, Math.floor(i / matrix.width)));
-  });
-  return keys;
-}
-
-/** Where "+" was pressed: the cell, and the area's cell beside it whose map and header the dialog proposes (none in a room plan). */
+/**
+ * Where "+" was pressed: the cell, the cell beside it whose map and header the dialog proposes (the area's on a world map, the nearest
+ * filled one with a header in a room plan), and the name of the area or room the new map then belongs to.
+ */
 interface ExtendTarget {
   matrix: number;
   x: number;
   y: number;
-  neighbour: { x: number; y: number } | null;
+  prefer: { x: number; y: number } | null;
+  areaName: string | null;
 }
 
 /**
@@ -491,18 +482,23 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     return areas.find((a) => a.key === key) ?? null;
   }, [world, worldMap, selected, region]);
   const areaIds = useMemo(() => new Set(selectedArea ? selectedArea.headers.map((h) => h.id) : selected === null ? [] : [selected]), [selectedArea, selected]);
+  const areaCells = useMemo(() => (region ? cellKeysOfHeaders(region, areaIds) : NO_CELLS), [region, areaIds]);
   const marked = useMemo(() => {
     if (!region) return NO_CELLS;
     if (pinnedCell?.matrix === region.index) return new Set([cellKey(pinnedCell.x, pinnedCell.y)]);
-    return cellsWithHeaders(region, areaIds);
-  }, [region, pinnedCell, areaIds]);
+    return areaCells;
+  }, [region, pinnedCell, areaCells]);
   const extendable = useMemo(() => (region && selectedArea ? worldExtendTargets(region, [...areaIds]) : NO_CELLS), [region, selectedArea, areaIds]);
 
-  /** Pins the map of a cell; its header is selected first when it is not the shown one. */
+  /**
+   * Pins the map of a cell; its header is selected first when it is not the shown one. The landscape (header 0), an empty cell and a
+   * grid without header section use `fallback`: none on a world map (only the pin moves), the shown header in a room plan.
+   */
   const selectMap = useCallback(
     (m: MatrixDto, x: number, y: number, fallback: number | null) => {
       const i = y * m.width + x;
-      const header = m.maps[i] !== null ? (m.headers?.[i] ?? fallback) : fallback;
+      const own = m.maps[i] !== null ? m.headers?.[i] : undefined;
+      const header = own === undefined || own === LANDSCAPE ? fallback : own;
       goTo({ kind: "matrixCell", matrix: m.index, x, y, header, show: "map" });
     },
     [goTo],
@@ -532,12 +528,22 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const onWorldExtend = useCallback(
     (x: number, y: number) => {
       if (!region) return;
-      const touches = FOUR_NEIGHBOURS.map(([dx, dy]) => ({ x: x + dx, y: y + dy })).find((n) => cellsWithHeaders(region, areaIds).has(cellKey(n.x, n.y)));
-      setExtendAt({ matrix: region.index, x, y, neighbour: touches ?? null });
+      const prefer = firstNeighbour(region, x, y, (i) => areaCells.has(cellKey(i % region.width, Math.floor(i / region.width))));
+      setExtendAt({ matrix: region.index, x, y, prefer, areaName: selectedArea?.name ?? null });
     },
-    [region, areaIds],
+    [region, areaCells, selectedArea],
   );
-  const onPlanExtend = useCallback((x: number, y: number) => plan && setExtendAt({ matrix: plan.index, x, y, neighbour: null }), [plan]);
+  const onPlanExtend = useCallback(
+    (x: number, y: number) => {
+      if (!plan) return;
+      const prefer = planNeighbour(plan, x, y);
+      // The new map belongs to the room or area of the copied cell (the shown header without header section).
+      const own = prefer && plan.headers ? plan.headers[prefer.y * plan.width + prefer.x] : undefined;
+      const header = own === undefined || own === LANDSCAPE ? selectedHeader : headers.find((h) => h.id === own);
+      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null });
+    },
+    [plan, selectedHeader, headers, identify],
+  );
   /** The extend dialog is done: a created copy shows in the counts and the matrix; a failed attempt may have left a copy behind, so it refreshes the same. */
   const afterExtend = useCallback(
     async (index: number) => {
@@ -656,6 +662,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       ) : (
         <div ref={rootBox} className={styles.body}>
           <MapView
+            // A new view starts at the origin: pan and zoom of another world map do not carry over.
+            key={view ?? "region"}
             grid={grid}
             window={half?.rect ?? null}
             hasRegion={region !== null}
@@ -675,7 +683,9 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           matrix={extendMatrix}
           x={extendAt.x}
           y={extendAt.y}
-          neighbour={extendAt.neighbour}
+          prefer={extendAt.prefer}
+          areaName={extendAt.areaName}
+          depth={depth}
           headers={headers}
           counts={counts}
           onDone={(report) => {

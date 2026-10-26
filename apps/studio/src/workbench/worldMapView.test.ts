@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WorldMeta } from "../api";
 import { type World, type WorldInput, buildWorld } from "./worldModel";
-import { areaAtCell, halfWindow, planExtendTargets, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
+import { areaAtCell, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
 
 interface HeaderSpec {
   name: string;
@@ -187,5 +187,22 @@ describe("extend targets", () => {
   it("offers_plus_right_and_below_a_room_plan_beside_filled_cells", () => {
     const matrix = grid(2, 3, 2, [], [1, 2, null, null, null, 3]);
     expect(sorted(planExtendTargets(matrix))).toEqual(["0,1", "1,1", "2,0", "2,2", "3,1"]);
+  });
+});
+
+describe("planNeighbour", () => {
+  it("prefers_a_filled_neighbour_with_a_header_over_landscape_and_stays_inside_the_matrix", () => {
+    // (1, 1) is empty; left of it lies header 0, above it header 10.
+    const m = grid(7, 2, 2, [0, 10, 0, 0], [700, 701, 702, null]);
+    expect(planNeighbour(m, 1, 1)).toEqual({ x: 1, y: 0 });
+    // The column right of the matrix: its only neighbour inside is (1, 0).
+    expect(planNeighbour(m, 2, 0)).toEqual({ x: 1, y: 0 });
+    expect(planNeighbour(grid(7, 1, 1, [0], [null]), 0, 0)).toBeNull();
+  });
+
+  it("takes_any_filled_neighbour_without_header_section", () => {
+    const m: MatrixDto = { index: 20, name: "m20", width: 1, height: 1, maps: [50] };
+    expect(planNeighbour(m, 0, 1)).toEqual({ x: 0, y: 0 });
+    expect(firstNeighbour(m, 5, 5, () => true)).toBeNull();
   });
 });

@@ -333,24 +333,24 @@ describe("WorldMapPanel", () => {
 
   const viewOf = () => container.querySelector("[data-world-view]")?.getAttribute("data-world-view");
   const cell = (key: string) => container.querySelector<HTMLElement>(`[data-cell="${key}"]`);
-  const press = (el: HTMLElement) =>
-    act(() => {
-      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
-      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
-      el.click();
-    });
   /** Picks a view from the switcher of the head. */
   const trigger = () => container.querySelector<HTMLElement>("header h2 button")!;
-  const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
-  /** Opens the switcher, runs `inside`, and closes it again (a radio item of the menu leaves it open). */
+  /** Waits (a few ms at a time, at most a second) until the switcher's menu is open or closed. */
+  async function menuIs(open: boolean) {
+    for (let waited = 0; (trigger().getAttribute("aria-expanded") === "true") !== open; waited += 5) {
+      if (waited > 1000) throw new Error(`the menu did not ${open ? "open" : "close"}`);
+      await act(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
+    }
+  }
+  /** Opens the switcher, runs `inside` (a pick closes the menu), and closes it if it is still open. */
   async function withMenu<T>(inside: () => T): Promise<T> {
-    press(trigger());
+    act(() => trigger().click());
+    await menuIs(true);
     const result = inside();
-    // The menu settles over animation frames (16 ms in jsdom), not only over a macrotask.
-    await settle();
-    if (trigger().getAttribute("aria-expanded") === "true") press(trigger());
-    // The menu closes, the chosen view reads its matrix.
-    await settle();
+    if (trigger().getAttribute("aria-expanded") === "true") act(() => trigger().click());
+    await menuIs(false);
+    // The chosen view reads its matrix.
+    await flush();
     return result;
   }
   const choose = (label: string) =>
@@ -417,8 +417,11 @@ describe("WorldMapPanel", () => {
     serveMatrices();
     const ctx = worldContext({ selected: 1 });
     await show(ctx);
+    // Header 0 is no header: only the pin moves, the selection and the scene stay.
     act(() => cell("2,1")?.click());
-    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 2, y: 1, header: 0, show: "map" });
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 2, y: 1, header: null, show: "map" });
+    altClick(cell("2,1"));
+    expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 0, x: 2, y: 1, header: null, show: "map" });
     // The pinned cell is marked instead of the area's cells.
     await show(worldContext({ selected: 1, pinnedCell: { matrix: 0, x: 2, y: 1 } }));
     expect(cell("2,1")?.getAttribute("aria-pressed")).toBe("true");
@@ -443,7 +446,9 @@ describe("WorldMapPanel", () => {
     const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
     expect(dialog.textContent).toContain("Karte bei x 2, y 0 anlegen?");
     expect(dialog.textContent).toContain("Nicht rückgängig");
-    expect(dialog.querySelector<HTMLInputElement>('input[aria-label^="Header-Zelle"]')?.value).toBe("1");
+    // Bauen names the area the new map belongs to, not its header.
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Zweiblattdorf“.");
+    expect(visibleWords(dialog)).not.toMatch(/Raster|Matrix|Header/);
     await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 0, x: 2, y: 0, source_map: 2, header_cell: 1 }));
     expect(ctx.onCountsChanged).toHaveBeenCalled();
@@ -472,6 +477,30 @@ describe("WorldMapPanel", () => {
     expect(ctx.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 20, x: 0, y: 0, header: 4, show: "map" });
     await show(worldContext({ selected: 4, pinnedCell: { matrix: 20, x: 0, y: 0 } }));
     expect(cell("0,0")?.getAttribute("aria-pressed")).toBe("true");
+    // Großmoor's plan: cell (1, 0) carries header 0, so the link names the shown header and the plan and the scene stay.
+    const moor = worldContext({ selected: 10 });
+    await show(moor);
+    expect(viewOf()).toBe("plan");
+    act(() => cell("1,0")?.click());
+    expect(moor.goTo).toHaveBeenLastCalledWith({ kind: "matrixCell", matrix: 7, x: 1, y: 0, header: 10, show: "map" });
+    await show(worldContext({ selected: 10, pinnedCell: { matrix: 7, x: 1, y: 0 } }));
+    expect(viewOf()).toBe("plan");
+    expect(cell("1,0")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("proposes_the_nearest_cell_with_a_header_from_a_plus_of_the_room_plan", async () => {
+    // Großmoor with an empty cell (1, 1): left of it lies header 0 (map 702), above it header 10 (map 701).
+    const moor: MatrixDto = { index: 7, name: "m7", width: 2, height: 2, maps: [700, 701, 702, null], headers: [10, 10, 0, 0] };
+    serveMatrices(new Map([...sinnohDtos, [7, moor]]));
+    await show(worldContext({ selected: 10 }));
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,1"]')?.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Kopie von Karte 0701 (Nachbarzelle)");
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Name 10“.");
+    vi.mocked(extendArea).mockReset();
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
+    await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, source_map: 701, header_cell: 10 }));
   });
 
   it("lists_more_areas_as_tiles_that_select_their_area", async () => {
