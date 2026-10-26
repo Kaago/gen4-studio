@@ -308,4 +308,17 @@ describe("SceneHost", () => {
     frames[1]();
     expect(renders.count).toBe(before + 1);
   });
+  it("captures_a_frame_drawn_now_as_a_png_data_url", () => {
+    const { h } = host();
+    const order: string[] = [];
+    const before = renders.count;
+    const toDataURL = vi.spyOn(h.canvas, "toDataURL").mockImplementation((type?: string) => {
+      // The frame was drawn just before, in the same tick (the drawing buffer is not kept).
+      order.push(`read ${renders.count - before} ${type}`);
+      return "data:image/png;base64,UElD";
+    });
+    expect(h.capture()).toBe("data:image/png;base64,UElD");
+    expect(order).toEqual(["read 1 image/png"]);
+    toDataURL.mockRestore();
+  });
 });

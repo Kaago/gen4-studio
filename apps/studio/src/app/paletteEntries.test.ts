@@ -27,7 +27,7 @@ const scripts: ScriptFileDto[] = [
   { file: 9, kind: "levelScript", size: 12, headers: [] },
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
-const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, inspectorFloats: false, cellChosen: false, wizard: false };
+const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, inspectorFloats: false, cellChosen: false, wizard: false, sceneShown: false };
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
@@ -66,6 +66,8 @@ describe("paletteEntries", () => {
       "Raum anlegen…",
       "Welt leeren…",
       "Teile in die Karte importieren…",
+      "Als Vorschaubild: 3D-Ansicht",
+      "Als Vorschaubild: Kartenbild der gewählten Karte",
       "Liste ein/aus",
       "Anordnung: Werkbank",
       "Anordnung: Doppeldeck",
@@ -86,7 +88,9 @@ describe("paletteEntries", () => {
       "Bereich Technik",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Inspector andocken"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken"]);
+    expect(entries.find((e) => e.label === "Als Vorschaubild: 3D-Ansicht")?.description).toBe("Erst ein Projekt öffnen");
+    expect(entries.find((e) => e.label === "Als Vorschaubild: Kartenbild der gewählten Karte")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Welt leeren…")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Gebiet anlegen…")?.description).toBe("Erst ein Projekt öffnen");
     for (const e of entries) expect(e.id).toMatch(/^cmd-/);
@@ -240,5 +244,24 @@ describe("paletteEntries", () => {
 
   it("describes_the_import_as_into_the_chosen_map", () => {
     expect(byId("cmd-importParts", { commands: { ...commands, cellChosen: true } })).toMatchObject({ disabled: false, description: "In die gewählte Karte", run: { kind: "command", command: "importParts" } });
+  });
+  it("sets_the_preview_from_the_3d_view_only_while_it_shows", () => {
+    expect(byId("cmd-previewFrom3d")).toMatchObject({ label: "Als Vorschaubild: 3D-Ansicht", disabled: true, description: "Erst die 3D-Ansicht zeigen" });
+    expect(byId("cmd-previewFrom3d", { commands: { ...commands, sceneShown: true } })).toMatchObject({
+      disabled: false,
+      description: "Das Bild der Ansicht auf die Projektkarte",
+      area: "welt",
+      run: { kind: "command", command: "previewFrom3d" },
+    });
+  });
+
+  it("sets_the_preview_from_the_map_picture_only_with_a_chosen_map", () => {
+    expect(byId("cmd-previewFromMap")).toMatchObject({ label: "Als Vorschaubild: Kartenbild der gewählten Karte", disabled: true, description: "Erst eine Karte wählen (in 3D auf den Boden klicken)" });
+    expect(byId("cmd-previewFromMap", { commands: { ...commands, cellChosen: true } })).toMatchObject({
+      disabled: false,
+      description: "Das Kartenbild auf die Projektkarte",
+      area: "welt",
+      run: { kind: "command", command: "previewFromMap" },
+    });
   });
 });

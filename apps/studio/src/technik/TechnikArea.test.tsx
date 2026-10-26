@@ -10,6 +10,7 @@ import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
 import type { ChecksApi } from "../checks/useChecks";
 import { openPath } from "../platform/dialogs";
+import { previewWritten } from "../project/previewMessages";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
 import { TechnikArea } from "./TechnikArea";
@@ -498,6 +499,20 @@ describe("TechnikArea", () => {
       vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
       await render({ start: "projekt", startTown: undefined, project: "/s" });
       expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild der Startstadt.");
+    });
+
+    it("shows_a_picture_set_from_the_scene_at_once", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      await render({ start: "projekt", startTown: () => "Zweiblattdorf" });
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-standard");
+      // „Als Vorschaubild“ in the scene wrote the own picture while Technik shows: it is there without a new read.
+      await act(async () => previewWritten.emit(preview("eigen", "png-szene", null)));
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-szene");
+      expect(button("Entfernen", section()!)).toBeDefined();
+      expect(projectPreviewGet).toHaveBeenCalledOnce();
+      expect(subtitle("Projekt")).toBe("Eigenes Vorschaubild");
+      // The start town stays known for the hint, though the write's answer had none.
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild von Zweiblattdorf.");
     });
 
     it("choosing calls set with file and shows the toast", async () => {

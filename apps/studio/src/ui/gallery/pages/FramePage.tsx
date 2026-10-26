@@ -172,7 +172,7 @@ function TabMenuDemo({ title, panel }: { title: string; panel: IDockviewPanel })
         item === "separator" ? (
           <li key={`separator-${i}`} className="dv-context-menu-separator" aria-hidden="true" />
         ) : (
-          <li key={item.label} className={item.disabled ? "dv-context-menu-item dv-context-menu-item--disabled" : "dv-context-menu-item"} aria-disabled={item.disabled || undefined}>
+          <li key={item.label} className={item.disabled ? "dv-context-menu-item dv-context-menu-item--disabled" : "dv-context-menu-item"} aria-disabled={item.disabled || undefined} title={item.hint}>
             {item.label}
           </li>
         ),

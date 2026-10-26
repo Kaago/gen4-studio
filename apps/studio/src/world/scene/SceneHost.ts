@@ -123,6 +123,15 @@ export class SceneHost {
 
   render = () => this.renderer.render(this.scene, this.camera);
 
+  /**
+   * Renders one frame now and returns the canvas as a PNG data URL („Als Vorschaubild“, phase 4.0 §3.5). Read in the same tick as the
+   * render: the renderer does not keep its drawing buffer, so a later read could find it cleared. The DOM bars lie outside the canvas.
+   */
+  capture(): string {
+    this.render();
+    return this.renderer.domElement.toDataURL("image/png");
+  }
+
   /** The top-down view is on. */
   get topDown(): boolean {
     return this.camera !== this.slanted;

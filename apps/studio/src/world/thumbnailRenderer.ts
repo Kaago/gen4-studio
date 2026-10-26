@@ -11,13 +11,14 @@ const MAX_CONTEXTS = 3;
 const HALF_WIDTH = (MAP_SIZE * MODEL_UNITS_PER_TILE) / 2;
 
 /**
- * A renderer that draws a map's terrain model from straight above into a `size` x `size` picture (north up).
+ * A renderer that draws a map's terrain model from straight above into a `width` x `height` picture (north up). The map's width fills
+ * the picture; a picture wider than square (the preview's 256 x 192, 4 : 3) cuts as much off the top as off the bottom.
  * One `WebGLRenderer` on a detached canvas serves every call; it is created on the first one.
  * Calls must not overlap (drawing is synchronous once the model is parsed, and the cache runs few at a time).
  * A lost context would draw blank pictures: the call that meets one throws a `TransientRenderError` (the cache then
  * forgets the request) and the next call creates a new context, up to `MAX_CONTEXTS` in all.
  */
-export function createTopDownRenderer(size = 64): ThumbnailRender {
+export function createTopDownRenderer(width = 64, height = width): ThumbnailRender {
   let gl: THREE.WebGLRenderer | null = null;
   let contexts = 0;
   const scene = new THREE.Scene();
@@ -25,7 +26,8 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
   const sun = new THREE.DirectionalLight(0xffffff, 0.6);
   sun.position.set(0, 1, 0);
   scene.add(sun);
-  const camera = new THREE.OrthographicCamera(-HALF_WIDTH, HALF_WIDTH, HALF_WIDTH, -HALF_WIDTH);
+  const halfDepth = (HALF_WIDTH * height) / width;
+  const camera = new THREE.OrthographicCamera(-HALF_WIDTH, HALF_WIDTH, halfDepth, -halfDepth);
   camera.up.set(0, 0, -1);
 
   return async (glb) => {
@@ -41,7 +43,7 @@ export function createTopDownRenderer(size = 64): ThumbnailRender {
           preserveDrawingBuffer: true,
         });
         gl.setPixelRatio(1);
-        gl.setSize(size, size, false);
+        gl.setSize(width, height, false);
         gl.setClearColor(0x1b1b1f, 1);
       }
       // The 3D view places a map model with its origin on the map centre (scene/content.ts `addModel`), so look

@@ -54,4 +54,36 @@ describe("tab menu", () => {
     item(items, "Zurück ins Dock").action!();
     expect(run.dock).toHaveBeenCalledWith("inspector");
   });
+  it("offers_als_vorschaubild_on_the_3d_and_weltkarte_tabs_after_maximize_and_a_separator", () => {
+    const setPreview = vi.fn();
+    const previewLocked = vi.fn((id: string) => (id === "worldmap" ? "Erst eine Karte wählen" : null));
+    const run = { ...actions(), setPreview, previewLocked };
+    const world = tabMenuItems({ panel: panel("world") }, run);
+    expect(labels(world)).toEqual(["Maximieren", "—", "Als Vorschaubild"]);
+    expect(item(world, "Als Vorschaubild").disabled).toBe(false);
+    item(world, "Als Vorschaubild").action!();
+    expect(setPreview).toHaveBeenCalledWith("world");
+    // Without a chosen map the world map's item is locked and says why.
+    const map = tabMenuItems({ panel: panel("worldmap", { maximized: true }) }, run);
+    expect(labels(map)).toEqual(["Wiederherstellen", "—", "Als Vorschaubild"]);
+    const locked = item(map, "Als Vorschaubild") as ContextMenuItemConfig & { hint?: string };
+    expect(locked.disabled).toBe(true);
+    expect(locked.hint).toBe("Erst eine Karte wählen");
+    // With a chosen map it works on the world map.
+    previewLocked.mockReturnValue(null);
+    const chosen = tabMenuItems({ panel: panel("worldmap") }, run);
+    expect(item(chosen, "Als Vorschaubild").disabled).toBe(false);
+    item(chosen, "Als Vorschaubild").action!();
+    expect(setPreview).toHaveBeenLastCalledWith("worldmap");
+  });
+
+  it("offers_no_preview_on_the_other_view_tabs_or_without_the_action", () => {
+    const run = { ...actions(), setPreview: vi.fn(), previewLocked: () => null };
+    for (const id of ["matrix", "textView", "pokemonView", "itemView"]) {
+      expect(labels(tabMenuItems({ panel: panel(id) }, run))).toEqual(["Maximieren"]);
+    }
+    expect(labels(tabMenuItems({ panel: panel("inspector") }, run))).not.toContain("Als Vorschaubild");
+    // A deck that does not set the preview (the texts', the data areas') has none on its view either.
+    expect(labels(tabMenuItems({ panel: panel("world") }, actions()))).toEqual(["Maximieren"]);
+  });
 });

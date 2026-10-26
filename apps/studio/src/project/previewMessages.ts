@@ -43,3 +43,20 @@ export async function changePreview(how: "choose" | "remove", path?: string): Pr
     return null;
   }
 }
+
+/**
+ * Says that the open project's preview was written elsewhere than in Technik (from the scene, or the standard picture in the background),
+ * with the answer of the write: Technik's section, if it shows, takes it at once. Start reads its cards again each time it shows anyway.
+ */
+export const previewWritten = (() => {
+  const listeners = new Set<(preview: PreviewDto) => void>();
+  return {
+    subscribe(listener: (preview: PreviewDto) => void): () => void {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    emit(preview: PreviewDto): void {
+      for (const listener of [...listeners]) listener(preview);
+    },
+  };
+})();
