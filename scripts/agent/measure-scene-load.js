@@ -5,6 +5,8 @@
 // Gemessen wird vom Klick auf die Baumzeile bis zur letzten Antwort der Brücke (`/__bridge/`), wenn 4 s lang keine neue
 // Anfrage mehr kam. Die erste Messung nach dem Start der Brücke ist kalt (Kartenmodelle noch nicht im Cache der Brücke),
 // jede weitere nach Neuladen der Seite warm. Ergebnis: Millisekunden, Zahl der Anfragen, `get_map` und `get_map_model_glb`.
+// Seit 3h.3 fragt der Browser-Modus alle 500 ms `agent_poll` (Agenten-Status) ab; diese Anfragen gehören nicht zur Szene
+// und zählen nicht mit (sonst würde es nie 4 s still und die Messung endete nie).
 window.measureSceneLoad = async (selector, quietMs = 4000) => {
   performance.setResourceTimingBufferSize(20000);
   for (let i = 0; i < 120 && !document.querySelector(selector); i++) await new Promise((r) => setTimeout(r, 250));
@@ -14,7 +16,8 @@ window.measureSceneLoad = async (selector, quietMs = 4000) => {
   if (!row) return { error: `keine Zeile ${selector}` };
   const t0 = performance.now();
   row.click();
-  const bridge = () => performance.getEntriesByType("resource").filter((e) => e.name.includes("/__bridge/"));
+  const bridge = () =>
+    performance.getEntriesByType("resource").filter((e) => e.name.includes("/__bridge/") && !e.name.includes("/agent_poll"));
   let count = -1;
   let quietSince = performance.now();
   while (performance.now() - quietSince < quietMs) {
