@@ -1,5 +1,6 @@
 //! The build graph's step contract and its runner. A step names its inputs and outputs
-//! (project-relative paths; a folder stands for its files, one level, hidden ones left out),
+//! (project-relative paths; a folder stands for its files, one level, hidden ones left out;
+//! a step that reads a tree lists its files itself, as rotom does for `expanded/scripts/`),
 //! and the runner decides from `.g4/build/state.json` whether it runs:
 //!
 //! - **fully** ([`Dirty::full`] with the reason) without an entry ([`NO_STATE`]), with
@@ -274,8 +275,9 @@ fn scan_inputs(
 
 /// The entry of a step that just succeeded: its inputs as `before` the run, except those
 /// the step wrote (`run.wrote`, fingerprinted now, as long as they are still inputs), and
-/// its outputs fingerprinted now. The entry keeps the earlier scan time, so the racy rule
-/// covers everything taken since.
+/// its outputs fingerprinted now. The entry keeps the scan time from before the run, and the
+/// files taken now are fingerprinted against that same time: everything touched since is
+/// racy for the entry, so it is hashed now and compared by content later.
 fn record(
     project: &Project,
     step: &dyn Step,
@@ -285,18 +287,17 @@ fn record(
     run: &StepRun,
 ) -> Result<StepRecord, KernelError> {
     let root = &project.root;
-    let now = fingerprint::now_ns();
     let wrote = expand(root, &run.wrote)?;
     let mut inputs = before.inputs;
     inputs.retain(|file, _| !wrote.contains(file));
     let current = expand(root, &step.inputs(project)?)?;
     let written: BTreeSet<String> = wrote.intersection(&current).cloned().collect();
-    inputs.extend(capture_all(root, &written, now)?);
+    inputs.extend(capture_all(root, &written, before.at)?);
     Ok(StepRecord {
         salt,
         scanned_at_ns: before.at,
         inputs,
-        outputs: capture_all(root, &expand(root, &step.outputs(project)?)?, now)?,
+        outputs: capture_all(root, &expand(root, &step.outputs(project)?)?, before.at)?,
         ms,
     })
 }
@@ -434,6 +435,7 @@ mod tests {
         fail: Cell<bool>,
         external: Cell<Option<&'static [u8]>>,
         own: Cell<bool>,
+        slow: Cell<bool>,
     }
 
     impl Copy {
@@ -445,6 +447,7 @@ mod tests {
                 fail: Cell::new(false),
                 external: Cell::new(None),
                 own: Cell::new(false),
+                slow: Cell::new(false),
             }
         }
     }
@@ -478,6 +481,10 @@ mod tests {
                 let runs = self.runs.get().to_string();
                 std::fs::write(p.root.join("in/own"), runs).unwrap();
                 wrote.push(PathBuf::from("in/own"));
+            }
+            if self.slow.get() {
+                // What it wrote is older than the racy window when the run ends.
+                std::thread::sleep(std::time::Duration::from_millis(2100));
             }
             Ok(StepRun {
                 done: 1,
@@ -579,6 +586,22 @@ mod tests {
         run_steps(&p, &[&step]).unwrap();
         let entry = &BuildState::load(root).steps["copy"];
         assert!(entry.inputs.contains_key("in/own"), "{:?}", entry.inputs);
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Skipped, "{rows:?}");
+    }
+
+    #[test]
+    fn a_run_longer_than_the_racy_window_is_skipped_next_time() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+        step.own.set(true);
+        step.slow.set(true);
+        run_steps(&p, &[&step]).unwrap();
+        step.slow.set(false);
         let rows = run_steps(&p, &[&step]).unwrap();
         assert_eq!(rows[0].status, StepStatus::Skipped, "{rows:?}");
     }

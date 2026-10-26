@@ -26,7 +26,7 @@ pub const ROTOM_TOML: &str = "rotom.toml";
 
 pub(crate) const DATABASE_DIR: &str = ".rotom/command_database";
 const CACHE_DIR: &str = ".rotom/cache";
-pub(crate) const STATUS_DIR: &str = ".rotom/status";
+const STATUS_DIR: &str = ".rotom/status";
 pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
 /// Script numbers from here on are common scripts, shared by all maps.
 const FIRST_COMMON_SCRIPT: u16 = 2000;
@@ -117,12 +117,20 @@ fn load_config(project: &Project) -> Result<rotom::project_config::RotomConfig, 
     Ok(config)
 }
 
-/// The include roots of `rotom.toml` (resolved against the project root), empty when the
-/// project is not adopted or its configuration does not load.
-pub(crate) fn include_roots(project: &Project) -> Vec<PathBuf> {
-    load_config(project)
-        .map(|config| config.include_roots(&project.root))
-        .unwrap_or_default()
+/// rotom's compile state (`<status_dir>/compile-state.json`) and the include roots of
+/// `rotom.toml`, resolved against the project root. Without a configuration that loads:
+/// the default status folder and no include roots.
+pub(crate) fn watched_paths(project: &Project) -> (PathBuf, Vec<PathBuf>) {
+    match load_config(project) {
+        Ok(config) => (
+            config.status_dir(&project.root).join("compile-state.json"),
+            config.include_roots(&project.root),
+        ),
+        Err(_) => (
+            project.root.join(STATUS_DIR).join("compile-state.json"),
+            Vec::new(),
+        ),
+    }
 }
 
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that

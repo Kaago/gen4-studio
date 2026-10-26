@@ -29,11 +29,6 @@ fn relative(project: &Project, path: &Path) -> PathBuf {
         .to_path_buf()
 }
 
-/// rotom's compile state, which a run rewrites.
-fn compile_state() -> PathBuf {
-    Path::new(scripts::STATUS_DIR).join("compile-state.json")
-}
-
 /// The archive number of a member `NNNN` or a JSON `NNNN.json`.
 fn archive_number(path: &Path) -> Option<u16> {
     let name = path.file_name()?.to_str()?;
@@ -69,15 +64,16 @@ impl Step for RotomStep {
     }
 
     fn inputs(&self, p: &Project) -> Result<Vec<PathBuf>, KernelError> {
+        let (compile_state, include_roots) = scripts::watched_paths(p);
         let mut inputs = vec![
             PathBuf::from(scripts::ROTOM_TOML),
-            compile_state(),
+            relative(p, &compile_state),
             PathBuf::from(scripts::DATABASE_DIR),
             PathBuf::from("arm9/arm9.bin"),
             relative(p, &p.unpacked_dir(AssetKind::DynamicHeaders)),
         ];
         files_below(p, &p.expanded_dir(AssetKind::Script), &mut inputs)?;
-        for root in scripts::include_roots(p) {
+        for root in include_roots {
             files_below(p, &root, &mut inputs)?;
         }
         Ok(inputs)
@@ -95,7 +91,7 @@ impl Step for RotomStep {
         let run = StepRun {
             done: report.compiled.len() as u32,
             total: total as u32,
-            wrote: vec![compile_state()],
+            wrote: vec![relative(p, &scripts::watched_paths(p).0)],
             ..StepRun::default()
         };
         let failed = has_error(&report.problems).then(|| report.problems.clone());
