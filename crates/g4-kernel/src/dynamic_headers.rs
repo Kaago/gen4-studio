@@ -383,12 +383,14 @@ fn literal_index(arm9: &[u8], literal: u64, table_offset: u64) -> Result<u32, Ke
     Ok((value - base) as u32)
 }
 
-/// Applies the patch. Every precondition is checked against `arm9.bin` first and a failed
-/// check names the offset and writes nothing. Then the folder `unpacked/dynamicHeaders` is
-/// replaced by one file per entry of `headers` (via a temporary sibling folder), `arm9.bin`
-/// is backed up as `arm9.bin.backup` unless that exists, and `arm9.bin` is rewritten
-/// atomically, last.
-pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<(), KernelError> {
+/// Applies the patch with `headers`, the header table as it is on disk. Every precondition
+/// is checked against `arm9.bin` first and a failed check names the offset and writes
+/// nothing. Then a folder `unpacked/dynamicHeaders` that is there and not empty is copied
+/// to `.g4/backup/` (see [`snapshot_folder`]), the folder is replaced by one file per entry
+/// of `headers` (via a temporary sibling folder), `arm9.bin` is backed up as
+/// `arm9.bin.backup` unless that exists, and `arm9.bin` is rewritten atomically, last.
+/// Returns the snapshot's folder, `None` when there was nothing to keep.
+pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<Option<PathBuf>, KernelError> {
     let plan = plan(project)?.ok_or_else(|| {
         refuse(format!(
             "{} has no dynamic headers patch (Diamond/Pearl)",
@@ -446,8 +448,80 @@ pub fn apply(project: &Project, headers: &[MapHeader]) -> Result<(), KernelError
         arm9[literal as usize..literal as usize + 4].fill(0);
     }
 
+    let snapshot = snapshot_folder(project)?;
     write_header_folder(project, headers)?;
-    write_arm9(project, &arm9)
+    write_arm9(project, &arm9)?;
+    Ok(snapshot)
+}
+
+/// Copies `unpacked/dynamicHeaders` to `<root>/.g4/backup/dynamicHeaders-<YYYYMMDD-HHMMSS>/`
+/// (UTC; when that folder exists, `-2`, `-3` … is appended) and returns the copy's folder.
+/// `None`, copying nothing, when the folder is missing or empty. The patch replaces the
+/// folder, which may hold what DSPRE or the NARC put there (Platinum unpacks 12 members).
+pub fn snapshot_folder(project: &Project) -> Result<Option<PathBuf>, KernelError> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    snapshot_folder_at(project, &stamp(secs))
+}
+
+/// `secs` since the Unix epoch as `YYYYMMDD-HHMMSS` (UTC).
+fn stamp(secs: u64) -> String {
+    let digits: String = crate::start::rfc3339_utc(secs)
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    format!("{}-{}", &digits[..8], &digits[8..])
+}
+
+/// [`snapshot_folder`] with the time stamp `stamp`. A copy that fails half way is removed.
+fn snapshot_folder_at(project: &Project, stamp: &str) -> Result<Option<PathBuf>, KernelError> {
+    let dir = unpacked_dir(project);
+    let mut entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_at(&dir)(e)),
+    };
+    if entries.next().is_none() {
+        return Ok(None);
+    }
+    let backup = project.root.join(".g4").join("backup");
+    std::fs::create_dir_all(&backup).map_err(io_at(&backup))?;
+    let base = format!("{UNPACKED_DIR}-{stamp}");
+    let mut target = backup.join(&base);
+    let mut n = 2;
+    // `create_dir` claims the name: an existing folder is never written into.
+    loop {
+        match std::fs::create_dir(&target) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                target = backup.join(format!("{base}-{n}"));
+                n += 1;
+            }
+            Err(e) => return Err(io_at(&target)(e)),
+        }
+    }
+    if let Err(e) = copy_dir_contents(&dir, &target) {
+        let _ = std::fs::remove_dir_all(&target);
+        return Err(e);
+    }
+    Ok(Some(target))
+}
+
+/// Copies every file and folder in `from` into the existing folder `to`.
+fn copy_dir_contents(from: &Path, to: &Path) -> Result<(), KernelError> {
+    for entry in std::fs::read_dir(from).map_err(io_at(from))? {
+        let entry = entry.map_err(io_at(from))?;
+        let source = entry.path();
+        let dest = to.join(entry.file_name());
+        if entry.file_type().map_err(io_at(&source))?.is_dir() {
+            std::fs::create_dir(&dest).map_err(io_at(&dest))?;
+            copy_dir_contents(&source, &dest)?;
+        } else {
+            std::fs::copy(&source, &dest).map_err(io_at(&dest))?;
+        }
+    }
+    Ok(())
 }
 
 /// Backs `arm9.bin` up as `arm9.bin.backup` unless that exists, then replaces it atomically.
@@ -578,7 +652,7 @@ mod tests {
         s.dir.path().join("arm9/arm9.bin")
     }
 
-    fn apply_to(s: &Synthetic) -> Result<(), crate::error::KernelError> {
+    fn apply_to(s: &Synthetic) -> Result<Option<PathBuf>, crate::error::KernelError> {
         let project = open(s);
         let h = headers(open(s));
         apply(&project, &h)
@@ -731,6 +805,74 @@ mod tests {
             .unwrap()
             .count();
         assert_eq!(leftovers, 1);
+    }
+
+    #[test]
+    fn snapshot_takes_a_free_name_and_copies_every_file() {
+        let s = synthetic_project();
+        let project = open(&s);
+        let dir = s.dir.path().join("unpacked/dynamicHeaders");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("0000"), b"a").unwrap();
+        std::fs::write(dir.join("sub/x"), b"b").unwrap();
+        let backup = s.dir.path().join(".g4/backup");
+        let first = snapshot_folder_at(&project, "20261026-101500")
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, backup.join("dynamicHeaders-20261026-101500"));
+        let second = snapshot_folder_at(&project, "20261026-101500")
+            .unwrap()
+            .unwrap();
+        assert_eq!(second, backup.join("dynamicHeaders-20261026-101500-2"));
+        let third = snapshot_folder_at(&project, "20261026-101500")
+            .unwrap()
+            .unwrap();
+        assert_eq!(third, backup.join("dynamicHeaders-20261026-101500-3"));
+        for copy in [first, second, third] {
+            assert_eq!(std::fs::read(copy.join("0000")).unwrap(), b"a");
+            assert_eq!(std::fs::read(copy.join("sub/x")).unwrap(), b"b");
+        }
+        assert_eq!(std::fs::read(dir.join("0000")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn snapshot_skips_a_missing_or_empty_folder() {
+        let s = synthetic_project();
+        let project = open(&s);
+        assert_eq!(snapshot_folder(&project).unwrap(), None);
+        std::fs::create_dir_all(s.dir.path().join("unpacked/dynamicHeaders")).unwrap();
+        assert_eq!(snapshot_folder(&project).unwrap(), None);
+        assert!(!s.dir.path().join(".g4/backup").exists());
+    }
+
+    #[test]
+    fn stamp_is_the_utc_time_in_seconds() {
+        assert_eq!(stamp(0), "19700101-000000");
+        assert_eq!(stamp(1_761_403_800), "20251025-145000");
+    }
+
+    #[test]
+    fn a_refused_patch_takes_no_snapshot() {
+        let s = synthetic_project();
+        let dir = s.dir.path().join("unpacked/dynamicHeaders");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("0000"), [1u8; 24]).unwrap();
+        let mut arm9 = std::fs::read(arm9_path(&s)).unwrap();
+        arm9[0x3A0CA..0x3A0CA + 4].fill(0);
+        std::fs::write(arm9_path(&s), &arm9).unwrap();
+        assert!(apply_to(&s).is_err());
+        assert!(!s.dir.path().join(".g4/backup").exists());
+        assert_eq!(std::fs::read(dir.join("0000")).unwrap(), [1u8; 24]);
+    }
+
+    #[test]
+    fn apply_reports_the_snapshot_of_the_replaced_folder() {
+        let s = synthetic_project();
+        let dir = s.dir.path().join("unpacked/dynamicHeaders");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("0000"), [1u8; 24]).unwrap();
+        let snapshot = apply_to(&s).unwrap().unwrap();
+        assert_eq!(std::fs::read(snapshot.join("0000")).unwrap(), [1u8; 24]);
     }
 
     #[test]

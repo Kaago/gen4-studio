@@ -668,8 +668,14 @@ export interface HeaderPatchDto {
 }
 
 export const headerPatchStatus = () => invoke<HeaderPatchDto>("header_patch_status");
-/** Changes the game's code for good; refuses while the header table has unsaved edits. */
-export const applyHeaderPatch = () => invoke<HeaderPatchDto>("apply_header_patch");
+/** What applying the patch did: its new state and where the old header folder went. */
+export interface PatchReport extends HeaderPatchDto {
+  /** The copy of an older `unpacked/dynamicHeaders` under `.g4/backup/` (null: there was none, or it was empty). */
+  snapshot: string | null;
+}
+
+/** Changes the game's code for good; unsaved header edits stay unsaved (the patch takes the table from disk). */
+export const applyHeaderPatch = () => invoke<PatchReport>("apply_header_patch");
 /** Rewrites the 4 bytes of a broken patch's wrong call in arm9.bin; the header table is not touched. */
 export const repairHeaderPatch = () => invoke<HeaderPatchDto>("repair_header_patch");
 

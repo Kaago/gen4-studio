@@ -1535,7 +1535,7 @@ describe("App wiring", () => {
 
     it("reads the header table and the header list again after a wizard applied the patch", async () => {
       vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
-      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", snapshot: null });
       await select(listed[0]);
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       await press(container.querySelector('[data-cell="0,0"]'));

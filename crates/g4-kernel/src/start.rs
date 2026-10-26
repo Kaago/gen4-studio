@@ -594,7 +594,7 @@ pub fn restore_header_crcs(root: &Path, rom: &Path) -> Result<bool, KernelError>
 }
 
 /// `secs` since the Unix epoch as `YYYY-MM-DDTHH:MM:SSZ` (civil-from-days, no time crate).
-fn rfc3339_utc(secs: u64) -> String {
+pub(crate) fn rfc3339_utc(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     let z = days + 719_468;

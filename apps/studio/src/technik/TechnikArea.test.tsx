@@ -42,7 +42,7 @@ describe("TechnikArea", () => {
     checks = fakeChecks();
     tools = createToolStatus();
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patch());
-    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
+    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue({ ...patch({ applied: true }), snapshot: null });
     vi.mocked(repairHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
   });
@@ -256,16 +256,20 @@ describe("TechnikArea", () => {
     expect(subtitle("Patches")).toBe("Nur Platin und HGSS");
   });
 
-  it("patch_anwenden_with_unsaved_headers_says_to_save_first", async () => {
+  it("patch_anwenden_applies_with_unsaved_headers_and_says_they_stay_unsaved", async () => {
     vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable", index: 0 }]);
     await render({ start: "patches" });
     await settle();
     await click(button("Patch anwenden"));
+    expect(dialog()?.textContent).toContain(
+      "Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Änderungen an Gebieten und Räumen bleiben ungespeichert.",
+    );
     await click(button("Patch anwenden", dialog()!));
     await settle();
-    expect(applyHeaderPatch).not.toHaveBeenCalled();
-    expect(surface()?.textContent).toContain("Die Header-Tabelle hat ungespeicherte Änderungen");
-    expect(surface()?.textContent).toContain("Erst speichern (⌘S)");
+    expect(applyHeaderPatch).toHaveBeenCalledOnce();
+    expect(handlers.onHeaderPatch).toHaveBeenCalledOnce();
+    expect(surface()?.textContent).not.toContain("ungespeicherte Änderungen");
+    expect(surface()?.querySelector("[data-patch]")?.textContent).toBe("Angewendet");
   });
 
   it("patch_anwenden_asks_first_and_applies_only_on_yes", async () => {
@@ -301,13 +305,13 @@ describe("TechnikArea", () => {
 
     act(() => root.render(<></>));
     vi.mocked(headerPatchStatus).mockResolvedValue(patch());
-    vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "Erst die Header speichern", asset: null });
+    vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "Die Header-Tabelle hat sich auf der Platte geändert", asset: null });
     await render({ start: "patches" });
     await settle();
     await click(button("Patch anwenden"));
     await click(button("Patch anwenden", dialog()!));
     await settle();
-    expect(surface()?.textContent).toContain("Erst die Header speichern");
+    expect(surface()?.textContent).toContain("Die Header-Tabelle hat sich auf der Platte geändert");
     expect(handlers.onHeaderPatch).not.toHaveBeenCalled();
   });
 

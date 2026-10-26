@@ -352,7 +352,7 @@ function PatchSurface({ patch, onOpenProject }: { patch: HeaderPatch | null; onO
         open={asking}
         onOpenChange={setAsking}
         title="Patch „Dynamische Header“ anwenden?"
-        description="Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Header-Änderungen erst speichern."
+        description="Der Patch ändert Bytes im Spielcode (arm9.bin), die Sicherung arm9.bin.backup wird angelegt. Ungespeicherte Änderungen an Gebieten und Räumen bleiben ungespeichert."
         actions={[
           { label: "Abbrechen", onClick: () => setAsking(false) },
           {

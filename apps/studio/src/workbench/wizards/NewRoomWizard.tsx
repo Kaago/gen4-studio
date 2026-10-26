@@ -14,7 +14,7 @@ import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
-import { SAVE_FIRST_IN_WIZARD, useHeaderPatch } from "./useHeaderPatch";
+import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
@@ -153,7 +153,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   // The room is the template's map as derived above (not stored in the form): it follows the template even when it is clicked again.
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
-  const patch = useHeaderPatch(onHeaderPatch, { saveFirst: SAVE_FIRST_IN_WIZARD, repaired: onHeaderPatchRepaired });
+  const patch = useHeaderPatch(onHeaderPatch, { repaired: onHeaderPatchRepaired });
   const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
     outsideMatrix: outsideCells ?? outsideMatrix,
     outsideWarps: outsideEvents?.warps,

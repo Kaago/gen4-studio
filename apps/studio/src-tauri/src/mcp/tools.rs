@@ -132,7 +132,7 @@ static TEMPLATES: [ResourceDef; 2] = [
 ];
 
 /// Commands a batch refuses before it runs anything. Undo and redo move the undo stack below
-/// the batch's mark; reloading, accepting the disk and the header patch forget history; the
+/// the batch's mark; reloading and accepting the disk forget history; the header patch, the
 /// saves, compiles, script files and the build write to disk, where a rollback does not reach,
 /// and reload the text archives a compile touched (which forgets their history); the check
 /// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`

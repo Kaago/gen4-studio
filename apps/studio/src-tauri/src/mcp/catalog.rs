@@ -803,8 +803,11 @@ static TOOLS: &[ToolDef] = &[
         name: "apply_header_patch",
         title: "Apply header patch",
         description: "Applies the Dynamic Headers patch to the game code, which creating new \
-                      map headers needs; this cannot be undone. Headless (studio mcp) it needs \
-                      --allow-irreversible, without it the call answers needs_confirmation.",
+                      map headers needs; this cannot be undone, unsaved header edits stay \
+                      unsaved. Answers the patch state and snapshot, the copy of an older \
+                      unpacked/dynamicHeaders under .g4/backup/ (null without one). Headless \
+                      (studio mcp) it needs --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("apply_header_patch"),

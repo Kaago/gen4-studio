@@ -48,7 +48,7 @@ describe("NewAreaWizard", () => {
     onError.mockReset();
     onHeaderPatch.mockReset().mockResolvedValue(undefined);
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
-    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue(patchState());
+    vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue({ ...patchState(), snapshot: null });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
   });
   afterEach(() => {
@@ -447,24 +447,24 @@ describe("NewAreaWizard", () => {
       expect(radio("Neuer Header")?.disabled).toBe(false);
     });
 
-    it("says_in_german_how_to_save_first_when_the_header_table_is_unsaved", async () => {
-      // The patch takes the headers from disk; the kernel refuses unsaved header edits. Inside the wizard ⌘S is locked: the way out is to cancel.
+    it("applies_the_patch_while_the_header_table_is_unsaved", async () => {
+      // The kernel patches with the table from disk and keeps unsaved header edits: nothing asks to save first.
       vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
       vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable", index: 0 }]);
       await toHeaderStep();
       await click(button("Patch anwenden"));
-      expect(applyHeaderPatch).not.toHaveBeenCalled();
-      expect(container.textContent).toContain("Die Header-Tabelle hat ungespeicherte Änderungen");
-      expect(container.textContent).toContain("Assistent abbrechen, speichern (⌘S) und neu öffnen");
-      expect(button("Patch anwenden")?.disabled).toBe(false);
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(container.textContent).not.toContain("ungespeicherte Änderungen");
+      expect(radio("Neuer Header")?.disabled).toBe(false);
     });
 
     it("shows_the_backends_refusal_in_the_step_and_keeps_the_button", async () => {
       vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
-      vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "the header table has unsaved changes: save first", asset: null });
+      vi.mocked(applyHeaderPatch).mockRejectedValue({ code: "error", message: "the header table changed on disk", asset: null });
       await toHeaderStep();
       await click(button("Patch anwenden"));
-      expect(container.textContent).toContain("the header table has unsaved changes: save first");
+      expect(container.textContent).toContain("the header table changed on disk");
       expect(onHeaderPatch).not.toHaveBeenCalled();
       expect(onError).not.toHaveBeenCalled();
       expect(radio("Neuer Header")?.disabled).toBe(true);

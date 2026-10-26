@@ -1439,17 +1439,129 @@ fn unpatched_store() -> (common::Synthetic, Store) {
 }
 
 #[test]
-fn apply_dynamic_headers_refuses_a_dirty_table() {
+fn applies_the_patch_with_an_unsaved_header_edit_and_keeps_it() {
     let (s, mut st) = unpatched_store();
-    set_matrix(&mut st, 0, 5);
+    let old = matrix_of(&mut st, 1);
+    set_matrix(&mut st, 1, old + 3);
+    assert_eq!(st.apply_dynamic_headers().unwrap(), None);
+    assert!(st.dynamic_headers_applied().unwrap());
+    // The store keeps the unsaved value; the file holds the table as it was on disk.
+    assert_eq!(matrix_of(&mut st, 1), old + 3);
+    let file = std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0001")).unwrap();
+    assert_eq!(&file[2..4], &old.to_le_bytes());
+    assert_eq!(st.dirty(), vec![header_table_id()]);
+    // Saving now writes the header file, not arm9.bin.
     let arm9 = std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap();
-    let message = st.apply_dynamic_headers().unwrap_err().to_string();
-    assert!(message.contains("save"), "{message}");
-    assert!(!st.dynamic_headers_applied().unwrap());
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    let file = std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0001")).unwrap();
+    assert_eq!(&file[2..4], &(old + 3).to_le_bytes());
     assert_eq!(
         std::fs::read(s.dir.path().join("arm9/arm9.bin")).unwrap(),
         arm9
     );
+}
+
+#[test]
+fn undo_and_redo_cross_the_patch() {
+    let (s, mut st) = unpatched_store();
+    let file = |s: &common::Synthetic| {
+        let bytes = std::fs::read(s.dir.path().join("unpacked/dynamicHeaders/0001")).unwrap();
+        u16::from_le_bytes([bytes[2], bytes[3]])
+    };
+    let a = matrix_of(&mut st, 1);
+    let (b, c) = (a + 1, a + 2);
+    // One edit saved into arm9.bin, one unsaved, then the patch.
+    set_matrix(&mut st, 1, b);
+    st.save().unwrap();
+    set_matrix(&mut st, 1, c);
+    st.apply_dynamic_headers().unwrap();
+    assert_eq!(file(&s), b);
+    assert_eq!(matrix_of(&mut st, 1), c);
+
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
+    assert_eq!(matrix_of(&mut st, 1), b);
+    assert!(st.dirty().is_empty());
+    assert_eq!(st.undo().unwrap(), [header_table_id()]);
+    assert_eq!(matrix_of(&mut st, 1), a);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    assert_eq!(file(&s), a);
+
+    assert_eq!(st.redo().unwrap(), [header_table_id()]);
+    assert_eq!(st.redo().unwrap(), [header_table_id()]);
+    assert_eq!(matrix_of(&mut st, 1), c);
+    assert_eq!(st.save().unwrap().written, vec![header_table_id()]);
+    assert_eq!(file(&s), c);
+}
+
+/// The names of the entries of `dir`, sorted.
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn snapshots_an_existing_dynamic_headers_folder() {
+    let (s, mut st) = unpatched_store();
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000"), [1u8; 24]).unwrap();
+    std::fs::write(dir.join("0001"), [2u8; 7]).unwrap();
+    let snapshot = st.apply_dynamic_headers().unwrap().unwrap();
+    assert_eq!(snapshot.parent().unwrap(), s.dir.path().join(".g4/backup"));
+    let name = snapshot.file_name().unwrap().to_str().unwrap();
+    assert!(name.starts_with("dynamicHeaders-"), "{name}");
+    // dynamicHeaders-YYYYMMDD-HHMMSS
+    assert_eq!(name.len(), "dynamicHeaders-".len() + 15, "{name}");
+    assert_eq!(names_in(&snapshot), ["0000", "0001"]);
+    assert_eq!(std::fs::read(snapshot.join("0000")).unwrap(), [1u8; 24]);
+    assert_eq!(std::fs::read(snapshot.join("0001")).unwrap(), [2u8; 7]);
+    // The folder itself now holds the patched table.
+    assert_eq!(names_in(&dir), ["0000", "0001"]);
+    assert_eq!(std::fs::read(dir.join("0001")).unwrap().len(), 24);
+    assert_ne!(std::fs::read(dir.join("0000")).unwrap(), [1u8; 24]);
+}
+
+#[test]
+fn takes_no_snapshot_without_a_folder() {
+    let (s, mut st) = unpatched_store();
+    assert_eq!(st.apply_dynamic_headers().unwrap(), None);
+    assert!(!s.dir.path().join(".g4/backup").exists());
+}
+
+#[test]
+fn still_refuses_a_table_changed_on_disk() {
+    use g4_kernel::project::Location;
+    let (s, mut st) = unpatched_store();
+    let dir = s.dir.path().join("unpacked/dynamicHeaders");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000"), [1u8; 24]).unwrap();
+    // An unsaved edit, then another tool edits the table in arm9.bin.
+    set_matrix(&mut st, 0, 5);
+    let Location::Slice { offset, .. } = st
+        .project()
+        .asset_location(AssetKind::HeaderTable, 0)
+        .unwrap()
+    else {
+        panic!("the header table is a slice of arm9.bin before the patch");
+    };
+    let arm9_path = s.dir.path().join("arm9/arm9.bin");
+    let mut arm9 = std::fs::read(&arm9_path).unwrap();
+    arm9[offset as usize + 30] ^= 0x5A;
+    std::fs::write(&arm9_path, &arm9).unwrap();
+
+    assert!(matches!(
+        st.apply_dynamic_headers().unwrap_err(),
+        KernelError::Stale(id) if id == header_table_id()
+    ));
+    assert_eq!(std::fs::read(&arm9_path).unwrap(), arm9, "arm9.bin changed");
+    assert_eq!(names_in(&dir), ["0000"]);
+    assert!(!s.dir.path().join(".g4/backup").exists());
+    assert!(!s.dir.path().join("arm9/arm9.bin.backup").exists());
+    assert_eq!(matrix_of(&mut st, 0), 5);
 }
 
 #[test]
