@@ -308,17 +308,39 @@ describe("SceneHost", () => {
     frames[1]();
     expect(renders.count).toBe(before + 1);
   });
-  it("captures_a_frame_drawn_now_as_a_png_data_url", () => {
+  it("captures_a_frame_drawn_now_cropped_to_4_3_at_512_by_384", () => {
     const { h } = host();
+    // A 6K display: 6016 × 3384 pixels in the drawing buffer (16 : 9).
+    h.canvas.width = 6016;
+    h.canvas.height = 3384;
     const order: string[] = [];
     const before = renders.count;
-    const toDataURL = vi.spyOn(h.canvas, "toDataURL").mockImplementation((type?: string) => {
-      // The frame was drawn just before, in the same tick (the drawing buffer is not kept).
-      order.push(`read ${renders.count - before} ${type}`);
+    const drawn: unknown[][] = [];
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
+      return {
+        drawImage: (...args: unknown[]) => {
+          // Drawn from the frame just rendered, in the same tick (the drawing buffer is not kept).
+          order.push(`draw ${renders.count - before}`);
+          drawn.push(args);
+        },
+      } as unknown as CanvasRenderingContext2D;
+    } as never);
+    const read: [number, number][] = [];
+    const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(function (this: HTMLCanvasElement, type?: string) {
+      order.push(`read ${this.width}×${this.height} ${type}`);
+      read.push([this.width, this.height]);
       return "data:image/png;base64,UElD";
     });
-    expect(h.capture()).toBe("data:image/png;base64,UElD");
-    expect(order).toEqual(["read 1 image/png"]);
-    toDataURL.mockRestore();
+    try {
+      expect(h.capture()).toBe("data:image/png;base64,UElD");
+      expect(order).toEqual(["draw 1", "read 512×384 image/png"]);
+      // Cover: the full height, the centre 4 : 3 of the width (3384 · 4/3 = 4512, 752 px cut on each side), drawn into 512 × 384.
+      expect(drawn).toEqual([[h.canvas, 752, 0, 4512, 3384, 0, 0, 512, 384]]);
+      // The full-size canvas is never encoded.
+      expect(read).toEqual([[512, 384]]);
+    } finally {
+      getContext.mockRestore();
+      toDataURL.mockRestore();
+    }
   });
 });

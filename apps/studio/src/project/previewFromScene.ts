@@ -22,7 +22,12 @@ export function base64Of(dataUrl: string): string {
   return dataUrl.startsWith("data:") && comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 }
 
-/** The renderer of the preview's map pictures: its own, made on the first picture, apart from the 64-pixel one of the map pictures' cache. */
+/**
+ * The renderer of the preview's map pictures: its own, made on the first picture, apart from the 64-pixel one of the map pictures' cache.
+ * It lives for the whole session (never disposed, also across projects). After its WebGL context was lost `MAX_CONTEXTS` times
+ * (`createTopDownRenderer`) every further picture throws: the standard picture then fails silently until the app restarts, and „Als
+ * Vorschaubild“ from the world map says the error.
+ */
 let mapRenderer: ThumbnailRender | null = null;
 
 /** Draws the picture of `map` with the tileset `areaDataId` at 256 × 192 (the map's width fills it) and answers its base64. */
@@ -39,7 +44,7 @@ async function setOwn(png: string): Promise<PreviewDto> {
   return preview;
 }
 
-/** „Als Vorschaubild“ on the 3D view: its picture now (`SceneHost.capture`) becomes the own picture. */
+/** „Als Vorschaubild“ on the 3D view: its picture now (`SceneHost.capture`: 4 : 3 at 512 × 384, not the full canvas) becomes the own picture. */
 export async function setPreviewFrom3d(host: Pick<SceneHost, "capture">): Promise<PreviewDto> {
   return setOwn(base64Of(host.capture()));
 }
