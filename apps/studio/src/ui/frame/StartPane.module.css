@@ -1,6 +1,8 @@
 .pane {
   display: flex;
-  max-width: 960px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(960px + 2 * var(--g4-raum-24));
   flex-direction: column;
   gap: var(--g4-raum-16);
   margin: 0 auto;
