@@ -134,6 +134,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("apply_empty_region", Kind::Irreversible("Welt leeren")),
     ("world_meta_get", Kind::Read),
     ("world_meta_set", Kind::Write),
+    ("place_slots", Kind::Read),
+    ("create_place", Kind::Write),
+    ("rename_place", Kind::Write),
+    ("assign_place", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.

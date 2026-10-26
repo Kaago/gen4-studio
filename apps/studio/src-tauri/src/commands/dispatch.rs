@@ -142,6 +142,10 @@ pub const COMMANDS: &[&str] = &[
     "apply_empty_region",
     "world_meta_get",
     "world_meta_set",
+    "place_slots",
+    "create_place",
+    "rename_place",
+    "assign_place",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -622,6 +626,22 @@ pub fn dispatch(
             { meta: g4_kernel::world_meta::WorldMeta },
             |a| world_meta_set_impl(state, a.meta)
         ),
+        "place_slots" => run!(json, "place_slots", args, {}, |_a| place_slots_impl(state)),
+        "create_place" => run!(
+            json, "create_place", args,
+            { name: String, headers: Vec<u16> },
+            |a| create_place_impl(state, &a.name, &a.headers)
+        ),
+        "rename_place" => run!(
+            json, "rename_place", args,
+            { index: u8, name: String },
+            |a| rename_place_impl(state, a.index, &a.name)
+        ),
+        "assign_place" => run!(
+            json, "assign_place", args,
+            { headers: Vec<u16>, index: u8 },
+            |a| assign_place_impl(state, &a.headers, a.index)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -915,6 +935,16 @@ mod tests {
                 "world_meta_set",
                 json!({ "meta": { "roomNames": { "1": "Haus" } } }),
             ),
+            ("place_slots", json!({})),
+            (
+                "create_place",
+                json!({ "name": "Neuheim", "headers": [0, 1] }),
+            ),
+            (
+                "rename_place",
+                json!({ "index": 1, "name": "Zweiblattdorf" }),
+            ),
+            ("assign_place", json!({ "headers": [0], "index": 2 })),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

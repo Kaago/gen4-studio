@@ -840,6 +840,29 @@ export const worldMetaGet = () => invoke<{ meta: WorldMeta; broken: string | nul
 /** Writes the world file at once. Rejects while the file is broken ("g4-world.json ist beschädigt: … Repariere oder lösche die Datei."). */
 export const worldMetaSet = (meta: WorldMeta) => invoke<void>("world_meta_set", { meta });
 
+/** Room for new places in the location bank (`bank`, a text archive): `free` names can still be appended (256 at most);
+ * `reusable` (HeartGold/SoulSilver only) are the Sinnoh names 1–125 no map uses, lowest first. */
+export interface PlaceSlots {
+  bank: number;
+  count: number;
+  free: number;
+  reusable: number[];
+}
+/** What `createPlace` did: the new place's index and, when it took a reusable slot, the name it replaced. */
+export interface PlaceCreated {
+  index: number;
+  reused: string | null;
+}
+
+export const placeSlots = () => invoke<PlaceSlots>("place_slots");
+/** Creates the place `name` and gives it to the map headers `headers`, one undo step. Rejects an empty name, a
+ * character the game does not know, a full bank and Diamond/Pearl (German sentences). */
+export const createPlace = (name: string, headers: number[]) => invoke<PlaceCreated>("create_place", { name, headers });
+/** Renames the place at `index` for every map header carrying it, one undo step. */
+export const renamePlace = (index: number, name: string) => invoke<void>("rename_place", { index, name });
+/** Gives the existing place at `index` to the map headers `headers`, one undo step. */
+export const assignPlace = (headers: number[], index: number) => invoke<void>("assign_place", { headers, index });
+
 export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";

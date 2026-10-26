@@ -15,6 +15,8 @@ import {
   addEvent,
   addScript,
   adoptScripts,
+  assignPlace,
+  createPlace,
   createTextArchive,
   deleteBuilding,
   editTextArchive,
@@ -26,6 +28,8 @@ import {
   memberCounts,
   headerFields,
   isCmdError,
+  placeSlots,
+  renamePlace,
   lspSend,
   lspStart,
   lspStop,
@@ -333,5 +337,22 @@ describe("script commands", () => {
     await expect(worldMetaGet()).resolves.toEqual({ meta, broken: null });
     await worldMetaSet(meta);
     expect(invoke.mock.calls).toEqual([["world_meta_get"], ["world_meta_set", { meta }]]);
+  });
+
+  it("the_place_wrappers_send_the_keys_of_the_place_commands", async () => {
+    invoke.mockReset();
+    const slots = { bank: 433, count: 3, free: 253, reusable: [] };
+    invoke.mockResolvedValueOnce(slots);
+    await expect(placeSlots()).resolves.toEqual(slots);
+    invoke.mockResolvedValueOnce({ index: 3, reused: null });
+    await expect(createPlace("Neuheim", [0, 1])).resolves.toEqual({ index: 3, reused: null });
+    await renamePlace(3, "Zweiblattdorf");
+    await assignPlace([2], 3);
+    expect(invoke.mock.calls).toEqual([
+      ["place_slots"],
+      ["create_place", { name: "Neuheim", headers: [0, 1] }],
+      ["rename_place", { index: 3, name: "Zweiblattdorf" }],
+      ["assign_place", { headers: [2], index: 3 }],
+    ]);
   });
 });

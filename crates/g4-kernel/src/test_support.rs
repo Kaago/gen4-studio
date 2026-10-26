@@ -184,6 +184,42 @@ pub fn synthetic_project() -> Synthetic {
     Synthetic { dir }
 }
 
+/// HeartGold US (IPKE) built on [`synthetic_project`]: `headers` zeroed HGSS map headers in
+/// `arm9.bin` (and as many `mapname.bin` records), and a text archive whose location bank
+/// (the HGSS English bank of `uxie::text_bank::game_strings`) holds `location_names`; the
+/// other text members are placeholders. Only the header table and the location bank are
+/// HGSS; the other archives keep their Platinum paths and are unused.
+pub fn synthetic_hgss_project(location_names: &[&str], headers: usize) -> Synthetic {
+    let fixture = synthetic_project();
+    let root = fixture.dir.path();
+    std::fs::write(
+        root.join("header.yaml"),
+        "title: \"POKEMON HG\"\ngamecode: IPKE\nmakercode: \"01\"\n",
+    )
+    .unwrap();
+    write_file(
+        root,
+        "files/fielddata/maptable/mapname.bin",
+        &vec![0u8; headers * 16],
+    );
+    // The IPKE header table offset of `header_tables.yaml`.
+    const HGSS_HEADER_TABLE_IPKE: usize = 0xF6BE0;
+    write_file(
+        root,
+        "arm9/arm9.bin",
+        &vec![0u8; HGSS_HEADER_TABLE_IPKE + headers * HEADER_SIZE + 64],
+    );
+    let bank = uxie::text_bank::game_strings::TextBankIds::for_game(
+        uxie::GameFamily::HGSS,
+        uxie::GameLanguage::English,
+    )
+    .locations;
+    let mut members = vec![vec![0xAA; 8]; usize::from(bank) + 1];
+    members[usize::from(bank)] = text_archive_bytes(location_names);
+    write_narc(root, "files/a/0/2/7", &members);
+    fixture
+}
+
 /// Number of text archives of the fixture: members 0 to 697.
 pub const PT_TEXT_ARCHIVES: usize = 698;
 

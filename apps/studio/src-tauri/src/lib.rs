@@ -28,6 +28,7 @@ use commands::{
     update_building, update_event, validate_text, world_meta_get, world_meta_set,
 };
 use commands::{apply_empty_region, plan_empty_region};
+use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{AppState, QuitAction, quit_action};
@@ -144,7 +145,11 @@ pub fn run() {
             plan_empty_region,
             apply_empty_region,
             world_meta_get,
-            world_meta_set
+            world_meta_set,
+            place_slots,
+            create_place,
+            rename_place,
+            assign_place
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
