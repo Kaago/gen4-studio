@@ -106,9 +106,24 @@ describe("AgentsSettings", () => {
     await render({ status: status({ enabled: true, port: 49152 }) });
     expect(calls("agent_settings").length).toBe(reads + 1);
     expect(switchIn("data-agents-enabled")?.getAttribute("aria-checked")).toBe("true");
-    // A status with the same switch and port (a connection came) reads nothing.
-    await render({ status: status({ enabled: true, port: 49152, connections: [{ id: 1, client: "Claude Code", since_ms: 0 }] }) });
-    expect(calls("agent_settings").length).toBe(reads + 1);
+    // The same status object reads nothing.
+    const same = status({ enabled: true, port: 49152 });
+    await render({ status: same });
+    const after = calls("agent_settings").length;
+    await render({ status: same });
+    expect(calls("agent_settings").length).toBe(after);
+  });
+
+  it("shows_the_grant_an_answered_question_saved", async () => {
+    const asking = status({ connections: [{ id: 1, client: "Claude Code", since_ms: 0 }], question: { id: 3, kind: "connect", client: "Claude Code", project: OPEN, what: null } });
+    current = dto({ level: null });
+    await render({ status: asking });
+    const pressed = () => [...container.querySelectorAll<HTMLElement>('[aria-label="Freigabe für dieses Projekt"] button')].find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
+    expect(pressed()).toBeUndefined();
+    // The user answered „Lesen“ in the dialog: the hub saved the grant, the question is gone, switch and port are the same.
+    current = dto({ level: "read" });
+    await render({ status: { ...asking, question: null } });
+    expect(pressed()).toBe("Lesen");
   });
 
   it("shows_setup_line_and_copies", async () => {
@@ -122,6 +137,16 @@ describe("AgentsSettings", () => {
     expect(button("Kopiert")).toBeDefined();
     await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
     expect(button("Einrichtungszeile kopieren")).toBeDefined();
+    expect(button("Kopiert")).toBeUndefined();
+  });
+
+  it("a_missing_clipboard_says_so", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    await render();
+    await act(async () => button("Einrichtungszeile kopieren")!.click());
+    await settle();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(String(onError.mock.calls[0]![0])).toContain("Zwischenablage");
     expect(button("Kopiert")).toBeUndefined();
   });
 

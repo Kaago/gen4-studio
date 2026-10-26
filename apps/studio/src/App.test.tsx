@@ -1892,7 +1892,7 @@ describe("App wiring", () => {
       await emit({ kind: "status", seq: 1 });
       await flush();
       expect(container.querySelector("footer [data-agent-status]")?.textContent).toBe("Agent verbunden: Claude Code");
-      expect(document.querySelector("[data-agent-question]")?.textContent).toBe("„Claude Code“ möchte auf das Projekt „p“ zugreifen.");
+      expect(document.querySelector("[role=dialog][data-agent-question]")?.textContent).toContain("„Claude Code“ möchte auf das Projekt „p“ zugreifen.");
       current = hub(null);
       const read = [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Lesen")!;
       await act(async () => read.click());

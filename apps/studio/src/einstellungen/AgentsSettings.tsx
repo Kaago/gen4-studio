@@ -10,7 +10,10 @@ export type AgentsSettingsProps = {
   projectOpen: boolean;
   /** The browser mode: the dev bridge serves `/mcp` on its own port, there is no server of the app's own. */
   bridge: boolean;
-  /** The hub's status as last read; a new switch or port reads the settings again. */
+  /**
+   * The hub's status as last read. Every new status reads the settings again: an answered question saved a grant, the switch or the
+   * port changed (`useAgents` keeps the object while nothing was read).
+   */
   status: AgentStatus | null;
   onError: (error: unknown) => void;
 };
@@ -42,12 +45,10 @@ export function AgentsSettings({ projectOpen, bridge, status, onError }: AgentsS
     if (seq === asked.current) setDto(next);
   }, []);
 
-  const enabledNow = status?.enabled;
-  const portNow = status?.port;
   useEffect(() => {
     reload().catch(onError);
     // `onError` is a sink, not a reason to read again.
-  }, [reload, projectOpen, enabledNow, portNow]);
+  }, [reload, projectOpen, status]);
 
   useEffect(
     () => () => {
@@ -68,7 +69,13 @@ export function AgentsSettings({ projectOpen, bridge, status, onError }: AgentsS
   };
 
   const copy = (line: string) => {
-    void navigator.clipboard
+    // Missing outside a secure context (a browser on another host than localhost).
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    if (clipboard === undefined) {
+      onError(new Error("Die Zwischenablage ist hier nicht verfügbar. Markiere die Einrichtungszeile und kopiere sie selbst."));
+      return;
+    }
+    void clipboard
       .writeText(line)
       .then(() => {
         setCopied(true);
@@ -82,7 +89,8 @@ export function AgentsSettings({ projectOpen, bridge, status, onError }: AgentsS
   };
 
   const enabled = dto?.settings.enabled ?? false;
-  const server = bridge ? (enabled ? "Über die Brücke (/mcp)" : "Aus") : portNow !== null && portNow !== undefined ? `Bereit auf 127.0.0.1:${portNow}` : "Aus";
+  const port = status?.port ?? null;
+  const server = bridge ? (enabled ? "Über die Brücke (/mcp)" : "Aus") : port !== null ? `Bereit auf 127.0.0.1:${port}` : "Aus";
   const ready = server !== "Aus";
   const open = projectOpen ? (dto?.open_project ?? null) : null;
   const others = dto?.settings.grants.filter((grant) => grant.path !== open?.path) ?? [];

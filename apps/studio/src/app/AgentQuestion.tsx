@@ -1,7 +1,7 @@
 import type { AgentAnswer, QuestionDto } from "../api";
+import { useRef } from "react";
 import { Dialog } from "../ui/primitives";
 import type { DialogAction } from "../ui/primitives";
-import styles from "./AgentQuestion.module.css";
 
 export type AgentQuestionProps = {
   /** The hub's open question; null: none, the dialog is closed. */
@@ -16,7 +16,10 @@ export function projectName(project: string): string {
   return parts[parts.length - 1] ?? project;
 }
 
-/** Title, sentence and buttons of a question; the buttons stand in the order the decision names them, the last one is the main one. */
+/**
+ * Title, sentence and buttons of a question, the buttons in the order the decision names them. Connecting, the safer „Lesen“ is the
+ * main button; confirming, „Zulassen“ carries the danger colour.
+ */
 function contentOf(question: QuestionDto): { title: string; text: string; answers: readonly [string, AgentAnswer, DialogAction["kind"]][] } {
   const client = `„${question.client}“`;
   if (question.kind === "connect") {
@@ -26,8 +29,8 @@ function contentOf(question: QuestionDto): { title: string; text: string; answer
       text: `${client} möchte auf ${project} zugreifen.`,
       answers: [
         ["Ablehnen", "deny", "secondary"],
-        ["Lesen", "read", "secondary"],
-        ["Lesen und bearbeiten", "write", "primary"],
+        ["Lesen", "read", "primary"],
+        ["Lesen und bearbeiten", "write", "secondary"],
       ],
     };
   }
@@ -43,23 +46,29 @@ function contentOf(question: QuestionDto): { title: string; text: string; answer
 
 /**
  * The question an agent's first call (or an irreversible step) puts to the user: may it read, read and edit, or not at all; or may it
- * do the irreversible step. The hub waits for the answer (at most 120 s); closing the dialog in any way denies.
+ * do the irreversible step. The hub waits for the answer (at most 120 s); closing the dialog in any way denies. Each question is
+ * answered once: a second click or the Escape of the closing dialog after an answer sends nothing; a new question gets a fresh dialog.
  */
 export function AgentQuestion({ question, onAnswer }: AgentQuestionProps) {
+  const answered = useRef<number | null>(null);
   if (question === null) return null;
   const { title, text, answers } = contentOf(question);
+  const answer = (value: AgentAnswer) => {
+    if (answered.current === question.id) return;
+    answered.current = question.id;
+    onAnswer(question.id, value);
+  };
   return (
     <Dialog
+      key={question.id}
       open
       onOpenChange={(open) => {
-        if (!open) onAnswer(question.id, "deny");
+        if (!open) answer("deny");
       }}
       title={title}
-      actions={answers.map(([label, answer, kind]) => ({ label, kind, onClick: () => onAnswer(question.id, answer) }))}
-    >
-      <p className={styles.text} data-agent-question="">
-        {text}
-      </p>
-    </Dialog>
+      description={text}
+      actions={answers.map(([label, value, kind]) => ({ label, kind, onClick: () => answer(value) }))}
+      data={{ "data-agent-question": "" }}
+    />
   );
 }

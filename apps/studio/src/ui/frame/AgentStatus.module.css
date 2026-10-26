@@ -4,8 +4,9 @@
   color: var(--g4-text-primaer);
 }
 
+/* As high as the small button beside it (Button size s). */
 .item > button {
-  min-height: 24px;
+  min-height: var(--g4-raum-24);
   font: var(--g4-font-text-xs);
 }
 
