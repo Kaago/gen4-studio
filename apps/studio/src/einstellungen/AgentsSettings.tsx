@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { agentRemoveGrant, agentSetEnabled, agentSetExpert, agentSetGrant, agentSettings } from "../api";
 import type { AgentSettingsDto, AgentStatus, GrantLevel } from "../api";
-import { Button, IconButton, Segmented, Switch } from "../ui/primitives";
+import { Button, IconButton, Notice, Segmented, Switch } from "../ui/primitives";
 import type { SegmentedOption } from "../ui/primitives";
 import styles from "./AgentsSettings.module.css";
 
@@ -110,6 +110,13 @@ export function AgentsSettings({ projectOpen, bridge, status, onError }: AgentsS
               <span className={ready ? `${styles.dot} ${styles.ready}` : styles.dot} aria-hidden="true" />
               <span data-agents-server="">{server}</span>
             </p>
+            {status?.server_error && (
+              <div className={styles.serverError} data-agents-server-error="">
+                <Notice kind="error" title="Server nicht gestartet">
+                  {status.server_error}
+                </Notice>
+              </div>
+            )}
           </div>
           <div className={styles.field}>
             <span className={styles.label}>Einrichtung in Claude Code</span>

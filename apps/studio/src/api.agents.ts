@@ -57,18 +57,25 @@ export interface QuestionDto {
   what: string | null;
 }
 
-/** What the hub shows. `bridge`: the dev bridge serves `/mcp` itself (no `port` of its own); `read_only` is the runtime switch „Nur lesen“. */
+/**
+ * What the hub shows. `bridge`: the dev bridge serves `/mcp` itself (no `port` of its own); `read_only` is the runtime switch „Nur lesen“;
+ * `server_error`: why the server did not start the last time it was switched on (`null` once it runs or is switched off).
+ */
 export interface AgentStatus {
   enabled: boolean;
   expert: boolean;
   read_only: boolean;
   port: number | null;
+  server_error: string | null;
   bridge: boolean;
   connections: ConnectionDto[];
   question: QuestionDto | null;
 }
 
-/** An agent changed `assets` with `tool` (one undoable step `label`, `null` for undo and redo); the UI reloads them as after undo. */
+/**
+ * An agent changed `assets` with `tool` (one undoable step `label`, `null` for undo and redo); the UI reloads them as after undo. A write
+ * that changed no value (a save, a build) names no asset: the UI still reads its unsaved count again.
+ */
 export interface AgentChangedEvent {
   kind: "changed";
   seq: number;
@@ -94,8 +101,11 @@ export interface AgentPoll {
   status: AgentStatus;
 }
 
-/** The answer to a question: `connect` takes "deny", "read" or "write", `confirm` "deny" or "allow". */
-export type AgentAnswer = "deny" | "read" | "write" | "allow";
+/**
+ * The answer to a question: `connect` takes "deny", "read" or "write" (saved as the project's grant), `confirm` "deny" or "allow". Both
+ * take "dismiss": the dialog closed without a button, a no to this call that saves nothing.
+ */
+export type AgentAnswer = "deny" | "read" | "write" | "allow" | "dismiss";
 
 export const agentStatus = () => invoke<AgentStatus>("agent_status");
 

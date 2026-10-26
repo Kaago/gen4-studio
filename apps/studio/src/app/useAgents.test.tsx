@@ -20,6 +20,7 @@ const status = (readOnly: boolean, connections = 1): AgentStatus => ({
   expert: false,
   read_only: readOnly,
   port: 49152,
+  server_error: null,
   bridge: false,
   connections: Array.from({ length: connections }, (_, i) => ({ id: i + 1, client: "Claude Code", since_ms: 0 })),
   question: null,

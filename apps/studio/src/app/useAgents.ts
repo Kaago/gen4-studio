@@ -20,20 +20,23 @@ export interface Agents {
 
 /**
  * Follows the agent hub for as long as the app is mounted (a connecting agent shows without a project too): keeps the latest status and
- * calls `onChanged` (its latest value) for each `changed` event, in the order they arrive. The actions read the status afterwards and
- * reject as their command did, so the caller can show the error.
+ * calls `onChanged` (its latest value) for each `changed` event, in the order they arrive, then `onGap` when events before them were lost
+ * (the browser mode's poll fell behind the hub). The actions read the status afterwards and reject as their command did, so the caller
+ * can show the error.
  */
-export function useAgents({ onChanged }: { onChanged: (event: AgentChangedEvent) => void }): Agents {
+export function useAgents({ onChanged, onGap }: { onChanged: (event: AgentChangedEvent) => void; onGap?: () => void }): Agents {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const changed = useStableCallback(onChanged);
+  const lost = useStableCallback(() => onGap?.());
 
   useEffect(
     () =>
-      subscribeAgentEvents((events, next) => {
+      subscribeAgentEvents((events, next, gap) => {
         if (next) setStatus(next);
         for (const event of events) if (event.kind === "changed") changed(event);
+        if (gap) lost();
       }),
-    [changed],
+    [changed, lost],
   );
 
   const refresh = useCallback(async () => setStatus(await agentStatus()), []);

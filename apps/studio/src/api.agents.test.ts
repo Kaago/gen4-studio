@@ -29,6 +29,7 @@ const poll: AgentPoll = {
     expert: false,
     read_only: false,
     port: 49152,
+    server_error: null,
     bridge: false,
     connections: [{ id: 1, client: "Claude Code", since_ms: 1_761_400_000_000 }],
     question: { id: 4, kind: "connect", client: "Claude Code", project: "platin", what: null },

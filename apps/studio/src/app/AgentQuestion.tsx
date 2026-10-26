@@ -6,7 +6,7 @@ import type { DialogAction } from "../ui/primitives";
 export type AgentQuestionProps = {
   /** The hub's open question; null: none, the dialog is closed. */
   question: QuestionDto | null;
-  /** The answer to the question `id`. Escape, the close button and a click outside answer "deny". */
+  /** The answer to the question `id`. Escape, the close button and a click outside answer "dismiss" (a no that saves nothing). */
   onAnswer: (id: number, answer: AgentAnswer) => void;
 };
 
@@ -46,7 +46,8 @@ function contentOf(question: QuestionDto): { title: string; text: string; answer
 
 /**
  * The question an agent's first call (or an irreversible step) puts to the user: may it read, read and edit, or not at all; or may it
- * do the irreversible step. The hub waits for the answer (at most 120 s); closing the dialog in any way denies. Each question is
+ * do the irreversible step. The hub waits for the answer (at most 120 s); closing the dialog without a button denies this call only and
+ * saves nothing (only „Ablehnen“ is saved as the project's „Nicht“). Each question is
  * answered once: a second click or the Escape of the closing dialog after an answer sends nothing; a new question gets a fresh dialog.
  */
 export function AgentQuestion({ question, onAnswer }: AgentQuestionProps) {
@@ -63,7 +64,7 @@ export function AgentQuestion({ question, onAnswer }: AgentQuestionProps) {
       key={question.id}
       open
       onOpenChange={(open) => {
-        if (!open) answer("deny");
+        if (!open) answer("dismiss");
       }}
       title={title}
       description={text}

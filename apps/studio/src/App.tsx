@@ -341,8 +341,20 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
+  // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
+  // stale file, in the same queue.
+  const onAgentGap = useStableCallback(() => {
+    agentReloads.current = agentReloads.current
+      .then(async () => {
+        if (session.info === null) return;
+        await session.onCountsChanged();
+        scene.noteHistoryMoved();
+        await session.staleRefresh.current();
+      })
+      .catch(session.fail);
+  });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
-  const agents = useAgents({ onChanged: onAgentChanged });
+  const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });

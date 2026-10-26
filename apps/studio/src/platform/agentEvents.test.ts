@@ -14,6 +14,7 @@ const status = (connections: number): AgentStatus => ({
   expert: false,
   read_only: false,
   port: null,
+  server_error: null,
   bridge: true,
   connections: Array.from({ length: connections }, (_, i) => ({ id: i + 1, client: "Claude Code", since_ms: 0 })),
   question: null,
@@ -113,6 +114,24 @@ describe("subscribeAgentEvents in the browser mode", () => {
     // The first answer that arrives counts as the first poll: it brings the status.
     expect(invoke).toHaveBeenLastCalledWith("agent_poll", { since: 0 });
     expect(onEvents).toHaveBeenCalledWith([], status(1));
+    stop();
+  });
+
+  it("signals_a_gap_when_events_were_lost", async () => {
+    // More than the hub keeps happened between two polls: the first event returned is not the next one.
+    const answers = [pollAnswer(3, []), pollAnswer(100, [changed(37, 1), changed(100, 2)], 1), pollAnswer(101, [changed(101, 3)], 1)];
+    invoke.mockImplementation(async () => answers.shift() ?? pollAnswer(101, [], 1));
+    const onEvents = vi.fn();
+    const stop = subscribeAgentEvents(onEvents);
+    await settle();
+    expect(onEvents).toHaveBeenLastCalledWith([], status(0));
+    await vi.advanceTimersByTimeAsync(AGENT_POLL_MS);
+    // The kept events still come, flagged: what came before them is unknown.
+    expect(onEvents).toHaveBeenLastCalledWith([changed(37, 1), changed(100, 2)], status(1), { gap: true });
+    await vi.advanceTimersByTimeAsync(AGENT_POLL_MS);
+    // The next one follows on: no gap.
+    expect(onEvents).toHaveBeenCalledTimes(3);
+    expect(onEvents.mock.calls[2]).toEqual([[changed(101, 3)], status(1)]);
     stop();
   });
 

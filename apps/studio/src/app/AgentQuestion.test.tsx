@@ -89,9 +89,18 @@ describe("AgentQuestion", () => {
     ]);
   });
 
-  it("escape_denies", () => {
+  it("escape_dismisses_without_deciding", () => {
     show(confirm);
     act(() => void pressKey((document.activeElement as HTMLElement) ?? dialog()!, "Escape"));
-    expect(onAnswer).toHaveBeenCalledExactlyOnceWith(9, "deny");
+    // A one-time no that saves nothing; only „Ablehnen“ is a decision.
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith(9, "dismiss");
+  });
+
+  it("closing_the_connect_dialog_dismisses_once", () => {
+    show(connect);
+    const close = dialog()?.querySelector<HTMLButtonElement>("button[aria-label=Schließen]");
+    act(() => close!.click());
+    act(() => void pressKey((document.activeElement as HTMLElement) ?? document.body, "Escape"));
+    expect(onAnswer.mock.calls).toEqual([[7, "dismiss"]]);
   });
 });

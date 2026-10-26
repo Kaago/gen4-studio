@@ -1882,6 +1882,7 @@ describe("App wiring", () => {
         expert: false,
         read_only: false,
         port: 49152,
+        server_error: null,
         bridge: false,
         connections: [{ id: 1, client: "Claude Code", since_ms: 0 }],
         question,
@@ -1901,6 +1902,35 @@ describe("App wiring", () => {
       // The answer reads the status again: the question is gone, the agent stays connected.
       expect(document.querySelector("[data-agent-question]")).toBeNull();
       expect(statusLine()).toContain("Agent verbunden: Claude Code");
+    });
+
+    it("refreshes_the_dirty_count_after_an_agent_write_without_assets", async () => {
+      await inTheApp();
+      vi.mocked(dirty).mockClear();
+      vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+      // An agent's save (or build) changes no value: the event names no asset.
+      await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "save", label: null, assets: [] });
+      await flush();
+      expect(dirty).toHaveBeenCalled();
+    });
+
+    it("reloads_broadly_after_lost_agent_events_in_the_browser_mode", async () => {
+      // The beforeEach app polls the hub (browser mode) with the project open.
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(dirty).mockClear();
+      const hub: AgentStatus = { enabled: true, expert: false, read_only: false, port: null, server_error: null, bridge: true, connections: [], question: null };
+      // The first poll only brings the status; the next one starts at seq 37 although 3 was the last seen: 4..36 are lost.
+      const polls = [
+        { seq: 3, events: [], status: hub },
+        { seq: 100, events: [changed(37, []), changed(100, [])], status: hub },
+      ];
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === "agent_poll" ? (polls.shift() ?? { seq: 100, events: [], status: hub }) : undefined));
+      // Not knowing what the lost ones changed, the app reads the world again as after a stale file.
+      await vi.waitFor(() => expect(log.map((entry) => entry.split("@")[0])).toEqual(expect.arrayContaining(["headerTable", "areaData", "buildingData", "dataChanged"])), { timeout: 4000 });
+      expect(memberCounts).toHaveBeenCalled();
+      expect(dirty).toHaveBeenCalled();
     });
 
     it("reads_nothing_for_an_agent_change_without_a_project", async () => {

@@ -32,6 +32,7 @@ const status = (over: Partial<AgentStatus> = {}): AgentStatus => ({
   expert: false,
   read_only: false,
   port: 49152,
+  server_error: null,
   bridge: false,
   connections: [],
   question: null,
@@ -97,6 +98,18 @@ describe("AgentsSettings", () => {
     current = dto({ enabled: false });
     await render({ bridge: true, status: status({ enabled: false, port: null, bridge: true }) });
     expect(container.querySelector("[data-agents-server]")?.textContent).toBe("Aus");
+  });
+
+  it("shows_why_the_server_did_not_start", async () => {
+    current = dto({ enabled: true });
+    await render({ status: status({ port: null, server_error: "Port 0 nicht frei: Zugriff verweigert" }) });
+    expect(container.querySelector("[data-agents-server]")?.textContent).toBe("Aus");
+    const error = container.querySelector("[data-agents-server-error]");
+    expect(error?.querySelector("[role=alert]")?.textContent).toContain("Server nicht gestartet");
+    expect(error?.textContent).toContain("Port 0 nicht frei: Zugriff verweigert");
+    // Gone once the server runs.
+    await render({ status: status({ port: 49152, server_error: null }) });
+    expect(container.querySelector("[data-agents-server-error]")).toBeNull();
   });
 
   it("rereads_when_the_status_changes", async () => {

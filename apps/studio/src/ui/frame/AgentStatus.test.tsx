@@ -14,6 +14,7 @@ const status = (clients: string[], readOnly = false): AgentStatusDto => ({
   expert: false,
   read_only: readOnly,
   port: 49152,
+  server_error: null,
   bridge: false,
   connections: clients.map((client, i) => ({ id: i + 1, client, since_ms: 0 })),
   question: null,

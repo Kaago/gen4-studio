@@ -6,6 +6,14 @@ import { inTauri } from "./transport";
 /** How often the browser mode asks the hub for new events (the local bridge; it has no pushed events). */
 export const AGENT_POLL_MS = 500;
 
+/** Passed along with events when some before them were lost: what they changed is unknown, so the caller reads everything again. */
+export interface AgentEventsGap {
+  gap: true;
+}
+
+/** Gets new events, the status when it was read along (else `null`), and a gap when events before these were lost. */
+export type AgentEventsHandler = (events: AgentEvent[], status: AgentStatus | null, gap?: AgentEventsGap) => void;
+
 /**
  * Follows the agent hub: `onEvents` gets new events with the status when it was read along (else `null`). The status is there soon after
  * subscribing (with no events): what happened before is past. Errors are silent (the status line shows no agent then). Returns the
@@ -13,13 +21,14 @@ export const AGENT_POLL_MS = 500;
  *
  * Inside the app Tauri emits each event as `agent-event`; each one arrives alone, a `status` one after the status was read again. Events
  * may arrive out of `seq` order and are passed on as they come. The browser mode polls `agentPoll` from the last `seq`, each poll
- * `AGENT_POLL_MS` after the previous one answered.
+ * `AGENT_POLL_MS` after the previous one answered; the hub keeps only the last 64 events, so when the first one a poll returns is not the
+ * next after the last seen, the events come with `{ gap: true }`.
  */
-export function subscribeAgentEvents(onEvents: (events: AgentEvent[], status: AgentStatus | null) => void): () => void {
+export function subscribeAgentEvents(onEvents: AgentEventsHandler): () => void {
   return inTauri() ? listenToTauri(onEvents) : pollTheHub(onEvents);
 }
 
-function listenToTauri(onEvents: (events: AgentEvent[], status: AgentStatus | null) => void): () => void {
+function listenToTauri(onEvents: AgentEventsHandler): () => void {
   let disposed = false;
   let unlisten: (() => void) | undefined;
   // Only the newest status read is passed on: an older one answering late must not overwrite it.
@@ -59,7 +68,7 @@ function listenToTauri(onEvents: (events: AgentEvent[], status: AgentStatus | nu
   };
 }
 
-function pollTheHub(onEvents: (events: AgentEvent[], status: AgentStatus | null) => void): () => void {
+function pollTheHub(onEvents: AgentEventsHandler): () => void {
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let since = 0;
@@ -70,6 +79,8 @@ function pollTheHub(onEvents: (events: AgentEvent[], status: AgentStatus | null)
       if (disposed) return;
       // The hub's latest seq, even when it went back (a restarted bridge counts from 1 again).
       const wentBack = answer.seq < since;
+      // More happened since the last poll than the hub keeps: the events between are lost.
+      const lost = answer.events.length > 0 && answer.events[0].seq > since + 1;
       since = answer.seq;
       if (first) {
         first = false;
@@ -78,6 +89,8 @@ function pollTheHub(onEvents: (events: AgentEvent[], status: AgentStatus | null)
       } else if (wentBack) {
         // A restarted bridge: its events are not ours to replay, but its status is.
         onEvents([], answer.status);
+      } else if (lost) {
+        onEvents(answer.events, answer.status, { gap: true });
       } else if (answer.events.length > 0) {
         onEvents(answer.events, answer.status);
       }

@@ -44,6 +44,11 @@
   font: var(--g4-font-text-s);
 }
 
+/* Why the server did not start: the design system's error notice, as wide as the column. */
+.serverError {
+  align-self: stretch;
+}
+
 .dot {
   width: var(--g4-raum-8);
   height: var(--g4-raum-8);
