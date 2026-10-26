@@ -9,6 +9,17 @@
   background: var(--g4-flaeche-blatt);
 }
 
+/*
+ * Darstellung, Emulator and Tastenkürzel fill the first row (four columns of at least 280 px never fit the area), so Agenten starts
+ * the second. From two columns on (2 × 280 px and the gap) it spans two: the segments of the grant stay on one row and the
+ * setup line on one or two.
+ */
+@container settings (min-width: 576px) {
+  .column {
+    grid-column: span 2;
+  }
+}
+
 .heading {
   margin: 0;
   color: var(--g4-text-primaer);
