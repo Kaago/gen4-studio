@@ -19,6 +19,10 @@ use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::AppState;
 
+/// Longest base64 `png` taken: the encoding of the kernel's largest image file (32 MiB).
+/// Longer text is refused before it is decoded.
+const MAX_PNG_BASE64: usize = (32 * 1024 * 1024usize).div_ceil(3) * 4;
+
 /// What both commands answer: the preview as it is now (`source` and `png` both `None`
 /// without one) and, for the open project only, the start town's map the app renders the
 /// standard picture of.
@@ -87,7 +91,8 @@ pub fn project_preview_get_impl(
 /// `slot` of the open project (`path` `None`) or of the project folder `path`, fitted to
 /// 256 × 192; with neither it removes that slot's file. Answers the preview after the write.
 /// `png` and `file` together are refused, and so is a `png` that is no base64
-/// (`preview.format`, like a picture that is neither PNG nor JPEG).
+/// (`preview.format`, like a picture that is neither PNG nor JPEG) or longer than the base64
+/// of the kernel's largest file (`preview.too_large`, before it is decoded).
 pub fn project_preview_set_impl(
     state: &AppState,
     path: Option<&Path>,
@@ -95,15 +100,23 @@ pub fn project_preview_set_impl(
     png: Option<&str>,
     file: Option<&Path>,
 ) -> Result<PreviewDto, CmdError> {
-    let bytes = match (png, file) {
-        (Some(_), Some(_)) => return Err("png and file exclude each other".into()),
-        (Some(text), None) => Some(
-            STANDARD
-                .decode(text.trim())
-                .map_err(|e| CmdError::from(format!("preview.format: png is no base64 ({e})")))?,
-        ),
-        (None, _) => None,
-    };
+    let bytes =
+        match (png, file) {
+            (Some(_), Some(_)) => return Err("png and file exclude each other".into()),
+            (Some(text), None) => {
+                let text = text.trim();
+                if text.len() > MAX_PNG_BASE64 {
+                    return Err(CmdError::from(format!(
+                        "preview.too_large: png has {} base64 characters, at most {MAX_PNG_BASE64}",
+                        text.len()
+                    )));
+                }
+                Some(STANDARD.decode(text).map_err(|e| {
+                    CmdError::from(format!("preview.format: png is no base64 ({e})"))
+                })?)
+            }
+            (None, _) => None,
+        };
     let input = match (&bytes, file) {
         (Some(bytes), _) => PreviewInput::Bytes(bytes),
         (None, Some(file)) => PreviewInput::File(file),

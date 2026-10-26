@@ -175,19 +175,40 @@ fn confine_source(policy: &dyn Policy, source: Source) -> Result<Source, CmdErro
     })
 }
 
-/// The project folder `path` of `project_preview_*` names: one `open_project` may open, or,
-/// when nothing is there, a place the policy lets a file be written to (its parent is
-/// allowed). So a start list entry whose folder is gone answers no preview instead of an
-/// error, and a folder outside the policy is refused either way. (`read_path` takes files
-/// only.)
-fn preview_root(policy: &dyn Policy, path: &str) -> Result<std::path::PathBuf, CmdError> {
-    policy.check_project(path).or_else(|refused| {
-        if std::path::Path::new(path).symlink_metadata().is_ok() {
-            Err(refused)
-        } else {
-            policy.write_path(path)
+/// The project folder `path` of `project_preview_*` names, if it is there: one `open_project`
+/// may open. `None` when nothing is there (a start list entry whose folder, a folder above it
+/// or the target of its link is gone) and the nearest folder above it that is there may be
+/// opened, so such an entry answers no preview instead of an error; nothing is read there.
+/// A path outside the policy is refused either way, and so is a missing tail with `.` or `..`.
+/// (`read_path` takes files only.)
+fn preview_root(policy: &dyn Policy, path: &str) -> Result<Option<std::path::PathBuf>, CmdError> {
+    use std::path::{Component, Path};
+    let full = Path::new(path);
+    if full.exists() {
+        return policy.check_project(path).map(Some);
+    }
+    let outside = || CmdError::from(format!("Pfad liegt außerhalb der erlaubten Ordner: {path}"));
+    let mut existing = full;
+    loop {
+        if !matches!(
+            existing.components().next_back(),
+            Some(Component::Normal(_))
+        ) {
+            return Err(outside());
         }
-    })
+        existing = match existing.parent() {
+            Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+            Some(parent) => parent,
+            None => return Err(outside()),
+        };
+        if existing.exists() {
+            break;
+        }
+    }
+    policy
+        .check_project(&path_text(existing)?)
+        .map_err(|_| outside())?;
+    Ok(None)
 }
 
 fn path_text(path: &std::path::Path) -> Result<String, CmdError> {
@@ -713,15 +734,28 @@ pub fn dispatch(
         ),
         "project_preview_get" => {
             run!(json, "project_preview_get", args, { path: Option<String> }, |a| {
-                let root = a.path.map(|p| preview_root(policy, &p)).transpose()?;
-                project_preview_get_impl(state, root.as_deref())
+                match a.path.map(|p| preview_root(policy, &p)).transpose()? {
+                    // Gone: no preview, and nothing to read.
+                    Some(None) => Ok(PreviewDto {
+                        source: None,
+                        png: None,
+                        standard_map: None,
+                    }),
+                    Some(Some(root)) => project_preview_get_impl(state, Some(&root)),
+                    None => project_preview_get_impl(state, None),
+                }
             })
         }
         "project_preview_set" => run!(
             json, "project_preview_set", args,
             { path: Option<String>, slot: Option<PreviewSlot>, png: Option<String>, file: Option<String> },
             |a| {
-                let root = a.path.map(|p| preview_root(policy, &p)).transpose()?;
+                let root = match a.path {
+                    Some(p) => Some(preview_root(policy, &p)?.ok_or_else(|| {
+                        CmdError::from(format!("Kein Projektordner: {p}"))
+                    })?),
+                    None => None,
+                };
                 let file = a.file.map(|f| policy.read_path(&f)).transpose()?;
                 project_preview_set_impl(
                     state,
@@ -1937,6 +1971,42 @@ mod tests {
         (be(16), be(20))
     }
 
+    /// The standard map of [`open_synthetic_with_town`].
+    fn town() -> Value {
+        json!({ "header": 0, "map": 1, "areaDataId": 0 })
+    }
+
+    /// [`open_synthetic`] with a header layer in matrix 0 (as the kernel's test of
+    /// `standard_map` writes it): header 0, Platinum's start town `T01`, has cell (1, 0) with
+    /// map 1, so the project has a standard map ([`town`]).
+    fn open_synthetic_with_town() -> (g4_kernel::test_support::Synthetic, AppState) {
+        use g4_formats::matrix::Matrix;
+        use g4_formats::narc::Narc;
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let matrix = Matrix {
+            name: "m".into(),
+            width: 2,
+            height: 1,
+            headers: Some(vec![1, 0]),
+            altitudes: None,
+            maps: vec![2, 1],
+        };
+        std::fs::write(
+            fixture
+                .dir
+                .path()
+                .join("files/fielddata/mapmatrix/map_matrix.narc"),
+            Narc {
+                members: vec![matrix.write()],
+            }
+            .write(),
+        )
+        .unwrap();
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        (fixture, state)
+    }
+
     /// The refusal message of a call that must fail.
     fn refused_with(state: &AppState, policy: &dyn Policy, name: &str, args: Value) -> String {
         match dispatch(state, policy, name, args) {
@@ -1947,13 +2017,12 @@ mod tests {
 
     #[test]
     fn preview_get_on_open_project_has_standard_map_field() {
-        let (fixture, state) = open_synthetic();
+        let (fixture, state) = open_synthetic_with_town();
         let policy = policy_over(&fixture);
         let got = json_of(call(&state, &policy, "project_preview_get", json!({})));
         assert_eq!((&got["source"], &got["png"]), (&Value::Null, &Value::Null));
-        let fields = got.as_object().unwrap();
-        assert!(fields.contains_key("standardMap"), "{got}");
-        // Whatever the synthetic project's start town gives, it is the kernel's answer.
+        assert_eq!(got["standardMap"], town(), "{got}");
+        // It is the kernel's answer.
         let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
         assert_eq!(
             got["standardMap"],
@@ -1994,7 +2063,7 @@ mod tests {
 
     #[test]
     fn preview_set_png_then_get_returns_eigen() {
-        let (fixture, state) = open_synthetic();
+        let (fixture, state) = open_synthetic_with_town();
         let policy = policy_over(&fixture);
         let set = json_of(call(
             &state,
@@ -2004,7 +2073,7 @@ mod tests {
         ));
         assert_eq!(set["source"], "eigen", "{set}");
         assert_eq!(png_size(&set["png"]), (256, 192));
-        assert!(set.as_object().unwrap().contains_key("standardMap"));
+        assert_eq!(set["standardMap"], town());
         assert!(fixture.dir.path().join(".g4/preview.png").is_file());
         let got = json_of(call(&state, &policy, "project_preview_get", json!({})));
         assert_eq!(got, set);
@@ -2066,6 +2135,16 @@ mod tests {
             json!({ "png": "kein Bild!" }),
         );
         assert!(message.starts_with("preview.format"), "{message}");
+        // Base64 longer than the kernel's 32 MiB file would take is refused before it is
+        // decoded: this text is no base64 at all, yet the answer is the size.
+        let long = "!".repeat((32 * 1024 * 1024usize).div_ceil(3) * 4 + 4);
+        let message = refused_with(
+            &state,
+            &policy,
+            "project_preview_set",
+            json!({ "png": long }),
+        );
+        assert!(message.starts_with("preview.too_large"), "{message}");
         assert!(!fixture.dir.path().join(".g4/preview.png").exists());
     }
 
@@ -2116,8 +2195,14 @@ mod tests {
         std::fs::create_dir_all(other.join(".g4")).unwrap();
         let png = g4_kernel::preview::fit_preview(&small_png()).unwrap();
         std::fs::write(other.join(".g4/preview.png"), png).unwrap();
-        // An existing folder and a missing one outside the roots; read and write.
-        for path in [other.clone(), elsewhere.path().join("fehlt")] {
+        // An existing folder and missing ones outside the roots (also below a missing
+        // folder, or leaving the roots through `..` after a missing one); read and write.
+        for path in [
+            other.clone(),
+            elsewhere.path().join("fehlt"),
+            elsewhere.path().join("gruppe/fehlt"),
+            fixture.dir.path().join("weg/../../x"),
+        ] {
             let path = path.to_str().unwrap();
             for (name, args) in [
                 ("project_preview_get", json!({ "path": path })),
@@ -2140,7 +2225,7 @@ mod tests {
     #[cfg(feature = "dev-bridge")]
     #[test]
     fn preview_get_path_without_g4_is_empty() {
-        let (fixture, state) = open_synthetic();
+        let (fixture, state) = open_synthetic_with_town();
         let roots = roots_over(&fixture);
         let get = |path: &std::path::Path| {
             json_of(call(
@@ -2157,6 +2242,34 @@ mod tests {
         assert_eq!(get(&other), empty);
         assert_eq!(get(&fixture.dir.path().join("weg")), empty);
         assert!(!other.join(".g4").exists());
+        // Gone with the group folder it was in, or a link that leads nowhere (also one that
+        // would lead out of the roots): no preview either, and nothing is created.
+        assert_eq!(get(&fixture.dir.path().join("gruppe/projekt")), empty);
+        let dangling = fixture.dir.path().join("verweis");
+        std::os::unix::fs::symlink(fixture.dir.path().join("nirgends"), &dangling).unwrap();
+        assert_eq!(get(&dangling), empty);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let out = fixture.dir.path().join("hinaus");
+        std::os::unix::fs::symlink(elsewhere.path().join("nirgends"), &out).unwrap();
+        assert_eq!(get(&out), empty);
+        assert_eq!(get(&out.join("projekt")), empty);
+        // Writing into a folder that is gone is refused, and creates nothing.
+        for gone in [
+            fixture.dir.path().join("gruppe/projekt"),
+            dangling.clone(),
+            out.clone(),
+        ] {
+            let message = refused_with(
+                &state,
+                &roots,
+                "project_preview_set",
+                json!({ "path": gone.to_str().unwrap(), "png": base64_of(&small_png()) }),
+            );
+            assert!(message.starts_with("Kein Projektordner"), "{message}");
+        }
+        assert!(!fixture.dir.path().join("gruppe").exists());
+        assert!(!fixture.dir.path().join("nirgends").exists());
+        assert!(!elsewhere.path().join("nirgends").exists());
         // Written by path, read by path: another project than the open one has no standard
         // map.
         let set = json_of(call(
@@ -2171,8 +2284,11 @@ mod tests {
         );
         assert_eq!(get(&other), set);
         assert!(!fixture.dir.path().join(".g4").exists());
-        // The open project's own folder, also through a link: as without a path.
+        assert_eq!(get(&other)["standardMap"], Value::Null);
+        // The open project's own folder, also through a link: as without a path, with the
+        // standard map.
         let own = json_of(call(&state, &roots, "project_preview_get", json!({})));
+        assert_eq!(own["standardMap"], town(), "{own}");
         assert_eq!(get(fixture.dir.path()), own);
         let link = fixture.dir.path().join("anderes/zurück");
         std::os::unix::fs::symlink(fixture.dir.path(), &link).unwrap();
