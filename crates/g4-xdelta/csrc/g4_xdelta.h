@@ -3,7 +3,8 @@
  * Return values: 0 = ok, *out_len bytes written to out;
  *                1 = out_cap too small, call again with a larger buffer;
  *                2 = failure, *msg points to a static NUL-terminated text.
- * Input lengths above UINT32_MAX fail with 2 (usize_t is uint32_t in 3.0.12). */
+ * Input lengths above 1 GiB fail with 2 (usize_t is uint32_t in 3.0.12, and larger
+ * sources overflow its block rounding); out_cap is used up to 2 GiB at most. */
 #ifndef G4_XDELTA_H
 #define G4_XDELTA_H
 

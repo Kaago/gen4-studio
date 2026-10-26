@@ -1,5 +1,5 @@
 //! Round trips through the vendored xdelta3, with inputs from a small LCG (no files in the repo).
-use g4_xdelta::{app_header, decode, encode, has_secondary_compression};
+use g4_xdelta::{XdeltaError, app_header, decode, encode, has_secondary_compression};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -60,7 +60,10 @@ fn refuses_a_patch_on_the_wrong_source() {
     wrong[10_000] = !wrong[10_000];
     match decode(&wrong, &patch) {
         Ok(out) => panic!("decoded {} bytes", out.len()),
-        Err(err) => eprintln!("wrong source refused: {err}"),
+        Err(err) => {
+            eprintln!("wrong source refused: {err}");
+            assert!(err.to_string().contains("checksum"), "not Adler32: {err}");
+        }
     }
 }
 
@@ -74,6 +77,14 @@ fn refuses_a_corrupted_patch() {
         Ok(out) => panic!("decoded {} bytes", out.len()),
         Err(err) => eprintln!("corrupted patch refused: {err}"),
     }
+}
+
+#[test]
+fn refuses_input_that_is_not_a_vcdiff_patch() {
+    let source = lcg_bytes(5, 4096);
+    let not_vcdiff = XdeltaError::Failed("not a VCDIFF patch".to_owned());
+    assert_eq!(decode(&source, b""), Err(not_vcdiff.clone()));
+    assert_eq!(decode(&source, &source), Err(not_vcdiff));
 }
 
 #[test]

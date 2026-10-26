@@ -34,13 +34,19 @@ unsafe extern "C" {
 const KIB: usize = 1 << 10;
 const MIB: usize = 1 << 20;
 const GIB: usize = 1 << 30;
-/// usize_t is uint32_t in xdelta3 3.0.12: no input and no output can be larger.
-const MAX_LEN: usize = u32::MAX as usize;
+/// The largest source, target, patch or app header. usize_t is uint32_t in xdelta3 3.0.12,
+/// and `xd3_set_source` rounds the source block up to a power of two in an `int` shift, so
+/// anything above 1 GiB would overflow inside the C library. Mirrored in csrc/g4_xdelta.c.
+const MAX_INPUT: usize = GIB;
+/// The largest output buffer: xdelta3 adds the next chunk to the bytes written in uint32_t,
+/// which cannot wrap while the buffer stays at or below 2 GiB. Mirrored in csrc/g4_xdelta.c.
+const MAX_OUTPUT: usize = 2 * GIB;
+const _: () = assert!(MAX_OUTPUT <= 1 << 31 && MAX_INPUT <= MAX_OUTPUT);
 
 /// Why encoding or decoding failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XdeltaError {
-    /// An input is larger than xdelta3 3.0.12 can address (4 GiB).
+    /// An input is larger than 1 GiB, the bound this crate keeps xdelta3 3.0.12 safe within.
     TooLarge,
     /// xdelta3 reported an error (wrong source, damaged patch, ...), with its message.
     Failed(String),
@@ -49,7 +55,7 @@ pub enum XdeltaError {
 impl fmt::Display for XdeltaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            XdeltaError::TooLarge => f.write_str("input larger than 4 GiB"),
+            XdeltaError::TooLarge => f.write_str("input larger than 1 GiB"),
             XdeltaError::Failed(msg) => write!(f, "xdelta3: {msg}"),
         }
     }
@@ -58,14 +64,9 @@ impl fmt::Display for XdeltaError {
 impl std::error::Error for XdeltaError {}
 
 /// A patch that turns `source` into `target`, with Adler32, no secondary compression and
-/// `app_header` (none when empty).
+/// `app_header` (none when empty). Inputs above 1 GiB are `TooLarge`.
 pub fn encode(source: &[u8], target: &[u8], app_header: &[u8]) -> Result<Vec<u8>, XdeltaError> {
-    if [source.len(), target.len(), app_header.len()]
-        .iter()
-        .any(|&len| len > MAX_LEN)
-    {
-        return Err(XdeltaError::TooLarge);
-    }
+    check_lengths(&[source.len(), target.len(), app_header.len()])?;
     let first = (64 * KIB).max(target.len() / 16);
     let limit = target.len().saturating_mul(2).saturating_add(MIB);
     grow(first, limit, |out, out_len, msg| {
@@ -90,10 +91,12 @@ pub fn encode(source: &[u8], target: &[u8], app_header: &[u8]) -> Result<Vec<u8>
     })
 }
 
-/// Applies `patch` to `source`; fails on the wrong source or a damaged patch (Adler32).
+/// Applies `patch` to `source`; fails on input without the VCDIFF magic, the wrong source
+/// or a damaged patch (Adler32). Inputs above 1 GiB are `TooLarge`.
 pub fn decode(source: &[u8], patch: &[u8]) -> Result<Vec<u8>, XdeltaError> {
-    if source.len() > MAX_LEN || patch.len() > MAX_LEN {
-        return Err(XdeltaError::TooLarge);
+    check_lengths(&[source.len(), patch.len()])?;
+    if indicator(patch).is_none() {
+        return Err(XdeltaError::Failed("not a VCDIFF patch".to_owned()));
     }
     let limit = GIB;
     let first = source.len().saturating_add(MIB).min(limit);
@@ -115,14 +118,22 @@ pub fn decode(source: &[u8], patch: &[u8]) -> Result<Vec<u8>, XdeltaError> {
     })
 }
 
+/// `TooLarge` if any length is above [`MAX_INPUT`].
+fn check_lengths(lens: &[usize]) -> Result<(), XdeltaError> {
+    if lens.iter().any(|&len| len > MAX_INPUT) {
+        return Err(XdeltaError::TooLarge);
+    }
+    Ok(())
+}
+
 /// Calls `run` with an output buffer of `first` bytes, doubled up to `limit` while the C
-/// side answers 1 (buffer too small).
+/// side answers 1 (buffer too small); `limit` is capped at [`MAX_OUTPUT`].
 fn grow(
     first: usize,
     limit: usize,
     mut run: impl FnMut(&mut [u8], *mut usize, *mut *const c_char) -> c_int,
 ) -> Result<Vec<u8>, XdeltaError> {
-    let limit = limit.min(MAX_LEN);
+    let limit = limit.min(MAX_OUTPUT);
     let mut cap = first.min(limit);
     loop {
         let mut out = vec![0u8; cap];
@@ -208,6 +219,16 @@ pub fn has_secondary_compression(patch: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounds_every_input_at_one_gib() {
+        assert_eq!(check_lengths(&[0, MAX_INPUT, 17]), Ok(()));
+        assert_eq!(
+            check_lengths(&[0, MAX_INPUT + 1]),
+            Err(XdeltaError::TooLarge)
+        );
+        assert_eq!(check_lengths(&[usize::MAX]), Err(XdeltaError::TooLarge));
+    }
 
     #[test]
     fn reads_the_app_header_behind_a_secondary_id_and_a_code_table() {

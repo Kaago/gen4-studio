@@ -34,9 +34,15 @@ static int g4_set_source(xd3_stream *stream, xd3_source *src, const uint8_t *sou
   return xd3_set_source_and_size(stream, src, source_len);
 }
 
+/* Above 1 GiB, xd3_set_source's power-of-two rounding of the source block overflows. */
+#define G4_MAX_INPUT ((size_t) 1 << 30)
+/* At or below 2 GiB, xd3_process_stream's uint32_t sum of written and pending bytes
+ * cannot wrap, so its "insufficient output space" check holds. */
+#define G4_MAX_OUTPUT ((size_t) 1 << 31)
+
 static usize_t g4_cap(size_t out_cap)
 {
-  return out_cap > UINT32_MAX ? (usize_t) UINT32_MAX : (usize_t) out_cap;
+  return out_cap > G4_MAX_OUTPUT ? (usize_t) G4_MAX_OUTPUT : (usize_t) out_cap;
 }
 
 int g4_xd3_encode(const uint8_t *source, size_t source_len, const uint8_t *target, size_t target_len,
@@ -51,9 +57,9 @@ int g4_xd3_encode(const uint8_t *source, size_t source_len, const uint8_t *targe
 
   *out_len = 0;
   *msg = NULL;
-  if (source_len > UINT32_MAX || target_len > UINT32_MAX || app_header_len > UINT32_MAX)
+  if (source_len > G4_MAX_INPUT || target_len > G4_MAX_INPUT || app_header_len > G4_MAX_INPUT)
     {
-      *msg = "input larger than 4 GiB";
+      *msg = "input larger than 1 GiB";
       return 2;
     }
 
@@ -92,9 +98,9 @@ int g4_xd3_decode(const uint8_t *source, size_t source_len, const uint8_t *patch
 
   *out_len = 0;
   *msg = NULL;
-  if (source_len > UINT32_MAX || patch_len > UINT32_MAX)
+  if (source_len > G4_MAX_INPUT || patch_len > G4_MAX_INPUT)
     {
-      *msg = "input larger than 4 GiB";
+      *msg = "input larger than 1 GiB";
       return 2;
     }
 
