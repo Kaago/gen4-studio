@@ -1,7 +1,7 @@
 //! Wizard commands: one backend call each for a new area, an extension of an area and a new
 //! room with its entrance. Every call checks everything first, then creates the new members
 //! (not undoable), then makes the undoable edits. A call that may apply the Dynamic Headers
-//! patch does so as its first step; the place it gives the header is checked right after.
+//! patch does so after the checks, as its first step.
 
 use std::collections::HashSet;
 
@@ -11,7 +11,7 @@ use g4_formats::matrix::{MATRIX_EMPTY, resize_matrix as resized};
 use g4_kernel::dynamic_headers;
 use g4_kernel::error::KernelError;
 use g4_kernel::places::{self, NewPlace};
-use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::{MapHeader, Store, WarpEvent};
 use g4_kernel::tiles::{DOOR, DOOR_COLLISION, warp_fires};
 use serde::{Deserialize, Serialize};
@@ -71,13 +71,18 @@ pub struct AssignHeader {
     #[serde(default)]
     pub new_header: Option<NewHeader>,
     /// A new header may apply the Dynamic Headers patch first when the game lacks it (not
-    /// undoable); without this flag that is refused.
-    #[serde(default)]
+    /// undoable); without this flag (absent, `false` or `null`) that is refused.
+    #[serde(default, deserialize_with = "null_as_false")]
     pub allow_patch: bool,
     /// The place the header gets, in the same undo step as the assignment; `None` keeps the
     /// one it has.
     #[serde(default)]
     pub place: Option<PlaceChoice>,
+}
+
+/// A flag given as `null` counts as `false`, as the MCP access check reads it.
+fn null_as_false<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(d)?.unwrap_or(false))
 }
 
 impl AssignHeader {
@@ -106,6 +111,8 @@ pub struct AreaReport {
     pub header: Option<u16>,
     /// The call applied the Dynamic Headers patch.
     pub patched: bool,
+    /// The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`.
+    pub snapshot: Option<String>,
     /// The place the header got.
     pub place: Option<u8>,
 }
@@ -171,6 +178,8 @@ pub struct RoomReport {
     pub door_tiles: Vec<DoorTile>,
     /// The call applied the Dynamic Headers patch.
     pub patched: bool,
+    /// The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`.
+    pub snapshot: Option<String>,
     /// The place the header got.
     pub place: Option<u8>,
 }
@@ -395,32 +404,20 @@ pub fn auto_internal_name(existing: &[String], base: &str) -> String {
         .unwrap_or(name)
 }
 
-/// The internal names of the headers, one per `mapname.bin` record.
-fn internal_names(project: &Project) -> Result<Vec<String>, CmdError> {
-    let path = project.mapname_path();
-    let bytes =
-        std::fs::read(&path).map_err(|e| CmdError::from(format!("{}: {e}", path.display())))?;
-    Ok(bytes
-        .chunks(INTERNAL_NAME_MAX)
-        .map(|record| {
-            let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
-            String::from_utf8_lossy(&record[..end]).into_owned()
-        })
-        .collect())
-}
-
 /// Applies the Dynamic Headers patch when the assignment creates a header, allows the patch
 /// and the game lacks it: the first step of a run, so a failure leaves nothing behind.
+/// Answers the snapshot of an older header folder (see [`Store::apply_dynamic_headers`]).
 fn provide_patch(
     store: &mut Store,
     assign: &AssignHeader,
     created: &mut Created,
-) -> Result<(), CmdError> {
+) -> Result<Option<String>, CmdError> {
     if assign.new_header.is_some() && assign.allow_patch && !store.dynamic_headers_applied()? {
-        store.apply_dynamic_headers()?;
+        let snapshot = store.apply_dynamic_headers()?;
         created.patch = true;
+        return Ok(snapshot.map(|p| p.to_string_lossy().into_owned()));
     }
-    Ok(())
+    Ok(None)
 }
 
 /// The place the header gets, checked: an existing index, or a new name and where it goes.
@@ -440,12 +437,8 @@ impl PlannedPlace {
 }
 
 /// Checks the place of the assignment (the refusals of the place commands), changing
-/// nothing; runs after the patch and before any member is created.
-fn plan_place(
-    store: &mut Store,
-    assign: &AssignHeader,
-    created: &Created,
-) -> Result<Option<PlannedPlace>, CmdError> {
+/// nothing; one of the checks before the patch and the members.
+fn plan_place(store: &mut Store, assign: &AssignHeader) -> Result<Option<PlannedPlace>, CmdError> {
     let planned = match &assign.place {
         None => return Ok(None),
         Some(PlaceChoice::Existing(index)) => {
@@ -453,7 +446,7 @@ fn plan_place(
         }
         Some(PlaceChoice::New(name)) => places::plan_new_place(store, name).map(PlannedPlace::New),
     };
-    planned.map(Some).map_err(|e| late(created, "place", e))
+    Ok(Some(planned?))
 }
 
 /// Creates the new header of an assignment, if it asks for one: the first member of a run.
@@ -468,8 +461,10 @@ fn provide_header(
         let name = match new.internal_name.as_deref() {
             Some(name) if !name.trim().is_empty() => name.to_owned(),
             _ => {
-                let existing = internal_names(store.project())
-                    .map_err(|e| late(created, "header creation", e.message))?;
+                let existing = store
+                    .project()
+                    .internal_names()
+                    .map_err(|e| late(created, "header creation", e))?;
                 auto_internal_name(&existing, base)
             }
         };
@@ -629,11 +624,15 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
     check_area(session, &spec)?;
     let store = &mut session.store;
 
+    let place = match &spec.header {
+        Some(assign) => plan_place(store, assign)?,
+        None => None,
+    };
+
     let mut created = Created::default();
-    let mut place = None;
+    let mut snapshot = None;
     if let Some(assign) = &spec.header {
-        provide_patch(store, assign, &mut created)?;
-        place = plan_place(store, assign, &created)?;
+        snapshot = provide_patch(store, assign, &mut created)?;
         provide_header(store, assign, &spec.name, &mut created)?;
     }
     let mut maps = Vec::with_capacity(spec.cells.len());
@@ -682,6 +681,7 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
         event_file,
         header: header_id,
         patched: created.patch,
+        snapshot,
         place: place.map(PlannedPlace::index),
     })
 }
@@ -986,12 +986,12 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         None => None,
     };
     let store = &mut session.store;
+    let place = plan_place(store, &spec.header)?;
     // A new header starts with its template's event file.
     let kept_file = header_event_file(store, spec.header.source_header())?;
 
     let mut created = Created::default();
-    provide_patch(store, &spec.header, &mut created)?;
-    let place = plan_place(store, &spec.header, &created)?;
+    let snapshot = provide_patch(store, &spec.header, &mut created)?;
     provide_header(store, &spec.header, &spec.name, &mut created)?;
     let map = store
         .duplicate_map_with(spec.source_map, spec.clear_buildings)
@@ -1071,6 +1071,7 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         inside_warp_reused: reused.is_some(),
         door_tiles,
         patched: created.patch,
+        snapshot,
         place: place.map(PlannedPlace::index),
     })
 }
@@ -2050,10 +2051,20 @@ mod tests {
 
     #[test]
     fn create_area_applies_the_patch_when_allowed() {
-        let (_f, state) = open_synthetic();
+        let (f, state) = open_synthetic();
         assert!(!patch_applied(&state));
+        // An older header folder is copied away first; the report names the copy.
+        let old = f.dir.path().join("unpacked/dynamicHeaders");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("0000"), [1u8; 24]).unwrap();
         let report = create_area_impl(&state, area_with_new_header(None, true)).unwrap();
         assert!(report.patched);
+        let snapshot = std::path::PathBuf::from(report.snapshot.unwrap());
+        assert!(
+            snapshot.starts_with(f.dir.path().join(".g4/backup")),
+            "{snapshot:?}"
+        );
+        assert_eq!(std::fs::read(snapshot.join("0000")).unwrap(), [1u8; 24]);
         assert!(patch_applied(&state));
         assert_eq!(header_count(&state), 3);
         assert_eq!(
@@ -2063,7 +2074,8 @@ mod tests {
         // With the patch in, `allow_patch` does nothing more.
         let mut again = area_with_new_header(None, true);
         again.header.as_mut().unwrap().id = 3;
-        assert!(!create_area_impl(&state, again).unwrap().patched);
+        let again = create_area_impl(&state, again).unwrap();
+        assert_eq!((again.patched, again.snapshot), (false, None));
     }
 
     #[test]
@@ -2077,6 +2089,64 @@ mod tests {
         );
         assert!(!patch_applied(&state));
         assert_eq!((counts(&state), header_count(&state)), (before, 2));
+        // `null` is no permission either.
+        let a: AssignHeader = serde_json::from_str(
+            r#"{"id":2,"area_data_id":null,"event_file":"New","allow_patch":null}"#,
+        )
+        .unwrap();
+        assert!(!a.allow_patch);
+    }
+
+    #[test]
+    fn create_area_refuses_the_patch_a_game_does_not_have() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        std::fs::write(
+            fixture.dir.path().join("header.yaml"),
+            "game_title: \"POKEMON D\"\ngamecode: ADAE\nmaker_code: \"01\"\n",
+        )
+        .unwrap();
+        // The fixture's arm9 is sized for Platinum; Diamond/Pearl's table is longer.
+        let arm9 = fixture.dir.path().join("arm9/arm9.bin");
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        bytes.resize(0xF0000, 0);
+        std::fs::write(&arm9, bytes).unwrap();
+        let state = AppState::default();
+        super::super::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let before = counts(&state);
+        // No cells: the fixture has no Diamond/Pearl map archive to copy from.
+        let spec = AreaSpec {
+            cells: Vec::new(),
+            ..area_with_new_header(None, true)
+        };
+        let err = create_area_impl(&state, spec).unwrap_err();
+        assert_eq!(err.code, "error");
+        assert_eq!(
+            err.message,
+            "new headers need the dynamic headers patch, which this game does not have"
+        );
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn an_invalid_place_is_refused_before_the_patch() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        for (place, refusal) in [
+            (
+                PlaceChoice::New("  ".into()),
+                "Der Ort braucht einen Namen.",
+            ),
+            (
+                PlaceChoice::Existing(9),
+                "Den Ort 9 gibt es nicht: die Ortsnamen-Bank hat 3 Namen.",
+            ),
+        ] {
+            let spec = area_with_new_header(Some(place), true);
+            let err = create_area_impl(&state, spec).unwrap_err();
+            assert_eq!((err.code, err.message.as_str()), ("error", refusal));
+            assert!(!patch_applied(&state));
+            assert_eq!((counts(&state), header_count(&state)), (before.clone(), 2));
+        }
     }
 
     #[test]
@@ -2191,20 +2261,35 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_failure_after_the_patch_says_the_patch_stays() {
-        let (_f, state) = open_synthetic();
-        let before = counts(&state);
-        let place = Some(PlaceChoice::New("  ".into()));
-        let err = create_area_impl(&state, area_with_new_header(place, true)).unwrap_err();
+        use std::os::unix::fs::PermissionsExt;
+        let (f, state) = open_synthetic();
+        // Unpack the map archive, then make it read-only: the map copy after the patch and
+        // the header creation cannot write.
+        reload_asset_impl(&state, AssetKind::Map, 0).unwrap();
+        let maps = f.dir.path().join("unpacked/maps");
+        std::fs::set_permissions(&maps, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = maps.join("probe");
+        if std::fs::write(&probe, b"").is_ok() {
+            // Running as a user the mode does not bind (root): the failure cannot be made.
+            std::fs::remove_file(probe).unwrap();
+            return;
+        }
+        let err = create_area_impl(&state, area_with_new_header(None, true)).unwrap_err();
+        std::fs::set_permissions(&maps, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(err.code, "partial");
-        assert_eq!(
-            err.message,
-            "the Dynamic Headers patch was applied and stays; place failed: \
-             Der Ort braucht einen Namen."
+        assert!(
+            err.message.starts_with(
+                "the Dynamic Headers patch was applied and stays, header 0002 was created; \
+                 map copy failed"
+            ),
+            "{}",
+            err.message
         );
         assert!(patch_applied(&state));
-        assert_eq!((counts(&state), header_count(&state)), (before, 2));
+        assert_eq!(header_count(&state), 3);
     }
 
     #[test]

@@ -957,6 +957,22 @@ impl Project {
         self.header_listing_with(headers, self.location_names().map_err(|e| e.to_string()))
     }
 
+    /// The internal names of the headers, one per whole record of
+    /// `files/fielddata/maptable/mapname.bin` (NUL padded, read lossily as UTF-8).
+    pub fn internal_names(&self) -> Result<Vec<String>, KernelError> {
+        let names_path = self.mapname_path();
+        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        Ok(mapnames
+            .as_chunks::<MAPNAME_RECORD>()
+            .0
+            .iter()
+            .map(|record| {
+                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+                String::from_utf8_lossy(&record[..end]).into_owned()
+            })
+            .collect())
+    }
+
     /// Lists `headers` with the internal names from `files/fielddata/maptable/mapname.bin`
     /// and the location names (`names`, for example [`crate::places::location_names`] of
     /// the store, unsaved names included) their `location_name` indexes select. An index
@@ -967,22 +983,20 @@ impl Project {
         headers: &[uxie::MapHeader],
         names: Result<Vec<String>, String>,
     ) -> Result<HeaderListing, KernelError> {
-        let names_path = self.mapname_path();
-        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        let internal_names = self.internal_names()?;
         let (locations, names_error) = match names {
             Ok(names) => (names, None),
             Err(e) => (Vec::new(), Some(e)),
         };
         let headers = headers
             .iter()
-            .zip(mapnames.as_chunks::<MAPNAME_RECORD>().0)
+            .zip(internal_names)
             .enumerate()
-            .map(|(i, (header, record))| {
-                let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+            .map(|(i, (header, internal_name))| {
                 HeaderSummary {
                     // The table holds at most 65536 headers (checked when it is read), so `i` fits in u16.
                     id: i as u16,
-                    internal_name: String::from_utf8_lossy(&record[..end]).into_owned(),
+                    internal_name,
                     location_name: locations
                         .get(location_name_index(header))
                         .cloned()

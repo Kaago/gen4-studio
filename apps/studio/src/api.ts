@@ -610,6 +610,8 @@ export interface AreaReport {
   header: number | null;
   /** The call applied the Dynamic Headers patch. */
   patched: boolean;
+  /** The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`. */
+  snapshot: string | null;
   /** The place the header got. */
   place: number | null;
 }
@@ -660,6 +662,8 @@ export interface RoomReport {
   door_tiles: { map: number; x: number; y: number }[];
   /** The call applied the Dynamic Headers patch. */
   patched: boolean;
+  /** The copy of an older `unpacked/dynamicHeaders` the patch made under `.g4/backup/`. */
+  snapshot: string | null;
   /** The place the header got. */
   place: number | null;
 }

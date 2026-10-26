@@ -1515,7 +1515,7 @@ describe("App wiring", () => {
       vi.mocked(createArea).mockImplementation(async () => {
         // The backend now has the matrix and header 1 points at it.
         listed = [header(0, 0), header(1, 5)];
-        return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1, patched: false, place: null };
+        return { matrix: 5, maps: [[0, 0, 9]], event_file: null, header: 1, patched: false, snapshot: null, place: null };
       });
     });
 

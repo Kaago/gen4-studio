@@ -160,12 +160,15 @@ const NOT_IN_BATCH: &[&str] = &[
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
-/// commands of [`NOT_IN_BATCH`], and `apply_fix` with `create_script`, which writes and
-/// compiles a script file and reloads text archives like `new_script_file`.
+/// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
+/// compiles a script file and reloads text archives like `new_script_file`, and
+/// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch.
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
             && args.get("fix").and_then(Value::as_str) == Some("create_script"))
+        || (matches!(command, "create_area" | "create_room")
+            && args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)))
 }
 
 /// Runs call `index` of a batch (the toolbox's own `run`; tests wrap it).
@@ -1121,6 +1124,45 @@ mod tests {
             );
         }
         assert_eq!(data(&toolbox, "species", 1), species);
+        assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
+    }
+
+    #[test]
+    fn batch_refuses_a_wizard_that_may_apply_the_patch() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let spec = |allow_patch: bool| {
+            json!({ "spec": {
+                "name": "room", "source_map": 0, "clear_buildings": true,
+                "header": { "id": 2, "area_data_id": null, "event_file": "New",
+                            "new_header": { "template": 1, "internal_name": null },
+                            "allow_patch": allow_patch },
+                "entrance": null,
+            } })
+        };
+        for command in ["create_area", "create_room"] {
+            for call in [
+                json!({ "tool": command, "arguments": spec(true) }),
+                json!({ "tool": "g4_call",
+                        "arguments": { "command": command, "args": spec(true) } }),
+            ] {
+                let mut calls = three_edits();
+                calls.push(call);
+                let (code, message, details) =
+                    failed(toolbox.call("g4_batch", json!({ "calls": calls })));
+                assert_eq!(code, "error", "{message}");
+                assert_eq!(details["index"], 3);
+                assert!(
+                    message.ends_with(&format!("{command} geht nicht in g4_batch")),
+                    "{message}"
+                );
+            }
+            // Without the flag the wizard stays in the store and may go in a batch.
+            let call = json!({ "tool": command, "arguments": spec(false) });
+            assert!(
+                toolbox.prepare_in_batch(command, &call).is_ok(),
+                "{command}"
+            );
+        }
         assert_eq!(history(&toolbox), json!({ "undo": [], "redo": [] }));
     }
 

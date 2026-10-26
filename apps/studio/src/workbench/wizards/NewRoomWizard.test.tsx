@@ -35,7 +35,7 @@ const matrices = [summary(0, true), summary(2, false), summary(3, false), summar
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
-const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, place: null };
+const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
   event_file_id: file,

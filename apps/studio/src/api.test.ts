@@ -365,7 +365,7 @@ describe("script commands", () => {
     const header = { id: 2, area_data_id: null, event_file: "New" as const, new_header: { template: 1, internal_name: null }, allow_patch: true, place: { New: "Neuheim" } };
     const area: AreaSpec = { name: "Neuheim", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }], with_headers: true, header };
     const room: RoomSpec = { name: "Haus", source_map: 0, clear_buildings: true, header: { ...header, id: 3, place: { Existing: 3 } }, entrance: null };
-    const report = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, place: 3 };
+    const report = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, snapshot: null, place: 3 };
     invoke.mockResolvedValueOnce(report);
     await expect(createArea(area)).resolves.toEqual(report);
     await createRoom(room);

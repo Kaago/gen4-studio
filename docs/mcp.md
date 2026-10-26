@@ -126,7 +126,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 
 - Verlauf: `undo`, `redo`;
 - Neu laden und Plattenstand übernehmen: `reload_asset`, `accept_disk`;
-- Header-Patch: `apply_header_patch`, `repair_header_patch`;
+- Header-Patch: `apply_header_patch`, `repair_header_patch`, `create_area` und `create_room` mit `header.allow_patch: true`;
 - Speichern und Übersetzen: `save`, `save_script`, `save_level_script`;
 - Scriptdateien: `new_script_file`, `add_script`, `adopt_scripts`, `apply_fix` mit `create_script`;
 - Bauen und Exportieren: `build_rom`, `export_map_part`;
