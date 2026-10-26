@@ -153,6 +153,75 @@ pub fn place_slots(store: &mut Store) -> Result<PlaceSlots, KernelError> {
     })
 }
 
+/// Where a new place goes in the location bank, from [`plan_new_place`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewPlace {
+    /// The new place's `location_name` index.
+    pub index: u8,
+    /// The place replaces the unused HGSS Sinnoh name at `index` instead of being appended.
+    pub replace: bool,
+}
+
+/// Checks the new place `name` (trimmed) and finds its index, changing nothing: appended to
+/// the location bank, or on a full HGSS bank the lowest Sinnoh name no header uses
+/// ([`PlaceSlots::reusable`]). Refused on Diamond/Pearl, for an empty name, one of more than
+/// one line or one with a character the game does not know, and when the bank is full.
+/// [`apply_new_place`] then writes it in a running transaction.
+pub fn plan_new_place(store: &mut Store, name: &str) -> Result<NewPlace, KernelError> {
+    refuse_dp(store)?;
+    let bank = location_bank(store.project());
+    check_name(store, bank, name.trim())?;
+    let slots = place_slots(store)?;
+    if slots.free > 0 {
+        let index = u8::try_from(slots.count).map_err(|_| refused(BANK_FULL))?;
+        Ok(NewPlace {
+            index,
+            replace: false,
+        })
+    } else if let Some(&index) = slots.reusable.first() {
+        Ok(NewPlace {
+            index,
+            replace: true,
+        })
+    } else {
+        Err(refused(BANK_FULL))
+    }
+}
+
+/// Writes the planned place `name` (trimmed) into location bank `bank` as a part of `tx`;
+/// the headers that get it are the caller's edit (see [`set_location_name`]).
+pub fn apply_new_place(
+    tx: &mut Tx<'_>,
+    bank: u16,
+    plan: &NewPlace,
+    name: &str,
+) -> Result<(), KernelError> {
+    let name = name.trim();
+    let at = usize::from(plan.index);
+    let replace = plan.replace;
+    tx.edit_text_archive(bank, |doc| {
+        if replace {
+            if let Some(message) = doc.messages.get_mut(at) {
+                message.text = name.to_owned();
+            }
+        } else {
+            doc.messages.push(TextMessage {
+                id: default_message_id(at),
+                text: name.to_owned(),
+                other: Default::default(),
+            });
+        }
+    })
+}
+
+/// Checks that the existing place at `index` can be given to a header: refused on
+/// Diamond/Pearl and for an index the bank does not have.
+pub fn check_place(store: &mut Store, index: u8) -> Result<(), KernelError> {
+    refuse_dp(store)?;
+    existing_name(&location_names(store)?, index)?;
+    Ok(())
+}
+
 /// Creates the place `name` (trimmed of surrounding white space) and gives it to `headers`, one undo step "Ort „<name>“
 /// angelegt". The name is appended to the location bank; on a full HGSS bank it replaces
 /// the lowest Sinnoh name no header uses ([`PlaceSlots::reusable`]). Refused, with nothing
@@ -164,41 +233,23 @@ pub fn create_place(
     name: &str,
     headers: &[u16],
 ) -> Result<PlaceCreated, KernelError> {
-    refuse_dp(store)?;
+    let plan = plan_new_place(store, name)?;
+    check_headers(store, headers)?;
     let bank = location_bank(store.project());
     let name = name.trim();
-    check_name(store, bank, name)?;
-    check_headers(store, headers)?;
-    let slots = place_slots(store)?;
-    let (index, reused) = if slots.free > 0 {
-        let index = u8::try_from(slots.count).map_err(|_| refused(BANK_FULL))?;
-        (index, None)
-    } else if let Some(&index) = slots.reusable.first() {
-        let old = existing_name(&location_names(store)?, index)?.to_owned();
-        (index, Some(old))
+    let reused = if plan.replace {
+        Some(existing_name(&location_names(store)?, plan.index)?.to_owned())
     } else {
-        return Err(refused(BANK_FULL));
+        None
     };
-    let replace = reused.is_some();
     store.transaction(&format!("Ort „{name}“ angelegt"), |tx| {
-        tx.edit_text_archive(bank, |doc| {
-            let at = usize::from(index);
-            if replace {
-                // `existing_name` found the message, so it is there.
-                if let Some(message) = doc.messages.get_mut(at) {
-                    message.text = name.to_owned();
-                }
-            } else {
-                doc.messages.push(TextMessage {
-                    id: default_message_id(at),
-                    text: name.to_owned(),
-                    other: Default::default(),
-                });
-            }
-        })?;
-        set_locations(tx, headers, index)
+        apply_new_place(tx, bank, &plan, name)?;
+        set_locations(tx, headers, plan.index)
     })?;
-    Ok(PlaceCreated { index, reused })
+    Ok(PlaceCreated {
+        index: plan.index,
+        reused,
+    })
 }
 
 /// Renames the place at `index` (to `name` trimmed) for every header that carries it, one undo step "Ort
@@ -258,7 +309,7 @@ fn set_locations(tx: &mut Tx<'_>, ids: &[u16], index: u8) -> Result<(), KernelEr
 }
 
 /// Sets the header's index into the location bank (`u16` in Diamond/Pearl).
-fn set_location_name(header: &mut MapHeader, index: u8) {
+pub fn set_location_name(header: &mut MapHeader, index: u8) {
     match header {
         MapHeader::DP(h) => h.location_name = u16::from(index),
         MapHeader::Pt(h) => h.location_name = index,
@@ -605,5 +656,71 @@ mod tests {
         assert_eq!((slots.count, slots.free), (256, 0));
         let expected: Vec<u8> = (2..=125).filter(|&i| i != 5).collect();
         assert_eq!(slots.reusable, expected);
+    }
+
+    #[test]
+    fn plans_a_new_place_without_changing_anything() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        assert_eq!(
+            plan_new_place(&mut st, "  Neuheim ").unwrap(),
+            NewPlace {
+                index: 3,
+                replace: false
+            }
+        );
+        assert_eq!(location_names(&mut st).unwrap().len(), 3);
+        assert_eq!(st.undo_depth(), 0);
+        assert_eq!(
+            refusal(plan_new_place(&mut st, " ").unwrap_err()),
+            "Der Ort braucht einen Namen."
+        );
+        fill_bank(&mut st);
+        assert!(refusal(plan_new_place(&mut st, "Neuheim").unwrap_err()).contains("voll"));
+
+        let names = hgss_names();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let s = synthetic_hgss_project(&names, 2);
+        let mut st = store_of(&s);
+        setup_locations(&mut st, &[(0, 1), (1, 2)]);
+        assert_eq!(
+            plan_new_place(&mut st, "Neuheim").unwrap(),
+            NewPlace {
+                index: 3,
+                replace: true
+            }
+        );
+    }
+
+    #[test]
+    fn applies_a_planned_place_with_a_header_edit_in_one_step() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        let bank = location_bank(st.project());
+        let plan = plan_new_place(&mut st, "Neuheim").unwrap();
+        st.transaction("both", |tx| {
+            apply_new_place(tx, bank, &plan, " Neuheim ")?;
+            tx.edit_header(1, |h| {
+                set_location_name(h, plan.index);
+                Ok(())
+            })
+        })
+        .unwrap();
+        assert_eq!(location_names(&mut st).unwrap()[3], "Neuheim");
+        assert_eq!(location_of(&mut st, 1), 3);
+        st.undo().unwrap();
+        assert_eq!(location_names(&mut st).unwrap().len(), 3);
+        assert_ne!(location_of(&mut st, 1), 3);
+    }
+
+    #[test]
+    fn checks_an_existing_place() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        check_place(&mut st, 2).unwrap();
+        assert!(refusal(check_place(&mut st, 3).unwrap_err()).contains("Den Ort 3 gibt es nicht"));
+        std::fs::write(s.dir.path().join("header.yaml"), "gamecode: ADAE\n").unwrap();
+        let mut st = store_of(&s);
+        assert!(refusal(check_place(&mut st, 1).unwrap_err()).contains("nur für Platin"));
     }
 }

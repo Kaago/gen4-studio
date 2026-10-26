@@ -28,7 +28,7 @@ const matrixOf = (index: number): MatrixDto =>
     ? { index: 0, name: "m0", width: 2, height: 1, maps: [0, 1] }
     : { index: 1, name: "m1", width: 3, height: 2, maps: [10, 11, null, 13, 14, 15], headers: [1, 1, 0, 0, 0, 0] };
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
-const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null };
+const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, place: null };
 
 describe("NewAreaWizard", () => {
   let container: HTMLElement;

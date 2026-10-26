@@ -553,7 +553,10 @@ static TOOLS: &[ToolDef] = &[
         name: "create_area",
         title: "Create area",
         description: "Creates a new outdoor area: a matrix of the given size whose cells are \
-                      copies of existing maps, optionally with a header pointed at it.",
+                      copies of existing maps, optionally with a header pointed at it and a \
+                      place (in-game location name) for that header. With header.allow_patch \
+                      a new header first applies the Dynamic Headers patch when the game lacks \
+                      it (not undoable, needs a confirmation).",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -561,7 +564,10 @@ static TOOLS: &[ToolDef] = &[
                      source_map (map id to copy), clear_buildings}]), with_headers (give the \
                      matrix a header section), header (null, or {id, area_data_id (null keeps \
                      it), event_file (\"Keep\", \"New\" or {\"Copy\": n}), new_header (null, or \
-                     {template, internal_name} to create the header first)})"
+                     {template, internal_name (null: derived from name, unique)} to create the \
+                     header first), allow_patch (true: apply the Dynamic Headers patch first if \
+                     a new header needs it), place (null keeps it, {\"Existing\": index} or \
+                     {\"New\": name} to append a place, one undo step with the header)})"
                 ) }),
                 &["spec"],
             )
@@ -573,16 +579,20 @@ static TOOLS: &[ToolDef] = &[
         name: "create_room",
         title: "Create room",
         description: "Creates an indoor room: a one-cell matrix with a copy of an existing \
-                      map, a header for it and, optionally, the warps of the door between the \
-                      room and an outside place.",
+                      map, a header for it, optionally a place (in-game location name) for that \
+                      header and the warps of the door between the room and an outside place. \
+                      With header.allow_patch a new header first applies the Dynamic Headers \
+                      patch when the game lacks it (not undoable, needs a confirmation).",
         input_schema: || {
             object(
                 json!({ "spec": nested(
                     "the room: name, source_map (map id to copy), clear_buildings, header ({id, \
                      area_data_id (null keeps it), event_file (\"Keep\", \"New\" or {\"Copy\": \
-                     n}), new_header (null, or {template, internal_name})}), entrance (null, or \
-                     {outside_header, x, z (outside warp position), inside_x, inside_z, \
-                     door_tiles})"
+                     n}), new_header (null, or {template, internal_name (null: derived from \
+                     name, unique)}), allow_patch (true: apply the Dynamic Headers patch first \
+                     if a new header needs it), place (null keeps it, {\"Existing\": index} or \
+                     {\"New\": name})}), entrance (null, or {outside_header, x, z (outside warp \
+                     position), inside_x, inside_z, door_tiles})"
                 ) }),
                 &["spec"],
             )

@@ -566,11 +566,17 @@ export interface AreaCell {
   clear_buildings: boolean;
 }
 
-/** A header the wizard creates first: a copy of `template` (as the editor shows it) under this internal name. */
+/**
+ * A header the wizard creates first: a copy of `template` (as the editor shows it) under this internal name; `null`
+ * (or blank) lets the backend derive a unique one from the area's or room's name.
+ */
 export interface NewHeader {
   template: number;
-  internal_name: string;
+  internal_name: string | null;
 }
+
+/** The place (in-game location name) a wizard gives its header: an existing index, or a new name it appends. */
+export type PlaceChoice = { Existing: number } | { New: string };
 
 /**
  * A header that is pointed at the new matrix and gets area data and an event file. With `new_header` it does not exist
@@ -581,6 +587,10 @@ export interface AssignHeader {
   area_data_id: number | null;
   event_file: EventFileChoice;
   new_header?: NewHeader | null;
+  /** A new header may apply the Dynamic Headers patch first when the game lacks it (not undoable). */
+  allow_patch?: boolean;
+  /** The place the header gets, in the same undo step as the assignment; absent keeps its place. */
+  place?: PlaceChoice | null;
 }
 
 export interface AreaSpec {
@@ -598,6 +608,10 @@ export interface AreaReport {
   maps: [number, number, number][];
   event_file: number | null;
   header: number | null;
+  /** The call applied the Dynamic Headers patch. */
+  patched: boolean;
+  /** The place the header got. */
+  place: number | null;
 }
 
 export interface ExtendSpec {
@@ -644,6 +658,10 @@ export interface RoomReport {
   inside_warp_reused: boolean;
   /** The tiles made doors (local tile x, y of the map), the outside one first. */
   door_tiles: { map: number; x: number; y: number }[];
+  /** The call applied the Dynamic Headers patch. */
+  patched: boolean;
+  /** The place the header got. */
+  place: number | null;
 }
 
 export const listMatrices = () => invoke<MatrixListing>("list_matrices");

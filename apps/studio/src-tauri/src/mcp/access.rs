@@ -50,9 +50,9 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("duplicate_map", Kind::Write),
     ("create_event_file", Kind::Write),
     ("duplicate_event_file", Kind::Write),
-    ("create_area", Kind::Write),
+    ("create_area", Kind::Depends),
     ("extend_area", Kind::Write),
-    ("create_room", Kind::Write),
+    ("create_room", Kind::Depends),
     ("header_patch_status", Kind::Read),
     ("apply_header_patch", PATCH),
     ("repair_header_patch", PATCH),
@@ -175,7 +175,8 @@ impl From<Kind> for Class {
 /// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build or
 /// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
-/// a script. A name the table does not have is unavailable.
+/// a script; `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic
+/// Headers patch. A name the table does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -200,6 +201,11 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         }
         "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => {
             NEW_SCRIPT.into()
+        }
+        "create_area" | "create_room"
+            if args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)) =>
+        {
+            PATCH.into()
         }
         _ => Class::Write,
     }
@@ -323,7 +329,16 @@ mod tests {
             .map(|(name, _)| name)
             .collect();
         depends.sort();
-        assert_eq!(depends, ["apply_fix", "build_rom", "export_map_part"]);
+        assert_eq!(
+            depends,
+            [
+                "apply_fix",
+                "build_rom",
+                "create_area",
+                "create_room",
+                "export_map_part"
+            ]
+        );
         // Every lister and getter only reads; a few writers by name.
         for (name, kind) in COMMAND_KINDS {
             if ["get_", "list_", "search_"]
@@ -351,7 +366,6 @@ mod tests {
             "set_header",
             "data_edit",
             "adopt_scripts",
-            "create_area",
             "save_script",
             "reload_asset",
             "ignore_finding",
@@ -401,6 +415,49 @@ mod tests {
             classify("no_such_command", &json!({}), &policy),
             Class::Unavailable("Unbekannter Befehl: no_such_command".to_owned())
         );
+    }
+
+    #[test]
+    fn create_area_with_allow_patch_needs_a_confirmation() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let header = |allow_patch: Value| {
+            json!({ "id": 2, "area_data_id": null, "event_file": "New",
+                    "new_header": { "template": 1, "internal_name": null },
+                    "allow_patch": allow_patch })
+        };
+        let patch = Class::Irreversible("Patch".to_owned());
+        assert_eq!(
+            classify(
+                "create_area",
+                &json!({ "spec": { "header": header(json!(true)) } }),
+                &policy
+            ),
+            patch
+        );
+        assert_eq!(
+            classify(
+                "create_room",
+                &json!({ "spec": { "header": header(json!(true)) } }),
+                &policy
+            ),
+            patch
+        );
+        // Without the flag (or without a header) it is an ordinary write.
+        for spec in [
+            json!({ "header": header(json!(false)) }),
+            json!({ "header": header(Value::Null) }),
+            json!({ "header": null }),
+            json!({}),
+        ] {
+            for command in ["create_area", "create_room"] {
+                assert_eq!(
+                    classify(command, &json!({ "spec": spec }), &policy),
+                    Class::Write,
+                    "{command} {spec}"
+                );
+            }
+        }
     }
 
     #[test]

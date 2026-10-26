@@ -1,14 +1,17 @@
 //! Wizard commands: one backend call each for a new area, an extension of an area and a new
 //! room with its entrance. Every call checks everything first, then creates the new members
-//! (not undoable), then makes the undoable edits.
+//! (not undoable), then makes the undoable edits. A call that may apply the Dynamic Headers
+//! patch does so as its first step; the place it gives the header is checked right after.
 
 use std::collections::HashSet;
 
 use g4_formats::game::Family;
 use g4_formats::map::{Cell, MAP_SIZE};
 use g4_formats::matrix::{MATRIX_EMPTY, resize_matrix as resized};
+use g4_kernel::dynamic_headers;
 use g4_kernel::error::KernelError;
-use g4_kernel::project::{AssetId, AssetKind};
+use g4_kernel::places::{self, NewPlace};
+use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::store::{MapHeader, Store, WarpEvent};
 use g4_kernel::tiles::{DOOR, DOOR_COLLISION, warp_fires};
 use serde::{Deserialize, Serialize};
@@ -43,7 +46,19 @@ pub struct AreaCell {
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewHeader {
     pub template: u16,
-    pub internal_name: String,
+    /// The name as it is; absent or blank: [`auto_internal_name`] of the area's or room's
+    /// name.
+    #[serde(default)]
+    pub internal_name: Option<String>,
+}
+
+/// The place (in-game location name) the assigned header gets.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum PlaceChoice {
+    /// The place at this index of the location bank.
+    Existing(u8),
+    /// A new place of this name, made as `create_place` makes it.
+    New(String),
 }
 
 /// The header that is pointed at the new matrix.
@@ -55,6 +70,14 @@ pub struct AssignHeader {
     /// Create the header (as the next id) instead of using an existing one.
     #[serde(default)]
     pub new_header: Option<NewHeader>,
+    /// A new header may apply the Dynamic Headers patch first when the game lacks it (not
+    /// undoable); without this flag that is refused.
+    #[serde(default)]
+    pub allow_patch: bool,
+    /// The place the header gets, in the same undo step as the assignment; `None` keeps the
+    /// one it has.
+    #[serde(default)]
+    pub place: Option<PlaceChoice>,
 }
 
 impl AssignHeader {
@@ -81,6 +104,10 @@ pub struct AreaReport {
     pub maps: Vec<(u8, u8, u16)>,
     pub event_file: Option<u16>,
     pub header: Option<u16>,
+    /// The call applied the Dynamic Headers patch.
+    pub patched: bool,
+    /// The place the header got.
+    pub place: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -142,11 +169,18 @@ pub struct RoomReport {
     pub inside_warp_reused: bool,
     /// The tiles made doors, the outside one first.
     pub door_tiles: Vec<DoorTile>,
+    /// The call applied the Dynamic Headers patch.
+    pub patched: bool,
+    /// The place the header got.
+    pub place: Option<u8>,
 }
 
-/// The members a run created so far (they stay, whatever happens next).
+/// What a run did so far that undo does not take back: the patch and the members it created
+/// (they stay, whatever happens next).
 #[derive(Debug, Default)]
 pub(crate) struct Created {
+    /// The run applied the Dynamic Headers patch.
+    pub patch: bool,
     pub headers: Vec<u16>,
     pub matrices: Vec<u16>,
     pub maps: Vec<u16>,
@@ -155,15 +189,29 @@ pub(crate) struct Created {
 
 impl Created {
     fn is_empty(&self) -> bool {
-        self.headers.is_empty()
+        !self.patch
+            && self.headers.is_empty()
             && self.matrices.is_empty()
             && self.maps.is_empty()
             && self.event_files.is_empty()
     }
 }
 
-/// Names the created members, e.g. "matrix 0001 and maps 0003, 0004 were created".
+/// Names the created members, e.g. "matrix 0001 and maps 0003, 0004 were created", after
+/// "the Dynamic Headers patch was applied and stays" when the run applied it.
 pub(crate) fn created_text(created: &Created) -> String {
+    const PATCH: &str = "the Dynamic Headers patch was applied and stays";
+    let members = members_text(created);
+    match (created.patch, members) {
+        (false, None) => "nothing was created".to_owned(),
+        (false, Some(members)) => members,
+        (true, None) => PATCH.to_owned(),
+        (true, Some(members)) => format!("{PATCH}, {members}"),
+    }
+}
+
+/// Names the created members, `None` when there are none.
+fn members_text(created: &Created) -> Option<String> {
     fn part(one: &str, many: &str, ids: &[u16]) -> Option<String> {
         let list = ids
             .iter()
@@ -191,9 +239,9 @@ pub(crate) fn created_text(created: &Created) -> String {
         + created.event_files.len();
     let verb = if total == 1 { "was" } else { "were" };
     match parts.as_slice() {
-        [] => "nothing was created".to_owned(),
-        [only] => format!("{only} {verb} created"),
-        [rest @ .., last] => format!("{} and {last} {verb} created", rest.join(", ")),
+        [] => None,
+        [only] => Some(format!("{only} {verb} created")),
+        [rest @ .., last] => Some(format!("{} and {last} {verb} created", rest.join(", "))),
     }
 }
 
@@ -262,12 +310,21 @@ fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdE
     match &assign.new_header {
         None => check_header_id(session, assign.id)?,
         Some(new) => {
-            let store = &mut session.store;
-            if !store.dynamic_headers_applied()? {
-                return Err(
-                    "new headers need the dynamic headers patch, apply the patch first".into(),
-                );
+            if !session.store.dynamic_headers_applied()? {
+                if !assign.allow_patch {
+                    return Err(
+                        "new headers need the dynamic headers patch, apply the patch first".into(),
+                    );
+                }
+                if dynamic_headers::plan(&session.project)?.is_none() {
+                    return Err(
+                        "new headers need the dynamic headers patch, which this game \
+                                does not have"
+                            .into(),
+                    );
+                }
             }
+            let store = &mut session.store;
             // The store's view: the count includes headers created earlier in this session.
             let count = store.header_table()?.len();
             if usize::from(assign.id) != count {
@@ -295,15 +352,129 @@ fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdE
     check_header_fits(store, assign)
 }
 
-/// Creates the new header of an assignment, if it asks for one: the first step of a run.
-fn provide_header(
+/// The longest internal name `mapname.bin` holds.
+const INTERNAL_NAME_MAX: usize = 16;
+
+/// The internal name the frontend derives from a typed name (`internalName` in
+/// `wizardSpecs.ts`): words joined by `_`, upper case, ASCII letters, digits and `_` only
+/// (every other character is dropped), at most 16 bytes, "NEWMAP" when nothing is left.
+fn internal_name_of(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.trim().chars() {
+        let c = if c.is_whitespace() { '_' } else { c };
+        if !(c.is_ascii_alphanumeric() || c == '_') || (c == '_' && out.ends_with('_')) {
+            continue;
+        }
+        out.push(c.to_ascii_uppercase());
+    }
+    let out = out.trim_matches('_');
+    let out = &out[..out.len().min(INTERNAL_NAME_MAX)];
+    if out.is_empty() {
+        "NEWMAP".to_owned()
+    } else {
+        out.to_owned()
+    }
+}
+
+/// The internal name of a new header named after `base` (an area's or room's name): the
+/// frontend's rule, and when a header of `existing` already has it, `_2`, `_3` … appended,
+/// the name cut so it stays at 16 bytes (a cut that ends in `_` loses it).
+pub fn auto_internal_name(existing: &[String], base: &str) -> String {
+    let name = internal_name_of(base);
+    let taken = |candidate: &str| existing.iter().any(|e| e == candidate);
+    if !taken(&name) {
+        return name;
+    }
+    (2usize..)
+        .map(|n| {
+            let suffix = format!("_{n}");
+            let keep = name.len().min(INTERNAL_NAME_MAX - suffix.len());
+            format!("{}{suffix}", name[..keep].trim_end_matches('_'))
+        })
+        .find(|candidate| !taken(candidate))
+        .unwrap_or(name)
+}
+
+/// The internal names of the headers, one per `mapname.bin` record.
+fn internal_names(project: &Project) -> Result<Vec<String>, CmdError> {
+    let path = project.mapname_path();
+    let bytes =
+        std::fs::read(&path).map_err(|e| CmdError::from(format!("{}: {e}", path.display())))?;
+    Ok(bytes
+        .chunks(INTERNAL_NAME_MAX)
+        .map(|record| {
+            let end = record.iter().position(|&b| b == 0).unwrap_or(record.len());
+            String::from_utf8_lossy(&record[..end]).into_owned()
+        })
+        .collect())
+}
+
+/// Applies the Dynamic Headers patch when the assignment creates a header, allows the patch
+/// and the game lacks it: the first step of a run, so a failure leaves nothing behind.
+fn provide_patch(
     store: &mut Store,
     assign: &AssignHeader,
     created: &mut Created,
 ) -> Result<(), CmdError> {
+    if assign.new_header.is_some() && assign.allow_patch && !store.dynamic_headers_applied()? {
+        store.apply_dynamic_headers()?;
+        created.patch = true;
+    }
+    Ok(())
+}
+
+/// The place the header gets, checked: an existing index, or a new name and where it goes.
+#[derive(Debug, Clone, Copy)]
+enum PlannedPlace {
+    Existing(u8),
+    New(NewPlace),
+}
+
+impl PlannedPlace {
+    fn index(self) -> u8 {
+        match self {
+            PlannedPlace::Existing(index) => index,
+            PlannedPlace::New(plan) => plan.index,
+        }
+    }
+}
+
+/// Checks the place of the assignment (the refusals of the place commands), changing
+/// nothing; runs after the patch and before any member is created.
+fn plan_place(
+    store: &mut Store,
+    assign: &AssignHeader,
+    created: &Created,
+) -> Result<Option<PlannedPlace>, CmdError> {
+    let planned = match &assign.place {
+        None => return Ok(None),
+        Some(PlaceChoice::Existing(index)) => {
+            places::check_place(store, *index).map(|()| PlannedPlace::Existing(*index))
+        }
+        Some(PlaceChoice::New(name)) => places::plan_new_place(store, name).map(PlannedPlace::New),
+    };
+    planned.map(Some).map_err(|e| late(created, "place", e))
+}
+
+/// Creates the new header of an assignment, if it asks for one: the first member of a run.
+/// Without an internal name it is named after `base` ([`auto_internal_name`]).
+fn provide_header(
+    store: &mut Store,
+    assign: &AssignHeader,
+    base: &str,
+    created: &mut Created,
+) -> Result<(), CmdError> {
     if let Some(new) = &assign.new_header {
+        let name = match new.internal_name.as_deref() {
+            Some(name) if !name.trim().is_empty() => name.to_owned(),
+            _ => {
+                let existing = internal_names(store.project())
+                    .map_err(|e| late(created, "header creation", e.message))?;
+                auto_internal_name(&existing, base)
+            }
+        };
         let header = store
-            .create_header(new.template, &new.internal_name)
+            .create_header(new.template, &name)
             .map_err(|e| late(created, "header creation", e))?;
         created.headers.push(header);
     }
@@ -353,17 +524,35 @@ fn apply_assign(
     }
 }
 
-/// Points header `assign.id` at `matrix` (and at the new area data and event file, if given).
+/// Points header `assign.id` at `matrix` (and at the new area data and event file, if given)
+/// and gives it the planned place, a new place's name included: one undo step, labelled
+/// `built` with a place ("Gebiet „…“ angelegt"), else "assign header …".
 fn assign_header(
     store: &mut Store,
     assign: &AssignHeader,
     matrix: u16,
     event_file: Option<u16>,
+    place: Option<PlannedPlace>,
+    built: &str,
 ) -> Result<(), KernelError> {
-    let label = format!("assign header {:04} to matrix {matrix:04}", assign.id);
-    store.edit_header(assign.id, &label, |header| {
-        apply_assign(header, assign, matrix, event_file);
-        Ok(())
+    let label = match place {
+        Some(_) => built.to_owned(),
+        None => format!("assign header {:04} to matrix {matrix:04}", assign.id),
+    };
+    let bank = places::location_bank(store.project());
+    store.transaction(&label, |tx| {
+        if let (Some(PlannedPlace::New(plan)), Some(PlaceChoice::New(name))) =
+            (place, &assign.place)
+        {
+            places::apply_new_place(tx, bank, &plan, name)?;
+        }
+        tx.edit_header(assign.id, |header| {
+            apply_assign(header, assign, matrix, event_file);
+            if let Some(place) = place {
+                places::set_location_name(header, place.index());
+            }
+            Ok(())
+        })
     })?;
     Ok(())
 }
@@ -441,8 +630,11 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
     let store = &mut session.store;
 
     let mut created = Created::default();
+    let mut place = None;
     if let Some(assign) = &spec.header {
-        provide_header(store, assign, &mut created)?;
+        provide_patch(store, assign, &mut created)?;
+        place = plan_place(store, assign, &created)?;
+        provide_header(store, assign, &spec.name, &mut created)?;
     }
     let mut maps = Vec::with_capacity(spec.cells.len());
     for c in &spec.cells {
@@ -480,7 +672,8 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
         })
         .map_err(|e| late(&created, "matrix edit", e))?;
     if let Some(assign) = &spec.header {
-        assign_header(store, assign, matrix, event_file)
+        let built = format!("Gebiet „{}“ angelegt", spec.name);
+        assign_header(store, assign, matrix, event_file, place, &built)
             .map_err(|e| late(&created, "header edit", e))?;
     }
     Ok(AreaReport {
@@ -488,6 +681,8 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
         maps,
         event_file,
         header: header_id,
+        patched: created.patch,
+        place: place.map(PlannedPlace::index),
     })
 }
 
@@ -795,7 +990,9 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
     let kept_file = header_event_file(store, spec.header.source_header())?;
 
     let mut created = Created::default();
-    provide_header(store, &spec.header, &mut created)?;
+    provide_patch(store, &spec.header, &mut created)?;
+    let place = plan_place(store, &spec.header, &created)?;
+    provide_header(store, &spec.header, &spec.name, &mut created)?;
     let map = store
         .duplicate_map_with(spec.source_map, spec.clear_buildings)
         .map_err(|e| late(&created, "map copy", e))?;
@@ -813,7 +1010,8 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
             Ok(())
         })
         .map_err(|e| late(&created, "matrix edit", e))?;
-    assign_header(store, &spec.header, matrix, event_file)
+    let built = format!("Raum „{}“ angelegt", spec.name);
+    assign_header(store, &spec.header, matrix, event_file, place, &built)
         .map_err(|e| late(&created, "header edit", e))?;
 
     let (mut outside_warp, mut inside_warp) = (None, None);
@@ -872,6 +1070,8 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
         inside_warp,
         inside_warp_reused: reused.is_some(),
         door_tiles,
+        patched: created.patch,
+        place: place.map(PlannedPlace::index),
     })
 }
 
@@ -896,9 +1096,10 @@ mod tests {
     use super::super::open_synthetic;
     use super::super::{
         EventKind, add_event_impl, apply_header_patch_impl, dirty_impl, get_events_impl,
-        get_header_impl, get_map_impl, get_matrix_impl, list_headers_impl, member_counts_impl,
-        reload_asset_impl, resize_matrix_impl, set_header_impl, set_matrix_cell_impl,
-        set_matrix_sections_impl, set_permission_impl, undo_impl,
+        get_header_impl, get_map_impl, get_matrix_impl, header_patch_status_impl, history_impl,
+        list_headers_impl, member_counts_impl, place_slots_impl, reload_asset_impl,
+        resize_matrix_impl, set_header_impl, set_matrix_cell_impl, set_matrix_sections_impl,
+        set_permission_impl, undo_impl,
     };
     use super::*;
     use g4_kernel::store::MapHeader;
@@ -933,6 +1134,8 @@ mod tests {
                 area_data_id: None,
                 event_file: EventFileChoice::New,
                 new_header: None,
+                allow_patch: false,
+                place: None,
             }),
         }
     }
@@ -1011,6 +1214,8 @@ mod tests {
                     area_data_id: None,
                     event_file: EventFileChoice::Keep,
                     new_header: None,
+                    allow_patch: false,
+                    place: None,
                 }),
                 ..area_spec()
             },
@@ -1036,6 +1241,8 @@ mod tests {
                     area_data_id: None,
                     event_file: EventFileChoice::Copy(9),
                     new_header: None,
+                    allow_patch: false,
+                    place: None,
                 }),
                 ..area_spec()
             },
@@ -1061,6 +1268,8 @@ mod tests {
                 area_data_id: Some(200),
                 event_file: EventFileChoice::Keep,
                 new_header: None,
+                allow_patch: false,
+                place: None,
             }),
             ..area_spec()
         };
@@ -1165,6 +1374,8 @@ mod tests {
                 area_data_id: None,
                 event_file,
                 new_header: None,
+                allow_patch: false,
+                place: None,
             },
             entrance: Some(Entrance {
                 outside_header: 0,
@@ -1574,7 +1785,8 @@ mod tests {
             ..Created::default()
         };
         assert_eq!(created_text(&created), "header 0470 was created");
-        let created = Created {
+        let mut created = Created {
+            patch: false,
             headers: vec![470],
             matrices: vec![1],
             maps: vec![3, 4],
@@ -1584,6 +1796,21 @@ mod tests {
             created_text(&created),
             "header 0470, matrix 0001, maps 0003, 0004 and event file 0002 were created"
         );
+        created.patch = true;
+        assert_eq!(
+            created_text(&created),
+            "the Dynamic Headers patch was applied and stays, header 0470, matrix 0001, \
+             maps 0003, 0004 and event file 0002 were created"
+        );
+        let patch_only = Created {
+            patch: true,
+            ..Created::default()
+        };
+        assert_eq!(
+            created_text(&patch_only),
+            "the Dynamic Headers patch was applied and stays"
+        );
+        assert_eq!(late(&patch_only, "place", "boom").code, "partial");
     }
 
     /// The patched fixture with 2 headers; a new header would get id 2.
@@ -1596,7 +1823,7 @@ mod tests {
     fn new_header(template: u16) -> Option<NewHeader> {
         Some(NewHeader {
             template,
-            internal_name: "T_NEW".into(),
+            internal_name: Some("T_NEW".into()),
         })
     }
 
@@ -1615,7 +1842,7 @@ mod tests {
         )
         .unwrap();
         let n = a.new_header.unwrap();
-        assert_eq!((n.template, n.internal_name.as_str()), (1, "T_NEW"));
+        assert_eq!((n.template, n.internal_name.as_deref()), (1, Some("T_NEW")));
     }
 
     #[test]
@@ -1796,5 +2023,219 @@ mod tests {
                 EventFileChoice::Copy(5)
             )
         );
+    }
+
+    /// The new header `2` of the synthetic game as a copy of header 1, with `place` and
+    /// `allow_patch`.
+    fn area_with_new_header(place: Option<PlaceChoice>, allow_patch: bool) -> AreaSpec {
+        AreaSpec {
+            header: Some(AssignHeader {
+                id: 2,
+                new_header: new_header(1),
+                place,
+                allow_patch,
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        }
+    }
+
+    fn summary(state: &AppState, id: u16) -> g4_kernel::project::HeaderSummary {
+        list_headers_impl(state).unwrap().headers[usize::from(id)].clone()
+    }
+
+    fn patch_applied(state: &AppState) -> bool {
+        header_patch_status_impl(state).unwrap().applied
+    }
+
+    #[test]
+    fn create_area_applies_the_patch_when_allowed() {
+        let (_f, state) = open_synthetic();
+        assert!(!patch_applied(&state));
+        let report = create_area_impl(&state, area_with_new_header(None, true)).unwrap();
+        assert!(report.patched);
+        assert!(patch_applied(&state));
+        assert_eq!(header_count(&state), 3);
+        assert_eq!(
+            get_header_impl(&state, 2).unwrap().matrix_id(),
+            report.matrix
+        );
+        // With the patch in, `allow_patch` does nothing more.
+        let mut again = area_with_new_header(None, true);
+        again.header.as_mut().unwrap().id = 3;
+        assert!(!create_area_impl(&state, again).unwrap().patched);
+    }
+
+    #[test]
+    fn create_area_still_refuses_without_allow_patch() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let err = create_area_impl(&state, area_with_new_header(None, false)).unwrap_err();
+        assert_eq!(
+            err.message,
+            "new headers need the dynamic headers patch, apply the patch first"
+        );
+        assert!(!patch_applied(&state));
+        assert_eq!((counts(&state), header_count(&state)), (before, 2));
+    }
+
+    #[test]
+    fn create_area_with_a_new_place_appends_it_and_sets_the_header_in_one_step() {
+        let (_f, state) = patched();
+        let template = summary(&state, 1).location_index;
+        let place = Some(PlaceChoice::New(" Neuheim ".into()));
+        let report = create_area_impl(&state, area_with_new_header(place, false)).unwrap();
+        assert_eq!((report.place, report.patched), (Some(3), false));
+        let h = summary(&state, 2);
+        assert_eq!((h.location_index, h.location_name.as_str()), (3, "Neuheim"));
+        assert_eq!(place_slots_impl(&state).unwrap().count, 4);
+        let undo = history_impl(&state).unwrap().undo;
+        assert_eq!(undo.last().unwrap(), "Gebiet „Route 230“ angelegt");
+        // One undo takes the name and the place of the header back; the header stays.
+        undo_impl(&state).unwrap();
+        assert_eq!(place_slots_impl(&state).unwrap().count, 3);
+        let h = summary(&state, 2);
+        assert_eq!((h.location_index, h.matrix_id), (template, 0));
+        assert_eq!(header_count(&state), 3);
+    }
+
+    #[test]
+    fn create_room_with_an_existing_place_sets_it() {
+        let (_f, state) = open_synthetic();
+        set_event_file(&state, 1, 1);
+        let mut spec = room_spec(EventFileChoice::Keep);
+        spec.header.place = Some(PlaceChoice::Existing(2));
+        let report = create_room_impl(&state, spec).unwrap();
+        assert_eq!(report.place, Some(2));
+        let h = summary(&state, 1);
+        assert_eq!((h.location_index, h.matrix_id), (2, report.matrix));
+        let undo = history_impl(&state).unwrap().undo;
+        assert!(
+            undo.contains(&"Raum „Haus“ angelegt".to_owned()),
+            "{undo:?}"
+        );
+        assert_eq!(place_slots_impl(&state).unwrap().count, 3);
+    }
+
+    #[test]
+    fn create_room_refuses_a_place_the_bank_lacks_before_creating_anything() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let mut spec = room_spec(EventFileChoice::New);
+        spec.header.place = Some(PlaceChoice::Existing(9));
+        let err = create_room_impl(&state, spec).unwrap_err();
+        assert_eq!(err.code, "error");
+        assert!(
+            err.message.contains("Den Ort 9 gibt es nicht"),
+            "{}",
+            err.message
+        );
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn names_the_new_header_automatically_and_uniquely() {
+        let (f, state) = patched();
+        let unnamed = |id: u16| AreaSpec {
+            name: "Neuheim".into(),
+            header: Some(AssignHeader {
+                id,
+                new_header: Some(NewHeader {
+                    template: 1,
+                    internal_name: None,
+                }),
+                ..area_spec().header.unwrap()
+            }),
+            ..area_spec()
+        };
+        create_area_impl(&state, unnamed(2)).unwrap();
+        let mut blank = unnamed(3);
+        blank
+            .header
+            .as_mut()
+            .unwrap()
+            .new_header
+            .as_mut()
+            .unwrap()
+            .internal_name = Some("  ".into());
+        create_area_impl(&state, blank).unwrap();
+        assert_eq!(summary(&state, 2).internal_name, "NEUHEIM");
+        assert_eq!(summary(&state, 3).internal_name, "NEUHEIM_2");
+        let names =
+            std::fs::read(f.dir.path().join("files/fielddata/maptable/mapname.bin")).unwrap();
+        assert_eq!(&names[48..57], b"NEUHEIM_2");
+    }
+
+    #[test]
+    fn auto_internal_names_follow_the_frontend_rule_and_stay_within_16_bytes() {
+        let none: [String; 0] = [];
+        assert_eq!(
+            auto_internal_name(&none, " Neues  Gebiet! "),
+            "NEUES_GEBIET"
+        );
+        assert_eq!(
+            auto_internal_name(&none, "Zweiblattdorf-Süd"),
+            "ZWEIBLATTDORFSD"
+        );
+        assert_eq!(auto_internal_name(&none, "!!!"), "NEWMAP");
+        assert_eq!(auto_internal_name(&none, "a_b c__d_"), "A_B_C_D");
+        let long = "ABCDEFGHIJKLMNOPQRS";
+        assert_eq!(auto_internal_name(&none, long), "ABCDEFGHIJKLMNOP");
+        let taken = ["ABCDEFGHIJKLMNOP".to_owned(), "ABCDEFGHIJKLMN_2".to_owned()];
+        assert_eq!(auto_internal_name(&taken, long), "ABCDEFGHIJKLMN_3");
+        // A cut that ends in `_` loses it.
+        let taken = ["ABCDEFGHIJKLM_OP".to_owned()];
+        assert_eq!(
+            auto_internal_name(&taken, "ABCDEFGHIJKLM_OP"),
+            "ABCDEFGHIJKLM_2"
+        );
+    }
+
+    #[test]
+    fn a_failure_after_the_patch_says_the_patch_stays() {
+        let (_f, state) = open_synthetic();
+        let before = counts(&state);
+        let place = Some(PlaceChoice::New("  ".into()));
+        let err = create_area_impl(&state, area_with_new_header(place, true)).unwrap_err();
+        assert_eq!(err.code, "partial");
+        assert_eq!(
+            err.message,
+            "the Dynamic Headers patch was applied and stays; place failed: \
+             Der Ort braucht einen Namen."
+        );
+        assert!(patch_applied(&state));
+        assert_eq!((counts(&state), header_count(&state)), (before, 2));
+    }
+
+    #[test]
+    fn old_specs_without_the_new_fields_work_as_before() {
+        let (_f, state) = patched();
+        let spec: AreaSpec = serde_json::from_value(serde_json::json!({
+            "name": "Route 230", "width": 1, "height": 1,
+            "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": false }],
+            "with_headers": true,
+            "header": { "id": 2, "area_data_id": null, "event_file": "New",
+                        "new_header": { "template": 1, "internal_name": "T_NEW" } },
+        }))
+        .unwrap();
+        let assign = spec.header.as_ref().unwrap();
+        assert_eq!((assign.allow_patch, &assign.place), (false, &None));
+        let template = summary(&state, 1).location_index;
+        let report = create_area_impl(&state, spec).unwrap();
+        assert_eq!((report.patched, report.place), (false, None));
+        let h = summary(&state, 2);
+        assert_eq!(
+            (h.internal_name.as_str(), h.location_index),
+            ("T_NEW", template)
+        );
+        let undo = history_impl(&state).unwrap().undo;
+        assert_eq!(undo.last().unwrap(), "assign header 0002 to matrix 0001");
+        // A new header without an internal name deserializes too.
+        let n: NewHeader = serde_json::from_str(r#"{"template":1}"#).unwrap();
+        assert_eq!(n.internal_name, None);
+        let p: PlaceChoice = serde_json::from_str(r#"{"New":"Neuheim"}"#).unwrap();
+        assert_eq!(p, PlaceChoice::New("Neuheim".into()));
+        let p: PlaceChoice = serde_json::from_str(r#"{"Existing":3}"#).unwrap();
+        assert_eq!(p, PlaceChoice::Existing(3));
     }
 }

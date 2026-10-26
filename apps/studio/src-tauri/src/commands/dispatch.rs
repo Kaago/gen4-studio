@@ -783,7 +783,8 @@ mod tests {
                 "create_room",
                 json!({ "spec": {
                     "name": "room", "source_map": 0, "clear_buildings": true,
-                    "header": { "id": 0, "area_data_id": null, "event_file": "Keep" },
+                    "header": { "id": 0, "area_data_id": null, "event_file": "Keep",
+                                "allow_patch": false, "place": { "Existing": 1 } },
                     "entrance": null,
                 } }),
             ),
@@ -963,6 +964,29 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn create_area_takes_the_patch_a_new_place_and_no_internal_name() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let report = json_of(call(
+            &state,
+            &policy,
+            "create_area",
+            json!({ "spec": {
+                "name": "Neuheim", "width": 1, "height": 1,
+                "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
+                "with_headers": true,
+                "header": { "id": 2, "area_data_id": null, "event_file": "New",
+                            "new_header": { "template": 1, "internal_name": null },
+                            "allow_patch": true, "place": { "New": "Neuheim" } },
+            } }),
+        ));
+        assert_eq!(
+            (&report["header"], &report["patched"], &report["place"]),
+            (&json!(2), &json!(true), &json!(3))
+        );
     }
 
     #[test]

@@ -214,7 +214,7 @@ describe("areaSummary with a new header", () => {
 describe("areaResult", () => {
   it("names_the_new_raster_and_its_maps_and_what_comes_next", () => {
     const spec: AreaSpec = { name: "Route 230", width: 2, height: 1, cells: [], with_headers: true, header: null };
-    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 1 };
+    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 1, patched: false, place: null };
     const { lines, next } = areaResult(report, spec);
     expect(lines[0]).toBe("Raster 0131 „Route 230“ (2 × 1) angelegt.");
     expect(lines.join("\n")).toContain("Karten 0571, 0572");
@@ -226,7 +226,7 @@ describe("areaResult", () => {
 
   it("uses_the_singular_and_leaves_out_a_header_that_was_not_assigned", () => {
     const spec: AreaSpec = { name: "A", width: 1, height: 1, cells: [], with_headers: false, header: null };
-    const { lines } = areaResult({ matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null }, spec);
+    const { lines } = areaResult({ matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: false, place: null }, spec);
     expect(lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert."]);
   });
 });
@@ -448,7 +448,7 @@ describe("mapUnderTile", () => {
 
 describe("roomResult", () => {
   const spec: RoomSpec = { name: "Haus", source_map: 321, clear_buildings: false, header: { id: 1, area_data_id: null, event_file: "New" }, entrance: { outside_header: 411, x: 12, z: 7, inside_x: 16, inside_z: 30 } };
-  const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [] };
+  const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, place: null };
 
   it("lists_what_was_made_and_the_warps", () => {
     const { lines, next } = roomResult(report, spec);

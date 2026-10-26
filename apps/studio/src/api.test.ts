@@ -16,7 +16,9 @@ import {
   addScript,
   adoptScripts,
   assignPlace,
+  createArea,
   createPlace,
+  createRoom,
   createTextArchive,
   deleteBuilding,
   editTextArchive,
@@ -44,9 +46,11 @@ import {
   validateText,
   worldMetaGet,
   worldMetaSet,
+  type AreaSpec,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
+  type RoomSpec,
 } from "./api";
 
 describe("isCmdError", () => {
@@ -353,6 +357,21 @@ describe("script commands", () => {
       ["create_place", { name: "Neuheim", headers: [0, 1] }],
       ["rename_place", { index: 3, name: "Zweiblattdorf" }],
       ["assign_place", { headers: [2], index: 3 }],
+    ]);
+  });
+
+  it("the_wizard_wrappers_send_the_patch_flag_the_place_and_a_missing_internal_name", async () => {
+    invoke.mockReset();
+    const header = { id: 2, area_data_id: null, event_file: "New" as const, new_header: { template: 1, internal_name: null }, allow_patch: true, place: { New: "Neuheim" } };
+    const area: AreaSpec = { name: "Neuheim", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }], with_headers: true, header };
+    const room: RoomSpec = { name: "Haus", source_map: 0, clear_buildings: true, header: { ...header, id: 3, place: { Existing: 3 } }, entrance: null };
+    const report = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, place: 3 };
+    invoke.mockResolvedValueOnce(report);
+    await expect(createArea(area)).resolves.toEqual(report);
+    await createRoom(room);
+    expect(invoke.mock.calls).toEqual([
+      ["create_area", { spec: area }],
+      ["create_room", { spec: room }],
     ]);
   });
 });
