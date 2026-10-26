@@ -769,7 +769,7 @@ mod tests {
                 json!({ "spec": {
                     "name": "area", "width": 1, "height": 1,
                     "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
-                    "with_headers": false, "header": null,
+                    "with_headers": false, "header": null, "target": null,
                 } }),
             ),
             (
@@ -986,6 +986,38 @@ mod tests {
         assert_eq!(
             (&report["header"], &report["patched"], &report["place"]),
             (&json!(2), &json!(true), &json!(3))
+        );
+    }
+
+    #[test]
+    fn create_area_takes_a_target_on_a_world_map() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let spec = json!({
+            "name": "Neuheim", "width": 1, "height": 1,
+            "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
+            "with_headers": false, "header": null,
+            "target": { "matrix": 0, "x": 2, "y": 0 },
+        });
+        // Matrix 0 has no header section yet: refused as the kernel words it.
+        match dispatch(&state, &policy, "create_area", json!({ "spec": spec })) {
+            Err(DispatchError::Cmd(e)) => assert!(e.message.contains("keine Weltkarte"), "{e:?}"),
+            Err(e) => panic!("{e:?}"),
+            Ok(_) => panic!("a matrix without a header section is no target"),
+        }
+        let sections = json!({ "index": 0, "headers": true, "altitudes": false });
+        call(&state, &policy, "set_matrix_sections", sections);
+        let size = json!({ "index": 0, "width": 3, "height": 1 });
+        call(&state, &policy, "resize_matrix", size);
+        let report = json_of(call(
+            &state,
+            &policy,
+            "create_area",
+            json!({ "spec": spec }),
+        ));
+        assert_eq!(
+            (&report["matrix"], &report["replaced"]),
+            (&json!(0), &json!(0))
         );
     }
 

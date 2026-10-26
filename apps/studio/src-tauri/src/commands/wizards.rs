@@ -101,6 +101,18 @@ pub struct AreaSpec {
     pub cells: Vec<AreaCell>,
     pub with_headers: bool,
     pub header: Option<AssignHeader>,
+    /// Where on an existing world map the area goes; absent or `null`: a matrix of its own.
+    #[serde(default)]
+    pub target: Option<AreaTarget>,
+}
+
+/// The cell (`x`, `y`) of matrix `matrix` (a world map: it has a header section) where the
+/// upper left cell of an area goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct AreaTarget {
+    pub matrix: u16,
+    pub x: u8,
+    pub y: u8,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +127,8 @@ pub struct AreaReport {
     pub snapshot: Option<String>,
     /// The place the header got.
     pub place: Option<u8>,
+    /// The landscape cells (a map, header 0) of the world map that the area replaced.
+    pub replaced: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -315,7 +329,12 @@ fn check_event_file_writable(store: &mut Store, index: u16) -> Result<(), CmdErr
 
 /// Everything about the header assignment that can be known without writing: the header
 /// exists and the table can be edited, the area data and the event file to copy exist.
-fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdError> {
+/// `matrix` is the existing matrix the header will point at, `None` for a new one.
+fn check_assign(
+    session: &mut Session,
+    assign: &AssignHeader,
+    matrix: Option<u16>,
+) -> Result<(), CmdError> {
     match &assign.new_header {
         None => check_header_id(session, assign.id)?,
         Some(new) => {
@@ -358,7 +377,7 @@ fn check_assign(session: &mut Session, assign: &AssignHeader) -> Result<(), CmdE
     if let EventFileChoice::Copy(source) = assign.event_file {
         check_member(store, AssetKind::Event, source, "event file")?;
     }
-    check_header_fits(store, assign)
+    check_header_fits(store, assign, matrix)
 }
 
 /// The longest internal name `mapname.bin` holds.
@@ -554,17 +573,24 @@ fn assign_header(
     Ok(())
 }
 
-/// Dry run of the header edit: the new matrix and event file will be the next members of their
-/// archives, so the final header is known before anything is created. Refuses a header the
-/// game's layout could not store (the three fields are full-width in every layout, so this
-/// only guards against a layout change).
-fn check_header_fits(store: &mut Store, assign: &AssignHeader) -> Result<(), CmdError> {
+/// Dry run of the header edit: the new matrix (unless `matrix` names an existing one) and event
+/// file will be the next members of their archives, so the final header is known before
+/// anything is created. Refuses a header the game's layout could not store (the three fields
+/// are full-width in every layout, so this only guards against a layout change).
+fn check_header_fits(
+    store: &mut Store,
+    assign: &AssignHeader,
+    matrix: Option<u16>,
+) -> Result<(), CmdError> {
     let next = |kind| -> Result<u16, CmdError> {
         let count = store.member_count(kind)?;
         u16::try_from(count)
             .map_err(|_| CmdError::from(format!("the {kind} archive has no room for a new member")))
     };
-    let matrix = next(AssetKind::Matrix)?;
+    let matrix = match matrix {
+        Some(matrix) => matrix,
+        None => next(AssetKind::Matrix)?,
+    };
     let event_file = match assign.event_file {
         EventFileChoice::Keep => None,
         EventFileChoice::New | EventFileChoice::Copy(_) => Some(next(AssetKind::Event)?),
@@ -612,18 +638,71 @@ fn check_area(session: &mut Session, spec: &AreaSpec) -> Result<(), CmdError> {
         check_member(&session.store, AssetKind::Map, c.source_map, "map")?;
     }
     if let Some(assign) = &spec.header {
-        check_assign(session, assign)?;
+        check_assign(session, assign, spec.target.map(|t| t.matrix))?;
     }
     Ok(())
 }
 
+/// Checks the target of an area on a world map, changing nothing: the matrix exists, can be
+/// edited and has a header section, and the block of `width` x `height` cells at the target
+/// lies inside it on empty cells and landscape (a map with header 0) only. Answers how many
+/// landscape cells the area's maps replace (0 without a target).
+fn check_target(store: &mut Store, spec: &AreaSpec) -> Result<u16, CmdError> {
+    let Some(target) = spec.target else {
+        return Ok(0);
+    };
+    check_member(store, AssetKind::Matrix, target.matrix, "matrix")?;
+    let replaced = {
+        let m = store.matrix(target.matrix)?;
+        let Some(headers) = &m.headers else {
+            return Err(KernelError::Refused(format!(
+                "Anordnung {:04} ist keine Weltkarte: ihren Zellen sind keine Orte zugeordnet.",
+                target.matrix
+            ))
+            .into());
+        };
+        // The last column and row of the block; the area has at least one cell.
+        let x2 = u16::from(target.x) + u16::from(spec.width) - 1;
+        let y2 = u16::from(target.y) + u16::from(spec.height) - 1;
+        let free = |x: u16, y: u16| {
+            let i = usize::from(y) * usize::from(m.width) + usize::from(x);
+            m.maps[i] == MATRIX_EMPTY || headers[i] == 0
+        };
+        let inside = x2 < u16::from(m.width) && y2 < u16::from(m.height);
+        if !inside
+            || !(u16::from(target.y)..=y2).all(|y| (u16::from(target.x)..=x2).all(|x| free(x, y)))
+        {
+            return Err(KernelError::Refused(format!(
+                "Die Zellen x {} bis {x2}, y {} bis {y2} sind nicht frei: dort liegen Gebiete \
+                 oder sie liegen außerhalb der Weltkarte.",
+                target.x, target.y
+            ))
+            .into());
+        }
+        // Inside the block every filled cell is landscape.
+        spec.cells
+            .iter()
+            .filter(|c| {
+                let i = cell_index(m.width, target.x + c.x, target.y + c.y);
+                m.maps[i] != MATRIX_EMPTY
+            })
+            .count()
+    };
+    check_writable(store, id(AssetKind::Matrix, target.matrix))?;
+    u16::try_from(replaced).map_err(|_| CmdError::from("the area has too many cells"))
+}
+
 /// Creates a matrix of `width` x `height` from copies of maps and, if asked, points a header at
-/// it. Checks everything before it writes; the copies, the matrix and the event file are new
-/// members that stay when a later edit fails, the edits (matrix, then header) are undoable.
+/// it. With a target the copies go into the cells of that world map instead (no new matrix,
+/// `with_headers` ignored): each filled cell gets its copy and the header (0, landscape,
+/// without one), its altitude stays. Checks everything before it writes; the copies, the
+/// matrix and the event file are new members that stay when a later edit fails, the edits
+/// (matrix, then header) are undoable.
 pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     check_area(session, &spec)?;
+    let replaced = check_target(&mut session.store, &spec)?;
     let store = &mut session.store;
 
     let place = match &spec.header {
@@ -645,10 +724,16 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
         created.maps.push(map);
         maps.push((c.x, c.y, map));
     }
-    let matrix = store
-        .create_matrix(&spec.name)
-        .map_err(|e| late(&created, "matrix creation", e))?;
-    created.matrices.push(matrix);
+    let matrix = match spec.target {
+        Some(target) => target.matrix,
+        None => {
+            let matrix = store
+                .create_matrix(&spec.name)
+                .map_err(|e| late(&created, "matrix creation", e))?;
+            created.matrices.push(matrix);
+            matrix
+        }
+    };
     let event_file = match &spec.header {
         Some(assign) => provide_event_file(store, assign.event_file, &mut created)?,
         None => None,
@@ -657,6 +742,16 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
     let header_id = spec.header.as_ref().map(|a| a.id);
     store
         .edit_matrix(matrix, "build area", |m| {
+            if let Some(target) = spec.target {
+                for &(x, y, map) in &maps {
+                    let i = cell_index(m.width, target.x + x, target.y + y);
+                    m.maps[i] = map;
+                    if let Some(headers) = m.headers.as_mut() {
+                        headers[i] = header_id.unwrap_or(0);
+                    }
+                }
+                return Ok(());
+            }
             *m = resized(m, spec.width, spec.height);
             let cells = usize::from(spec.width) * usize::from(spec.height);
             if spec.with_headers && m.headers.is_none() {
@@ -685,6 +780,7 @@ pub fn create_area_impl(state: &AppState, spec: AreaSpec) -> Result<AreaReport, 
         patched: created.patch,
         snapshot,
         place: place.map(PlannedPlace::index),
+        replaced,
     })
 }
 
@@ -979,7 +1075,7 @@ pub fn create_room_impl(state: &AppState, spec: RoomSpec) -> Result<RoomReport, 
     let session = session(&mut guard)?;
     check_name(&spec.name)?;
     check_member(&session.store, AssetKind::Map, spec.source_map, "map")?;
-    check_assign(session, &spec.header)?;
+    check_assign(session, &spec.header, None)?;
     if let Some(entrance) = &spec.entrance {
         check_header_id(session, entrance.outside_header)?;
     }
@@ -1098,9 +1194,9 @@ pub fn create_room(state: State<AppState>, spec: RoomSpec) -> Result<RoomReport,
 mod tests {
     use super::super::open_synthetic;
     use super::super::{
-        EventKind, add_event_impl, apply_header_patch_impl, dirty_impl, get_events_impl,
-        get_header_impl, get_map_impl, get_matrix_impl, header_patch_status_impl, history_impl,
-        list_headers_impl, member_counts_impl, place_slots_impl, reload_asset_impl,
+        EventKind, add_event_impl, apply_header_patch_impl, create_matrix_impl, dirty_impl,
+        get_events_impl, get_header_impl, get_map_impl, get_matrix_impl, header_patch_status_impl,
+        history_impl, list_headers_impl, member_counts_impl, place_slots_impl, reload_asset_impl,
         resize_matrix_impl, set_header_impl, set_matrix_cell_impl, set_matrix_sections_impl,
         set_permission_impl, undo_impl,
     };
@@ -1140,6 +1236,7 @@ mod tests {
                 allow_patch: false,
                 place: None,
             }),
+            target: None,
         }
     }
 
@@ -2324,5 +2421,184 @@ mod tests {
         assert_eq!(p, PlaceChoice::New("Neuheim".into()));
         let p: PlaceChoice = serde_json::from_str(r#"{"Existing":3}"#).unwrap();
         assert_eq!(p, PlaceChoice::Existing(3));
+    }
+
+    /// A world map as matrix 1 (4 x 2, header section): the area of header 1 at (0, 0),
+    /// landscape (map 1, header 0, altitude 5) at (1, 0), the other cells empty.
+    fn world_map(state: &AppState) -> u16 {
+        let world = create_matrix_impl(state, "Welt").unwrap();
+        set_matrix_sections_impl(state, world, true, false).unwrap();
+        resize_matrix_impl(state, world, 4, 2).unwrap();
+        set_matrix_cell_impl(state, world, 0, 0, Some(0), Some(1), None).unwrap();
+        set_matrix_cell_impl(state, world, 1, 0, Some(1), Some(0), Some(5)).unwrap();
+        world
+    }
+
+    fn on_world(world: u16, x: u8, y: u8) -> AreaSpec {
+        AreaSpec {
+            target: Some(AreaTarget {
+                matrix: world,
+                x,
+                y,
+            }),
+            ..area_spec()
+        }
+    }
+
+    const E: Option<u16> = None;
+
+    #[test]
+    fn places_an_area_into_free_cells_of_a_world_map() {
+        let (_f, state) = open_synthetic();
+        let world = world_map(&state);
+        let matrices = counts(&state)[&AssetKind::Matrix];
+        let report = create_area_impl(&state, on_world(world, 2, 0)).unwrap();
+        assert_eq!((report.matrix, report.replaced), (world, 0));
+        assert_eq!(report.maps, vec![(0, 0, 3), (1, 0, 4)]);
+        assert_eq!((report.event_file, report.header), (Some(2), Some(1)));
+        assert_eq!(counts(&state)[&AssetKind::Matrix], matrices);
+
+        let m = get_matrix_impl(&state, world).unwrap();
+        assert_eq!(m.maps, vec![Some(0), Some(1), Some(3), Some(4), E, E, E, E]);
+        assert_eq!(m.headers, Some(vec![1, 0, 1, 1, 0, 0, 0, 0]));
+        assert_eq!((m.width, m.height, m.name.as_str()), (4, 2, "Welt"));
+        let h = get_header_impl(&state, 1).unwrap();
+        assert_eq!((h.matrix_id(), h.event_file_id()), (world, 2));
+    }
+
+    #[test]
+    fn replaces_landscape_cells_and_counts_them() {
+        let (_f, state) = open_synthetic();
+        let world = world_map(&state);
+        let report = create_area_impl(&state, on_world(world, 1, 0)).unwrap();
+        assert_eq!(report.replaced, 1);
+        let m = get_matrix_impl(&state, world).unwrap();
+        assert_eq!(m.maps, vec![Some(0), Some(3), Some(4), E, E, E, E, E]);
+        assert_eq!(m.headers, Some(vec![1, 1, 1, 0, 0, 0, 0, 0]));
+        // The altitude of the replaced landscape cell stays.
+        assert_eq!(m.altitudes, Some(vec![0, 5, 0, 0, 0, 0, 0, 0]));
+    }
+
+    /// The text of a refused block at x `x`..`x2`, y `y`..`y2`.
+    fn not_free(x: u8, x2: u16, y: u8, y2: u16) -> String {
+        format!(
+            "Die Zellen x {x} bis {x2}, y {y} bis {y2} sind nicht frei: dort liegen Gebiete \
+             oder sie liegen außerhalb der Weltkarte."
+        )
+    }
+
+    #[test]
+    fn refuses_a_block_over_an_area_before_copying() {
+        let (_f, state) = open_synthetic();
+        let world = world_map(&state);
+        let before = counts(&state);
+        let history = history_impl(&state).unwrap().undo.len();
+        let err = create_area_impl(&state, on_world(world, 0, 0)).unwrap_err();
+        assert_eq!((err.code, err.message), ("error", not_free(0, 1, 0, 0)));
+        assert_eq!(counts(&state), before);
+        assert_eq!(history_impl(&state).unwrap().undo.len(), history);
+        // A block over the area that only leaves the area's cell unfilled is refused too.
+        let spec = AreaSpec {
+            cells: vec![cell(1, 0, 0, false)],
+            ..on_world(world, 0, 0)
+        };
+        assert!(create_area_impl(&state, spec).is_err());
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn refuses_a_block_outside_the_world_map() {
+        let (_f, state) = open_synthetic();
+        let world = world_map(&state);
+        let before = counts(&state);
+        let err = create_area_impl(&state, on_world(world, 3, 0)).unwrap_err();
+        assert_eq!(err.message, not_free(3, 4, 0, 0));
+        let tall = AreaSpec {
+            height: 2,
+            ..on_world(world, 2, 1)
+        };
+        let err = create_area_impl(&state, tall).unwrap_err();
+        assert_eq!(err.message, not_free(2, 3, 1, 2));
+        let far = on_world(world, 255, 255);
+        let err = create_area_impl(&state, far).unwrap_err();
+        assert_eq!(err.message, not_free(255, 256, 255, 255));
+        assert_eq!(counts(&state), before);
+        // An unknown matrix is refused as well.
+        assert!(create_area_impl(&state, on_world(9, 0, 0)).is_err());
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn refuses_a_target_without_a_header_section() {
+        let (_f, state) = open_synthetic();
+        resize_matrix_impl(&state, 0, 4, 1).unwrap();
+        let before = counts(&state);
+        let err = create_area_impl(&state, on_world(0, 2, 0)).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Anordnung 0000 ist keine Weltkarte: ihren Zellen sind keine Orte zugeordnet."
+        );
+        assert_eq!(counts(&state), before);
+    }
+
+    #[test]
+    fn one_undo_takes_the_cells_back() {
+        let (_f, state) = open_synthetic();
+        let world = world_map(&state);
+        let before = get_matrix_impl(&state, world).unwrap();
+        let maps = counts(&state)[&AssetKind::Map];
+        let spec = AreaSpec {
+            header: None,
+            ..on_world(world, 1, 0)
+        };
+        let report = create_area_impl(&state, spec).unwrap();
+        assert_eq!((report.header, report.replaced), (None, 1));
+        // Without a header the cells become landscape.
+        let m = get_matrix_impl(&state, world).unwrap();
+        assert_eq!(m.headers, Some(vec![1, 0, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(m.maps, vec![Some(0), Some(3), Some(4), E, E, E, E, E]);
+        assert_eq!(
+            history_impl(&state).unwrap().undo.last().unwrap(),
+            "build area"
+        );
+
+        assert_eq!(
+            undo_impl(&state).unwrap(),
+            vec![asset(AssetKind::Matrix, world)]
+        );
+        let m = get_matrix_impl(&state, world).unwrap();
+        assert_eq!((m.maps, m.headers), (before.maps, before.headers));
+        // The copies stay.
+        assert_eq!(counts(&state)[&AssetKind::Map], maps + 2);
+    }
+
+    #[test]
+    fn old_specs_without_target_still_make_their_own_matrix() {
+        let (_f, state) = open_synthetic();
+        let spec: AreaSpec = serde_json::from_value(serde_json::json!({
+            "name": "Route 230", "width": 1, "height": 1,
+            "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": false }],
+            "with_headers": true, "header": null,
+        }))
+        .unwrap();
+        assert_eq!(spec.target, None);
+        let report = create_area_impl(&state, spec).unwrap();
+        assert_eq!((report.matrix, report.replaced), (1, 0));
+        assert_eq!(counts(&state)[&AssetKind::Matrix], 2);
+        let spec: AreaSpec = serde_json::from_value(serde_json::json!({
+            "name": "Route 231", "width": 1, "height": 1, "cells": [],
+            "with_headers": false, "header": null, "target": null,
+        }))
+        .unwrap();
+        assert_eq!(spec.target, None);
+        let t: AreaTarget = serde_json::from_str(r#"{"matrix":1,"x":2,"y":3}"#).unwrap();
+        assert_eq!(
+            t,
+            AreaTarget {
+                matrix: 1,
+                x: 2,
+                y: 3
+            }
+        );
     }
 }

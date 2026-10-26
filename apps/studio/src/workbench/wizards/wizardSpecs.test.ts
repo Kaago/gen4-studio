@@ -215,7 +215,7 @@ describe("areaSummary with a new header", () => {
 describe("areaResult", () => {
   it("names_the_new_raster_and_its_maps_and_what_comes_next", () => {
     const spec: AreaSpec = { name: "Route 230", width: 2, height: 1, cells: [], with_headers: true, header: null };
-    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 1, patched: false, snapshot: null, place: null };
+    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 1, patched: false, snapshot: null, place: null, replaced: 0 };
     const { lines, next } = areaResult(report, spec);
     expect(lines[0]).toBe("Raster 0131 „Route 230“ (2 × 1) angelegt.");
     expect(lines.join("\n")).toContain("Karten 0571, 0572");
@@ -227,13 +227,13 @@ describe("areaResult", () => {
 
   it("uses_the_singular_and_leaves_out_a_header_that_was_not_assigned", () => {
     const spec: AreaSpec = { name: "A", width: 1, height: 1, cells: [], with_headers: false, header: null };
-    const { lines } = areaResult({ matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: false, snapshot: null, place: null }, spec);
+    const { lines } = areaResult({ matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 0 }, spec);
     expect(lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert."]);
   });
 
   it("names_where_the_patch_put_the_old_header_folder", () => {
     const spec: AreaSpec = { name: "A", width: 1, height: 1, cells: [], with_headers: false, header: null };
-    const report: AreaReport = { matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000", place: null };
+    const report: AreaReport = { matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000", place: null, replaced: 0 };
     const line = "Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000";
     expect(areaResult(report, spec).lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert.", line]);
     // Bauen names the backup folder only: the path names the header folder.
@@ -627,7 +627,7 @@ describe("the words in Bauen", () => {
   });
 
   it("says_what_was_made_in_user_words_in_bauen", () => {
-    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 470, patched: true, snapshot: null, place: 12 };
+    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 470, patched: true, snapshot: null, place: 12, replaced: 0 };
     const { lines, next } = areaResult(report, areaOf(), "bauen");
     expect(lines).toEqual(["Gebiet „Neuheim“ angelegt: 2 Karten."]);
     expect(areaResult({ ...report, maps: [[0, 0, 571]] }, areaOf(), "bauen").lines).toEqual(["Gebiet „Neuheim“ angelegt: 1 Karte."]);

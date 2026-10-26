@@ -554,9 +554,13 @@ static TOOLS: &[ToolDef] = &[
         title: "Create area",
         description: "Creates a new outdoor area: a matrix of the given size whose cells are \
                       copies of existing maps, optionally with a header pointed at it and a \
-                      place (in-game location name) for that header. With header.allow_patch \
-                      a new header first applies the Dynamic Headers patch when the game lacks \
-                      it (not undoable, needs a confirmation).",
+                      place (in-game location name) for that header. With a target the copies \
+                      go into an existing world map instead (seamless, no door): no new \
+                      matrix, each filled cell gets its copy and the header (0 without one); \
+                      the block must lie inside the world map on empty or landscape (header 0) \
+                      cells, the answer's replaced counts the landscape cells. With \
+                      header.allow_patch a new header first applies the Dynamic Headers patch \
+                      when the game lacks it (not undoable, needs a confirmation).",
         input_schema: || {
             object(
                 json!({ "spec": nested(
@@ -567,7 +571,9 @@ static TOOLS: &[ToolDef] = &[
                      {template, internal_name (null: derived from name, unique)} to create the \
                      header first), allow_patch (true: apply the Dynamic Headers patch first if \
                      a new header needs it), place (null keeps it, {\"Existing\": index} or \
-                     {\"New\": name} to append a place, one undo step with the header)})"
+                     {\"New\": name} to append a place, one undo step with the header)}), \
+                     target (null: a matrix of its own, or {matrix, x, y}: the cell of a world \
+                     map with a header section where the area's upper left cell goes)"
                 ) }),
                 &["spec"],
             )

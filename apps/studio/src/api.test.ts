@@ -46,6 +46,7 @@ import {
   validateText,
   worldMetaGet,
   worldMetaSet,
+  type AreaReport,
   type AreaSpec,
   type MapHeader,
   type MapHeaderHGSS,
@@ -365,7 +366,7 @@ describe("script commands", () => {
     const header = { id: 2, area_data_id: null, event_file: "New" as const, new_header: { template: 1, internal_name: null }, allow_patch: true, place: { New: "Neuheim" } };
     const area: AreaSpec = { name: "Neuheim", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }], with_headers: true, header };
     const room: RoomSpec = { name: "Haus", source_map: 0, clear_buildings: true, header: { ...header, id: 3, place: { Existing: 3 } }, entrance: null };
-    const report = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, snapshot: null, place: 3 };
+    const report: AreaReport = { matrix: 1, maps: [[0, 0, 3]], event_file: 2, header: 2, patched: true, snapshot: null, place: 3, replaced: 0 };
     invoke.mockResolvedValueOnce(report);
     await expect(createArea(area)).resolves.toEqual(report);
     await createRoom(room);
@@ -373,5 +374,22 @@ describe("script commands", () => {
       ["create_area", { spec: area }],
       ["create_room", { spec: room }],
     ]);
+  });
+
+  it("create_area_sends_the_target_on_a_world_map_and_answers_the_replaced_cells", async () => {
+    invoke.mockReset();
+    const area: AreaSpec = {
+      name: "Neuheim",
+      width: 2,
+      height: 1,
+      cells: [{ x: 0, y: 0, source_map: 0, clear_buildings: true }, { x: 1, y: 0, source_map: 1, clear_buildings: true }],
+      with_headers: false,
+      header: null,
+      target: { matrix: 0, x: 4, y: 2 },
+    };
+    const report: AreaReport = { matrix: 0, maps: [[0, 0, 3], [1, 0, 4]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 1 };
+    invoke.mockResolvedValueOnce(report);
+    await expect(createArea(area)).resolves.toEqual(report);
+    expect(invoke.mock.calls).toEqual([["create_area", { spec: area }]]);
   });
 });

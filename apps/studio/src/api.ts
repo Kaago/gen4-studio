@@ -600,9 +600,24 @@ export interface AreaSpec {
   cells: AreaCell[];
   with_headers: boolean;
   header: AssignHeader | null;
+  /**
+   * The cell of an existing world map (a matrix with a header section) where the area's upper left cell goes: no new
+   * matrix, the cells get the copies and the header. Absent or `null`: a matrix of its own.
+   */
+  target?: AreaTarget | null;
 }
 
-/** What `create_area` made: the matrix, its maps as [x, y, map id], the event file and the header it assigned. */
+/** Where on a world map an area goes: the cell (x, y) of matrix `matrix` for its upper left cell. */
+export interface AreaTarget {
+  matrix: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * What `create_area` made: the matrix (the target's with one), its maps as [x, y, map id] (x, y within the area), the
+ * event file and the header it assigned.
+ */
 export interface AreaReport {
   matrix: number;
   maps: [number, number, number][];
@@ -614,6 +629,8 @@ export interface AreaReport {
   snapshot: string | null;
   /** The place the header got. */
   place: number | null;
+  /** The landscape cells (a map, header 0) of the world map the area replaced; 0 without a target. */
+  replaced: number;
 }
 
 export interface ExtendSpec {

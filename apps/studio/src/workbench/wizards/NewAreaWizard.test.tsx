@@ -42,7 +42,7 @@ const world: World = {
   assignedRooms: 0,
 };
 const FORBIDDEN = /Raster|Matrix|Header/;
-const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null };
+const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 0 };
 
 describe("NewAreaWizard", () => {
   let container: HTMLElement;

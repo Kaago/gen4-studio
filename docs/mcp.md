@@ -93,7 +93,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `undo`, `redo` | schreibend | nimmt den neuesten Schritt des Verlaufs zurück bzw. stellt ihn wieder her |
 | `set_header` | schreibend | ersetzt die Felder eines Headers |
 | `set_matrix_cell` | schreibend | setzt Karte, Header oder Höhe einer Matrixzelle |
-| `create_area` | schreibend; mit `header.allow_patch` unumkehrbar | legt ein neues Außengebiet an (eine Matrix in der gewünschten Größe), auf Wunsch mit Ort (`header.place`: vorhandener Index oder neuer Name, ein Undo-Schritt mit dem Header) und automatischem internem Namen |
+| `create_area` | schreibend; mit `header.allow_patch` unumkehrbar | legt ein neues Außengebiet an (eine Matrix in der gewünschten Größe), auf Wunsch mit Ort (`header.place`: vorhandener Index oder neuer Name, ein Undo-Schritt mit dem Header) und automatischem internem Namen; mit `target: {matrix, x, y}` liegt es nahtlos auf einer vorhandenen Weltkarte (Matrix mit Header-Abschnitt; nur leere Zellen und Landschaft mit Header 0, `replaced` zählt die ersetzten Landschaftszellen) |
 | `create_room` | schreibend; mit `header.allow_patch` unumkehrbar | legt einen Innenraum an (eine Ein-Zellen-Matrix mit einer Kopie einer Karte), Ort und interner Name wie bei `create_area` |
 | `extend_area` | schreibend | fügt einem Gebiet eine Zelle hinzu |
 | `add_event` | schreibend | fügt einer Eventdatei ein Event hinzu und liefert dessen Index |
