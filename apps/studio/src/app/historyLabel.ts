@@ -37,10 +37,28 @@ const KNOWN_BUILDING: Readonly<Record<string, string>> = {
   "edit header": "Ort geändert",
 };
 
+/** The parts of a map as `g4_kernel::map_import::Part::label` names them in an undo label, in German (Tüfteln, Bauen). */
+const MAP_PARTS: Readonly<Record<string, readonly [string, string]>> = {
+  model: ["Modell", "Modell"],
+  permissions: ["Kollision", "Kollision"],
+  buildings: ["Gebäude", "Gebäude"],
+  terrain: ["BDHC", "Laufhöhen"],
+  "background sound": ["Hintergrundklang", "Hintergrundklang"],
+  "whole map": ["ganze Karte", "ganze Karte"],
+};
+
+/** "model and permissions and terrain" as "Modell, Kollision und BDHC" (an unknown part stays as it is). */
+function mapParts(list: string, building: boolean): string {
+  const parts = list.split(" and ").map((part) => MAP_PARTS[part]?.[building ? 1 : 0] ?? part);
+  return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} und ${parts[parts.length - 1]}`;
+}
+
 /** The labels the commands build with `format!`; the id stays in the text. The second text is Bauen's. */
 const PATTERNS: readonly [RegExp, (match: RegExpMatchArray) => string, (match: RegExpMatchArray) => string][] = [
   [/^assign header (\d+) to matrix (\d+)$/, (m) => `Header ${m[1]} Matrix ${m[2]} zuweisen`, (m) => `Ort ${m[1]} Weltkarte ${m[2]} zuweisen`],
   [/^connect warp to header (\d+)$/, (m) => `Warp mit Header ${m[1]} verbinden`, (m) => `Warp mit Ort ${m[1]} verbinden`],
+  // `g4_kernel::map_import`: "map 0668: model and permissions and terrain imported".
+  [/^map (\d+): (.+) imported$/, (m) => `Karte ${m[1]}: ${mapParts(m[2]!, false)} importiert`, (m) => `Karte ${m[1]}: ${mapParts(m[2]!, true)} importiert`],
 ];
 
 /** What the kernel and the commands write: lowercase ASCII words. Anything else was named by the frontend (a German field label) already. */
