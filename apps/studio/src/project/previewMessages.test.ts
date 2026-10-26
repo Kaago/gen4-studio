@@ -27,9 +27,20 @@ describe("previewMessages", () => {
     expect(previewErrorText(refused("preview.unreadable: /x.png: No such file"))).toBe("Das Bild lässt sich nicht lesen. Wähle eine andere Datei.");
   });
 
-  it("any other error keeps its own text", () => {
-    expect(previewErrorText(refused("no project open"))).toBe("no project open");
-    expect(previewErrorText("bridge down")).toBe("bridge down");
+  it("any other error says in German what to check, the bridge's German refusals keep their text", () => {
+    const sentence = "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst.";
+    expect(previewErrorText(refused("/Users/du/Spiele/pt: project folder not found"))).toBe(sentence);
+    expect(previewErrorText(refused("Permission denied (os error 13)"))).toBe(sentence);
+    expect(previewErrorText("bridge down")).toBe(sentence);
+    for (const own of ["Pfad liegt außerhalb der erlaubten Ordner: /tmp/x.png", "Pfad ist kein gültiger Text: /x", "Ungültige Argumente für project_preview_set: y"]) {
+      expect(previewErrorText(refused(own))).toBe(own);
+    }
+  });
+
+  it("change_preview_says_a_failed_write_in_german", async () => {
+    vi.mocked(projectPreviewSet).mockRejectedValue(refused("Permission denied (os error 13)"));
+    await expect(changePreview("remove", "/p")).resolves.toBeNull();
+    expect(toasts()).toEqual([["error", "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst."]]);
   });
 
   it("chooses a PNG or JPEG file in the dialog Vorschaubild wählen", async () => {

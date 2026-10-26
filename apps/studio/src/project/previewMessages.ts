@@ -12,11 +12,18 @@ const SENTENCES: Record<string, string> = {
 
 const CODE = /\bpreview\.(format|too_large|unreadable)\b/;
 
-/** The toast text of a failed `project_preview_set`: the sentence of its code, else the error's own text. */
+/** The bridge's own refusals of a path or of arguments (`bridge/roots.rs`, `dispatch.rs`): German already, they keep their text. */
+const GERMAN = /^(Pfad liegt außerhalb|Pfad ist kein gültiger Text|Ungültige Argumente)/;
+
+/** Any other failure of a write: the kernel's or the system's own text is English and names no way out („Permission denied (os error 13)“). */
+const OTHER = "Das Vorschaubild ließ sich nicht ändern. Prüfe, ob der Projektordner noch da ist und du darin schreiben darfst.";
+
+/** The toast text of a failed `project_preview_set`: the sentence of its code, the bridge's German refusal, else a German sentence. */
 export function previewErrorText(e: unknown): string {
   const text = errorText(e);
   const code = CODE.exec(text)?.[0];
-  return (code !== undefined && SENTENCES[code]) || text;
+  if (code !== undefined && SENTENCES[code]) return SENTENCES[code];
+  return GERMAN.test(text) ? text : OTHER;
 }
 
 /** Asks for a picture file (PNG or JPEG) for the preview; null when cancelled. In the browser the path is typed into the page. */
@@ -26,15 +33,23 @@ export async function choosePreviewFile(): Promise<string | null> {
 
 /**
  * „Vorschaubild wählen…“ (`choose`: asks for a file, then writes it) or removing the own picture (`remove`), for the project at `path`
- * (Start) or the open project without one (Technik). Says so in a toast: „Vorschaubild gesetzt“ or „Vorschaubild entfernt“, a refused
- * picture with the sentence of its code, a failing dialog with its text. Answers the preview after the write; null when cancelled or
+ * (Start) or the open project without one (Technik). Says so in a toast: „Vorschaubild gesetzt“ or „Vorschaubild entfernt“, a failed
+ * write as `previewErrorText` says it, a failing dialog with its text. Answers the preview after the write; null when cancelled or
  * failed (never rejects).
  */
 export async function changePreview(how: "choose" | "remove", path?: string): Promise<PreviewDto | null> {
   const where = path === undefined ? {} : { path };
+  let file: string | null = null;
+  if (how === "choose") {
+    try {
+      file = await choosePreviewFile();
+    } catch (e) {
+      toast.error(errorText(e));
+      return null;
+    }
+    if (file === null) return null;
+  }
   try {
-    const file = how === "choose" ? await choosePreviewFile() : null;
-    if (how === "choose" && file === null) return null;
     const preview = await projectPreviewSet(file === null ? where : { ...where, file });
     toast.info(file === null ? "Vorschaubild entfernt" : "Vorschaubild gesetzt");
     return preview;
