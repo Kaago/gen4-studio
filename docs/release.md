@@ -40,6 +40,24 @@ Normale Builds (`cargo build`, `cargo test`, `clippy`, `tauri dev`) brauchen `pr
 leere Platzhalter in `binaries/` und `frameworks/` an, weil Tauri die Dateien aus `externalBin`/`frameworks` bei jedem Build
 erwartet. `find_apicula` und `find_rotom_lsp` ignorieren eine leere Datei.
 
+## App-Symbol
+
+Das Symbol der App ist die Marke aus dem Design-System (`design-system/README.md`, Abschnitt „Marke“). Quelle sind
+`design-system/marke/gen4-studio-marke.svg` und `design-system/marke/gen4-studio-marke-1024.png`; beide schreibt
+`design-system/scripts/marke.py` aus den Tokens. Alle Größen unter `apps/studio/src-tauri/icons/` entstehen daraus mit
+`tauri icon`:
+
+```sh
+python3 design-system/scripts/marke.py                         # SVG und 1024-px-PNG neu, aus der Repo-Wurzel
+cd apps/studio
+pnpm tauri icon ../../design-system/marke/gen4-studio-marke-1024.png
+```
+
+`tauri icon` legt dabei auch `64x64.png`, `android/` und `ios/` an. Sie werden nicht eingecheckt (gelöscht), weil
+`tauri.conf.json` sie nicht nennt; die Windows-Store-Logos (`Square*Logo.png`, `StoreLogo.png`) bleiben eingecheckt
+wie bisher. Unter `tauri dev` zeigt das Dock `icons/icon.png`, im Bundle kommt `icons/icon.icns` nach
+`Contents/Resources/icon.icns`; der Über-Dialog nimmt das Bundle-Symbol.
+
 ## Prüfbefehle
 
 `scripts/check-bundle.sh` prüft:
@@ -49,6 +67,8 @@ erwartet. `find_apicula` und `find_rotom_lsp` ignorieren eine leere Datei.
 - `Contents/Frameworks/libnitroarc_ffi.dylib` existiert und hat den Install-Namen `@rpath/libnitroarc_ffi.dylib`.
 - Das Studio-Binary hat den rpath `@executable_path/../Frameworks` und lädt die dylib über `@rpath/...`;
   kein absoluter Pfad in `target/` ist eingebunden.
+- `Contents/Resources/icon.icns` hat denselben SHA-256 wie `apps/studio/src-tauri/icons/icon.icns`, und dieser ist
+  nicht der Hash des alten Standardsymbols von create-tauri-app (Konstante `OLD_DEFAULT_ICNS` im Skript).
 
 Zusätzlich von Hand:
 

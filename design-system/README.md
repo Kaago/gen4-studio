@@ -15,6 +15,7 @@ Gen4 Studio ist eine Engine, mit der Menschen eigene Pokémon-Spiele für den Ni
 | `apps/studio/src/ui/tokens/dockview-theme.css` | Dockview-Thema `dockview-theme-g4`, gespeist aus den Tokens |
 | `apps/studio/src/ui/tokens/tokens.ts` | Hex-Werte für three.js, Monaco/CodeMirror und Canvas: Szene, Themen, Syntax, Pokémon-Typen (`typen`, aus der Szene-Gruppe `typ`), `rgb555()` |
 | `scripts/export_tokens.py` | Erzeugt die drei Dateien oben aus `tokens/`; Aufruf über `pnpm tokens` (in `apps/studio`), Ausgabeordner als zweiter Parameter |
+| `marke/` | Die Marke (App-Symbol): `gen4-studio-marke.svg` (Quelle) und `gen4-studio-marke-1024.png`, beide erzeugt von `scripts/marke.py`; Abschnitt „Marke“ |
 | `scripts/check_tokens.py` | Prüft RGB555-Treue und WCAG-Kontraste aller wichtigen Paare in beiden Themen |
 | `scripts/fix_fig_text.mjs` | Repariert nach dem Speichern in OpenPencil verstümmelte Texte und rastet mit `--rgb555` alle Farben der `.fig` auf das DS-Raster |
 | `openpencil/jsx-lib.js` | JSX-Bausteine des Zielbilds (Fenster, Atlas, Scharnier, Statusleiste, Inspector, DS-Bildschirm …), mit denen die Zielbild-Screens gebaut sind |
@@ -93,6 +94,46 @@ Regeln:
 Skala: 12/16, 13/18, 15/20, 18/24, 24/30, 32/38, 44/52. Alle Schriften stehen unter der SIL Open Font License und werden mit der App ausgeliefert (CSP erlaubt nur `self`): `@fontsource-variable/atkinson-hyperlegible-next`, `@fontsource/atkinson-hyperlegible-mono`, `@fontsource/zen-maru-gothic` (700, 900; nur Latin-Teilmenge), `@fontsource/pixelify-sans`. Auf Windows statische, gehintete Schnitte bevorzugen.
 
 Symbole: Phosphor Icons (MIT), Stil „regular“ für Oberfläche, „fill“ für Marker in der Welt. In der App erben Symbole `currentColor`.
+
+## Marke
+
+Die Marke von Gen4 Studio ist das Doppeldeck selbst: zwei Bildschirme übereinander, dazwischen das Scharnier, die eine Signatur des Systems (Prinzip 2). Oben die Schau (was der Spieler sieht), unten die Hand (was man anfasst). Sie ist das App-Symbol (Dock, Finder, „Über Gen4 Studio“); eine Ziffer „4“ trägt sie nicht, Name und Generation stehen daneben.
+
+![Marke von Gen4 Studio](marke/gen4-studio-marke-1024.png)
+
+Konstruktion im Raster 1024 × 1024 (alle Maße in Pixeln; innerhalb des Körpers liegt alles außer den Radien im 8-px-Raster der Marke, 8 px sind eine Kachel):
+
+| Teil | Maß | Token |
+|---|---|---|
+| Körper | 824 × 824 bei 100/100 (100 px Rand rundum, Raster der macOS-App-Symbole), Radius 184; kein Schatten | Kante `linie/stark`, Fläche `scharnier/grund` |
+| Innenkante | 8 px, als Ring um die Fläche (Fläche 808 × 808 bei 108/108, Radius 176) | `linie/stark` |
+| Bildschirme | je 560 × 296, Radius 24, bei x 232 (132 px vom Körperrand), oben bei y 184, unten bei y 544 (je 84 px zum Körperrand) | – |
+| Scharnier | Streifen 64 px zwischen den Bildschirmen (y 480 bis 544), darin mittig die Kante 560 × 32 bei y 496 | `akzent/grund` |
+| Schau (oben) | Fläche des Bildschirms; drei Grasstufen nach rechts steigend (ab x 160, 296, 432 im Bildschirm, Oberkanten 200, 136, 72), jede mit einer Lippe von einer Kachel (8 px); links davor Wasser (160 breit, Oberkante 216) | `szene/ds/grund`, `szene/gelaende/hohes-gras`, `szene/gelaende/vorsprung`, `szene/gelaende/wasser` |
+| Hand (unten) | Fläche des Bildschirms; 4 × 3 Kacheln je 72 × 72, Abstand 16, Radius 8, mittig (112 px links und rechts, 24 px oben und unten); gewählt ist Spalte 3, Zeile 2 | `flaeche/blatt`, `linie/standard`, gewählt `auswahl/kante` |
+
+Farben (Thema Dunkel und Szene, alle auf dem RGB555-Raster, Prinzip 5):
+
+| Token | Wert | Rolle |
+|---|---|---|
+| `scharnier/grund` (Dunkel) | `#42527B` | Körper: das Gehäuse in der Farbe des Scharniers |
+| `linie/stark` (Dunkel) | `#848CA5` | Innenkante, Kontur auf dunklem Dock |
+| `akzent/grund` (Dunkel) | `#6384F7` | Scharnier-Kante, der einzige Akzent („das bist du gerade“) |
+| `auswahl/kante` (Dunkel) | `#6384F7` | die gewählte Kachel |
+| `flaeche/blatt` (Dunkel) | `#394252` | unterer Bildschirm |
+| `linie/standard` (Dunkel) | `#4A5263` | Kacheln |
+| `szene/ds/grund` | `#182131` | oberer Bildschirm (Himmel) |
+| `szene/gelaende/hohes-gras` | `#009C73` | Grasstufen |
+| `szene/gelaende/vorsprung` | `#E79C00` | Lippen der Stufen (Vorsprünge) |
+| `szene/gelaende/wasser` | `#0073B5` | Wasser |
+
+Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht, die Fläche des Scharniers heißt `scharnier/grund`. Jede Fläche im SVG trägt ihr Token im `id` der Gruppe (`token-scharnier-grund`, `token-szene-gelaende-wasser` …); nach einer Token-Änderung `python3 design-system/scripts/marke.py` laufen lassen und die Symbole neu erzeugen (`docs/release.md`, Abschnitt „App-Symbol“).
+
+- **Schutzraum:** um den Körper ein Viertel des Scharniers frei, 16 px bei 824; in Dokumenten und auf Flächen der App mindestens 1/8 der Körperbreite (103 px bei 824).
+- **Hell und Dunkel:** ein Symbol für beide (Tauri 2 kennt nur eins). Auf hellem Dock und Finder steht der Körper durch seinen Kontrast, auf dunklem durch die Innenkante `linie/stark`. Die Ecken außerhalb des Körpers sind durchsichtig; dieselbe Datei taugt daher ohne Änderung für Flächen der App (Galerie, späterer Über-Dialog).
+- **Kleine Größen:** bei 32 px bleiben Körper, die zwei Bildschirme, die Kobaltkante und die gewählte Kachel erkennbar, bei 16 px Körper, die zwei Bildschirme und die Kante als heller Streifen; Stufen, Wasser und Kacheln verschwimmen gewollt. Darum ist die Kante 32 px dick (eine Pixelzeile bei 32 px). Kein eigenes Kleinsymbol: `tauri icon` skaliert aus 1024.
+- **Dateien:** `marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, ohne eingebettete Bilder) und `marke/gen4-studio-marke-1024.png` (1024 × 1024, RGBA, sRGB). Beide schreibt `scripts/marke.py` aus einer Geometrie, nur mit der Standardbibliothek (eigener Rasterizer mit 4 × 4-Supersampling an den Rundungen, PNG über `zlib`); gleicher Lauf, gleiche Bytes. Tests: `python3 -m unittest design-system/scripts/test_marke.py` (Maß und Farbtyp des PNG, Farben als Token auf dem RGB555-Raster, Maße, Determinismus).
+- **OpenPencil:** Brett „Marke“ auf der Seite „Grundlagen“ der `.fig` (Konstruktion mit Maßlinien, die Marke in 1024, 128, 32 und 16 px, auf Hell und auf Dunkel, Schutzraum).
 
 ## Komponenten (Seite „Komponenten“)
 

@@ -37,4 +37,17 @@ if otool -L "$BIN" | tail -n +2 | grep -q "target/"; then
 fi
 test "$(otool -D "$DYLIB" | tail -1)" = "@rpath/libnitroarc_ffi.dylib"
 
+# The bundle carries the brand icon: same hash as icons/icon.icns, and not the create-tauri-app default.
+OLD_DEFAULT_ICNS=3dc10493b7de48a61de58f768f8a5708d3a44a068c148cedf0502b9b9b71ba5d
+WANT=$(shasum -a 256 apps/studio/src-tauri/icons/icon.icns | cut -d' ' -f1)
+HAVE=$(shasum -a 256 "$APP/Contents/Resources/icon.icns" | cut -d' ' -f1)
+if [ "$HAVE" != "$WANT" ]; then
+  echo "bundle icon.icns differs from apps/studio/src-tauri/icons/icon.icns" >&2
+  exit 1
+fi
+if [ "$WANT" = "$OLD_DEFAULT_ICNS" ]; then
+  echo "icons/icon.icns is still the create-tauri-app default" >&2
+  exit 1
+fi
+
 echo "bundle ok: $APP"
