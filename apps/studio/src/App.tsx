@@ -690,8 +690,6 @@ function AppBody() {
   // (reading it on every matrix change would render App for each edit).
   const cellChosen = pins.pinned.kind === "matrixCell";
   const [importMap, setImportMap] = useState<number | null>(null);
-  // Whether the 3D view shows, read when the palette opens: only then is its picture worth setting as the preview.
-  const sceneShown = paletteOpen && activeScene.shown();
   const paletteItems = useMemo(
     () =>
       paletteEntries({
@@ -701,9 +699,9 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, wizard: wizards.request !== null, sceneShown },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, wizard: wizards.request !== null },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, wizards.request, sceneShown],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, wizards.request],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.

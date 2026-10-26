@@ -27,7 +27,7 @@ const scripts: ScriptFileDto[] = [
   { file: 9, kind: "levelScript", size: 12, headers: [] },
   { file: 10, kind: "binary", size: 4, headers: [3] },
 ];
-const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, inspectorFloats: false, cellChosen: false, wizard: false, sceneShown: false };
+const commands = { busy: false, hasList: true, inApp: false, deck: "welt" as const, docked: true, inspectorFloats: false, cellChosen: false, wizard: false };
 const dataRow = (index: number, name: string, extra: DataRowDto["extra"]): DataRowDto => ({ index, name, tech: String(index).padStart(4, "0"), locked: null, extra });
 const data = {
   species: [dataRow(396, "Staralili", { types: [0, 2], number: 396, stats: [40, 55, 30, 60, 30, 30] }), dataRow(397, "Staravia", { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] }), dataRow(520, "species 0520", null)],
@@ -245,14 +245,19 @@ describe("paletteEntries", () => {
   it("describes_the_import_as_into_the_chosen_map", () => {
     expect(byId("cmd-importParts", { commands: { ...commands, cellChosen: true } })).toMatchObject({ disabled: false, description: "In die gewählte Karte", run: { kind: "command", command: "importParts" } });
   });
-  it("sets_the_preview_from_the_3d_view_only_while_it_shows", () => {
-    expect(byId("cmd-previewFrom3d")).toMatchObject({ label: "Als Vorschaubild: 3D-Ansicht", disabled: true, description: "Erst die 3D-Ansicht zeigen" });
-    expect(byId("cmd-previewFrom3d", { commands: { ...commands, sceneShown: true } })).toMatchObject({
+  it("sets_the_preview_from_the_3d_view_whenever_the_world_is_shown", () => {
+    // In the world the command brings the 3D view to the front itself (as the tab menu does), also while another group hides it.
+    expect(byId("cmd-previewFrom3d")).toMatchObject({
+      label: "Als Vorschaubild: 3D-Ansicht",
       disabled: false,
       description: "Das Bild der Ansicht auf die Projektkarte",
       area: "welt",
       run: { kind: "command", command: "previewFrom3d" },
     });
+    // Another area (with a dock or without one, as Technik), or no project: locked.
+    expect(byId("cmd-previewFrom3d", { commands: { ...commands, deck: "texte" } })).toMatchObject({ disabled: true, description: "Erst die 3D-Ansicht zeigen" });
+    expect(byId("cmd-previewFrom3d", { commands: { ...commands, docked: false } })).toMatchObject({ disabled: true, description: "Erst die 3D-Ansicht zeigen" });
+    expect(byId("cmd-previewFrom3d", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
   });
 
   it("sets_the_preview_from_the_map_picture_only_with_a_chosen_map", () => {

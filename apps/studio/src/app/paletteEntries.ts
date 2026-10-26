@@ -70,8 +70,6 @@ export interface CommandState {
   cellChosen: boolean;
   /** A wizard of the world is open: no new game is started beside it. */
   wizard: boolean;
-  /** The 3D view is mounted and shows (read when the palette opens): only then can its picture become the preview. */
-  sceneShown: boolean;
 }
 
 export interface PaletteData {
@@ -115,7 +113,7 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, wizard, sceneShown } = commands;
+  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, wizard } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   // Only the world's dock has the Werkbank and an inspector; every dock has the Doppeldeck.
@@ -140,7 +138,15 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
       locked: project ?? (cellChosen ? null : NO_CELL),
     },
     // Phase 4.0 §3.5: the project's own preview picture from the scene; it changes no data of the project (no busy lock, as the wizards).
-    { command: "previewFrom3d", label: "Als Vorschaubild: 3D-Ansicht", icon: "world", area: "welt", description: "Das Bild der Ansicht auf die Projektkarte", locked: hasProject ? (sceneShown ? null : NO_SCENE) : NO_PROJECT },
+    // In the world the command brings the 3D view to the front itself (`uncover`, as from the tab menu), so it locks only outside it.
+    {
+      command: "previewFrom3d",
+      label: "Als Vorschaubild: 3D-Ansicht",
+      icon: "world",
+      area: "welt",
+      description: "Das Bild der Ansicht auf die Projektkarte",
+      locked: hasProject ? (world === null ? null : NO_SCENE) : NO_PROJECT,
+    },
     {
       command: "previewFromMap",
       label: "Als Vorschaubild: Kartenbild der gewählten Karte",
