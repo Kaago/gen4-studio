@@ -57,9 +57,10 @@ describe("StartPane", () => {
     expect(card("/roms/pt-a")?.textContent).toContain("Platin, DE");
     expect(card("/roms/pt-a")?.textContent).toContain("geöffnet vor 2 Stunden");
     expect(card("/roms/hg-b")?.textContent).toContain("geöffnet vor 5 Minuten");
-    // The path is the card's tooltip; the preview is an empty DS screen.
+    // The path is the card's tooltip; the preview is a DS screen, decorative (the button names the project): never announced as empty.
     expect(card("/roms/pt-a")?.getAttribute("title")).toBe("/roms/pt-a");
-    expect(card("/roms/pt-a")?.closest("li")?.querySelector('[aria-label="DS-Bildschirm, leer"]')).not.toBeNull();
+    expect(card("/roms/pt-a")?.closest("li")?.querySelector('[aria-hidden="true"] [data-preview-name]')).not.toBeNull();
+    expect(container.querySelector("[aria-label^='DS-Bildschirm']")).toBeNull();
   });
 
   it("names_the_open_button_by_the_project_and_describes_it_by_game_and_time", () => {
@@ -116,8 +117,9 @@ describe("StartPane", () => {
     expect(img!.getAttribute("alt")).toBe("");
     expect(img!.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
     expect(img!.getAttribute("src")).toBe("data:image/png;base64,iVBORw0KGgo=");
-    // The picture lies on the DS screen, where the name was.
-    expect(img!.closest('[aria-label="DS-Bildschirm, leer"]')).not.toBeNull();
+    // The picture lies on the DS screen, where the name was; the screen is hidden from assistive technology, not announced as empty.
+    expect(img!.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(container.querySelector("[aria-label^='DS-Bildschirm']")).toBeNull();
     expect(card("/roms/pt-a")?.closest("li")?.querySelector("[data-preview-name]")).toBeNull();
     const textOf = (ids: string | null) => (ids ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
     expect(textOf(card("/roms/pt-a")!.getAttribute("aria-labelledby"))).toBe("pt-a");
@@ -129,7 +131,7 @@ describe("StartPane", () => {
       const li = card(path)!.closest("li")!;
       expect(li.querySelector("img")).toBeNull();
       expect(li.querySelector("[data-preview-name]")?.textContent).toBe(path.slice("/roms/".length));
-      expect(li.querySelector('[aria-label="DS-Bildschirm, leer"]')).not.toBeNull();
+      expect(li.querySelector('[aria-hidden="true"] [data-preview-name]')).not.toBeNull();
     }
   });
 

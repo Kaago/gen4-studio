@@ -14,8 +14,9 @@ export type ProjectPreviewProps = {
 
 /**
  * The picture of a project on a DS screen (phase 4.0 design, §3.5), or its name on the empty screen when there is none. Both are only
- * the picture: the picture has `alt=""` and the name is hidden from the accessibility tree, since whoever shows this names the project
- * beside it. The screen magnifies by whole numbers, so the pixels stay sharp.
+ * the picture: the screen is decorative (hidden from the accessibility tree, never announced as „DS-Bildschirm, leer“), the picture has
+ * `alt=""` and the name is hidden too, since whoever shows this names the project beside it. The screen magnifies by whole numbers, so
+ * the pixels stay sharp.
  */
 export function ProjectPreview({ name, png }: ProjectPreviewProps) {
   return (
@@ -23,6 +24,7 @@ export function ProjectPreview({ name, png }: ProjectPreviewProps) {
       variant="empty"
       pages={[]}
       page={0}
+      decorative
       background={
         png !== null ? (
           <img className={styles.picture} src={`data:image/png;base64,${png}`} alt="" width={WIDTH} height={HEIGHT} draggable={false} />

@@ -22,7 +22,9 @@ describe("ProjectPreview", () => {
 
   it("shows the picture on the DS screen, decorative", () => {
     act(() => root.render(<ProjectPreview name="platin-hack" png="AAAA" />));
-    const screen = container.querySelector('[aria-label="DS-Bildschirm, leer"]')!;
+    // The screen is hidden from assistive technology: a screen reader never hears „DS-Bildschirm, leer“ for a card with a picture.
+    expect(container.querySelector("[aria-label^='DS-Bildschirm']")).toBeNull();
+    const screen = container.querySelector('[aria-hidden="true"]')!;
     const img = screen.querySelector("img")!;
     expect(img.getAttribute("alt")).toBe("");
     expect(img.getAttribute("src")).toBe("data:image/png;base64,AAAA");
@@ -37,5 +39,7 @@ describe("ProjectPreview", () => {
     expect(name.textContent).toBe("platin-hack");
     expect(name.getAttribute("aria-hidden")).toBe("true");
     expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("[aria-label^='DS-Bildschirm']")).toBeNull();
+    expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
   });
 });

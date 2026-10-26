@@ -75,6 +75,19 @@ describe("DSScreen", () => {
     expect(group()?.textContent).toBe("");
   });
 
+  it("hides_a_decorative_screen_from_assistive_technology", () => {
+    // Whoever shows it names what it shows beside it (a project card): the screen is not announced, not even as empty.
+    act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={1} decorative background={<i data-testid="karte" />} />));
+    expect(group()).toBeNull();
+    expect(container.querySelector("[aria-label^='DS-Bildschirm']")).toBeNull();
+    expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector("[data-testid=karte]")).not.toBeNull();
+    // Without it the screen stays a named group.
+    act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={1} />));
+    expect(group()?.getAttribute("aria-label")).toBe("DS-Bildschirm, leer");
+    expect(container.firstElementChild?.hasAttribute("aria-hidden")).toBe(false);
+  });
+
   it("sizes_itself_by_the_integer_scale_through_a_custom_property", () => {
     act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={3} />));
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("3");
