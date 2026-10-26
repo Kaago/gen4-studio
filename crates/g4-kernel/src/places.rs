@@ -43,6 +43,8 @@ const DP_REFUSED: &str = "Eigene Orte gibt es nur für Platin und HeartGold/Soul
 const BANK_FULL: &str =
     "Die Ortsnamen-Bank ist voll: mehr als 256 Orte kann das Spiel nicht ansprechen.";
 const NAME_MISSING: &str = "Der Ort braucht einen Namen.";
+const ONE_LINE: &str = "Ein Ortsname hat nur eine Zeile.";
+const NO_PLACE: &str = "„Mysteriöser Ort“ (kein Ort) lässt sich nicht umbenennen.";
 
 /// Room for new places in the location bank.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -80,17 +82,33 @@ fn refuse_dp(store: &Store) -> Result<(), KernelError> {
     }
 }
 
-/// Refuses an empty name and one with a character chatot cannot encode (the first problem
-/// of [`text::validate`] in the sentence). The name is never shortened.
+/// Refuses an empty name, one of more than one line (a line break, or chatot's line codes
+/// `\n`, `\r`, `\f` in text form) and one with a character chatot cannot encode (the first
+/// problem of [`text::validate`] in the sentence). The name is never shortened.
 fn check_name(store: &Store, bank: u16, name: &str) -> Result<(), KernelError> {
     if name.trim().is_empty() {
         return Err(refused(NAME_MISSING));
+    }
+    let line_code = ["\\n", "\\r", "\\f"].iter().any(|code| name.contains(code));
+    if line_code || name.contains(['\n', '\r']) {
+        return Err(refused(ONE_LINE));
     }
     let file = store.project().member_path(AssetKind::TextArchive, bank);
     match text::validate(name, &file).first() {
         Some(problem) => Err(refused(format!(
             "Der Name enthält Zeichen, die das Spiel nicht kennt: {}",
             problem.message
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Refuses a header id of `headers` the store's header table does not have.
+fn check_headers(store: &mut Store, headers: &[u16]) -> Result<(), KernelError> {
+    let count = store.header_table()?.len();
+    match headers.iter().find(|&&id| usize::from(id) >= count) {
+        Some(id) => Err(refused(format!(
+            "Das Gebiet oder den Raum {id} gibt es nicht."
         ))),
         None => Ok(()),
     }
@@ -137,8 +155,9 @@ pub fn place_slots(store: &mut Store) -> Result<PlaceSlots, KernelError> {
 /// Creates the place `name` and gives it to `headers`, one undo step "Ort „<name>“
 /// angelegt". The name is appended to the location bank; on a full HGSS bank it replaces
 /// the lowest Sinnoh name no header uses ([`PlaceSlots::reusable`]). Refused, with nothing
-/// changed, on Diamond/Pearl, for an empty name or one with a character the game does not
-/// know, and when the bank is full; a header past the table fails the step as a whole.
+/// changed, on Diamond/Pearl, for an empty name, one of more than one line or one with a
+/// character the game does not know, for a header the table does not have, and when the
+/// bank is full.
 pub fn create_place(
     store: &mut Store,
     name: &str,
@@ -147,6 +166,7 @@ pub fn create_place(
     refuse_dp(store)?;
     let bank = location_bank(store.project());
     check_name(store, bank, name)?;
+    check_headers(store, headers)?;
     let slots = place_slots(store)?;
     let (index, reused) = if slots.free > 0 {
         let index = u8::try_from(slots.count).map_err(|_| refused(BANK_FULL))?;
@@ -161,13 +181,17 @@ pub fn create_place(
     store.transaction(&format!("Ort „{name}“ angelegt"), |tx| {
         tx.edit_text_archive(bank, |doc| {
             let at = usize::from(index);
-            match doc.messages.get_mut(at) {
-                Some(message) if replace => message.text = name.to_owned(),
-                _ => doc.messages.push(TextMessage {
+            if replace {
+                // `existing_name` found the message, so it is there.
+                if let Some(message) = doc.messages.get_mut(at) {
+                    message.text = name.to_owned();
+                }
+            } else {
+                doc.messages.push(TextMessage {
                     id: default_message_id(at),
                     text: name.to_owned(),
                     other: Default::default(),
-                }),
+                });
             }
         })?;
         set_locations(tx, headers, index)
@@ -176,10 +200,14 @@ pub fn create_place(
 }
 
 /// Renames the place at `index` for every header that carries it, one undo step "Ort
-/// „<old>“ in „<new>“ umbenannt". Refused on Diamond/Pearl, for an index the bank does not
-/// have and for a name [`create_place`] refuses.
+/// „<old>“ in „<new>“ umbenannt". Refused on Diamond/Pearl, for index 0 (no place, the
+/// game's "Mysterious Zone"), for an index the bank does not have and for a name
+/// [`create_place`] refuses.
 pub fn rename_place(store: &mut Store, index: u8, name: &str) -> Result<(), KernelError> {
     refuse_dp(store)?;
+    if index == 0 {
+        return Err(refused(NO_PLACE));
+    }
     let bank = location_bank(store.project());
     let names = location_names(store)?;
     let old = existing_name(&names, index)?.to_owned();
@@ -195,12 +223,13 @@ pub fn rename_place(store: &mut Store, index: u8, name: &str) -> Result<(), Kern
 }
 
 /// Gives the existing place at `index` to `headers`, one undo step "Ort „<name>“
-/// zugewiesen". Refused on Diamond/Pearl and for an index the bank does not have; a header
-/// past the table fails the step as a whole.
+/// zugewiesen". Refused on Diamond/Pearl, for an index the bank does not have and for a
+/// header the table does not have.
 pub fn assign_place(store: &mut Store, headers: &[u16], index: u8) -> Result<(), KernelError> {
     refuse_dp(store)?;
     let names = location_names(store)?;
     let name = existing_name(&names, index)?.to_owned();
+    check_headers(store, headers)?;
     store.transaction(&format!("Ort „{name}“ zugewiesen"), |tx| {
         set_locations(tx, headers, index)
     })?;
@@ -370,6 +399,55 @@ mod tests {
         );
         assert_eq!(location_names(&mut st).unwrap().len(), 256);
         assert_eq!(location_of(&mut st, 0), 1);
+        // Only the step that filled the bank.
+        assert_eq!(st.undo_depth(), 1);
+    }
+
+    #[test]
+    fn refuses_unknown_headers() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        let err = refusal(create_place(&mut st, "Neuheim", &[0, 9]).unwrap_err());
+        assert_eq!(err, "Das Gebiet oder den Raum 9 gibt es nicht.");
+        let err = refusal(assign_place(&mut st, &[2], 1).unwrap_err());
+        assert_eq!(err, "Das Gebiet oder den Raum 2 gibt es nicht.");
+        assert_eq!(location_names(&mut st).unwrap().len(), 3);
+        assert_eq!(location_of(&mut st, 0), 1);
+        assert_eq!(st.undo_depth(), 0);
+    }
+
+    #[test]
+    fn refuses_to_rename_no_place() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        let err = refusal(rename_place(&mut st, 0, "Irgendwo").unwrap_err());
+        assert_eq!(
+            err,
+            "„Mysteriöser Ort“ (kein Ort) lässt sich nicht umbenennen."
+        );
+        assert_eq!(location_names(&mut st).unwrap()[0], "Nowhere");
+        assert_eq!(st.undo_depth(), 0);
+    }
+
+    #[test]
+    fn refuses_a_name_of_more_than_one_line() {
+        let s = synthetic_project();
+        let mut st = store_of(&s);
+        // The chatot line codes in text form, and real line breaks.
+        for name in [
+            "Neu\\nheim",
+            "Neu\\rheim",
+            "Neu\\fheim",
+            "Neu\nheim",
+            "Neu\rheim",
+        ] {
+            let err = refusal(create_place(&mut st, name, &[0]).unwrap_err());
+            assert_eq!(err, "Ein Ortsname hat nur eine Zeile.", "{name:?}");
+            let err = refusal(rename_place(&mut st, 1, name).unwrap_err());
+            assert_eq!(err, "Ein Ortsname hat nur eine Zeile.", "{name:?}");
+        }
+        assert_eq!(location_names(&mut st).unwrap().len(), 3);
+        assert_eq!(st.undo_depth(), 0);
     }
 
     #[test]
@@ -458,8 +536,9 @@ mod tests {
             err,
             "Den Ort 3 gibt es nicht: die Ortsnamen-Bank hat 3 Namen."
         );
-        // A header past the table fails the step, the others stay too.
-        assert!(assign_place(&mut st, &[0, 9], 2).is_err());
+        // A header past the table is refused, the others stay too.
+        let err = refusal(assign_place(&mut st, &[0, 9], 2).unwrap_err());
+        assert_eq!(err, "Das Gebiet oder den Raum 9 gibt es nicht.");
         assert_eq!(location_of(&mut st, 0), 1);
     }
 
