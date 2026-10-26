@@ -44,6 +44,10 @@ export interface SceneHierarchyProps {
   toolsBlocked: string | null;
   /** „Raum hier anbinden…“: the wizard „Raum anlegen“ with an exit here. */
   onConnectRoom: () => void;
+  /** „Neuer Ort…“: the dialog „Neuer Ort“ for the shown area or room. */
+  onNewPlace: () => void;
+  /** Why „Neuer Ort…“ is locked (Diamond/Pearl); null or left out when it is not. */
+  placesBlocked?: string | null;
   onBack: () => void;
   onForward: () => void;
   canBack: boolean;
@@ -64,7 +68,7 @@ const FOLLOW_HINT = "Doppelklick oder Enter folgt der Tür zum Ziel";
  */
 export function SceneHierarchy(props: SceneHierarchyProps) {
   const { header, headers, matrix, events, buildings, trainers, depth, identify, selected, marks, faultyEvents, locked, loading } = props;
-  const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onBack, onForward, canBack, canForward, focusGroup } = props;
+  const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onNewPlace, placesBlocked = null, onBack, onForward, canBack, canForward, focusGroup } = props;
   const [open, setOpen] = useState<ReadonlySet<string>>(SCENE_OPEN);
   const [query, setQuery] = useState("");
   const rows = useMemo(
@@ -152,6 +156,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
     }),
     "separator",
     { label: "Raum hier anbinden…", icon: "room", onSelect: onConnectRoom },
+    { label: placesBlocked ? `Neuer Ort…, ${placesBlocked}` : "Neuer Ort…", icon: "place", disabled: placesBlocked !== null, onSelect: onNewPlace },
   ];
 
   const renderRow = (row: SceneRow) => {

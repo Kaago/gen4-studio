@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataList, getEvents, getHeader, newScriptFile, readScript, setHeader } from "../../api";
+import { assignPlace, dataList, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -11,7 +11,7 @@ import { headerIdentity } from "../headerIdentity";
 import { buildPlaces } from "../places";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
-import { chooseAction, headActions } from "./headTesting";
+import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -21,6 +21,9 @@ vi.mock("../../api", async (importOriginal) => ({
   newScriptFile: vi.fn(),
   readScript: vi.fn(),
   dataList: vi.fn(),
+  placeSlots: vi.fn(),
+  getTextArchive: vi.fn(),
+  assignPlace: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,6 +65,7 @@ describe("HeaderEditor scripts", () => {
   let root: Root;
   const onOpenScript = vi.fn();
   const onChanged = vi.fn();
+  const onPlaceChanged = vi.fn();
   const onCountsChanged = vi.fn();
   const onError = vi.fn();
   const onLevelScriptSaved = vi.fn();
@@ -71,6 +75,7 @@ describe("HeaderEditor scripts", () => {
     counts: { Script: 800 },
     revision: 0,
     onChanged,
+    onPlaceChanged,
     goTo: vi.fn(),
     eventRevision: 0,
     onOpenWizard: vi.fn(),
@@ -97,7 +102,12 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(getEvents).mockReset().mockResolvedValue(noEvents);
     vi.mocked(newScriptFile).mockReset();
     vi.mocked(readScript).mockReset().mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
-    for (const fn of [onOpenScript, onChanged, onCountsChanged, onError, onLevelScriptSaved]) fn.mockReset();
+    vi.mocked(placeSlots).mockReset().mockResolvedValue({ bank: 433, count: 3, free: 253, reusable: [] });
+    vi.mocked(getTextArchive)
+      .mockReset()
+      .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
+    vi.mocked(assignPlace).mockReset().mockResolvedValue(undefined);
+    for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved]) fn.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -183,9 +193,52 @@ describe("HeaderEditor scripts", () => {
   it("binds_a_room_here_from_the_head_menu", async () => {
     const onOpenWizard = vi.fn();
     await show(context({ onOpenWizard }));
-    expect(headActions(container)).toEqual(["Raum hier anbinden…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
+  });
+
+  describe("place", () => {
+    const options = () => [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+    const placed: HeaderSummary = { ...summary, location_index: 1 };
+
+    it("chooses_the_place_by_name_instead_of_the_number", async () => {
+      await show(context({ headers: [placed] }));
+      expect(container.querySelector("input[aria-label='Ortsname']")).toBeNull();
+      await click(container.querySelector("button[data-place-picker]")!);
+      await flush();
+      await click(options()[2]);
+      await flush();
+      expect(assignPlace).toHaveBeenCalledWith([411], 2);
+      expect(onPlaceChanged).toHaveBeenCalledWith(null);
+      expect(setHeader).not.toHaveBeenCalled();
+    });
+
+    it("writes_the_field_on_diamond_and_pearl", async () => {
+      const { area_icon: _icon, ...fields } = (pt() as { Pt: MapHeaderPt }).Pt;
+      vi.mocked(getHeader).mockResolvedValue({ DP: fields });
+      await show(context({ headers: [placed] }));
+      await click(container.querySelector("button[data-place-picker]")!);
+      await flush();
+      await click(options()[2]);
+      await flush();
+      expect(assignPlace).not.toHaveBeenCalled();
+      expect(setHeader).toHaveBeenCalledWith(411, { DP: { ...fields, location_name: 2 } }, "Ortsname");
+      // No place commands there: renaming is locked.
+      expect(headAction(container, "Ort umbenennen…")?.getAttribute("aria-disabled")).toBe("true");
+    });
+
+    it("renames_the_place_from_the_head_menu_but_not_no_place", async () => {
+      await show(context({ headers: [placed, { ...house, location_index: 1 }] }));
+      chooseAction(container, "Ort umbenennen…");
+      await flush();
+      const dialog = document.querySelector("[data-rename-place]")?.closest("[role=dialog]");
+      expect(dialog?.textContent).toContain("Ort umbenennen");
+      expect(dialog?.textContent).toContain("Trifft alle 2 Gebiete und Räume mit diesem Ort und den Fundort gefangener Pokémon.");
+      await act(async () => root.render(null));
+      await show(context({ headers: [summary] }));
+      expect(headAction(container, "Ort umbenennen…")?.getAttribute("aria-disabled")).toBe("true");
+    });
   });
 
   it("opens_the_script_file_and_the_level_script_of_the_header", async () => {

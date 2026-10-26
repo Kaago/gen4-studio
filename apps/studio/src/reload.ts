@@ -85,7 +85,8 @@ export function reloadPlan(
       return actions;
     }
     case "TextArchive":
-      return [{ kind: "textPanel", archive: asset.index }];
+      // The location bank is a text archive: its names are part of the header list (the tree, the picker „Ort“), so they follow too.
+      return [{ kind: "textPanel", archive: asset.index }, { kind: "headers" }];
     case "HeaderTable":
       return [{ kind: "unpin" }, { kind: "headers" }];
     case "Script":

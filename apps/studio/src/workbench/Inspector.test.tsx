@@ -108,6 +108,7 @@ describe("Inspector and the scene's hover", () => {
       counts: {},
       revision: 0,
       onChanged: vi.fn(),
+      onPlaceChanged: vi.fn(),
       goTo: vi.fn(),
       eventRevision: 0,
       onOpenWizard: vi.fn(),

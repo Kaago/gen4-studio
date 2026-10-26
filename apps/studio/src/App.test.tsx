@@ -2017,8 +2017,9 @@ describe("App wiring", () => {
         { kind: "TextArchive", index: 433 },
       ]);
       await pressUndo();
-      // One history move for the step; the shown matrix and the text panel both reload.
-      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1"]);
+      // One history move for the step; the shown matrix and the text panel both reload, and the header list with the names of the
+      // location bank (a text archive).
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1", "headerTable@1", "dataChanged@1"]);
       expect(data().history.current).toBe(1);
     });
   });

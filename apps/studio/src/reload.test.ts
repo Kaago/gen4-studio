@@ -41,9 +41,10 @@ describe("reloadPlan", () => {
     expect(plan("HeaderTable", 0, null)).toEqual([{ kind: "unpin" }, { kind: "headers" }]);
   });
 
-  it("re-reads the restored text archive in the text panel, nothing else", () => {
-    expect(plan("TextArchive", 433)).toEqual([{ kind: "textPanel", archive: 433 }]);
-    expect(plan("TextArchive", 433, null)).toEqual([{ kind: "textPanel", archive: 433 }]);
+  it("reloads_the_headers_after_undoing_a_text_edit", () => {
+    // The location bank is a text archive: its names are in the header list (the tree, the picker „Ort“).
+    expect(plan("TextArchive", 433)).toEqual([{ kind: "textPanel", archive: 433 }, { kind: "headers" }]);
+    expect(plan("TextArchive", 433, null)).toEqual([{ kind: "textPanel", archive: 433 }, { kind: "headers" }]);
   });
 
   it("hands a restored data asset to the data panels", () => {
@@ -81,6 +82,7 @@ describe("historyPlan", () => {
       { kind: "map", map: 11 },
       { kind: "mapModel", map: 11 },
       { kind: "textPanel", archive: 433 },
+      { kind: "headers" },
     ]);
   });
 

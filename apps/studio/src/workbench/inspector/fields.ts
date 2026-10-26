@@ -9,8 +9,11 @@ export interface FieldSpec {
   /** Property name in the serialized header (uxie struct). */
   key: string;
   label: string;
-  kind: "u8" | "u16" | "bool" | "pick" | "select";
+  /** `place`: the header's place, chosen by name from the location bank (`PlacePicker`); a number field where no picker can be shown. */
+  kind: "u8" | "u16" | "bool" | "pick" | "select" | "place";
   pick?: PickKind;
+  /** A `place` field stored in 16 bits (Diamond/Pearl); 8 bits otherwise. */
+  wide?: boolean;
   /** Choices of a `select` field (a stored value without a choice is still shown). */
   options?: { value: number; label: string }[];
 }
@@ -18,6 +21,7 @@ export interface FieldSpec {
 const u8 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u8" });
 const u16 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u16" });
 const pick = (key: string, label: string, kind: PickKind): FieldSpec => ({ key, label, kind: "pick", pick: kind });
+const place = (wide: boolean): FieldSpec => ({ key: "location_name", label: "Ortsname", kind: "place", ...(wide && { wide }) });
 
 /** Storage width of the id fields that are pickers (all others carry their width in `kind`). */
 const PICK_U8 = new Set(["area_data_id"]);
@@ -50,7 +54,7 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
     musicNight,
     u16("wild_pokemon", "Begegnungen"),
     eventFile,
-    u16("location_name", "Ortsname"),
+    place(true),
     weather,
     camera,
     u8("location_specifier", "Ortskennung"),
@@ -67,7 +71,7 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
     musicNight,
     u16("wild_pokemon", "Begegnungen"),
     eventFile,
-    u8("location_name", "Ortsname"),
+    place(false),
     u8("area_icon", "Gebietssymbol"),
     weather,
     camera,
@@ -87,7 +91,7 @@ const SPECS: Record<HeaderFamily, FieldSpec[]> = {
     musicDay,
     musicNight,
     eventFile,
-    u8("location_name", "Ortsname"),
+    place(false),
     u8("area_icon", "Gebietssymbol"),
     { key: "kanto_flag", label: "Kanto", kind: "bool" },
     weather,
@@ -112,6 +116,8 @@ function typeMax(spec: FieldSpec): number {
       return 0xff;
     case "u16":
       return 0xffff;
+    case "place":
+      return spec.wide ? 0xffff : 0xff;
     case "pick":
       return PICK_U8.has(spec.key) ? 0xff : 0xffff;
   }

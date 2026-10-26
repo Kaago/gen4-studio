@@ -18,6 +18,8 @@ import { HeaderSession } from "./headerCommit";
 import { headerSections } from "./headerSections";
 import type { HeaderSectionId } from "./headerSections";
 import { InspectorHead } from "./InspectorHead";
+import { PlacePicker } from "../places/PlacePicker";
+import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
 import { ADOPT_HINT } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
@@ -32,6 +34,8 @@ export interface HeaderEditorContext {
   revision: number;
   /** Called after a field was written, so the list, the scene and the dirty count follow. */
   onChanged: () => void | Promise<void>;
+  /** Called after a place command (assign, create, rename): the header is read again and the list follows; `bank` is the location bank when it changed. */
+  onPlaceChanged: (bank: number | null) => void | Promise<void>;
   /** Follows a link (area data, matrix panel, the doors of the scene). */
   goTo: (target: NavTarget) => void;
   /** Changes whenever events were changed behind the editor's back (a drag, add, delete, undo, redo): the doors are counted again. */
@@ -93,10 +97,11 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, identify, counts, revision, onChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
+  const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, onError } = context;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
+  const [renaming, setRenaming] = useState(false);
   // The form sections the user folded away (a closed section does not render its fields). Kept outside the editor: selecting another header mounts a new one.
   const folds = useSectionFolds();
   const foldKey = (section: HeaderSectionId) => `header:${section}`;
@@ -157,6 +162,21 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
     if (spec.key === "wild_pokemon" && family !== "DP") {
       return <EncounterFileField key={spec.key} spec={spec} value={value} family={family} headers={headers} goTo={goTo} onCommit={commit} />;
     }
+    // „Ort“ is chosen by name from the location bank; Diamond and Pearl write the field itself (the kernel has no place commands there).
+    if (spec.kind === "place" && summary) {
+      return (
+        <PlacePicker
+          key={spec.key}
+          header={summary}
+          depth={depth}
+          headers={headers}
+          family={family}
+          onAssigned={onPlaceChanged}
+          onError={onError}
+          commit={family === "DP" ? (index) => commit(spec, index) : undefined}
+        />
+      );
+    }
     return (
       <Field
         key={spec.key}
@@ -191,7 +211,15 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         kind={identity === null ? "room" : identity.kind === "other" ? "place" : identity.kind}
         title={identity?.name ?? headerId}
         ident={ident}
-        actions={summary ? [{ label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) }] : undefined}
+        actions={
+          summary
+            ? [
+                { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
+                // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
+                { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
+              ]
+            : undefined
+        }
         depth={depth}
       />
       <div className={styles.body}>
@@ -230,6 +258,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         )}
         {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
       </div>
+      {summary && <RenamePlaceDialog open={renaming} index={summary.location_index} headers={headers} onClose={() => setRenaming(false)} onRenamed={onPlaceChanged} onError={onError} />}
     </div>
   );
 }

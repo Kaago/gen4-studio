@@ -51,6 +51,7 @@ describe("SceneHierarchy", () => {
     onOpenScript: vi.fn(),
     onTool: vi.fn(),
     onConnectRoom: vi.fn(),
+    onNewPlace: vi.fn(),
     onBack: vi.fn(),
     onForward: vi.fn(),
   };
@@ -216,7 +217,7 @@ describe("SceneHierarchy", () => {
   it("adds_with_the_plus_menu_and_locks_the_event_tools", () => {
     show();
     press(button("Hinzufügen"));
-    expect(menuItems().map((i) => i.textContent)).toEqual(["Figur", "Tür", "Auslöser", "Schild", "Gebäude", "Raum hier anbinden…"]);
+    expect(menuItems().map((i) => i.textContent)).toEqual(["Figur", "Tür", "Auslöser", "Schild", "Gebäude", "Raum hier anbinden…", "Neuer Ort…"]);
     act(() => menuItems()[4]!.click());
     expect(fns.onTool).toHaveBeenCalledWith("building");
     press(button("Hinzufügen"));
@@ -231,6 +232,21 @@ describe("SceneHierarchy", () => {
     expect(building!.getAttribute("aria-disabled")).toBeNull();
     act(() => figure!.click());
     expect(fns.onTool).toHaveBeenCalledOnce();
+  });
+
+  it("offers_new_place_in_the_add_menu", () => {
+    show();
+    press(button("Hinzufügen"));
+    const entry = () => menuItems().find((i) => i.textContent?.startsWith("Neuer Ort…"))!;
+    act(() => entry().click());
+    expect(fns.onNewPlace).toHaveBeenCalledOnce();
+    // Diamond and Pearl have no place commands: the entry says why it is locked.
+    show({ placesBlocked: "Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver." });
+    press(button("Hinzufügen"));
+    expect(entry().getAttribute("aria-disabled")).toBe("true");
+    expect(entry().textContent).toBe("Neuer Ort…, Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.");
+    act(() => entry().click());
+    expect(fns.onNewPlace).toHaveBeenCalledOnce();
   });
 
   it("moves_with_arrows_home_end_and_opens_closes_with_right_left", () => {

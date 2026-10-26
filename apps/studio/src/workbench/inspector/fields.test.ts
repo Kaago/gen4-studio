@@ -52,8 +52,11 @@ describe("headerFieldSpecs", () => {
 
   it("uses the width the family stores each field in", () => {
     const kind = (family: "DP" | "Pt" | "HGSS", key: string) => headerFieldSpecs(family).find((f) => f.key === key)?.kind;
-    expect(kind("DP", "location_name")).toBe("u16");
-    expect(kind("Pt", "location_name")).toBe("u8");
+    expect(kind("DP", "location_name")).toBe("place");
+    expect(kind("Pt", "location_name")).toBe("place");
+    expect(kind("HGSS", "location_name")).toBe("place");
+    const bits = (family: "DP" | "Pt" | "HGSS") => fieldBits(headerFieldSpecs(family).find((f) => f.key === "location_name")!);
+    expect([bits("DP"), bits("Pt"), bits("HGSS")]).toEqual([16, 8, 8]);
     expect(kind("HGSS", "wild_pokemon")).toBe("u8");
     expect(kind("Pt", "wild_pokemon")).toBe("u16");
     expect(kind("HGSS", "kanto_flag")).toBe("bool");

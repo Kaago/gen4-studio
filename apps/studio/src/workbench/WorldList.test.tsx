@@ -113,6 +113,7 @@ describe("WorldList", () => {
       onTool: () => {},
       toolsBlocked: null,
       onConnectRoom: () => {},
+      onNewPlace: () => {},
       onBack: () => {},
       onForward: () => {},
       canBack: false,
