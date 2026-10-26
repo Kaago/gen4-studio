@@ -618,6 +618,8 @@ mod tests {
             encoded: vec![7],
             touched_archives: vec![433],
             problems,
+            steps: Vec::new(),
+            ms: 0,
         }
     }
 

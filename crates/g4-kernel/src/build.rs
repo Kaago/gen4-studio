@@ -1,8 +1,14 @@
 //! Build pipeline: packs unpacked asset folders back into NARCs, builds the `.nds` with
 //! ds-rom (the compressed ARM9 and overlays from the BLZ cache under [`BUILD_DIR`]), and
 //! extracts a `.nds` into a new ds-rom project folder.
+//!
+//! A build is a fixed list of steps ([`step::Step`]): `rotom`, `chatot`, one `pack:<name>`
+//! per archive and `rom`. Each runs only when its inputs changed since it last succeeded,
+//! recorded in [`state::BuildState`] (`.g4/build/state.json`, see
+//! `docs/formats/build_state.md`). Without that state everything runs, with the same result.
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use ds_rom::rom::{Rom, RomSaveError, raw};
 use g4_formats::narc::Narc;
@@ -10,12 +16,21 @@ use g4_formats::narc::Narc;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 use crate::scripts;
-use crate::text::{self, Problem, Severity};
+use crate::text::{Problem, Severity};
 
 mod blz;
+mod fingerprint;
 mod salt;
+pub mod state;
+pub mod step;
+mod steps;
 
 pub use blz::{BlzCount, BlzReport};
+pub use fingerprint::Fp;
+pub use step::{StepReport, StepStatus};
+
+use state::BuildState;
+use steps::{ChatotStep, PackStep, RomStep, RotomStep};
 
 /// The build's cache below the project root: the BLZ cache (`blz/`) and the build state.
 /// Everything in it may be deleted; the next build then runs fully.
@@ -38,10 +53,11 @@ pub fn load_rom(project: &Project) -> Result<(Rom<'static>, BlzReport), KernelEr
     blz::load_rom(project)
 }
 
-/// What `build` did: the asset kinds whose unpacked folder was packed (with their member
-/// count; archives whose bytes did not change are counted but not rewritten), the ROM, the
-/// script members compiled and the text archives encoded before packing, the text archives
-/// whose JSON a script's text literal changed, and the warnings those steps raised.
+/// What `build` did: the asset kinds whose pack step ran (with their member count; an
+/// archive whose bytes did not change is not rewritten), the ROM, the script members
+/// compiled and the text archives encoded before packing, the text archives whose JSON a
+/// script's text literal changed, the warnings those steps raised, one row per step and the
+/// milliseconds of the whole build.
 #[derive(Debug)]
 pub struct BuildReport {
     pub packed: Vec<(AssetKind, usize)>,
@@ -52,6 +68,10 @@ pub struct BuildReport {
     /// [`scripts::CompileReport::touched_archives`]); a store that holds them must reload.
     pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
+    /// The rows of all steps in build order: those of [`Prepared::steps`], `pack:*`, then
+    /// `rom` (skipped) or `blz:arm9`, `blz:overlays`, `rom`, `crc`.
+    pub steps: Vec<StepReport>,
+    pub ms: u64,
 }
 
 /// The result of the steps `build` runs before it packs, see [`prepare`].
@@ -61,30 +81,48 @@ pub struct Prepared {
     pub encoded: Vec<u16>,
     pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
+    /// The rows of `rotom` (adopted projects only) and `chatot`.
+    pub steps: Vec<StepReport>,
 }
 
 /// Brings the unpacked folders up to date with their sources: compiles stale scripts (only
-/// where the project is adopted) and encodes stale text JSON. Any [`Severity::Error`] among
-/// the problems of either step is `Err(KernelError::Compile(problems))` (all problems, both
-/// steps), and the caller packs nothing. Warnings come back in [`Prepared::problems`].
+/// where the project is adopted) and encodes stale text JSON, each step only when its
+/// sources changed since it last succeeded. Any [`Severity::Error`] among the problems of
+/// either step is `Err(KernelError::Compile(problems))` (all problems, both steps), and the
+/// caller packs nothing. Warnings come back in [`Prepared::problems`].
 pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
-    let mut prepared = Prepared::default();
+    let rotom = RotomStep::default();
+    let chatot = ChatotStep::default();
+    let mut steps: Vec<&dyn step::Step> = Vec::new();
     if scripts::is_adopted(project) {
-        let report = scripts::compile(project)?;
+        steps.push(&rotom);
+    }
+    steps.push(&chatot);
+    let rows = match step::run_steps(project, &steps) {
+        Ok(rows) => Some(rows),
+        // The problems come from the steps themselves, in step order.
+        Err(KernelError::Compile(_)) => None,
+        Err(e) => return Err(e),
+    };
+    let mut prepared = Prepared::default();
+    if let Some(report) = rotom.report.into_inner() {
         prepared.compiled = report.compiled;
         prepared.touched_archives = report.touched_archives;
         prepared.problems = report.problems;
     }
-    let (encoded, problems) = text::encode_stale(project)?;
+    let (encoded, problems) = chatot.result.into_inner();
     prepared.encoded = encoded;
     prepared.problems.extend(problems);
-    if prepared
-        .problems
-        .iter()
-        .any(|p| p.severity == Severity::Error)
-    {
+    let Some(rows) = rows else {
         return Err(KernelError::Compile(prepared.problems));
-    }
+    };
+    debug_assert!(
+        !prepared
+            .problems
+            .iter()
+            .any(|p| p.severity == Severity::Error)
+    );
+    prepared.steps = rows;
     Ok(prepared)
 }
 
@@ -96,6 +134,15 @@ fn build_err(e: impl std::fmt::Display) -> KernelError {
 /// `.`) are ignored. A gap in the numbering or a visible name that is not exactly four ASCII
 /// digits is an error.
 pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
+    let members = member_files(dir)?
+        .iter()
+        .map(|path| std::fs::read(path).map_err(io_at(path)))
+        .collect::<Result<_, _>>()?;
+    Ok(Narc { members })
+}
+
+/// The member files of `dir` in order, checked like [`pack_dir`] checks them, unread.
+fn member_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
     let mut found: Vec<(u32, PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
         let entry = entry.map_err(io_at(dir))?;
@@ -124,17 +171,15 @@ pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
         found.push((number, entry.path()));
     }
     found.sort_by_key(|(n, _)| *n);
-    let mut members = Vec::with_capacity(found.len());
-    for (expected, (number, path)) in found.iter().enumerate() {
+    for (expected, (number, _)) in found.iter().enumerate() {
         if *number as usize != expected {
             return Err(KernelError::Build(format!(
                 "{}: member {expected:04} is missing",
                 dir.display()
             )));
         }
-        members.push(std::fs::read(path).map_err(io_at(path))?);
     }
-    Ok(Narc { members })
+    Ok(found.into_iter().map(|(_, path)| path).collect())
 }
 
 /// Writes `bytes` to `path` unless it already holds exactly these bytes. The write goes
@@ -183,10 +228,11 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
 
 /// Runs [`prepare_for_build`], then [`build_prepared`]: stale scripts are compiled and stale
 /// text encoded (an error among their problems stops the build before anything is packed or
-/// written), every asset kind whose unpacked folder exists is packed into its packed path,
-/// then the ROM is built with ds-rom into `out_rom`. All folders are packed in memory before
-/// the first file is written, so a pack error leaves the project untouched. Hidden entries
-/// below `files/` are an error (checked first), because ds-rom would pack them into the ROM.
+/// written), every asset kind whose unpacked folder exists and changed is packed into its
+/// packed path, then the ROM is built with ds-rom into `out_rom` (unless nothing it reads
+/// changed and it is still there). All member folders are checked before the first archive
+/// is written, so a gap or a stray name leaves the project untouched. Hidden entries below
+/// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
     let prepared = prepare_for_build(project, out_rom)?;
     build_prepared(project, out_rom, prepared)
@@ -210,37 +256,28 @@ pub fn build_prepared(
     out_rom: &Path,
     prepared: Prepared,
 ) -> Result<BuildReport, KernelError> {
-    let mut packed = Vec::new();
-    let mut pending = Vec::new();
-    // `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family.
-    // That includes `DynamicHeaders` (Platinum, HGSS): its folder holds the header files
-    // once the Dynamic Headers patch is applied, and in a vanilla DSPRE project the NARC's
-    // own members, which pack back byte for byte.
-    for kind in project.archives.kinds() {
-        let dir = project.unpacked_dir(kind);
-        if !dir.is_dir() {
-            continue;
-        }
-        let narc = pack_dir(&dir)?;
-        packed.push((kind, narc.members.len()));
-        pending.push((kind, narc.write()));
-    }
-    let tmp_dir = project.root.join(".g4").join("tmp");
-    for (kind, bytes) in &pending {
-        let packed_path = project
-            .archives
-            .packed(*kind)
-            .ok_or_else(|| KernelError::Build(format!("{kind} has no archive in this project")))?;
-        write_if_changed(&project.root.join(packed_path), bytes, &tmp_dir)?;
-    }
+    let t = Instant::now();
+    let (packed, mut rows) = run_pack_steps(project)?;
 
     // The same ROM as the reference `dsrom build` (no ARM7 BIOS, compression as configured),
     // with the compressed ARM9 and overlays from the BLZ cache.
-    let (rom, _blz) = blz::load_rom(project)?;
-    let raw_rom = rom.build(None).map_err(build_err)?;
-    raw_rom.save(out_rom).map_err(build_err)?;
-    // ds-rom writes 0000 as the secure area CRC; a project from `create_project` knows it.
-    crate::start::restore_header_crcs(&project.root, out_rom)?;
+    let rom = RomStep::new(out_rom)?;
+    let out_key = step::key(&rom.out_key(project));
+    rows.extend(step::run_steps_and(project, &[&rom], |state| {
+        let written = state
+            .steps
+            .get("rom")
+            .and_then(|entry| entry.outputs.get(&out_key));
+        if let Some(fp) = written {
+            state.rom = Some(state::RomRecord {
+                path: out_key.clone(),
+                fp: *fp,
+            });
+        }
+    })?);
+    let prepare_ms: u64 = prepared.steps.iter().map(|r| r.ms).sum();
+    let mut steps = prepared.steps;
+    steps.extend(rows);
     Ok(BuildReport {
         packed,
         rom: out_rom.to_path_buf(),
@@ -248,7 +285,49 @@ pub fn build_prepared(
         encoded: prepared.encoded,
         touched_archives: prepared.touched_archives,
         problems: prepared.problems,
+        steps,
+        ms: prepare_ms + t.elapsed().as_millis() as u64,
     })
+}
+
+/// [`BuildReport::packed`]: kinds and member counts.
+type Packed = Vec<(AssetKind, usize)>;
+
+/// Runs the `pack:*` steps: the kinds whose step ran with their member counts, and the rows.
+/// `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family. That
+/// includes `DynamicHeaders` (Platinum, HGSS): its folder holds the header files once the
+/// Dynamic Headers patch is applied, and in a vanilla DSPRE project the NARC's own members,
+/// which pack back byte for byte. Every folder is checked first (gaps, stray names), so a
+/// broken one stops the build before any archive is written; its step loses its entry.
+fn run_pack_steps(project: &Project) -> Result<(Packed, Vec<StepReport>), KernelError> {
+    let steps = steps::pack_steps(project);
+    for pack in &steps {
+        if let Err(e) = member_files(&pack.dir(project)) {
+            let id = step::Step::id(pack);
+            BuildState::update(&project.root, |state| {
+                state.steps.remove(&id);
+            })?;
+            return Err(e);
+        }
+    }
+    let dyn_steps: Vec<&dyn step::Step> = steps.iter().map(|s| s as &dyn step::Step).collect();
+    let rows = step::run_steps(project, &dyn_steps)?;
+    let packed = steps
+        .iter()
+        .zip(&rows)
+        .filter(|(_, row)| row.status != StepStatus::Skipped)
+        .map(|(pack, row): (&PackStep, _)| (pack.kind, row.total as usize))
+        .collect();
+    Ok((packed, rows))
+}
+
+/// The steps before `rom` without ds-rom, for the build graph's tests on synthetic projects
+/// (which ds-rom cannot build): [`prepare`] and the `pack:*` steps, their rows in order.
+#[cfg(feature = "test-support")]
+pub fn run_source_and_pack_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
+    let mut rows = prepare(project)?.steps;
+    rows.extend(run_pack_steps(project)?.1);
+    Ok(rows)
 }
 
 /// Extracts a `.nds` into a new ds-rom project folder (`Rom::extract` + `Rom::save`) and

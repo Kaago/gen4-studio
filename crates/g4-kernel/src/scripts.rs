@@ -24,9 +24,9 @@ mod project_compile;
 
 pub const ROTOM_TOML: &str = "rotom.toml";
 
-const DATABASE_DIR: &str = ".rotom/command_database";
+pub(crate) const DATABASE_DIR: &str = ".rotom/command_database";
 const CACHE_DIR: &str = ".rotom/cache";
-const STATUS_DIR: &str = ".rotom/status";
+pub(crate) const STATUS_DIR: &str = ".rotom/status";
 pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
 /// Script numbers from here on are common scripts, shared by all maps.
 const FIRST_COMMON_SCRIPT: u16 = 2000;
@@ -120,7 +120,7 @@ fn load_config(project: &Project) -> Result<rotom::project_config::RotomConfig, 
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
 /// way and no lower-case one exists (compared by exact name, so a case-insensitive file
 /// system does not hide the difference).
-fn member_dir(project: &Project) -> PathBuf {
+pub(crate) fn member_dir(project: &Project) -> PathBuf {
     let unpacked = project.root.join("unpacked");
     let has = |name: &str| {
         std::fs::read_dir(&unpacked)

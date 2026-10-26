@@ -4,12 +4,6 @@
 //! that line plus the step's own revision, so a kernel update that keeps the tools keeps the
 //! build state, and a new tool (or a new step revision) builds that step fully once.
 
-// The step runner (phase 4.2, task 2) is the first caller outside the tests.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the build graph's steps use the salts")
-)]
-
 /// Format version of `.g4/build/state.json`. A file with another version reads as empty.
 pub(crate) const STATE_VERSION: u32 = 1;
 

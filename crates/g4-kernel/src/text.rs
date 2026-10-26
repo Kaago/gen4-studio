@@ -446,6 +446,29 @@ fn member_is_current(member: &Path, doc: &TextArchiveDoc) -> bool {
 /// A JSON that cannot be read is an error [`Problem`], not a failure of the call.
 pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
     let dir = project.expanded_dir(AssetKind::TextArchive);
+    encode_archives(project, &numbered_files(&dir, Some("json"))?)
+}
+
+#[cfg(feature = "test-support")]
+thread_local! {
+    static ENCODE_ARCHIVES_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How often [`encode_archives`] ran on this thread (the build graph's tests check that a
+/// skipped `chatot` step decodes nothing).
+#[cfg(feature = "test-support")]
+pub fn encode_archives_calls() -> usize {
+    ENCODE_ARCHIVES_CALLS.with(|calls| calls.get())
+}
+
+/// [`encode_stale`] for the archives `archives` only (an archive without JSON is skipped).
+pub(crate) fn encode_archives(
+    project: &Project,
+    archives: &[u16],
+) -> Result<(Vec<u16>, Vec<Problem>), KernelError> {
+    #[cfg(feature = "test-support")]
+    ENCODE_ARCHIVES_CALLS.with(|calls| calls.set(calls.get() + 1));
+    let dir = project.expanded_dir(AssetKind::TextArchive);
     let lang = project.language.locale_key();
     let relative = |path: &Path| {
         path.strip_prefix(&project.root)
@@ -463,7 +486,7 @@ pub fn encode_stale(project: &Project) -> Result<(Vec<u16>, Vec<Problem>), Kerne
     // First decide every winner: unpacking the member folder gives all members a fresh
     // mtime, which would make every JSON decided afterwards lose.
     let mut stale = Vec::new();
-    for n in numbered_files(&dir, Some("json"))? {
+    for &n in archives {
         let json = dir.join(format!("{n:04}.json"));
         let member = project.member_path(AssetKind::TextArchive, n);
         if text_winner(&json, &member)? != Some(json.as_path()) {
