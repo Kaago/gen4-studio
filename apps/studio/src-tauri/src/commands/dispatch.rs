@@ -625,7 +625,7 @@ pub fn dispatch(
                 let rom = policy.read_path(&a.rom)?;
                 let dest = policy.check_new_project(&a.dest)?;
                 // No live progress over HTTP: the answer carries the time of each phase.
-                create_project_impl(&path_text(&rom)?, &path_text(&dest)?, a.template, &mut |_| {})
+                create_project_impl(state, &path_text(&rom)?, &path_text(&dest)?, a.template, &mut |_| {})
             }
         ),
         "plan_empty_region" => run!(json, "plan_empty_region", args, {}, |_a| {
@@ -1724,6 +1724,9 @@ mod tests {
         assert_eq!(created["phases"].as_array().unwrap().len(), 4, "{created}");
         let root = created["root"].as_str().unwrap().to_owned();
         assert!(dest.join(".g4/base.json").is_file());
+        // The ROM is remembered as the base ROM of its SHA-1.
+        let sha1 = created["sha1"].as_str().unwrap();
+        assert!(state.base_roms.settings().find(sha1).is_some());
         let opened = json_of(call(
             &state,
             &roots,

@@ -126,6 +126,30 @@ impl AgentSettings {
     pub fn remove_grant(&mut self, path: &str) {
         self.grants.retain(|g| g.path != path);
     }
+
+    /// Moves the grant of `from` (same path and base id) to `to`, after a base ROM was
+    /// assigned and the project's base id changed. Every other grant stays. Whether there
+    /// was a grant to move.
+    pub fn move_grant(&mut self, from: &ProjectKey, to: &ProjectKey) -> bool {
+        let Some(index) = self
+            .grants
+            .iter()
+            .position(|g| g.path == from.path && g.base_id == from.base_id)
+        else {
+            return false;
+        };
+        let grant = &mut self.grants[index];
+        grant.path.clone_from(&to.path);
+        grant.base_id.clone_from(&to.base_id);
+        // A grant that already had the new key gives way to the moved one.
+        let mut position = 0;
+        self.grants.retain(|g| {
+            let keep = position == index || g.path != to.path || g.base_id != to.base_id;
+            position += 1;
+            keep
+        });
+        true
+    }
 }
 
 /// Writes `bytes` to `path` with mode 0600 (on unix): a temporary file in the same folder,
@@ -256,6 +280,84 @@ mod tests {
         );
         settings.remove_grant("/p");
         assert!(settings.grants.is_empty());
+    }
+
+    #[test]
+    fn move_grant_rewrites_the_grant_of_the_old_key() {
+        let mut settings = AgentSettings::default();
+        settings.set_grant(key("/dspre", None), GrantLevel::Write);
+        assert!(settings.move_grant(&key("/dspre", None), &key("/dspre", Some("abc/1"))));
+        assert_eq!(settings.grants.len(), 1);
+        assert_eq!(settings.grant_for(&key("/dspre", None)), None);
+        assert_eq!(
+            settings.grant_for(&key("/dspre", Some("abc/1"))),
+            Some(GrantLevel::Write)
+        );
+        // After a change of the ROM the grant moves on to the next base id.
+        assert!(settings.move_grant(&key("/dspre", Some("abc/1")), &key("/dspre", Some("def/2"))));
+        assert_eq!(
+            settings.grant_for(&key("/dspre", Some("def/2"))),
+            Some(GrantLevel::Write)
+        );
+        assert_eq!(settings.grants.len(), 1);
+    }
+
+    #[test]
+    fn move_grant_leaves_other_projects_and_other_base_ids_alone() {
+        let mut settings = AgentSettings {
+            grants: vec![
+                Grant {
+                    path: "/dspre".into(),
+                    base_id: None,
+                    level: GrantLevel::Read,
+                },
+                Grant {
+                    path: "/zweites".into(),
+                    base_id: None,
+                    level: GrantLevel::Write,
+                },
+                Grant {
+                    path: "/drittes".into(),
+                    base_id: Some("abc/1".into()),
+                    level: GrantLevel::Read,
+                },
+                // Another base id of the same folder (written by an older app or by hand).
+                Grant {
+                    path: "/dspre".into(),
+                    base_id: Some("alt/0".into()),
+                    level: GrantLevel::Write,
+                },
+            ],
+            ..AgentSettings::default()
+        };
+        let before = settings.grants.clone();
+        assert!(settings.move_grant(&key("/dspre", None), &key("/dspre", Some("abc/1"))));
+        assert_eq!(
+            settings.grants,
+            [
+                Grant {
+                    path: "/dspre".into(),
+                    base_id: Some("abc/1".into()),
+                    level: GrantLevel::Read,
+                },
+                before[1].clone(),
+                before[2].clone(),
+                before[3].clone(),
+            ]
+        );
+    }
+
+    #[test]
+    fn move_grant_without_a_grant_changes_nothing() {
+        let mut settings = AgentSettings::default();
+        settings.set_grant(key("/p", Some("a/1")), GrantLevel::Write);
+        settings.set_grant(key("/q", None), GrantLevel::Read);
+        let before = settings.clone();
+        // Another base id, another path, nothing at all.
+        assert!(!settings.move_grant(&key("/p", None), &key("/p", Some("b/2"))));
+        assert!(!settings.move_grant(&key("/r", None), &key("/r", Some("b/2"))));
+        assert_eq!(settings, before);
+        assert!(!AgentSettings::default().move_grant(&key("/p", None), &key("/p", Some("b/2"))));
     }
 
     #[test]

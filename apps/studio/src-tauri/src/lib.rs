@@ -1,3 +1,5 @@
+/// The remembered base ROMs of the app (`base-roms.json`).
+pub mod base_roms;
 #[cfg(feature = "dev-bridge")]
 pub mod bridge;
 mod commands;
@@ -208,6 +210,7 @@ fn setup_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let hub = &state.agents;
     hub.configure(dir.clone());
+    state.base_roms.configure(dir.clone());
     let emitter = app.clone();
     hub.set_notifier(Arc::new(move |event| {
         // A failed emit only means the webview misses one update; `agent_poll` catches up.

@@ -54,7 +54,8 @@ pub struct ServeConfig {
     /// The only `Origin` a browser request may carry (requests without one are accepted).
     pub origin: String,
     pub roots: Roots,
-    /// Folder the agent settings are kept in (`agents.json`); `None` keeps them in memory.
+    /// Folder the agent settings (`agents.json`) and the base ROMs (`base-roms.json`) are
+    /// kept in; `None` keeps them in memory.
     pub app_data: Option<PathBuf>,
 }
 
@@ -82,13 +83,15 @@ struct Shared {
 
 impl BridgeServer {
     /// Binds `127.0.0.1:<port>` and starts the worker threads, all sharing one fresh
-    /// `AppState` (its agent settings from `config.app_data`) and one MCP service over it.
+    /// `AppState` (its agent settings and base ROMs from `config.app_data`) and one MCP
+    /// service over it.
     pub fn start(config: ServeConfig) -> Result<BridgeServer, String> {
         let state = Arc::new(AppState::default());
         if let Some(dir) = config.app_data {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| format!("App-Datenordner {} nicht anlegbar: {e}", dir.display()))?;
-            state.agents.configure(Some(dir));
+            state.agents.configure(Some(dir.clone()));
+            state.base_roms.configure(Some(dir));
         }
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(MCP_THREADS)
@@ -970,6 +973,35 @@ mod tests {
         let server = BridgeServer::start(config(&data)).unwrap();
         let status = post(&server, "/invoke/agent_status", "{}").json();
         assert_eq!(status["enabled"], true);
+        server.stop();
+    }
+
+    #[test]
+    fn app_data_configures_the_base_roms() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("app-data");
+        let remembered = crate::base_roms::BaseRomSettings {
+            version: crate::base_roms::BASE_ROMS_VERSION,
+            roms: vec![crate::base_roms::BaseRomEntry {
+                sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4".into(),
+                path: "/roms/pt.nds".into(),
+                size: 1,
+                mtime_ms: 2,
+                game_code: "CPUD".into(),
+                label: None,
+                verified: "2026-10-27T10:00:00Z".into(),
+            }],
+        };
+        remembered.save(&data).unwrap();
+        let server = BridgeServer::start(ServeConfig {
+            port: 0,
+            token: TOKEN.into(),
+            origin: ORIGIN.into(),
+            roots: Roots::new(&[dir.path().to_path_buf()]).unwrap(),
+            app_data: Some(data.clone()),
+        })
+        .unwrap();
+        assert_eq!(server.shared.state.base_roms.settings(), remembered);
         server.stop();
     }
 

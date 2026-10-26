@@ -71,6 +71,10 @@ struct Cli {
     /// Also offer g4_call and g4_commands (any command by name).
     #[arg(long)]
     expert: bool,
+    /// The base ROM of the project (the .nds whose SHA-1 .g4/base.json names), for the patch;
+    /// otherwise it is searched next to the project and in G4_BASE_ROM_DIR.
+    #[arg(long = "base-rom", value_name = "PATH")]
+    base_rom: Option<PathBuf>,
 }
 
 /// Runs `studio mcp` with the process arguments `args` (`studio`, `mcp`, options…), as the
@@ -111,7 +115,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
         irreversible: cli.allow_irreversible,
         expert: cli.expert,
     };
-    let toolbox = match Toolbox::open(policy, access) {
+    let toolbox = match Toolbox::open_with_base(policy, access, cli.base_rom.clone()) {
         Ok(toolbox) => toolbox,
         Err(e) => return usage(&e),
     };
@@ -143,6 +147,7 @@ fn headless_flag(cli: &Cli) -> Option<&'static str> {
         (cli.emulator.is_some(), "--emulator"),
         (cli.expert, "--expert"),
         (!cli.allow_dir.is_empty(), "--allow-dir"),
+        (cli.base_rom.is_some(), "--base-rom"),
     ]
     .into_iter()
     .find_map(|(given, flag)| given.then_some(flag))
@@ -217,5 +222,27 @@ mod stdout {
     /// Elsewhere the protocol writes to stdout as it is.
     pub fn protect() -> std::io::Result<tokio::io::Stdout> {
         Ok(tokio::io::stdout())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn cli(args: &[&str]) -> Cli {
+        Cli::try_parse_from(std::iter::once("mcp").chain(args.iter().copied())).unwrap()
+    }
+
+    #[test]
+    fn base_rom_flag_needs_project() {
+        let without = cli(&["--base-rom", "/roms/basis.nds"]);
+        assert_eq!(headless_flag(&without), Some("--base-rom"));
+        let with = cli(&["--project", "/projekt", "--base-rom", "/roms/basis.nds"]);
+        assert_eq!(
+            with.base_rom.as_deref(),
+            Some(std::path::Path::new("/roms/basis.nds"))
+        );
+        assert_eq!(headless_flag(&cli(&[])), None);
     }
 }

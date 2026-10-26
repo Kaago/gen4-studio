@@ -334,7 +334,20 @@ pub struct Toolbox {
 impl Toolbox {
     /// Opens the project of `policy` in a session of its own.
     pub fn open(policy: UserPolicy, access: Access) -> Result<Toolbox, String> {
+        Toolbox::open_with_base(policy, access, None)
+    }
+
+    /// [`Toolbox::open`] with the base ROM `--base-rom` names. Headless the app's
+    /// `base-roms.json` is not read: the base ROM is that one, the sibling `.nds` or one in
+    /// `G4_BASE_ROM_DIR`.
+    pub fn open_with_base(
+        policy: UserPolicy,
+        access: Access,
+        base_rom: Option<PathBuf>,
+    ) -> Result<Toolbox, String> {
         let state = AppState::default();
+        state.base_roms.configure(None);
+        state.base_roms.set_explicit(base_rom);
         let root = policy.project();
         let path = root
             .to_str()
@@ -1334,6 +1347,35 @@ mod tests {
         let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
         let toolbox = Toolbox::open(policy, access).unwrap();
         (fixture, toolbox)
+    }
+
+    #[test]
+    fn headless_toolbox_takes_the_base_rom_flag_and_remembers_nothing() {
+        let fixture = synthetic_project();
+        let (_rom_dir, rom) = g4_kernel::test_support::synthetic_rom();
+        let info = g4_kernel::start::inspect_rom(&rom).unwrap();
+        let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, WRITE, Some(rom.clone())).unwrap();
+        let mark = g4_kernel::start::BaseMark {
+            version: g4_kernel::start::BASE_MARK_VERSION,
+            origin: g4_kernel::start::ORIGIN_DSPRE.into(),
+            sha1: info.sha1.clone(),
+            game_code: info.game_code.clone(),
+            title: info.title.clone(),
+            revision: info.revision,
+            size: info.size,
+            template: None,
+            created: "2026-10-27T10:00:00Z".into(),
+            assigned: None,
+            studio_version: "0.0.0".into(),
+            secure_area_crc: 0,
+            secure_area_sha1: String::new(),
+        };
+        let base = &toolbox.state().base_roms;
+        let found = base.locate(fixture.dir.path(), &mark).unwrap().unwrap();
+        assert_eq!(found.source, g4_kernel::base::BaseSource::Explicit);
+        assert_eq!(found.path, rom);
+        assert!(base.settings().roms.is_empty());
     }
 
     /// The code, message and details of a failed call.
