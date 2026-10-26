@@ -141,6 +141,16 @@ pub const COMMANDS: &[&str] = &[
     "create_project",
     "plan_empty_region",
     "apply_empty_region",
+    "agent_status",
+    "agent_poll",
+    "agent_settings",
+    "agent_set_enabled",
+    "agent_set_expert",
+    "agent_set_grant",
+    "agent_remove_grant",
+    "agent_answer",
+    "agent_disconnect",
+    "agent_set_read_only",
     "world_meta_get",
     "world_meta_set",
     "place_slots",
@@ -624,6 +634,41 @@ pub fn dispatch(
         "apply_empty_region" => run!(json, "apply_empty_region", args, {}, |_a| {
             apply_empty_region_impl(state)
         }),
+        "agent_status" => run!(json, "agent_status", args, {}, |_a| agent_status_impl(
+            state
+        )),
+        "agent_poll" => {
+            run!(json, "agent_poll", args, { since: u64 }, |a| agent_poll_impl(state, a.since))
+        }
+        "agent_settings" => run!(json, "agent_settings", args, {}, |_a| agent_settings_impl(
+            state
+        )),
+        "agent_set_enabled" => run!(json, "agent_set_enabled", args, { on: bool }, |a| {
+            agent_set_enabled_impl(state, a.on)
+        }),
+        "agent_set_expert" => run!(json, "agent_set_expert", args, { on: bool }, |a| {
+            agent_set_expert_impl(state, a.on)
+        }),
+        "agent_set_grant" => run!(
+            json, "agent_set_grant", args,
+            { level: crate::mcp::settings::GrantLevel },
+            |a| agent_set_grant_impl(state, a.level)
+        ),
+        // The path names a saved grant; nothing is read or written there.
+        "agent_remove_grant" => run!(json, "agent_remove_grant", args, { path: String }, |a| {
+            agent_remove_grant_impl(state, &a.path)
+        }),
+        "agent_answer" => run!(
+            json, "agent_answer", args,
+            { question: u64, answer: String },
+            |a| agent_answer_impl(state, a.question, &a.answer)
+        ),
+        "agent_disconnect" => run!(json, "agent_disconnect", args, {}, |_a| {
+            agent_disconnect_impl(state)
+        }),
+        "agent_set_read_only" => run!(json, "agent_set_read_only", args, { on: bool }, |a| {
+            agent_set_read_only_impl(state, a.on)
+        }),
         "world_meta_get" => run!(json, "world_meta_get", args, {}, |_a| world_meta_get_impl(
             state
         )),
@@ -938,6 +983,16 @@ mod tests {
             ),
             ("plan_empty_region", json!({})),
             ("apply_empty_region", json!({})),
+            ("agent_status", json!({})),
+            ("agent_poll", json!({ "since": 0 })),
+            ("agent_settings", json!({})),
+            ("agent_set_enabled", json!({ "on": false })),
+            ("agent_set_expert", json!({ "on": false })),
+            ("agent_set_grant", json!({ "level": "read" })),
+            ("agent_remove_grant", json!({ "path": "/nirgends" })),
+            ("agent_answer", json!({ "question": 1, "answer": "deny" })),
+            ("agent_disconnect", json!({})),
+            ("agent_set_read_only", json!({ "on": false })),
             ("world_meta_get", json!({})),
             (
                 "world_meta_set",

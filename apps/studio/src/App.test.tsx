@@ -5,10 +5,11 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AreaDataDto, HeaderSummary, MatrixDto } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
+import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
 import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
@@ -202,6 +203,7 @@ vi.mock("./api", async (importOriginal) => ({
   defaultProjectParent: vi.fn(),
   checkProjectDest: vi.fn(),
   createProject: vi.fn(),
+  agentSettings: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -214,7 +216,15 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
   savePath: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
+// The handlers listening to Tauri events by name (`agent-event`: the agent hub's events).
+const tauriEvents = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, fn: (e: { payload: unknown }) => void) => {
+    tauriEvents.set(name, fn);
+    // StrictMode listens twice: the first unlisten must not drop the second handler.
+    return () => void (tauriEvents.get(name) === fn && tauriEvents.delete(name));
+  },
+}));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }));
 // `env.tauri`: whether the page pretends to run inside the Tauri window.
 const env = vi.hoisted(() => ({ tauri: false }));
@@ -275,6 +285,7 @@ describe("App wiring", () => {
     vi.mocked(itemTable).mockResolvedValue(null);
     vi.mocked(runChecks).mockResolvedValue(report());
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
+    vi.mocked(agentSettings).mockResolvedValue({ settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: 'claude mcp add gen4-studio -- "/x" mcp', open_project: null });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -1967,19 +1978,20 @@ describe("App wiring", () => {
     });
   });
 
+  /** The history revision at the time of every bus event and matrix fetch after an undo or an agent's change. */
+  function record() {
+    const log: string[] = [];
+    const revision = () => data().history.current;
+    data().bus.subscribe(
+      // `edited` follows every write the app counts (the checks run again); it is no reload.
+      (e: EditEvent) => e.topic !== "edited",
+      (e: EditEvent) => log.push(`${e.topic}@${revision()}`),
+    );
+    vi.mocked(getMatrix).mockImplementation(async (index) => (log.push(`getMatrix@${revision()}`), matrixOf(index)));
+    return log;
+  }
+
   describe("undo", () => {
-    /** The history revision at the time of every bus event and matrix fetch after the undo. */
-    function record() {
-      const log: string[] = [];
-      const revision = () => data().history.current;
-      data().bus.subscribe(
-        // `edited` follows every write the app counts (the checks run again); it is no reload.
-        (e: EditEvent) => e.topic !== "edited",
-        (e: EditEvent) => log.push(`${e.topic}@${revision()}`),
-      );
-      vi.mocked(getMatrix).mockImplementation(async (index) => (log.push(`getMatrix@${revision()}`), matrixOf(index)));
-      return log;
-    }
 
     it("notes the history move before the first reload action runs", async () => {
       await select(listed[0]);
@@ -2024,6 +2036,118 @@ describe("App wiring", () => {
       // location bank (a text archive).
       expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1", "headerTable@1", "dataChanged@1"]);
       expect(data().history.current).toBe(1);
+    });
+  });
+
+  describe("agent changes", () => {
+    const changed = (seq: number, assets: AssetId[]): AgentEvent => ({ kind: "changed", seq, client: "Claude Code", tool: "set_matrix_cell", label: "Matrix 0 geändert", assets });
+    const emit = (event: AgentEvent) => act(async () => void tauriEvents.get("agent-event")!({ payload: event }));
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    async function inTheApp(open = true) {
+      env.tauri = true;
+      await renderFresh();
+      if (open) await click("Projekt öffnen");
+      expect(tauriEvents.has("agent-event")).toBe(true);
+    }
+
+    it("counts_and_reloads_what_an_agent_changed_like_after_undo", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
+      expect(data().history.current).toBe(1);
+    });
+
+    it("reloads_one_agent_change_after_the_other", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      let counted: () => void = () => {};
+      vi.mocked(memberCounts).mockReset();
+      vi.mocked(memberCounts).mockImplementationOnce(() => new Promise((resolve) => (counted = () => resolve({}))));
+      vi.mocked(memberCounts).mockResolvedValue({});
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await emit(changed(2, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      // The second change waits until the first one's reload is through.
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual([]);
+      counted();
+      await flush();
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(2);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1", "matrixData@2", "getMatrix@2"]);
+    });
+
+    it("shows_the_connected_agent_in_the_status_line_and_answers_its_question", async () => {
+      const hub = (question: AgentStatus["question"]): AgentStatus => ({
+        enabled: true,
+        expert: false,
+        read_only: false,
+        port: 49152,
+        server_error: null,
+        bridge: false,
+        connections: [{ id: 1, client: "Claude Code", since_ms: 0 }],
+        question,
+      });
+      let current = hub({ id: 7, kind: "connect", client: "Claude Code", project: "/p", what: null });
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === "agent_status" ? current : undefined));
+      await inTheApp();
+      await emit({ kind: "status", seq: 1 });
+      await flush();
+      expect(container.querySelector("footer [data-agent-status]")?.textContent).toBe("Agent verbunden: Claude Code");
+      expect(document.querySelector("[role=dialog][data-agent-question]")?.textContent).toContain("„Claude Code“ möchte auf das Projekt „p“ zugreifen.");
+      current = hub(null);
+      const read = [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Lesen")!;
+      await act(async () => read.click());
+      await flush();
+      expect(invoke).toHaveBeenCalledWith("agent_answer", { question: 7, answer: "read" });
+      // The answer reads the status again: the question is gone, the agent stays connected.
+      expect(document.querySelector("[data-agent-question]")).toBeNull();
+      expect(statusLine()).toContain("Agent verbunden: Claude Code");
+    });
+
+    it("refreshes_the_dirty_count_after_an_agent_write_without_assets", async () => {
+      await inTheApp();
+      vi.mocked(dirty).mockClear();
+      vi.mocked(dirty).mockResolvedValue([{ kind: "HeaderTable" } as never]);
+      // An agent's save (or build) changes no value: the event names no asset.
+      await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "save", label: null, assets: [] });
+      await flush();
+      expect(dirty).toHaveBeenCalled();
+    });
+
+    it("reloads_broadly_after_lost_agent_events_in_the_browser_mode", async () => {
+      // The beforeEach app polls the hub (browser mode) with the project open.
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(dirty).mockClear();
+      const hub: AgentStatus = { enabled: true, expert: false, read_only: false, port: null, server_error: null, bridge: true, connections: [], question: null };
+      // The first poll only brings the status; the next one starts at seq 37 although 3 was the last seen: 4..36 are lost.
+      const polls = [
+        { seq: 3, events: [], status: hub },
+        { seq: 100, events: [changed(37, []), changed(100, [])], status: hub },
+      ];
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => (cmd === "agent_poll" ? (polls.shift() ?? { seq: 100, events: [], status: hub }) : undefined));
+      // Not knowing what the lost ones changed, the app reads the world again as after a stale file.
+      await vi.waitFor(() => expect(log.map((entry) => entry.split("@")[0])).toEqual(expect.arrayContaining(["headerTable", "areaData", "buildingData", "dataChanged"])), { timeout: 4000 });
+      expect(memberCounts).toHaveBeenCalled();
+      expect(dirty).toHaveBeenCalled();
+    });
+
+    it("reads_nothing_for_an_agent_change_without_a_project", async () => {
+      await inTheApp(false);
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(getMatrix).mockClear();
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(memberCounts).not.toHaveBeenCalled();
+      expect(getMatrix).not.toHaveBeenCalled();
     });
   });
 

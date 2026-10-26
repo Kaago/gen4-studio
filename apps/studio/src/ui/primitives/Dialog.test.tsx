@@ -64,6 +64,11 @@ describe("Dialog", () => {
     expect(dialog()).toBeNull();
   });
 
+  it("data_attributes_go_onto_the_popup", () => {
+    act(() => root.render(<Dialog open onOpenChange={() => {}} title="Frage" data={{ "data-probe": "ja" }} />));
+    expect(dialog()?.getAttribute("data-probe")).toBe("ja");
+  });
+
   it("escape_asks_the_owner_to_close", () => {
     const onOpenChange = vi.fn();
     act(() =>

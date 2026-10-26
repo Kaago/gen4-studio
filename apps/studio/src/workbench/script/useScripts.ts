@@ -40,7 +40,7 @@ export interface ScriptsApi {
   /** Saves the document when it is open with unsaved text (before the backend writes the file itself); rejects like `save`. */
   saveIfDirty(file: number): Promise<void>;
   /**
-   * The backend wrote the file itself (a new trainer's battle slots): an open document shows the text on disk, the language server
+   * The backend wrote the file itself (a new trainer's battle slots, an agent's save): an open document shows the text on disk, the language server
    * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote.
    */
   reload(file: number): Promise<void>;
@@ -248,7 +248,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
       if (lf(doc.text) === doc.savedText) doc.text = text;
       else {
         latest.current.onError(
-          refusal(`${TERMS.scriptFile.label} ${id4(file)} wurde außerhalb des Editors geändert (neue Trainer-Plätze); deine ungespeicherten Änderungen überschreiben das beim Speichern`),
+          refusal(`${TERMS.scriptFile.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
         );
       }
       doc.savedText = text;

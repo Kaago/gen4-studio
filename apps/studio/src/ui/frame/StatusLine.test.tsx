@@ -35,6 +35,14 @@ describe("StatusLine", () => {
     vi.useRealTimers();
   });
 
+  it("puts_the_agent_item_right_before_the_build_state", () => {
+    show(props({ agent: <span data-probe="">Agent verbunden: Claude Code</span> }));
+    const probe = container.querySelector("[data-probe]")!;
+    expect(probe.nextElementSibling?.textContent).toBe("Noch nicht gebaut");
+    show(props());
+    expect(container.querySelector("[data-probe]")).toBeNull();
+  });
+
   it("is_the_last_stop_of_the_f6_round_as_its_footer", () => {
     const footer = document.createElement("footer");
     container.append(footer);

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
+use g4_kernel::store::{HistoryEntry, Origin, Store};
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -24,6 +25,18 @@ pub struct ProjectInfo {
     pub header_count: usize,
 }
 
+/// What `open_project` answers about `project`. Only the header table is read: location
+/// names are cosmetic and must not gate opening.
+pub fn project_info_of(project: &Project) -> Result<ProjectInfo, CmdError> {
+    Ok(ProjectInfo {
+        root: project.root.display().to_string(),
+        game_code: project.game_code.clone(),
+        family: format!("{:?}", project.family),
+        language: format!("{:?}", project.language),
+        header_count: project.header_count().map_err(CmdError::from)?,
+    })
+}
+
 /// Opens the project at `path` in a fresh session, with its ignore file `g4-checks.json` read.
 /// A broken one does not keep the project closed (ruling R15): nothing is ignored, the checks'
 /// reports name the file, and it is never written until it reads again (see
@@ -31,19 +44,17 @@ pub struct ProjectInfo {
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
     let (ignore, ignore_broken) = super::checks::load_ignore(&project.root);
-    // Only the header table: location names are cosmetic and must not gate opening.
-    let header_count = project.header_count().map_err(CmdError::from)?;
-    let info = ProjectInfo {
-        root: project.root.display().to_string(),
-        game_code: project.game_code.clone(),
-        family: format!("{:?}", project.family),
-        language: format!("{:?}", project.language),
-        header_count,
-    };
+    let info = project_info_of(&project)?;
     let mut session = Session::new(Arc::new(project));
     session.checks.ignore = ignore;
     session.checks.ignore_broken = ignore_broken;
+    // Under the agents' turn: an agent call admitted for the old project never runs on the
+    // new one (it checks the project after taking the turn). Agent calls take the turn
+    // before the session lock and never while waiting for the user, so this waits at most
+    // for one agent call to finish.
+    let turn = state.agents.agent_turn();
     let old = lock(state)?.replace(session);
+    drop(turn);
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -101,17 +112,34 @@ pub fn redo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
 }
 
 /// The labels of the undo and redo stacks: undo oldest first, redo in the order `redo` applies
-/// them (the next one first).
+/// them (the next one first). `undo_agents` and `redo_agents` run parallel to the labels: the
+/// name of the agent client that made the step, `None` for the user's own steps.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct HistoryDto {
     pub undo: Vec<String>,
     pub redo: Vec<String>,
+    pub undo_agents: Vec<Option<String>>,
+    pub redo_agents: Vec<Option<String>>,
 }
 
 pub fn history_impl(state: &AppState) -> Result<HistoryDto, CmdError> {
     let mut guard = lock(state)?;
-    let (undo, redo) = session(&mut guard)?.store.history();
-    Ok(HistoryDto { undo, redo })
+    Ok(history_of(&session(&mut guard)?.store))
+}
+
+/// The undo and redo history of `store`, with who made each step.
+pub fn history_of(store: &Store) -> HistoryDto {
+    let (undo, redo) = store.history_entries();
+    let agent = |e: &HistoryEntry| match &e.origin {
+        Origin::User => None,
+        Origin::Agent { client } => Some(client.clone()),
+    };
+    HistoryDto {
+        undo_agents: undo.iter().map(agent).collect(),
+        redo_agents: redo.iter().map(agent).collect(),
+        undo: undo.into_iter().map(|e| e.label).collect(),
+        redo: redo.into_iter().map(|e| e.label).collect(),
+    }
 }
 
 pub fn dirty_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
@@ -300,9 +328,13 @@ pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
     launch_emulator(Path::new(emulator), Path::new(rom)).map_err(CmdError::from)
 }
 
+/// Opening waits for a running agent call (the agent turn), so it runs on a blocking worker,
+/// off the main thread.
 #[tauri::command]
-pub fn open_project(state: State<AppState>, path: String) -> Result<ProjectInfo, CmdError> {
-    open_project_impl(&state, &path)
+pub async fn open_project(app: tauri::AppHandle, path: String) -> Result<ProjectInfo, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || open_project_impl(&app.state::<AppState>(), &path))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 #[tauri::command]
@@ -421,6 +453,8 @@ mod tests {
         let none = HistoryDto {
             undo: vec![],
             redo: vec![],
+            undo_agents: vec![],
+            redo_agents: vec![],
         };
         assert_eq!(history_impl(&state).unwrap(), none);
         set_permission_impl(&state, 1, 5, 6, 2, 0x80).unwrap();
@@ -430,7 +464,9 @@ mod tests {
             history_impl(&state).unwrap(),
             HistoryDto {
                 undo: labels(2),
-                redo: vec![]
+                redo: vec![],
+                undo_agents: vec![None, None],
+                redo_agents: vec![]
             }
         );
         undo_impl(&state).unwrap();
@@ -438,16 +474,45 @@ mod tests {
             history_impl(&state).unwrap(),
             HistoryDto {
                 undo: labels(1),
-                redo: labels(1)
+                redo: labels(1),
+                undo_agents: vec![None],
+                redo_agents: vec![None]
             }
         );
-        // Serialized for the frontend as `{ undo, redo }`.
+        // Serialized for the frontend with the agent names parallel to the labels.
         let json = serde_json::to_value(history_impl(&state).unwrap()).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "undo": ["paint"], "redo": ["paint"] })
+            serde_json::json!({
+                "undo": ["paint"],
+                "redo": ["paint"],
+                "undo_agents": [null],
+                "redo_agents": [null]
+            })
         );
         assert!(history_impl(&AppState::default()).is_err());
+    }
+
+    #[test]
+    fn history_names_agent_steps() {
+        let (_fixture, state) = open_synthetic();
+        set_permission_impl(&state, 1, 5, 6, 2, 0x80).unwrap();
+        g4_kernel::store::with_origin(
+            g4_kernel::store::Origin::Agent {
+                client: "Claude Code".to_owned(),
+            },
+            || set_permission_impl(&state, 1, 6, 6, 2, 0x80).unwrap(),
+        );
+        let history = history_impl(&state).unwrap();
+        assert_eq!(
+            history.undo_agents,
+            vec![None, Some("Claude Code".to_owned())]
+        );
+        assert!(history.redo_agents.is_empty());
+        undo_impl(&state).unwrap();
+        let history = history_impl(&state).unwrap();
+        assert_eq!(history.undo_agents, vec![None]);
+        assert_eq!(history.redo_agents, vec![Some("Claude Code".to_owned())]);
     }
 
     #[test]

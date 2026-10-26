@@ -10,6 +10,7 @@ use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
 
 use crate::lsp::LspProcess;
+use crate::mcp::hub::AgentHub;
 
 /// The open project and its asset store.
 pub struct Session {
@@ -258,6 +259,8 @@ pub struct AppState {
     /// Set by `force_quit` once the user agreed to discard unsaved edits, so the exit it
     /// triggers is not blocked again.
     pub force_quit: AtomicBool,
+    /// Agent settings, connections, the question to the user and the agent events.
+    pub agents: AgentHub,
 }
 
 impl AppState {

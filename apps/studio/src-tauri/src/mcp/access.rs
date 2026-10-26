@@ -20,7 +20,6 @@ pub enum Kind {
     Depends,
 }
 
-const PATCH: Kind = Kind::Irreversible("Patch");
 const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
 const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
 
@@ -55,8 +54,14 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_room", Kind::Depends),
     ("split_room", Kind::Write),
     ("header_patch_status", Kind::Read),
-    ("apply_header_patch", PATCH),
-    ("repair_header_patch", PATCH),
+    (
+        "apply_header_patch",
+        Kind::Irreversible("Header-Patch einspielen"),
+    ),
+    (
+        "repair_header_patch",
+        Kind::Irreversible("Header-Patch reparieren"),
+    ),
     ("get_map", Kind::Read),
     ("get_events", Kind::Read),
     ("get_building_glb", Kind::Read),
@@ -95,7 +100,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("dirty", Kind::Read),
     ("save", Kind::Write),
     ("build_rom", Kind::Depends),
-    ("run_rom", Kind::Irreversible("Emulator")),
+    ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
     ("reload_asset", Kind::Write),
     ("accept_disk", Kind::Write),
     ("force_quit", APP_ONLY),
@@ -133,6 +138,16 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_project", APP_ONLY),
     ("plan_empty_region", Kind::Read),
     ("apply_empty_region", Kind::Irreversible("Welt leeren")),
+    ("agent_status", APP_ONLY),
+    ("agent_poll", APP_ONLY),
+    ("agent_settings", APP_ONLY),
+    ("agent_set_enabled", APP_ONLY),
+    ("agent_set_expert", APP_ONLY),
+    ("agent_set_grant", APP_ONLY),
+    ("agent_remove_grant", APP_ONLY),
+    ("agent_answer", APP_ONLY),
+    ("agent_disconnect", APP_ONLY),
+    ("agent_set_read_only", APP_ONLY),
     ("world_meta_get", Kind::Read),
     ("world_meta_set", Kind::Write),
     ("place_slots", Kind::Read),
@@ -206,7 +221,7 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         "create_area" | "create_room"
             if args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)) =>
         {
-            PATCH.into()
+            Kind::Irreversible("Header-Patch einspielen").into()
         }
         _ => Class::Write,
     }
@@ -297,14 +312,22 @@ mod tests {
                 ),
                 ("add_script", Kind::Irreversible("Script anlegen")),
                 ("apply_empty_region", Kind::Irreversible("Welt leeren")),
-                ("apply_header_patch", Kind::Irreversible("Patch")),
+                (
+                    "apply_header_patch",
+                    Kind::Irreversible("Header-Patch einspielen")
+                ),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
-                ("repair_header_patch", Kind::Irreversible("Patch")),
-                ("run_rom", Kind::Irreversible("Emulator")),
+                (
+                    "repair_header_patch",
+                    Kind::Irreversible("Header-Patch reparieren")
+                ),
+                ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
             ]
         );
+        // The agent hub's commands: `agent_commands_are_app_only`.
         let mut unavailable = of(|k| matches!(k, Kind::Unavailable(_)));
+        unavailable.retain(|(name, _)| !name.starts_with("agent_"));
         unavailable.sort_by_key(|(name, _)| *name);
         assert_eq!(
             unavailable,
@@ -376,6 +399,38 @@ mod tests {
     }
 
     #[test]
+    fn agent_commands_are_app_only() {
+        // An agent must not grant itself access.
+        let agents: Vec<&str> = COMMANDS
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("agent_"))
+            .collect();
+        assert_eq!(
+            agents,
+            [
+                "agent_status",
+                "agent_poll",
+                "agent_settings",
+                "agent_set_enabled",
+                "agent_set_expert",
+                "agent_set_grant",
+                "agent_remove_grant",
+                "agent_answer",
+                "agent_disconnect",
+                "agent_set_read_only",
+            ]
+        );
+        for name in agents {
+            assert_eq!(
+                kind_of(name),
+                Some(Kind::Unavailable("Nur in der App")),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn build_inside_build_is_write_outside_irreversible() {
         let (fixture, _state) = open_synthetic();
         let elsewhere = tempfile::tempdir().unwrap();
@@ -427,7 +482,7 @@ mod tests {
                     "new_header": { "template": 1, "internal_name": null },
                     "allow_patch": allow_patch })
         };
-        let patch = Class::Irreversible("Patch".to_owned());
+        let patch = Class::Irreversible("Header-Patch einspielen".to_owned());
         assert_eq!(
             classify(
                 "create_area",

@@ -47,7 +47,7 @@ for port in "$VITE_PORT" "$BRIDGE_PORT"; do
   fi
 done
 
-mkdir -p target/agent
+mkdir -p target/agent target/agent/app-data
 TOKEN="$(openssl rand -hex 16)"
 (umask 077; printf '%s' "$TOKEN" > target/agent/bridge.token)
 chmod 600 target/agent/bridge.token
@@ -100,7 +100,8 @@ trap 'exit 143' TERM
 G4_BRIDGE_TOKEN="$TOKEN" "$ROOT/target/debug/studio-bridge" serve \
   --port "$BRIDGE_PORT" \
   --origin "http://127.0.0.1:$VITE_PORT" \
-  --allow-root "$G4_ROMS_DIR/_testkopien" &
+  --allow-root "$G4_ROMS_DIR/_testkopien" \
+  --app-data "$ROOT/target/agent/app-data" &
 BRIDGE_PID=$!
 
 # Wait up to 30 s for the bridge to answer /health.

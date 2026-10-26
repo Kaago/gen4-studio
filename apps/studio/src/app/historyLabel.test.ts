@@ -68,4 +68,13 @@ describe("historyLabel", () => {
   it("translates_both_lists_and_keeps_their_order", () => {
     expect(germanHistory({ undo: ["paint", "edit header"], redo: ["add event"] }, "tuefteln")).toEqual({ undo: ["Malen", "Header geändert"], redo: ["Event hinzugefügt"] });
   });
+
+  it("keeps_agents", () => {
+    expect(germanHistory({ undo: ["paint", "edit header"], redo: ["add event"], undo_agents: [null, "Claude Code"], redo_agents: ["Agent"] }, "tuefteln")).toEqual({
+      undo: ["Malen", "Header geändert"],
+      redo: ["Event hinzugefügt"],
+      undo_agents: [null, "Claude Code"],
+      redo_agents: ["Agent"],
+    });
+  });
 });
