@@ -56,7 +56,9 @@ Diese Maße sind der Ausgangspunkt; der Entwurf in OpenPencil darf sie anpassen,
 ### 3.1 Dateien im Projekt
 
 - `.g4/preview.png`: das eigene Vorschaubild, genau 256 × 192, PNG RGB8. Es reist mit dem Projekt (und später mit Git).
-- `.g4/preview-standard.png`: das Standardbild (Kartenbild der Startstadt), ebenfalls 256 × 192. Es ist ein Zwischenspeicher: die App erzeugt es beim Öffnen des Projekts neu, wenn es fehlt oder sich unterscheidet (§3.3). Getrennt vom eigenen Bild, damit „entfernen“ sofort ein Standardbild zeigt und die Startliste es ohne geöffnetes Projekt lesen kann.
+- `.g4/cache/preview-standard.png`: das Standardbild (Kartenbild der Startstadt), ebenfalls 256 × 192. Es ist ein Zwischenspeicher: die App erzeugt es beim Öffnen des Projekts neu, wenn es fehlt oder sich unterscheidet (§3.3). Getrennt vom eigenen Bild, damit „entfernen“ sofort ein Standardbild zeigt und die Startliste es ohne geöffnetes Projekt lesen kann.
+
+Das Standardbild liegt unter `.g4/cache/`, weil Phase 4 `.g4/` zur Erlaubnisliste für Git macht: versioniert sind nur `base.json` und `preview.png`, alles Abgeleitete liegt unter `.g4/cache/` und bleibt draußen (Hinweis aus Gutachten C zum Projektformat, 2026-10-27).
 
 Reihenfolge beim Lesen: eigenes Bild, sonst Standardbild, sonst keins (die Karte zeigt den Namen). Fehlerhafte Dateien (kein PNG, falsches Maß) zählen als nicht vorhanden; das Lesen schlägt deshalb nie fehl, solange der Projektordner lesbar ist.
 
@@ -147,7 +149,7 @@ Menü der Karte (`Weitere Aktionen für <Name>`): „Vorschaubild wählen…“,
 
 | Frage | Gewählt | Verworfen, weil |
 |---|---|---|
-| Wo das Standardbild entsteht | in der App beim Öffnen, gespeichert als `.g4/preview-standard.png` | Kernel kann ohne WebGL kein Kartenbild zeichnen; ein App-Cache außerhalb des Projekts wäre für die Startliste „über den Pfad“ ein zweiter Ort |
+| Wo das Standardbild entsteht | in der App beim Öffnen, gespeichert als `.g4/cache/preview-standard.png` | Kernel kann ohne WebGL kein Kartenbild zeichnen; ein App-Cache außerhalb des Projekts wäre für die Startliste „über den Pfad“ ein zweiter Ort |
 | Eigen und Standard in einer Datei | zwei Dateien | mit einer Datei wüsste die App nach „entfernen“ nicht, ob das Bild eigen war, und hätte sofort kein Bild |
 | Einpassen | beschneiden (cover) auf 4 : 3 | Einrahmen mit Balken sieht auf dem DS-Bildschirm wie ein Fehler aus |
 | Wer einpasst | der Kernel, für alle Quellen | eine Stelle für Maß, Format und Grenzen; MCP und Brücke bekommen dasselbe |

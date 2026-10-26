@@ -20,7 +20,7 @@
 - Test-Umgebung nur auf den Ports 1490/1491 (`G4_VITE_PORT=1490 G4_BRIDGE_PORT=1491`); 1420/1421 und 1430/1431 nie anfassen.
 - UI nur aus den Bausteinen von `apps/studio/src/ui/primitives` und Tokens `--g4-*`; keine Hex-Werte in CSS (`scripts/check-styles.sh`, `scripts/check-tokens.sh`).
 - Sprache der Oberfläche Deutsch, Texte genau wie in der Spec §3.5 (Menüpunkte, Toasts, Sätze der Fehlercodes).
-- Vorschau: genau 256 × 192, PNG RGB8; Dateien `.g4/preview.png` (eigen) und `.g4/preview-standard.png` (Standard).
+- Vorschau: genau 256 × 192, PNG RGB8; Dateien `.g4/preview.png` (eigen) und `.g4/cache/preview-standard.png` (Standard).
 - Fehlercodes im Kernel-Text: `preview.format`, `preview.too_large`, `preview.unreadable`; Grenzen 32 MiB Datei, 8192 × 8192 Pixel.
 - Dateien der parallelen Gutachten-Sitzung nicht anfassen: `docs/research/2026-10-27-phase-4/` und den Abschnitt „Phase 4“ der Roadmap außer dem Punkt „4.0 Nebenaufgaben“.
 
