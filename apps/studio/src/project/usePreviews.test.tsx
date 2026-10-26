@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PreviewDto } from "../api";
+import { previewWritten } from "./previewMessages";
 import { StartServiceContext } from "./startService";
 import type { StartService } from "./startService";
 import { usePreviews } from "./usePreviews";
@@ -95,6 +96,23 @@ describe("usePreviews", () => {
     await act(async () => result.reload("/a"));
     expect(get).toHaveBeenCalledTimes(2);
     expect(result.previews.has("/a")).toBe(false);
+  });
+
+  it("reads a path again when its picture was written elsewhere (the standard picture in the background)", async () => {
+    await render(["/a", "/b"]);
+    expect(get).toHaveBeenCalledTimes(2);
+    get.mockImplementation(async (path) => dto(`new-of-${path}`));
+    await act(async () => previewWritten.emit(dto("written"), "/a"));
+    expect(get.mock.calls.map((c) => c[0])).toEqual(["/a", "/b", "/a"]);
+    expect(result.previews.get("/a")?.png).toBe("new-of-/a");
+    expect(result.previews.get("/b")?.png).toBe("png-of-/b");
+    // A folder that is no card, and a write without a folder (the open project, from the scene: Start reads it when it shows next), read
+    // nothing; neither does a write while Start is hidden.
+    await act(async () => previewWritten.emit(dto("written"), "/elsewhere"));
+    await act(async () => previewWritten.emit(dto("written")));
+    await render(["/a", "/b"], false);
+    await act(async () => previewWritten.emit(dto("written"), "/b"));
+    expect(get).toHaveBeenCalledTimes(3);
   });
 
   /** A `get` whose answers the test hands out itself, in any order. */

@@ -62,8 +62,8 @@ describe("useStandardPreview", () => {
   });
 
   it("waits_for_a_calm_moment_then_writes_the_start_towns_map_picture_as_the_standard_slot", async () => {
-    const heard: PreviewDto[] = [];
-    const stop = previewWritten.subscribe((dto) => heard.push(dto));
+    const heard: [PreviewDto, string | undefined][] = [];
+    const stop = previewWritten.subscribe((dto, path) => heard.push([dto, path]));
     await show(opened());
     expect(projectPreviewGet).not.toHaveBeenCalled();
     await calm();
@@ -74,8 +74,23 @@ describe("useStandardPreview", () => {
     expect(render).toHaveBeenCalledWith(3, 7);
     expect(same).toHaveBeenCalledWith("NEU", "GESPEICHERT");
     expect(projectPreviewSet).toHaveBeenCalledWith({ path: "/p/pt", slot: "standard", png: "NEU" });
-    // The open preview (Technik) hears of the new picture.
-    expect(heard).toEqual([stored("standard", "NEU")]);
+    // The open preview (Technik) and Start hear of the new picture, with the folder it was written to.
+    expect(heard).toEqual([[stored("standard", "NEU"), "/p/pt"]]);
+  });
+
+  it("says_nothing_of_a_write_that_answers_after_the_project_went", async () => {
+    const heard: PreviewDto[] = [];
+    const stop = previewWritten.subscribe((dto) => heard.push(dto));
+    let answer: (dto: PreviewDto) => void = () => {};
+    vi.mocked(projectPreviewSet).mockImplementation(() => new Promise<PreviewDto>((resolve) => (answer = resolve)));
+    await show(opened());
+    await calm();
+    expect(projectPreviewSet).toHaveBeenCalledOnce();
+    // The project goes while the write runs; its answer comes after that.
+    await show(null);
+    await act(async () => answer(stored("standard", "NEU")));
+    stop();
+    expect(heard).toEqual([]);
   });
 
   it("writes_nothing_when_the_picture_is_the_stored_one", async () => {

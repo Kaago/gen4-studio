@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { PreviewDto } from "../api";
+import { previewWritten } from "./previewMessages";
 import { StartServiceContext } from "./startService";
 
 /** Joins paths into one dependency (a path holds no NUL). */
@@ -8,7 +9,9 @@ const SEP = "\0";
 /**
  * The preview pictures of the recent projects (phase 4.0 design, §3.5): reads `project_preview_get { path }` for each path not in
  * `missing`, once while `visible` stays true and again each time it turns true. Only answers with a picture are entries; an answer
- * without one, or an error, means no picture (no message). `reload` reads one path again (after its picture was set or removed).
+ * without one, or an error, means no picture (no message). `reload` reads one path again (after its picture was set or removed). While
+ * visible, a picture written elsewhere into one of the paths (`previewWritten` with its folder: the standard picture made in the background)
+ * is read again at once; a write without a folder (the open project, from the scene) is read when Start shows next.
  */
 export function usePreviews(
   paths: readonly string[],
@@ -51,6 +54,10 @@ export function usePreviews(
   );
 
   const key = paths.filter((p) => !missing.has(p)).join(SEP);
+  // What a write heard of is compared with: the paths shown now, and whether Start shows.
+  const shown = useRef({ key, visible });
+  shown.current = { key, visible };
+
   useEffect(() => {
     if (!visible) {
       wasVisible.current = false;
@@ -78,6 +85,15 @@ export function usePreviews(
       load(path);
     },
     [load],
+  );
+
+  useEffect(
+    () =>
+      previewWritten.subscribe((_, path) => {
+        const { key, visible } = shown.current;
+        if (path !== undefined && visible && key.split(SEP).includes(path)) reload(path);
+      }),
+    [reload],
   );
   return { previews, reload };
 }

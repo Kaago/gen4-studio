@@ -62,7 +62,9 @@ export function useStandardPreview(
         if (!alive || still === null || still.header !== town.header || still.map !== town.map || still.areaDataId !== town.areaDataId) return;
         if (stored.source === "standard" && stored.png !== null && (await latest.current.same(png, stored.png))) return;
         if (!alive) return;
-        previewWritten.emit(await projectPreviewSet({ path, slot: "standard", png }));
+        const written = await projectPreviewSet({ path, slot: "standard", png });
+        // The project went while it was written: nobody is told of a project no longer open (Start reads the file when it shows).
+        if (alive) previewWritten.emit(written, path);
       })().catch(() => {
         /* silent: no standard picture this time */
       });

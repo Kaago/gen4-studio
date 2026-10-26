@@ -46,17 +46,20 @@ export async function changePreview(how: "choose" | "remove", path?: string): Pr
 
 /**
  * Says that the open project's preview was written elsewhere than in Technik (from the scene, or the standard picture in the background),
- * with the answer of the write: Technik's section, if it shows, takes it at once. Start reads its cards again each time it shows anyway.
+ * with the answer of the write and the folder it was written to (`path`; none for a write without one, which goes to the open project):
+ * Technik's section, if it shows, takes it at once; Start, if it shows, reads that folder's card again. Start reads its cards again each
+ * time it shows anyway.
  */
 export const previewWritten = (() => {
-  const listeners = new Set<(preview: PreviewDto) => void>();
+  type Listener = (preview: PreviewDto, path?: string) => void;
+  const listeners = new Set<Listener>();
   return {
-    subscribe(listener: (preview: PreviewDto) => void): () => void {
+    subscribe(listener: Listener): () => void {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
-    emit(preview: PreviewDto): void {
-      for (const listener of [...listeners]) listener(preview);
+    emit(preview: PreviewDto, path?: string): void {
+      for (const listener of [...listeners]) listener(preview, path);
     },
   };
 })();
