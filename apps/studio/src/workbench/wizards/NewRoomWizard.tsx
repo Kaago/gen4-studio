@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoom, errorText } from "../../api";
-import type { HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { HeaderFamily, HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, Checkbox, ListRow, Notice, NumberField, Reference, TextField, useRovingList } from "../../ui/primitives";
 import { lockedText } from "../../world/events";
 import { thumbnails } from "../../world/thumbnailStore";
@@ -14,16 +15,21 @@ import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
 import { HeaderChoice } from "./HeaderChoice";
+import { PatchConsent, patchReady } from "./PatchConsent";
+import { PlaceStep } from "./PlaceStep";
+import type { PlaceStepValue } from "./PlaceStep";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
+import { MAP_LAST_TILE, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, placeError, placeForm, roomPlace, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewRoomWizard.module.css";
 
 interface Props {
+  /** Bauen gives the new room a new header with a place and a look (step „Ort“); Tüfteln lets the user choose the header. */
+  depth: Depth;
   headers: HeaderSummary[];
   links: WarpLink[];
   counts: MemberCounts;
@@ -76,14 +82,17 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+export function NewRoomWizard({ depth, headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
-  const [form, setForm] = useState<RoomForm>(() => {
+  const [stored, setForm] = useState<RoomForm>(() => {
     const start: RoomForm = { ...emptyRoomForm, outsideHeader: prefill?.outsideHeader ?? null };
     const template = prefill?.template === undefined ? undefined : headers.find((h) => h.id === prefill.template);
     return template ? withTemplate(start, template) : start;
   });
+  const building = depth === "bauen";
+  // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
+  const form = useMemo<RoomForm>(() => (building ? { ...stored, header: null, newHeader: null, areaDataId: stored.lookAreaData, eventFile: "New" } : stored), [building, stored]);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -154,7 +163,13 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   // A new header is a copy of the template room's header.
   const newHeader = form.newHeader && { ...form.newHeader, template: form.template ?? 0 };
   const patch = useHeaderPatch(onHeaderPatch, { repaired: onHeaderPatchRepaired });
-  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect }, headers.length, {
+  // Bauen: the place and the look follow their defaults (the place at the entrance, the template's look) until chosen.
+  const placeDefault = roomPlace(null, form.connect ? outsideHeader : null, template);
+  const place = form.place ?? placeDefault;
+  const look = form.lookAreaData ?? template?.area_data_id ?? 0;
+  // The consent counts only while the patch is missing.
+  const patchConsent = form.patchConsent && patch.patch?.applied === false;
+  const built = roomSpec({ ...form, newHeader, templateMap, x: outsideX, z: outsideZ, connect, place, patchConsent }, headers.length, depth, {
     outsideMatrix: outsideCells ?? outsideMatrix,
     outsideWarps: outsideEvents?.warps,
     keptWarps,
@@ -202,13 +217,19 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     if ("error" in built) return;
     setBusy(true);
     setRefusal(null);
+    const patching = built.spec.header.allow_patch === true;
     try {
-      setOutcome({ kind: "done", report: await createRoom(built.spec), spec: built.spec });
+      const report = await createRoom(built.spec);
+      setOutcome({ kind: "done", report, spec: built.spec });
+      // The call applied the patch: the app reads the header table and list again, as after „Patch anwenden“.
+      if (report.patched) await onHeaderPatch();
     } catch (e) {
       const text = errorText(e);
-      // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(e)) setOutcome({ kind: "partial", message: partialText(text) });
-      else setRefusal(text);
+      // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
+      if (isLateFailure(e)) {
+        setOutcome({ kind: "partial", message: partialText(text) });
+        if (patching) await onHeaderPatch();
+      } else setRefusal(text);
     } finally {
       setBusy(false);
     }
@@ -232,6 +253,51 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, form.template ?? 0), areaDataId: form.areaDataId, eventFile: form.eventFile };
 
   const summaryLines = "spec" in built ? roomSummary(built.spec, headers, form.connect && blocked !== null ? blocked : undefined, links, { reused, outsideTile, insideTile }) : null;
+
+  /** A choice of the step „Ort“: a default is kept as null, so it follows the entrance and the template. */
+  function choosePlace(value: PlaceStepValue) {
+    setForm((f) => ({ ...f, place: placeForm(value.place, placeDefault), lookAreaData: value.areaDataId === (template?.area_data_id ?? 0) ? null : value.areaDataId }));
+  }
+  // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
+  const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
+  const patchLine =
+    patch.patch !== null ? (
+      <PatchConsent patch={patch.patch} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />
+    ) : patch.error !== null ? (
+      <Notice kind="error">{patch.error}</Notice>
+    ) : (
+      <p className={parts.note}>Prüfe den Spielcode …</p>
+    );
+  // Bauen asks for the place and the look; Tüfteln for the header itself.
+  const headerStep: WizardStep = building
+    ? {
+        id: "place",
+        title: "Ort",
+        canNext: placeError(place) === null,
+        content: <PlaceStep value={{ place: place ?? { New: form.name }, areaDataId: look }} onChange={choosePlace} headers={headers} template={template} family={family} name={form.name} />,
+      }
+    : {
+        id: "header",
+        title: TERMS.header.label,
+        canNext: form.header !== null || form.newHeader !== null,
+        content: (
+          <HeaderChoice
+            headers={headers}
+            links={links}
+            counts={counts}
+            value={headerValue}
+            copySource={template?.event_file_id ?? null}
+            onChange={chooseHeader}
+            patch={patch.patch}
+            patchError={patch.error}
+            patchBusy={patch.busy}
+            onApplyPatch={patch.apply}
+            onRepairPatch={patch.repair}
+            template={form.template ?? 0}
+            defaultName={internalName(form.name)}
+          />
+        ),
+      };
 
   const steps: WizardStep[] = [
     {
@@ -303,28 +369,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
         </>
       ),
     },
-    {
-      id: "header",
-      title: TERMS.header.label,
-      canNext: form.header !== null || form.newHeader !== null,
-      content: (
-        <HeaderChoice
-          headers={headers}
-          links={links}
-          counts={counts}
-          value={headerValue}
-          copySource={template?.event_file_id ?? null}
-          onChange={chooseHeader}
-          patch={patch.patch}
-          patchError={patch.error}
-          patchBusy={patch.busy}
-          onApplyPatch={patch.apply}
-          onRepairPatch={patch.repair}
-          template={form.template ?? 0}
-          defaultName={internalName(form.name)}
-        />
-      ),
-    },
+    headerStep,
     {
       id: "entrance",
       title: "Eingang",
@@ -413,7 +458,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
     {
       id: "summary",
       title: "Zusammenfassung",
-      canNext: "spec" in built,
+      canNext: "spec" in built && (!building || patchReady(patch.patch, form.patchConsent)),
       content: (
         <section className={parts.column}>
           {summaryLines ? (
@@ -427,6 +472,7 @@ export function NewRoomWizard({ headers, links, counts, matrices, matricesLoaded
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
+          {building && patchLine}
         </section>
       ),
     },

@@ -1,5 +1,6 @@
-import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import { TERMS, id4 } from "../terms";
 import type { WarpTile } from "../warpTile";
@@ -78,6 +79,12 @@ export interface AreaForm {
   newHeader: NewHeaderForm | null;
   areaDataId: number | null;
   eventFile: EventFileChoice;
+  /** Bauen: the place of the new area; null follows the default (`areaPlace`). */
+  place: PlaceChoice | null;
+  /** Bauen: the look (area data) of the new area; null keeps the template's. */
+  lookAreaData: number | null;
+  /** Bauen: the one-time consent to apply the Dynamic Headers patch while creating. */
+  patchConsent: boolean;
 }
 
 export const emptyAreaForm: AreaForm = {
@@ -92,6 +99,9 @@ export const emptyAreaForm: AreaForm = {
   areaDataId: null,
   // A new area on an existing header would otherwise share that header's event file (and its warps).
   eventFile: "New",
+  place: null,
+  lookAreaData: null,
+  patchConsent: false,
 };
 
 /** The largest side of a matrix. */
@@ -149,16 +159,64 @@ export function newHeaderForm(value: HeaderChoiceValue["newHeader"], name: strin
   return value === null ? null : { template: value.template, internalName: value.internalName === internalName(name) ? null : value.internalName };
 }
 
+/** The place a new area gets unless another is chosen: a new place named like the area. */
+export const areaPlace = (form: Pick<AreaForm, "place" | "name">): PlaceChoice => form.place ?? { New: form.name.trim() };
+
+/**
+ * The place a new room gets unless another is chosen: the place of the header outside its entrance, else the place of its
+ * template (what the copied header carries anyway).
+ */
+export function roomPlace(place: PlaceChoice | null, outside: HeaderSummary | null, template: HeaderSummary | null): PlaceChoice | null {
+  if (place !== null) return place;
+  const from = outside ?? template;
+  return from ? { Existing: from.location_index } : null;
+}
+
+/** A chosen place as the form keeps it: the default itself is kept as null, so it follows later changes (the area's name, the entrance). */
+export const placeForm = (choice: PlaceChoice, fallback: PlaceChoice | null): PlaceChoice | null => (JSON.stringify(choice) === JSON.stringify(fallback) ? null : choice);
+
+/** What is wrong with a place, or null: a new place needs a name. */
+export const placeError = (place: PlaceChoice | null): string | null => {
+  if (place === null) return "Ort wählen.";
+  return "New" in place && place.New.trim() === "" ? "Name des neuen Orts darf nicht leer sein." : null;
+};
+
+/**
+ * The header Bauen gives a new area or room: always a new one, a copy of `template` with an automatic internal name, an
+ * empty event file of its own, the chosen place and look, and the patch applied first when the user consented.
+ */
+function buildingHeader(form: { place: PlaceChoice | null; lookAreaData: number | null; patchConsent: boolean }, headerCount: number, template: number): AssignHeader | { error: string } {
+  const error = placeError(form.place);
+  if (error !== null || form.place === null) return { error: error ?? "Ort wählen." };
+  const place = "New" in form.place ? { New: form.place.New.trim() } : form.place;
+  return {
+    id: headerCount,
+    area_data_id: form.lookAreaData,
+    event_file: "New",
+    new_header: { template, internal_name: null },
+    place,
+    allow_patch: form.patchConsent,
+  };
+}
+
 /**
  * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now:
- * a new header gets that number.
+ * a new header gets that number. Tüfteln assigns the header the form chose; Bauen always makes a new one (`buildingHeader`),
+ * a copy of `form.newHeader.template`.
  */
-export function areaSpec(form: AreaForm, headerCount: number): { spec: AreaSpec } | { error: string } {
+export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { spec: AreaSpec } | { error: string } {
   const { width, height, cells } = areaLayout(form);
   if (cells.length === 0) return { error: `Mindestens eine ${TERMS.map.label} wählen.` };
   if (width > MAX_SIDE || height > MAX_SIDE) return { error: `Höchstens ${MAX_SIDE} Spalten/Zeilen.` };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
+  let header: AssignHeader | null;
+  if (depth === "bauen") {
+    if (form.newHeader === null) return { error: "Vorlage wählen." };
+    const built = buildingHeader({ ...form, place: areaPlace(form) }, headerCount, form.newHeader.template);
+    if ("error" in built) return built;
+    header = built;
+  } else header = assignHeader(form, headerCount);
   return {
     spec: {
       name,
@@ -166,7 +224,7 @@ export function areaSpec(form: AreaForm, headerCount: number): { spec: AreaSpec 
       height,
       cells,
       with_headers: form.withHeaders,
-      header: assignHeader(form, headerCount),
+      header,
     },
   };
 }
@@ -177,6 +235,9 @@ const eventFileText = (choice: EventFileChoice): string => {
   return `Kopie von ${id4(choice.Copy)}`;
 };
 
+/** ` „NAME“` for a typed internal name; nothing when the backend derives it (null). */
+const quoted = (name: string | null): string => (name === null || name.trim() === "" ? "" : ` „${name}“`);
+
 /** The sentence for the header a wizard points at the new matrix: area data and event file included. */
 function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): string {
   const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
@@ -184,7 +245,7 @@ function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): st
   if (created) {
     // "Keep" on a new header keeps what the copy has: the template's event file, which both headers then share.
     const file = assign.event_file === "Keep" ? `behalten (geteilt mit ${TERMS.header.label} ${id4(created.template)})` : eventFileText(assign.event_file);
-    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)} „${created.internal_name}“ neu an (Kopie von ${id4(created.template)}) und stellt ihn auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${file}.`;
+    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)}${quoted(created.internal_name)} neu an (Kopie von ${id4(created.template)}) und stellt ihn auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${file}.`;
   }
   const assigned = headers.find((h) => h.id === assign.id);
   const name = assigned ? ` „${headerLabel(assigned)}“` : "";
@@ -246,7 +307,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec): { lines: string[
 /** The header a result names: a header the wizard made is called new, with its internal name. */
 function headerResultName(id: number, assign: AssignHeader | null): string {
   const created = assign?.new_header;
-  return created ? `Neuer ${TERMS.header.label} ${id4(id)} „${created.internal_name}“ (Kopie von ${id4(created.template)})` : `${TERMS.header.label} ${id4(id)}`;
+  return created ? `Neuer ${TERMS.header.label} ${id4(id)}${quoted(created.internal_name)} (Kopie von ${id4(created.template)})` : `${TERMS.header.label} ${id4(id)}`;
 }
 
 const hasMap = (matrix: MatrixDto, x: number, y: number): number | null => {
@@ -380,6 +441,12 @@ export interface RoomForm {
   insideZ: number;
   /** Tiles a warp would not fire on become doors (behaviour 0x69, collision 0x80). */
   doorTiles: boolean;
+  /** Bauen: the place of the new room; null follows the default (`roomPlace`). */
+  place: PlaceChoice | null;
+  /** Bauen: the look (area data) of the new room; null keeps the template's. */
+  lookAreaData: number | null;
+  /** Bauen: the one-time consent to apply the Dynamic Headers patch while creating. */
+  patchConsent: boolean;
 }
 
 export const emptyRoomForm: RoomForm = {
@@ -398,6 +465,9 @@ export const emptyRoomForm: RoomForm = {
   insideX: 16,
   insideZ: 30,
   doorTiles: true,
+  place: null,
+  lookAreaData: null,
+  patchConsent: false,
 };
 
 /** The last tile of a map (a map is 32 × 32 tiles). */
@@ -430,16 +500,19 @@ export const warpOnTile = (warps: readonly WarpDto[] | null | undefined, x: numb
 
 /**
  * The backend request for the form, or what is wrong with it. `headerCount` is the number of headers there are now (a
- * new header gets that number). `checks` holds what is known about the outside matrix and the event files (see
- * `RoomChecks`); for the matrix alone its size may be passed.
+ * new header gets that number). Tüfteln assigns the header the form chose; Bauen always makes a new one, a copy of the
+ * template room's header (`buildingHeader`; the form's `place` must be resolved, see `roomPlace`). `checks` holds what is
+ * known about the outside matrix and the event files (see `RoomChecks`); for the matrix alone its size may be passed.
  */
-export function roomSpec(form: RoomForm, headerCount: number, checks?: RoomChecks | { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
+export function roomSpec(form: RoomForm, headerCount: number, depth: Depth, checks?: RoomChecks | { width: number; height: number } | null): { spec: RoomSpec } | { error: string } {
   const known: RoomChecks = checks && "width" in checks ? { outsideMatrix: checks } : (checks ?? {});
   const outsideMatrix = known.outsideMatrix;
   if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
-  const header = assignHeader(form, headerCount);
+  const building = depth === "bauen" ? buildingHeader(form, headerCount, form.template) : null;
+  if (building !== null && "error" in building) return building;
+  const header = building ?? assignHeader(form, headerCount);
   if (header === null) return { error: `${TERMS.header.label} wählen.` };
   if (form.connect) {
     const inside = [form.insideX, form.insideZ];
@@ -466,7 +539,8 @@ export function roomSpec(form: RoomForm, headerCount: number, checks?: RoomCheck
     }
     const taken = warpOnTile(known.outsideWarps, form.x, form.z);
     if (taken) return { error: `Auf Kachel x ${form.x}, z ${form.z} außen liegt schon ${TERMS.warp.tech} ${taken.index} (Ziel ${TERMS.header.label} ${id4(taken.dest_header_id)}): eine andere Kachel wählen.` };
-    const kept = form.eventFile === "Keep" ? known.keptWarps : null;
+    // In Bauen the room has a new, empty event file: nothing is kept.
+    const kept = header.event_file === "Keep" ? known.keptWarps : null;
     const takenInside = kept ? warpOnTile(kept.warps, form.insideX, form.insideZ) : null;
     if (kept && takenInside) {
       return {

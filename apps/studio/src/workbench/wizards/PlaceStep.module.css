@@ -1,0 +1,30 @@
+/* The step „Ort“ of the wizards in Bauen: the place button and the look with its picture. */
+
+/* The place's colour, as the world tree marks it; the colour itself comes from `placeColor`. */
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* The template's map in one look: a flat tile until the picture arrives (set from the thumbnail store). */
+.look {
+  display: block;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  border-radius: var(--g4-radius-feld);
+  background-color: var(--g4-flaeche-deck);
+  background-position: center;
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+/* The chosen look's picture beside the button „Aussehen wie …“. */
+.lookRow {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}

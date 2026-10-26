@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 
 const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
@@ -56,21 +56,21 @@ describe("emptyAreaForm", () => {
 
 describe("areaSpec", () => {
   it("refuses_an_empty_selection", () => {
-    expect(areaSpec(form(), 0)).toEqual({ error: "Mindestens eine Karte wählen." });
+    expect(areaSpec(form(), 0, "tuefteln")).toEqual({ error: "Mindestens eine Karte wählen." });
   });
 
   it("refuses_more_than_255_columns_or_rows", () => {
-    expect(areaSpec(form({ selected: [cell(0, 0), cell(255, 0)] }), 0)).toEqual({ error: "Höchstens 255 Spalten/Zeilen." });
-    expect(areaSpec(form({ selected: [cell(0, 0), cell(0, 255)] }), 0)).toEqual({ error: "Höchstens 255 Spalten/Zeilen." });
-    expect("spec" in areaSpec(form({ selected: [cell(0, 0), cell(254, 0)] }), 0)).toBe(true);
+    expect(areaSpec(form({ selected: [cell(0, 0), cell(255, 0)] }), 0, "tuefteln")).toEqual({ error: "Höchstens 255 Spalten/Zeilen." });
+    expect(areaSpec(form({ selected: [cell(0, 0), cell(0, 255)] }), 0, "tuefteln")).toEqual({ error: "Höchstens 255 Spalten/Zeilen." });
+    expect("spec" in areaSpec(form({ selected: [cell(0, 0), cell(254, 0)] }), 0, "tuefteln")).toBe(true);
   });
 
   it("refuses_a_blank_name", () => {
-    expect(areaSpec(form({ selected: [cell(0, 0)], name: "   " }), 0)).toEqual({ error: "Name darf nicht leer sein." });
+    expect(areaSpec(form({ selected: [cell(0, 0)], name: "   " }), 0, "tuefteln")).toEqual({ error: "Name darf nicht leer sein." });
   });
 
   it("builds_the_backend_request_with_the_assigned_header", () => {
-    const result = areaSpec(form({ selected: [cell(2, 1, 521), cell(3, 1, 522)], name: " Route 230 ", header: 1, areaDataId: 7, eventFile: { Copy: 9 } }), 0);
+    const result = areaSpec(form({ selected: [cell(2, 1, 521), cell(3, 1, 522)], name: " Route 230 ", header: 1, areaDataId: 7, eventFile: { Copy: 9 } }), 0, "tuefteln");
     expect(result).toEqual({
       spec: {
         name: "Route 230",
@@ -87,7 +87,7 @@ describe("areaSpec", () => {
   });
 
   it("sends_no_header_assignment_when_none_is_chosen", () => {
-    const result = areaSpec(form({ selected: [cell(0, 0)], withHeaders: false }), 0);
+    const result = areaSpec(form({ selected: [cell(0, 0)], withHeaders: false }), 0, "tuefteln");
     expect(result).toMatchObject({ spec: { with_headers: false, header: null } });
   });
 });
@@ -120,24 +120,24 @@ describe("areaSpec with a new header", () => {
   const picked = { selected: [cell(0, 0, 521)], name: "Route 230" };
 
   it("takes_the_next_number_and_names_the_template_and_the_internal_name", () => {
-    const result = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: "ROUTE_230" }, areaDataId: 7 }), 470);
+    const result = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: "ROUTE_230" }, areaDataId: 7 }), 470, "tuefteln");
     expect(result).toMatchObject({ spec: { header: { id: 470, area_data_id: 7, event_file: "New", new_header: { template: 342, internal_name: "ROUTE_230" } } } });
   });
 
   it("derives_the_internal_name_from_the_area_name_until_one_is_typed", () => {
-    const derived = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: null } }), 470);
+    const derived = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: null } }), 470, "tuefteln");
     expect(derived).toMatchObject({ spec: { header: { new_header: { internal_name: "ROUTE_230" } } } });
-    const typed = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: "Mein Weg" } }), 470);
+    const typed = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: "Mein Weg" } }), 470, "tuefteln");
     expect(typed).toMatchObject({ spec: { header: { new_header: { internal_name: "MEIN_WEG" } } } });
   });
 
   it("ignores_a_chosen_existing_header", () => {
-    const result = areaSpec(form({ ...picked, header: 3, newHeader: { template: 342, internalName: null } }), 470);
+    const result = areaSpec(form({ ...picked, header: 3, newHeader: { template: 342, internalName: null } }), 470, "tuefteln");
     expect(result).toMatchObject({ spec: { header: { id: 470 } } });
   });
 
   it("sends_no_new_header_for_an_existing_one", () => {
-    const result = areaSpec(form({ ...picked, header: 3 }), 470);
+    const result = areaSpec(form({ ...picked, header: 3 }), 470, "tuefteln");
     expect("spec" in result && result.spec.header).toEqual({ id: 3, area_data_id: null, event_file: "New" });
   });
 });
@@ -318,18 +318,18 @@ const place = (id: number, location: string, internal: string): HeaderSummary =>
 
 describe("roomSpec", () => {
   it("asks_for_a_template_first", () => {
-    expect(roomSpec(roomForm({ template: null }), 0)).toEqual({ error: "Vorlage wählen." });
-    expect(roomSpec(roomForm({ templateMap: null }), 0)).toEqual({ error: "Vorlage wählen." });
+    expect(roomSpec(roomForm({ template: null }), 0, "tuefteln")).toEqual({ error: "Vorlage wählen." });
+    expect(roomSpec(roomForm({ templateMap: null }), 0, "tuefteln")).toEqual({ error: "Vorlage wählen." });
   });
 
   it("asks_for_the_header_and_for_the_outside_header_only_when_connecting", () => {
-    expect(roomSpec(roomForm({ header: null }), 0)).toEqual({ error: "Header wählen." });
-    expect(roomSpec(roomForm({ outsideHeader: null }), 0)).toEqual({ error: "Außen-Header wählen." });
-    expect("spec" in roomSpec(roomForm({ outsideHeader: null, connect: false }), 0)).toBe(true);
+    expect(roomSpec(roomForm({ header: null }), 0, "tuefteln")).toEqual({ error: "Header wählen." });
+    expect(roomSpec(roomForm({ outsideHeader: null }), 0, "tuefteln")).toEqual({ error: "Außen-Header wählen." });
+    expect("spec" in roomSpec(roomForm({ outsideHeader: null, connect: false }), 0, "tuefteln")).toBe(true);
   });
 
   it("builds_the_request_with_the_entrance", () => {
-    const built = roomSpec(roomForm({ name: " Haus ", areaDataId: 3, eventFile: { Copy: 9 }, clearBuildings: true, insideX: 5, insideZ: 6 }), 0);
+    const built = roomSpec(roomForm({ name: " Haus ", areaDataId: 3, eventFile: { Copy: 9 }, clearBuildings: true, insideX: 5, insideZ: 6 }), 0, "tuefteln");
     expect(built).toEqual({
       spec: {
         name: "Haus",
@@ -343,71 +343,111 @@ describe("roomSpec", () => {
 
   it("refuses_a_door_outside_in_an_empty_cell_or_a_cell_of_another_header", () => {
     const grid = { width: 3, height: 1, maps: [10, null, 12], headers: [0, 0, 4] };
-    expect("spec" in roomSpec(roomForm({ x: 12, z: 7 }), 0, { outsideMatrix: grid })).toBe(true);
-    expect(roomSpec(roomForm({ x: 40, z: 7 }), 0, { outsideMatrix: grid })).toEqual({ error: "Kachel x 40, z 7 liegt in Zelle (1, 0) ohne Karte." });
-    expect(roomSpec(roomForm({ x: 70, z: 7 }), 0, { outsideMatrix: grid })).toMatchObject({ error: expect.stringContaining("von Header 0004, nicht von 0000") });
+    expect("spec" in roomSpec(roomForm({ x: 12, z: 7 }), 0, "tuefteln", { outsideMatrix: grid })).toBe(true);
+    expect(roomSpec(roomForm({ x: 40, z: 7 }), 0, "tuefteln", { outsideMatrix: grid })).toEqual({ error: "Kachel x 40, z 7 liegt in Zelle (1, 0) ohne Karte." });
+    expect(roomSpec(roomForm({ x: 70, z: 7 }), 0, "tuefteln", { outsideMatrix: grid })).toMatchObject({ error: expect.stringContaining("von Header 0004, nicht von 0000") });
     // Without a header section every cell is the outside header's.
-    expect("spec" in roomSpec(roomForm({ x: 70, z: 7 }), 0, { outsideMatrix: { ...grid, headers: null } })).toBe(true);
+    expect("spec" in roomSpec(roomForm({ x: 70, z: 7 }), 0, "tuefteln", { outsideMatrix: { ...grid, headers: null } })).toBe(true);
   });
 
   it("refuses_door_tiles_that_already_have_a_warp_the_game_would_take_first", () => {
     const warp = (index: number, x: number, z: number) => ({ index, x, z, dest_header_id: 4, dest_warp_id: 0, height: 0 });
-    expect(roomSpec(roomForm(), 0, { outsideWarps: [warp(3, 12, 7)] })).toMatchObject({ error: expect.stringContaining("außen liegt schon Warp 3") });
-    expect("spec" in roomSpec(roomForm(), 0, { outsideWarps: [warp(3, 12, 8)] })).toBe(true);
+    expect(roomSpec(roomForm(), 0, "tuefteln", { outsideWarps: [warp(3, 12, 7)] })).toMatchObject({ error: expect.stringContaining("außen liegt schon Warp 3") });
+    expect("spec" in roomSpec(roomForm(), 0, "tuefteln", { outsideWarps: [warp(3, 12, 8)] })).toBe(true);
     // Inside only the file the room keeps counts: a copy gets its warp repointed, a new file has none.
     const kept = { file: 9, warps: [warp(0, 5, 6)] };
-    expect(roomSpec(roomForm({ eventFile: "Keep", insideX: 5, insideZ: 6 }), 0, { keptWarps: kept })).toMatchObject({ error: expect.stringContaining("Warp 0 der Eventdatei 0009") });
-    expect("spec" in roomSpec(roomForm({ eventFile: { Copy: 9 }, insideX: 5, insideZ: 6 }), 0, { keptWarps: kept })).toBe(true);
+    expect(roomSpec(roomForm({ eventFile: "Keep", insideX: 5, insideZ: 6 }), 0, "tuefteln", { keptWarps: kept })).toMatchObject({ error: expect.stringContaining("Warp 0 der Eventdatei 0009") });
+    expect("spec" in roomSpec(roomForm({ eventFile: { Copy: 9 }, insideX: 5, insideZ: 6 }), 0, "tuefteln", { keptWarps: kept })).toBe(true);
   });
 
   it("makes_no_entrance_when_connecting_later", () => {
-    const built = roomSpec(roomForm({ connect: false }), 0);
+    const built = roomSpec(roomForm({ connect: false }), 0, "tuefteln");
     expect("spec" in built && built.spec.entrance).toBeNull();
   });
 
   it("refuses_an_inside_tile_off_the_map_but_only_when_connecting", () => {
-    expect(roomSpec(roomForm({ insideX: 40 }), 0)).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
-    expect(roomSpec(roomForm({ insideZ: -1 }), 0)).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
-    expect("spec" in roomSpec(roomForm({ insideX: 40, connect: false }), 0)).toBe(true);
+    expect(roomSpec(roomForm({ insideX: 40 }), 0, "tuefteln")).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
+    expect(roomSpec(roomForm({ insideZ: -1 }), 0, "tuefteln")).toEqual({ error: "Kachel liegt außerhalb der Karte (0 bis 31)." });
+    expect("spec" in roomSpec(roomForm({ insideX: 40, connect: false }), 0, "tuefteln")).toBe(true);
   });
 
   it("asks_for_the_door_outside_when_it_is_not_entered_yet", () => {
-    expect("error" in roomSpec(roomForm({ x: null }), 0)).toBe(true);
-    expect("error" in roomSpec(roomForm({ z: null }), 0)).toBe(true);
-    expect("spec" in roomSpec(roomForm({ x: null, z: null, connect: false }), 0)).toBe(true);
+    expect("error" in roomSpec(roomForm({ x: null }), 0, "tuefteln")).toBe(true);
+    expect("error" in roomSpec(roomForm({ z: null }), 0, "tuefteln")).toBe(true);
+    expect("spec" in roomSpec(roomForm({ x: null, z: null, connect: false }), 0, "tuefteln")).toBe(true);
   });
 
   it("refuses_a_door_outside_the_outside_headers_matrix", () => {
     const size = { width: 2, height: 1 };
-    expect("spec" in roomSpec(roomForm({ x: 63, z: 31 }), 0, size)).toBe(true);
-    expect(roomSpec(roomForm({ x: 64, z: 7 }), 0, size)).toEqual({ error: "Kachel x 64, z 7 liegt außerhalb des Rasters (x 0 bis 63, z 0 bis 31)." });
-    expect("error" in roomSpec(roomForm({ x: 3, z: 32 }), 0, size)).toBe(true);
-    expect("error" in roomSpec(roomForm({ x: -1 }), 0, size)).toBe(true);
+    expect("spec" in roomSpec(roomForm({ x: 63, z: 31 }), 0, "tuefteln", size)).toBe(true);
+    expect(roomSpec(roomForm({ x: 64, z: 7 }), 0, "tuefteln", size)).toEqual({ error: "Kachel x 64, z 7 liegt außerhalb des Rasters (x 0 bis 63, z 0 bis 31)." });
+    expect("error" in roomSpec(roomForm({ x: 3, z: 32 }), 0, "tuefteln", size)).toBe(true);
+    expect("error" in roomSpec(roomForm({ x: -1 }), 0, "tuefteln", size)).toBe(true);
     // An unknown matrix is not checked.
-    expect("spec" in roomSpec(roomForm({ x: 9999 }), 0, null)).toBe(true);
+    expect("spec" in roomSpec(roomForm({ x: 9999 }), 0, "tuefteln", null)).toBe(true);
   });
 
   it("refuses_the_rooms_own_header_as_the_header_outside", () => {
-    expect("error" in roomSpec(roomForm({ outsideHeader: 1 }), 0)).toBe(true);
+    expect("error" in roomSpec(roomForm({ outsideHeader: 1 }), 0, "tuefteln")).toBe(true);
   });
 
   it("refuses_an_empty_name", () => {
-    expect(roomSpec(roomForm({ name: "  " }), 0)).toEqual({ error: "Name darf nicht leer sein." });
+    expect(roomSpec(roomForm({ name: "  " }), 0, "tuefteln")).toEqual({ error: "Name darf nicht leer sein." });
   });
 });
 
 describe("roomSpec with a new header", () => {
   it("takes_the_next_number_and_needs_no_chosen_header", () => {
-    const built = roomSpec(roomForm({ header: null, template: 342, newHeader: { template: 342, internalName: null }, name: "Haus" }), 470);
+    const built = roomSpec(roomForm({ header: null, template: 342, newHeader: { template: 342, internalName: null }, name: "Haus" }), 470, "tuefteln");
     expect(built).toMatchObject({ spec: { header: { id: 470, event_file: "New", new_header: { template: 342, internal_name: "HAUS" } } } });
   });
 
   it("refuses_a_new_header_as_the_header_outside", () => {
-    expect("error" in roomSpec(roomForm({ header: null, newHeader: { template: 7, internalName: null }, outsideHeader: 470 }), 470)).toBe(true);
+    expect("error" in roomSpec(roomForm({ header: null, newHeader: { template: 7, internalName: null }, outsideHeader: 470 }), 470, "tuefteln")).toBe(true);
   });
 
   it("still_asks_for_a_header_when_neither_is_chosen", () => {
-    expect(roomSpec(roomForm({ header: null }), 470)).toEqual({ error: "Header wählen." });
+    expect(roomSpec(roomForm({ header: null }), 470, "tuefteln")).toEqual({ error: "Header wählen." });
+  });
+});
+
+describe("the header in Bauen", () => {
+  const picked = { selected: [cell(0, 0, 521)], name: " Neuheim " };
+  // What Tüfteln chose stays out of Bauen: the header, its area data and event file, a typed internal name.
+  const tinkered = { header: 3, areaDataId: 9, eventFile: "Keep" as const };
+
+  it("builds_a_new_header_with_place_and_patch_in_bauen", () => {
+    const area = areaSpec(form({ ...picked, ...tinkered, newHeader: { template: 342, internalName: "TYPED" }, lookAreaData: 7, patchConsent: true }), 470, "bauen");
+    expect("spec" in area && area.spec.header).toEqual({ id: 470, area_data_id: 7, event_file: "New", new_header: { template: 342, internal_name: null }, place: { New: "Neuheim" }, allow_patch: true });
+    // The backend names the header: the summary quotes no name.
+    expect("spec" in area && areaSummary(area.spec, headers).join(" ")).not.toContain("null");
+    const existing = areaSpec(form({ ...picked, newHeader: { template: 342, internalName: null }, place: { Existing: 4 } }), 470, "bauen");
+    expect("spec" in existing && existing.spec.header).toMatchObject({ area_data_id: null, place: { Existing: 4 }, allow_patch: false });
+    expect(areaSpec(form({ ...picked, newHeader: { template: 342, internalName: null }, place: { New: "  " } }), 470, "bauen")).toEqual({ error: "Name des neuen Orts darf nicht leer sein." });
+
+    const room = roomSpec(roomForm({ ...tinkered, eventFile: { Copy: 9 }, template: 342, place: { Existing: 4 }, patchConsent: true }), 470, "bauen");
+    expect("spec" in room && room.spec.header).toEqual({ id: 470, area_data_id: null, event_file: "New", new_header: { template: 342, internal_name: null }, place: { Existing: 4 }, allow_patch: true });
+    expect(roomSpec(roomForm({ place: null }), 470, "bauen")).toEqual({ error: "Ort wählen." });
+  });
+
+  it("keeps_the_header_choice_in_tuefteln", () => {
+    const bauen = { place: { New: "Neuheim" }, lookAreaData: 7, patchConsent: true };
+    const area = areaSpec(form({ ...picked, header: 3, ...bauen }), 470, "tuefteln");
+    expect("spec" in area && area.spec.header).toEqual({ id: 3, area_data_id: null, event_file: "New" });
+    const room = roomSpec(roomForm({ ...bauen, areaDataId: 3 }), 470, "tuefteln");
+    expect("spec" in room && room.spec.header).toEqual({ id: 1, area_data_id: 3, event_file: "New" });
+  });
+
+  it("defaults_the_place_to_a_new_one_for_an_area_and_the_entrance_for_a_room", () => {
+    expect(areaPlace({ place: null, name: " Neuheim " })).toEqual({ New: "Neuheim" });
+    expect(areaPlace({ place: { Existing: 2 }, name: "Neuheim" })).toEqual({ Existing: 2 });
+    const outside = { ...header(5, "OUT"), location_index: 12 };
+    const template = { ...header(6, "TPL"), location_index: 30 };
+    expect(roomPlace(null, outside, template)).toEqual({ Existing: 12 });
+    expect(roomPlace(null, null, template)).toEqual({ Existing: 30 });
+    expect(roomPlace(null, null, null)).toBeNull();
+    expect(placeForm({ New: "Neuheim" }, { New: "Neuheim" })).toBeNull();
+    expect(placeForm({ New: "Altheim" }, { New: "Neuheim" })).toEqual({ New: "Altheim" });
   });
 });
 

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { AdoptProgressDto, AdoptReportDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, ScriptsStatusDto, WarpLink } from "../api";
 import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
+import { useShell } from "../ui/frame/ShellContext";
 import { buildPlaces } from "../workbench/places";
 import { NewAreaWizard } from "../workbench/wizards/NewAreaWizard";
 import { NewRoomWizard } from "../workbench/wizards/NewRoomWizard";
@@ -54,6 +55,8 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
 export function WizardHost(props: Props) {
   const { wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
   const { request, close, created } = wizards;
+  // Bauen gives a new area or room a place and a look; Tüfteln lets the user choose its header.
+  const { depth } = useShell().state;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
   const places = useMemo(() => (wantsPlaces ? buildPlaces(headers, matrices) : []), [wantsPlaces, headers, matrices]);
@@ -62,6 +65,7 @@ export function WizardHost(props: Props) {
     case "area":
       return (
         <NewAreaWizard
+          depth={depth}
           headers={headers}
           matrices={matrices}
           matricesLoaded={matricesLoaded}
@@ -80,6 +84,7 @@ export function WizardHost(props: Props) {
     case "room":
       return (
         <NewRoomWizard
+          depth={depth}
           headers={headers}
           links={links}
           counts={counts}

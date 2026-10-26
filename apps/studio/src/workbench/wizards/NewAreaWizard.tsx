@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createArea, errorText } from "../../api";
-import type { AreaReport, AreaSpec, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
+import type { AreaReport, AreaSpec, HeaderFamily, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { Checkbox, Notice, SelectField, TextField } from "../../ui/primitives";
 import { AreaGrid, cellKey } from "../AreaGrid";
 import { buildPlaces, placeColor } from "../places";
@@ -8,18 +9,23 @@ import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
+import { PatchConsent, patchReady } from "./PatchConsent";
+import { PlaceStep } from "./PlaceStep";
+import type { PlaceStepValue } from "./PlaceStep";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
 import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { areaLayout, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewAreaWizard.module.css";
 
 interface Props {
+  /** Bauen gives the new area a new header with a place and a look (step „Ort“); Tüfteln lets the user choose the header. */
+  depth: Depth;
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
   /** Whether the overview (`matrices`) has been read, or its read failed: until then no source can be offered. */
@@ -60,8 +66,11 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
-  const [form, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
+export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+  const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
+  const building = depth === "bauen";
+  // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
+  const form = useMemo<AreaForm>(() => (building ? { ...stored, header: null, newHeader: null, areaDataId: stored.lookAreaData, eventFile: "New" } : stored), [building, stored]);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -81,7 +90,14 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
   // A new header is a copy of the header the area data is taken from, else of header 0.
   const template = source?.id ?? 0;
   const patch = useHeaderPatch(onHeaderPatch, { repaired: onHeaderPatchRepaired });
-  const built = areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length);
+  // Bauen: the place and the look follow their defaults (a new place named like the area, the template's look) until chosen.
+  const place = areaPlace(form);
+  const look = form.lookAreaData ?? source?.area_data_id ?? 0;
+  // The consent counts only while the patch is missing.
+  const patchConsent = form.patchConsent && patch.patch?.applied === false;
+  const built = building
+    ? areaSpec({ ...form, newHeader: { template, internalName: null }, place, patchConsent }, headers.length, depth)
+    : areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length, depth);
   const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
   const previewTileset = previewArea(form, headers, source);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
@@ -139,13 +155,19 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
     if ("error" in built) return;
     setBusy(true);
     setRefusal(null);
+    const patching = built.spec.header?.allow_patch === true;
     try {
-      setOutcome({ kind: "done", report: await createArea(built.spec), spec: built.spec });
+      const report = await createArea(built.spec);
+      setOutcome({ kind: "done", report, spec: built.spec });
+      // The call applied the patch: the app reads the header table and list again, as after „Patch anwenden“.
+      if (report.patched) await onHeaderPatch();
     } catch (e) {
       const text = errorText(e);
-      // Something stayed behind: the result step says what, the wizard cannot repair it.
-      if (isLateFailure(e)) setOutcome({ kind: "partial", message: partialText(text) });
-      else setRefusal(text);
+      // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
+      if (isLateFailure(e)) {
+        setOutcome({ kind: "partial", message: partialText(text) });
+        if (patching) await onHeaderPatch();
+      } else setRefusal(text);
     } finally {
       setBusy(false);
     }
@@ -171,6 +193,52 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
 
   const matrixOptions = useMemo(() => matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` })), [matrices]);
   const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links) : null;
+
+  /** A choice of the step „Ort“: a default is kept as null, so it follows the area's name and the template. */
+  function choosePlace(value: PlaceStepValue) {
+    setForm((f) => ({ ...f, place: placeForm(value.place, areaPlace({ ...f, place: null })), lookAreaData: value.areaDataId === (source?.area_data_id ?? 0) ? null : value.areaDataId }));
+  }
+  // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
+  const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
+  const patchLine =
+    patch.patch !== null ? (
+      <PatchConsent patch={patch.patch} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />
+    ) : patch.error !== null ? (
+      <Notice kind="error">{patch.error}</Notice>
+    ) : (
+      <p className={parts.note}>Prüfe den Spielcode …</p>
+    );
+
+  // Bauen asks for the place and the look; Tüfteln for the header itself.
+  const headerStep: WizardStep = building
+    ? {
+        id: "place",
+        title: "Ort",
+        canNext: placeError(place) === null,
+        content: <PlaceStep value={{ place, areaDataId: look }} onChange={choosePlace} headers={headers} template={source} family={family} name={form.name} />,
+      }
+    : {
+        id: "header",
+        title: TERMS.header.label,
+        canNext: true,
+        content: (
+          <HeaderChoice
+            headers={headers}
+            links={links}
+            counts={counts}
+            value={headerValue}
+            copySource={source?.event_file_id ?? null}
+            onChange={(v) => setForm((f) => ({ ...f, ...v, newHeader: newHeaderForm(v.newHeader, f.name) }))}
+            patch={patch.patch}
+            patchError={patch.error}
+            patchBusy={patch.busy}
+            onApplyPatch={patch.apply}
+            onRepairPatch={patch.repair}
+            template={template}
+            defaultName={internalName(form.name)}
+          />
+        ),
+      };
 
   const steps: WizardStep[] = [
     {
@@ -248,32 +316,11 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
         </>
       ),
     },
-    {
-      id: "header",
-      title: TERMS.header.label,
-      canNext: true,
-      content: (
-        <HeaderChoice
-          headers={headers}
-          links={links}
-          counts={counts}
-          value={headerValue}
-          copySource={source?.event_file_id ?? null}
-          onChange={(v) => setForm((f) => ({ ...f, ...v, newHeader: newHeaderForm(v.newHeader, f.name) }))}
-          patch={patch.patch}
-          patchError={patch.error}
-          patchBusy={patch.busy}
-          onApplyPatch={patch.apply}
-          onRepairPatch={patch.repair}
-          template={template}
-          defaultName={internalName(form.name)}
-        />
-      ),
-    },
+    headerStep,
     {
       id: "summary",
       title: "Zusammenfassung",
-      canNext: "spec" in built,
+      canNext: "spec" in built && (!building || patchReady(patch.patch, form.patchConsent)),
       content: (
         <section className={parts.column}>
           {summaryLines ? (
@@ -287,6 +334,7 @@ export function NewAreaWizard({ headers, matrices, matricesLoaded, matricesFaile
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
+          {building && patchLine}
         </section>
       ),
     },

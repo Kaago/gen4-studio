@@ -1512,6 +1512,9 @@ describe("App wiring", () => {
       // The project is already open (and its overview empty): the matrices are read again.
       vi.mocked(listMatrices).mockResolvedValue({ matrices: [summary(0), summary(1)], unreadable: [] });
       await act(async () => data().bus.emit({ topic: "matrixData" }));
+      // The header step is Tüfteln's (Bauen asks for a place instead).
+      const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Tüfteln");
+      await act(async () => tinker!.click());
       vi.mocked(createArea).mockImplementation(async () => {
         // The backend now has the matrix and header 1 points at it.
         listed = [header(0, 0), header(1, 5)];

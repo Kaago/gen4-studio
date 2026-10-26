@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, dirty, getMatrix, headerPatchStatus } from "../../api";
+import { applyHeaderPatch, createArea, dirty, getMatrix, getTextArchive, headerPatchStatus, placeSlots } from "../../api";
 import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { openSelect, pressKey } from "../../ui/primitives/testUtils";
 import { NewAreaWizard } from "./NewAreaWizard";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
 // The grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -50,17 +51,21 @@ describe("NewAreaWizard", () => {
     vi.mocked(headerPatchStatus).mockReset().mockResolvedValue(patchState());
     vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue({ ...patchState(), snapshot: null });
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
+    vi.mocked(placeSlots).mockReset().mockResolvedValue({ bank: 433, count: 3, free: 253, reusable: [] });
+    vi.mocked(getTextArchive)
+      .mockReset()
+      .mockResolvedValue({ index: 433, key: 0, lang: "de", messages: ["Mysteriöser Ort", "Zweiblattdorf", "Sandgemme"].map((text, i) => ({ id: `msg_${i}`, text })), users: [] });
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
 
-  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }) => (
-    <NewAreaWizard headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
+  const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }, depth: Depth = "tuefteln") => (
+    <NewAreaWizard depth={depth} headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
   );
-  async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }) {
-    await act(async () => root.render(wizard(prefill)));
+  async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }, depth: Depth = "tuefteln") {
+    await act(async () => root.render(wizard(prefill, matrices, { loaded: true, failed: false }, depth)));
     await flush();
   }
   const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
@@ -152,7 +157,7 @@ describe("NewAreaWizard", () => {
 
     async function open(prefill: { matrix?: number; header?: number }) {
       await act(async () =>
-        root.render(<NewAreaWizard headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+        root.render(<NewAreaWizard depth="tuefteln" headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
       );
       await flush();
     }
@@ -373,6 +378,94 @@ describe("NewAreaWizard", () => {
     expect(button("Zeigen")).toBeUndefined();
     await click(button("Schließen"));
     expect(onClose).toHaveBeenCalledWith(true);
+  });
+
+  describe("in Bauen", () => {
+    const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
+    const consent = () => container.querySelector<HTMLElement>("[data-patch-consent] [role=checkbox]");
+    /** Cell (0, 0) of matrix 1 belongs to header 0001 (area data 3): the new header is a copy of it. */
+    async function toSummary(patch: Partial<HeaderPatchDto> = {}) {
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState(patch));
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      await flush();
+      await next();
+    }
+
+    it("shows_the_step_place_in_bauen_and_header_in_tuefteln", async () => {
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      expect(current()).toBe("3. Ort");
+      expect(container.querySelector("[aria-label=Ort]")).not.toBeNull();
+      expect(container.querySelector<HTMLInputElement>('input[aria-label="Name des neuen Orts"]')?.value).toBe("Neues Gebiet");
+      expect(container.textContent).toContain("Aussehen wie");
+      act(() => root.unmount());
+      root = createRoot(container);
+      await show({ matrix: 1 }, "tuefteln");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      expect(current()).toBe("3. Header");
+      expect(button("Neuer Header")).toBeDefined();
+    });
+
+    it("cannot_create_without_the_consent_when_the_patch_is_missing", async () => {
+      await toSummary({ applied: false });
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.querySelector("[data-patch-consent]")?.textContent).toContain("Nicht rückgängig");
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      expect(button("Anlegen")?.disabled).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // A broken patch is repaired first.
+      await toSummary({ applied: true, repairable: true });
+      expect(container.textContent).toContain("Der Patch „Dynamische Header“ ist fehlerhaft. Reparieren in Technik › Patches.");
+      expect(button("Anlegen")?.disabled).toBe(true);
+    });
+
+    it("sends_allow_patch_a_new_place_and_no_internal_name", async () => {
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header).toEqual({
+        id: 2,
+        area_data_id: null,
+        event_file: "New",
+        new_header: { template: 1, internal_name: null },
+        place: { New: "Neues Gebiet" },
+        allow_patch: true,
+      });
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(createArea).mockClear();
+      // With the patch in place there is no line and no patch in the call.
+      await toSummary({ applied: true });
+      expect(container.querySelector("[data-patch-consent]")).toBeNull();
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header).toMatchObject({ allow_patch: false });
+    });
+
+    it("calls_on_header_patch_after_a_patching_create", async () => {
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: true });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      act(() => root.unmount());
+      root = createRoot(container);
+      onHeaderPatch.mockClear();
+      vi.mocked(createArea).mockResolvedValue({ ...report, header: 2, patched: false });
+      await toSummary({ applied: true });
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
   });
 
   describe("a new header", () => {
