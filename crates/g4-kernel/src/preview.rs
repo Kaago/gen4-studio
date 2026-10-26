@@ -1,7 +1,9 @@
 //! The project preview: a 256 × 192 picture of the project for the start list. The own picture
 //! lives in `.g4/preview.png`, the standard picture (the start town's map, rendered by the app)
-//! in `.g4/preview-standard.png`; both are PNG RGB8. Reading prefers the own picture, then the
-//! standard one, and never fails: a missing folder or a broken file counts as no picture.
+//! in `.g4/cache/preview-standard.png`; both are PNG RGB8. `.g4/cache/` holds what is derived
+//! and stays out of version control (only `base.json` and `preview.png` of `.g4/` are kept).
+//! Reading prefers the own picture, then the standard one, and never fails: a missing folder
+//! or a broken file counts as no picture.
 //! Writing fits any PNG or JPEG ([`fit_preview`]) and replaces the slot's file atomically.
 //! The preview is no game file and has no undo. See the phase 4.0 design, §3.
 
@@ -11,7 +13,11 @@ use std::path::{Path, PathBuf};
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
-use image::{ExtendedColorType, ImageEncoder, ImageFormat, ImageReader, Rgb, RgbImage, Rgba};
+use image::metadata::Orientation;
+use image::{
+    DynamicImage, ExtendedColorType, GenericImageView, ImageDecoder, ImageEncoder, ImageError,
+    ImageFormat, ImageReader, Rgb, RgbImage, Rgba,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{KernelError, io_at};
@@ -74,21 +80,29 @@ pub struct StandardMap {
 const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 /// Largest width and height [`fit_preview`] takes.
 const MAX_SIDE: u32 = 8192;
+/// Largest decoded picture [`fit_preview`] takes: 8192 × 8192 at 8-bit RGBA. It bounds the
+/// peak memory; a 16-bit picture above it is refused as `preview.too_large`.
+const MAX_DECODED_BYTES: u64 = 8192 * 8192 * 4;
+/// Largest preview file [`read_preview`] reads; a bigger file is no preview (a 256 × 192 PNG
+/// RGB8 is at most about 150 KiB).
+const MAX_PREVIEW_FILE_BYTES: u64 = 1024 * 1024;
 
 fn refused(code: &str, rest: impl std::fmt::Display) -> KernelError {
     KernelError::Refused(format!("{code}: {rest}"))
 }
 
-/// Reads the project's preview from `<root>/.g4/`: the own picture, else the standard picture,
-/// else none. Only files are read (no `Project::open`); a file that cannot be read or is no
-/// PNG of 256 × 192 counts as missing, and so does a missing project folder, so this never
-/// fails.
+/// Reads the project's preview: `<root>/.g4/preview.png`, else
+/// `<root>/.g4/cache/preview-standard.png`, else none. Only files are read (no
+/// `Project::open`); a file that cannot be read, is over 1 MiB or is no PNG of 256 × 192 counts
+/// as missing, and so does a missing project folder, so this never fails.
 pub fn read_preview(root: &Path) -> Result<Preview, KernelError> {
     for (slot, source) in [
         (PreviewSlot::Eigen, PreviewSource::Eigen),
         (PreviewSlot::Standard, PreviewSource::Standard),
     ] {
-        let Ok(bytes) = std::fs::read(slot_path(root, slot)) else {
+        let path = slot_path(root, slot);
+        let small = std::fs::metadata(&path).is_ok_and(|m| m.len() <= MAX_PREVIEW_FILE_BYTES);
+        let Some(bytes) = small.then(|| std::fs::read(&path).ok()).flatten() else {
             continue;
         };
         if is_preview_png(&bytes) {
@@ -110,10 +124,11 @@ fn is_preview_png(bytes: &[u8]) -> bool {
         .is_ok_and(|img| (img.width(), img.height()) == (PREVIEW_W, PREVIEW_H))
 }
 
-/// Writes `input` into the file of `slot` (atomically through a temp file under `.g4/`,
-/// creating `.g4/`) or removes that file (`Remove`; a missing file is fine) and returns the
-/// preview as [`read_preview`] then reads it. A refused input leaves the slot as it was; a
-/// project folder that does not exist is an I/O error (it is never created).
+/// Writes `input` into the file of `slot` (atomically through a temp file under `.g4/tmp/`,
+/// creating `.g4/` and, for the standard slot, `.g4/cache/`) or removes that file (`Remove`;
+/// a missing file is fine) and returns the preview as [`read_preview`] then reads it. A
+/// refused input leaves the slot as it was; a project folder that does not exist is an I/O
+/// error (it is never created).
 pub fn write_preview(
     root: &Path,
     slot: PreviewSlot,
@@ -161,16 +176,22 @@ fn store(root: &Path, path: &Path, png: &[u8]) -> Result<(), KernelError> {
             "project folder not found",
         )));
     }
-    // `write_atomic` creates `.g4/tmp/`, and with it `.g4/`.
+    // The slot's folder (`.g4/` or `.g4/cache/`); `write_atomic` puts its temp file in
+    // `.g4/tmp/`, on the same filesystem, so the rename stays atomic.
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(io_at(dir))?;
+    }
     write_atomic(root, path, png)
 }
 
-/// Fits a PNG or JPEG (told apart by content) into the preview: crops it to 4 : 3 around its
-/// centre ("cover"), scales it to 256 × 192 (Lanczos3 when shrinking, Nearest when growing by
-/// a whole factor, CatmullRom otherwise; a picture of exactly that size is only re-encoded),
+/// Fits a PNG or JPEG (told apart by content) into the preview: turns it upright by its EXIF
+/// orientation, crops it to 4 : 3 around its centre ("cover"), scales it to 256 × 192
+/// (Lanczos3 when shrinking, Nearest when growing by a whole factor, CatmullRom otherwise; a
+/// picture of exactly that size is only re-encoded),
 /// lays any alpha on the DS ground colour and encodes it as PNG RGB8. Refused:
-/// `preview.format` (neither PNG nor JPEG), `preview.too_large` (over 32 MiB or over
-/// 8192 × 8192, checked before decoding) and `preview.unreadable` (a broken picture).
+/// `preview.format` (neither PNG nor JPEG), `preview.too_large` (over 32 MiB, over
+/// 8192 × 8192 or over 256 MiB decoded, checked from the header before decoding) and
+/// `preview.unreadable` (a broken picture).
 pub fn fit_preview(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err(refused(
@@ -191,29 +212,38 @@ pub fn fit_preview(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
         }
         Err(_) => return Err(refused("preview.format", "neither PNG nor JPEG")),
     };
-    let reader = || {
-        let mut reader = ImageReader::new(Cursor::new(bytes));
-        reader.set_format(format);
-        reader
-    };
-    let (width, height) = reader()
-        .into_dimensions()
-        .map_err(|e| refused("preview.unreadable", e))?;
+    let mut reader = ImageReader::new(Cursor::new(bytes));
+    reader.set_format(format);
+    let mut decoder = reader.into_decoder().map_err(decode_error)?;
+    // The header's size, before any pixel is decoded.
+    let (width, height) = decoder.dimensions();
     if width > MAX_SIDE || height > MAX_SIDE {
         return Err(refused(
             "preview.too_large",
             format!("{width} × {height} pixels, at most {MAX_SIDE} × {MAX_SIDE}"),
         ));
     }
-    let img = reader()
-        .decode()
-        .map_err(|e| refused("preview.unreadable", e))?;
-    if img.width() == 0 || img.height() == 0 {
+    // The decoded buffer, also from the header (`image` does not bound it for PNG itself).
+    if decoder.total_bytes() > MAX_DECODED_BYTES {
+        return Err(refused(
+            "preview.too_large",
+            format!(
+                "{width} × {height} pixels of {:?} need {} bytes, at most {MAX_DECODED_BYTES}",
+                decoder.color_type(),
+                decoder.total_bytes()
+            ),
+        ));
+    }
+    // A camera JPEG stores its rotation in EXIF; the picture is turned upright first.
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut img = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
+    img.apply_orientation(orientation);
+    let (w, h) = (img.width(), img.height());
+    if w == 0 || h == 0 {
         return Err(refused("preview.unreadable", "the picture is empty"));
     }
 
     // Cover: the largest 4 : 3 rectangle around the centre.
-    let (w, h) = (img.width(), img.height());
     let (crop_w, crop_h) = if u64::from(w) * 3 > u64::from(h) * 4 {
         // Too wide: keep the height. 4 · h / 3 < w here, so it fits in u32.
         (((u64::from(h) * 4) / 3).max(1) as u32, h)
@@ -221,23 +251,35 @@ pub fn fit_preview(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
         // Too tall (or exact): keep the width; 3 · w / 4 ≤ h.
         (w, ((u64::from(w) * 3) / 4).max(1) as u32)
     };
-    let cropped = img.crop_imm((w - crop_w) / 2, (h - crop_h) / 2, crop_w, crop_h);
+    let (x, y) = ((w - crop_w) / 2, (h - crop_h) / 2);
 
-    // Alpha onto the ground before scaling, so transparent colours never bleed in.
-    let rgba = cropped.to_rgba8();
-    let rgb = RgbImage::from_fn(crop_w, crop_h, |x, y| {
-        let Rgba([r, g, b, a]) = *rgba.get_pixel(x, y);
-        let mix = |c: u8, ground: u8| {
-            let (c, ground, a) = (u32::from(c), u32::from(ground), u32::from(a));
-            // At most (255 · 255 + 127) / 255 = 255.
-            ((c * a + ground * (255 - a) + 127) / 255) as u8
-        };
-        Rgb([
-            mix(r, DS_GROUND[0]),
-            mix(g, DS_GROUND[1]),
-            mix(b, DS_GROUND[2]),
-        ])
-    });
+    // One conversion (none for RGB8 and RGBA8, which reuse the decoded buffer), the crop as a
+    // view, and the full picture dropped before scaling.
+    let rgb = if img.color().has_alpha() {
+        let rgba = img.into_rgba8();
+        let view = image::imageops::crop_imm(&rgba, x, y, crop_w, crop_h);
+        // Alpha onto the ground before scaling, so transparent colours never bleed in.
+        RgbImage::from_fn(crop_w, crop_h, |px, py| {
+            let Rgba([r, g, b, a]) = view.get_pixel(px, py);
+            let mix = |c: u8, ground: u8| {
+                let (c, ground, a) = (u32::from(c), u32::from(ground), u32::from(a));
+                // At most (255 · 255 + 127) / 255 = 255.
+                ((c * a + ground * (255 - a) + 127) / 255) as u8
+            };
+            Rgb([
+                mix(r, DS_GROUND[0]),
+                mix(g, DS_GROUND[1]),
+                mix(b, DS_GROUND[2]),
+            ])
+        })
+    } else {
+        let full = img.into_rgb8();
+        if (crop_w, crop_h) == (w, h) {
+            full
+        } else {
+            image::imageops::crop_imm(&full, x, y, crop_w, crop_h).to_image()
+        }
+    };
 
     let fitted = if (crop_w, crop_h) == (PREVIEW_W, PREVIEW_H) {
         rgb
@@ -267,12 +309,21 @@ pub fn fit_preview(bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     Ok(out)
 }
 
+/// Maps a decoding error: a picture over a decoder's own limits is too large, any other error
+/// makes it unreadable.
+fn decode_error(e: ImageError) -> KernelError {
+    match e {
+        ImageError::Limits(e) => refused("preview.too_large", e),
+        e => refused("preview.unreadable", e),
+    }
+}
+
 /// The start town's map of the game's world-template recipe ([`templates::start_town`]):
 /// the header with that internal name and matrix 0, the map of its first cell in matrix 0 (row
-/// by row) and its area data. A matrix 0 without a header layer belongs wholly to the headers
-/// that name it, so its first cell with a map counts. Read from disk without unpacking
-/// anything. `None` without a recipe (Diamond/Pearl), without such a header, without a cell
-/// of it or when a file cannot be read.
+/// by row) and its area data. Read from disk without unpacking anything. `None` without a
+/// recipe (Diamond/Pearl), without such a header, without a cell of it (a matrix 0 without a
+/// header layer names no cell, as for `templates::plan_empty_region`) or when a file cannot
+/// be read.
 pub fn standard_map(project: &Project) -> Option<StandardMap> {
     let town = templates::start_town(project.family)?;
     let names = project.internal_names().ok()?;
@@ -285,15 +336,12 @@ pub fn standard_map(project: &Project) -> Option<StandardMap> {
         .map(|(i, (h, _))| (i, h))?;
     let header = u16::try_from(header).ok()?;
     let matrix = Matrix::read(&member_on_disk(project, AssetKind::Matrix, 0)?).ok()?;
-    let map = match &matrix.headers {
-        Some(layer) => matrix
-            .maps
-            .iter()
-            .zip(layer)
-            .find(|&(&map, &h)| h == header && map != MATRIX_EMPTY)
-            .map(|(&map, _)| map),
-        None => matrix.maps.iter().copied().find(|&map| map != MATRIX_EMPTY),
-    }?;
+    let map = matrix
+        .maps
+        .iter()
+        .zip(matrix.headers.as_ref()?)
+        .find(|&(&map, &h)| h == header && map != MATRIX_EMPTY)
+        .map(|(&map, _)| map)?;
     Some(StandardMap {
         header,
         map,
@@ -316,11 +364,11 @@ fn member_on_disk(project: &Project, kind: AssetKind, index: u16) -> Option<Vec<
 }
 
 fn slot_path(root: &Path, slot: PreviewSlot) -> PathBuf {
-    let name = match slot {
-        PreviewSlot::Eigen => "preview.png",
-        PreviewSlot::Standard => "preview-standard.png",
-    };
-    root.join(".g4").join(name)
+    let g4 = root.join(".g4");
+    match slot {
+        PreviewSlot::Eigen => g4.join("preview.png"),
+        PreviewSlot::Standard => g4.join("cache").join("preview-standard.png"),
+    }
 }
 
 #[cfg(test)]
@@ -587,7 +635,7 @@ mod tests {
     fn read_ignores_broken_file() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join(".g4")).unwrap();
+        std::fs::create_dir_all(root.join(".g4/cache")).unwrap();
         std::fs::write(root.join(".g4/preview.png"), b"garbage").unwrap();
         assert_eq!(
             read_preview(root).unwrap(),
@@ -601,10 +649,111 @@ mod tests {
         assert_eq!(read_preview(root).unwrap().source, None);
         // The standard picture stands in for the broken own one.
         let standard = fitted_png([0, 255, 0]);
-        std::fs::write(root.join(".g4/preview-standard.png"), &standard).unwrap();
+        std::fs::write(root.join(".g4/cache/preview-standard.png"), &standard).unwrap();
         let read = read_preview(root).unwrap();
         assert_eq!(read.source, Some(PreviewSource::Standard));
         assert_eq!(read.png, Some(standard));
+    }
+
+    #[test]
+    fn read_ignores_oversized_file() {
+        // A valid preview with 2 MiB of trailing bytes (the decoder stops at IEND) is over the
+        // 1 MiB cap and is not read.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".g4")).unwrap();
+        let mut big = fitted_png([5, 5, 5]);
+        assert!(is_preview_png(&big));
+        big.resize(big.len() + 2 * 1024 * 1024, 0);
+        assert!(
+            is_preview_png(&big),
+            "the trailing bytes alone do not break it"
+        );
+        std::fs::write(root.join(".g4/preview.png"), &big).unwrap();
+        assert_eq!(read_preview(root).unwrap().source, None);
+    }
+
+    #[test]
+    fn standard_slot_lives_in_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_preview(
+            root,
+            PreviewSlot::Standard,
+            PreviewInput::Bytes(&fitted_png([3, 3, 3])),
+        )
+        .unwrap();
+        assert!(root.join(".g4/cache/preview-standard.png").is_file());
+        assert!(!root.join(".g4/preview-standard.png").exists());
+        assert!(!root.join(".g4/preview.png").exists());
+        write_preview(root, PreviewSlot::Standard, PreviewInput::Remove).unwrap();
+        assert!(!root.join(".g4/cache/preview-standard.png").exists());
+    }
+
+    #[test]
+    fn turns_exif_rotated_jpeg_upright() {
+        use image::codecs::jpeg::JpegEncoder;
+        // Stored 300 × 400 (top half red, bottom half blue) with EXIF orientation 6: shown
+        // turned 90° clockwise, 400 × 300 with blue on the left and red on the right.
+        let raw = RgbImage::from_fn(300, 400, |_, y| {
+            if y < 200 {
+                Rgb([220, 0, 0])
+            } else {
+                Rgb([0, 0, 220])
+            }
+        });
+        // TIFF (big endian), one IFD entry: tag 0x0112 (orientation), SHORT, 1, value 6.
+        let exif = vec![
+            b'M', b'M', 0, 0x2A, 0, 0, 0, 8, // header, IFD at 8
+            0, 1, // one entry
+            0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, // orientation = 6
+            0, 0, 0, 0, // no next IFD
+        ];
+        let mut bytes = Vec::new();
+        let mut enc = JpegEncoder::new_with_quality(&mut bytes, 95);
+        enc.set_exif_metadata(exif).unwrap();
+        enc.write_image(raw.as_raw(), 300, 400, ExtendedColorType::Rgb8)
+            .unwrap();
+        let out = decode(&fit_preview(&bytes).unwrap());
+        let (left, right) = (out.get_pixel(10, 96).0, out.get_pixel(245, 96).0);
+        assert!(left[2] > 150 && left[0] < 60, "left is blue: {left:?}");
+        assert!(right[0] > 150 && right[2] < 60, "right is red: {right:?}");
+    }
+
+    /// CRC-32 (PNG chunks) of `bytes`.
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    #[test]
+    fn refuses_16_bit_picture_over_the_memory_bound() {
+        // The header of an 8192 × 8192 RGBA16 PNG: within 8192 × 8192, but its 512 MiB of
+        // pixels exceed the decode bound and it is refused before any pixel is read.
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut chunk = |kind: &[u8; 4], data: &[u8]| {
+            png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            let body = [kind.as_slice(), data].concat();
+            png.extend_from_slice(&body);
+            png.extend_from_slice(&crc32(&body).to_be_bytes());
+        };
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&8192u32.to_be_bytes());
+        ihdr.extend_from_slice(&8192u32.to_be_bytes());
+        ihdr.extend_from_slice(&[16, 6, 0, 0, 0]);
+        chunk(b"IHDR", &ihdr);
+        chunk(b"IDAT", &[0x78, 0x9C, 0x03, 0x00]);
+        assert_eq!(code(fit_preview(&png).unwrap_err()), "preview.too_large");
     }
 
     #[test]
@@ -627,14 +776,14 @@ mod tests {
         let written =
             write_preview(root, PreviewSlot::Standard, PreviewInput::Bytes(&bytes)).unwrap();
         assert_eq!(written.source, Some(PreviewSource::Standard));
-        let on_disk = std::fs::read(root.join(".g4/preview-standard.png")).unwrap();
+        let on_disk = std::fs::read(root.join(".g4/cache/preview-standard.png")).unwrap();
         assert_eq!(written.png, Some(on_disk.clone()));
         decode(&on_disk);
         // Overwriting goes through the same temp file and rename; nothing is left behind.
         let other = fitted_png([1, 1, 1]);
         write_preview(root, PreviewSlot::Standard, PreviewInput::Bytes(&other)).unwrap();
         assert_eq!(
-            std::fs::read(root.join(".g4/preview-standard.png")).unwrap(),
+            std::fs::read(root.join(".g4/cache/preview-standard.png")).unwrap(),
             other
         );
         let mut left = Vec::new();
@@ -649,11 +798,12 @@ mod tests {
                 }
             }
         }
-        assert_eq!(left, vec![root.join(".g4/preview-standard.png")]);
+        assert_eq!(left, vec![root.join(".g4/cache/preview-standard.png")]);
+        assert!(!root.join(".g4/preview-standard.png").exists());
         // A refused input leaves the file as it was.
         assert!(write_preview(root, PreviewSlot::Standard, PreviewInput::Bytes(b"x")).is_err());
         assert_eq!(
-            std::fs::read(root.join(".g4/preview-standard.png")).unwrap(),
+            std::fs::read(root.join(".g4/cache/preview-standard.png")).unwrap(),
             other
         );
     }
@@ -710,19 +860,12 @@ mod tests {
         use g4_formats::matrix::Matrix;
         use g4_formats::narc::Narc;
 
-        // Platinum: the recipe names T01, header 0 of matrix 0, area data 0. Matrix 0 of the
-        // fixture has no header layer, so every cell is the header's: the first is map 0.
+        // Platinum: the recipe names T01, header 0 of matrix 0. Matrix 0 of the fixture has
+        // no header layer, so no cell is the town's: none.
         let fixture = crate::test_support::synthetic_project();
         let root = fixture.dir.path();
         let project = Project::open(root).unwrap();
-        assert_eq!(
-            standard_map(&project),
-            Some(StandardMap {
-                header: 0,
-                map: 0,
-                area_data_id: 0
-            })
-        );
+        assert_eq!(standard_map(&project), None);
         // Reading changes nothing on disk: no archive gets unpacked.
         assert!(!root.join("unpacked").exists());
 

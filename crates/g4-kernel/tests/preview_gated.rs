@@ -2,7 +2,7 @@
 //! only: `standard_map` reads the header table, `mapname.bin` and matrix 0 and never unpacks):
 //!
 //! ```sh
-//! G4_TEST_PROJECT=".../Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+//! G4_TEST_PROJECT=".../Roms/_testkopien/4-0-kernel-pt" \
 //!   cargo test -p g4-kernel --all-features standard_map -- --nocapture
 //! ```
 #![cfg(feature = "test-support")]
