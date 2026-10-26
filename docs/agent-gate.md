@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) und [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -239,6 +239,39 @@ uv run g4emu scenario ../agent/scenarios/hg-mcp-route.yaml --project $R/_testkop
 ```
 
 Bei Rückgabe 1 oder 2 zuerst `mcp.jsonl` (letzte Zeile) und `mcp-stderr.log` lesen. Die Kopie ist nach einem Fehler nach `build_rom` schon gespeichert; für den nächsten Lauf eine neue anlegen.
+
+### MCP über die Brücke (`/mcp`, seit 3h.3)
+
+Die Brücke der Test-Umgebung bedient MCP auf ihrem eigenen Port unter `/mcp`, auf **derselben Sitzung** wie `/invoke` und die Seite: Was ein Agent dort tut, sieht die Oberfläche im Browser-Fenster sofort (Welt-Explorer, Szene, Verlauf, Statusleiste), und die Nachfrage erscheint dort als Dialog. Das ist der Browser-Modus von Einstellungen › Agenten; die Zeile des Servers heißt dann „Über die Brücke (/mcp)“. Eine Entdeckungsdatei schreibt die Brücke nicht: Die Einrichtungszeile der Seite (`claude mcp add gen4-studio -- "…/target/debug/studio" mcp`) zeigt nur, was die gepackte App zeigen würde; `studio mcp` erreicht die Brücke nicht. Kunde der Test-Umgebung ist `scripts/agent/mcp.sh`.
+
+**Schalter.** Solange „Lokale Agenten zulassen“ aus ist, antwortet `/mcp` mit 503 „Lokale Agenten sind aus (Einstellungen › Agenten)“ (`mcp.sh` druckt „HTTP 503: …“, Rückgabe 2). Einschalten im Browser-Fenster (Einstellungen › Agenten, `Switch` in `[data-agents-enabled]`) oder mit `call.sh`:
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'        # Schalter „Lokale Agenten zulassen“
+scripts/agent/call.sh agent_status                           # enabled, expert, read_only, port, server_error, bridge, connections, question
+scripts/agent/call.sh agent_settings                         # Einstellungen, Einrichtungszeile, Freigabe des offenen Projekts
+scripts/agent/call.sh agent_set_grant '{"level":"read"}'     # Freigabe des offenen Projekts: none, read, write
+scripts/agent/call.sh agent_set_expert '{"on":true}'         # Expertenwerkzeuge (g4_call)
+scripts/agent/call.sh agent_set_read_only '{"on":true}'      # „Nur lesen“ der Statusleiste
+scripts/agent/call.sh agent_disconnect                       # „Trennen“
+scripts/agent/call.sh agent_answer '{"question":7,"answer":"read"}'   # Nachfrage beantworten: deny, read, write, allow, dismiss
+```
+
+Diese Befehle gibt es nur für die Oberfläche (über `/invoke`); für einen Agenten über MCP sind sie `unavailable`. Für das Gate gilt: Die Nachfrage beantwortet der Agent im Browser-Fenster mit einem Klick auf die Taste des Dialogs `[data-agent-question]`, damit der Weg des Nutzers geprüft ist; `agent_answer` ist für Fälle ohne Fenster.
+
+**`mcp.sh`.** Ein kleiner Client aus der Python-Standardbibliothek (`scripts/agent/mcp_client.py`), Port und Token wie `call.sh` (`target/agent/bridge.port`, `bridge.token`), Protokollversion 2025-11-25, Client-Name `agent-gate` (so heißt er in Statusleiste, Dialog und Verlauf):
+
+```sh
+scripts/agent/mcp.sh tools                                   # Namen der Werkzeuge, einer je Zeile
+scripts/agent/mcp.sh call get_header '{"id":0}'              # structuredContent als JSON auf stdout
+scripts/agent/mcp.sh call create_area '{"spec":{…}}'         # Argumente in snake_case wie in docs/mcp.md
+scripts/agent/mcp.sh read g4://glossary                      # Text einer Ressource
+scripts/agent/mcp.sh close                                   # beendet die Sitzung
+```
+
+Rückgabe 0 bei Erfolg, 1, wenn das Werkzeug ablehnt (sein `structuredContent` mit `code` und `message` auf stderr, etwa `read_only`, `not_permitted`, `no_project`), 2 bei Aufruffehlern, Protokoll- und HTTP-Fehlern (Meldung auf stderr). Die Sitzung steht in `target/agent/mcp.session`; kennt die Brücke sie nicht mehr (HTTP 404, nach einem Neustart der Brücke oder nach „Trennen“), verbindet `mcp.sh` einmal neu und wiederholt den Aufruf. Ein Aufruf wartet bis zu 600 s (eine Nachfrage wartet bis 120 s, `build_rom` dauert): `mcp.sh call` deshalb im Hintergrund starten, wenn danach im Browser-Fenster geklickt werden muss, etwa `scripts/agent/mcp.sh call get_header '{"id":0}' > target/agent/mcp-call.out 2>&1 &`. Die Brücke bedient höchstens 16 `/mcp`-Aufrufe gleichzeitig, jeden auf einem eigenen Faden, damit `/invoke` frei bleibt.
+
+**Freigaben bleiben liegen.** `studio-web.sh` startet die Brücke mit `--app-data target/agent/app-data`: Schalter, Expertenwerkzeuge und Freigaben stehen in `target/agent/app-data/agents.json` (0600) und überstehen Neustarts der Brücke und neue Läufe. Eine Freigabe gilt für kanonischen Pfad und `base_id` der Kopie; eine neue Kopie unter neuem Namen fragt also wieder. Für einen Lauf von vorn (Schalter aus, keine Freigaben) die Umgebung stoppen und den Ordner löschen: `rm -r target/agent/app-data` (das Skript legt ihn beim nächsten Start neu an). Einzelne Freigaben entfernt „Freigabe entfernen“ in Einstellungen › Agenten. „Nur lesen“ wird nie gespeichert.
 
 ## Hinweise aus dem Handdurchlauf
 
@@ -559,6 +592,24 @@ Kopien `3h-pt-route` (Platin DE) und `3h-hg-route` (HeartGold DE), je frisch aus
 | (e) Bilder der Szenarien | Agent + Blick | die Bilder beider Läufe ansehen und mit Pfad, Ort und Inhalt beschreiben; der Nutzer bestätigt am Bild. `g4emu` liest weder Text noch Flags noch Texturen |
 | (f) `scripts/gate.sh` mit Schritt `mcp` | Agent | im Hintergrund, `> target/agent/gate.log`, aus einem Worktree mit absolutem `G4_ROMS_DIR`, `G4_APICULA`, `G4_ROTOM_LSP`; die Tabelle am Ende übernehmen |
 
+## Phase 3h.3 ([phase-3h-gate.md](phase-3h-gate.md), Teil 3h.3: In der laufenden App)
+
+Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G4_BRIDGE_PORT=1481`), Browser-Fenster in einem eigenen Reiter, Kopie `3h3-pt` frisch aus Platin DE. Reihenfolge des Laufs: (a) Schalter aus und an, (f) Nachfrage, (g) Expertenwerkzeuge, Unumkehrbares, (b) Gebiet, (c) Verlauf, (d) ⌘Z, (e) „Nur lesen“, „Trennen“. Der Header-Patch aus „Unumkehrbares“ muss vor (b) liegen (ein neuer Header braucht ihn).
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (a) Schalter, 503, `mcp.json` | Agent | `mcp.sh tools` vor dem Einschalten (HTTP 503), Schalter im Browser-Fenster, `call.sh agent_status`; App-Seite über `cargo test -p studio --all-features --test mcp_http` und die Bibliothekstests `mcp::http`, `mcp::discovery` |
+| (b) Gebiet über `/mcp` | Agent + Blick | Welt-Explorer vorher ablesen (Zeile „N Orte, M Header“), `mcp.sh call create_area` mit `spec` (Name, Zellen mit `source_map`, `with_headers`, `header` mit `new_header`), danach ohne Neuladen Explorer, Titelleiste („N Änderungen nicht gespeichert“) und Verlauf ablesen, den neuen Eintrag anklicken, Szene und Inspector beschreiben; `extend_area`, während das Gebiet zu sehen ist |
+| (c) Verlauf mit Client-Namen | Agent + Blick | Verlaufsmenü im Scharnier öffnen (Einträge mit Roboter-Symbol und „· agent-gate“), `call.sh history` (`undo_agents`) |
+| (d) ⌘Z | Agent + Blick | erst in die Seite klicken (Fokus), dann `cmd+z` je Schritt; `call.sh history` (`redo`, `redo_agents`); Szene beschreiben; `cmd+shift+z` zurück |
+| (e) „Nur lesen“ | Agent | Menü `[data-agent-status]` in der Statusleiste, Eintrag „Nur lesen“; Text der Statusleiste ablesen; `mcp.sh call set_matrix_cell …` muss mit Rückgabe 1 und `read_only` enden, `get_matrix` unverändert |
+| (f) Nachfrage | Agent | ohne Freigabe (frischer `target/agent/app-data` oder neue Kopie): `mcp.sh call get_header '{"id":0}'` im Hintergrund, `call.sh agent_status` zeigt `question`, Dialog `[data-agent-question]` ablesen, „Lesen“ klicken; danach `agents.json` und ein schreibender Aufruf (`read_only`) |
+| (g) `g4_call` im Standard aus | Agent | `mcp.sh tools` (38 Werkzeuge, ohne `g4_call`), `call.sh agent_set_expert '{"on":true}'`, `mcp.sh tools` (40, die Liste wird je Anfrage gebildet), wieder aus; Tests `fresh_hub_has_expert_off`, `shared_tools_list_omits_g4_call_by_default` |
+| (h) `studio mcp` ohne `--project` | Agent | `cargo test -p studio --all-features --test mcp_proxy`; `target/debug/studio mcp --app-data <leerer Ordner>` (Rückgabe 2) |
+| (i) gepackte App mit Claude Code | Hand | Ablauf in der Gate-Datei; der Agent ändert die Claude-Konfiguration des Nutzers nicht |
+| Unumkehrbares, „Trennen“ | Agent | Freigabe „Lesen und bearbeiten“ im Segment, `mcp.sh call apply_header_patch '{}'` im Hintergrund, Dialog „Agent möchte etwas Unumkehrbares tun“, „Zulassen“; „Trennen“ im Menü der Statusleiste, dann ein Aufruf: die Nachfrage kommt neu |
+| 3h.4 Ressourcen | Agent | `mcp.sh read g4://glossary`, `mcp.sh read g4://docs/formats/matrix` |
+
 ## Was beim Nutzer bleibt
 
 - **DSPRE-Gegenprobe** (3b.1 (A) 12–15) und **Diamant/Perl** (17): DSPRE läuft nur unter Windows.
@@ -569,6 +620,7 @@ Kopien `3h-pt-route` (Platin DE) und `3h-hg-route` (HeartGold DE), je frisch aus
 - **„Agent + Blick“:** 3a (F) Ausrichtung der Kartenbilder; 3b.1 (B) Höhen und (C) Sprites (aufrecht, nicht gespiegelt, Blickrichtung); 3c (A) und (B) der Vergleich mit den Screens des Design-Systems, 3c (E) dunkles Thema und Kompakt; 3b.3a (A3) Pokédex, Attacken und Gegenstände gegen ihre Screens, (A6) die Item- und Pokémon-Symbole; 3b.3b (B10) Trainer und Begegnungen in Dunkel und Kompakt; 3b.4a (A6) 3 die rote Treppe in der Szene; 3b.4b (B4) die Bilder der Gesamtgate-Szenarien (texturierte Route `weg.png`, Nachbar mit Trank und zweitem Text, Geber). Der Agent nennt dafür Ort und Zahlen, damit der Blick kurz bleibt.
 - **3h.1:** Claude Code per `claude mcp add` auf `_testkopien/3h-lesen` (a): der Agent ändert die Claude-Konfiguration des Nutzers nicht; stellvertretend läuft die Handprobe über JSON-RPC/stdio.
 - **3h.2:** der Blick auf die Bilder der MCP-Szenarien (e).
+- **3h.3:** die gepackte App mit Claude Code im selben Projekt (i): Einrichtungszeile kopieren, `claude mcp add`, Nachfrage, Gebiet anlegen, Verlauf, ⌘Z, „Nur lesen“, „Trennen“. Dazu der Blick auf (b) bis (d): das neue Gebiet im Welt-Explorer und in der Szene, die Einträge mit Roboter-Symbol und Client-Namen im Verlaufsmenü und die Szene nach ⌘Z; und auf Einstellungen › Agenten bei 800 px (die Spalte rutscht unter die anderen, das Segment der Freigabe bricht um).
 - **3b.4b:** DSPRE öffnet die Szenario-Kopie nach dem Import (B8) und der native Dateidialog in der gebündelten App (B9).
 - **3g:** DSPRE öffnet den angelegten Ordner (A5) und ein mit der Vorlage angelegtes Projekt (B6), die gebündelte Tauri-App mit Dateidialog, Finder-Drop und Vorschlag (A6) sowie der Blick auf die Bilder der Szenarien (B2: `b2-pt`, `b2-hg`) und die Screens des Assistenten.
 

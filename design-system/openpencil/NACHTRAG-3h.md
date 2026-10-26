@@ -1,0 +1,28 @@
+# Nachtrag 3h für die OpenPencil-Datei
+
+Stand: 26.10.2026. Diese Anleitung sagt, was zu Phase 3h.3 „In der laufenden App“ (lokale Agenten über MCP) neu in `Editor_DesignSystem.fig` gehört. **Die Datei wurde dabei nicht angefasst**, und anders als bei 3g gibt es keine Vorlage (`*.body.js`): Phase 3h.3 hat nur die App geändert. Gezeichnet wird später, in einer Sitzung, der die `.fig` gehört. Was die App zeigt, beschreibt `design-system/README.md`, Abschnitt „Nachtrag 3h“; Texte und Zustände stammen von dort und aus der Test-Umgebung (Platin DE, Projekt „Sinnoh-Remix“ wie die übrigen App-Screens).
+
+Phase 3h.4 (Ressourcen, Beschreibungen, Beispiele für Agenten) hat keine Oberfläche und braucht nichts in der Datei.
+
+## Was neu zu zeichnen ist
+
+Nur diese Teile sind neu; alles andere (Rahmen, Welt, Scharnier, Statusleiste ohne Agenten) gibt es schon.
+
+1. **Einstellungen, Spalte Agenten.** Frame „App: Einstellungen, Agenten“, 1440 × 900, Seite „App: Texte, Technik, Dialoge“ (dort liegen Technik und Dialoge; die Einstellungen sind ein Bereich wie Technik). Die vier Spalten Darstellung, Emulator, Tastenkürzel, Agenten; die Spalte Agenten im Zustand „an, mit Projekt“: Schalter „Lokale Agenten zulassen“ an, Zeile des Servers mit gefülltem Punkt (`status/erfolg`) und „Bereit auf 127.0.0.1:52814“ (Port als Beispiel), Abschnitt „Einrichtung in Claude Code“ mit der Code-Zeile `claude mcp add gen4-studio -- "/Applications/Gen4 Studio.app/Contents/MacOS/studio" mcp` auf `flaeche/deck` und der sekundären Taste „Einrichtungszeile kopieren“ (Symbol `ph:copy`), „Dieses Projekt“ mit den Segmenten „Nicht“, „Lesen“, „Lesen und bearbeiten“ („Lesen“ gedrückt), „Andere Projekte“ mit einer Zeile (Pfad in Code-Schrift, gekürzt; Stufe „Lesen und bearbeiten“; Symboltaste „Freigabe entfernen“), Schalter „Expertenwerkzeuge (g4_call)“ aus mit dem Hinweis „Gibt Agenten jeden Befehl des Kernels, auch ungeprüfte“. Optional daneben zwei kleine Zustände der Spalte: „Aus“ (leerer Ring) und „Noch nicht festgelegt“ (kein Segment gedrückt, Satz „Noch nicht festgelegt: Gen4 Studio fragt beim ersten Zugriff eines Agenten“).
+2. **Agenten-Zeile in der Statusleiste.** Kein eigener Screen: in einem vorhandenen Screen der Welt (Seite „App: Start und Welt“, zum Beispiel eine Kopie von „App: Welt bauen, Figur gewählt“ als Frame „App: Welt, Agent verbunden“) rechts in der Statusleiste vor dem Bauen-Stand das Symbol Roboter (`ph:robot`) und „Agent verbunden: Claude Code · Nur lesen“. Dazu das offene Menü darüber mit „Nur lesen“ (Haken) und „Trennen“ im Stil des vorhandenen Menüs (Schatten nur am Schwebenden).
+3. **Nachfrage beim ersten Zugriff.** Frame „App: Welt, Agent möchte zugreifen“ (Seite „App: Texte, Technik, Dialoge“, bei den anderen Dialogen): der Baustein Dialog über der abgedunkelten Welt, Titel „Agent möchte zugreifen“, Text „„Claude Code“ möchte auf das Projekt „Sinnoh-Remix“ zugreifen.“, Tasten „Ablehnen“ (sekundär), „Lesen“ (primär), „Lesen und bearbeiten“ (sekundär). Die Statusleiste zeigt dabei schon „Agent verbunden: Claude Code“.
+4. **Rückfrage vor Unumkehrbarem.** Derselbe Dialog als zweiter Frame „App: Welt, Agent möchte etwas Unumkehrbares tun“: Titel wie genannt, Text „„Claude Code“ möchte: Trainer anlegen (lässt sich nicht rückgängig machen).“, Tasten „Ablehnen“ (sekundär) und „Zulassen“ (Gefahr).
+5. **Verlaufsmenü mit Agenten-Schritt.** Im Frame aus Punkt 2 oder als eigener Ausschnitt: das offene Verlaufsmenü des Scharniers mit zwei Einträgen eines Agenten, je Symbol Roboter, Name und Client rechts (neuester oben: „Header 0593 Matrix 0289 zuweisen“ · „Claude Code“, dann „Gebiet gebaut“ · „Claude Code“; so zeichnet `create_area` zwei Schritte auf), darunter ein Schritt des Nutzers ohne Symbol.
+
+## Lage und Einspielen
+
+- **Lage:** je Seite nächste freie Spalte in der Reihe der verwandten Screens, x = Spalte × 1520, y = Reihe × 1000. Vorher mit `get_page_tree` (depth 1) die belegten Positionen ablesen; nur eigene Frames anfassen.
+- **Bauen:** wie in `NACHTRAG-3g.md`, Abschnitt „Einspielen“: Screen-Code als `beispiele/<name>.body.js` mit den Bausteinen aus `jsx-lib-app.js` (`Window`, `Deck`, `Statusbar`, `Btn`, `Field` …) und `v('token')`-Farben, Symbole nur als Phosphor-Namen, `bash ../build-screen.sh <name>`, `op.mjs render`, Vergleich per `export_image` mit einem Screenshot der Test-Umgebung (Einstellungen › Agenten nach dem Einschalten; die Nachfrage nach einem ersten `scripts/agent/mcp.sh call` ohne Freigabe, siehe `docs/agent-gate.md`, „MCP über die Brücke“). `Statusbar` kennt keine Agenten-Zeile: entweder dort eine optionale Eigenschaft ergänzen oder die Zeile im Body nachbauen. Die erzeugten `.jsx` nicht einchecken.
+- **Danach:** speichern (der Hauptagent, `save_file`), Dokument schließen, `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555`; im README den Abschnitt „Nachtrag 3h“ um einen Satz ergänzen, dass die Frames in der Datei stehen; im Brett „Stand der App“ und über dem Zielbild „Einstellungen“ die Marke ergänzen (Teilweise umgesetzt: Agenten neu, nicht im Zielbild). Neue Tokens gibt es nicht; `check-tokens.sh` ist nicht betroffen.
+
+## Was nicht gezeichnet werden muss
+
+- Die Galerie hat keine eigene Seite für die Agenten; die Zustände entstehen nur mit einem verbundenen Agenten.
+- Der Fehlerzustand „Server nicht gestartet“ ist die vorhandene Fehlermeldung (Baustein Meldung) unter der Zeile des Servers.
+- Die Kopiertaste im Zustand „Kopiert“ (Symbol Haken) und die Meldung ohne Zwischenablage.
+- Die Zeile „2 Agenten verbunden“ und die Spalte bei 800 px (bricht unter die anderen, Segmente zweizeilig).
