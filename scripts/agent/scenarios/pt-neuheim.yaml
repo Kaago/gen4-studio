@@ -11,7 +11,8 @@
 # Undo nach dem Patch noch geht) prüft docs/phase-3f-gate.md im Browser; dieses Szenario hält den Weg ins Spiel
 # wiederholbar fest (jede Änderung des Szenarios wird sofort gespeichert).
 #
-# Platzhalter: KOPIE = absoluter Pfad der Kopie (die Exporte liegen unter ${KOPIE}/export/).
+# Platzhalter: KOPIE = absoluter Pfad der Kopie (die Exporte liegen direkt in der Kopie, `neuheim-karte…`: ein Export
+# braucht einen vorhandenen Ordner, `export/` gibt es in einer frischen Kopie nicht).
 # Beispiel (aus scripts/g4emu; im Worktree G4_ROMS_DIR, G4_BRIDGE_BIN und G4K_BIN setzen, siehe docs/agent-gate.md):
 #   uv run g4emu scenario ../agent/scenarios/pt-neuheim.yaml --project $R/_testkopien/3f-gate-pt \
 #     --out ../../target/agent/gate-$(date +%F)/pt-neuheim --set KOPIE=$R/_testkopien/3f-gate-pt
@@ -54,11 +55,11 @@ edits:
     - ext
   # (3) Modell und Kollision von Karte 5 in die neue Karte (Zelle 2, 0)
   - [get_matrix, {index: "${area.matrix}"}, m]
-  - [export_map_part, {map: 5, part: model, path: "${KOPIE}/export/karte5.nsbmd"}]
-  - [export_map_part, {map: 5, part: permissions, path: "${KOPIE}/export/karte5.per"}]
+  - [export_map_part, {map: 5, part: model, path: "${KOPIE}/neuheim-karte5.nsbmd"}]
+  - [export_map_part, {map: 5, part: permissions, path: "${KOPIE}/neuheim-karte5.per"}]
   - - import_map_parts
     - map: "${m.maps.2}"
-      source: {files: ["${KOPIE}/export/karte5.nsbmd", "${KOPIE}/export/karte5.per"]}
+      source: {files: ["${KOPIE}/neuheim-karte5.nsbmd", "${KOPIE}/neuheim-karte5.per"]}
       parts: [model, permissions]
   # (4) die Höhe der neuen Karte (legt den Höhenabschnitt an)
   - [set_matrix_cell, {index: "${area.matrix}", x: 2, y: 0, map: null, header: null, altitude: 1}]

@@ -46,11 +46,11 @@ edits:
     - spec: {matrix: "${area.matrix}", x: 2, y: 0, source_map: 2, clear_buildings: false, header_cell: "${area.header}"}
     - ext
   - [get_matrix, {index: "${area.matrix}"}, m]
-  - [export_map_part, {map: 3, part: model, path: "${KOPIE}/export/karte3.nsbmd"}]
-  - [export_map_part, {map: 3, part: permissions, path: "${KOPIE}/export/karte3.per"}]
+  - [export_map_part, {map: 3, part: model, path: "${KOPIE}/neuheim-karte3.nsbmd"}]
+  - [export_map_part, {map: 3, part: permissions, path: "${KOPIE}/neuheim-karte3.per"}]
   - - import_map_parts
     - map: "${m.maps.2}"
-      source: {files: ["${KOPIE}/export/karte3.nsbmd", "${KOPIE}/export/karte3.per"]}
+      source: {files: ["${KOPIE}/neuheim-karte3.nsbmd", "${KOPIE}/neuheim-karte3.per"]}
       parts: [model, permissions]
   - [set_matrix_cell, {index: "${area.matrix}", x: 2, y: 0, map: null, header: null, altitude: 1}]
   - - get_matrix
