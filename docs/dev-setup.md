@@ -266,8 +266,8 @@ Szenarien rufen es im Abschnitt `check:` auf (Beispiel `scripts/agent/scenarios/
 
 #### Projektprüfungen (3b.4a)
 
-Seit 3b.4a prüft das Modul `crates/g4-kernel/src/checks/` das Projekt mit dem Katalog der Spezifikation 3b.4 §4 (39 Codes,
-`Registry::all`; Grenzen und Ausnahmen mit Quelle in `crates/g4-kernel/metadata/check_limits.yaml`, beschrieben in
+Seit 3b.4a prüft das Modul `crates/g4-kernel/src/checks/` das Projekt mit dem Katalog der Spezifikation 3b.4 §4 und den zwei
+Ortsprüfungen aus 3f.2 (41 Codes, `Registry::all`; Grenzen und Ausnahmen mit Quelle in `crates/g4-kernel/metadata/check_limits.yaml`, beschrieben in
 [docs/formats/check_limits.md](formats/check_limits.md)). Harte Regel: eine Prüfung ist nur dann „Fehler“, wenn sie auf
 Platin DE, HeartGold DE und HeartGold US je 0 Treffer hat; das beweisen die gated Tests. Die gated Tests dazu:
 

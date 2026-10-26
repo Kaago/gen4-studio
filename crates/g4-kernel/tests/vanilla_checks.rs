@@ -74,6 +74,9 @@ const SOLL: &[(&str, [usize; 3])] = &[
     ("map.bdhc-size", [0, 0, 0]),
     ("map.building-range", [0, 0, 0]),
     ("area.tileset-range", [0, 0, 0]),
+    // Places (3f.2): every vanilla name fits 16 characters, every header names one of the bank.
+    ("place.name-too-long", [0, 0, 0]),
+    ("place.index-out-of-bank", [0, 0, 0]),
     ("asset.unreadable", [0, 0, 0]),
     // Data.
     ("trainer.no-party", [0, 0, 0]),
@@ -217,8 +220,8 @@ fn vanilla_checks_match_the_fixed_counts() {
     let (cheap_report, cheap_first) = run(&first, &[Group::Cheap]);
     let cache = first.into_cache();
     // A cheap run reads no script source and of the text archives only the two name banks
-    // trainer.id-range counts.
-    assert_eq!(cache.len(), (2, 0), "text archives / script sources read");
+    // trainer.id-range counts and the location names of the place checks.
+    assert_eq!(cache.len(), (3, 0), "text archives / script sources read");
     let (_, cheap_next) = run(&fresh(cache), &[Group::Cheap]);
     println!(
         "{which:?}: cheap group alone {} ms on a new snapshot, {} ms on the next",

@@ -1,4 +1,4 @@
-//! World checks: warps, events, headers, matrices, maps, area data and unreadable assets
+//! World checks: warps, events, headers, places, matrices, maps, area data and unreadable assets
 //! (`docs/research/2026-10-23-3b4/checks-report.md` §1.1–§1.3, §1.9, with the rules and
 //! exceptions of `task0-3b4.md` §2–§4).
 //!
@@ -22,7 +22,7 @@ use super::limits::DynamicWarp;
 use super::{Finding, Limits, Severity, Skipped, Source, SourceCheck, Subject};
 use crate::data::refs::{PARTNER_SCRIPTS, TRAINER_SCRIPTS};
 use crate::map_import;
-use crate::project::AssetKind;
+use crate::project::{AssetKind, location_name_index};
 use crate::tiles;
 
 // --- shared helpers ---
@@ -837,6 +837,89 @@ impl SourceCheck for HeaderTextSplit {
     }
 }
 
+// --- places ---
+
+/// The location names, or the reason a check needing them is skipped.
+fn location_names(src: &dyn Source) -> Result<Vec<String>, Skipped> {
+    src.location_names().ok_or_else(|| Skipped {
+        why: "the location names cannot be read".into(),
+    })
+}
+
+/// The most characters of a location name the game shows (the longest vanilla name).
+const PLACE_NAME_MAX: usize = 16;
+
+/// `place.name-too-long` (warning): a location name is longer than 16 characters, so the
+/// game may cut it off. Subject: the text archive of the location names; key
+/// `message:<index>`. Args: `[index, name, length]`. Fingerprint: the name.
+pub(crate) struct PlaceNameTooLong;
+
+impl SourceCheck for PlaceNameTooLong {
+    const CODE: &'static str = "place.name-too-long";
+    const SEVERITY: Severity = Severity::Warning;
+
+    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
+        let names = location_names(src)?;
+        let bank = src.location_bank();
+        for (index, name) in names.iter().enumerate() {
+            let length = name.chars().count();
+            if length <= PLACE_NAME_MAX {
+                continue;
+            }
+            out.push(
+                Finding::new(
+                    Self::CODE,
+                    Self::SEVERITY,
+                    Subject::TextArchive(bank),
+                    format!("message:{index}"),
+                    format!(
+                        "Location name {index} ({name:?}) is {length} characters long; the game shows at most {PLACE_NAME_MAX}."
+                    ),
+                    name.as_bytes(),
+                )
+                .with_args([index.to_string(), name.clone(), length.to_string()]),
+            );
+        }
+        Ok(())
+    }
+}
+
+/// `place.index-out-of-bank` (error): a header's `location_name` is not 0 (no place) and
+/// past the last name of the bank. Subject: header; key and field `location_name`. Args:
+/// `[header, index, names in the bank]`. Fingerprint: the index.
+pub(crate) struct PlaceIndexOutOfBank;
+
+impl SourceCheck for PlaceIndexOutOfBank {
+    const CODE: &'static str = "place.index-out-of-bank";
+    const SEVERITY: Severity = Severity::Error;
+
+    fn check(&self, src: &dyn Source, _: &Limits, out: &mut Vec<Finding>) -> Result<(), Skipped> {
+        let headers = headers(src)?;
+        let count = location_names(src)?.len();
+        for (h, header) in headers.iter().enumerate() {
+            let index = location_name_index(header);
+            if index == 0 || index < count {
+                continue;
+            }
+            out.push(
+                Finding::new(
+                    Self::CODE,
+                    Self::SEVERITY,
+                    Subject::Header(idx(h)),
+                    "location_name",
+                    format!(
+                        "Header {h} names location name {index}, but the bank has only {count} names."
+                    ),
+                    &le(&[idx(index)]),
+                )
+                .with_args([h, index, count])
+                .with_field("location_name"),
+            );
+        }
+        Ok(())
+    }
+}
+
 // --- matrices ---
 
 /// Every readable matrix with its index.
@@ -1174,12 +1257,12 @@ fn asset_subject(kind: AssetKind, index: u16) -> Option<Subject> {
 /// (checks-report §1.9). A cheap check: it first reads the header table and the members the
 /// cheap checks use (`Snapshot::load_members`), never the text archives or script sources,
 /// and runs last. A text archive or script source is reported only when something already
-/// read it in this snapshot (a name bank, say); unreadable text archives are reported by
-/// `text.json-broken` (per archive) and unreadable script sources by the script checks
-/// (per script file), both in the groups that read them. Subject: the asset (event file,
-/// script file, text archive, trainer, encounter file, matrix, map, area data), else the
-/// project; key `unreadable:<kind>` / `locked:<kind>` on the asset (the kind keeps a
-/// trainer's properties and party apart), `unreadable:<kind>[:<index>]` /
+/// read it in this snapshot (a name bank or the location names, say); unreadable text
+/// archives are reported by `text.json-broken` (per archive) and unreadable script sources
+/// by the script checks (per script file), both in the groups that read them. Subject: the
+/// asset (event file, script file, text archive, trainer, encounter file, matrix, map, area
+/// data), else the project; key `unreadable:<kind>` / `locked:<kind>` on the asset (the
+/// kind keeps a trainer's properties and party apart), `unreadable:<kind>[:<index>]` /
 /// `locked:<kind>:<index>` on the project (kind label with `_` for spaces). Args:
 /// `[kind, index (empty for a whole archive), reason]`. Fingerprint: the reason.
 pub(crate) struct AssetUnreadable;
@@ -1553,6 +1636,87 @@ mod tests {
             ]
         );
         assert_eq!(found[0].severity, Severity::Warning);
+    }
+
+    /// Platinum header `n` of `f` naming place `index`.
+    fn name_place(f: &mut Fake, n: usize, index: u8) {
+        if let MapHeader::Pt(h) = f.header_mut(n) {
+            h.location_name = index;
+        }
+    }
+
+    #[test]
+    fn flags_a_place_name_longer_than_16() {
+        let mut f = Fake::world();
+        f.place_bank = 433;
+        f.places = Some(vec![
+            "Mysteriöser Ort".into(),
+            "Zweiblattdorf".into(),
+            "Siebzehn Zeichen!".into(),
+        ]);
+        let found = f.run(&PlaceNameTooLong);
+        assert_eq!(keys(&found), [(Subject::TextArchive(433), "message:2")]);
+        assert_eq!(args(&found[0]), ["2", "Siebzehn Zeichen!", "17"]);
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert!(found[0].message.contains("17"), "{}", found[0].message);
+
+        // The fingerprint follows the name only.
+        let before = found[0].fingerprint;
+        f.places.as_mut().unwrap()[1] = "Sandgemme".into();
+        assert_eq!(f.run(&PlaceNameTooLong)[0].fingerprint, before);
+        f.places.as_mut().unwrap()[2] = "Achtzehn Zeichen!!".into();
+        assert_ne!(f.run(&PlaceNameTooLong)[0].fingerprint, before);
+
+        // Names that cannot be read: nothing to check.
+        f.places = None;
+        assert!(f.skip_reason(&PlaceNameTooLong).contains("location names"));
+    }
+
+    #[test]
+    fn passes_names_of_16() {
+        let mut f = Fake::world();
+        // 16 characters, 17 bytes in UTF-8: characters count, not bytes.
+        f.places = Some(vec!["Sechzehn Zeichen".into(), "Mysteriöser Ort!".into()]);
+        assert!(f.run(&PlaceNameTooLong).is_empty());
+    }
+
+    #[test]
+    fn flags_a_header_pointing_past_the_bank() {
+        let mut f = Fake::world();
+        f.places = Some(vec![
+            "Mysteriöser Ort".into(),
+            "Zweiblattdorf".into(),
+            "Sandgemme".into(),
+        ]);
+        name_place(&mut f, 0, 2);
+        name_place(&mut f, 1, 3);
+        let found = f.run(&PlaceIndexOutOfBank);
+        assert_eq!(keys(&found), [(Subject::Header(1), "location_name")]);
+        assert_eq!(args(&found[0]), ["1", "3", "3"]);
+        assert_eq!(found[0].field.as_deref(), Some("location_name"));
+        assert_eq!(found[0].severity, Severity::Error);
+
+        // The fingerprint follows the index.
+        let before = found[0].fingerprint;
+        name_place(&mut f, 1, 4);
+        assert_ne!(f.run(&PlaceIndexOutOfBank)[0].fingerprint, before);
+
+        f.places = None;
+        assert!(
+            f.skip_reason(&PlaceIndexOutOfBank)
+                .contains("location names")
+        );
+    }
+
+    #[test]
+    fn ignores_index_0() {
+        // Index 0 is "no place" (the Mysterious Place): fine even with an empty bank.
+        let mut f = Fake::world();
+        f.places = Some(Vec::new());
+        name_place(&mut f, 1, 1);
+        let found = f.run(&PlaceIndexOutOfBank);
+        assert_eq!(keys(&found), [(Subject::Header(1), "location_name")]);
+        assert_eq!(args(&found[0]), ["1", "1", "0"]);
     }
 
     #[test]

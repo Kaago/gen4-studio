@@ -306,6 +306,11 @@ pub(crate) trait Source {
     fn text(&self, archive: u16) -> Option<Arc<TextEntry>>;
     /// The text archives that could not be read so far, with the reason.
     fn text_unreadable(&self) -> Vec<(u16, String)>;
+    /// The text archive member of the location names ([`crate::places::location_bank`]).
+    fn location_bank(&self) -> u16;
+    /// The location names, indexed by the `location_name` of a map header (an unsaved
+    /// document wins over the disk); `None` when the bank cannot be read.
+    fn location_names(&self) -> Option<Vec<String>>;
     /// Notes that the running check left part of its work undone (a script file it cannot
     /// decode, say); the runner reports it in `skipped` next to the check's findings.
     fn note_skip(&self, why: String);
@@ -380,6 +385,13 @@ impl Source for Snapshot {
             .filter_map(|u| Some((u.index?, u.why)))
             .collect()
     }
+    fn location_bank(&self) -> u16 {
+        crate::places::location_bank(self.project())
+    }
+    fn location_names(&self) -> Option<Vec<String>> {
+        let entry = self.text_archive(Source::location_bank(self))?;
+        Some(entry.doc.messages.iter().map(|m| m.text.clone()).collect())
+    }
     fn note_skip(&self, why: String) {
         Snapshot::note_skip(self, why);
     }
@@ -429,12 +441,12 @@ impl Registry {
         Registry::all().iter().position(|c| c.code() == code)
     }
 
-    /// Every registered check, in catalogue order: the world checks, the data checks,
-    /// `asset.unreadable` (the last cheap one, it reads every member the cheap checks use
-    /// first), then the script checks (per script file) and the text checks (per text
-    /// archive).
+    /// Every registered check, in catalogue order: the world checks (the place checks last),
+    /// the data checks, `asset.unreadable` (the last cheap one, it reads every member the
+    /// cheap checks use first), then the script checks (per script file) and the text checks
+    /// (per text archive).
     pub fn all() -> &'static [&'static dyn Check] {
-        static ALL: [&dyn Check; 39] = [
+        static ALL: [&dyn Check; 41] = [
             &world::WarpDestHeader,
             &world::WarpDestWarp,
             &world::WarpOffMap,
@@ -454,6 +466,8 @@ impl Registry {
             &world::MapBdhcSize,
             &world::MapBuildingRange,
             &world::AreaTilesetRange,
+            &world::PlaceNameTooLong,
+            &world::PlaceIndexOutOfBank,
             &data::TrainerNoParty,
             &data::TrainerEmptySpecies,
             &data::TrainerIdRange,
@@ -604,7 +618,7 @@ mod tests {
     fn registry_lists_each_code_once_in_its_group() {
         let all = Registry::all();
         let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
-        assert_eq!(codes.len(), 39);
+        assert_eq!(codes.len(), 41);
         let in_group = |group: Group| -> Vec<&str> {
             all.iter()
                 .filter(|c| c.group() == group)
@@ -612,7 +626,7 @@ mod tests {
                 .collect()
         };
         let cheap = in_group(Group::Cheap);
-        assert_eq!(cheap.len(), 30);
+        assert_eq!(cheap.len(), 32);
         assert_eq!(cheap.last(), Some(&"asset.unreadable"));
         assert_eq!(
             in_group(Group::PerScript),
@@ -635,13 +649,18 @@ mod tests {
         );
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), 39, "a code is registered twice");
+        assert_eq!(codes.len(), 41, "a code is registered twice");
         assert_eq!(
             Registry::get("warp.dest-header").map(|c| c.code()),
             Some("warp.dest-header")
         );
         assert_eq!(Registry::position("warp.dest-header"), Some(0));
-        assert_eq!(Registry::position("text.json-broken"), Some(38));
+        // The place checks close the world checks, before the data checks.
+        assert_eq!(Registry::position("area.tileset-range"), Some(18));
+        assert_eq!(Registry::position("place.name-too-long"), Some(19));
+        assert_eq!(Registry::position("place.index-out-of-bank"), Some(20));
+        assert_eq!(Registry::position("trainer.no-party"), Some(21));
+        assert_eq!(Registry::position("text.json-broken"), Some(40));
         assert!(Registry::get("warp.no-such-check").is_none());
     }
 }

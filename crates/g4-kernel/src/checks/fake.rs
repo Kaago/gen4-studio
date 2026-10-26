@@ -43,6 +43,10 @@ pub(crate) struct Fake {
     pub scripts: Vec<FakeScript>,
     pub texts: Vec<Option<TextArchiveDoc>>,
     pub text_unreadable: Vec<(u16, String)>,
+    /// The text archive member of the location names.
+    pub place_bank: u16,
+    /// The location names; `None`: the bank cannot be read.
+    pub places: Option<Vec<String>>,
     /// What a check noted it left undone.
     pub skips: RefCell<Vec<String>>,
 }
@@ -77,6 +81,8 @@ impl Fake {
             scripts: Vec::new(),
             texts: Vec::new(),
             text_unreadable: Vec::new(),
+            place_bank: 433,
+            places: None,
             skips: RefCell::new(Vec::new()),
         }
     }
@@ -215,6 +221,12 @@ impl Source for Fake {
     }
     fn text_unreadable(&self) -> Vec<(u16, String)> {
         self.text_unreadable.clone()
+    }
+    fn location_bank(&self) -> u16 {
+        self.place_bank
+    }
+    fn location_names(&self) -> Option<Vec<String>> {
+        self.places.clone()
     }
     fn note_skip(&self, why: String) {
         self.skips.borrow_mut().push(why);

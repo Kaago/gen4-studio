@@ -640,6 +640,12 @@ impl Source for Only<'_> {
     fn text_unreadable(&self) -> Vec<(u16, String)> {
         self.src.text_unreadable()
     }
+    fn location_bank(&self) -> u16 {
+        self.src.location_bank()
+    }
+    fn location_names(&self) -> Option<Vec<String>> {
+        self.src.location_names()
+    }
     fn note_skip(&self, why: String) {
         self.src.note_skip(why);
     }
