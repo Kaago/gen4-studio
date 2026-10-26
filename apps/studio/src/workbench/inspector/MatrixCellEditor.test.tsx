@@ -9,9 +9,16 @@ import { typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
+import type { Area, World } from "../worldModel";
 import { chooseAction, headAction, headActions } from "./headTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
+// The world model the editor names areas and world maps from (Bauen); null until a test sets one.
+const shownWorld: { world: World | null } = { world: null };
+vi.mock("../WorkbenchContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../WorkbenchContext")>();
+  return { ...actual, useWorld: () => ({ ...actual.NO_WORLD, world: shownWorld.world }) };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -88,7 +95,9 @@ describe("MatrixCellEditor", () => {
     expect(container.querySelector("h2")?.textContent).toBe("Karte 0011");
     expect(container.querySelector("[data-ident]")?.textContent).toBe("Zelle 1, 0 · Haus von Lucas");
     expect(input("Karte").value).toBe("11");
-    expect(input("Gebiet").value).toBe("412");
+    // Bauen: the area the cell belongs to by its name, no number to type.
+    expect(input("Gebiet")).toBeNull();
+    expect(button("Haus von Lucas")).toBeDefined();
     expect(input("Höhe").value).toBe("2");
   });
 
@@ -127,22 +136,63 @@ describe("MatrixCellEditor", () => {
   });
 
   it("writes_a_header_and_an_altitude_and_refuses_beyond_their_limits", async () => {
-    await show();
-    await typeAndBlur("Gebiet", "413");
+    await show(1, 0, "tuefteln");
+    await typeAndBlur("Header", "413");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, 413, null);
     await typeAndBlur("Höhe", "9");
     expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, null, 9);
     await typeAndBlur("Höhe", "300");
     expect(container.textContent).toContain("höchstens 255");
-    await typeAndBlur("Gebiet", "600");
+    await typeAndBlur("Header", "600");
     expect(container.textContent).toContain("höchstens 499");
     expect(setMatrixCell).toHaveBeenCalledTimes(2);
   });
 
-  it("leads_the_header_of_the_cell_to_its_editor", async () => {
+  it("leads_the_area_of_the_cell_to_its_editor", async () => {
     await show();
-    await act(async () => void button("Gebiet0412").click());
+    await act(async () => void button("Haus von Lucas").click());
     expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 412 });
+  });
+
+  it("picks_the_area_of_a_cell_by_name_in_bauen_with_the_landscape_and_each_section", async () => {
+    const area = (key: string, name: string, ids: number[]): Area => ({ key, name, placeKey: name, headers: ids.map(summary), rooms: [], matrix: 3 });
+    shownWorld.world = {
+      worldMaps: [{ key: "w3", matrix: 3, filter: null, name: "Sinnoh", areas: [area("w3:0", "Zweiblattdorf", [411]), area("w3:1", "Route 204", [413, 414])] }],
+      moreAreas: [area("m9", "Großmoor", [420])].map((a) => ({ ...a, matrix: 9 })),
+      unconnected: [],
+      other: [],
+      areaOf: new Map(),
+      roomCount: 0,
+      assignedRooms: 0,
+    };
+    try {
+      await show();
+      expect(container.textContent).toContain("Gehört zu");
+      await act(async () => void container.querySelector<HTMLButtonElement>("button[data-cell-owner]")!.click());
+      await flush();
+      const options = [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")];
+      expect(options.map((o) => o.textContent)).toEqual([
+        expect.stringContaining("Landschaft"),
+        "Zweiblattdorf",
+        "Route 204, Abschnitt 1",
+        "Route 204, Abschnitt 2",
+      ]);
+      await act(async () => void options[3].click());
+      await flush();
+      expect(setMatrixCell).toHaveBeenLastCalledWith(3, 1, 0, null, 414, null);
+      // A cell outside is named by its world map, not by a number.
+      await show(5, 0);
+      expect(container.querySelector("[data-ident]")?.textContent).toBe("Sinnoh");
+    } finally {
+      shownWorld.world = null;
+    }
+  });
+
+  it("calls_a_landscape_cell_landscape_in_bauen", async () => {
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: [411, 0] }));
+    await show();
+    expect(container.textContent).toContain("Gehört zuLandschaft");
+    expect(button("Landschaft")).toBeUndefined();
   });
 
   it("says_nothing_of_a_missing_area_section_in_bauen", async () => {
@@ -153,6 +203,7 @@ describe("MatrixCellEditor", () => {
     expect(container.textContent).not.toContain("Abschnitt");
     expect(container.textContent).not.toContain("Höhenabschnitt");
     expect(input("Gebiet")).toBeNull();
+    expect(container.textContent).not.toContain("Gehört zu");
   });
 
   it("shows_the_height_in_bauen_for_a_matrix_without_altitudes", async () => {
@@ -216,8 +267,12 @@ describe("MatrixCellEditor", () => {
     await show();
     expect(visibleWords(container)).not.toMatch(/\bM\d{4}\b|\bH\d{4}\b/);
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // No header number either: the area is named.
+    expect(visibleWords(container)).not.toMatch(/0412/);
     await show(5, 0);
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    // Outside, without a world model: the matrix is named by the room that uses it, not by its number.
+    expect(container.querySelector("[data-ident]")?.textContent).toBe("Zweiblattdorf");
     // A matrix without the sections, read anew.
     act(() => root.render(null));
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
