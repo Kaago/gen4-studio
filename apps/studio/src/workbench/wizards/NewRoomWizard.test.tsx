@@ -627,7 +627,8 @@ describe("NewRoomWizard", () => {
       await flush();
       expect(onError).toHaveBeenCalledWith(failure);
       expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
-      expect(container.textContent).toContain("Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000");
+      expect(container.textContent).toContain("Die alten Dateien sind unter .g4/backup gesichert.");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
       expect(container.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
     });
 

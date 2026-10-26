@@ -507,7 +507,9 @@ describe("NewAreaWizard", () => {
       await click(button("Anlegen"));
       await flush();
       expect(container.textContent).toContain("Gebiet „Neues Gebiet“ angelegt: 2 Karten.");
-      expect(container.textContent).toContain("Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000");
+      expect(container.textContent).toContain("Die alten Dateien sind unter .g4/backup gesichert.");
+      expect(container.textContent).not.toContain("dynamicHeaders");
+      expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
     });
 
     it("hands_a_failed_read_after_a_patching_create_to_on_error_and_keeps_the_result", async () => {

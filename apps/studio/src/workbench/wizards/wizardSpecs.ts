@@ -327,14 +327,18 @@ export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], l
   return lines;
 }
 
-/** Where the patch a create applied put the old header folder (`report.snapshot`), as a result line; null without one. */
-function snapshotLine(report: Pick<AreaReport, "patched" | "snapshot">): string | null {
-  return report.patched && report.snapshot ? `Sicherung des alten Ordners: ${report.snapshot}` : null;
+/**
+ * Where the patch a create applied put the old header folder (`report.snapshot`), as a result line; null without one. Tüfteln names the
+ * path, Bauen only the backup folder (the path names the header folder).
+ */
+function snapshotLine(report: Pick<AreaReport, "patched" | "snapshot">, depth: Depth): string | null {
+  if (!report.patched || !report.snapshot) return null;
+  return depth === "bauen" ? "Die alten Dateien sind unter .g4/backup gesichert." : `Sicherung des alten Ordners: ${report.snapshot}`;
 }
 
-/** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and where the patch put the old folder). */
+/** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and that the patch kept the old files). */
 export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
-  const snapshot = snapshotLine(report);
+  const snapshot = snapshotLine(report, depth);
   if (depth === "bauen") {
     const count = report.maps.length;
     return {
@@ -746,7 +750,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "t
     lines.push(`Eingang: Warp ${report.outside_warp} ${outside}, Rückweg: Warp ${report.inside_warp}${reused} im neuen ${TERMS.room.label}.`);
   }
   for (const t of report.door_tiles ?? []) lines.push(`Tür-Kachel gesetzt: ${TERMS.map.label} ${id4(t.map)}, Kachel x ${t.x}, z ${t.y} innerhalb der ${TERMS.map.label}.`);
-  const snapshot = snapshotLine(report);
+  const snapshot = snapshotLine(report, depth);
   if (snapshot) lines.push(snapshot);
   return {
     lines,

@@ -236,7 +236,8 @@ describe("areaResult", () => {
     const report: AreaReport = { matrix: 3, maps: [[0, 0, 9]], event_file: null, header: null, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000", place: null };
     const line = "Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000";
     expect(areaResult(report, spec).lines).toEqual(["Raster 0003 „A“ (1 × 1) angelegt.", "Karte 0009 kopiert.", line]);
-    expect(areaResult(report, spec, "bauen").lines).toEqual(["Gebiet „A“ angelegt: 1 Karte.", line]);
+    // Bauen names the backup folder only: the path names the header folder.
+    expect(areaResult(report, spec, "bauen").lines).toEqual(["Gebiet „A“ angelegt: 1 Karte.", "Die alten Dateien sind unter .g4/backup gesichert."]);
     // No snapshot (or no patch in the call): no line.
     expect(areaResult({ ...report, snapshot: null }, spec, "bauen").lines).toEqual(["Gebiet „A“ angelegt: 1 Karte."]);
     expect(areaResult({ ...report, patched: false }, spec).lines.join(" ")).not.toContain("Sicherung");
@@ -531,7 +532,7 @@ describe("roomResult", () => {
     const patched = { ...report, patched: true, snapshot: "/p/.g4/backup/dynamicHeaders-20261026-120000" };
     const line = "Sicherung des alten Ordners: /p/.g4/backup/dynamicHeaders-20261026-120000";
     expect(roomResult(patched, spec).lines.slice(-1)).toEqual([line]);
-    expect(roomResult(patched, spec, "bauen").lines.slice(-1)).toEqual([line]);
+    expect(roomResult(patched, spec, "bauen").lines.slice(-1)).toEqual(["Die alten Dateien sind unter .g4/backup gesichert."]);
     expect(roomResult({ ...patched, snapshot: null }, spec, "bauen").lines.join(" ")).not.toContain("Sicherung");
   });
 });
