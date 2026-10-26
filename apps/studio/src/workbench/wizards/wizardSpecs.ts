@@ -1,4 +1,4 @@
-import type { AreaCell, AreaReport, AreaSpec, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
@@ -88,6 +88,10 @@ export interface AreaForm {
   lookAreaData: number | null;
   /** Bauen: the one-time consent to apply the Dynamic Headers patch while creating. */
   patchConsent: boolean;
+  /** „Wo liegt das Gebiet?“: the matrix of the world map the area goes onto (seamless); null: a map of its own (connected by doors). */
+  worldMap: number | null;
+  /** The cell of the area's upper left map on a world map; kept while „Eigene Karte“ is chosen, sent only for `worldMap`. */
+  target: AreaTarget | null;
 }
 
 export const emptyAreaForm: AreaForm = {
@@ -105,6 +109,8 @@ export const emptyAreaForm: AreaForm = {
   place: null,
   lookAreaData: null,
   patchConsent: false,
+  worldMap: null,
+  target: null,
 };
 
 /** The largest side of a matrix. */
@@ -213,6 +219,8 @@ export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { s
   if (width > MAX_SIDE || height > MAX_SIDE) return { error: `Höchstens ${MAX_SIDE} Spalten/Zeilen.` };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
+  const target = form.worldMap === null ? null : form.target;
+  if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: `Die Zelle wählen, an der das ${TERMS.area.label} auf der ${TERMS.worldMap.label} liegen soll.` };
   let header: AssignHeader | null;
   if (depth === "bauen") {
     if (form.newHeader === null) return { error: "Vorlage wählen." };
@@ -229,6 +237,8 @@ export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { s
       // Bauen gives every new area its cells (the header section): the place shows only there.
       with_headers: depth === "bauen" || form.withHeaders,
       header,
+      // Only an area on a world map names a target: older callers send none.
+      ...(target ? { target } : {}),
     },
   };
 }
@@ -242,18 +252,22 @@ const eventFileText = (choice: EventFileChoice): string => {
 /** ` „NAME“` for a typed internal name; nothing when the backend derives it (null). */
 const quoted = (name: string | null): string => (name === null || name.trim() === "" ? "" : ` „${name}“`);
 
-/** The sentence for the header a wizard points at the new matrix: area data and event file included. */
-function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[]): string {
+/**
+ * The sentence for the header a wizard points at the new matrix (`target`: the world map's raster instead), area data and event file
+ * included.
+ */
+function assignLine(assign: AssignHeader, headers: readonly HeaderSummary[], target: AreaTarget | null = null): string {
+  const raster = target ? `${TERMS.matrix.label} ${id4(target.matrix)}` : `das neue ${TERMS.matrix.label}`;
   const area = assign.area_data_id === null ? "" : `, ${TERMS.areaData.label} ${id4(assign.area_data_id)}`;
   const created = assign.new_header;
   if (created) {
     // "Keep" on a new header keeps what the copy has: the template's event file, which both headers then share.
     const file = assign.event_file === "Keep" ? `behalten (geteilt mit ${TERMS.header.label} ${id4(created.template)})` : eventFileText(assign.event_file);
-    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)}${quoted(created.internal_name)} neu an (Kopie von ${id4(created.template)}) und stellt ihn auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${file}.`;
+    return `Der Assistent legt ${TERMS.header.label} ${id4(assign.id)}${quoted(created.internal_name)} neu an (Kopie von ${id4(created.template)}) und stellt ihn auf ${raster} um${area}, ${TERMS.eventFile.label}: ${file}.`;
   }
   const assigned = headers.find((h) => h.id === assign.id);
   const name = assigned ? ` „${headerLabel(assigned)}“` : "";
-  return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf das neue ${TERMS.matrix.label} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
+  return `Stellt ${TERMS.header.label} ${id4(assign.id)}${name} auf ${raster} um${area}, ${TERMS.eventFile.label}: ${eventFileText(assign.event_file)}.`;
 }
 
 /**
@@ -304,23 +318,43 @@ function buildingLines(assign: AssignHeader, headers: readonly HeaderSummary[]):
 /** "Karte 0521" or "Karten 0521, 0522". */
 const mapList = (maps: readonly number[]): string => `${maps.length === 1 ? TERMS.map.label : TERMS.map.plural} ${maps.map(id4).join(", ")}`;
 
+/** Where an area on a world map lies: the world map's name and the landscape cells its maps replace (see `targetBlock`). */
+export interface TargetPlace {
+  name: string;
+  replaced: number;
+}
+
+/** The line for an area on a world map: Bauen names the world map and the landscape maps, Tüfteln the raster and the cell. */
+function targetLine(target: AreaTarget, place: TargetPlace, depth: Depth): string {
+  const n = place.replaced;
+  if (depth === "bauen") {
+    const replaced = n === 0 ? "" : `; ersetzt ${n} ${n === 1 ? "Landschaftskarte" : "Landschaftskarten"}`;
+    return `Liegt auf der ${TERMS.worldMap.label} ${place.name} bei x ${target.x}, y ${target.y} (nahtlos begehbar)${replaced}.`;
+  }
+  return `Ziel: ${TERMS.matrix.label} ${id4(target.matrix)}, Zelle ${target.x}, ${target.y}; ${n} ${n === 1 ? "Landschaftszelle wird" : "Landschaftszellen werden"} ersetzt.`;
+}
+
 /**
  * What "Anlegen" will do, one sentence per line, for the last step. Bauen names the area, its place and its look, never the raster or
- * the header (its header is always a new one, see `buildingHeader`).
+ * the header (its header is always a new one, see `buildingHeader`). `place` says where an area with a target lies.
  */
-export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], links: readonly WarpLink[] = [], depth: Depth = "tuefteln"): string[] {
+export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], links: readonly WarpLink[] = [], depth: Depth = "tuefteln", place: TargetPlace = { name: "", replaced: 0 }): string[] {
   const buildings = spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden";
+  const target = spec.target ?? null;
   if (depth === "bauen") {
     const lines = [`Legt das ${TERMS.area.label} „${spec.name}“ mit ${spec.width} × ${spec.height} ${TERMS.map.plural} an.`];
+    if (target) lines.push(targetLine(target, place, depth));
     lines.push(`Kopiert ${mapList(spec.cells.map((c) => c.source_map))}, ${buildings}.`);
     if (spec.header !== null) lines.push(...buildingLines(spec.header, headers));
     lines.push(NOT_UNDOABLE);
     return lines;
   }
-  const lines = [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
+  const lines = target
+    ? [`Legt das ${TERMS.area.label} „${spec.name}“ (${spec.width} × ${spec.height}) ohne neues ${TERMS.matrix.label} an.`, targetLine(target, place, depth)]
+    : [`Legt ${TERMS.matrix.label} „${spec.name}“ (${spec.width} × ${spec.height})${spec.with_headers ? ` mit ${TERMS.header.label}-Abschnitt` : ""} an.`];
   const copies = spec.cells.map((c) => `${TERMS.map.label} ${id4(c.source_map)} → Zelle (${c.x}, ${c.y})`).join(", ");
   lines.push(`Kopiert ${copies}, ${buildings}.`);
-  lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers));
+  lines.push(spec.header === null ? `Stellt keinen ${TERMS.header.label} um.` : assignLine(spec.header, headers, target));
   const warnings = spec.header === null ? [] : [specialLine(spec.header, headers), inUseLine(spec.header, headers, links)];
   for (const warning of warnings) if (warning) lines.push(warning);
   lines.push(NOT_UNDOABLE);
@@ -346,7 +380,12 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
       next: [`Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
     };
   }
-  const lines = [`${TERMS.matrix.label} ${id4(report.matrix)} „${spec.name}“ (${spec.width} × ${spec.height}) angelegt.`];
+  // An area on a world map made no raster: it went into the world map's.
+  const lines = [
+    spec.target
+      ? `${TERMS.area.label} „${spec.name}“ (${spec.width} × ${spec.height}) in ${TERMS.matrix.label} ${id4(report.matrix)} angelegt.`
+      : `${TERMS.matrix.label} ${id4(report.matrix)} „${spec.name}“ (${spec.width} × ${spec.height}) angelegt.`,
+  ];
   const maps = report.maps.map(([, , map]) => id4(map)).join(", ");
   lines.push(`${report.maps.length === 1 ? TERMS.map.label : TERMS.map.plural} ${maps} kopiert.`);
   if (report.header !== null) {
@@ -432,6 +471,13 @@ export function buildingSources(world: World | null, headers: readonly HeaderSum
   const room = [...areas.flatMap((a) => a.rooms), ...(world?.unconnected ?? [])].find((r) => r.header.matrix_id === current);
   const named = headers.find((h) => h.matrix_id === current && h.location_name.trim() !== "")?.location_name.trim();
   return [...sources, { value: current, label: room?.name ?? named ?? UNNAMED_PLACE }];
+}
+
+/** The world maps an area can go onto, one per raster: Johto and Kanto share one and are named together („Johto und Kanto“). */
+export function worldMapChoices(world: World | null): { matrix: number; name: string }[] {
+  const names = new Map<number, string[]>();
+  for (const m of world?.worldMaps ?? []) names.set(m.matrix, [...(names.get(m.matrix) ?? []), m.name]);
+  return [...names].map(([matrix, list]) => ({ matrix, name: list.join(" und ") }));
 }
 
 /** A list of map numbers typed as text; `invalid` holds the entries that are no map of the game (`mapMax` is the highest). */

@@ -1,0 +1,14 @@
+/* The world map scrolls inside its column; it opens on the source's area. */
+.map {
+  max-width: 100%;
+  max-height: 360px;
+  overflow: auto;
+  padding: var(--g4-raum-2);
+}
+
+/* A block that may not go there: its cells are marked red instead of selected. */
+.map [data-foreign] {
+  opacity: 1;
+  outline: var(--g4-strich-fokus) solid var(--g4-status-fehler);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}

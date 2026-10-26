@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createArea, errorText } from "../../api";
 import type { AreaReport, AreaSpec, HeaderFamily, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import { Checkbox, Notice, SelectField, TextField } from "../../ui/primitives";
+import { Checkbox, Notice, Segmented, SelectField, TextField } from "../../ui/primitives";
 import { AreaGrid, cellKey } from "../AreaGrid";
 import { buildPlaces, placeColor } from "../places";
 import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
 import type { World } from "../worldModel";
+import { targetBlock } from "../worldMapView";
 import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
 import { PatchConsent, patchReady } from "./PatchConsent";
@@ -15,11 +16,12 @@ import { PlaceStep } from "./PlaceStep";
 import type { PlaceStepValue } from "./PlaceStep";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
+import { PlaceOnWorldMap } from "./PlaceOnWorldMap";
 import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection, worldMapChoices } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewAreaWizard.module.css";
@@ -68,6 +70,9 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
   return { index, name: form.name, width, height, maps };
 }
 
+/** The choice „Eigene Karte“ of „Wo liegt das Gebiet?“; a world map is `w<matrix>`. */
+const OWN_MAP = "own";
+
 /** Bauen's accessible name of a wizard grid: „Karten der Quelle, 2 Zeilen, 3 Spalten“ (the grids' own name says „Raster“). */
 const gridLabel = (what: string, matrix: { width: number; height: number }) => `${what}, ${matrix.height} Zeilen, ${matrix.width} Spalten`;
 
@@ -110,6 +115,13 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
     ? areaSpec({ ...form, newHeader: { template, internalName: null }, place, patchConsent }, headers.length, depth)
     : areaSpec({ ...form, newHeader: form.newHeader && { ...form.newHeader, template } }, headers.length, depth);
   const preview = useMemo(() => previewMatrix(form, sourceMatrix ?? 0), [form, sourceMatrix]);
+  // „Wo liegt das Gebiet?“: on a world map the block at the chosen cell must fall on empty cells or landscape.
+  const worldMaps = useMemo(() => worldMapChoices(world), [world]);
+  const targetMatrix = useMatrix(form.worldMap, 0, onError);
+  const layout = useMemo(() => areaLayout(form), [form]);
+  const target = form.worldMap !== null && form.target?.matrix === form.worldMap ? form.target : null;
+  const block = targetMatrix && target ? targetBlock(targetMatrix, target, layout.width, layout.height, layout.cells) : null;
+  const placed = form.worldMap === null || block?.ok === true;
   const previewTileset = previewArea(form, headers, source);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
   // The place and colour of every header, built once: a grid asks for each of its cells.
@@ -216,7 +228,15 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
     () => (building ? buildingSources(world, headers, sourceMatrix) : matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` }))),
     [building, world, headers, sourceMatrix, matrices],
   );
-  const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links, depth) : null;
+  const worldMapName = worldMaps.find((m) => m.matrix === form.worldMap)?.name ?? "";
+  const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links, depth, { name: worldMapName, replaced: block?.replaced ?? 0 }) : null;
+  const lageOptions = [{ value: OWN_MAP, label: "Eigene Karte (über Türen verbunden)" }, ...worldMaps.map((m) => ({ value: `w${m.matrix}`, label: `Auf der ${TERMS.worldMap.label} ${m.name} (nahtlos begehbar)` }))];
+
+  /** A choice of „Wo liegt das Gebiet?“: the cell chosen on a world map stays for when the user comes back to it. */
+  function chooseLage(value: string) {
+    const worldMap = worldMaps.find((m) => `w${m.matrix}` === value)?.matrix ?? null;
+    setForm((f) => ({ ...f, worldMap }));
+  }
 
   /** A choice of the step „Ort“: a default is kept as null, so it follows the area's name and the template. */
   function choosePlace(value: PlaceStepValue) {
@@ -307,7 +327,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
     {
       id: "layout",
       title: "Anordnung",
-      canNext: "spec" in built,
+      canNext: "spec" in built && placed,
       content: (
         <>
           <section className={parts.column}>
@@ -317,12 +337,31 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
             </div>
             <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
             {/* Bauen always gives the new area its cells (`areaSpec`). */}
-            {!building && <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />}
+            {/* An area on a world map takes the world map's cells: the switch does not apply there. */}
+            {!building && form.worldMap === null && <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />}
+            {worldMaps.length > 0 && (
+              <>
+                <h3 className={parts.heading}>Wo liegt das {TERMS.area.label}?</h3>
+                <Segmented ariaLabel="Lage" options={lageOptions} value={form.worldMap === null ? OWN_MAP : `w${form.worldMap}`} onChange={chooseLage} wrap />
+              </>
+            )}
             {"error" in built && <Notice kind="error">{built.error}</Notice>}
           </section>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>Vorschau</h3>
-            {preview ? (
+            <h3 className={parts.heading}>{form.worldMap === null ? "Vorschau" : `${TERMS.worldMap.label} ${worldMapName}`}</h3>
+            {form.worldMap !== null ? (
+              <PlaceOnWorldMap
+                world={world}
+                matrix={targetMatrix}
+                headers={headers}
+                width={layout.width}
+                height={layout.height}
+                value={target}
+                onChange={({ x, y }) => setForm((f) => (f.worldMap === null ? f : { ...f, target: { matrix: f.worldMap, x, y } }))}
+                depth={depth}
+                focus={source?.id ?? null}
+              />
+            ) : preview ? (
               <div className={styles.preview}>
                 <AreaGrid matrix={preview} headers={headers} areaFallback={previewTileset} cellSize={32} label={building ? gridLabel("Vorschau des neuen Gebiets", preview) : undefined} />
               </div>
@@ -337,7 +376,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
     {
       id: "summary",
       title: "Zusammenfassung",
-      canNext: "spec" in built && (!building || patchReady(patch.patch, form.patchConsent)),
+      canNext: "spec" in built && placed && (!building || patchReady(patch.patch, form.patchConsent)),
       content: (
         <section className={parts.column}>
           {summaryLines ? (

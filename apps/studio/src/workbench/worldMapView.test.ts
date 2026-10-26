@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WorldMeta } from "../api";
 import { type World, type WorldInput, buildWorld } from "./worldModel";
-import { areaAtCell, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
+import { areaAtCell, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, targetBlock, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
 
 interface HeaderSpec {
   name: string;
@@ -204,5 +204,27 @@ describe("planNeighbour", () => {
     const m: MatrixDto = { index: 20, name: "m20", width: 1, height: 1, maps: [50] };
     expect(planNeighbour(m, 0, 1)).toEqual({ x: 0, y: 0 });
     expect(firstNeighbour(m, 5, 5, () => true)).toBeNull();
+  });
+});
+
+describe("targetBlock", () => {
+  // 3 × 2: landscape (0, 0), the area of header 5 at (1, 0), empty (2, 0); landscape (0, 1), empty (1, 1), landscape (2, 1).
+  const world = grid(4, 3, 2, [0, 5, 0, 0, 0, 0], [1, 2, null, 3, null, 4]);
+
+  it("accepts_a_block_on_free_and_landscape_cells_and_counts_landscape", () => {
+    expect(targetBlock(world, { x: 0, y: 1 }, 2, 1)).toEqual({ cells: new Set(["0,1", "1,1"]), ok: true, replaced: 1 });
+    expect(targetBlock(world, { x: 2, y: 0 }, 1, 2)).toEqual({ cells: new Set(["2,0", "2,1"]), ok: true, replaced: 1 });
+    expect(targetBlock(world, { x: 1, y: 1 }, 2, 1).replaced).toBe(1);
+    // Only the cells of the area replace landscape: a hole of the area over (0, 1) leaves it.
+    expect(targetBlock(world, { x: 0, y: 1 }, 2, 1, [{ x: 1, y: 0 }])).toEqual({ cells: new Set(["0,1", "1,1"]), ok: true, replaced: 0 });
+  });
+
+  it("rejects_a_block_over_an_area_or_outside", () => {
+    expect(targetBlock(world, { x: 0, y: 0 }, 2, 1)).toEqual({ cells: new Set(["0,0", "1,0"]), ok: false, replaced: 1 });
+    // Past the right edge: the cells inside are marked, the block is refused.
+    expect(targetBlock(world, { x: 2, y: 1 }, 2, 1)).toEqual({ cells: new Set(["2,1"]), ok: false, replaced: 1 });
+    expect(targetBlock(world, { x: 0, y: 1 }, 1, 2).ok).toBe(false);
+    // A matrix without a header section is no world map.
+    expect(targetBlock({ ...world, headers: null }, { x: 2, y: 0 }, 1, 1).ok).toBe(false);
   });
 });

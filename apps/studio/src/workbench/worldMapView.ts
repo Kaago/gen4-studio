@@ -167,3 +167,37 @@ export function planExtendTargets(matrix: MatrixDto): Set<string> {
   for (let x = 0; x < matrix.width; x++) if (filled((matrix.height - 1) * matrix.width + x)) targets.add(cellKey(x, matrix.height));
   return targets;
 }
+
+/**
+ * The block of `width` × `height` cells with its upper left cell at `target` on the world map `matrix`: its `cellKey`s inside the matrix,
+ * whether an area may go there (`ok`: the matrix has a header section, the block lies inside it and only on empty cells and landscape, a
+ * map with header 0) and how many landscape cells it replaces. `cells` (relative to the corner) are the area's maps where it has holes:
+ * only they replace landscape; default the whole block.
+ */
+export function targetBlock(
+  matrix: MatrixDto,
+  target: { x: number; y: number },
+  width: number,
+  height: number,
+  cells?: readonly { x: number; y: number }[],
+): { cells: Set<string>; ok: boolean; replaced: number } {
+  const keys = new Set<string>();
+  const headers = matrix.headers;
+  let ok = headers != null && target.x + width <= matrix.width && target.y + height <= matrix.height;
+  for (let y = target.y; y < Math.min(matrix.height, target.y + height); y++) {
+    for (let x = target.x; x < Math.min(matrix.width, target.x + width); x++) {
+      keys.add(cellKey(x, y));
+      const i = y * matrix.width + x;
+      if (isFilled(matrix.maps[i]) && (headers?.[i] ?? 0) !== 0) ok = false;
+    }
+  }
+  const covered = cells ?? Array.from({ length: width * height }, (_, i) => ({ x: i % width, y: Math.floor(i / width) }));
+  let replaced = 0;
+  for (const c of covered) {
+    const x = target.x + c.x;
+    const y = target.y + c.y;
+    const i = y * matrix.width + x;
+    if (x < matrix.width && y < matrix.height && headers && isFilled(matrix.maps[i]) && headers[i] === 0) replaced++;
+  }
+  return { cells: keys, ok, replaced };
+}

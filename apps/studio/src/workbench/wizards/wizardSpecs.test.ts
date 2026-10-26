@@ -755,3 +755,44 @@ describe("buildingSources", () => {
     expect(last(buildingSources(world, [], 13))).toEqual({ value: 13, label: "Ohne Ortsnamen" });
   });
 });
+
+describe("an area on a world map", () => {
+  const picked = { selected: [cell(0, 0, 521), cell(1, 0, 522)], name: "Neuheim", newHeader: { template: 1, internalName: null } };
+  const specOf = (change: Partial<AreaForm>, depth: "bauen" | "tuefteln" = "bauen"): AreaSpec => {
+    const built = areaSpec(form({ ...picked, ...change }), 470, depth);
+    if (!("spec" in built)) throw new Error(built.error);
+    return built.spec;
+  };
+
+  it("sends_the_target_only_on_a_world_map", () => {
+    // The target is kept while „Eigene Karte“ is chosen, but not sent.
+    expect(specOf({ target: { matrix: 1, x: 2, y: 3 } })).not.toHaveProperty("target");
+    expect(specOf({ worldMap: 1, target: { matrix: 1, x: 2, y: 3 } }).target).toEqual({ matrix: 1, x: 2, y: 3 });
+    // No cell chosen yet, or one of another world map.
+    const error = { error: "Die Zelle wählen, an der das Gebiet auf der Weltkarte liegen soll." };
+    expect(areaSpec(form({ ...picked, worldMap: 1 }), 470, "bauen")).toEqual(error);
+    expect(areaSpec(form({ ...picked, worldMap: 1, target: { matrix: 2, x: 0, y: 0 } }), 470, "tuefteln")).toEqual(error);
+  });
+
+  it("says_where_the_area_lies_in_both_depths", () => {
+    const spec = specOf({ worldMap: 1, target: { matrix: 1, x: 4, y: 7 } });
+    const bauen = areaSummary(spec, headers, [], "bauen", { name: "Sinnoh", replaced: 2 });
+    expect(bauen[1]).toBe("Liegt auf der Weltkarte Sinnoh bei x 4, y 7 (nahtlos begehbar); ersetzt 2 Landschaftskarten.");
+    expect(bauen.join(" ")).not.toMatch(/Raster|Matrix|Header/);
+    expect(areaSummary(spec, headers, [], "bauen", { name: "Sinnoh", replaced: 1 })[1]).toBe("Liegt auf der Weltkarte Sinnoh bei x 4, y 7 (nahtlos begehbar); ersetzt 1 Landschaftskarte.");
+    expect(areaSummary(spec, headers, [], "bauen", { name: "Johto und Kanto", replaced: 0 })[1]).toBe("Liegt auf der Weltkarte Johto und Kanto bei x 4, y 7 (nahtlos begehbar).");
+    const tinkered = specOf({ worldMap: 1, target: { matrix: 1, x: 4, y: 7 }, header: 2, newHeader: null }, "tuefteln");
+    const tuefteln = areaSummary(tinkered, headers, [], "tuefteln", { name: "Sinnoh", replaced: 2 });
+    // No new raster: the area goes into the world map's.
+    expect(tuefteln[0]).toBe("Legt das Gebiet „Neuheim“ (2 × 1) ohne neues Raster an.");
+    expect(tuefteln).toContain("Ziel: Raster 0001, Zelle 4, 7; 2 Landschaftszellen werden ersetzt.");
+    expect(tuefteln).toContain("Stellt Header 0002 „TWO“ auf Raster 0001 um, Eventdatei: neu, leer.");
+    expect(areaSummary(tinkered, headers, [], "tuefteln", { name: "Sinnoh", replaced: 1 })).toContain("Ziel: Raster 0001, Zelle 4, 7; 1 Landschaftszelle wird ersetzt.");
+  });
+
+  it("names_the_world_map_the_area_went_into_in_the_result", () => {
+    const spec = specOf({ worldMap: 1, target: { matrix: 1, x: 4, y: 7 } }, "tuefteln");
+    const report: AreaReport = { matrix: 1, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 2 };
+    expect(areaResult(report, spec).lines[0]).toBe("Gebiet „Neuheim“ (2 × 1) in Raster 0001 angelegt.");
+  });
+});

@@ -735,6 +735,113 @@ describe("NewAreaWizard", () => {
     });
   });
 
+  describe("where the area lies", () => {
+    const current = () => container.querySelector('[aria-current="step"]')?.getAttribute("aria-label");
+    const lage = () => [...container.querySelectorAll<HTMLButtonElement>("[aria-label=Lage] button")];
+    const choose = (label: string) => click(lage().find((b) => b.textContent === label));
+    const pressed = () => lage().find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
+    const SINNOH = "Auf der Weltkarte Sinnoh (nahtlos begehbar)";
+    const OWN = "Eigene Karte (über Türen verbunden)";
+    /** A cell of the world map grid (the preview has cells too). */
+    const worldCell = (x: number, y: number) => container.querySelector<HTMLElement>(`[role=group][aria-label$="2 Zeilen, 3 Spalten"] [data-cell="${x},${y}"]`);
+    /** Picks the area header 0001 at (0, 0) and (1, 0) of the world map Sinnoh (matrix 1) and goes to „Anordnung“. */
+    async function toLayout(depth: Depth) {
+      await show({ matrix: 1 }, depth);
+      await click(cell(0, 0));
+      await click(cell(1, 0));
+      await next();
+      expect(current()).toBe("2. Anordnung");
+    }
+
+    it("offers_own_map_and_each_world_map", async () => {
+      await toLayout("bauen");
+      expect(lage().map((b) => b.textContent)).toEqual([OWN, SINNOH]);
+      expect(pressed()).toBe(OWN);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // HeartGold/SoulSilver: Johto and Kanto are halves of one world map, offered once.
+      const hgss: World = {
+        ...world,
+        worldMaps: [
+          { key: "w1", matrix: 1, filter: "johto", name: "Johto", areas: [] },
+          { key: "w1k", matrix: 1, filter: "kanto", name: "Kanto", areas: [] },
+        ],
+      };
+      await act(async () =>
+        root.render(<NewAreaWizard depth="tuefteln" world={hgss} headers={headers} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={{ matrix: 1 }} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+      );
+      await flush();
+      await click(cell(0, 0));
+      await next();
+      expect(lage().map((b) => b.textContent)).toEqual([OWN, "Auf der Weltkarte Johto und Kanto (nahtlos begehbar)"]);
+    });
+
+    it("sends_the_target_and_says_it_in_the_summary_in_bauen", async () => {
+      const words = () => visibleWords(document.body);
+      await toLayout("bauen");
+      await choose(SINNOH);
+      await flush();
+      // No cell chosen yet: „Weiter“ waits for one.
+      expect(container.querySelector('[role=group][aria-label="Weltkarte, 2 Zeilen, 3 Spalten"]')).not.toBeNull();
+      expect(button("Weiter")?.disabled).toBe(true);
+      expect(words()).not.toMatch(FORBIDDEN);
+      // (2, 0) is empty, but the 2 × 1 block reaches past the edge.
+      await click(worldCell(2, 0));
+      expect(worldCell(2, 0)?.hasAttribute("data-foreign")).toBe(true);
+      expect(container.textContent).toContain("Der Block muss auf freie Zellen oder Landschaft fallen.");
+      expect(button("Weiter")?.disabled).toBe(true);
+      // (1, 1) and (2, 1) are landscape.
+      await click(worldCell(1, 1));
+      expect(container.textContent).not.toContain("Der Block muss auf freie Zellen oder Landschaft fallen.");
+      expect(button("Weiter")?.disabled).toBe(false);
+      await next();
+      await flush();
+      expect(current()).toBe("3. Ort");
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).toContain("Liegt auf der Weltkarte Sinnoh bei x 1, y 1 (nahtlos begehbar); ersetzt 2 Landschaftskarten.");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].target).toEqual({ matrix: 1, x: 1, y: 1 });
+    });
+
+    it("keeps_the_target_when_switching_back", async () => {
+      await toLayout("tuefteln");
+      await choose(SINNOH);
+      await flush();
+      // A world map ignores the switch for the header section.
+      expect([...container.querySelectorAll("label")].some((l) => l.textContent === "Header-Abschnitt anlegen")).toBe(false);
+      await click(worldCell(0, 1));
+      expect(worldCell(0, 1)?.getAttribute("aria-pressed")).toBe("true");
+      await choose(OWN);
+      expect(worldCell(0, 1)).toBeNull();
+      expect(button("Weiter")?.disabled).toBe(false);
+      await choose(SINNOH);
+      await flush();
+      expect(pressed()).toBe(SINNOH);
+      expect(worldCell(0, 1)?.getAttribute("aria-pressed")).toBe("true");
+      expect(worldCell(1, 1)?.getAttribute("aria-pressed")).toBe("true");
+      await next();
+      await next();
+      expect(container.textContent).toContain("Ziel: Raster 0001, Zelle 0, 1; 2 Landschaftszellen werden ersetzt.");
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].target).toEqual({ matrix: 1, x: 0, y: 1 });
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(createArea).mockClear();
+      // Back on „Eigene Karte“ the target stays unsent.
+      await toLayout("tuefteln");
+      await choose(SINNOH);
+      await flush();
+      await click(worldCell(0, 1));
+      await choose(OWN);
+      await next();
+      await next();
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0]).not.toHaveProperty("target");
+    });
+  });
+
   it("closes_with_escape_from_its_first_control_the_source_select", async () => {
     // 3c.2 review of Task 5a: the native select took the first Escape.
     await show();
