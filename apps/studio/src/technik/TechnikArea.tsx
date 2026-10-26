@@ -201,7 +201,6 @@ type ProjectSurfaceProps = { project: string | null; preview: ProjectPreviewStat
  * hint which picture Start shows without an own one, naming the start town when the world knows its name.
  */
 function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectSurfaceProps) {
-  const headingId = useId();
   if (project === null || preview === null) {
     return (
       <Surface entry="projekt" title="Projekt">
@@ -210,33 +209,44 @@ function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectS
     );
   }
   const name = folderName(project);
-  const dto = preview.preview;
-  const header = dto?.standardMap?.header;
+  const header = preview.preview?.standardMap?.header;
   const town = header === undefined ? null : (startTown?.(header) ?? null);
   return (
     <Surface entry="projekt" title="Projekt" subtitle={name}>
-      <section className={styles.card} data-section="vorschaubild" aria-labelledby={headingId}>
-        <h2 id={headingId} className={styles.heading}>
-          Vorschaubild
-        </h2>
-        <div className={styles.preview}>
-          <ProjectPreview name={name} png={dto?.png ?? null} />
-        </div>
-        <div className={styles.actions}>
-          <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("choose")}>
-            Vorschaubild wählen…
-          </Button>
-          {dto?.source === "eigen" && (
-            <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("remove")}>
-              Entfernen
-            </Button>
-          )}
-        </div>
-        <p className={styles.note} data-hint="">
-          Ohne eigenes Bild zeigt Start das Kartenbild {town === null ? "der Startstadt" : `von ${town}`}.
-        </p>
-      </section>
+      <PreviewSection name={name} preview={preview} town={town} />
     </Surface>
+  );
+}
+
+/**
+ * The section „Vorschaubild“ of Technik › Projekt (also in the gallery, with example pictures): the picture on a DS screen of 256 × 192
+ * (`name` on the empty screen while there is none), „Vorschaubild wählen…“, „Entfernen“ with an own picture, and the hint naming `town`.
+ */
+export function PreviewSection({ name, preview, town }: { name: string; preview: ProjectPreviewState; town: string | null }) {
+  const headingId = useId();
+  const dto = preview.preview;
+  return (
+    <section className={styles.card} data-section="vorschaubild" aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.heading}>
+        Vorschaubild
+      </h2>
+      <div className={styles.preview}>
+        <ProjectPreview name={name} png={dto?.png ?? null} />
+      </div>
+      <div className={styles.actions}>
+        <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("choose")}>
+          Vorschaubild wählen…
+        </Button>
+        {dto?.source === "eigen" && (
+          <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("remove")}>
+            Entfernen
+          </Button>
+        )}
+      </div>
+      <p className={styles.note} data-hint="">
+        Ohne eigenes Bild zeigt Start das Kartenbild {town === null ? "der Startstadt" : `von ${town}`}.
+      </p>
+    </section>
   );
 }
 

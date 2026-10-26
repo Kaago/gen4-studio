@@ -3,6 +3,8 @@ import type { CreatePhase, Created, PreviewDto, RomInfo } from "../../../api";
 import { DropHint, ProjectStart } from "../../../project/ProjectStart";
 import type { StartWizardRequest } from "../../../project/ProjectStart";
 import { StartServiceContext } from "../../../project/startService";
+import type { ProjectPreviewState } from "../../../project/useProjectPreview";
+import { PreviewSection } from "../../../technik/TechnikArea";
 import type { StartService } from "../../../project/startService";
 import { StartPane } from "../../frame/StartPane";
 import { Button } from "../../primitives";
@@ -100,6 +102,40 @@ function ProjectCards({ now }: { now: number }) {
   );
 }
 
+/** The examples of Technik's section „Vorschaubild“: a project with its own picture, one with the standard picture, one without any. */
+const TECHNIK_EXAMPLES = [
+  { name: "platin-hack", start: "eigen", town: "Zweiblattdorf" },
+  { name: "platin-neu", start: "standard", town: "Zweiblattdorf" },
+  // Diamant has no recipe: no standard picture, and no town to name.
+  { name: "alte-kopie", start: null, town: null },
+] as const;
+
+/**
+ * Technik › Projekt › „Vorschaubild“ in its three states, with the example pictures (no backend): „Vorschaubild wählen…“ puts the own
+ * example picture on, „Entfernen“ brings back the standard picture (or none, without a start town).
+ */
+function TechnikPreviews() {
+  const [pictures] = useState(drawExamplePreviews);
+  const dto = (source: PreviewDto["source"]): PreviewDto => {
+    const png = source === "eigen" ? pictures.own : source === "standard" ? pictures.standard : null;
+    return png === null ? NO_PREVIEW : { source, png, standardMap: null };
+  };
+  const [sources, setSources] = useState<PreviewDto["source"][]>(() => TECHNIK_EXAMPLES.map((e) => e.start));
+  const put = (index: number, source: PreviewDto["source"]) => setSources((before) => before.map((s, i) => (i === index ? source : s)));
+  return (
+    <div className={styles.columns}>
+      {TECHNIK_EXAMPLES.map((example, index) => {
+        const state: ProjectPreviewState = {
+          preview: dto(sources[index] ?? null),
+          busy: false,
+          change: (how) => put(index, how === "choose" ? "eigen" : example.town === null ? null : "standard"),
+        };
+        return <PreviewSection key={example.name} name={example.name} preview={state} town={example.town} />;
+      })}
+    </div>
+  );
+}
+
 /** "Neues Spiel aus ROM": the start with its main action, the drop frame, and the wizard in the start's own deck with example data. */
 export function ProjectPage() {
   const [now] = useState(() => Date.now());
@@ -120,6 +156,15 @@ export function ProjectPage() {
         <div className={styles.startFrame}>
           <ProjectCards now={now} />
         </div>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Technik: Vorschaubild</h2>
+        <p className={styles.note}>
+          Der Abschnitt in Technik › Projekt: von links mit eigenem Bild (dann auch „Entfernen“), mit dem Standardbild der Startstadt, ohne Bild
+          (der Name auf dem leeren Bildschirm, der Satz ohne Ortsnamen). Die Knöpfe wechseln zwischen den Beispielbildern.
+        </p>
+        <TechnikPreviews />
       </section>
 
       <section className={styles.block}>
