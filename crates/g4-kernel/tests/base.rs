@@ -183,8 +183,24 @@ fn xdelta3_applies(nds: &std::path::Path, patch: &std::path::Path, target_sha1: 
     true
 }
 
-/// A patch after one map byte stays below 1 KiB, after map, script and text below 16 KiB;
-/// both are written in under a second and apply with our decoder and with xdelta3.
+/// Appends " Studio" to message 0 of text archive `archive`, as Gutachten B `edit_text` (the
+/// build's `encode_stale` encodes the JSON).
+fn append_to_message_0(project: &Project, archive: u16) {
+    use g4_kernel::project::AssetKind;
+    let member = std::fs::read(project.member_path(AssetKind::TextArchive, archive)).unwrap();
+    let mut doc =
+        g4_kernel::text::TextArchiveDoc::from_member(&member, project.language.locale_key())
+            .unwrap();
+    doc.messages[0].text.push_str(" Studio");
+    let dir = project.expanded_dir(AssetKind::TextArchive);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{archive:04}.json")), doc.to_json()).unwrap();
+}
+
+/// A patch after one map byte stays below 1 KiB, after a typical change at one place (map,
+/// the script file and the text archive of one header) below 16 KiB; both are written in
+/// under a second and apply with our decoder and with xdelta3. Text archive 0 on top is the
+/// worst case (Platinum: 1404 messages, every encrypted offset row changes) and only printed.
 #[test]
 fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
     use g4_kernel::patch::{build_and_create, default_targets};
@@ -220,20 +236,41 @@ fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
     assert!(map_report.notes.is_file());
     let crossed_map = xdelta3_applies(&nds, &map_report.patch, &map_report.target_sha1);
 
-    // Text: message 0 of archive 0 gets " Studio", as Gutachten B `edit_text`.
+    // One place: the first header (in header order) whose text archive exists and has at
+    // most 300 messages, and whose script file exists.
     project.ensure_unpacked(AssetKind::TextArchive).unwrap();
-    let member = std::fs::read(project.member_path(AssetKind::TextArchive, 0)).unwrap();
-    let mut doc = TextArchiveDoc::from_member(&member, project.language.locale_key()).unwrap();
-    doc.messages[0].text.push_str(" Studio");
-    let dir = project.expanded_dir(AssetKind::TextArchive);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("0000.json"), doc.to_json()).unwrap();
-    // Script: two bytes appended to script file 0.
     project.ensure_unpacked(AssetKind::Script).unwrap();
-    let script = project.member_path(AssetKind::Script, 0);
+    let texts = project.member_count(AssetKind::TextArchive).unwrap();
+    let scripts = project.member_count(AssetKind::Script).unwrap();
+    let lang = project.language.locale_key();
+    let (header, script_file, archive, messages) = project
+        .headers()
+        .unwrap()
+        .into_iter()
+        .filter(|h| {
+            usize::from(h.text_archive_id) < texts && usize::from(h.script_file_id) < scripts
+        })
+        .find_map(|h| {
+            let member =
+                std::fs::read(project.member_path(AssetKind::TextArchive, h.text_archive_id))
+                    .ok()?;
+            let n = TextArchiveDoc::from_member(&member, lang)
+                .ok()?
+                .messages
+                .len();
+            (1..=300)
+                .contains(&n)
+                .then_some((h.id, h.script_file_id, h.text_archive_id, n))
+        })
+        .expect("a header with a text archive of at most 300 messages");
+    eprintln!(
+        "one place: header {header}, script file {script_file}, text archive {archive} ({messages} messages)"
+    );
+    let script = project.member_path(AssetKind::Script, script_file);
     let mut bytes = std::fs::read(&script).unwrap();
     bytes.extend_from_slice(&[0x02, 0x00]);
     std::fs::write(&script, bytes).unwrap();
+    append_to_message_0(&project, archive);
     let (_, all_report) = build_and_create(&project, &base, None).unwrap();
     assert_ne!(all_report.target_sha1, map_report.target_sha1);
     let crossed_all = xdelta3_applies(&nds, &all_report.patch, &all_report.target_sha1);
@@ -248,7 +285,6 @@ fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
         map_report.verify_ms,
         all_report.verify_ms
     );
-    eprintln!("xdelta3 cross-check: map={crossed_map} all={crossed_all}");
     assert!(map_report.size <= 1024, "map patch {} B", map_report.size);
     assert!(
         all_report.size <= 16384,
@@ -257,4 +293,18 @@ fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
     );
     assert!(map_report.encode_ms <= 1000, "{} ms", map_report.encode_ms);
     assert!(all_report.encode_ms <= 1000, "{} ms", all_report.encode_ms);
+
+    // Stress, not asserted on size: message 0 of text archive 0 grows as well.
+    if archive != 0 {
+        append_to_message_0(&project, 0);
+    }
+    let (_, stress) = build_and_create(&project, &base, None).unwrap();
+    let crossed_stress = xdelta3_applies(&nds, &stress.patch, &stress.target_sha1);
+    eprintln!(
+        "patch-stress {} archive0={} encode_ms={}",
+        base.game_code(),
+        stress.size,
+        stress.encode_ms
+    );
+    eprintln!("xdelta3 cross-check: map={crossed_map} all={crossed_all} stress={crossed_stress}");
 }

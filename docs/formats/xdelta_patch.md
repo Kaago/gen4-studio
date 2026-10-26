@@ -108,21 +108,21 @@ Das ist harmlos, aber die Quelle muss immer mit `-s` angegeben werden.
 
 ## Größen
 
-Gemessen auf Platin DE (`CPUD`, gated Test, xdelta3 aus `g4-xdelta` mit `opt_level(2)`):
+Gemessen mit dem gated Test (xdelta3 aus `g4-xdelta` mit `opt_level(2)`). „Eine Stelle“ ist der
+erste Karten-Header (in Header-Reihenfolge), dessen Textarchiv höchstens 300 Nachrichten hat: seine
+Script-Datei wird um 2 Byte länger, Nachricht 0 seines Textarchivs um „ Studio“; die Karte 3 bekommt
+vorher ein geändertes Byte. „Archiv 0“ verlängert danach zusätzlich Nachricht 0 des Textarchivs 0.
 
-| Änderung | Patch | Erzeugen | Selbstprüfung |
-|---|---|---|---|
-| ein Byte der Karte 3 | 551 B | 103 bis 119 ms | 131 bis 138 ms |
-| dazu Script-Datei 0 um 2 Byte länger und Nachricht 0 des Textarchivs 0 um „ Studio“ länger | 20 432 B | 187 bis 204 ms | 130 bis 137 ms |
-
-HeartGold DE und US mit denselben Änderungen: 552 B nach der Karte, 9 485 B und 9 454 B nach Karte,
-Script und Text (Erzeugen bis 207 ms, Selbstprüfung bis 144 ms).
+| Projekt | eine Stelle (Header, Script, Text) | Karte | Karte, Script, Text | dazu Archiv 0 | Erzeugen | Selbstprüfung |
+|---|---|---|---|---|---|---|
+| Platin DE (`CPUD`) | 0, 401, 23 (101 Nachrichten) | 551 B | 8 227 B | 19 653 B | 103 bis 200 ms | 138 bis 139 ms |
+| HeartGold DE (`IPKD`) | 2, 957, 738 (220 Nachrichten) | 552 B | 3 043 B | 7 794 B | 152 bis 201 ms | 138 bis 141 ms |
+| HeartGold US (`IPKE`) | 2, 957, 738 (220 Nachrichten) | 552 B | 3 026 B | 7 737 B | 152 bis 201 ms | 138 bis 145 ms |
 
 Eine Änderung, die einen NARC verlängert, verschiebt alle Member dahinter; jede Zeile seiner
 Dateitabelle ändert sich in wenigen Bytes, und jede kostet im Patch etwa 4 bis 8 Byte (eine
-Anweisung „hinzufügen“ und eine „kopieren“). Wächst die Script-Datei 0, sind das die 1 123 Zeilen
-hinter ihr im Script-NARC, allein 4 476 B. Wächst eine Nachricht, ändert sich zudem jede
-verschlüsselte Zeile der Offset-Tabelle ihres Textarchivs; Archiv 0 von Platin DE hat 1 404
-Nachrichten, die Textänderung allein kostet 16 486 B. Das xdelta3-CLI braucht für dieselbe ROM ohne
-Zweitkompression 20 538 B (`-9`: 20 451 B), mit LZMA 15 526 B. Eine Textänderung in einem kleinen
-Ortsarchiv (Platin DE Archiv 23, 101 Nachrichten) kostet mit Karte und Script zusammen 9 853 B.
+Anweisung „hinzufügen“ und eine „kopieren“). Wächst eine Nachricht, ändert sich zudem jede
+verschlüsselte Zeile der Offset-Tabelle ihres Textarchivs. Archiv 0 von Platin DE hat 1 404
+Nachrichten und liegt vorn im Text-NARC, seine Änderung allein kostet rund 16 KB. Das xdelta3-CLI
+kommt auf dieselben Größen (Platin DE, Karte, Script-Datei 0 und Archiv 0: 20 432 B bei uns, 20 538 B
+mit `-S none`, 20 451 B mit `-9 -S none`, 15 526 B mit LZMA).
