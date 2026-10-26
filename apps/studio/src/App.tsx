@@ -900,6 +900,7 @@ function AppBody() {
       </Workbench>
       <WizardHost
         wizards={wizards}
+        world={live.world.world}
         headers={scene.headers}
         matrices={overview.matrices}
         matricesLoaded={overview.loaded}

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMatrix } from "../../api";
 import type { HeaderSummary } from "../../api";
 import { visibleWords } from "../../ui/visibleText";
-import { LookPicker, lookItems } from "./LookPicker";
+import { LookPicker } from "./LookPicker";
+import { lookItems } from "./looks";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn() }));
 const requested = vi.hoisted((): string[] => []);
@@ -60,9 +61,9 @@ describe("LookPicker", () => {
 
   it("lists_each_look_with_its_places_and_picks_one", async () => {
     expect(lookItems(headers)).toEqual([
-      { areaDataId: 3, label: "Zweiblattdorf, Sandgemme, Fleetburg …" },
-      { areaDataId: 5, label: "Route 201" },
-      { areaDataId: 8, label: "Ohne Ortsnamen" },
+      { areaDataId: 3, names: ["Zweiblattdorf", "Sandgemme", "Fleetburg", "Elyses"], label: "Zweiblattdorf, Sandgemme, Fleetburg …" },
+      { areaDataId: 5, names: ["Route 201"], label: "Route 201" },
+      { areaDataId: 8, names: [], label: "Ohne Ortsnamen" },
     ]);
     const template = headers[5]!;
     await act(async () => root.render(<LookPicker headers={headers} template={template} value={5} onChange={onChange} />));
@@ -79,5 +80,21 @@ describe("LookPicker", () => {
     await act(async () => options[0]!.click());
     await flush();
     expect(onChange).toHaveBeenCalledWith(3);
+  });
+
+  it("names_the_look_by_its_first_place_and_a_look_no_header_carries_as_the_templates", async () => {
+    const button = () => container.querySelector<HTMLButtonElement>("button[data-look-picker]")!;
+    // A place name with a comma is still one name.
+    const named = [header(1, "Route 201, Nord", 3), header(2, "Sandgemme", 3), header(7, "", 8)];
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={3} onChange={onChange} />));
+    await flush();
+    expect(button().textContent).toBe("Aussehen wie Route 201, Nord");
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={8} onChange={onChange} />));
+    expect(button().textContent).toBe("Aussehen: Ohne Ortsnamen");
+    // A value no header carries: Bauen does not show its number.
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} />));
+    expect(button().textContent).toBe("Aussehen der Vorlage");
+    await act(async () => root.render(<LookPicker headers={named} template={named[0]!} value={9} onChange={onChange} depth="tuefteln" />));
+    expect(button().textContent).toBe("Aussehen 0009");
   });
 });

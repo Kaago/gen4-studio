@@ -130,7 +130,7 @@ export function PlaceStep({ value, onChange, headers, template, family, name }: 
           title="Ort wählen"
           items={items}
           placeholder="Ort suchen"
-          emptyText={names === null ? "Lade Orte …" : undefined}
+          emptyText={names !== null ? undefined : readError !== null ? "Orte nicht lesbar." : "Lade Orte …"}
           onPick={(item) => set({ place: { Existing: Number(item.id) } })}
         />
       </>

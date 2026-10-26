@@ -7,6 +7,7 @@ import { AreaGrid, cellKey } from "../AreaGrid";
 import { buildPlaces, placeColor } from "../places";
 import { useMatrix } from "../useMatrix";
 import { TERMS, id4 } from "../terms";
+import type { World } from "../worldModel";
 import { useStableCallback } from "../../app/useStable";
 import { HeaderChoice } from "./HeaderChoice";
 import { PatchConsent, patchReady } from "./PatchConsent";
@@ -18,7 +19,7 @@ import type { HeaderPlaces } from "./PickGrid";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, buildingSources, roomPlace, areaSpec, areaSummary, emptyAreaForm, internalName, isLateFailure, newHeaderForm, placeError, placeForm, newHeaderValue, overviewNote, partialText, previewArea, parseMapList, rectSelection, sourceHeader, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, HeaderChoiceValue, PickedCell } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewAreaWizard.module.css";
@@ -26,6 +27,8 @@ import styles from "./NewAreaWizard.module.css";
 interface Props {
   /** Bauen gives the new area a new header with a place and a look (step „Ort“); Tüfteln lets the user choose the header. */
   depth: Depth;
+  /** The world model: Bauen offers its world maps and „Weitere Gebiete“ as sources, by name (null: not read yet). */
+  world: World | null;
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
   /** Whether the overview (`matrices`) has been read, or its read failed: until then no source can be offered. */
@@ -66,7 +69,7 @@ function previewMatrix(form: AreaForm, index: number): MatrixDto | null {
 }
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const building = depth === "bauen";
   // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
@@ -79,8 +82,9 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
   // The cell a Shift-click spans its rectangle from.
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [rejected, setRejected] = useState<string[]>([]);
-  // Nothing chosen yet: the first matrix, also when the overview arrives after the wizard opened.
-  const sourceMatrix = form.sourceMatrix ?? matrices[0]?.index ?? null;
+  // Nothing chosen yet: the first matrix (in Bauen the first world map), also when the overview or the world arrives after the wizard opened.
+  const firstSource = (building ? buildingSources(world, headers, null)[0]?.value : undefined) ?? matrices[0]?.index ?? null;
+  const sourceMatrix = form.sourceMatrix ?? firstSource;
   const matrix = useMatrix(sourceMatrix, 0, onError);
 
   const mapMax = counts.Map === undefined ? 0xfffe : Math.max(0, counts.Map - 1);
@@ -90,8 +94,12 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
   // A new header is a copy of the header the area data is taken from, else of header 0.
   const template = source?.id ?? 0;
   const patch = useHeaderPatch(onHeaderPatch, { repaired: onHeaderPatchRepaired });
-  // Bauen: the place and the look follow their defaults (a new place named like the area, the template's look) until chosen.
-  const place = areaPlace(form);
+  // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
+  const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
+  // Bauen: the place and the look follow their defaults (a new place named like the area, the template's look) until chosen; where
+  // „Neuer Ort“ is locked, the template's place.
+  const placeDefault = family === "DP" ? (roomPlace(null, null, source) ?? { Existing: 0 }) : areaPlace({ ...form, place: null });
+  const place = form.place ?? placeDefault;
   const look = form.lookAreaData ?? source?.area_data_id ?? 0;
   // The consent counts only while the patch is missing.
   const patchConsent = form.patchConsent && patch.patch?.applied === false;
@@ -165,7 +173,7 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
       const text = errorText(e);
       // Something stayed behind: the result step says what, the wizard cannot repair it. A patch asked for may be in by then.
       if (isLateFailure(e)) {
-        setOutcome({ kind: "partial", message: partialText(text) });
+        setOutcome({ kind: "partial", message: partialText(text, depth, "area") });
         if (patching) await onHeaderPatch();
       } else setRefusal(text);
     } finally {
@@ -191,23 +199,17 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
   const headerValue: HeaderChoiceValue = { header: form.header, newHeader: newHeaderValue(form.newHeader, form.name, template), areaDataId: form.areaDataId, eventFile: form.eventFile };
   const pickedCount = form.selected.length + form.manualMaps.length;
 
-  const matrixOptions = useMemo(() => matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` })), [matrices]);
-  const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links) : null;
+  // Bauen names the sources (world maps, „Weitere Gebiete“); Tüfteln lists every raster by number.
+  const matrixOptions = useMemo(
+    () => (building ? buildingSources(world, headers, sourceMatrix) : matrices.map((m) => ({ value: m.index, label: `${TERMS.matrix.label} ${id4(m.index)} ${m.name} (${m.width} × ${m.height})` }))),
+    [building, world, headers, sourceMatrix, matrices],
+  );
+  const summaryLines = "spec" in built ? areaSummary(built.spec, headers, links, depth) : null;
 
   /** A choice of the step „Ort“: a default is kept as null, so it follows the area's name and the template. */
   function choosePlace(value: PlaceStepValue) {
-    setForm((f) => ({ ...f, place: placeForm(value.place, areaPlace({ ...f, place: null })), lookAreaData: value.areaDataId === (source?.area_data_id ?? 0) ? null : value.areaDataId }));
+    setForm((f) => ({ ...f, place: placeForm(value.place, family === "DP" ? placeDefault : areaPlace({ ...f, place: null })), lookAreaData: value.areaDataId === (source?.area_data_id ?? 0) ? null : value.areaDataId }));
   }
-  // Only Diamond/Pearl lacks the patch, and only it has no new places: the step asks for nothing else.
-  const family: HeaderFamily = patch.patch?.supported === false ? "DP" : "Pt";
-  const patchLine =
-    patch.patch !== null ? (
-      <PatchConsent patch={patch.patch} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />
-    ) : patch.error !== null ? (
-      <Notice kind="error">{patch.error}</Notice>
-    ) : (
-      <p className={parts.note}>Prüfe den Spielcode …</p>
-    );
 
   // Bauen asks for the place and the look; Tüfteln for the header itself.
   const headerStep: WizardStep = building
@@ -248,10 +250,10 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
       content: (
         <>
           <section className={`${parts.column} ${parts.wide}`}>
-            <h3 className={parts.heading}>{TERMS.map.plural} aus einem {TERMS.matrix.label}</h3>
-            {matrices.length > 0 && sourceMatrix !== null && (
+            <h3 className={parts.heading}>{building ? `${TERMS.map.plural} aus einer ${TERMS.worldMap.label} oder einem ${TERMS.area.label}` : `${TERMS.map.plural} aus einem ${TERMS.matrix.label}`}</h3>
+            {matrixOptions.length > 0 && sourceMatrix !== null && (
               <div className={parts.field}>
-                <SelectField label={`${TERMS.matrix.label} der Quelle`} showLabel value={sourceMatrix} options={matrixOptions} onChange={chooseSource} />
+                <SelectField label={building ? "Quelle" : `${TERMS.matrix.label} der Quelle`} showLabel value={sourceMatrix} options={matrixOptions} onChange={chooseSource} />
               </div>
             )}
             <p className={parts.note}>{TERMS.map.plural} anklicken; Umschalt-Klick wählt das Rechteck bis zur letzten Zelle.</p>
@@ -264,9 +266,10 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
                 places={headerPlaces}
                 last={anchor}
                 onCellClick={onCell}
+                depth={depth}
               />
             ) : (
-              <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? `Kein ${TERMS.matrix.label} vorhanden.`) : "Lade …"}</p>
+              <p className={parts.note}>{sourceMatrix === null ? (overviewNote(matricesLoaded, matricesFailed) ?? (building ? `Keine ${TERMS.worldMap.label} vorhanden.` : `Kein ${TERMS.matrix.label} vorhanden.`)) : "Lade …"}</p>
             )}
           </section>
           <section className={parts.column}>
@@ -300,7 +303,8 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
               <TextField label="Name des neuen Gebiets" showLabel value={form.name} onCommit={(name) => setForm((f) => ({ ...f, name }))} />
             </div>
             <Checkbox label="ohne Gebäude" checked={form.clearBuildings} onChange={(clearBuildings) => setForm((f) => ({ ...f, clearBuildings }))} />
-            <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />
+            {/* Bauen always gives the new area its cells (`areaSpec`). */}
+            {!building && <Checkbox label={`${TERMS.header.label}-Abschnitt anlegen`} checked={form.withHeaders} onChange={(withHeaders) => setForm((f) => ({ ...f, withHeaders }))} />}
             {"error" in built && <Notice kind="error">{built.error}</Notice>}
           </section>
           <section className={`${parts.column} ${parts.wide}`}>
@@ -334,7 +338,7 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
-          {building && patchLine}
+          {building && <PatchConsent patch={patch.patch} error={patch.error} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />}
         </section>
       ),
     },
@@ -345,11 +349,11 @@ export function NewAreaWizard({ depth, headers, matrices, matricesLoaded, matric
   let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec)} />;
+    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec, depth)} />;
     onShow = () => void show(report, spec);
     if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {
-    result = <PartialResult message={outcome.message} />;
+    result = <PartialResult message={outcome.message} depth={depth} />;
   }
 
   return (

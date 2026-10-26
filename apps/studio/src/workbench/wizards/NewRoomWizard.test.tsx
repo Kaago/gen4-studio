@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, tileBehaviors } from "../../api";
 import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
+import { visibleWords } from "../../ui/visibleText";
 import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
@@ -595,6 +596,85 @@ describe("NewRoomWizard", () => {
       await flush();
       expect(vi.mocked(createRoom).mock.calls[0][0].header).toMatchObject({ place: { Existing: 1 } });
       expect(onHeaderPatch).toHaveBeenCalledOnce();
+    });
+
+    it("reads_the_patch_again_after_a_late_failure_of_a_patching_create", async () => {
+      vi.mocked(createRoom).mockRejectedValue({ code: "partial", message: "header 0006 and matrix 0131 were created; warp edit failed: boom", asset: null });
+      await toSummary({ applied: false });
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).toHaveBeenCalledOnce();
+      expect(container.textContent).toContain("Angelegt: Raum 0006, Anordnung 0131. Danach fehlgeschlagen: Warp setzen (boom).");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      act(() => root.unmount());
+      root = createRoot(container);
+      // Without the patch in the call there is nothing to read again.
+      onHeaderPatch.mockClear();
+      await toSummary({ applied: true });
+      await click(button("Anlegen"));
+      await flush();
+      expect(onHeaderPatch).not.toHaveBeenCalled();
+    });
+
+    it("takes_the_templates_place_when_the_entrance_cannot_be_made", async () => {
+      // The village's event file is locked: no entrance, so the room does not take the village's place.
+      lockedFiles[5] = "DSPRE";
+      await toPlace();
+      expect(placeButton()?.textContent).toBe("Spielerhaus");
+    });
+
+    it("says_no_raster_matrix_or_header_in_building", async () => {
+      const FORBIDDEN = /Raster|Matrix|Header/;
+      const words = () => visibleWords(document.body);
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      await show({ outsideHeader: 0 }, { loaded: true, failed: false }, "bauen");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(templateRow(2));
+      await flush();
+      expect(container.textContent).toContain("„Spielerhaus“");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      await flush();
+      expect(current()).toBe("2. Ort");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await next();
+      expect(current()).toBe("3. Eingang");
+      expect(container.textContent).toContain("Gebiet am Eingang");
+      expect(words()).not.toMatch(FORBIDDEN);
+      // A door in a cell of another area is refused in the same words.
+      await type(field("Außen: Kachel x"), "40");
+      expect(container.textContent).toContain("eines anderen Gebiets");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await type(field("Außen: Kachel x"), "12");
+      await openPicker("Gebiet am Eingang wählen…");
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Gebiet am Eingang wählen");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(option("Zweiblattdorf"));
+      await flush();
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).toContain("Legt den Raum „Neuer Raum“ mit einer Kopie der Karte 0321 an, mit Gebäuden.");
+      expect(container.textContent).toContain("Verbindet Zweiblattdorf (Kachel x 12, z 7) mit dem neuen Raum.");
+      expect(words()).not.toMatch(FORBIDDEN);
+      await click(consent());
+      await click(button("Anlegen"));
+      await flush();
+      expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt: Karte 0571.");
+      expect(words()).not.toMatch(FORBIDDEN);
+    });
+
+    it("says_no_raster_matrix_or_header_without_an_entrance_in_building", async () => {
+      // No pointer over the scene: the door outside is asked for, then the room is connected later.
+      lastTile.mockReturnValue(null);
+      await toPlace();
+      await next();
+      expect(container.textContent).toContain("Noch keine Kachel");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      await click(checkbox("später verbinden"));
+      await next();
+      expect(container.textContent).toContain("Legt keinen Eingang an");
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
     });
   });
 

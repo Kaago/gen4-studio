@@ -129,4 +129,14 @@ describe("PlaceStep", () => {
     expect(toggle("Neuer Ort")?.disabled).toBe(true);
     expect(container.textContent).toContain("Eigene Orte gibt es nur für Platin und HeartGold/SoulSilver.");
   });
+
+  it("says_the_places_cannot_be_read_instead_of_loading_forever", async () => {
+    vi.mocked(getTextArchive).mockRejectedValue({ code: "error", message: "text archive 433 is missing", asset: null });
+    await show({ place: { Existing: 1 }, areaDataId: 3 });
+    expect(container.textContent).toContain("text archive 433 is missing");
+    await act(async () => pickerButton()?.click());
+    await flush();
+    expect(document.querySelector("[role=dialog]")?.textContent).toContain("Orte nicht lesbar.");
+    expect(document.querySelector("[role=dialog]")?.textContent).not.toContain("Lade Orte");
+  });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, buildingSources, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
+import type { Area, World } from "../worldModel";
 
 const header = (id: number, internal: string, matrix = 0, area = 0, event = 0): HeaderSummary => ({ id, internal_name: internal, location_index: 0, kanto: false, location_name: "", matrix_id: matrix, area_data_id: area, event_file_id: event, text_archive_id: 0, script_file_id: 0, level_script_id: 0 });
 const headers = [header(0, "ZERO"), header(1, "NOTHING"), header(2, "TWO", 5, 7, 9)];
@@ -555,5 +556,155 @@ describe("previewArea", () => {
     expect(previewArea({ areaDataId: null, header: null }, headers, h(2, 9))).toBe(9);
     expect(previewArea({ areaDataId: null, header: 99 }, headers, h(2, 9))).toBe(9);
     expect(previewArea({ areaDataId: null, header: null }, headers, null)).toBe(0);
+  });
+});
+
+describe("the words in Bauen", () => {
+  const FORBIDDEN = /Raster|Matrix|Header/;
+  // 0342 is the template (Zweiblattdorf, look 3); 0400 carries look 5 at Sandgemme; 0411 is the village outside the room.
+  const known: HeaderSummary[] = [
+    { ...header(342, "T01", 0, 3), location_index: 1, location_name: "Zweiblattdorf" },
+    { ...header(400, "T02", 0, 5), location_index: 2, location_name: "Sandgemme" },
+    { ...header(411, "T03", 0, 3), location_index: 1, location_name: "Zweiblattdorf" },
+    { ...header(7, "R01", 9, 4), location_index: 3, location_name: "Spielerhaus" },
+  ];
+  const picked = { selected: [cell(0, 0, 521), cell(1, 0, 522)], name: "Neuheim", clearBuildings: true, newHeader: { template: 342, internalName: null } };
+  const areaOf = (change: Partial<AreaForm> = {}): AreaSpec => {
+    const built = areaSpec(form({ ...picked, ...change }), 470, "bauen");
+    if (!("spec" in built)) throw new Error(built.error);
+    return built.spec;
+  };
+  const roomOf = (change: Partial<RoomForm> = {}): RoomSpec => {
+    const built = roomSpec(roomForm({ name: "Haus", template: 7, outsideHeader: 411, place: { Existing: 1 }, ...change }), 470, "bauen");
+    if (!("spec" in built)) throw new Error(built.error);
+    return built.spec;
+  };
+
+  it("summarises_an_area_in_user_words_in_bauen", () => {
+    expect(areaSummary(areaOf(), known, [], "bauen")).toEqual([
+      "Legt das Gebiet „Neuheim“ mit 2 × 1 Karten an.",
+      "Kopiert Karten 0521, 0522, ohne Gebäude.",
+      "Neuer Ort „Neuheim“.",
+      "Aussehen wie Zweiblattdorf.",
+      "Eine neue, leere Liste der Figuren und Türen.",
+      "Anlegen lässt sich nicht rückgängig machen.",
+    ]);
+    const existing = areaSummary(areaOf({ place: { Existing: 2 }, lookAreaData: 5, clearBuildings: false }), known, [], "bauen");
+    expect(existing).toContain("Ort: Sandgemme.");
+    expect(existing).toContain("Aussehen wie Sandgemme.");
+    expect(existing[1]).toBe("Kopiert Karten 0521, 0522, mit Gebäuden.");
+    // A place no header carries yet is named by its number; a look without a place name says so.
+    const unnamed = areaSummary(areaOf({ place: { Existing: 12 }, lookAreaData: 6 }), [...known, { ...header(9, "X", 0, 6) }], [], "bauen");
+    expect(unnamed).toContain("Ort: Nummer 0012.");
+    expect(unnamed).toContain("Aussehen: Ohne Ortsnamen.");
+    expect(areaSummary(areaOf(), known, [], "bauen").join(" ")).not.toMatch(FORBIDDEN);
+  });
+
+  it("always_gives_a_new_area_its_cells_in_bauen", () => {
+    expect(areaOf({ withHeaders: false }).with_headers).toBe(true);
+    const tinkered = areaSpec(form({ ...picked, withHeaders: false, header: 3 }), 470, "tuefteln");
+    expect("spec" in tinkered && tinkered.spec.with_headers).toBe(false);
+  });
+
+  it("says_what_was_made_in_user_words_in_bauen", () => {
+    const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: 55, header: 470, patched: true, snapshot: null, place: 12 };
+    const { lines, next } = areaResult(report, areaOf(), "bauen");
+    expect(lines).toEqual(["Gebiet „Neuheim“ angelegt: 2 Karten."]);
+    expect(areaResult({ ...report, maps: [[0, 0, 571]] }, areaOf(), "bauen").lines).toEqual(["Gebiet „Neuheim“ angelegt: 1 Karte."]);
+    expect([...lines, ...next].join(" ")).not.toMatch(FORBIDDEN);
+  });
+
+  it("summarises_a_room_in_user_words_in_bauen", () => {
+    const lines = roomSummary(roomOf(), known, undefined, [], {}, "bauen");
+    expect(lines).toEqual([
+      "Legt den Raum „Haus“ mit einer Kopie der Karte 0321 an, mit Gebäuden.",
+      "Ort: Zweiblattdorf.",
+      "Aussehen wie Spielerhaus.",
+      "Eine neue, leere Liste der Figuren und Türen.",
+      "Verbindet Zweiblattdorf (Kachel x 12, z 7) mit dem neuen Raum.",
+      "Der Rückweg liegt im neuen Raum auf Kachel x 16, z 30.",
+      "Anlegen lässt sich nicht rückgängig machen.",
+    ]);
+    const later = roomSummary(roomOf({ connect: false, place: { New: "Neues Haus" } }), known, "Eventdatei 0005 ist schreibgeschützt", [], {}, "bauen");
+    expect(later).toContain("Neuer Ort „Neues Haus“.");
+    expect(later).toContain("Legt keinen Eingang an (Eventdatei 0005 ist schreibgeschützt): später mit Werkzeug „Tür“ oder „+“ › „Tür“ in „In dieser Szene“ setzen.");
+    expect([...lines, ...later].join(" ")).not.toMatch(FORBIDDEN);
+    const reused = { index: 2, x: 16, z: 30, dest_header_id: 411, dest_warp_id: 0, height: 0 };
+    expect(roomSummary(roomOf(), known, undefined, [], { reused }, "bauen").join(" ")).not.toMatch(FORBIDDEN);
+  });
+
+  it("says_what_was_made_for_a_room_in_user_words_in_bauen", () => {
+    const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [{ map: 571, x: 8, y: 4 }], patched: false, snapshot: null, place: null };
+    const { lines, next } = roomResult(report, roomOf(), "bauen");
+    expect(lines[0]).toBe("Raum „Haus“ angelegt: Karte 0571.");
+    expect(lines[1]).toBe("Eingang: Warp 3 außen, Rückweg: Warp 0 im neuen Raum.");
+    expect([...lines, ...next].join(" ")).not.toMatch(FORBIDDEN);
+    const alone = roomResult({ ...report, outside_warp: null, inside_warp: null }, roomOf({ connect: false }), "bauen");
+    expect([...alone.lines, ...alone.next].join(" ")).not.toMatch(FORBIDDEN);
+  });
+
+  it("refuses_doors_in_user_words_in_bauen", () => {
+    const refuse = (change: Partial<RoomForm>, checks: Parameters<typeof roomSpec>[3]) => {
+      const built = roomSpec(roomForm({ template: 7, place: { Existing: 1 }, ...change }), 470, "bauen", checks);
+      return "error" in built ? built.error : "";
+    };
+    expect(refuse({ outsideHeader: null }, null)).toBe("Gebiet am Eingang wählen.");
+    expect(refuse({ x: 99 }, { width: 2, height: 1 })).toBe("Kachel x 99, z 7 liegt außerhalb des Gebiets am Eingang (x 0 bis 63, z 0 bis 31).");
+    expect(refuse({ x: 40 }, { outsideMatrix: { width: 2, height: 1, maps: [1, 2], headers: [0, 5] } })).toBe(
+      "Kachel x 40, z 7 liegt in Zelle (1, 0) eines anderen Gebiets: dort nimmt das Spiel die Warps des Gebiets am Eingang nicht.",
+    );
+    expect(refuse({}, { outsideWarps: [{ index: 4, x: 12, z: 7, dest_header_id: 3, dest_warp_id: 0, height: 0 }] })).toBe("Auf Kachel x 12, z 7 außen liegt schon Warp 4: eine andere Kachel wählen.");
+  });
+
+  it("says_a_late_failure_in_user_words_in_bauen", () => {
+    expect(partialText("header 0470, matrix 0131, maps 0571, 0572 and event file 0055 were created; header edit failed: boom", "bauen", "area")).toBe(
+      "Angelegt: Gebiet 0470, Anordnung 0131, Karten 0571, 0572, Eventdatei 0055. Danach fehlgeschlagen: Gebiet einrichten (boom).",
+    );
+    expect(partialText("headers 0470, 0471 were created; matrix creation failed: x", "bauen", "room")).toBe("Angelegt: Räume 0470, 0471. Danach fehlgeschlagen: Anordnung anlegen (x).");
+    expect(partialText("header 0470 was created; header creation failed: x", "bauen", "room")).toBe("Angelegt: Raum 0470. Danach fehlgeschlagen: Raum anlegen (x).");
+  });
+
+  it("keeps_the_tuefteln_words", () => {
+    const spec: AreaSpec = { name: "Route 230", width: 1, height: 1, cells: [{ x: 0, y: 0, source_map: 521, clear_buildings: false }], with_headers: true, header: { id: 1, area_data_id: null, event_file: "New" } };
+    expect(areaSummary(spec, headers, [], "tuefteln")[0]).toBe("Legt Raster „Route 230“ (1 × 1) mit Header-Abschnitt an.");
+    expect(partialText("header 0593 was created; map copy failed: x", "tuefteln")).toBe("Angelegt: Header 0593. Danach fehlgeschlagen: Karte kopieren (x).");
+    const room: RoomSpec = { name: "Haus", source_map: 321, clear_buildings: false, header: { id: 1, area_data_id: null, event_file: "New" }, entrance: null };
+    expect(roomResult({ matrix: 131, map: 571, event_file: null, outside_warp: null, inside_warp: null, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null }, room, "tuefteln").lines[0]).toBe(
+      "Raum „Haus“ angelegt: Raster 0131, Karte 0571.",
+    );
+    expect(roomSpec(roomForm({ outsideHeader: null }), 470, "tuefteln")).toEqual({ error: "Außen-Header wählen." });
+  });
+});
+
+describe("buildingSources", () => {
+  const room = { ...header(30, "R01", 9), location_name: "Spielerhaus" };
+  const area = (matrix: number, name: string, rooms: World["unconnected"] = []): Area => ({ key: `m${matrix}`, name, placeKey: name, headers: [], rooms, matrix });
+  const world: World = {
+    // HeartGold/SoulSilver: Johto and Kanto are halves of one world map.
+    worldMaps: [
+      { key: "w0", matrix: 0, filter: "johto", name: "Johto", areas: [area(0, "Neuborkia", [{ header: room, name: "Haus des Spielers", suggested: "", placeKey: "", placeName: "", manual: false, shared: 0 }])] },
+      { key: "w0k", matrix: 0, filter: "kanto", name: "Kanto", areas: [] },
+    ],
+    moreAreas: [area(5, "Knofensa-Turm")],
+    unconnected: [],
+    other: [],
+    areaOf: new Map(),
+    roomCount: 1,
+    assignedRooms: 0,
+  };
+
+  it("names_the_world_maps_and_the_areas_with_a_map_of_their_own", () => {
+    expect(buildingSources(world, [], 0)).toEqual([
+      { value: 0, label: "Johto / Kanto" },
+      { value: 5, label: "Knofensa-Turm" },
+    ]);
+    expect(buildingSources(null, [], null)).toEqual([]);
+  });
+
+  it("adds_the_raster_the_wizard_was_opened_on_by_its_room_or_place", () => {
+    const last = (sources: { value: number; label: string }[]) => sources[sources.length - 1];
+    expect(last(buildingSources(world, [room], 9))).toEqual({ value: 9, label: "Haus des Spielers" });
+    expect(last(buildingSources(world, [{ ...header(31, "X", 12), location_name: "Seeufer" }], 12))).toEqual({ value: 12, label: "Seeufer" });
+    expect(last(buildingSources(world, [], 13))).toEqual({ value: 13, label: "Ohne Ortsnamen" });
   });
 });

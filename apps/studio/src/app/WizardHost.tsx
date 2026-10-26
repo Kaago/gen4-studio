@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { World } from "../workbench/worldModel";
 import type { AdoptProgressDto, AdoptReportDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, ScriptsStatusDto, WarpLink } from "../api";
 import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
 import { useShell } from "../ui/frame/ShellContext";
@@ -12,6 +13,8 @@ interface Props {
   wizards: Pick<Wizards, "request" | "close" | "created">;
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
+  /** The world model (null: not read yet): the area wizard in Bauen offers its world maps and areas as sources. It is passed in because the host lives beside the workbench, outside the context `useWorld` reads. */
+  world: World | null;
   /** The matrix overview was read (false: `matrices` is empty because nothing arrived yet, not because there are none). */
   matricesLoaded: boolean;
   /** The latest read of the overview failed. */
@@ -53,7 +56,7 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * slots); the host lives beside the workbench, not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
 export function WizardHost(props: Props) {
-  const { wizards, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
+  const { wizards, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
   const { request, close, created } = wizards;
   // Bauen gives a new area or room a place and a look; Tüfteln lets the user choose its header.
   const { depth } = useShell().state;
@@ -66,6 +69,7 @@ export function WizardHost(props: Props) {
       return (
         <NewAreaWizard
           depth={depth}
+          world={world}
           headers={headers}
           matrices={matrices}
           matricesLoaded={matricesLoaded}
@@ -74,7 +78,7 @@ export function WizardHost(props: Props) {
           counts={counts}
           prefill={areaPrefill(request.prefill, selected)}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec).lines[0], name: spec.name })}
+          onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec, depth).lines[0], name: spec.name })}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
@@ -96,7 +100,7 @@ export function WizardHost(props: Props) {
           prefill={request.prefill}
           lastTile={lastTile}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec).lines[0], name: spec.name })}
+          onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec, depth).lines[0], name: spec.name })}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}

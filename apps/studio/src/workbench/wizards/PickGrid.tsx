@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { AreaGrid } from "../AreaGrid";
 import { TERMS, id4 } from "../terms";
 import styles from "./PickGrid.module.css";
@@ -16,10 +17,12 @@ interface Props {
   /** The cell clicked last: the caption names it while the pointer is over no cell. */
   last: { x: number; y: number } | null;
   onCellClick: (x: number, y: number, modifiers: { shift: boolean }) => void;
+  /** Bauen names a cell by its place and map, without the header number. Default: Tüfteln. */
+  depth?: Depth;
 }
 
-/** "Route 201 · Header 0342 · Karte 0521": which place a cell belongs to (a 32 px cell has room for no number). */
-export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, y: number): string | null {
+/** "Route 201 · Header 0342 · Karte 0521" (Bauen: "Route 201 · Karte 0521"): which place a cell belongs to (a 32 px cell has room for no number). */
+export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, y: number, depth: Depth = "tuefteln"): string | null {
   if (x < 0 || y < 0 || x >= matrix.width || y >= matrix.height) return null;
   const i = y * matrix.width + x;
   const map = matrix.maps[i] ?? null;
@@ -29,7 +32,7 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
   if (header !== undefined) {
     const place = places.get(header);
     if (place) parts.push(place.name);
-    parts.push(`${TERMS.header.label} ${id4(header)}`);
+    if (depth === "tuefteln") parts.push(`${TERMS.header.label} ${id4(header)}`);
   }
   parts.push(`${TERMS.map.label} ${id4(map)}`);
   return parts.join(" · ");
@@ -40,7 +43,7 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
  * under the pointer (else the one clicked last). The hover is state of this component only, and the
  * grid itself is not built again for it.
  */
-export function PickGrid({ matrix, headers, areaFallback, selected, places, last, onCellClick }: Props) {
+export function PickGrid({ matrix, headers, areaFallback, selected, places, last, onCellClick, depth = "tuefteln" }: Props) {
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const colorOf = useMemo(() => (header: number | null) => (header === null ? null : (places.get(header)?.color ?? null)), [places]);
   const grid = useMemo(
@@ -62,7 +65,7 @@ export function PickGrid({ matrix, headers, areaFallback, selected, places, last
         {grid}
       </div>
       <div className={styles.caption} data-caption="">
-        {(shown && cellCaption(matrix, places, shown.x, shown.y)) ?? ""}
+        {(shown && cellCaption(matrix, places, shown.x, shown.y, depth)) ?? ""}
       </div>
     </div>
   );
