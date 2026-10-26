@@ -127,6 +127,15 @@ describe("AreaGrid", () => {
     expect(cell(1, 0)?.hasAttribute("data-foreign")).toBe(false);
   });
 
+  it("draws_still_cells_as_pictures_without_buttons", async () => {
+    show({ still: true, onCellClick: vi.fn() });
+    await flush();
+    expect(container.querySelector("button")).toBeNull();
+    expect(cell(0, 0)?.tagName).toBe("SPAN");
+    expect(cell(0, 0)?.hasAttribute("aria-pressed")).toBe(false);
+    expect(glb).toHaveBeenCalledTimes(4);
+  });
+
   it("marks_selected_cells_as_pressed", () => {
     show({ selected: new Set(["1,0", "2,1"]) });
     const pressed = [...container.querySelectorAll('[data-cell][aria-pressed="true"]')].map((e) => e.getAttribute("data-cell"));

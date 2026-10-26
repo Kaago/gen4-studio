@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { extendArea } from "../api";
 import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
-import { Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
+import { Badge, Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
 import { extendDefaults, extendSpec } from "./extend";
 import styles from "./ExtendAreaDialog.module.css";
 import { id4 } from "./terms";
@@ -10,6 +10,8 @@ interface Props {
   matrix: MatrixDto;
   x: number;
   y: number;
+  /** The cell whose map and header the dialog proposes (the area's cell beside a "+" of the world map); default: see `extendDefaults`. */
+  neighbour?: { x: number; y: number } | null;
   headers: HeaderSummary[];
   counts: MemberCounts;
   /** The area was extended (`report`), or the dialog was left without a result (null: cancelled, or it failed, see `onError`). */
@@ -21,8 +23,8 @@ interface Props {
  * Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. A `Dialog`: the focus
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
-export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onError }: Props) {
-  const defaults = extendDefaults(matrix, x, y);
+export function ExtendAreaDialog({ matrix, x, y, neighbour: prefer = null, headers, counts, onDone, onError }: Props) {
+  const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
   const mapMax = Math.max(0, (counts.Map ?? 1) - 1);
   const hasHeaders = matrix.headers != null;
@@ -72,6 +74,7 @@ export function ExtendAreaDialog({ matrix, x, y, headers, counts, onDone, onErro
       ]}
     >
       <div className={styles.form} aria-busy={working}>
+        <Badge kind="irreversible" />
         {sources.length > 1 && <Segmented ariaLabel="Quelle der Kopie" options={sources} value={mode} onChange={setMode} />}
         {mode === "pick" && (
           <NumberField label="Karte" showLabel hint={`0 bis ${mapMax}`} min={0} max={mapMax} value={picked} disabled={working} onCommit={setPicked} />

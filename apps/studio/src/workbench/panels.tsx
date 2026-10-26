@@ -307,13 +307,35 @@ export function MatrixTab() {
 
 export function WorldMapTab() {
   const d = useWorkbench();
+  const { world, identify } = useWorld();
+  // The pinned cell (the same object while the same cell shows): marked on the world map and in the room plan.
+  const pinnedCell = useMatrixSelection();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
-    () => ({ headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision: matrixRevision, goTo, onError, onLoadStatus, depth }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth],
+    () => ({
+      headers,
+      matrices,
+      warpLinks,
+      matricesLoaded,
+      matricesFailed,
+      selected,
+      areaDataId,
+      revision: matrixRevision,
+      goTo,
+      onError,
+      onLoadStatus,
+      depth,
+      world,
+      identify,
+      pinnedCell,
+      counts: memberCounts,
+      onEdited: onMatrixEdited,
+      onCountsChanged,
+    }),
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged],
   );
   return <WorldMapPanel context={context} />;
 }

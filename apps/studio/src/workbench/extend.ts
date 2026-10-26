@@ -16,9 +16,12 @@ function cellAt(matrix: MatrixDto, x: number, y: number): ExtendDefaults["neighb
   return { x, y, map, header: matrix.headers ? (matrix.headers[i] ?? null) : null };
 }
 
-/** What the extend dialog proposes for the empty or new cell `(x, y)`: the cell to copy and the size afterwards. */
-export function extendDefaults(matrix: MatrixDto, x: number, y: number): ExtendDefaults {
-  let neighbour: ExtendDefaults["neighbour"] = null;
+/**
+ * What the extend dialog proposes for the empty or new cell `(x, y)`: the cell to copy and the size afterwards. `prefer` names the cell
+ * to propose when it holds a map (the area's cell beside a "+" of the world map), before the search to the left and upwards.
+ */
+export function extendDefaults(matrix: MatrixDto, x: number, y: number, prefer: { x: number; y: number } | null = null): ExtendDefaults {
+  let neighbour: ExtendDefaults["neighbour"] = prefer ? cellAt(matrix, prefer.x, prefer.y) : null;
   for (let nx = Math.min(x, matrix.width) - 1; nx >= 0 && neighbour === null; nx--) neighbour = cellAt(matrix, nx, y);
   for (let ny = Math.min(y, matrix.height) - 1; ny >= 0 && neighbour === null; ny--) neighbour = cellAt(matrix, x, ny);
   return { neighbour, width: Math.max(matrix.width, x + 1), height: Math.max(matrix.height, y + 1) };

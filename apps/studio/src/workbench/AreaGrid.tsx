@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef } from "react";
+import type { RefObject } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
 import type { Depth } from "../ui/frame/shellState";
 import { thumbnails } from "../world/thumbnailStore";
@@ -44,6 +45,8 @@ export interface AreaGridProps {
   colorOf?: (header: number | null) => string | null;
   /** The depth Tüfteln: every filled cell writes its map, header and altitude as three lines of raw values. */
   tinker?: boolean;
+  /** Draws the cells as pictures, not buttons (no clicks, no tab stops): for a grid inside another control, a tile of „Weitere Gebiete“. */
+  still?: boolean;
   /** The words of the tooltips (Bauen: "Nummer", Tüfteln: "Header"), for a grid that shows pictures in both depths; default: `tinker`. */
   depth?: Depth;
 }
@@ -65,14 +68,15 @@ interface CellProps {
   tinker: boolean;
   /** The tooltip says "Header" (Tüfteln), else "Nummer". */
   techWords: boolean;
+  still: boolean;
   onClick?: AreaGridProps["onCellClick"];
   onDoubleClick?: AreaGridProps["onCellDoubleClick"];
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
-const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, hasHeaders, cache, tinker, techWords, onClick, onDoubleClick }: CellProps) {
-  const button = useRef<HTMLButtonElement>(null);
-  const visible = useVisible(button, map !== null);
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, hasHeaders, cache, tinker, techWords, still, onClick, onDoubleClick }: CellProps) {
+  const box = useRef<HTMLElement>(null);
+  const visible = useVisible(box, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
   const picture = useThumbnail(cache, map, area, visible);
   const parts = [`x ${x}, y ${y}`];
@@ -92,35 +96,48 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   };
   const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : "", foreign ? styles.foreign : ""].join(" ");
 
+  const content =
+    map === null ? (
+      "—"
+    ) : tinker ? (
+      <span className={styles.raw}>
+        <span>{id4(map)}</span>
+        {hasHeaders && header !== null && <span>{id4(header)}</span>}
+        {altitude !== null && <span>{altitude}</span>}
+      </span>
+    ) : (
+      <>
+        {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
+        {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
+        {size === 64 && hasHeaders && header !== null && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
+      </>
+    );
+  const shared = {
+    "data-cell": cellKey(x, y),
+    "data-foreign": foreign ? "" : undefined,
+    "data-raw": tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined,
+    title: parts.join(" · "),
+  };
+
+  if (still) {
+    return (
+      <span ref={box as RefObject<HTMLSpanElement | null>} {...shared} className={`${classes} ${styles.still}`} style={style} /* dyn */>
+        {content}
+      </span>
+    );
+  }
   return (
     <button
-      ref={button}
+      ref={box as RefObject<HTMLButtonElement | null>}
       type="button"
-      data-cell={cellKey(x, y)}
-      data-foreign={foreign ? "" : undefined}
-      data-raw={tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined}
+      {...shared}
       aria-pressed={selected}
-      title={parts.join(" · ")}
       className={classes}
       style={style} /* dyn */
       onClick={(e) => onClick?.(x, y, { shift: e.shiftKey, alt: e.altKey })}
       onDoubleClick={() => onDoubleClick?.(x, y)}
     >
-      {map === null ? (
-        "—"
-      ) : tinker ? (
-        <span className={styles.raw}>
-          <span>{id4(map)}</span>
-          {hasHeaders && header !== null && <span>{id4(header)}</span>}
-          {altitude !== null && <span>{altitude}</span>}
-        </span>
-      ) : (
-        <>
-          {typeof picture !== "string" && <span className={styles.tag}>{id4(map)}</span>}
-          {size === 64 && typeof picture === "string" && <span className={`${styles.tag} ${styles.tagMap}`}>{id4(map)}</span>}
-          {size === 64 && hasHeaders && header !== null && <span className={`${styles.tag} ${styles.tagHeader}`}>{id4(header)}</span>}
-        </>
-      )}
+      {content}
     </button>
   );
 });
@@ -129,7 +146,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
 const plusLabel = (x: number, y: number, notUndoable: boolean) => `Karte bei x ${x}, y ${y} anlegen${notUndoable ? " (nicht rückgängig)" : ""}`;
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
-export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, depth }: AreaGridProps) {
+export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth }: AreaGridProps) {
   const techWords = depth === undefined ? tinker : depth === "tuefteln";
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
@@ -182,6 +199,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           cache={cache}
           tinker={tinker}
           techWords={techWords}
+          still={still}
           onClick={onCellClick}
           onDoubleClick={onCellDoubleClick}
         />,

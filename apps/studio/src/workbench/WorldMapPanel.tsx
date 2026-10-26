@@ -1,12 +1,18 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { HeaderSummary, MatrixSummary, WarpLink } from "../api";
+import type { HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import type { Depth } from "../ui/frame/shellState";
+import { PanelHead } from "../ui/primitives";
+import type { PanelHeadSwitcher } from "../ui/primitives";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
 import { AreaGrid, cellKey } from "./AreaGrid";
+import { ExtendAreaDialog } from "./ExtendAreaDialog";
+import type { HeaderIdentity } from "./headerIdentity";
+import { MoreAreas } from "./MoreAreas";
 import type { NavTarget } from "./navigation";
+import type { CellRect } from "./sceneScope";
 import { buildPlaces, mapsText, placeColor } from "./places";
 import type { Place, PlaceHeader } from "./places";
 import { TERMS, id4, termFor } from "./terms";
@@ -14,6 +20,9 @@ import { useMatrix } from "./useMatrix";
 import styles from "./WorldMapPanel.module.css";
 import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 import type { PlaceCells, RoomLink } from "./worldMap";
+import { areaAtCell, halfWindow, planExtendTargets, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
+import type { WorldViewKey } from "./worldMapView";
+import type { Area, World } from "./worldModel";
 
 /** What the world map needs from App. */
 export interface WorldMapContext {
@@ -35,6 +44,18 @@ export interface WorldMapContext {
   cache?: ThumbnailCache;
   /** Bauen calls an outside header "Gebiet", Tüfteln "Header". */
   depth: Depth;
+  /** The world model; null until it is read (the panel then draws the region alone, without views). */
+  world: World | null;
+  /** The clear name of a header (the room plan's subtitle). */
+  identify: (header: HeaderSummary) => HeaderIdentity;
+  /** The pinned matrix cell, if any: marked on the world map and in the room plan instead of the selected area. */
+  pinnedCell: { matrix: number; x: number; y: number } | null;
+  /** The member counts: the extend dialog's range of maps. */
+  counts: MemberCounts;
+  /** A matrix was edited ("+"): refresh dirty count and, if it is the scene's matrix, the scene. */
+  onEdited: (index: number) => void | Promise<void>;
+  /** A map was appended ("+"): refresh the member counts. */
+  onCountsChanged: () => void | Promise<void>;
 }
 
 const CELL_SIZE = 32;
@@ -96,6 +117,10 @@ function useCacheProgress(cache: ThumbnailCache, onLoadStatus: (message: Message
 
 const clampScale = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 
+/** Whether a point in cell units lies in the shown cells (a place's centre may lie between cells); everything is inside without a window. */
+const inside = (rect: CellRect | null, p: { x: number; y: number }) =>
+  rect === null || (p.x >= rect.x - 0.5 && p.y >= rect.y - 0.5 && p.x < rect.x + rect.width - 0.5 && p.y < rect.y + rect.height - 0.5);
+
 const sameLines = (a: Line[], b: Line[]) =>
   a.length === b.length && a.every((l, i) => l.header === b[i].header && l.hidden === b[i].hidden && l.x1 === b[i].x1 && l.y1 === b[i].y1 && l.x2 === b[i].x2 && l.y2 === b[i].y2);
 
@@ -123,6 +148,8 @@ function RoomCard({ entry, link, selected, onOpen }: { entry: PlaceHeader; link:
 interface MapViewProps {
   /** The region's grid (stable between renders of the panel while its data stays). */
   grid: ReactNode;
+  /** The cells the grid shows (a half of a split world map); null: the whole matrix. Labels and lines are placed relative to it. */
+  window: CellRect | null;
   /** False: no region to draw; `message` says why. */
   hasRegion: boolean;
   message: string;
@@ -141,7 +168,9 @@ interface MapViewProps {
  * The viewport with the region and the line overlay. It owns the pan and zoom state, so a wheel tick or a pointer move
  * renders only this component (a few labels and lines), not the grid's cells and not the place list.
  */
-const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLinks, cardsShown, listLayout, rootBox, list }: MapViewProps) {
+const MapView = memo(function MapView({ grid, window: shownCells, hasRegion, message, labels, lineLinks, cardsShown, listLayout, rootBox, list }: MapViewProps) {
+  const originX = shownCells?.x ?? 0;
+  const originY = shownCells?.y ?? 0;
   const [view, setView] = useState<View>({ scale: 1, x: 12, y: 12 });
   const viewport = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
@@ -218,11 +247,11 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
     const gridRect = gridEl.getBoundingClientRect();
     const next: Line[] = [];
     for (const link of lineLinks) {
-      if (link.cell === null) continue;
+      if (link.cell === null || !inside(shownCells, link.cell)) continue;
       const cardEl = rootEl.querySelector(`[data-room-id="${link.header}"]`);
       if (!cardEl) continue;
       const rect = cardEl.getBoundingClientRect();
-      const l = lineBetween(rect, link.cell, CELL_SIZE, { x: gridRect.left, y: gridRect.top }, view.scale);
+      const l = lineBetween(rect, { x: link.cell.x - originX, y: link.cell.y - originY }, CELL_SIZE, { x: gridRect.left, y: gridRect.top }, view.scale);
       const hidden =
         !cardsShown ||
         rect.height === 0 ||
@@ -235,7 +264,7 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
       next.push({ header: link.header, x1: l.x1 - origin.left, y1: l.y1 - origin.top, x2: l.x2 - origin.left, y2: l.y2 - origin.top, hidden });
     }
     setLines((prev) => (sameLines(prev, next) ? prev : next));
-  }, [lineLinks, cardsShown, view.scale, rootBox, list]);
+  }, [lineLinks, cardsShown, view.scale, rootBox, list, shownCells, originX, originY]);
   // After every render that may have moved a card or the grid: pan, zoom, selection, opened places, new data. `listLayout`
   // is what brings a change of the list (its own state) here at all, as this component is memoised.
   useLayoutEffect(measure, [measure, listLayout, view]);
@@ -273,13 +302,13 @@ const MapView = memo(function MapView({ grid, hasRegion, message, labels, lineLi
             style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} /* dyn */
           >
             {grid}
-            {labels.map((place) => (
+            {labels.filter((place) => inside(shownCells, place.center)).map((place) => (
               <span
                 key={place.key}
                 data-place-label={place.key}
                 className={styles.label}
                 // Counter-scaled: the text keeps its size on screen while the map zooms.
-                style={{ left: place.center.x * pitch + CELL_SIZE / 2, top: place.center.y * pitch + CELL_SIZE / 2, fontSize: 12 / view.scale, padding: `0 ${4 / view.scale}px`, borderRadius: 3 / view.scale }} /* dyn */
+                style={{ left: (place.center.x - originX) * pitch + CELL_SIZE / 2, top: (place.center.y - originY) * pitch + CELL_SIZE / 2, fontSize: 12 / view.scale, padding: `0 ${4 / view.scale}px`, borderRadius: 3 / view.scale }} /* dyn */
               >
                 {place.name}
               </span>
@@ -354,21 +383,92 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
 });
 
 const NO_LINKS: RoomLink[] = [];
+const NO_CELLS: ReadonlySet<string> = new Set();
+const FOUR_NEIGHBOURS: readonly (readonly [number, number])[] = [
+  [0, -1],
+  [-1, 0],
+  [1, 0],
+  [0, 1],
+];
+
+/** The filled cells of `matrix` whose header is one of `ids`, as `cellKey`s. */
+function cellsWithHeaders(matrix: MatrixDto, ids: ReadonlySet<number>): Set<string> {
+  const keys = new Set<string>();
+  matrix.headers?.forEach((h, i) => {
+    if (ids.has(h) && matrix.maps[i] !== null) keys.add(cellKey(i % matrix.width, Math.floor(i / matrix.width)));
+  });
+  return keys;
+}
+
+/** Where "+" was pressed: the cell, and the area's cell beside it whose map and header the dialog proposes (none in a room plan). */
+interface ExtendTarget {
+  matrix: number;
+  x: number;
+  y: number;
+  neighbour: { x: number; y: number } | null;
+}
 
 /**
- * The world map: the region as a raster of map pictures (cells tinted by place, place names on top, wheel to zoom, drag to
- * pan) next to the list of places with a card per room; dashed lines run from the cards of the selected header's place to
- * the cell of each room's entrance. Memoised: it renders when `context` changes (the owner keeps it, see `WorldMapTab`),
- * never for a hover of the scene; pan and zoom live in `MapView` and render neither the grid nor the list.
+ * The world map panel. Its head switches between the views (`worldViews`): a world map, both halves of a split one, „Weitere Gebiete“
+ * and, while a room or an area with its own map is selected, the room plan; the view follows the selection, a choice in the menu holds
+ * until the next selection. A world map draws its matrix as a raster of map pictures (cells tinted by place, place names on top, wheel
+ * to zoom, drag to pan, the other half dimmed) next to the list of places with a card per room; dashed lines run from the cards of the
+ * selected header's place to the cell of each room's entrance. A click selects the area of a cell, ⌥click, a double click or a click on
+ * the landscape the map; "+" beside the selected area creates a map there. The room plan draws the selected header's matrix at 64 px.
+ * Until the world is read, it draws the region alone. Memoised: it renders when `context` changes (the owner keeps it, see
+ * `WorldMapTab`), never for a hover of the scene; pan and zoom live in `MapView` and render neither the grid nor the list.
  */
 export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context: WorldMapContext }) {
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, revision, goTo, onError, onLoadStatus, cache = thumbnails, depth } = context;
+  const {
+    headers,
+    matrices,
+    warpLinks,
+    matricesLoaded,
+    matricesFailed,
+    selected,
+    areaDataId,
+    revision,
+    goTo,
+    onError,
+    onLoadStatus,
+    cache = thumbnails,
+    depth,
+    world,
+    identify,
+    pinnedCell,
+    counts,
+    onEdited,
+    onCountsChanged,
+  } = context;
   useCacheProgress(cache, onLoadStatus);
+
+  // The view: a choice in the menu while the selection stays, else the one that shows the selection, else the one shown last.
+  const selectedHeader = useMemo(() => (selected === null ? null : (headers.find((h) => h.id === selected) ?? null)), [headers, selected]);
+  const followed = useMemo(() => viewFor(world, selectedHeader), [world, selectedHeader]);
+  const views = useMemo(() => (world ? worldViews(world, followed === "plan") : []), [world, followed]);
+  const [choice, setChoice] = useState<{ key: WorldViewKey; selected: number | null } | null>(null);
+  // The next selection ends a choice (the check below already ignores it for the render in between).
+  useEffect(() => setChoice(null), [selected]);
+  const lastView = useRef<WorldViewKey | null>(null);
+  const offered = (key: WorldViewKey | null | undefined): key is WorldViewKey => typeof key === "string" && views.some((v) => v.key === key);
+  const candidates = [choice?.selected === selected ? choice.key : null, followed, lastView.current, views[0]?.key];
+  const view = candidates.find(offered) ?? null;
+  useEffect(() => {
+    lastView.current = view;
+  });
+  const viewItem = views.find((v) => v.key === view) ?? null;
+  const worldMap = world?.worldMaps.find((m) => m.key === view) ?? null;
 
   // Without the overview every header would count as a room.
   const places = useMemo(() => buildPlaces(headers, matricesLoaded ? matrices : [], matricesLoaded ? warpLinks : []), [headers, matrices, warpLinks, matricesLoaded]);
   const regionIndex = useMemo(() => (matricesLoaded ? (regionMatrix(matrices)?.index ?? null) : null), [matrices, matricesLoaded]);
-  const region = useMatrix(regionIndex, revision, onError);
+  const planIndex = view === "plan" ? (selectedHeader?.matrix_id ?? null) : null;
+  const shownIndex = world === null ? regionIndex : (viewItem?.matrix ?? planIndex);
+  const shown = useMatrix(shownIndex, revision, onError);
+  // The matrix of a world map (or of the region while the world is not read), and the one of the room plan.
+  const region = view === "plan" || view === "more" ? null : shown;
+  const plan = view === "plan" ? shown : null;
+
   const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
   const links = useMemo(() => {
     const byPlace = new Map<string, RoomLink[]>();
@@ -380,27 +480,100 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
 
   const colorByHeader = useMemo(() => new Map(places.flatMap((place) => place.headers.map(({ header }) => [header.id, placeColor(place.key)] as const))), [places]);
   const colorOf = useCallback((header: number | null) => (header === null ? null : (colorByHeader.get(header) ?? null)), [colorByHeader]);
+
+  // A half of a split world map: its window and the other half's cells.
+  const half = useMemo(() => (world && worldMap && region ? halfWindow(world, worldMap, region) : null), [world, worldMap, region]);
+  // The area of the selection on this matrix (a room's: the area of its entrance); not one of the other half.
+  const selectedArea = useMemo((): Area | null => {
+    if (!world || selected === null || !region) return null;
+    const key = world.areaOf.get(selected);
+    const areas = worldMap ? worldMap.areas : world.worldMaps.filter((m) => m.matrix === region.index).flatMap((m) => m.areas);
+    return areas.find((a) => a.key === key) ?? null;
+  }, [world, worldMap, selected, region]);
+  const areaIds = useMemo(() => new Set(selectedArea ? selectedArea.headers.map((h) => h.id) : selected === null ? [] : [selected]), [selectedArea, selected]);
   const marked = useMemo(() => {
-    const keys = new Set<string>();
-    if (region?.headers && selected !== null) {
-      region.headers.forEach((h, i) => {
-        if (h === selected && region.maps[i] !== null) keys.add(cellKey(i % region.width, Math.floor(i / region.width)));
-      });
-    }
-    return keys;
-  }, [region, selected]);
-  const onCellClick = useCallback(
-    (x: number, y: number) => {
-      if (!region?.headers) return;
-      const i = y * region.width + x;
-      if (region.maps[i] !== null) goTo({ kind: "header", id: region.headers[i] });
+    if (!region) return NO_CELLS;
+    if (pinnedCell?.matrix === region.index) return new Set([cellKey(pinnedCell.x, pinnedCell.y)]);
+    return cellsWithHeaders(region, areaIds);
+  }, [region, pinnedCell, areaIds]);
+  const extendable = useMemo(() => (region && selectedArea ? worldExtendTargets(region, [...areaIds]) : NO_CELLS), [region, selectedArea, areaIds]);
+
+  /** Pins the map of a cell; its header is selected first when it is not the shown one. */
+  const selectMap = useCallback(
+    (m: MatrixDto, x: number, y: number, fallback: number | null) => {
+      const i = y * m.width + x;
+      const header = m.maps[i] !== null ? (m.headers?.[i] ?? fallback) : fallback;
+      goTo({ kind: "matrixCell", matrix: m.index, x, y, header, show: "map" });
     },
-    [region, goTo],
+    [goTo],
   );
+  const onCellClick = useCallback(
+    (x: number, y: number, { alt }: { shift: boolean; alt: boolean }) => {
+      if (!region) return;
+      if (!world) {
+        // The region alone: a cell opens its header.
+        const header = region.maps[y * region.width + x] !== null ? region.headers?.[y * region.width + x] : undefined;
+        if (header !== undefined) goTo({ kind: "header", id: header });
+        return;
+      }
+      const foreign = half?.foreign.has(cellKey(x, y)) ?? false;
+      const area = alt || foreign ? null : areaAtCell(world, region, x, y);
+      if (area) goTo({ kind: "header", id: area.headers[0].id });
+      else if (alt || !foreign) selectMap(region, x, y, null);
+    },
+    [region, world, half, goTo, selectMap],
+  );
+  const onCellDoubleClick = useCallback((x: number, y: number) => region && world && selectMap(region, x, y, null), [region, world, selectMap]);
+  const onPlanClick = useCallback((x: number, y: number) => plan && selectMap(plan, x, y, selected), [plan, selected, selectMap]);
+
+  const [extendAt, setExtendAt] = useState<ExtendTarget | null>(null);
+  // The dialog belongs to the matrix it was opened for: another view or matrix ends it.
+  useEffect(() => setExtendAt(null), [shownIndex]);
+  const onWorldExtend = useCallback(
+    (x: number, y: number) => {
+      if (!region) return;
+      const touches = FOUR_NEIGHBOURS.map(([dx, dy]) => ({ x: x + dx, y: y + dy })).find((n) => cellsWithHeaders(region, areaIds).has(cellKey(n.x, n.y)));
+      setExtendAt({ matrix: region.index, x, y, neighbour: touches ?? null });
+    },
+    [region, areaIds],
+  );
+  const onPlanExtend = useCallback((x: number, y: number) => plan && setExtendAt({ matrix: plan.index, x, y, neighbour: null }), [plan]);
+  /** The extend dialog is done: a created copy shows in the counts and the matrix; a failed attempt may have left a copy behind, so it refreshes the same. */
+  const afterExtend = useCallback(
+    async (index: number) => {
+      try {
+        await onCountsChanged();
+      } finally {
+        await onEdited(index);
+      }
+    },
+    [onCountsChanged, onEdited],
+  );
+
   const grid = useMemo(
-    () => region && <AreaGrid matrix={region} headers={headers} areaFallback={areaDataId} cellSize={CELL_SIZE} selected={marked} colorOf={colorOf} onCellClick={onCellClick} cache={cache} depth={depth} />,
-    [region, headers, areaDataId, marked, colorOf, onCellClick, cache, depth],
+    () =>
+      region && (
+        <AreaGrid
+          matrix={region}
+          headers={headers}
+          areaFallback={areaDataId}
+          cellSize={CELL_SIZE}
+          selected={marked}
+          colorOf={colorOf}
+          onCellClick={onCellClick}
+          onCellDoubleClick={world ? onCellDoubleClick : undefined}
+          onExtend={world ? onWorldExtend : undefined}
+          extendable={world ? extendable : undefined}
+          window={half?.rect}
+          foreign={half?.foreign}
+          cache={cache}
+          depth={depth}
+        />
+      ),
+    [region, headers, areaDataId, marked, colorOf, onCellClick, onCellDoubleClick, onWorldExtend, extendable, half, world, cache, depth],
   );
+  const planSelected = useMemo(() => (plan && pinnedCell?.matrix === plan.index ? new Set([cellKey(pinnedCell.x, pinnedCell.y)]) : NO_CELLS), [plan, pinnedCell]);
+  const planExtendable = useMemo(() => (plan ? planExtendTargets(plan) : NO_CELLS), [plan]);
 
   // The place of the selected header is open; the user opens and closes the others.
   const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(new Set());
@@ -420,6 +593,20 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     [],
   );
   const openRoom = useCallback((id: number) => goTo({ kind: "header", id }), [goTo]);
+  const openArea = useCallback(
+    (area: Area) => {
+      // The room plan of the area shows, also when its first header is selected already.
+      setChoice(null);
+      goTo({ kind: "header", id: area.headers[0].id });
+    },
+    [goTo],
+  );
+
+  const switcher = useMemo(
+    (): PanelHeadSwitcher | null =>
+      view === null ? null : { items: views.map((v) => ({ id: v.key, label: v.label })), value: view, onChange: (key) => setChoice({ key, selected }) },
+    [views, view, selected],
+  );
 
   // Everything that can move a card of the list; the map measures its lines again when it changes.
   const listLayout = useMemo(() => ({}), [places, links, selected, openKeys]);
@@ -427,21 +614,80 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const list = useRef<HTMLDivElement>(null);
   const none = depth === "tuefteln" ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : "Keine Region gefunden (keine Weltkarte mit Gebieten).";
   const noRegion = matricesLoaded ? none : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
+  const extendMatrix = extendAt && shown?.index === extendAt.matrix ? shown : null;
 
   return (
-    <div ref={rootBox} className={styles.panel}>
-      <MapView
-        grid={grid}
-        hasRegion={region !== null}
-        message={regionIndex === null ? noRegion : "Lade Region …"}
-        labels={cellsOfPlaces}
-        lineLinks={(selectedPlace !== undefined && links.get(selectedPlace)) || NO_LINKS}
-        cardsShown={selectedPlace !== undefined && openKeys.has(selectedPlace)}
-        listLayout={listLayout}
-        rootBox={rootBox}
-        list={list}
-      />
-      <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
+    <div className={styles.panel} data-world-view={view ?? undefined}>
+      {switcher && <PanelHead switcher={switcher} subtitle={view === "plan" && selectedHeader ? identify(selectedHeader).name : undefined} />}
+      {view === "more" && world ? (
+        <MoreAreas
+          areas={world.moreAreas}
+          matrices={matrices}
+          headers={headers}
+          areaFallback={areaDataId}
+          revision={revision}
+          cache={cache}
+          colorOf={colorOf}
+          depth={depth}
+          onError={onError}
+          onSelect={openArea}
+        />
+      ) : view === "plan" ? (
+        <div className={styles.plan}>
+          {plan ? (
+            <AreaGrid
+              matrix={plan}
+              headers={headers}
+              areaFallback={areaDataId}
+              cellSize={64}
+              selected={planSelected}
+              colorOf={colorOf}
+              onCellClick={onPlanClick}
+              onExtend={onPlanExtend}
+              extendable={planExtendable}
+              label={`Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten`}
+              cache={cache}
+              depth={depth}
+            />
+          ) : (
+            <p className={styles.message}>Lade Raumplan …</p>
+          )}
+        </div>
+      ) : (
+        <div ref={rootBox} className={styles.body}>
+          <MapView
+            grid={grid}
+            window={half?.rect ?? null}
+            hasRegion={region !== null}
+            message={shownIndex === null ? noRegion : "Lade Region …"}
+            labels={cellsOfPlaces}
+            lineLinks={(selectedPlace !== undefined && links.get(selectedPlace)) || NO_LINKS}
+            cardsShown={selectedPlace !== undefined && openKeys.has(selectedPlace)}
+            listLayout={listLayout}
+            rootBox={rootBox}
+            list={list}
+          />
+          <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
+        </div>
+      )}
+      {extendAt && extendMatrix && (
+        <ExtendAreaDialog
+          matrix={extendMatrix}
+          x={extendAt.x}
+          y={extendAt.y}
+          neighbour={extendAt.neighbour}
+          headers={headers}
+          counts={counts}
+          onDone={(report) => {
+            setExtendAt(null);
+            if (report) void afterExtend(extendMatrix.index);
+          }}
+          onError={(e) => {
+            onError(e);
+            void afterExtend(extendMatrix.index);
+          }}
+        />
+      )}
     </div>
   );
 });

@@ -52,6 +52,18 @@ describe("ExtendAreaDialog", () => {
     expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
   });
 
+  it("shows_the_not_undoable_badge", () => {
+    show();
+    expect(dialog().textContent).toContain("Nicht rückgängig");
+  });
+
+  it("proposes_the_given_neighbour_with_its_header", () => {
+    const m: MatrixDto = { index: 7, name: "m", width: 2, height: 2, maps: [10, 11, 12, null], headers: [0, 416, 0, 0] };
+    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} neighbour={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    expect(dialog().textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
+    expect(field("Header-Zelle")?.value).toBe("416");
+  });
+
   it("copies_the_chosen_map_without_buildings", async () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
     show();

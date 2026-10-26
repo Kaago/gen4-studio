@@ -101,3 +101,8 @@
   line-height: 14px;
   text-align: center;
 }
+
+/* A picture of a cell inside another control: the control takes the pointer and the focus. */
+.still {
+  cursor: inherit;
+}
