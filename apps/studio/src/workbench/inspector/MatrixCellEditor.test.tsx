@@ -145,10 +145,12 @@ describe("MatrixCellEditor", () => {
     expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 412 });
   });
 
-  it("says_which_sections_the_matrix_lacks", async () => {
+  it("says_nothing_of_a_missing_area_section_in_bauen", async () => {
+    // A room's cells have no area section; Bauen does not speak of the world map there, it just leaves the field out.
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
     await show();
-    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
+    expect(container.textContent).not.toContain("Weltkarte");
+    expect(container.textContent).not.toContain("Abschnitt");
     expect(container.textContent).not.toContain("Höhenabschnitt");
     expect(input("Gebiet")).toBeNull();
   });
@@ -182,7 +184,7 @@ describe("MatrixCellEditor", () => {
 
   it("says_a_cell_outside_the_matrix_is_outside", async () => {
     await show(5, 0);
-    expect(container.textContent).toContain("außerhalb der Weltkarte (2 × 1)");
+    expect(container.querySelector("p")?.textContent).toBe("Die Zelle liegt außerhalb der Karten (2 × 1).");
   });
 
   it("names_the_cell_with_the_codes_in_tuefteln", async () => {
@@ -220,8 +222,7 @@ describe("MatrixCellEditor", () => {
     act(() => root.render(null));
     vi.mocked(getMatrix).mockImplementation(async () => matrix({ headers: null, altitudes: null }));
     await show();
-    expect(container.textContent).toContain("Die Weltkarte hat keinen Abschnitt für Gebiete.");
-    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
+    expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header|Weltkarte/);
   });
 
   it("keeps_the_technical_words_in_tinkering", async () => {

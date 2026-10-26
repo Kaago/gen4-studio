@@ -13,8 +13,13 @@ interface Props {
   y: number;
   /** The cell whose map and header the dialog proposes (the area's cell beside a "+" of the world map); default: see `extendDefaults`. */
   prefer?: { x: number; y: number } | null;
-  /** The name of the area or room the proposed cell belongs to: Bauen says the new map belongs to it instead of showing its number. */
+  /** The name of the area or room the new map belongs to: Bauen says so instead of showing its number. */
   areaName?: string | null;
+  /**
+   * The header of that area or room (the one being edited). Bauen proposes it when the proposed cell is landscape (header 0), so the
+   * sentence and the request agree; without it, a landscape neighbour makes Bauen ask for the number.
+   */
+  areaHeader?: number | null;
   /** Bauen speaks of maps and areas, never of the grid or headers; default Tüfteln (the Raster tab). */
   depth?: Depth;
   headers: HeaderSummary[];
@@ -35,7 +40,7 @@ function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: n
  * Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. A `Dialog`: the focus
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
-export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, depth = "tuefteln", headers, counts, onDone, onError }: Props) {
+export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError }: Props) {
   const building = depth === "bauen";
   const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
@@ -46,7 +51,11 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
   const [mode, setMode] = useState<"neighbour" | "pick">(neighbour ? "neighbour" : "pick");
   const [picked, setPicked] = useState(neighbour?.map ?? 0);
   const [clearBuildings, setClearBuildings] = useState(false);
-  const [headerCell, setHeaderCell] = useState(neighbour?.header ?? 0);
+  // Bauen: a landscape neighbour (header 0) does not decide where the new map belongs; the edited area or room does.
+  const proposedHeader = building && neighbour?.header === 0 && areaHeader != null ? areaHeader : (neighbour?.header ?? 0);
+  // The sentence only names a place the map really goes to: a neighbour's header other than the landscape.
+  const belongs = building && neighbour?.header != null && proposedHeader !== 0;
+  const [headerCell, setHeaderCell] = useState(proposedHeader);
   const [working, setWorking] = useState(false);
 
   const sourceMap = mode === "neighbour" && neighbour ? neighbour.map : picked;
@@ -94,7 +103,7 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
         )}
         <Checkbox label="ohne Gebäude" checked={clearBuildings} disabled={working} onChange={setClearBuildings} />
         {hasHeaders &&
-          (building && neighbour?.header != null ? (
+          (belongs ? (
             <p className={styles.size}>Die neue Karte gehört zu „{areaName ?? id4(headerCell)}“.</p>
           ) : (
             <NumberField

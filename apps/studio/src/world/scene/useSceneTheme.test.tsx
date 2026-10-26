@@ -82,12 +82,12 @@ describe("useSceneTheme", () => {
   it("draws_the_cell_frame_again_in_the_selection_colour_of_the_theme", () => {
     const { host } = fakeHost();
     const setCellFrame = vi.fn();
-    Object.assign(host, { selectedCell: { x: 0, y: 0 }, matrix: { index: 0, name: "m", width: 1, height: 1, maps: [1] }, setCellFrame });
+    Object.assign(host, { selectedCell: { x: 0, y: 0 }, matrix: { index: 0, name: "m", width: 1, height: 1, maps: [1] }, loaded: new Map([[1, {}]]), setCellFrame });
     const refs = { handle: { current: host as unknown as SceneHost } };
     act(() => root.render(<Probe refs={refs} />));
     act(() => applyTheme("dunkel"));
-    const frame = setCellFrame.mock.calls[0][0] as THREE.LineLoop;
-    expect(`#${(frame.material as THREE.LineBasicMaterial).color.getHexString()}`.toUpperCase()).toBe(selectionColor("dunkel"));
+    const frame = setCellFrame.mock.calls[0][0] as THREE.Mesh;
+    expect(`#${(frame.material as THREE.MeshBasicMaterial).color.getHexString()}`.toUpperCase()).toBe(selectionColor("dunkel"));
     expect(host.render).toHaveBeenCalledTimes(1);
   });
 

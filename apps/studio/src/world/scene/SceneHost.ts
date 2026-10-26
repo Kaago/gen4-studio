@@ -74,7 +74,7 @@ export class SceneHost {
   selectedCell: { x: number; y: number } | null = null;
   /** Holds the frame around the selected cell (see `showCellFrame`); it outlives the content of a matrix. */
   readonly cellFrame = new THREE.Group();
-  private frame: THREE.LineLoop | null = null;
+  private frame: THREE.Mesh | null = null;
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null = null;
   /** A render is already queued for the next animation frame. */
@@ -175,13 +175,19 @@ export class SceneHost {
     return frame;
   }
 
-  /** Draws with `camera` from now on, with new controls for it (the old ones are freed). */
+  /** Draws with `camera` from now on, with new controls for it (the old ones are freed); the top-down camera's controls pan with the left button. */
   private useCamera(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera) {
     this.controls.removeEventListener("change", this.render);
     this.controls.dispose();
     this.camera = camera;
     this.controls = new OrbitControls(camera, this.renderer.domElement);
-    this.controls.enableRotate = camera === this.slanted;
+    const slanted = camera === this.slanted;
+    this.controls.enableRotate = slanted;
+    // From above the left button (and one finger) pans, the view never turns; the slanted view keeps the controls' defaults.
+    if (!slanted) {
+      this.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+      this.controls.touches.ONE = THREE.TOUCH.PAN;
+    }
     this.controls.addEventListener("change", this.render);
   }
 
@@ -191,7 +197,7 @@ export class SceneHost {
   }
 
   /** Puts `frame` around the selected cell (null: none) in place of the frame before it, which is freed. It does not render. */
-  setCellFrame(frame: THREE.LineLoop | null) {
+  setCellFrame(frame: THREE.Mesh | null) {
     if (this.frame) {
       this.cellFrame.remove(this.frame);
       this.frame.geometry.dispose();

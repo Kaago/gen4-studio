@@ -92,7 +92,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       <div className={styles.panel}>
         <InspectorHead kind="map" title={cell} ident={matrixName} unsaved={unsaved} depth={depth} />
         <p className={styles.note}>
-          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Weltkarte"} ({matrix.width} × {matrix.height}).
+          Die Zelle liegt außerhalb {tinker ? "des Rasters" : "der Karten"} ({matrix.width} × {matrix.height}).
         </p>
       </div>
     );
@@ -182,7 +182,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
             </div>
           </InspectorRow>
         ) : (
-          <p className={styles.note}>{tinker ? "Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar)." : "Die Weltkarte hat keinen Abschnitt für Gebiete."}</p>
+          // A room's cells have no area section: Bauen just leaves the field out, Tüfteln says where to switch the section on.
+          tinker && <p className={styles.note}>Das Raster hat keinen Header-Abschnitt (in der Schau unter „Raster“ einschaltbar).</p>
         )}
         {/* Without an altitude section the height reads 0; the first height written makes the kernel add the section. */}
         <InspectorRow label="Höhe" hint="0 bis 255">

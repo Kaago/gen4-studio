@@ -177,6 +177,9 @@ describe("SceneHost", () => {
     expect(disposed).toHaveBeenCalled();
     expect(h.controls.object).toBe(camera);
     expect(h.controls.enableRotate).toBe(false);
+    // The left button and one finger pan from above (rotating is off, so they would do nothing otherwise).
+    expect(h.controls.mouseButtons.LEFT).toBe(THREE.MOUSE.PAN);
+    expect(h.controls.touches.ONE).toBe(THREE.TOUCH.PAN);
     const rendered = renders.count;
     before.dispatchEvent({ type: "change" });
     expect(renders.count).toBe(rendered);
@@ -225,6 +228,9 @@ describe("SceneHost", () => {
     expect(h.controls.target.toArray()).toEqual([10, 0, 20]);
     expect(h.controls.object).toBe(slanted);
     expect(h.controls.enableRotate).toBe(true);
+    // The slanted view turns with the left button again (the controls' defaults).
+    expect(h.controls.mouseButtons.LEFT).toBe(THREE.MOUSE.ROTATE);
+    expect(h.controls.touches.ONE).toBe(THREE.TOUCH.ROTATE);
     // It has the panel's shape of now.
     expect(slanted.aspect).toBe(0.5);
   });

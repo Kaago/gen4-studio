@@ -372,6 +372,78 @@ describe("WorldMapPanel", () => {
   const altClick = (el: HTMLElement | null) => act(() => void el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true })));
   const doubleClick = (el: HTMLElement | null) => act(() => void el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
 
+  it("pans_the_selected_area_or_the_pinned_cell_into_the_middle_of_the_map", async () => {
+    // A 30 × 30 Sinnoh: Zweiblattdorf (1) at cells (3, 27) and (4, 27), Route 201 (2, 3) at (5, 27) and (20, 2); the rest landscape.
+    const wide: MatrixDto = { index: 0, name: "m0", width: 30, height: 30, maps: Array.from({ length: 900 }, (_, i) => 1000 + i), headers: new Array<number>(900).fill(0) };
+    const put = (x: number, y: number, h: number) => (wide.headers![y * 30 + x] = h);
+    put(3, 27, 1);
+    put(4, 27, 1);
+    put(5, 27, 2);
+    put(20, 2, 3);
+    const dtos = new Map<number, MatrixDto>([...sinnohDtos, [0, wide]]);
+    const summaries = [summary(0, 30, 30, true), summary(7, 2, 2, true), summary(20, 1, 1)];
+    const world = buildWorld({ family: "Pt", headers: sinnohHeaders, matrices: summaries, links: [], cells: dtos, meta });
+    serveMatrices(dtos);
+    // The viewport is 400 × 300 pixels; everything else keeps jsdom's empty box.
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-world-viewport") ? new DOMRect(0, 0, 400, 300) : real.call(this);
+    });
+    const transform = () => container.querySelector<HTMLElement>("[data-world-grid]")?.style.transform;
+    const ctx = (extra: Partial<WorldMapContext> = {}) => worldContext({ matrices: summaries, world, ...extra });
+    try {
+      await show(ctx({ selected: 1 }));
+      // Cells 3..4 of row 27 span x 102..168, y 918..950 at 34 px a cell: their middle (135, 934) goes to the viewport's (200, 150).
+      expect(transform()).toBe("translate(65px, -784px) scale(1)");
+      // A re-render with the same selection (an edit, new data) leaves the map where the user put it.
+      const viewport = container.querySelector<HTMLElement>("[data-world-viewport]");
+      act(() => void viewport?.dispatchEvent(new WheelEvent("wheel", { deltaY: -200, clientX: 200, clientY: 150, bubbles: true, cancelable: true })));
+      const zoomed = transform();
+      expect(zoomed).not.toBe("translate(65px, -784px) scale(1)");
+      await show(ctx({ selected: 1, revision: 1 }));
+      expect(transform()).toBe(zoomed);
+      // A pinned cell far away is centred at the same zoom: cell (25, 3) has its middle at (866, 118) unzoomed.
+      const scale = Number(/scale\(([\d.]+)\)/.exec(transform() ?? "")?.[1]);
+      await show(ctx({ selected: 1, pinnedCell: { matrix: 0, x: 25, y: 3 } }));
+      const [x, y, s2] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(transform() ?? "")!.slice(1).map(Number);
+      expect(s2).toBe(scale);
+      expect(x).toBeCloseTo(200 - 866 * scale);
+      expect(y).toBeCloseTo(150 - 118 * scale);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it("pans_a_far_area_into_view_on_a_new_selection_and_keeps_the_map_for_a_cell_in_view", async () => {
+    const wide: MatrixDto = { index: 0, name: "m0", width: 30, height: 30, maps: Array.from({ length: 900 }, (_, i) => 1000 + i), headers: new Array<number>(900).fill(0) };
+    wide.headers![27 * 30 + 3] = 1;
+    wide.headers![2 * 30 + 4] = 2;
+    wide.headers![2 * 30 + 8] = 3;
+    const dtos = new Map<number, MatrixDto>([...sinnohDtos, [0, wide]]);
+    const summaries = [summary(0, 30, 30, true), summary(7, 2, 2, true), summary(20, 1, 1)];
+    const world = buildWorld({ family: "Pt", headers: sinnohHeaders, matrices: summaries, links: [], cells: dtos, meta });
+    serveMatrices(dtos);
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-world-viewport") ? new DOMRect(0, 0, 400, 300) : real.call(this);
+    });
+    const transform = () => container.querySelector<HTMLElement>("[data-world-grid]")?.style.transform;
+    const ctx = (extra: Partial<WorldMapContext> = {}) => worldContext({ matrices: summaries, world, ...extra });
+    try {
+      // Zweiblattdorf at (3, 27): its middle (118, 934) goes to (200, 150).
+      await show(ctx({ selected: 1 }));
+      expect(transform()).toBe("translate(82px, -784px) scale(1)");
+      // Route 201 (sections at (4, 2) and (8, 2)): the rectangle x 136..304, y 68..100 has its middle (220, 84).
+      await show(ctx({ selected: 2 }));
+      expect(transform()).toBe("translate(-20px, 66px) scale(1)");
+      // A click on a cell in view pins it: the map does not move under the pointer.
+      await show(ctx({ selected: 2, pinnedCell: { matrix: 0, x: 6, y: 3 } }));
+      expect(transform()).toBe("translate(-20px, 66px) scale(1)");
+    } finally {
+      box.mockRestore();
+    }
+  });
+
   it("switches_between_world_maps_and_more_areas", async () => {
     serveMatrices();
     await show(worldContext({ selected: 1 }));
@@ -516,6 +588,20 @@ describe("WorldMapPanel", () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
     await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, source_map: 701, header_cell: 10 }));
+  });
+
+  it("gives_a_plus_beside_only_landscape_cells_of_the_room_plan_to_the_shown_room", async () => {
+    // Großmoor with an empty cell (1, 1) whose filled neighbours (1, 0) and (0, 1) both carry header 0: the new map still goes to Großmoor.
+    const moor: MatrixDto = { index: 7, name: "m7", width: 2, height: 2, maps: [700, 701, 702, null], headers: [10, 0, 0, 0] };
+    serveMatrices(new Map([...sinnohDtos, [7, moor]]));
+    await show(worldContext({ selected: 10 }));
+    act(() => container.querySelector<HTMLElement>('[data-extend="1,1"]')?.click());
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Die neue Karte gehört zu „Name 10“.");
+    vi.mocked(extendArea).mockReset();
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 2, height: 2 });
+    await act(async () => [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ matrix: 7, x: 1, y: 1, header_cell: 10 }));
   });
 
   it("lists_more_areas_as_tiles_that_select_their_area", async () => {

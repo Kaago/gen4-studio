@@ -1,5 +1,6 @@
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { placeColor } from "./places";
+import type { CellRect } from "./sceneScope";
 import type { Place } from "./places";
 
 /** Pixels between two cells of an `AreaGrid` (the grid's `gap`). */
@@ -135,6 +136,46 @@ export function lineBetween(card: DOMRect, cell: { x: number; y: number }, cellS
     x2: origin.x + (cell.x * pitch + cellSize / 2) * scale,
     y2: origin.y + (cell.y * pitch + cellSize / 2) * scale,
   };
+}
+
+/** The rectangle around the cells (index y * width + x) of a matrix `width` cells wide; null for none. */
+export function cellBounds(width: number, cells: readonly number[]): CellRect | null {
+  if (cells.length === 0) return null;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const i of cells) {
+    const x = i % width;
+    const y = Math.floor(i / width);
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x);
+    y1 = Math.max(y1, y);
+  }
+  return { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+}
+
+/**
+ * The pan (the grid's top-left corner in the viewport, in pixels) that centres the cells `rect` in a viewport of `size` at the zoom of
+ * `view`; null when they already lie entirely in view (a click on a shown cell never moves the map under the pointer). `origin` is the
+ * matrix cell drawn at the grid's top-left corner (the window of a half).
+ */
+export function centredPan(
+  rect: CellRect,
+  origin: { x: number; y: number },
+  cellSize: number,
+  size: { width: number; height: number },
+  view: { scale: number; x: number; y: number },
+): { x: number; y: number } | null {
+  const pitch = cellSize + GRID_GAP;
+  const left = (rect.x - origin.x) * pitch * view.scale;
+  const top = (rect.y - origin.y) * pitch * view.scale;
+  const right = left + (rect.width * pitch - GRID_GAP) * view.scale;
+  const bottom = top + (rect.height * pitch - GRID_GAP) * view.scale;
+  const shown = view.x + left >= 0 && view.y + top >= 0 && view.x + right <= size.width && view.y + bottom <= size.height;
+  if (shown) return null;
+  return { x: size.width / 2 - (left + right) / 2, y: size.height / 2 - (top + bottom) / 2 };
 }
 
 /** Lines and pages of a wheel event in pixels (`WheelEvent.deltaMode` 1 and 2), so line-mode wheels zoom like the others. */

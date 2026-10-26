@@ -18,9 +18,9 @@ import type { Place, PlaceHeader } from "./places";
 import { TERMS, id4, termFor } from "./terms";
 import { useMatrix } from "./useMatrix";
 import styles from "./WorldMapPanel.module.css";
-import { GRID_GAP, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
+import { GRID_GAP, cellBounds, centredPan, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 import type { PlaceCells, RoomLink } from "./worldMap";
-import { areaAtCell, cellKeysOfHeaders, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
+import { areaAtCell, cellKeysOfHeaders, cellsOfHeaders, firstNeighbour, halfWindow, planExtendTargets, planNeighbour, viewFor, worldExtendTargets, worldViews } from "./worldMapView";
 import type { WorldViewKey } from "./worldMapView";
 import type { Area, World } from "./worldModel";
 
@@ -162,13 +162,18 @@ interface MapViewProps {
   listLayout: unknown;
   rootBox: RefObject<HTMLDivElement | null>;
   list: RefObject<HTMLDivElement | null>;
+  /** The cells of the selection in matrix coordinates (the pinned cell, else the selected area's cells); null: nothing to bring into view. */
+  focus: CellRect | null;
+  /** Names the selection behind `focus`: when it changes (or the view is new), the map pans the focus into the middle unless it is in view. */
+  focusKey: string;
 }
 
 /**
  * The viewport with the region and the line overlay. It owns the pan and zoom state, so a wheel tick or a pointer move
- * renders only this component (a few labels and lines), not the grid's cells and not the place list.
+ * renders only this component (a few labels and lines), not the grid's cells and not the place list. A new view or selection pans its
+ * `focus` into the middle (the zoom stays) unless it already lies entirely in view.
  */
-const MapView = memo(function MapView({ grid, window: shownCells, hasRegion, message, labels, lineLinks, cardsShown, listLayout, rootBox, list }: MapViewProps) {
+const MapView = memo(function MapView({ grid, window: shownCells, hasRegion, message, labels, lineLinks, cardsShown, listLayout, rootBox, list, focus, focusKey }: MapViewProps) {
   const originX = shownCells?.x ?? 0;
   const originY = shownCells?.y ?? 0;
   const [view, setView] = useState<View>({ scale: 1, x: 12, y: 12 });
@@ -222,6 +227,21 @@ const MapView = memo(function MapView({ grid, window: shownCells, hasRegion, mes
     window.addEventListener("pointercancel", end);
     stopDrag.current = end;
   };
+  // A new view or selection pans (at the same zoom) its cells into the middle when they are not all in view; the selection key is used up
+  // only once its cells are known and the viewport has a size, so re-renders with the same selection (edits, new data) never move the map.
+  const centredFor = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!focus || !el || centredFor.current === focusKey) return;
+    const size = el.getBoundingClientRect();
+    if (size.width === 0 || size.height === 0) return;
+    centredFor.current = focusKey;
+    setView((v) => {
+      const pan = centredPan(focus, { x: originX, y: originY }, CELL_SIZE, size, v);
+      return pan ? { ...v, ...pan } : v;
+    });
+  });
+
   // The click that ends a drag must not open the cell under the pointer.
   const onClickCapture = (e: React.MouseEvent) => {
     if (!dragged.current) return;
@@ -397,6 +417,8 @@ interface ExtendTarget {
   y: number;
   prefer: { x: number; y: number } | null;
   areaName: string | null;
+  /** The header of that area or room: the dialog proposes it where the copied cell is landscape (header 0). */
+  areaHeader: number | null;
 }
 
 /**
@@ -489,6 +511,13 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     return areaCells;
   }, [region, pinnedCell, areaCells]);
   const extendable = useMemo(() => (region && selectedArea ? worldExtendTargets(region, [...areaIds]) : NO_CELLS), [region, selectedArea, areaIds]);
+  // What the map brings into view: the pinned cell of this matrix (when the view shows it), else the cells of the selected area.
+  const focus = useMemo((): CellRect | null => {
+    if (!region) return null;
+    if (pinnedCell?.matrix === region.index && inside(half?.rect ?? null, pinnedCell)) return { x: pinnedCell.x, y: pinnedCell.y, width: 1, height: 1 };
+    return cellBounds(region.width, cellsOfHeaders(region, areaIds));
+  }, [region, pinnedCell, half, areaIds]);
+  const focusKey = `${selected ?? ""}|${pinnedCell ? `${pinnedCell.matrix},${pinnedCell.x},${pinnedCell.y}` : ""}`;
 
   /**
    * Pins the map of a cell; its header is selected first when it is not the shown one. The landscape (header 0), an empty cell and a
@@ -529,7 +558,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     (x: number, y: number) => {
       if (!region) return;
       const prefer = firstNeighbour(region, x, y, (i) => areaCells.has(cellKey(i % region.width, Math.floor(i / region.width))));
-      setExtendAt({ matrix: region.index, x, y, prefer, areaName: selectedArea?.name ?? null });
+      // The copied cell lies in the selected area, so its own header is the area's.
+      setExtendAt({ matrix: region.index, x, y, prefer, areaName: selectedArea?.name ?? null, areaHeader: null });
     },
     [region, areaCells, selectedArea],
   );
@@ -540,7 +570,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       // The new map belongs to the room or area of the copied cell (the shown header without header section).
       const own = prefer && plan.headers ? plan.headers[prefer.y * plan.width + prefer.x] : undefined;
       const header = own === undefined || own === LANDSCAPE ? selectedHeader : headers.find((h) => h.id === own);
-      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null });
+      setExtendAt({ matrix: plan.index, x, y, prefer, areaName: header ? identify(header).name : null, areaHeader: header?.id ?? null });
     },
     [plan, selectedHeader, headers, identify],
   );
@@ -663,7 +693,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
       ) : (
         <div ref={rootBox} className={styles.body}>
           <MapView
-            // A new view starts at the origin: pan and zoom of another world map do not carry over.
+            // A new view starts afresh (at the selection, else the origin): pan and zoom of another world map do not carry over.
             key={view ?? "region"}
             grid={grid}
             window={half?.rect ?? null}
@@ -675,6 +705,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
             listLayout={listLayout}
             rootBox={rootBox}
             list={list}
+            focus={focus}
+            focusKey={focusKey}
           />
           <PlaceList places={places} depth={depth} links={links} selected={selected} openKeys={openKeys} onToggle={onToggle} onOpen={openRoom} list={list} />
         </div>
@@ -686,6 +718,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           y={extendAt.y}
           prefer={extendAt.prefer}
           areaName={extendAt.areaName}
+          areaHeader={extendAt.areaHeader}
           depth={depth}
           headers={headers}
           counts={counts}

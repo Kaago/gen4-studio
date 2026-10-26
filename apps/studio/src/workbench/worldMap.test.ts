@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { buildPlaces, placeColor } from "./places";
-import { lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
+import { cellBounds, centredPan, lineBetween, placeCells, regionMatrix, roomLinkIndex, roomLinks, wheelPixels } from "./worldMap";
 
 const summary = (index: number, width: number, height: number, has_headers: boolean, filled: number): MatrixSummary => ({
   index,
@@ -173,5 +173,31 @@ describe("roomLinkIndex", () => {
     expect(index.byFile.get(5)?.map((l) => l.index)).toEqual([0, 2]);
     expect(index.byWarp.get("7:1")).toEqual(w(7, 1));
     expect(index.byWarp.get("7:0")).toBeUndefined();
+  });
+});
+
+describe("cellBounds", () => {
+  it("frames_the_cells_of_a_matrix_and_nothing_for_none", () => {
+    // Width 10: cells (3, 2), (7, 1) and (5, 4).
+    expect(cellBounds(10, [23, 17, 45])).toEqual({ x: 3, y: 1, width: 5, height: 4 });
+    expect(cellBounds(10, [])).toBeNull();
+  });
+});
+
+describe("centredPan", () => {
+  const size = { width: 400, height: 300 };
+  it("centres_cells_out_of_view_at_the_same_zoom", () => {
+    // Cell (3, 27) at 32 px plus a 2 px gap spans x 102..134, y 918..950: its middle (118, 934) goes to (200, 150).
+    expect(centredPan({ x: 3, y: 27, width: 1, height: 1 }, { x: 0, y: 0 }, 32, size, { scale: 1, x: 12, y: 12 })).toEqual({ x: 82, y: -784 });
+    expect(centredPan({ x: 3, y: 27, width: 1, height: 1 }, { x: 0, y: 0 }, 32, size, { scale: 2, x: 12, y: 12 })).toEqual({ x: 200 - 236, y: 150 - 1868 });
+  });
+
+  it("counts_from_the_window_of_a_half", () => {
+    // The window starts at cell (20, 25): cell (23, 27) is drawn where (3, 2) would be without it.
+    expect(centredPan({ x: 23, y: 27, width: 1, height: 1 }, { x: 20, y: 25 }, 32, size, { scale: 1, x: 300, y: 300 })).toEqual({ x: 82, y: 66 });
+  });
+
+  it("leaves_cells_in_view_alone", () => {
+    expect(centredPan({ x: 1, y: 1, width: 2, height: 1 }, { x: 0, y: 0 }, 32, size, { scale: 1, x: 12, y: 12 })).toBeNull();
   });
 });
